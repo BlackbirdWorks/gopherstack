@@ -12,6 +12,11 @@ on:
           - patch
           - minor
           - major
+      use_ai_releaser:
+        description: 'Generate AI release notes via Copilot'
+        required: false
+        default: true
+        type: boolean
   push:
     tags:
       - 'v*'
@@ -68,16 +73,22 @@ jobs:
           cache: true
 
       - name: Build Releaser
+        if: (github.event.inputs.use_ai_releaser != 'false') && (secrets.RELEASER_COPILOT_TOKEN != '' || secrets.GITHUB_TOKEN != '')
         run: go build -o releaser ./pkgs/releaser/cmd/releaser
 
       - name: Install Copilot CLI
+        if: (github.event.inputs.use_ai_releaser != 'false') && (secrets.RELEASER_COPILOT_TOKEN != '' || secrets.GITHUB_TOKEN != '')
         run: npm install -g @github/copilot
 
       - name: Generate Release Notes
         id: release_notes
+        if: (github.event.inputs.use_ai_releaser != 'false') && (secrets.RELEASER_COPILOT_TOKEN != '' || secrets.GITHUB_TOKEN != '')
+        continue-on-error: true
         run: |
-          ./releaser --provider copilot --token ${{ secrets.GITHUB_TOKEN }} --model raptor-mini > release-notes.md
-          echo "NOTES_FILE=release-notes.md" >> $GITHUB_ENV
+          ./releaser --provider copilot --token ${{ secrets.RELEASER_COPILOT_TOKEN || secrets.GITHUB_TOKEN }} --model raptor-mini > release-notes.md
+          if [ -s release-notes.md ]; then
+            echo "HAS_NOTES=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -97,7 +108,7 @@ jobs:
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean --release-notes=release-notes.md
+          args: release --clean ${{ steps.release_notes.outputs.HAS_NOTES == 'true' && '--release-notes=release-notes.md' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
        
