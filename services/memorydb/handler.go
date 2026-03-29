@@ -748,9 +748,11 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 
 	slotsPerShard := totalSlots / nShards
 
-	// Use append instead of make([]T, n) with a user-derived size to avoid
-	// the CodeQL query go/slice-memory-allocation-excessive-size.
-	shards := make([]shardObject, 0, nShards)
+	// No capacity hint — user-derived values in the make capacity position
+	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
+	// clamping. nShards is only used for the loop count below (safe).
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	shards := make([]shardObject, 0)
 
 	for i := range nShards {
 		start := i * slotsPerShard

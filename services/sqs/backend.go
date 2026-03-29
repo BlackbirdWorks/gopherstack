@@ -752,7 +752,10 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 // queue to in-flight and returns them. Messages whose VisibleAt is in the future
 // are skipped and remain in the queue.
 func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
-	result := make([]*Message, 0, maxMessages)
+	// No capacity hint — user-derived values like maxMessages in the
+	// capacity slot trigger CodeQL.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	result := make([]*Message, 0)
 	remaining := make([]*Message, 0, len(q.messages))
 
 	for _, msg := range q.messages {

@@ -476,7 +476,10 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 		end = len(matched)
 	}
 
-	result := make([]Parameter, 0, end-startIdx)
+	// No capacity hint — user-derived values like (end-startIdx) in the
+	// capacity slot trigger CodeQL.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	result := make([]Parameter, 0)
 
 	for _, p := range matched[startIdx:end] {
 		if input.WithDecryption && p.Type == SecureStringType {

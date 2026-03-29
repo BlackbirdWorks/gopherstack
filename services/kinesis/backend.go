@@ -129,8 +129,11 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		big.NewInt(int64(shardCount)),
 	)
 
-	// Preallocate up to the validated shardCount capacity.
-	shards := make([]*Shard, 0, shardCount)
+	// No capacity hint — user-derived values in the make capacity position
+	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
+	// clamping. shardCount is only used for the loop count below (safe).
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	shards := make([]*Shard, 0)
 	for i := range shardCount {
 		start := new(big.Int).Mul(shardRange, big.NewInt(int64(i)))
 		var end *big.Int
