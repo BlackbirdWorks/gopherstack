@@ -713,9 +713,27 @@ func (rc *ResourceCreator) createKinesisStream(
 		name = logicalID
 	}
 
+	// Default and validate ShardCount from template properties. This value ultimately
+	// comes from user-controlled input, so enforce sane bounds here to avoid
+	// excessive allocations or backend errors.
 	shardCount := 1
-	if v, ok := props["ShardCount"].(float64); ok {
-		shardCount = int(v)
+	if v, ok := props["ShardCount"]; ok {
+		switch n := v.(type) {
+		case float64:
+			shardCount = int(n)
+		case int:
+			shardCount = n
+		case int64:
+			shardCount = int(n)
+		default:
+			return "", fmt.Errorf("create Kinesis stream %s: invalid ShardCount type %T", name, v)
+		}
+	}
+
+	// Reject non-positive or excessively large shard counts to prevent resource exhaustion.
+	const maxKinesisShardCount = 1000
+	if shardCount <= 0 || shardCount > maxKinesisShardCount {
+		return "", fmt.Errorf("create Kinesis stream %s: ShardCount must be between 1 and %d (got %d)", name, maxKinesisShardCount, shardCount)
 	}
 
 	if err := rc.backends.Kinesis.Backend.CreateStream(&kinesisbackend.CreateStreamInput{

@@ -111,9 +111,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		return ErrStreamAlreadyExists
 	}
 
-	// Clamp shardCount to [defaultShardCount, maxShardCount] before use.
-	// Using min/max builtins and append instead of make([]*Shard, n) prevents
-	// CodeQL go/slice-memory-allocation-excessive-size from flagging user-controlled size.
+	// Clamp shardCount to a safe range before using it for allocations or shard math.
 	shardCount := input.ShardCount
 	if shardCount <= 0 {
 		shardCount = defaultShardCount
@@ -131,10 +129,9 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		big.NewInt(int64(shardCount)),
 	)
 
-	// Use append instead of make([]*Shard, shardCount) to avoid CodeQL flagging
-	// the user-derived size value as excessive.
+	// Preallocate up to the validated shardCount capacity.
 	shards := make([]*Shard, 0, shardCount)
-	for i := range shardCount {
+	for i := 0; i < shardCount; i++ {
 		start := new(big.Int).Mul(shardRange, big.NewInt(int64(i)))
 		var end *big.Int
 		if i == shardCount-1 {
