@@ -70,6 +70,9 @@ jobs:
       - name: Build Releaser
         run: go build -o releaser ./pkgs/releaser/cmd/releaser
 
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
       - name: Generate Release Notes
         id: release_notes
         run: |
