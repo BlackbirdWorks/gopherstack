@@ -67,6 +67,15 @@ jobs:
           go-version: '1.26'
           cache: true
 
+      - name: Build Releaser
+        run: go build -o releaser ./pkgs/releaser/cmd/releaser
+
+      - name: Generate Release Notes
+        id: release_notes
+        run: |
+          ./releaser --provider copilot --token ${{ secrets.GITHUB_TOKEN }} --model raptor-mini > release-notes.md
+          echo "NOTES_FILE=release-notes.md" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -85,7 +94,7 @@ jobs:
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean
+          args: release --clean --release-notes=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
        
