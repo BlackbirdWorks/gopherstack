@@ -123,8 +123,10 @@ func generateWithCopilot(ctx context.Context, token, modelName, prompt string) (
 		if strings.HasPrefix(token, "github_pat_") {
 			return "", fmt.Errorf("%w: hint: your fine-grained PAT may be missing 'Copilot Requests' permission", err)
 		}
+
 		return "", err
 	}
+
 	return res, err
 }
 
@@ -150,10 +152,11 @@ func attemptCopilotGeneration(ctx context.Context, token, modelName, prompt stri
 	}
 
 	client := copilot.NewClient(opts)
-	if err := client.Start(ctx); err != nil {
-		return "", fmt.Errorf("failed to start copilot client: %w", err)
+	var startErr error
+	if startErr = client.Start(ctx); startErr != nil {
+		return "", fmt.Errorf("failed to start copilot client: %w", startErr)
 	}
-	defer client.Stop() //nolint:errcheck
+	defer client.Stop() //nolint:errcheck // CLI stop is best-effort on return
 
 	session, err := client.CreateSession(ctx, &copilot.SessionConfig{
 		Model:     modelName,
