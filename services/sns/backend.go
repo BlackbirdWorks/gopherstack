@@ -36,6 +36,8 @@ var (
 	ErrPhoneNumberNotFound              = errors.New("ResourceNotFound")
 	ErrSandboxPhoneAlreadyExists        = errors.New("AlreadyExists")
 	ErrPermissionLabelExists            = errors.New("AuthorizationError")
+	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
+	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
 )
 
 const (
@@ -67,6 +69,9 @@ const (
 	// maxFilterPolicySizeBytes is the maximum byte size of a FilterPolicy JSON string
 	// that will be parsed. Policies exceeding this limit are treated as no filter.
 	maxFilterPolicySizeBytes = 256 * 1024 // 256 KiB
+
+	// maxPermissionLabelLen is the maximum character length of an AddPermission label.
+	maxPermissionLabelLen = 80
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -108,18 +113,23 @@ type StorageBackend interface {
 	DeleteEndpoint(endpointArn string) error
 	// Permission operations.
 	AddPermission(topicArn, label string, accounts, actions []string) error
+	RemovePermission(topicArn, label string) error
 	// SMS Sandbox operations.
 	GetSMSSandboxAccountStatus() (bool, error)
 	CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error
 	DeleteSMSSandboxPhoneNumber(phoneNumber string) error
 	ListSMSSandboxPhoneNumbers(nextToken string) ([]SandboxPhoneNumber, string, error)
+	VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error
 	// SMS opt-out operations.
 	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
 	ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error)
+	OptInPhoneNumber(phoneNumber string) error
 	// SMS attribute operations.
 	GetSMSAttributes(names []string) (map[string]string, error)
+	SetSMSAttributes(attributes map[string]string) error
 	// Data protection policy operations.
 	GetDataProtectionPolicy(resourceArn string) (string, error)
+	PutDataProtectionPolicy(resourceArn, policy string) error
 	// Origination number operations.
 	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
 }
@@ -1222,9 +1232,34 @@ func isValidE164(phone string) bool {
 	return true
 }
 
+// isValidPermissionLabel returns true if the label is non-empty, not longer than
+// maxPermissionLabelLen, and contains only alphanumeric characters or hyphens.
+func isValidPermissionLabel(label string) bool {
+	if label == "" || len(label) > maxPermissionLabelLen {
+		return false
+	}
+
+	for _, c := range label {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' {
+			return false
+		}
+	}
+
+	return true
+}
+
 // AddPermission adds a permission statement to an SNS topic's access policy.
 // Duplicate labels are rejected with ErrPermissionLabelExists.
+// Labels must be non-empty, at most 80 characters, and consist only of alphanumeric
+// characters or hyphens; invalid labels are rejected with ErrInvalidParameter.
 func (b *InMemoryBackend) AddPermission(topicArn, label string, accounts, actions []string) error {
+	if !isValidPermissionLabel(label) {
+		return fmt.Errorf(
+			"%w: Label must be non-empty, max 80 chars, alphanumeric or hyphen",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
@@ -1246,6 +1281,29 @@ func (b *InMemoryBackend) AddPermission(topicArn, label string, accounts, action
 		AWSAccount: accounts,
 		Actions:    actions,
 	}
+
+	return nil
+}
+
+// RemovePermission removes a permission statement (identified by label) from an SNS topic.
+func (b *InMemoryBackend) RemovePermission(topicArn, label string) error {
+	b.mu.Lock("RemovePermission")
+	defer b.mu.Unlock()
+
+	topic, exists := b.topics[topicArn]
+	if !exists {
+		return ErrTopicNotFound
+	}
+
+	if topic.Permissions == nil {
+		return ErrPermissionLabelNotFound
+	}
+
+	if _, labelExists := topic.Permissions[label]; !labelExists {
+		return ErrPermissionLabelNotFound
+	}
+
+	delete(topic.Permissions, label)
 
 	return nil
 }
@@ -1279,7 +1337,12 @@ func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, _ string) err
 }
 
 // DeleteSMSSandboxPhoneNumber removes a phone number from the SMS sandbox.
+// The phone number must be in E.164 format.
 func (b *InMemoryBackend) DeleteSMSSandboxPhoneNumber(phoneNumber string) error {
+	if !isValidE164(phoneNumber) {
+		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("DeleteSMSSandboxPhoneNumber")
 	defer b.mu.Unlock()
 
@@ -1288,6 +1351,26 @@ func (b *InMemoryBackend) DeleteSMSSandboxPhoneNumber(phoneNumber string) error 
 	}
 
 	delete(b.smsSandbox, phoneNumber)
+
+	return nil
+}
+
+// VerifySMSSandboxPhoneNumber marks a sandbox phone number as Verified.
+// In the mock backend, any non-empty one-time password is accepted.
+func (b *InMemoryBackend) VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error {
+	if oneTimePassword == "" {
+		return fmt.Errorf("%w: OneTimePassword is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("VerifySMSSandboxPhoneNumber")
+	defer b.mu.Unlock()
+
+	entry, exists := b.smsSandbox[phoneNumber]
+	if !exists {
+		return ErrPhoneNumberNotFound
+	}
+
+	entry.Status = "Verified"
 
 	return nil
 }
@@ -1357,8 +1440,8 @@ func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string) ([]string, 
 // Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedOptedOutNumbers() []string {
 	nums := make([]string, 0, len(b.optedOutPhoneNumbers))
-	for phone := range b.optedOutPhoneNumbers {
-		if b.optedOutPhoneNumbers[phone] {
+	for phone, optedOut := range b.optedOutPhoneNumbers {
+		if optedOut {
 			nums = append(nums, phone)
 		}
 	}
@@ -1366,6 +1449,21 @@ func (b *InMemoryBackend) sortedOptedOutNumbers() []string {
 	sort.Strings(nums)
 
 	return nums
+}
+
+// OptInPhoneNumber removes a phone number from the opt-out list so it can receive SMS messages.
+// The phone number must be in E.164 format.
+func (b *InMemoryBackend) OptInPhoneNumber(phoneNumber string) error {
+	if !isValidE164(phoneNumber) {
+		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("OptInPhoneNumber")
+	defer b.mu.Unlock()
+
+	delete(b.optedOutPhoneNumbers, phoneNumber)
+
+	return nil
 }
 
 // GetSMSAttributes returns the current SMS account attributes, optionally filtered by name.
@@ -1389,6 +1487,17 @@ func (b *InMemoryBackend) GetSMSAttributes(names []string) (map[string]string, e
 	return result, nil
 }
 
+// SetSMSAttributes stores global SMS account attributes.
+// Existing attribute keys are updated; unspecified keys are left unchanged.
+func (b *InMemoryBackend) SetSMSAttributes(attributes map[string]string) error {
+	b.mu.Lock("SetSMSAttributes")
+	defer b.mu.Unlock()
+
+	maps.Copy(b.smsAttributes, attributes)
+
+	return nil
+}
+
 // GetDataProtectionPolicy returns the data protection policy JSON for the given topic ARN.
 // The policy is stored as the "DataProtectionPolicy" attribute on the topic.
 func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, error) {
@@ -1401,6 +1510,21 @@ func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, e
 	}
 
 	return topic.Attributes["DataProtectionPolicy"], nil
+}
+
+// PutDataProtectionPolicy stores a data protection policy JSON string on the given topic ARN.
+func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) error {
+	b.mu.Lock("PutDataProtectionPolicy")
+	defer b.mu.Unlock()
+
+	topic, exists := b.topics[resourceArn]
+	if !exists {
+		return ErrTopicNotFound
+	}
+
+	topic.Attributes["DataProtectionPolicy"] = policy
+
+	return nil
 }
 
 // ListOriginationNumbers returns a paginated list of origination phone numbers.

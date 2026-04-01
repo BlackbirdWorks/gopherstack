@@ -87,16 +87,21 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListSubscriptionsByTopic",
 		"ListTagsForResource",
 		"ListTopics",
+		"OptInPhoneNumber",
 		"Publish",
 		"PublishBatch",
+		"PutDataProtectionPolicy",
+		"RemovePermission",
 		"SetEndpointAttributes",
 		"SetPlatformApplicationAttributes",
+		"SetSMSAttributes",
 		"SetSubscriptionAttributes",
 		"SetTopicAttributes",
 		"Subscribe",
 		"TagResource",
 		"Unsubscribe",
 		"UntagResource",
+		"VerifySMSSandboxPhoneNumber",
 	}
 }
 
@@ -258,16 +263,21 @@ func (h *Handler) buildActions() map[string]snsActionFn {
 		"ListSubscriptionsByTopic":           h.handleListSubscriptionsByTopic,
 		"ListTagsForResource":                h.handleListTagsForResource,
 		"ListTopics":                         h.handleListTopics,
+		"OptInPhoneNumber":                   h.handleOptInPhoneNumber,
 		"Publish":                            h.handlePublish,
 		"PublishBatch":                       h.handlePublishBatch,
+		"PutDataProtectionPolicy":            h.handlePutDataProtectionPolicy,
+		"RemovePermission":                   h.handleRemovePermission,
 		"SetEndpointAttributes":              h.handleSetEndpointAttributes,
 		"SetPlatformApplicationAttributes":   h.handleSetPlatformApplicationAttributes,
+		"SetSMSAttributes":                   h.handleSetSMSAttributes,
 		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
 		"SetTopicAttributes":                 h.handleSetTopicAttributes,
 		"Subscribe":                          h.handleSubscribe,
 		"TagResource":                        h.handleTagResource,
 		"Unsubscribe":                        h.handleUnsubscribe,
 		"UntagResource":                      h.handleUntagResource,
+		"VerifySMSSandboxPhoneNumber":        h.handleVerifySMSSandboxPhoneNumber,
 	}
 }
 
@@ -1047,6 +1057,98 @@ func (h *Handler) handleListSMSSandboxPhoneNumbers(c *echo.Context) error {
 	})
 }
 
+func (h *Handler) handleVerifySMSSandboxPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("PhoneNumber")
+	otp := c.Request().FormValue("OneTimePassword")
+
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PhoneNumber is required")
+	}
+
+	if err := h.Backend.VerifySMSSandboxPhoneNumber(phoneNumber, otp); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, VerifySMSSandboxPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleOptInPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("phoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "phoneNumber is required")
+	}
+
+	if err := h.Backend.OptInPhoneNumber(phoneNumber); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, OptInPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleRemovePermission(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	label := c.Request().FormValue("Label")
+
+	if topicArn == "" || label == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Label are required")
+	}
+
+	if err := h.Backend.RemovePermission(topicArn, label); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, RemovePermissionResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+// parseSetSMSAttributesForm reads Attributes.entry.N.key/value pairs for SetSMSAttributes.
+func parseSetSMSAttributesForm(c *echo.Context) map[string]string {
+	attrs := make(map[string]string)
+
+	for i := 1; ; i++ {
+		key := c.Request().FormValue(fmt.Sprintf("attributes.entry.%d.key", i))
+		if key == "" {
+			return attrs
+		}
+
+		attrs[key] = c.Request().FormValue(fmt.Sprintf("attributes.entry.%d.value", i))
+	}
+}
+
+func (h *Handler) handleSetSMSAttributes(c *echo.Context) error {
+	attrs := parseSetSMSAttributesForm(c)
+
+	if err := h.Backend.SetSMSAttributes(attrs); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SetSMSAttributesResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handlePutDataProtectionPolicy(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	policy := c.Request().FormValue("DataProtectionPolicy")
+
+	if resourceArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "ResourceArn is required")
+	}
+
+	if err := h.Backend.PutDataProtectionPolicy(resourceArn, policy); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, PutDataProtectionPolicyResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
 	httputils.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
@@ -1084,8 +1186,8 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		log.WarnContext(ctx, "SNS resource already exists", "error", err)
 	case errors.Is(err, ErrInvalidParameter):
 		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
-	case errors.Is(err, ErrPermissionLabelExists):
-		log.WarnContext(ctx, "SNS permission label already exists", "error", err)
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+		log.WarnContext(ctx, "SNS permission label error", "error", err)
 	default:
 		status = http.StatusInternalServerError
 		log.ErrorContext(ctx, "SNS internal error", "error", err)
@@ -1107,9 +1209,9 @@ func errorCode(err error) string {
 		return "PlatformApplicationAlreadyExists"
 	case errors.Is(err, ErrSandboxPhoneAlreadyExists):
 		return "AlreadyExists"
-	case errors.Is(err, ErrInvalidParameter):
+	case errors.Is(err, ErrInvalidParameter), errors.Is(err, ErrSandboxPhoneNotVerified):
 		return "InvalidParameter"
-	case errors.Is(err, ErrPermissionLabelExists):
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
 		return "AuthorizationError"
 	default:
 		return "InternalError"

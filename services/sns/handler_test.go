@@ -26,6 +26,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
+// testDataProtectionPolicy is a well-formed data protection policy JSON used across
+// GetDataProtectionPolicy and PutDataProtectionPolicy tests.
+const testDataProtectionPolicy = `{"Version":"2021-06-01","Statement":[]}`
+
 // snsPost is a helper that sends a form-encoded SNS request to the handler.
 func snsPost(t *testing.T, h *sns.Handler, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
@@ -3594,7 +3598,9 @@ func TestSNS_TopicPermissions(t *testing.T) {
 			name: "add_permission_duplicate_label",
 			setup: func(b *sns.InMemoryBackend) string {
 				tp, _ := b.CreateTopic("perm-topic-dup", nil)
-				b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+
+				err := b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+				require.NoError(t, err)
 
 				return tp.TopicArn
 			},
@@ -3610,6 +3616,42 @@ func TestSNS_TopicPermissions(t *testing.T) {
 			accounts: []string{"123"},
 			actions:  []string{"Publish"},
 			wantErr:  sns.ErrTopicNotFound,
+		},
+		{
+			name: "add_permission_empty_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("t", nil)
+
+				return tp.TopicArn
+			},
+			label:    "",
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrInvalidParameter,
+		},
+		{
+			name: "add_permission_label_too_long",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("t2", nil)
+
+				return tp.TopicArn
+			},
+			label:    strings.Repeat("a", 81),
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrInvalidParameter,
+		},
+		{
+			name: "add_permission_label_invalid_chars",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("t3", nil)
+
+				return tp.TopicArn
+			},
+			label:    "invalid label!",
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrInvalidParameter,
 		},
 	}
 
@@ -3717,12 +3759,12 @@ func TestSNS_GetDataProtectionPolicy(t *testing.T) {
 			name: "with_policy",
 			setup: func(b *sns.InMemoryBackend) string {
 				tp, _ := b.CreateTopic("policy-topic2", nil)
-				b.SetTopicAttributes(tp.TopicArn, "DataProtectionPolicy", `{"Version":"2021-06-01"}`)
+				require.NoError(t, b.SetTopicAttributes(tp.TopicArn, "DataProtectionPolicy", testDataProtectionPolicy))
 
 				return tp.TopicArn
 			},
 			wantStatus: http.StatusOK,
-			wantPolicy: "GetDataProtectionPolicyResponse",
+			wantPolicy: testDataProtectionPolicy,
 		},
 		{
 			name: "topic_not_found",
@@ -3751,21 +3793,537 @@ func TestSNS_GetDataProtectionPolicy(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantPolicy != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantPolicy)
+				// Decode the XML response and check the DataProtectionPolicy field directly.
+				var resp sns.GetDataProtectionPolicyResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantPolicy, resp.GetDataProtectionPolicyResult.DataProtectionPolicy)
 			}
 		})
 	}
 }
 
+// TestSNS_PutDataProtectionPolicy validates the PutDataProtectionPolicy operation end-to-end.
+func TestSNS_PutDataProtectionPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		topicName  string
+		policy     string
+		wantStatus int
+	}{
+		{
+			name:       "set_and_get",
+			topicName:  "pp-topic",
+			policy:     testDataProtectionPolicy,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_resource_arn",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+
+			var topicArn string
+
+			if tt.topicName != "" {
+				tp, err := b.CreateTopic(tt.topicName, nil)
+				require.NoError(t, err)
+				topicArn = tp.TopicArn
+			}
+
+			rec := snsPost(t, h, url.Values{
+				"Action":               {"PutDataProtectionPolicy"},
+				"Version":              {"2010-03-31"},
+				"ResourceArn":          {topicArn},
+				"DataProtectionPolicy": {tt.policy},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				got, err := b.GetDataProtectionPolicy(topicArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.policy, got)
+			}
+		})
+	}
+}
+
+// TestSNS_RemovePermission validates the RemovePermission operation.
+func TestSNS_RemovePermission(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *sns.InMemoryBackend) string
+		name    string
+		label   string
+	}{
+		{
+			name: "remove_existing_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("rm-perm-topic", nil)
+
+				err := b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+				require.NoError(t, err)
+
+				return tp.TopicArn
+			},
+			label: "my-label",
+		},
+		{
+			name: "remove_missing_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("rm-perm-topic2", nil)
+
+				return tp.TopicArn
+			},
+			label:   "nonexistent",
+			wantErr: sns.ErrPermissionLabelNotFound,
+		},
+		{
+			name:    "remove_topic_not_found",
+			setup:   func(_ *sns.InMemoryBackend) string { return "arn:aws:sns:us-east-1:000000000000:missing" },
+			label:   "x",
+			wantErr: sns.ErrTopicNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := tt.setup(b)
+
+			err := b.RemovePermission(topicArn, tt.label)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestSNS_RemovePermissionHandler validates the RemovePermission HTTP handler.
+func TestSNS_RemovePermissionHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":   {"RemovePermission"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+				"Label":    {"my-label"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "RemovePermissionResponse",
+		},
+		{
+			name: "missing_label",
+			form: url.Values{
+				"Action":   {"RemovePermission"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_topic_arn",
+			form: url.Values{
+				"Action":  {"RemovePermission"},
+				"Version": {"2010-03-31"},
+				"Label":   {"my-label"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			tp, err := b.CreateTopic("perm-test", nil)
+			require.NoError(t, err)
+
+			err = b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+			require.NoError(t, err)
+
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_VerifySMSSandboxPhoneNumber validates VerifySMSSandboxPhoneNumber.
+func TestSNS_VerifySMSSandboxPhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *sns.InMemoryBackend)
+		name    string
+		phone   string
+		otp     string
+	}{
+		{
+			name: "verify_success",
+			setup: func(b *sns.InMemoryBackend) {
+				require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125551234", ""))
+			},
+			phone: "+12125551234",
+			otp:   "123456",
+		},
+		{
+			name:    "missing_otp",
+			phone:   "+12125551234",
+			otp:     "",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name:    "phone_not_found",
+			phone:   "+12125559999",
+			otp:     "123456",
+			wantErr: sns.ErrPhoneNumberNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.VerifySMSSandboxPhoneNumber(tt.phone, tt.otp)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestSNS_VerifySMSSandboxPhoneNumberHandler validates the VerifySMSSandboxPhoneNumber HTTP handler.
+func TestSNS_VerifySMSSandboxPhoneNumberHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":          {"VerifySMSSandboxPhoneNumber"},
+				"Version":         {"2010-03-31"},
+				"PhoneNumber":     {"+12125551234"},
+				"OneTimePassword": {"123456"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "VerifySMSSandboxPhoneNumberResponse",
+		},
+		{
+			name: "missing_phone",
+			form: url.Values{
+				"Action":          {"VerifySMSSandboxPhoneNumber"},
+				"Version":         {"2010-03-31"},
+				"OneTimePassword": {"123456"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125551234", ""))
+
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_OptInPhoneNumber validates OptInPhoneNumber operation.
+func TestSNS_OptInPhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		phone   string
+	}{
+		{
+			name:  "opt_in_valid",
+			phone: "+12125550001",
+		},
+		{
+			name:    "invalid_e164",
+			phone:   "12125550001",
+			wantErr: sns.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+
+			err := b.OptInPhoneNumber(tt.phone)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+
+			// Verify the phone is no longer opted out.
+			optedOut, err := b.CheckIfPhoneNumberIsOptedOut(tt.phone)
+			require.NoError(t, err)
+			assert.False(t, optedOut)
+		})
+	}
+}
+
+// TestSNS_OptInPhoneNumberHandler validates the OptInPhoneNumber HTTP handler.
+func TestSNS_OptInPhoneNumberHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":      {"OptInPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"phoneNumber": {"+12125550001"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "OptInPhoneNumberResponse",
+		},
+		{
+			name: "missing_phone",
+			form: url.Values{
+				"Action":  {"OptInPhoneNumber"},
+				"Version": {"2010-03-31"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_e164",
+			form: url.Values{
+				"Action":      {"OptInPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"phoneNumber": {"12125550001"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_SetSMSAttributes validates SetSMSAttributes operation and its interaction with GetSMSAttributes.
+func TestSNS_SetSMSAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attributes map[string]string
+		wantAttrs  map[string]string
+		name       string
+	}{
+		{
+			name:       "set_and_get_all",
+			attributes: map[string]string{"DefaultSMSType": "Transactional", "MonthlySpendLimit": "50"},
+			wantAttrs:  map[string]string{"DefaultSMSType": "Transactional", "MonthlySpendLimit": "50"},
+		},
+		{
+			name:       "empty_attributes",
+			attributes: map[string]string{},
+			wantAttrs:  map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+
+			err := b.SetSMSAttributes(tt.attributes)
+			require.NoError(t, err)
+
+			got, err := b.GetSMSAttributes(nil)
+			require.NoError(t, err)
+
+			for k, v := range tt.wantAttrs {
+				assert.Equal(t, v, got[k])
+			}
+		})
+	}
+}
+
+// TestSNS_SetSMSAttributesHandler validates the SetSMSAttributes HTTP handler.
+func TestSNS_SetSMSAttributesHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":                   {"SetSMSAttributes"},
+				"Version":                  {"2010-03-31"},
+				"attributes.entry.1.key":   {"DefaultSMSType"},
+				"attributes.entry.1.value": {"Transactional"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "SetSMSAttributesResponse",
+		},
+		{
+			name: "empty_attributes",
+			form: url.Values{
+				"Action":  {"SetSMSAttributes"},
+				"Version": {"2010-03-31"},
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_DeleteSMSSandboxPhoneNumberE164Validation validates that DeleteSMSSandboxPhoneNumber
+// rejects numbers that are not in E.164 format.
+func TestSNS_DeleteSMSSandboxPhoneNumberE164Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		phone   string
+	}{
+		{
+			name:    "invalid_e164_no_plus",
+			phone:   "12125551234",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name:    "invalid_e164_letters",
+			phone:   "+1212555ABCD",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name:    "not_found_but_valid_e164",
+			phone:   "+12125559999",
+			wantErr: sns.ErrPhoneNumberNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+
+			err := b.DeleteSMSSandboxPhoneNumber(tt.phone)
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
 // TestSNS_PersistenceWithNewFields validates that Snapshot/Restore correctly round-trips
-// SMS sandbox and opted-out phone numbers.
+// SMS sandbox state, opted-out phone numbers, SMS attributes, and topic permissions.
 func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	t.Parallel()
 
 	b := sns.NewInMemoryBackend()
 
+	// SMS sandbox numbers.
 	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550001", ""))
 	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550002", ""))
+
+	// SMS attributes.
+	require.NoError(t, b.SetSMSAttributes(map[string]string{
+		"DefaultSMSType":    "Transactional",
+		"MonthlySpendLimit": "100",
+	}))
+
+	// Topic with permission.
+	tp, err := b.CreateTopic("persist-test", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.AddPermission(tp.TopicArn, "allow-all", []string{"*"}, []string{"Publish"}))
 
 	snap := b.Snapshot()
 	require.NotEmpty(t, snap)
@@ -3773,7 +4331,19 @@ func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	b2 := sns.NewInMemoryBackend()
 	require.NoError(t, b2.Restore(snap))
 
+	// Verify SMS sandbox numbers are preserved.
 	nums, _, err := b2.ListSMSSandboxPhoneNumbers("")
 	require.NoError(t, err)
 	assert.Len(t, nums, 2)
+
+	// Verify SMS attributes are preserved.
+	attrs, err := b2.GetSMSAttributes(nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Transactional", attrs["DefaultSMSType"])
+	assert.Equal(t, "100", attrs["MonthlySpendLimit"])
+
+	// Verify permissions survive the round-trip via GetTopicAttributes.
+	topicAttrs, err := b2.GetTopicAttributes(tp.TopicArn)
+	require.NoError(t, err)
+	assert.NotEmpty(t, topicAttrs)
 }

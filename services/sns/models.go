@@ -499,3 +499,33 @@ type ListSMSSandboxPhoneNumbersResponse struct {
 	ResponseMetadata                 ResponseMetadata                 `xml:"ResponseMetadata"`
 	ListSMSSandboxPhoneNumbersResult ListSMSSandboxPhoneNumbersResult `xml:"ListSMSSandboxPhoneNumbersResult"`
 }
+
+// RemovePermissionResponse is the XML response for RemovePermission.
+type RemovePermissionResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ RemovePermissionResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// OptInPhoneNumberResponse is the XML response for OptInPhoneNumber.
+type OptInPhoneNumberResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ OptInPhoneNumberResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// VerifySMSSandboxPhoneNumberResponse is the XML response for VerifySMSSandboxPhoneNumber.
+type VerifySMSSandboxPhoneNumberResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ VerifySMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SetSMSAttributesResponse is the XML response for SetSMSAttributes.
+type SetSMSAttributesResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetSMSAttributesResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// PutDataProtectionPolicyResponse is the XML response for PutDataProtectionPolicy.
+type PutDataProtectionPolicyResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ PutDataProtectionPolicyResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}

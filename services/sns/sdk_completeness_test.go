@@ -17,11 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := sns.NewInMemoryBackend()
 	h := sns.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &snssdk.Client{}, h.GetSupportedOperations(), []string{
-		"OptInPhoneNumber",
-		"PutDataProtectionPolicy",
-		"RemovePermission",
-		"SetSMSAttributes",
-		"VerifySMSSandboxPhoneNumber",
-	})
+	sdkcheck.CheckCompleteness(t, &snssdk.Client{}, h.GetSupportedOperations(), []string{})
 }
