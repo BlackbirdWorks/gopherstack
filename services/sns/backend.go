@@ -72,7 +72,38 @@ const (
 
 	// maxPermissionLabelLen is the maximum character length of an AddPermission label.
 	maxPermissionLabelLen = 80
+
+	// defaultPolicyJSON is the default SNS topic access policy (empty statements).
+	defaultPolicyJSON = `{"Version":"2012-10-17","Statement":[]}`
+
+	// maxListSMSSandboxResults is the maximum MaxResults value for ListSMSSandboxPhoneNumbers.
+	maxListSMSSandboxResults = 100
+
+	// defaultListSMSSandboxResults is the default page size for ListSMSSandboxPhoneNumbers.
+	defaultListSMSSandboxResults = 100
+
+	// maxListOptedOutResults is the maximum MaxResults value for ListPhoneNumbersOptedOut.
+	maxListOptedOutResults = 100
+
+	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
+	defaultListOptedOutResults = 100
 )
+
+// isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
+// Source: https://docs.aws.amazon.com/sns/latest/api/API_SetSMSAttributes.html
+func isValidSMSAttributeName(name string) bool {
+	switch name {
+	case "MonthlySpendLimit",
+		"DeliveryStatusIAMRole",
+		"DeliveryStatusSuccessSamplingRate",
+		"DefaultSenderID",
+		"DefaultSMSType",
+		"UsageReportS3Bucket":
+		return true
+	default:
+		return false
+	}
+}
 
 // StorageBackend defines the interface for an SNS storage backend.
 type StorageBackend interface {
@@ -118,11 +149,11 @@ type StorageBackend interface {
 	GetSMSSandboxAccountStatus() (bool, error)
 	CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error
 	DeleteSMSSandboxPhoneNumber(phoneNumber string) error
-	ListSMSSandboxPhoneNumbers(nextToken string) ([]SandboxPhoneNumber, string, error)
+	ListSMSSandboxPhoneNumbers(nextToken string, maxResults int) ([]SandboxPhoneNumber, string, error)
 	VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error
 	// SMS opt-out operations.
 	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
-	ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error)
+	ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error)
 	OptInPhoneNumber(phoneNumber string) error
 	// SMS attribute operations.
 	GetSMSAttributes(names []string) (map[string]string, error)
@@ -237,7 +268,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	// Ensure Policy is a valid JSON string with an empty Statement array so
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
-		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
+		attrs["Policy"] = defaultPolicyJSON
 	}
 
 	topic := &Topic{
@@ -310,7 +341,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	// Ensure Policy is always a valid JSON string with an empty Statement array so
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
-		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
+		attrs["Policy"] = defaultPolicyJSON
 	}
 
 	return attrs, nil
@@ -866,6 +897,20 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 	return items[offset:end], nextToken
 }
 
+// resolvePageSize returns the effective page size given a caller-requested size, a default,
+// and a maximum. If requested is 0, defaultSize is used. If requested exceeds maxSize it is clamped.
+func resolvePageSize(requested, defaultSize, maxSize int) int {
+	if requested <= 0 {
+		return defaultSize
+	}
+
+	if requested > maxSize {
+		return maxSize
+	}
+
+	return requested
+}
+
 // GetTopicTags returns tags for the given topic ARN.
 func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
 	b.mu.RLock("GetTopicTags")
@@ -1314,9 +1359,9 @@ func (b *InMemoryBackend) GetSMSSandboxAccountStatus() (bool, error) {
 }
 
 // CreateSMSSandboxPhoneNumber adds a phone number to the SMS sandbox.
-// The phone number must be in E.164 format. The mock backend marks numbers as
-// Verified immediately (simulating instantaneous verification).
-func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, _ string) error {
+// The phone number must be in E.164 format. Numbers start with status "Pending"
+// and must be verified via VerifySMSSandboxPhoneNumber before they can receive SMS.
+func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error {
 	if !isValidE164(phoneNumber) {
 		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
 	}
@@ -1329,8 +1374,10 @@ func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, _ string) err
 	}
 
 	b.smsSandbox[phoneNumber] = &SandboxPhoneNumber{
-		PhoneNumber: phoneNumber,
-		Status:      "Verified",
+		PhoneNumber:       phoneNumber,
+		LanguageCode:      languageCode,
+		Status:            "Pending",
+		CreationTimestamp: time.Now().UTC(),
 	}
 
 	return nil
@@ -1375,8 +1422,13 @@ func (b *InMemoryBackend) VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePasswo
 	return nil
 }
 
-// ListSMSSandboxPhoneNumbers returns a paginated list of SMS sandbox phone numbers.
-func (b *InMemoryBackend) ListSMSSandboxPhoneNumbers(nextToken string) ([]SandboxPhoneNumber, string, error) {
+// ListSMSSandboxPhoneNumbers returns a paginated list of SMS sandbox phone numbers,
+// a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
+func (b *InMemoryBackend) ListSMSSandboxPhoneNumbers(
+	nextToken string,
+	maxResults int,
+) ([]SandboxPhoneNumber, string, error) {
 	b.mu.RLock("ListSMSSandboxPhoneNumbers")
 	defer b.mu.RUnlock()
 
@@ -1387,7 +1439,8 @@ func (b *InMemoryBackend) ListSMSSandboxPhoneNumbers(nextToken string) ([]Sandbo
 		return nil, "", ErrInvalidParameter
 	}
 
-	nums, next := paginate(all, offset, pageSize)
+	size := resolvePageSize(maxResults, defaultListSMSSandboxResults, maxListSMSSandboxResults)
+	nums, next := paginate(all, offset, size)
 
 	return nums, next, nil
 }
@@ -1419,8 +1472,10 @@ func (b *InMemoryBackend) CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool
 	return b.optedOutPhoneNumbers[phoneNumber], nil
 }
 
-// ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS.
-func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error) {
+// ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS,
+// a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
+func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error) {
 	b.mu.RLock("ListPhoneNumbersOptedOut")
 	defer b.mu.RUnlock()
 
@@ -1431,7 +1486,8 @@ func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string) ([]string, 
 		return nil, "", ErrInvalidParameter
 	}
 
-	nums, next := paginate(all, offset, pageSize)
+	size := resolvePageSize(maxResults, defaultListOptedOutResults, maxListOptedOutResults)
+	nums, next := paginate(all, offset, size)
 
 	return nums, next, nil
 }
@@ -1489,7 +1545,14 @@ func (b *InMemoryBackend) GetSMSAttributes(names []string) (map[string]string, e
 
 // SetSMSAttributes stores global SMS account attributes.
 // Existing attribute keys are updated; unspecified keys are left unchanged.
+// Only known AWS attribute names are accepted; unknown names are rejected with ErrInvalidParameter.
 func (b *InMemoryBackend) SetSMSAttributes(attributes map[string]string) error {
+	for k := range attributes {
+		if !isValidSMSAttributeName(k) {
+			return fmt.Errorf("%w: unknown SMS attribute name %q", ErrInvalidParameter, k)
+		}
+	}
+
 	b.mu.Lock("SetSMSAttributes")
 	defer b.mu.Unlock()
 
@@ -1513,7 +1576,12 @@ func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, e
 }
 
 // PutDataProtectionPolicy stores a data protection policy JSON string on the given topic ARN.
+// The policy must be valid JSON; invalid JSON is rejected with ErrInvalidParameter.
 func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) error {
+	if policy != "" && !json.Valid([]byte(policy)) {
+		return fmt.Errorf("%w: DataProtectionPolicy must be valid JSON", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("PutDataProtectionPolicy")
 	defer b.mu.Unlock()
 
@@ -1579,6 +1647,12 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 	for arn, ep := range b.platformEndpoints {
 		if ep.CreationTimestamp.Before(cutoff) {
 			delete(b.platformEndpoints, arn)
+		}
+	}
+
+	for phone, entry := range b.smsSandbox {
+		if entry.CreationTimestamp.Before(cutoff) {
+			delete(b.smsSandbox, phone)
 		}
 	}
 }

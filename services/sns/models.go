@@ -14,8 +14,10 @@ type TopicPermission struct {
 
 // SandboxPhoneNumber represents a phone number registered in the SMS sandbox.
 type SandboxPhoneNumber struct {
-	PhoneNumber string `json:"phoneNumber"`
-	Status      string `json:"status"` // "Pending" or "Verified"
+	CreationTimestamp time.Time `json:"creationTimestamp"`
+	PhoneNumber       string    `json:"phoneNumber"`
+	LanguageCode      string    `json:"languageCode,omitempty"`
+	Status            string    `json:"status"` // "Pending" or "Verified"
 }
 
 // Topic represents an SNS topic.
@@ -483,8 +485,9 @@ type ListPhoneNumbersOptedOutResponse struct {
 
 // XMLSandboxPhoneNumber is the XML representation of a sandbox phone number entry.
 type XMLSandboxPhoneNumber struct {
-	PhoneNumber string `xml:"PhoneNumber"`
-	Status      string `xml:"Status"`
+	PhoneNumber  string `xml:"PhoneNumber"`
+	LanguageCode string `xml:"LanguageCode,omitempty"`
+	Status       string `xml:"Status"`
 }
 
 // ListSMSSandboxPhoneNumbersResult holds the result of ListSMSSandboxPhoneNumbers.

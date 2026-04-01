@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1020,8 +1021,9 @@ func (h *Handler) handleListOriginationNumbers(c *echo.Context) error {
 
 func (h *Handler) handleListPhoneNumbersOptedOut(c *echo.Context) error {
 	nextToken := c.Request().FormValue("nextToken")
+	maxResults := parseIntParam(c, "maxResults", 0)
 
-	nums, token, err := h.Backend.ListPhoneNumbersOptedOut(nextToken)
+	nums, token, err := h.Backend.ListPhoneNumbersOptedOut(nextToken, maxResults)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -1037,15 +1039,20 @@ func (h *Handler) handleListPhoneNumbersOptedOut(c *echo.Context) error {
 
 func (h *Handler) handleListSMSSandboxPhoneNumbers(c *echo.Context) error {
 	nextToken := c.Request().FormValue("NextToken")
+	maxResults := parseIntParam(c, "MaxResults", 0)
 
-	nums, token, err := h.Backend.ListSMSSandboxPhoneNumbers(nextToken)
+	nums, token, err := h.Backend.ListSMSSandboxPhoneNumbers(nextToken, maxResults)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
 	members := make([]XMLSandboxPhoneNumber, len(nums))
 	for i, n := range nums {
-		members[i] = XMLSandboxPhoneNumber(n)
+		members[i] = XMLSandboxPhoneNumber{
+			PhoneNumber:  n.PhoneNumber,
+			LanguageCode: n.LanguageCode,
+			Status:       n.Status,
+		}
 	}
 
 	return h.writeXML(c, ListSMSSandboxPhoneNumbersResponse{
@@ -1147,6 +1154,21 @@ func (h *Handler) handlePutDataProtectionPolicy(c *echo.Context) error {
 	return h.writeXML(c, PutDataProtectionPolicyResponse{
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
+}
+
+// parseIntParam reads a query or form integer parameter by name; returns defaultVal on missing or parse error.
+func parseIntParam(c *echo.Context, name string, defaultVal int) int {
+	s := c.Request().FormValue(name)
+	if s == "" {
+		return defaultVal
+	}
+
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+
+	return n
 }
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.

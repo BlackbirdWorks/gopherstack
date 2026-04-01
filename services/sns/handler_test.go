@@ -3451,9 +3451,15 @@ func TestSNS_SMSSandboxFlow(t *testing.T) {
 				}
 				require.NoError(t, err)
 
-				nums, _, listErr := b.ListSMSSandboxPhoneNumbers("")
+				nums, _, listErr := b.ListSMSSandboxPhoneNumbers("", 0)
 				require.NoError(t, listErr)
 				assert.Len(t, nums, tt.wantCount)
+
+				if tt.wantCount > 0 {
+					// Newly created sandbox numbers always start as Pending.
+					assert.Equal(t, "Pending", nums[0].Status)
+					assert.Equal(t, "en-US", nums[0].LanguageCode)
+				}
 			}
 		})
 	}
@@ -4026,6 +4032,12 @@ func TestSNS_VerifySMSSandboxPhoneNumber(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+
+			// Verify that the phone number status has been set to Verified.
+			nums, _, listErr := b.ListSMSSandboxPhoneNumbers("", 0)
+			require.NoError(t, listErr)
+			require.Len(t, nums, 1)
+			assert.Equal(t, "Verified", nums[0].Status)
 		})
 	}
 }
@@ -4185,6 +4197,7 @@ func TestSNS_SetSMSAttributes(t *testing.T) {
 		attributes map[string]string
 		wantAttrs  map[string]string
 		name       string
+		wantErr    bool
 	}{
 		{
 			name:       "set_and_get_all",
@@ -4196,6 +4209,11 @@ func TestSNS_SetSMSAttributes(t *testing.T) {
 			attributes: map[string]string{},
 			wantAttrs:  map[string]string{},
 		},
+		{
+			name:       "unknown_attribute_rejected",
+			attributes: map[string]string{"UnknownKey": "value"},
+			wantErr:    true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -4205,6 +4223,11 @@ func TestSNS_SetSMSAttributes(t *testing.T) {
 			b := sns.NewInMemoryBackend()
 
 			err := b.SetSMSAttributes(tt.attributes)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
 			require.NoError(t, err)
 
 			got, err := b.GetSMSAttributes(nil)
@@ -4304,15 +4327,16 @@ func TestSNS_DeleteSMSSandboxPhoneNumberE164Validation(t *testing.T) {
 }
 
 // TestSNS_PersistenceWithNewFields validates that Snapshot/Restore correctly round-trips
-// SMS sandbox state, opted-out phone numbers, SMS attributes, and topic permissions.
+// SMS sandbox state, opted-out phone numbers, SMS attributes, topic permissions, and
+// platform applications/endpoints.
 func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	t.Parallel()
 
 	b := sns.NewInMemoryBackend()
 
 	// SMS sandbox numbers.
-	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550001", ""))
-	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550002", ""))
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550001", "en-US"))
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550002", "de-DE"))
 
 	// SMS attributes.
 	require.NoError(t, b.SetSMSAttributes(map[string]string{
@@ -4325,6 +4349,12 @@ func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.AddPermission(tp.TopicArn, "allow-all", []string{"*"}, []string{"Publish"}))
 
+	// Platform application with endpoint.
+	app, err := b.CreatePlatformApplication("my-app", "GCM", map[string]string{"PlatformCredential": "fake-key"})
+	require.NoError(t, err)
+	ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "device-token-123", nil)
+	require.NoError(t, err)
+
 	snap := b.Snapshot()
 	require.NotEmpty(t, snap)
 
@@ -4332,9 +4362,11 @@ func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// Verify SMS sandbox numbers are preserved.
-	nums, _, err := b2.ListSMSSandboxPhoneNumbers("")
+	nums, _, err := b2.ListSMSSandboxPhoneNumbers("", 0)
 	require.NoError(t, err)
-	assert.Len(t, nums, 2)
+	require.Len(t, nums, 2)
+	assert.Equal(t, "Pending", nums[0].Status)
+	assert.Equal(t, "en-US", nums[0].LanguageCode)
 
 	// Verify SMS attributes are preserved.
 	attrs, err := b2.GetSMSAttributes(nil)
@@ -4346,4 +4378,125 @@ func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	topicAttrs, err := b2.GetTopicAttributes(tp.TopicArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, topicAttrs)
+
+	// Verify platform applications are preserved.
+	apps, _, err := b2.ListPlatformApplications("")
+	require.NoError(t, err)
+	require.Len(t, apps, 1)
+	assert.Equal(t, app.PlatformApplicationArn, apps[0].PlatformApplicationArn)
+
+	// Verify platform endpoints are preserved.
+	eps, _, err := b2.ListEndpointsByPlatformApplication(app.PlatformApplicationArn, "")
+	require.NoError(t, err)
+	require.Len(t, eps, 1)
+	assert.Equal(t, ep.EndpointArn, eps[0].EndpointArn)
+}
+
+// TestSNS_PutDataProtectionPolicyJSONValidation validates that PutDataProtectionPolicy
+// rejects non-JSON policy strings.
+func TestSNS_PutDataProtectionPolicyJSONValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		policy  string
+		wantErr bool
+	}{
+		{
+			name:   "valid_json",
+			policy: `{"Version":"2021-06-01","Statement":[]}`,
+		},
+		{
+			name:   "empty_policy_allowed",
+			policy: "",
+		},
+		{
+			name:    "invalid_json_rejected",
+			policy:  `not json`,
+			wantErr: true,
+		},
+		{
+			name:    "partial_json_rejected",
+			policy:  `{"Version":`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("json-policy-topic", nil)
+			require.NoError(t, err)
+
+			err = b.PutDataProtectionPolicy(tp.TopicArn, tt.policy)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+
+			got, err := b.GetDataProtectionPolicy(tp.TopicArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.policy, got)
+		})
+	}
+}
+
+// TestSNS_MaxResultsListSandbox validates that ListSMSSandboxPhoneNumbers and
+// ListPhoneNumbersOptedOut respect the MaxResults parameter via the HTTP handler.
+func TestSNS_MaxResultsListSandbox(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults string
+		wantCount  int
+	}{
+		{
+			name:       "default_returns_all",
+			maxResults: "",
+			wantCount:  3,
+		},
+		{
+			name:       "max_results_1",
+			maxResults: "1",
+			wantCount:  1,
+		},
+		{
+			name:       "max_results_2",
+			maxResults: "2",
+			wantCount:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+
+			// Create 3 sandbox phone numbers.
+			for _, phone := range []string{"+12125550001", "+12125550002", "+12125550003"} {
+				require.NoError(t, b.CreateSMSSandboxPhoneNumber(phone, ""))
+			}
+
+			form := url.Values{
+				"Action":  {"ListSMSSandboxPhoneNumbers"},
+				"Version": {"2010-03-31"},
+			}
+			if tt.maxResults != "" {
+				form["MaxResults"] = []string{tt.maxResults}
+			}
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp sns.ListSMSSandboxPhoneNumbersResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp.ListSMSSandboxPhoneNumbersResult.PhoneNumbers, tt.wantCount)
+		})
+	}
 }

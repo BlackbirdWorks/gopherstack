@@ -7,14 +7,16 @@ import (
 )
 
 type backendSnapshot struct {
-	Topics               map[string]*Topic              `json:"topics"`
-	Subscriptions        map[string]*Subscription       `json:"subscriptions"`
-	TopicTags            map[string]*svcTags.Tags       `json:"topicTags"`
-	SMSSandbox           map[string]*SandboxPhoneNumber `json:"smsSandbox,omitempty"`
-	OptedOutPhoneNumbers map[string]bool                `json:"optedOutPhoneNumbers,omitempty"`
-	SMSAttributes        map[string]string              `json:"smsAttributes,omitempty"`
-	AccountID            string                         `json:"accountID"`
-	Region               string                         `json:"region"`
+	Topics               map[string]*Topic               `json:"topics"`
+	Subscriptions        map[string]*Subscription        `json:"subscriptions"`
+	TopicTags            map[string]*svcTags.Tags        `json:"topicTags"`
+	PlatformApplications map[string]*PlatformApplication `json:"platformApplications,omitempty"`
+	PlatformEndpoints    map[string]*PlatformEndpoint    `json:"platformEndpoints,omitempty"`
+	SMSSandbox           map[string]*SandboxPhoneNumber  `json:"smsSandbox,omitempty"`
+	OptedOutPhoneNumbers map[string]bool                 `json:"optedOutPhoneNumbers,omitempty"`
+	SMSAttributes        map[string]string               `json:"smsAttributes,omitempty"`
+	AccountID            string                          `json:"accountID"`
+	Region               string                          `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -27,6 +29,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Topics:               b.topics,
 		Subscriptions:        b.subscriptions,
 		TopicTags:            b.topicTags,
+		PlatformApplications: b.platformApplications,
+		PlatformEndpoints:    b.platformEndpoints,
 		SMSSandbox:           b.smsSandbox,
 		OptedOutPhoneNumbers: b.optedOutPhoneNumbers,
 		SMSAttributes:        b.smsAttributes,
@@ -64,6 +68,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.TopicTags = make(map[string]*svcTags.Tags)
 	}
 
+	if snap.PlatformApplications == nil {
+		snap.PlatformApplications = make(map[string]*PlatformApplication)
+	}
+
+	if snap.PlatformEndpoints == nil {
+		snap.PlatformEndpoints = make(map[string]*PlatformEndpoint)
+	}
+
 	if snap.SMSSandbox == nil {
 		snap.SMSSandbox = make(map[string]*SandboxPhoneNumber)
 	}
@@ -79,6 +91,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.topics = snap.Topics
 	b.subscriptions = snap.Subscriptions
 	b.topicTags = snap.TopicTags
+	b.platformApplications = snap.PlatformApplications
+	b.platformEndpoints = snap.PlatformEndpoints
 	b.smsSandbox = snap.SMSSandbox
 	b.optedOutPhoneNumbers = snap.OptedOutPhoneNumbers
 	b.smsAttributes = snap.SMSAttributes
