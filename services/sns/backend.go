@@ -33,14 +33,21 @@ var (
 	ErrPlatformApplicationAlreadyExists = errors.New("PlatformApplicationAlreadyExists")
 	ErrEndpointNotFound                 = errors.New("NotFound")
 	ErrInvalidParameter                 = errors.New("InvalidParameter")
+	ErrPhoneNumberNotFound              = errors.New("ResourceNotFound")
+	ErrSandboxPhoneAlreadyExists        = errors.New("AlreadyExists")
+	ErrPermissionLabelExists            = errors.New("AuthorizationError")
+	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
+	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
 )
 
 const (
 	pageSize = 25
 
-	attrFilterPolicy       = "FilterPolicy"
-	attrRawMessageDelivery = "RawMessageDelivery"
-	attrRedrivePolicy      = "RedrivePolicy"
+	attrFilterPolicy        = "FilterPolicy"
+	attrRawMessageDelivery  = "RawMessageDelivery"
+	attrRedrivePolicy       = "RedrivePolicy"
+	attrSubscriptionRoleArn = "SubscriptionRoleArn"
+	attrFilterPolicyScope   = "FilterPolicyScope"
 
 	// platformARNResourceParts is the expected number of slash-delimited parts
 	// in a platform application ARN resource component: "app/{Platform}/{AppName}".
@@ -64,7 +71,81 @@ const (
 	// maxFilterPolicySizeBytes is the maximum byte size of a FilterPolicy JSON string
 	// that will be parsed. Policies exceeding this limit are treated as no filter.
 	maxFilterPolicySizeBytes = 256 * 1024 // 256 KiB
+
+	// maxPermissionLabelLen is the maximum character length of an AddPermission label.
+	maxPermissionLabelLen = 80
+
+	// defaultPolicyJSON is the default SNS topic access policy (empty statements).
+	defaultPolicyJSON = `{"Version":"2012-10-17","Statement":[]}`
+
+	// maxListSMSSandboxResults is the maximum MaxResults value for ListSMSSandboxPhoneNumbers.
+	maxListSMSSandboxResults = 100
+
+	// defaultListSMSSandboxResults is the default page size for ListSMSSandboxPhoneNumbers.
+	defaultListSMSSandboxResults = 100
+
+	// maxListOptedOutResults is the maximum MaxResults value for ListPhoneNumbersOptedOut.
+	maxListOptedOutResults = 100
+
+	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
+	defaultListOptedOutResults = 100
+
+	// maxPublishBatchEntries is the maximum number of entries per PublishBatch request.
+	// This matches the AWS SNS service limit.
+	maxPublishBatchEntries = 10
+
+	// maxTopicNameLen is the maximum length of an SNS topic name.
+	maxTopicNameLen = 256
+
+	// fifoTopicSuffix is the required suffix for FIFO topic names.
+	fifoTopicSuffix = ".fifo"
+
+	// computedTopicAttrCount is the number of computed attributes added to GetTopicAttributes
+	// output beyond stored attributes: Owner, SubscriptionsConfirmed, SubscriptionsPending.
+	computedTopicAttrCount = 3
 )
+
+// isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
+// Source: https://docs.aws.amazon.com/sns/latest/api/API_SetSMSAttributes.html
+func isValidSMSAttributeName(name string) bool {
+	switch name {
+	case "MonthlySpendLimit",
+		"DeliveryStatusIAMRole",
+		"DeliveryStatusSuccessSamplingRate",
+		"DefaultSenderID",
+		"DefaultSMSType",
+		"UsageReportS3Bucket":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidTopicName returns true if the topic name is non-empty, at most 256 characters,
+// consists only of alphanumeric characters, hyphens, and underscores, and if it is a
+// FIFO topic (ending in ".fifo") the base name (before the suffix) follows the same rules.
+// Source: https://docs.aws.amazon.com/sns/latest/api/API_CreateTopic.html
+func isValidTopicName(name string) bool {
+	if name == "" || len(name) > maxTopicNameLen {
+		return false
+	}
+
+	base := name
+	if strings.HasSuffix(name, fifoTopicSuffix) {
+		base = name[:len(name)-len(fifoTopicSuffix)]
+		if base == "" {
+			return false
+		}
+	}
+
+	for _, c := range base {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+			return false
+		}
+	}
+
+	return true
+}
 
 // StorageBackend defines the interface for an SNS storage backend.
 type StorageBackend interface {
@@ -103,6 +184,27 @@ type StorageBackend interface {
 	SetEndpointAttributes(endpointArn string, attributes map[string]string) error
 	ListEndpointsByPlatformApplication(platformApplicationArn, nextToken string) ([]PlatformEndpoint, string, error)
 	DeleteEndpoint(endpointArn string) error
+	// Permission operations.
+	AddPermission(topicArn, label string, accounts, actions []string) error
+	RemovePermission(topicArn, label string) error
+	// SMS Sandbox operations.
+	GetSMSSandboxAccountStatus() (bool, error)
+	CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error
+	DeleteSMSSandboxPhoneNumber(phoneNumber string) error
+	ListSMSSandboxPhoneNumbers(nextToken string, maxResults int) ([]SandboxPhoneNumber, string, error)
+	VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error
+	// SMS opt-out operations.
+	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
+	ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error)
+	OptInPhoneNumber(phoneNumber string) error
+	// SMS attribute operations.
+	GetSMSAttributes(names []string) (map[string]string, error)
+	SetSMSAttributes(attributes map[string]string) error
+	// Data protection policy operations.
+	GetDataProtectionPolicy(resourceArn string) (string, error)
+	PutDataProtectionPolicy(resourceArn, policy string) error
+	// Origination number operations.
+	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
@@ -113,6 +215,9 @@ type InMemoryBackend struct {
 	subscriptions        map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
+	smsSandbox           map[string]*SandboxPhoneNumber
+	optedOutPhoneNumbers map[string]bool
+	smsAttributes        map[string]string
 	httpClient           *http.Client
 	svcCtx               context.Context
 	workerSem            chan struct{}
@@ -149,6 +254,9 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		topicTags:            make(map[string]*svcTags.Tags),
 		platformApplications: make(map[string]*PlatformApplication),
 		platformEndpoints:    make(map[string]*PlatformEndpoint),
+		smsSandbox:           make(map[string]*SandboxPhoneNumber),
+		optedOutPhoneNumbers: make(map[string]bool),
+		smsAttributes:        make(map[string]string),
 		accountID:            accountID,
 		region:               region,
 		svcCtx:               svcCtx,
@@ -184,6 +292,13 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 // CreateTopicInRegion creates a new SNS topic in the specified region.
 // If region is empty, the backend's default region is used.
 func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error) {
+	if !isValidTopicName(name) {
+		return nil, fmt.Errorf(
+			"%w: Topic name must be 1-256 characters and contain only alphanumeric characters, hyphens, and underscores",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.mu.Lock("CreateTopicInRegion")
 	defer b.mu.Unlock()
 
@@ -202,7 +317,15 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	// Ensure Policy is a valid JSON string with an empty Statement array so
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
-		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
+		attrs["Policy"] = defaultPolicyJSON
+	}
+
+	// FIFO topics: auto-set FifoTopic=true and ContentBasedDeduplication if not already set.
+	if strings.HasSuffix(name, fifoTopicSuffix) {
+		attrs["FifoTopic"] = "true"
+		if attrs["ContentBasedDeduplication"] == "" {
+			attrs["ContentBasedDeduplication"] = "false"
+		}
 	}
 
 	topic := &Topic{
@@ -269,14 +392,37 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 		return nil, ErrTopicNotFound
 	}
 
-	attrs := make(map[string]string, len(topic.Attributes))
+	attrs := make(map[string]string, len(topic.Attributes)+computedTopicAttrCount)
 	maps.Copy(attrs, topic.Attributes)
 
 	// Ensure Policy is always a valid JSON string with an empty Statement array so
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
-		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
+		attrs["Policy"] = defaultPolicyJSON
 	}
+
+	// Populate computed attributes that AWS returns but we store dynamically.
+	if attrs["Owner"] == "" {
+		attrs["Owner"] = b.accountID
+	}
+
+	// Count subscriptions for this topic.
+	confirmed, pending := 0, 0
+
+	for _, sub := range b.subscriptions {
+		if sub.TopicArn != topicArn {
+			continue
+		}
+
+		if sub.PendingConfirmation {
+			pending++
+		} else {
+			confirmed++
+		}
+	}
+
+	attrs["SubscriptionsConfirmed"] = strconv.Itoa(confirmed)
+	attrs["SubscriptionsPending"] = strconv.Itoa(pending)
 
 	return attrs, nil
 }
@@ -298,6 +444,11 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 
 // Subscribe creates a new subscription for the given topic, protocol, and endpoint.
 func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
+	// Validate SMS endpoint is a valid E.164 phone number.
+	if protocol == "sms" && !isValidE164(endpoint) {
+		return nil, fmt.Errorf("%w: Endpoint must be in E.164 format for SMS protocol", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("Subscribe")
 	defer b.mu.Unlock()
 
@@ -392,6 +543,14 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		attrs[attrRedrivePolicy] = sub.RedrivePolicy
 	}
 
+	if sub.SubscriptionRoleArn != "" {
+		attrs[attrSubscriptionRoleArn] = sub.SubscriptionRoleArn
+	}
+
+	if sub.FilterPolicyScope != "" {
+		attrs[attrFilterPolicyScope] = sub.FilterPolicyScope
+	}
+
 	return attrs, nil
 }
 
@@ -412,6 +571,17 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.FilterPolicy = attrValue
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
+	case attrSubscriptionRoleArn:
+		sub.SubscriptionRoleArn = attrValue
+	case attrFilterPolicyScope:
+		if attrValue != "MessageBody" && attrValue != "MessageAttributes" {
+			return fmt.Errorf(
+				"%w: FilterPolicyScope must be MessageBody or MessageAttributes",
+				ErrInvalidParameter,
+			)
+		}
+
+		sub.FilterPolicyScope = attrValue
 	default:
 		return ErrInvalidParameter
 	}
@@ -831,6 +1001,20 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 	return items[offset:end], nextToken
 }
 
+// resolvePageSize returns the effective page size given a caller-requested size, a default,
+// and a maximum. If requested is 0, defaultSize is used. If requested exceeds maxSize it is clamped.
+func resolvePageSize(requested, defaultSize, maxSize int) int {
+	if requested <= 0 {
+		return defaultSize
+	}
+
+	if requested > maxSize {
+		return maxSize
+	}
+
+	return requested
+}
+
 // GetTopicTags returns tags for the given topic ARN.
 func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
 	b.mu.RLock("GetTopicTags")
@@ -1181,6 +1365,346 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 	return eps
 }
 
+// isValidE164 returns true if the phone number string is a valid E.164 number
+// (starts with '+' followed by 1–15 digits).
+func isValidE164(phone string) bool {
+	if len(phone) < 2 || len(phone) > 16 || phone[0] != '+' {
+		return false
+	}
+
+	for _, c := range phone[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isValidPermissionLabel returns true if the label is non-empty, not longer than
+// maxPermissionLabelLen, and contains only alphanumeric characters or hyphens.
+func isValidPermissionLabel(label string) bool {
+	if label == "" || len(label) > maxPermissionLabelLen {
+		return false
+	}
+
+	for _, c := range label {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// AddPermission adds a permission statement to an SNS topic's access policy.
+// Duplicate labels are rejected with ErrPermissionLabelExists.
+// Labels must be non-empty, at most 80 characters, and consist only of alphanumeric
+// characters or hyphens; invalid labels are rejected with ErrInvalidParameter.
+func (b *InMemoryBackend) AddPermission(topicArn, label string, accounts, actions []string) error {
+	if !isValidPermissionLabel(label) {
+		return fmt.Errorf(
+			"%w: Label must be non-empty, max 80 chars, alphanumeric or hyphen",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.Lock("AddPermission")
+	defer b.mu.Unlock()
+
+	topic, exists := b.topics[topicArn]
+	if !exists {
+		return ErrTopicNotFound
+	}
+
+	if topic.Permissions == nil {
+		topic.Permissions = make(map[string]*TopicPermission)
+	}
+
+	if _, alreadyExists := topic.Permissions[label]; alreadyExists {
+		return ErrPermissionLabelExists
+	}
+
+	topic.Permissions[label] = &TopicPermission{
+		Label:      label,
+		AWSAccount: accounts,
+		Actions:    actions,
+	}
+
+	return nil
+}
+
+// RemovePermission removes a permission statement (identified by label) from an SNS topic.
+func (b *InMemoryBackend) RemovePermission(topicArn, label string) error {
+	b.mu.Lock("RemovePermission")
+	defer b.mu.Unlock()
+
+	topic, exists := b.topics[topicArn]
+	if !exists {
+		return ErrTopicNotFound
+	}
+
+	if topic.Permissions == nil {
+		return ErrPermissionLabelNotFound
+	}
+
+	if _, labelExists := topic.Permissions[label]; !labelExists {
+		return ErrPermissionLabelNotFound
+	}
+
+	delete(topic.Permissions, label)
+
+	return nil
+}
+
+// GetSMSSandboxAccountStatus always returns true (sandbox mode) for the mock backend.
+func (b *InMemoryBackend) GetSMSSandboxAccountStatus() (bool, error) {
+	return true, nil
+}
+
+// CreateSMSSandboxPhoneNumber adds a phone number to the SMS sandbox.
+// The phone number must be in E.164 format. Numbers start with status "Pending"
+// and must be verified via VerifySMSSandboxPhoneNumber before they can receive SMS.
+func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error {
+	if !isValidE164(phoneNumber) {
+		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateSMSSandboxPhoneNumber")
+	defer b.mu.Unlock()
+
+	if _, exists := b.smsSandbox[phoneNumber]; exists {
+		return ErrSandboxPhoneAlreadyExists
+	}
+
+	b.smsSandbox[phoneNumber] = &SandboxPhoneNumber{
+		PhoneNumber:       phoneNumber,
+		LanguageCode:      languageCode,
+		Status:            "Pending",
+		CreationTimestamp: time.Now().UTC(),
+	}
+
+	return nil
+}
+
+// DeleteSMSSandboxPhoneNumber removes a phone number from the SMS sandbox.
+// The phone number must be in E.164 format.
+func (b *InMemoryBackend) DeleteSMSSandboxPhoneNumber(phoneNumber string) error {
+	if !isValidE164(phoneNumber) {
+		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteSMSSandboxPhoneNumber")
+	defer b.mu.Unlock()
+
+	if _, exists := b.smsSandbox[phoneNumber]; !exists {
+		return ErrPhoneNumberNotFound
+	}
+
+	delete(b.smsSandbox, phoneNumber)
+
+	return nil
+}
+
+// VerifySMSSandboxPhoneNumber marks a sandbox phone number as Verified.
+// In the mock backend, any non-empty one-time password is accepted.
+func (b *InMemoryBackend) VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error {
+	if oneTimePassword == "" {
+		return fmt.Errorf("%w: OneTimePassword is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("VerifySMSSandboxPhoneNumber")
+	defer b.mu.Unlock()
+
+	entry, exists := b.smsSandbox[phoneNumber]
+	if !exists {
+		return ErrPhoneNumberNotFound
+	}
+
+	entry.Status = "Verified"
+
+	return nil
+}
+
+// ListSMSSandboxPhoneNumbers returns a paginated list of SMS sandbox phone numbers,
+// a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
+func (b *InMemoryBackend) ListSMSSandboxPhoneNumbers(
+	nextToken string,
+	maxResults int,
+) ([]SandboxPhoneNumber, string, error) {
+	b.mu.RLock("ListSMSSandboxPhoneNumbers")
+	defer b.mu.RUnlock()
+
+	all := b.sortedSandboxNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	size := resolvePageSize(maxResults, defaultListSMSSandboxResults, maxListSMSSandboxResults)
+	nums, next := paginate(all, offset, size)
+
+	return nums, next, nil
+}
+
+// sortedSandboxNumbers returns sandbox phone numbers sorted by phone number.
+// Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedSandboxNumbers() []SandboxPhoneNumber {
+	nums := make([]SandboxPhoneNumber, 0, len(b.smsSandbox))
+	for _, n := range b.smsSandbox {
+		nums = append(nums, *n)
+	}
+
+	sort.Slice(nums, func(i, j int) bool {
+		return nums[i].PhoneNumber < nums[j].PhoneNumber
+	})
+
+	return nums
+}
+
+// CheckIfPhoneNumberIsOptedOut returns whether a phone number has opted out of SMS messages.
+func (b *InMemoryBackend) CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error) {
+	if !isValidE164(phoneNumber) {
+		return false, fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("CheckIfPhoneNumberIsOptedOut")
+	defer b.mu.RUnlock()
+
+	return b.optedOutPhoneNumbers[phoneNumber], nil
+}
+
+// ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS,
+// a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
+func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error) {
+	b.mu.RLock("ListPhoneNumbersOptedOut")
+	defer b.mu.RUnlock()
+
+	all := b.sortedOptedOutNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	size := resolvePageSize(maxResults, defaultListOptedOutResults, maxListOptedOutResults)
+	nums, next := paginate(all, offset, size)
+
+	return nums, next, nil
+}
+
+// sortedOptedOutNumbers returns opted-out phone numbers sorted lexicographically.
+// Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedOptedOutNumbers() []string {
+	nums := make([]string, 0, len(b.optedOutPhoneNumbers))
+	for phone, optedOut := range b.optedOutPhoneNumbers {
+		if optedOut {
+			nums = append(nums, phone)
+		}
+	}
+
+	sort.Strings(nums)
+
+	return nums
+}
+
+// OptInPhoneNumber removes a phone number from the opt-out list so it can receive SMS messages.
+// The phone number must be in E.164 format.
+func (b *InMemoryBackend) OptInPhoneNumber(phoneNumber string) error {
+	if !isValidE164(phoneNumber) {
+		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("OptInPhoneNumber")
+	defer b.mu.Unlock()
+
+	delete(b.optedOutPhoneNumbers, phoneNumber)
+
+	return nil
+}
+
+// GetSMSAttributes returns the current SMS account attributes, optionally filtered by name.
+// If names is empty all attributes are returned.
+func (b *InMemoryBackend) GetSMSAttributes(names []string) (map[string]string, error) {
+	b.mu.RLock("GetSMSAttributes")
+	defer b.mu.RUnlock()
+
+	if len(names) == 0 {
+		result := make(map[string]string, len(b.smsAttributes))
+		maps.Copy(result, b.smsAttributes)
+
+		return result, nil
+	}
+
+	result := make(map[string]string, len(names))
+	for _, name := range names {
+		result[name] = b.smsAttributes[name]
+	}
+
+	return result, nil
+}
+
+// SetSMSAttributes stores global SMS account attributes.
+// Existing attribute keys are updated; unspecified keys are left unchanged.
+// Only known AWS attribute names are accepted; unknown names are rejected with ErrInvalidParameter.
+func (b *InMemoryBackend) SetSMSAttributes(attributes map[string]string) error {
+	for k := range attributes {
+		if !isValidSMSAttributeName(k) {
+			return fmt.Errorf("%w: unknown SMS attribute name %q", ErrInvalidParameter, k)
+		}
+	}
+
+	b.mu.Lock("SetSMSAttributes")
+	defer b.mu.Unlock()
+
+	maps.Copy(b.smsAttributes, attributes)
+
+	return nil
+}
+
+// GetDataProtectionPolicy returns the data protection policy JSON for the given topic ARN.
+// The policy is stored as the "DataProtectionPolicy" attribute on the topic.
+func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, error) {
+	b.mu.RLock("GetDataProtectionPolicy")
+	defer b.mu.RUnlock()
+
+	topic, exists := b.topics[resourceArn]
+	if !exists {
+		return "", ErrTopicNotFound
+	}
+
+	return topic.Attributes["DataProtectionPolicy"], nil
+}
+
+// PutDataProtectionPolicy stores a data protection policy JSON string on the given topic ARN.
+// The policy must be valid JSON; invalid JSON is rejected with ErrInvalidParameter.
+func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) error {
+	if policy != "" && !json.Valid([]byte(policy)) {
+		return fmt.Errorf("%w: DataProtectionPolicy must be valid JSON", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("PutDataProtectionPolicy")
+	defer b.mu.Unlock()
+
+	topic, exists := b.topics[resourceArn]
+	if !exists {
+		return ErrTopicNotFound
+	}
+
+	topic.Attributes["DataProtectionPolicy"] = policy
+
+	return nil
+}
+
+// ListOriginationNumbers returns a paginated list of origination phone numbers.
+// The mock backend maintains no origination numbers by default; callers receive an empty list.
+func (b *InMemoryBackend) ListOriginationNumbers(_ string) ([]XMLOriginationPhone, string, error) {
+	return []XMLOriginationPhone{}, "", nil
+}
+
 // WaitDeliveries stops accepting new HTTP/HTTPS delivery goroutines and blocks
 // until all currently in-flight delivery goroutines have finished. It is called
 // during graceful shutdown by Handler.Shutdown.
@@ -1229,6 +1753,12 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 			delete(b.platformEndpoints, arn)
 		}
 	}
+
+	for phone, entry := range b.smsSandbox {
+		if entry.CreationTimestamp.Before(cutoff) {
+			delete(b.smsSandbox, phone)
+		}
+	}
 }
 
 // Reset clears all in-memory state from the database. It is used by the
@@ -1249,4 +1779,7 @@ func (b *InMemoryBackend) Reset() {
 	b.topicTags = make(map[string]*svcTags.Tags)
 	b.platformApplications = make(map[string]*PlatformApplication)
 	b.platformEndpoints = make(map[string]*PlatformEndpoint)
+	b.smsSandbox = make(map[string]*SandboxPhoneNumber)
+	b.optedOutPhoneNumbers = make(map[string]bool)
+	b.smsAttributes = make(map[string]string)
 }
