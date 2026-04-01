@@ -316,3 +316,55 @@ func TestACMPCAHandler_Persistence(t *testing.T) {
 	cas := fresh.ListCertificateAuthorities("", 0).Data
 	assert.Len(t, cas, 1)
 }
+
+func TestInMemoryBackend_SnapshotRestore_AdditionalState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		verify func(t *testing.T, b *acmpca.InMemoryBackend, caARN, reportID string)
+		name   string
+	}{
+		{
+			name: "permissions_policies_and_reports",
+			verify: func(t *testing.T, b *acmpca.InMemoryBackend, caARN, reportID string) {
+				t.Helper()
+
+				perms := b.ListPermissions(caARN, "", 0)
+				require.Len(t, perms.Data, 1)
+				assert.Equal(t, "acm.amazonaws.com", perms.Data[0].Principal)
+
+				policy, err := b.GetPolicy(caARN)
+				require.NoError(t, err)
+				assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, policy)
+
+				report, err := b.DescribeCertificateAuthorityAuditReport(caARN, reportID)
+				require.NoError(t, err)
+				assert.Equal(t, "audit-bucket", report.S3BucketName)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := acmpca.NewInMemoryBackend(testAccountID, testRegion)
+			ca, err := original.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Persist CA"},
+			})
+			require.NoError(t, err)
+
+			_, err = original.CreatePermission(ca.ARN, "acm.amazonaws.com", testAccountID, []string{"IssueCertificate"})
+			require.NoError(t, err)
+			require.NoError(t, original.PutPolicy(ca.ARN, `{"Version":"2012-10-17","Statement":[]}`))
+
+			report, err := original.CreateCertificateAuthorityAuditReport(ca.ARN, "audit-bucket", "JSON")
+			require.NoError(t, err)
+
+			fresh := acmpca.NewInMemoryBackend(testAccountID, testRegion)
+			require.NoError(t, fresh.Restore(original.Snapshot()))
+
+			tt.verify(t, fresh, ca.ARN, report.AuditReportID)
+		})
+	}
+}

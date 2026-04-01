@@ -373,3 +373,90 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *acmpca.InMemoryBackend, caARN string)
+		name string
+	}{
+		{
+			name: "permissions_crud",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend, caARN string) {
+				t.Helper()
+
+				created, err := b.CreatePermission(
+					caARN,
+					"acm.amazonaws.com",
+					testAccountID,
+					[]string{"IssueCertificate", "GetCertificate"},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, caARN, created.CertificateAuthorityArn)
+				assert.Equal(t, "acm.amazonaws.com", created.Principal)
+
+				list := b.ListPermissions(caARN, "", 0)
+				require.Len(t, list.Data, 1)
+				assert.Equal(t, []string{"IssueCertificate", "GetCertificate"}, list.Data[0].Actions)
+
+				require.NoError(t, b.DeletePermission(caARN, "acm.amazonaws.com", testAccountID))
+				assert.Empty(t, b.ListPermissions(caARN, "", 0).Data)
+			},
+		},
+		{
+			name: "policy_crud",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend, caARN string) {
+				t.Helper()
+
+				policy := `{"Version":"2012-10-17","Statement":[]}`
+				require.NoError(t, b.PutPolicy(caARN, policy))
+
+				got, err := b.GetPolicy(caARN)
+				require.NoError(t, err)
+				assert.Equal(t, policy, got)
+
+				require.NoError(t, b.DeletePolicy(caARN))
+				_, err = b.GetPolicy(caARN)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "audit_report_and_restore",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend, caARN string) {
+				t.Helper()
+
+				report, err := b.CreateCertificateAuthorityAuditReport(caARN, "bucket", "JSON")
+				require.NoError(t, err)
+				assert.Equal(t, "SUCCESS", report.Status)
+				assert.Contains(t, report.S3Key, ".json")
+
+				got, err := b.DescribeCertificateAuthorityAuditReport(caARN, report.AuditReportID)
+				require.NoError(t, err)
+				assert.Equal(t, report.AuditReportID, got.AuditReportID)
+
+				require.NoError(t, b.UpdateCertificateAuthority(caARN, "DISABLED"))
+				require.NoError(t, b.DeleteCertificateAuthority(caARN))
+				require.NoError(t, b.RestoreCertificateAuthority(caARN))
+
+				ca, err := b.DescribeCertificateAuthority(caARN)
+				require.NoError(t, err)
+				assert.Equal(t, "DISABLED", ca.Status)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Ops CA"},
+			})
+			require.NoError(t, err)
+
+			tt.run(t, b, ca.ARN)
+		})
+	}
+}
