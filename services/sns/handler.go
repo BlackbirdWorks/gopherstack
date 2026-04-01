@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,33 +61,48 @@ func (h *Handler) Purge(cutoff time.Time) {
 // GetSupportedOperations returns the list of supported SNS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateTopic",
-		"DeleteTopic",
-		"ListTopics",
-		"GetTopicAttributes",
-		"SetTopicAttributes",
-		"Subscribe",
+		"AddPermission",
+		"CheckIfPhoneNumberIsOptedOut",
 		"ConfirmSubscription",
-		"Unsubscribe",
+		"CreatePlatformApplication",
+		"CreatePlatformEndpoint",
+		"CreateSMSSandboxPhoneNumber",
+		"CreateTopic",
+		"DeleteEndpoint",
+		"DeletePlatformApplication",
+		"DeleteSMSSandboxPhoneNumber",
+		"DeleteTopic",
+		"GetDataProtectionPolicy",
+		"GetEndpointAttributes",
+		"GetPlatformApplicationAttributes",
+		"GetSMSAttributes",
+		"GetSMSSandboxAccountStatus",
+		"GetSubscriptionAttributes",
+		"GetTopicAttributes",
+		"ListEndpointsByPlatformApplication",
+		"ListOriginationNumbers",
+		"ListPhoneNumbersOptedOut",
+		"ListPlatformApplications",
+		"ListSMSSandboxPhoneNumbers",
 		"ListSubscriptions",
 		"ListSubscriptionsByTopic",
+		"ListTagsForResource",
+		"ListTopics",
+		"OptInPhoneNumber",
 		"Publish",
 		"PublishBatch",
-		"GetSubscriptionAttributes",
-		"SetSubscriptionAttributes",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		"CreatePlatformApplication",
-		"GetPlatformApplicationAttributes",
-		"SetPlatformApplicationAttributes",
-		"ListPlatformApplications",
-		"DeletePlatformApplication",
-		"CreatePlatformEndpoint",
-		"GetEndpointAttributes",
+		"PutDataProtectionPolicy",
+		"RemovePermission",
 		"SetEndpointAttributes",
-		"ListEndpointsByPlatformApplication",
-		"DeleteEndpoint",
+		"SetPlatformApplicationAttributes",
+		"SetSMSAttributes",
+		"SetSubscriptionAttributes",
+		"SetTopicAttributes",
+		"Subscribe",
+		"TagResource",
+		"Unsubscribe",
+		"UntagResource",
+		"VerifySMSSandboxPhoneNumber",
 	}
 }
 
@@ -221,33 +237,48 @@ func (h *Handler) dispatch(c *echo.Context, action string) error {
 // buildActions constructs the action dispatch table.
 func (h *Handler) buildActions() map[string]snsActionFn {
 	return map[string]snsActionFn{
-		"CreateTopic":                        h.handleCreateTopic,
-		"DeleteTopic":                        h.handleDeleteTopic,
-		"ListTopics":                         h.handleListTopics,
-		"GetTopicAttributes":                 h.handleGetTopicAttributes,
-		"SetTopicAttributes":                 h.handleSetTopicAttributes,
-		"Subscribe":                          h.handleSubscribe,
+		"AddPermission":                      h.handleAddPermission,
+		"CheckIfPhoneNumberIsOptedOut":       h.handleCheckIfPhoneNumberIsOptedOut,
 		"ConfirmSubscription":                h.handleConfirmSubscription,
-		"Unsubscribe":                        h.handleUnsubscribe,
+		"CreatePlatformApplication":          h.handleCreatePlatformApplication,
+		"CreatePlatformEndpoint":             h.handleCreatePlatformEndpoint,
+		"CreateSMSSandboxPhoneNumber":        h.handleCreateSMSSandboxPhoneNumber,
+		"CreateTopic":                        h.handleCreateTopic,
+		"DeleteEndpoint":                     h.handleDeleteEndpoint,
+		"DeletePlatformApplication":          h.handleDeletePlatformApplication,
+		"DeleteSMSSandboxPhoneNumber":        h.handleDeleteSMSSandboxPhoneNumber,
+		"DeleteTopic":                        h.handleDeleteTopic,
+		"GetDataProtectionPolicy":            h.handleGetDataProtectionPolicy,
+		"GetEndpointAttributes":              h.handleGetEndpointAttributes,
+		"GetPlatformApplicationAttributes":   h.handleGetPlatformApplicationAttributes,
+		"GetSMSAttributes":                   h.handleGetSMSAttributes,
+		"GetSMSSandboxAccountStatus":         h.handleGetSMSSandboxAccountStatus,
+		"GetSubscriptionAttributes":          h.handleGetSubscriptionAttributes,
+		"GetTopicAttributes":                 h.handleGetTopicAttributes,
+		"ListEndpointsByPlatformApplication": h.handleListEndpointsByPlatformApplication,
+		"ListOriginationNumbers":             h.handleListOriginationNumbers,
+		"ListPhoneNumbersOptedOut":           h.handleListPhoneNumbersOptedOut,
+		"ListPlatformApplications":           h.handleListPlatformApplications,
+		"ListSMSSandboxPhoneNumbers":         h.handleListSMSSandboxPhoneNumbers,
 		"ListSubscriptions":                  h.handleListSubscriptions,
 		"ListSubscriptionsByTopic":           h.handleListSubscriptionsByTopic,
+		"ListTagsForResource":                h.handleListTagsForResource,
+		"ListTopics":                         h.handleListTopics,
+		"OptInPhoneNumber":                   h.handleOptInPhoneNumber,
 		"Publish":                            h.handlePublish,
 		"PublishBatch":                       h.handlePublishBatch,
-		"GetSubscriptionAttributes":          h.handleGetSubscriptionAttributes,
-		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
-		"ListTagsForResource":                h.handleListTagsForResource,
-		"TagResource":                        h.handleTagResource,
-		"UntagResource":                      h.handleUntagResource,
-		"CreatePlatformApplication":          h.handleCreatePlatformApplication,
-		"GetPlatformApplicationAttributes":   h.handleGetPlatformApplicationAttributes,
-		"SetPlatformApplicationAttributes":   h.handleSetPlatformApplicationAttributes,
-		"ListPlatformApplications":           h.handleListPlatformApplications,
-		"DeletePlatformApplication":          h.handleDeletePlatformApplication,
-		"CreatePlatformEndpoint":             h.handleCreatePlatformEndpoint,
-		"GetEndpointAttributes":              h.handleGetEndpointAttributes,
+		"PutDataProtectionPolicy":            h.handlePutDataProtectionPolicy,
+		"RemovePermission":                   h.handleRemovePermission,
 		"SetEndpointAttributes":              h.handleSetEndpointAttributes,
-		"ListEndpointsByPlatformApplication": h.handleListEndpointsByPlatformApplication,
-		"DeleteEndpoint":                     h.handleDeleteEndpoint,
+		"SetPlatformApplicationAttributes":   h.handleSetPlatformApplicationAttributes,
+		"SetSMSAttributes":                   h.handleSetSMSAttributes,
+		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
+		"SetTopicAttributes":                 h.handleSetTopicAttributes,
+		"Subscribe":                          h.handleSubscribe,
+		"TagResource":                        h.handleTagResource,
+		"Unsubscribe":                        h.handleUnsubscribe,
+		"UntagResource":                      h.handleUntagResource,
+		"VerifySMSSandboxPhoneNumber":        h.handleVerifySMSSandboxPhoneNumber,
 	}
 }
 
@@ -353,7 +384,7 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 
 	validProtocols := map[string]bool{
 		"email": true, "email-json": true, "http": true, "https": true,
-		"sqs": true, "lambda": true, "sms": true,
+		"sqs": true, "lambda": true, "sms": true, "application": true, "firehose": true,
 	}
 	if !validProtocols[protocol] {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
@@ -382,8 +413,11 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 		}
 	}
 
+	// AWS: when ReturnSubscriptionArn is true, always return the real ARN
+	// even for pending http/https subscriptions.
+	returnArn := strings.EqualFold(c.Request().FormValue("ReturnSubscriptionArn"), "true")
 	subArn := sub.SubscriptionArn
-	if sub.PendingConfirmation {
+	if sub.PendingConfirmation && !returnArn {
 		subArn = "PendingConfirmation"
 	}
 
@@ -505,11 +539,20 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PublishBatchRequestEntries is required")
 	}
 
+	if len(entries) > maxPublishBatchEntries {
+		msg := fmt.Sprintf(
+			"The batch request contains more entries than permissible. Maximum is %d.",
+			maxPublishBatchEntries,
+		)
+
+		return h.writeError(c, http.StatusBadRequest, "TooManyEntriesInBatchRequest", msg)
+	}
+
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
 	failed := make([]XMLPublishBatchFailEntry, 0)
 
 	for _, entry := range entries {
-		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "", nil)
+		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "" /* messageStructure */, entry.attrs)
 		if err != nil {
 			failed = append(failed, XMLPublishBatchFailEntry{
 				ID:          entry.id,
@@ -845,6 +888,301 @@ func (h *Handler) handleDeleteEndpoint(c *echo.Context) error {
 	})
 }
 
+// parseMemberList reads Name.member.N values from the form and returns the slice.
+func parseMemberList(c *echo.Context, prefix string) []string {
+	var items []string
+
+	for i := 1; ; i++ {
+		v := c.Request().FormValue(fmt.Sprintf("%s.member.%d", prefix, i))
+		if v == "" {
+			return items
+		}
+
+		items = append(items, v)
+	}
+}
+
+func (h *Handler) handleAddPermission(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	label := c.Request().FormValue("Label")
+
+	if topicArn == "" || label == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Label are required")
+	}
+
+	accounts := parseMemberList(c, "AWSAccountId")
+	actions := parseMemberList(c, "ActionName")
+
+	if err := h.Backend.AddPermission(topicArn, label, accounts, actions); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, AddPermissionResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleCheckIfPhoneNumberIsOptedOut(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("phoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "phoneNumber is required")
+	}
+
+	optedOut, err := h.Backend.CheckIfPhoneNumberIsOptedOut(phoneNumber)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CheckIfPhoneNumberIsOptedOutResponse{
+		CheckIfPhoneNumberIsOptedOutResult: CheckIfPhoneNumberIsOptedOutResult{IsOptedOut: optedOut},
+		ResponseMetadata:                   ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleCreateSMSSandboxPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("PhoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PhoneNumber is required")
+	}
+
+	languageCode := c.Request().FormValue("LanguageCode")
+
+	if err := h.Backend.CreateSMSSandboxPhoneNumber(phoneNumber, languageCode); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CreateSMSSandboxPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleDeleteSMSSandboxPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("PhoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PhoneNumber is required")
+	}
+
+	if err := h.Backend.DeleteSMSSandboxPhoneNumber(phoneNumber); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, DeleteSMSSandboxPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetDataProtectionPolicy(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	if resourceArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "ResourceArn is required")
+	}
+
+	policy, err := h.Backend.GetDataProtectionPolicy(resourceArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetDataProtectionPolicyResponse{
+		GetDataProtectionPolicyResult: GetDataProtectionPolicyResult{DataProtectionPolicy: policy},
+		ResponseMetadata:              ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetSMSAttributes(c *echo.Context) error {
+	names := parseMemberList(c, "attributes")
+
+	attrs, err := h.Backend.GetSMSAttributes(names)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetSMSAttributesResponse{
+		GetSMSAttributesResult: GetSMSAttributesResult{Attributes: attrsToEntries(attrs)},
+		ResponseMetadata:       ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetSMSSandboxAccountStatus(c *echo.Context) error {
+	inSandbox, err := h.Backend.GetSMSSandboxAccountStatus()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetSMSSandboxAccountStatusResponse{
+		GetSMSSandboxAccountStatusResult: GetSMSSandboxAccountStatusResult{IsInSandbox: inSandbox},
+		ResponseMetadata:                 ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListOriginationNumbers(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+
+	nums, token, err := h.Backend.ListOriginationNumbers(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ListOriginationNumbersResponse{
+		ListOriginationNumbersResult: ListOriginationNumbersResult{
+			PhoneNumbers: nums,
+			NextToken:    token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListPhoneNumbersOptedOut(c *echo.Context) error {
+	nextToken := c.Request().FormValue("nextToken")
+	maxResults := parseIntParam(c, "maxResults", 0)
+
+	nums, token, err := h.Backend.ListPhoneNumbersOptedOut(nextToken, maxResults)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ListPhoneNumbersOptedOutResponse{
+		ListPhoneNumbersOptedOutResult: ListPhoneNumbersOptedOutResult{
+			PhoneNumbers: nums,
+			NextToken:    token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListSMSSandboxPhoneNumbers(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+	maxResults := parseIntParam(c, "MaxResults", 0)
+
+	nums, token, err := h.Backend.ListSMSSandboxPhoneNumbers(nextToken, maxResults)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	members := make([]XMLSandboxPhoneNumber, len(nums))
+	for i, n := range nums {
+		members[i] = XMLSandboxPhoneNumber{
+			PhoneNumber:  n.PhoneNumber,
+			LanguageCode: n.LanguageCode,
+			Status:       n.Status,
+		}
+	}
+
+	return h.writeXML(c, ListSMSSandboxPhoneNumbersResponse{
+		ListSMSSandboxPhoneNumbersResult: ListSMSSandboxPhoneNumbersResult{
+			PhoneNumbers: members,
+			NextToken:    token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleVerifySMSSandboxPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("PhoneNumber")
+	otp := c.Request().FormValue("OneTimePassword")
+
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PhoneNumber is required")
+	}
+
+	if err := h.Backend.VerifySMSSandboxPhoneNumber(phoneNumber, otp); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, VerifySMSSandboxPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleOptInPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("phoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "phoneNumber is required")
+	}
+
+	if err := h.Backend.OptInPhoneNumber(phoneNumber); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, OptInPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleRemovePermission(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	label := c.Request().FormValue("Label")
+
+	if topicArn == "" || label == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Label are required")
+	}
+
+	if err := h.Backend.RemovePermission(topicArn, label); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, RemovePermissionResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+// parseSetSMSAttributesForm reads Attributes.entry.N.key/value pairs for SetSMSAttributes.
+func parseSetSMSAttributesForm(c *echo.Context) map[string]string {
+	attrs := make(map[string]string)
+
+	for i := 1; ; i++ {
+		key := c.Request().FormValue(fmt.Sprintf("attributes.entry.%d.key", i))
+		if key == "" {
+			return attrs
+		}
+
+		attrs[key] = c.Request().FormValue(fmt.Sprintf("attributes.entry.%d.value", i))
+	}
+}
+
+func (h *Handler) handleSetSMSAttributes(c *echo.Context) error {
+	attrs := parseSetSMSAttributesForm(c)
+
+	if err := h.Backend.SetSMSAttributes(attrs); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SetSMSAttributesResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handlePutDataProtectionPolicy(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	policy := c.Request().FormValue("DataProtectionPolicy")
+
+	if resourceArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "ResourceArn is required")
+	}
+
+	if err := h.Backend.PutDataProtectionPolicy(resourceArn, policy); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, PutDataProtectionPolicyResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+// parseIntParam reads a query or form integer parameter by name; returns defaultVal on missing or parse error.
+func parseIntParam(c *echo.Context, name string, defaultVal int) int {
+	s := c.Request().FormValue(name)
+	if s == "" {
+		return defaultVal
+	}
+
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+
+	return n
+}
+
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
 	httputils.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
@@ -874,12 +1212,16 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
-		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
+		errors.Is(err, ErrPhoneNumberNotFound):
 		log.WarnContext(ctx, "SNS resource not found", "error", err)
-	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists):
+	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists),
+		errors.Is(err, ErrSandboxPhoneAlreadyExists):
 		log.WarnContext(ctx, "SNS resource already exists", "error", err)
 	case errors.Is(err, ErrInvalidParameter):
 		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+		log.WarnContext(ctx, "SNS permission label error", "error", err)
 	default:
 		status = http.StatusInternalServerError
 		log.ErrorContext(ctx, "SNS internal error", "error", err)
@@ -892,14 +1234,19 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 func errorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
-		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
+		errors.Is(err, ErrPhoneNumberNotFound):
 		return "NotFound"
 	case errors.Is(err, ErrTopicAlreadyExists):
 		return "TopicAlreadyExists"
 	case errors.Is(err, ErrPlatformApplicationAlreadyExists):
 		return "PlatformApplicationAlreadyExists"
-	case errors.Is(err, ErrInvalidParameter):
+	case errors.Is(err, ErrSandboxPhoneAlreadyExists):
+		return "AlreadyExists"
+	case errors.Is(err, ErrInvalidParameter), errors.Is(err, ErrSandboxPhoneNotVerified):
 		return "InvalidParameter"
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+		return "AuthorizationError"
 	default:
 		return "InternalError"
 	}
@@ -969,23 +1316,30 @@ func extractFilterPolicy(form url.Values) string {
 
 // extractMessageAttributes reads MessageAttributes.entry.N.Name/Value pairs from the form.
 func extractMessageAttributes(form url.Values) map[string]MessageAttribute {
+	return extractMessageAttributesWithPrefix(form, "MessageAttributes.")
+}
+
+// extractMessageAttributesWithPrefix reads MessageAttributes from form values using the
+// given prefix (e.g. "MessageAttributes." or "PublishBatchRequestEntries.member.1.").
+func extractMessageAttributesWithPrefix(form url.Values, prefix string) map[string]MessageAttribute {
 	attrs := make(map[string]MessageAttribute)
 
 	for i := 1; ; i++ {
-		name := form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Name", i))
+		name := form.Get(fmt.Sprintf("%sentry.%d.Name", prefix, i))
 		if name == "" {
 			return attrs
 		}
 
 		attrs[name] = MessageAttribute{
-			DataType:    form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.DataType", i)),
-			StringValue: form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.StringValue", i)),
+			DataType:    form.Get(fmt.Sprintf("%sentry.%d.Value.DataType", prefix, i)),
+			StringValue: form.Get(fmt.Sprintf("%sentry.%d.Value.StringValue", prefix, i)),
 		}
 	}
 }
 
 // batchEntry holds a single parsed PublishBatch entry.
 type batchEntry struct {
+	attrs   map[string]MessageAttribute
 	id      string
 	message string
 	subject string
@@ -1020,10 +1374,15 @@ func extractBatchEntries(form url.Values) []batchEntry {
 			return entries
 		}
 
+		// Extract per-entry MessageAttributes.
+		prefix := fmt.Sprintf("PublishBatchRequestEntries.member.%d.", i)
+		attrs := extractMessageAttributesWithPrefix(form, prefix)
+
 		entries = append(entries, batchEntry{
 			id:      id,
 			message: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
 			subject: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
+			attrs:   attrs,
 		})
 	}
 }

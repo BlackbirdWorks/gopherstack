@@ -26,6 +26,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
+// testDataProtectionPolicy is a well-formed data protection policy JSON used across
+// GetDataProtectionPolicy and PutDataProtectionPolicy tests.
+const testDataProtectionPolicy = `{"Version":"2021-06-01","Statement":[]}`
+
 // snsPost is a helper that sends a form-encoded SNS request to the handler.
 func snsPost(t *testing.T, h *sns.Handler, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
@@ -3343,5 +3347,1512 @@ func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 		assert.Equal(t, "delivered", msg)
 	case <-time.After(2 * time.Second):
 		require.FailNow(t, "oversized FilterPolicy should allow all messages through")
+	}
+}
+
+// TestSNS_SMSSandboxFlow validates the SMS sandbox lifecycle: create, list, check opt-out,
+// list opted-out, get sandbox status, and delete.
+func TestSNS_SMSSandboxFlow(t *testing.T) {
+	t.Parallel()
+
+	type operation string
+
+	const (
+		opCreate      operation = "create"
+		opDelete      operation = "delete"
+		opCheckOptOut operation = "check_opt_out"
+	)
+
+	tests := []struct {
+		setup        func(b *sns.InMemoryBackend)
+		wantErr      error
+		name         string
+		phone        string
+		op           operation
+		wantCount    int
+		wantOptedOut bool
+	}{
+		{
+			name:      "create_and_list",
+			op:        opCreate,
+			phone:     "+12125551234",
+			wantCount: 1,
+		},
+		{
+			name:    "invalid_e164_rejected",
+			op:      opCreate,
+			phone:   "12125551234",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name: "duplicate_rejected",
+			op:   opCreate,
+			setup: func(b *sns.InMemoryBackend) {
+				require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125559999", ""))
+			},
+			phone:   "+12125559999",
+			wantErr: sns.ErrSandboxPhoneAlreadyExists,
+		},
+		{
+			name:    "delete_not_found",
+			op:      opDelete,
+			phone:   "+19999999999",
+			wantErr: sns.ErrPhoneNumberNotFound,
+		},
+		{
+			name:         "opted_out_false_by_default",
+			op:           opCheckOptOut,
+			phone:        "+12125550001",
+			wantOptedOut: false,
+		},
+		{
+			name:    "check_opted_out_invalid_e164",
+			op:      opCheckOptOut,
+			phone:   "badnumber",
+			wantErr: sns.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			switch tt.op {
+			case opDelete:
+				err := b.DeleteSMSSandboxPhoneNumber(tt.phone)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+
+			case opCheckOptOut:
+				opted, err := b.CheckIfPhoneNumberIsOptedOut(tt.phone)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantOptedOut, opted)
+
+			default: // opCreate
+				err := b.CreateSMSSandboxPhoneNumber(tt.phone, "en-US")
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+
+				nums, _, listErr := b.ListSMSSandboxPhoneNumbers("", 0)
+				require.NoError(t, listErr)
+				assert.Len(t, nums, tt.wantCount)
+
+				if tt.wantCount > 0 {
+					// Newly created sandbox numbers always start as Pending.
+					assert.Equal(t, "Pending", nums[0].Status)
+					assert.Equal(t, "en-US", nums[0].LanguageCode)
+				}
+			}
+		})
+	}
+}
+
+// TestSNS_SMSSandboxHandlerFlow validates SMS sandbox HTTP handler operations end-to-end.
+func TestSNS_SMSSandboxHandlerFlow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		action     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:   "create_sandbox_number",
+			action: "CreateSMSSandboxPhoneNumber",
+			form: url.Values{
+				"Action":      {"CreateSMSSandboxPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"PhoneNumber": {"+12125551111"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "CreateSMSSandboxPhoneNumberResponse",
+		},
+		{
+			name:   "create_sandbox_number_invalid_e164",
+			action: "CreateSMSSandboxPhoneNumber",
+			form: url.Values{
+				"Action":      {"CreateSMSSandboxPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"PhoneNumber": {"12125551111"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "list_sandbox_numbers",
+			action:     "ListSMSSandboxPhoneNumbers",
+			form:       url.Values{"Action": {"ListSMSSandboxPhoneNumbers"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "ListSMSSandboxPhoneNumbersResponse",
+		},
+		{
+			name:       "get_sandbox_status",
+			action:     "GetSMSSandboxAccountStatus",
+			form:       url.Values{"Action": {"GetSMSSandboxAccountStatus"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "GetSMSSandboxAccountStatusResponse",
+		},
+		{
+			name:   "check_opted_out_false",
+			action: "CheckIfPhoneNumberIsOptedOut",
+			form: url.Values{
+				"Action":      {"CheckIfPhoneNumberIsOptedOut"},
+				"Version":     {"2010-03-31"},
+				"phoneNumber": {"+12125551234"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "CheckIfPhoneNumberIsOptedOutResponse",
+		},
+		{
+			name:       "list_opted_out_empty",
+			action:     "ListPhoneNumbersOptedOut",
+			form:       url.Values{"Action": {"ListPhoneNumbersOptedOut"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "ListPhoneNumbersOptedOutResponse",
+		},
+		{
+			name:       "get_sms_attributes_empty",
+			action:     "GetSMSAttributes",
+			form:       url.Values{"Action": {"GetSMSAttributes"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "GetSMSAttributesResponse",
+		},
+		{
+			name:       "list_origination_numbers_empty",
+			action:     "ListOriginationNumbers",
+			form:       url.Values{"Action": {"ListOriginationNumbers"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "ListOriginationNumbersResponse",
+		},
+		{
+			name:   "delete_sandbox_number_not_found",
+			action: "DeleteSMSSandboxPhoneNumber",
+			form: url.Values{
+				"Action":      {"DeleteSMSSandboxPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"PhoneNumber": {"+19999999999"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_sandbox_number_missing_param",
+			action:     "DeleteSMSSandboxPhoneNumber",
+			form:       url.Values{"Action": {"DeleteSMSSandboxPhoneNumber"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_TopicPermissions validates the AddPermission operation lifecycle.
+func TestSNS_TopicPermissions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr  error
+		setup    func(b *sns.InMemoryBackend) string
+		name     string
+		label    string
+		accounts []string
+		actions  []string
+	}{
+		{
+			name: "add_permission_success",
+			setup: func(b *sns.InMemoryBackend) string {
+				t, _ := b.CreateTopic("perm-topic", nil)
+
+				return t.TopicArn
+			},
+			label:    "allow-publish",
+			accounts: []string{"123456789012"},
+			actions:  []string{"Publish"},
+		},
+		{
+			name: "add_permission_duplicate_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("perm-topic-dup", nil)
+
+				err := b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+				require.NoError(t, err)
+
+				return tp.TopicArn
+			},
+			label:    "my-label",
+			accounts: []string{"999"},
+			actions:  []string{"Subscribe"},
+			wantErr:  sns.ErrPermissionLabelExists,
+		},
+		{
+			name:     "add_permission_topic_not_found",
+			setup:    func(_ *sns.InMemoryBackend) string { return "arn:aws:sns:us-east-1:000000000000:missing" },
+			label:    "some-label",
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrTopicNotFound,
+		},
+		{
+			name: "add_permission_empty_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("t", nil)
+
+				return tp.TopicArn
+			},
+			label:    "",
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrInvalidParameter,
+		},
+		{
+			name: "add_permission_label_too_long",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("t2", nil)
+
+				return tp.TopicArn
+			},
+			label:    strings.Repeat("a", 81),
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrInvalidParameter,
+		},
+		{
+			name: "add_permission_label_invalid_chars",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("t3", nil)
+
+				return tp.TopicArn
+			},
+			label:    "invalid label!",
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := tt.setup(b)
+
+			err := b.AddPermission(topicArn, tt.label, tt.accounts, tt.actions)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestSNS_TopicPermissionsHandler validates AddPermission HTTP handler.
+func TestSNS_TopicPermissionsHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "add_permission_success",
+			form: url.Values{
+				"Action":                {"AddPermission"},
+				"Version":               {"2010-03-31"},
+				"TopicArn":              {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+				"Label":                 {"allow-sub"},
+				"AWSAccountId.member.1": {"123456789012"},
+				"ActionName.member.1":   {"Publish"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "AddPermissionResponse",
+		},
+		{
+			name: "add_permission_missing_topic_arn",
+			form: url.Values{
+				"Action":  {"AddPermission"},
+				"Version": {"2010-03-31"},
+				"Label":   {"x"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "add_permission_missing_label",
+			form: url.Values{
+				"Action":   {"AddPermission"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			_, err := b.CreateTopic("perm-test", nil)
+			require.NoError(t, err)
+
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_GetDataProtectionPolicy validates the GetDataProtectionPolicy operation.
+func TestSNS_GetDataProtectionPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(b *sns.InMemoryBackend) string
+		name       string
+		wantPolicy string
+		wantStatus int
+	}{
+		{
+			name: "empty_policy",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("policy-topic", nil)
+
+				return tp.TopicArn
+			},
+			wantStatus: http.StatusOK,
+			wantPolicy: "",
+		},
+		{
+			name: "with_policy",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("policy-topic2", nil)
+				require.NoError(t, b.SetTopicAttributes(tp.TopicArn, "DataProtectionPolicy", testDataProtectionPolicy))
+
+				return tp.TopicArn
+			},
+			wantStatus: http.StatusOK,
+			wantPolicy: testDataProtectionPolicy,
+		},
+		{
+			name: "topic_not_found",
+			setup: func(_ *sns.InMemoryBackend) string {
+				return "arn:aws:sns:us-east-1:000000000000:missing"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := tt.setup(b)
+
+			form := url.Values{
+				"Action":      {"GetDataProtectionPolicy"},
+				"Version":     {"2010-03-31"},
+				"ResourceArn": {topicArn},
+			}
+
+			rec := snsPost(t, h, form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantPolicy != "" {
+				// Decode the XML response and check the DataProtectionPolicy field directly.
+				var resp sns.GetDataProtectionPolicyResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantPolicy, resp.GetDataProtectionPolicyResult.DataProtectionPolicy)
+			}
+		})
+	}
+}
+
+// TestSNS_PutDataProtectionPolicy validates the PutDataProtectionPolicy operation end-to-end.
+func TestSNS_PutDataProtectionPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		topicName  string
+		policy     string
+		wantStatus int
+	}{
+		{
+			name:       "set_and_get",
+			topicName:  "pp-topic",
+			policy:     testDataProtectionPolicy,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_resource_arn",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+
+			var topicArn string
+
+			if tt.topicName != "" {
+				tp, err := b.CreateTopic(tt.topicName, nil)
+				require.NoError(t, err)
+				topicArn = tp.TopicArn
+			}
+
+			rec := snsPost(t, h, url.Values{
+				"Action":               {"PutDataProtectionPolicy"},
+				"Version":              {"2010-03-31"},
+				"ResourceArn":          {topicArn},
+				"DataProtectionPolicy": {tt.policy},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				got, err := b.GetDataProtectionPolicy(topicArn)
+				require.NoError(t, err)
+				assert.Equal(t, tt.policy, got)
+			}
+		})
+	}
+}
+
+// TestSNS_RemovePermission validates the RemovePermission operation.
+func TestSNS_RemovePermission(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *sns.InMemoryBackend) string
+		name    string
+		label   string
+	}{
+		{
+			name: "remove_existing_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("rm-perm-topic", nil)
+
+				err := b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+				require.NoError(t, err)
+
+				return tp.TopicArn
+			},
+			label: "my-label",
+		},
+		{
+			name: "remove_missing_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("rm-perm-topic2", nil)
+
+				return tp.TopicArn
+			},
+			label:   "nonexistent",
+			wantErr: sns.ErrPermissionLabelNotFound,
+		},
+		{
+			name:    "remove_topic_not_found",
+			setup:   func(_ *sns.InMemoryBackend) string { return "arn:aws:sns:us-east-1:000000000000:missing" },
+			label:   "x",
+			wantErr: sns.ErrTopicNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := tt.setup(b)
+
+			err := b.RemovePermission(topicArn, tt.label)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestSNS_RemovePermissionHandler validates the RemovePermission HTTP handler.
+func TestSNS_RemovePermissionHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":   {"RemovePermission"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+				"Label":    {"my-label"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "RemovePermissionResponse",
+		},
+		{
+			name: "missing_label",
+			form: url.Values{
+				"Action":   {"RemovePermission"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_topic_arn",
+			form: url.Values{
+				"Action":  {"RemovePermission"},
+				"Version": {"2010-03-31"},
+				"Label":   {"my-label"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			tp, err := b.CreateTopic("perm-test", nil)
+			require.NoError(t, err)
+
+			err = b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+			require.NoError(t, err)
+
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_VerifySMSSandboxPhoneNumber validates VerifySMSSandboxPhoneNumber.
+func TestSNS_VerifySMSSandboxPhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *sns.InMemoryBackend)
+		name    string
+		phone   string
+		otp     string
+	}{
+		{
+			name: "verify_success",
+			setup: func(b *sns.InMemoryBackend) {
+				require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125551234", ""))
+			},
+			phone: "+12125551234",
+			otp:   "123456",
+		},
+		{
+			name:    "missing_otp",
+			phone:   "+12125551234",
+			otp:     "",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name:    "phone_not_found",
+			phone:   "+12125559999",
+			otp:     "123456",
+			wantErr: sns.ErrPhoneNumberNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.VerifySMSSandboxPhoneNumber(tt.phone, tt.otp)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+
+			// Verify that the phone number status has been set to Verified.
+			nums, _, listErr := b.ListSMSSandboxPhoneNumbers("", 0)
+			require.NoError(t, listErr)
+			require.Len(t, nums, 1)
+			assert.Equal(t, "Verified", nums[0].Status)
+		})
+	}
+}
+
+// TestSNS_VerifySMSSandboxPhoneNumberHandler validates the VerifySMSSandboxPhoneNumber HTTP handler.
+func TestSNS_VerifySMSSandboxPhoneNumberHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":          {"VerifySMSSandboxPhoneNumber"},
+				"Version":         {"2010-03-31"},
+				"PhoneNumber":     {"+12125551234"},
+				"OneTimePassword": {"123456"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "VerifySMSSandboxPhoneNumberResponse",
+		},
+		{
+			name: "missing_phone",
+			form: url.Values{
+				"Action":          {"VerifySMSSandboxPhoneNumber"},
+				"Version":         {"2010-03-31"},
+				"OneTimePassword": {"123456"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125551234", ""))
+
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_OptInPhoneNumber validates OptInPhoneNumber operation.
+func TestSNS_OptInPhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		phone   string
+	}{
+		{
+			name:  "opt_in_valid",
+			phone: "+12125550001",
+		},
+		{
+			name:    "invalid_e164",
+			phone:   "12125550001",
+			wantErr: sns.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+
+			err := b.OptInPhoneNumber(tt.phone)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+
+			// Verify the phone is no longer opted out.
+			optedOut, err := b.CheckIfPhoneNumberIsOptedOut(tt.phone)
+			require.NoError(t, err)
+			assert.False(t, optedOut)
+		})
+	}
+}
+
+// TestSNS_OptInPhoneNumberHandler validates the OptInPhoneNumber HTTP handler.
+func TestSNS_OptInPhoneNumberHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":      {"OptInPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"phoneNumber": {"+12125550001"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "OptInPhoneNumberResponse",
+		},
+		{
+			name: "missing_phone",
+			form: url.Values{
+				"Action":  {"OptInPhoneNumber"},
+				"Version": {"2010-03-31"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_e164",
+			form: url.Values{
+				"Action":      {"OptInPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"phoneNumber": {"12125550001"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_SetSMSAttributes validates SetSMSAttributes operation and its interaction with GetSMSAttributes.
+func TestSNS_SetSMSAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attributes map[string]string
+		wantAttrs  map[string]string
+		name       string
+		wantErr    bool
+	}{
+		{
+			name:       "set_and_get_all",
+			attributes: map[string]string{"DefaultSMSType": "Transactional", "MonthlySpendLimit": "50"},
+			wantAttrs:  map[string]string{"DefaultSMSType": "Transactional", "MonthlySpendLimit": "50"},
+		},
+		{
+			name:       "empty_attributes",
+			attributes: map[string]string{},
+			wantAttrs:  map[string]string{},
+		},
+		{
+			name:       "unknown_attribute_rejected",
+			attributes: map[string]string{"UnknownKey": "value"},
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+
+			err := b.SetSMSAttributes(tt.attributes)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+
+			got, err := b.GetSMSAttributes(nil)
+			require.NoError(t, err)
+
+			for k, v := range tt.wantAttrs {
+				assert.Equal(t, v, got[k])
+			}
+		})
+	}
+}
+
+// TestSNS_SetSMSAttributesHandler validates the SetSMSAttributes HTTP handler.
+func TestSNS_SetSMSAttributesHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":                   {"SetSMSAttributes"},
+				"Version":                  {"2010-03-31"},
+				"attributes.entry.1.key":   {"DefaultSMSType"},
+				"attributes.entry.1.value": {"Transactional"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "SetSMSAttributesResponse",
+		},
+		{
+			name: "empty_attributes",
+			form: url.Values{
+				"Action":  {"SetSMSAttributes"},
+				"Version": {"2010-03-31"},
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_DeleteSMSSandboxPhoneNumberE164Validation validates that DeleteSMSSandboxPhoneNumber
+// rejects numbers that are not in E.164 format.
+func TestSNS_DeleteSMSSandboxPhoneNumberE164Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		phone   string
+	}{
+		{
+			name:    "invalid_e164_no_plus",
+			phone:   "12125551234",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name:    "invalid_e164_letters",
+			phone:   "+1212555ABCD",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name:    "not_found_but_valid_e164",
+			phone:   "+12125559999",
+			wantErr: sns.ErrPhoneNumberNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+
+			err := b.DeleteSMSSandboxPhoneNumber(tt.phone)
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+// TestSNS_PersistenceWithNewFields validates that Snapshot/Restore correctly round-trips
+// SMS sandbox state, opted-out phone numbers, SMS attributes, topic permissions, and
+// platform applications/endpoints.
+func TestSNS_PersistenceWithNewFields(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	// SMS sandbox numbers.
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550001", "en-US"))
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550002", "de-DE"))
+
+	// SMS attributes.
+	require.NoError(t, b.SetSMSAttributes(map[string]string{
+		"DefaultSMSType":    "Transactional",
+		"MonthlySpendLimit": "100",
+	}))
+
+	// Topic with permission.
+	tp, err := b.CreateTopic("persist-test", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.AddPermission(tp.TopicArn, "allow-all", []string{"*"}, []string{"Publish"}))
+
+	// Platform application with endpoint.
+	app, err := b.CreatePlatformApplication("my-app", "GCM", map[string]string{"PlatformCredential": "fake-key"})
+	require.NoError(t, err)
+	ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "device-token-123", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := sns.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(snap))
+
+	// Verify SMS sandbox numbers are preserved.
+	nums, _, err := b2.ListSMSSandboxPhoneNumbers("", 0)
+	require.NoError(t, err)
+	require.Len(t, nums, 2)
+	assert.Equal(t, "Pending", nums[0].Status)
+	assert.Equal(t, "en-US", nums[0].LanguageCode)
+
+	// Verify SMS attributes are preserved.
+	attrs, err := b2.GetSMSAttributes(nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Transactional", attrs["DefaultSMSType"])
+	assert.Equal(t, "100", attrs["MonthlySpendLimit"])
+
+	// Verify permissions survive the round-trip via GetTopicAttributes.
+	topicAttrs, err := b2.GetTopicAttributes(tp.TopicArn)
+	require.NoError(t, err)
+	assert.NotEmpty(t, topicAttrs)
+
+	// Verify platform applications are preserved.
+	apps, _, err := b2.ListPlatformApplications("")
+	require.NoError(t, err)
+	require.Len(t, apps, 1)
+	assert.Equal(t, app.PlatformApplicationArn, apps[0].PlatformApplicationArn)
+
+	// Verify platform endpoints are preserved.
+	eps, _, err := b2.ListEndpointsByPlatformApplication(app.PlatformApplicationArn, "")
+	require.NoError(t, err)
+	require.Len(t, eps, 1)
+	assert.Equal(t, ep.EndpointArn, eps[0].EndpointArn)
+}
+
+// TestSNS_PutDataProtectionPolicyJSONValidation validates that PutDataProtectionPolicy
+// rejects non-JSON policy strings.
+func TestSNS_PutDataProtectionPolicyJSONValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		policy  string
+		wantErr bool
+	}{
+		{
+			name:   "valid_json",
+			policy: `{"Version":"2021-06-01","Statement":[]}`,
+		},
+		{
+			name:   "empty_policy_allowed",
+			policy: "",
+		},
+		{
+			name:    "invalid_json_rejected",
+			policy:  `not json`,
+			wantErr: true,
+		},
+		{
+			name:    "partial_json_rejected",
+			policy:  `{"Version":`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("json-policy-topic", nil)
+			require.NoError(t, err)
+
+			err = b.PutDataProtectionPolicy(tp.TopicArn, tt.policy)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+
+			got, err := b.GetDataProtectionPolicy(tp.TopicArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.policy, got)
+		})
+	}
+}
+
+// TestSNS_MaxResultsListSandbox validates that ListSMSSandboxPhoneNumbers and
+// ListPhoneNumbersOptedOut respect the MaxResults parameter via the HTTP handler.
+func TestSNS_MaxResultsListSandbox(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults string
+		wantCount  int
+	}{
+		{
+			name:       "default_returns_all",
+			maxResults: "",
+			wantCount:  3,
+		},
+		{
+			name:       "max_results_1",
+			maxResults: "1",
+			wantCount:  1,
+		},
+		{
+			name:       "max_results_2",
+			maxResults: "2",
+			wantCount:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+
+			// Create 3 sandbox phone numbers.
+			for _, phone := range []string{"+12125550001", "+12125550002", "+12125550003"} {
+				require.NoError(t, b.CreateSMSSandboxPhoneNumber(phone, ""))
+			}
+
+			form := url.Values{
+				"Action":  {"ListSMSSandboxPhoneNumbers"},
+				"Version": {"2010-03-31"},
+			}
+			if tt.maxResults != "" {
+				form["MaxResults"] = []string{tt.maxResults}
+			}
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp sns.ListSMSSandboxPhoneNumbersResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp.ListSMSSandboxPhoneNumbersResult.PhoneNumbers, tt.wantCount)
+		})
+	}
+}
+
+// TestSNS_FIFOTopic validates that FIFO topic names are accepted and attributes auto-set.
+func TestSNS_FIFOTopic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		topicName string
+		wantFifo  bool
+		wantErr   bool
+	}{
+		{
+			name:      "standard_topic",
+			topicName: "my-topic",
+			wantFifo:  false,
+		},
+		{
+			name:      "fifo_topic",
+			topicName: "my-topic.fifo",
+			wantFifo:  true,
+		},
+		{
+			name:      "invalid_name_too_long",
+			topicName: strings.Repeat("a", sns.ExportedMaxTopicNameLen+1),
+			wantErr:   true,
+		},
+		{
+			name:      "invalid_name_special_chars",
+			topicName: "my topic!",
+			wantErr:   true,
+		},
+		{
+			name:      "empty_name",
+			topicName: "",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topic, err := b.CreateTopic(tt.topicName, nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			attrs, err := b.GetTopicAttributes(topic.TopicArn)
+			require.NoError(t, err)
+
+			if tt.wantFifo {
+				assert.Equal(t, "true", attrs["FifoTopic"])
+				assert.Equal(t, "false", attrs["ContentBasedDeduplication"])
+			} else {
+				assert.Empty(t, attrs["FifoTopic"])
+			}
+		})
+	}
+}
+
+// TestSNS_SubscribeProtocols validates that all supported protocols are accepted and unsupported ones rejected.
+func TestSNS_SubscribeProtocols(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		protocol   string
+		wantStatus int
+	}{
+		{name: "http", protocol: "http", wantStatus: http.StatusOK},
+		{name: "https", protocol: "https", wantStatus: http.StatusOK},
+		{name: "email", protocol: "email", wantStatus: http.StatusOK},
+		{name: "email_json", protocol: "email-json", wantStatus: http.StatusOK},
+		{name: "sqs", protocol: "sqs", wantStatus: http.StatusOK},
+		{name: "lambda", protocol: "lambda", wantStatus: http.StatusOK},
+		{name: "sms", protocol: "sms", wantStatus: http.StatusOK},
+		{name: "application", protocol: "application", wantStatus: http.StatusOK},
+		{name: "firehose", protocol: "firehose", wantStatus: http.StatusOK},
+		{name: "invalid", protocol: "ftp", wantStatus: http.StatusBadRequest},
+		{name: "empty", protocol: "", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := mustCreateTopic(t, b, "proto-test")
+
+			form := url.Values{
+				"Action":   {"Subscribe"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {topicArn},
+				"Protocol": {tt.protocol},
+				"Endpoint": {"arn:aws:sqs:us-east-1:123456789012:my-queue"},
+			}
+			if tt.protocol == "sms" {
+				form["Endpoint"] = []string{"+12125551234"}
+			}
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestSNS_SubscribeSMSEndpointValidation validates that SMS subscriptions require E.164 endpoint.
+func TestSNS_SubscribeSMSEndpointValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		endpoint   string
+		wantStatus int
+	}{
+		{
+			name:       "valid_e164",
+			endpoint:   "+12125551234",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_no_plus",
+			endpoint:   "12125551234",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_letters",
+			endpoint:   "+1212ABCD",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := mustCreateTopic(t, b, "sms-val-topic")
+
+			rec := snsPost(t, h, url.Values{
+				"Action":   {"Subscribe"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {topicArn},
+				"Protocol": {"sms"},
+				"Endpoint": {tt.endpoint},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestSNS_ReturnSubscriptionArn validates that ReturnSubscriptionArn=true returns the real ARN.
+func TestSNS_ReturnSubscriptionArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		protocol       string
+		returnSubArn   string
+		wantPendingStr bool
+	}{
+		{
+			name:           "http_without_flag_returns_pending",
+			protocol:       "http",
+			returnSubArn:   "false",
+			wantPendingStr: true,
+		},
+		{
+			name:           "http_with_flag_returns_real_arn",
+			protocol:       "http",
+			returnSubArn:   "true",
+			wantPendingStr: false,
+		},
+		{
+			name:           "sqs_always_returns_real_arn",
+			protocol:       "sqs",
+			returnSubArn:   "false",
+			wantPendingStr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := mustCreateTopic(t, b, "ret-sub-arn-topic")
+
+			form := url.Values{
+				"Action":                {"Subscribe"},
+				"Version":               {"2010-03-31"},
+				"TopicArn":              {topicArn},
+				"Protocol":              {tt.protocol},
+				"Endpoint":              {"https://example.com/endpoint"},
+				"ReturnSubscriptionArn": {tt.returnSubArn},
+			}
+			if tt.protocol == "sqs" {
+				form["Endpoint"] = []string{"arn:aws:sqs:us-east-1:123:queue"}
+			}
+
+			rec := snsPost(t, h, form)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			if tt.wantPendingStr {
+				assert.Contains(t, rec.Body.String(), "PendingConfirmation")
+			} else {
+				assert.NotContains(t, rec.Body.String(), "PendingConfirmation")
+				assert.Contains(t, rec.Body.String(), "arn:aws:sns:")
+			}
+		})
+	}
+}
+
+// TestSNS_PublishBatchMaxEntries validates the 10-entry limit for PublishBatch.
+func TestSNS_PublishBatchMaxEntries(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	topicArn := mustCreateTopic(t, b, "batch-limit-topic")
+
+	// Build a form with 11 entries (exceeding the 10-entry limit).
+	form := url.Values{
+		"Action":   {"PublishBatch"},
+		"Version":  {"2010-03-31"},
+		"TopicArn": {topicArn},
+	}
+
+	for i := 1; i <= sns.ExportedMaxPublishBatchEntries+1; i++ {
+		form[fmt.Sprintf("PublishBatchRequestEntries.member.%d.Id", i)] = []string{fmt.Sprintf("id%d", i)}
+		form[fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)] = []string{"msg"}
+	}
+
+	rec := snsPost(t, h, form)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TooManyEntriesInBatchRequest")
+}
+
+// TestSNS_GetTopicAttributesComputed validates that GetTopicAttributes returns computed attributes.
+func TestSNS_GetTopicAttributesComputed(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	topic, err := b.CreateTopic("computed-attrs-topic", nil)
+	require.NoError(t, err)
+
+	// Before any subscriptions: counts should be zero.
+	attrs, err := b.GetTopicAttributes(topic.TopicArn)
+	require.NoError(t, err)
+	assert.Equal(t, "0", attrs["SubscriptionsConfirmed"])
+	assert.Equal(t, "0", attrs["SubscriptionsPending"])
+	assert.NotEmpty(t, attrs["Owner"])
+
+	// Add an http subscription (PendingConfirmation=true) and an sqs subscription (confirmed).
+	_, err = b.Subscribe(topic.TopicArn, "http", "https://example.com", "")
+	require.NoError(t, err)
+	_, err = b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:123:queue", "")
+	require.NoError(t, err)
+
+	attrs, err = b.GetTopicAttributes(topic.TopicArn)
+	require.NoError(t, err)
+	assert.Equal(t, "1", attrs["SubscriptionsConfirmed"])
+	assert.Equal(t, "1", attrs["SubscriptionsPending"])
+}
+
+// TestSNS_SetSubscriptionAttributesExtended validates SubscriptionRoleArn and FilterPolicyScope.
+func TestSNS_SetSubscriptionAttributesExtended(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		attrName  string
+		attrValue string
+		wantErr   bool
+	}{
+		{
+			name:      "set_subscription_role_arn",
+			attrName:  "SubscriptionRoleArn",
+			attrValue: "arn:aws:iam::123456789012:role/MyRole",
+		},
+		{
+			name:      "set_filter_policy_scope_message_body",
+			attrName:  "FilterPolicyScope",
+			attrValue: "MessageBody",
+		},
+		{
+			name:      "set_filter_policy_scope_message_attributes",
+			attrName:  "FilterPolicyScope",
+			attrValue: "MessageAttributes",
+		},
+		{
+			name:      "invalid_filter_policy_scope",
+			attrName:  "FilterPolicyScope",
+			attrValue: "InvalidValue",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topic, err := b.CreateTopic("ext-attrs-topic", nil)
+			require.NoError(t, err)
+			sub, err := b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:123:q", "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, tt.attrName, tt.attrValue)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+
+			attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.attrValue, attrs[tt.attrName])
+		})
+	}
+}
+
+// TestSNS_TopicNameValidation validates CreateTopic name format rules.
+func TestSNS_TopicNameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		topicName string
+		wantValid bool
+	}{
+		{name: "valid_alphanumeric", topicName: "MyTopic123", wantValid: true},
+		{name: "valid_with_hyphen", topicName: "my-topic", wantValid: true},
+		{name: "valid_with_underscore", topicName: "my_topic", wantValid: true},
+		{name: "valid_fifo", topicName: "my-topic.fifo", wantValid: true},
+		{name: "max_length", topicName: strings.Repeat("a", sns.ExportedMaxTopicNameLen), wantValid: true},
+		{name: "too_long", topicName: strings.Repeat("a", sns.ExportedMaxTopicNameLen+1), wantValid: false},
+		{name: "empty", topicName: "", wantValid: false},
+		{name: "space", topicName: "my topic", wantValid: false},
+		{name: "dot_only_fifo", topicName: ".fifo", wantValid: false},
+		{name: "special_chars", topicName: "my!topic", wantValid: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.wantValid, sns.IsValidTopicNameForTest(tt.topicName))
+		})
 	}
 }

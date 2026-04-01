@@ -5,11 +5,27 @@ import (
 	"time"
 )
 
+// TopicPermission represents a single permission (statement) added to an SNS topic policy.
+type TopicPermission struct {
+	Label      string   `json:"label"`
+	AWSAccount []string `json:"awsAccount"`
+	Actions    []string `json:"actions"`
+}
+
+// SandboxPhoneNumber represents a phone number registered in the SMS sandbox.
+type SandboxPhoneNumber struct {
+	CreationTimestamp time.Time `json:"creationTimestamp"`
+	PhoneNumber       string    `json:"phoneNumber"`
+	LanguageCode      string    `json:"languageCode,omitempty"`
+	Status            string    `json:"status"` // "Pending" or "Verified"
+}
+
 // Topic represents an SNS topic.
 type Topic struct {
-	CreationTimestamp time.Time         `json:"creationTimestamp"`
-	Attributes        map[string]string `json:"attributes,omitempty"`
-	TopicArn          string            `json:"topicArn"`
+	CreationTimestamp time.Time                   `json:"creationTimestamp"`
+	Attributes        map[string]string           `json:"attributes,omitempty"`
+	Permissions       map[string]*TopicPermission `json:"permissions,omitempty"`
+	TopicArn          string                      `json:"topicArn"`
 }
 
 // Subscription represents an SNS subscription.
@@ -22,6 +38,8 @@ type Subscription struct {
 	Owner               string    `json:"owner"`
 	FilterPolicy        string    `json:"filterPolicy,omitempty"`
 	RedrivePolicy       string    `json:"redrivePolicy,omitempty"`
+	SubscriptionRoleArn string    `json:"subscriptionRoleArn,omitempty"`
+	FilterPolicyScope   string    `json:"filterPolicyScope,omitempty"`
 	RawMessageDelivery  bool      `json:"rawMessageDelivery,omitempty"`
 	PendingConfirmation bool      `json:"pendingConfirmation"`
 }
@@ -364,5 +382,155 @@ type ListEndpointsByPlatformApplicationResponse struct {
 // DeleteEndpointResponse is the XML response for DeleteEndpoint.
 type DeleteEndpointResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ DeleteEndpointResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// AddPermissionResponse is the XML response for AddPermission.
+type AddPermissionResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ AddPermissionResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// CheckIfPhoneNumberIsOptedOutResult holds the result of CheckIfPhoneNumberIsOptedOut.
+type CheckIfPhoneNumberIsOptedOutResult struct {
+	IsOptedOut bool `xml:"isOptedOut"`
+}
+
+// CheckIfPhoneNumberIsOptedOutResponse is the XML response for CheckIfPhoneNumberIsOptedOut.
+type CheckIfPhoneNumberIsOptedOutResponse struct {
+	XMLName                            xml.Name                           `xml:"https://sns.amazonaws.com/doc/2010-03-31/ CheckIfPhoneNumberIsOptedOutResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata                   ResponseMetadata                   `xml:"ResponseMetadata"`
+	CheckIfPhoneNumberIsOptedOutResult CheckIfPhoneNumberIsOptedOutResult `xml:"CheckIfPhoneNumberIsOptedOutResult"`
+}
+
+// CreateSMSSandboxPhoneNumberResponse is the XML response for CreateSMSSandboxPhoneNumber.
+type CreateSMSSandboxPhoneNumberResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ CreateSMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// DeleteSMSSandboxPhoneNumberResponse is the XML response for DeleteSMSSandboxPhoneNumber.
+type DeleteSMSSandboxPhoneNumberResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ DeleteSMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// GetDataProtectionPolicyResult holds the result of GetDataProtectionPolicy.
+type GetDataProtectionPolicyResult struct {
+	DataProtectionPolicy string `xml:"DataProtectionPolicy"`
+}
+
+// GetDataProtectionPolicyResponse is the XML response for GetDataProtectionPolicy.
+type GetDataProtectionPolicyResponse struct {
+	XMLName                       xml.Name                      `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetDataProtectionPolicyResponse"` //nolint:lll // XML namespace.
+	GetDataProtectionPolicyResult GetDataProtectionPolicyResult `xml:"GetDataProtectionPolicyResult"`
+	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
+}
+
+// GetSMSAttributesResult holds the result of GetSMSAttributes.
+type GetSMSAttributesResult struct {
+	Attributes []XMLAttributeEntry `xml:"attributes>entry"`
+}
+
+// GetSMSAttributesResponse is the XML response for GetSMSAttributes.
+type GetSMSAttributesResponse struct {
+	XMLName                xml.Name               `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSMSAttributesResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
+	GetSMSAttributesResult GetSMSAttributesResult `xml:"GetSMSAttributesResult"`
+}
+
+// GetSMSSandboxAccountStatusResult holds the result of GetSMSSandboxAccountStatus.
+type GetSMSSandboxAccountStatusResult struct {
+	IsInSandbox bool `xml:"IsInSandbox"`
+}
+
+// GetSMSSandboxAccountStatusResponse is the XML response for GetSMSSandboxAccountStatus.
+type GetSMSSandboxAccountStatusResponse struct {
+	XMLName                          xml.Name                         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSMSSandboxAccountStatusResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata                 ResponseMetadata                 `xml:"ResponseMetadata"`
+	GetSMSSandboxAccountStatusResult GetSMSSandboxAccountStatusResult `xml:"GetSMSSandboxAccountStatusResult"`
+}
+
+// XMLOriginationPhone is the XML representation of an origination phone number.
+type XMLOriginationPhone struct {
+	PhoneNumber        string   `xml:"PhoneNumber"`
+	Iso2CountryCode    string   `xml:"Iso2CountryCode"`
+	RouteType          string   `xml:"RouteType"`
+	NumberCapabilities []string `xml:"NumberCapabilities>member"`
+}
+
+// ListOriginationNumbersResult holds the result of ListOriginationNumbers.
+type ListOriginationNumbersResult struct {
+	NextToken    string                `xml:"NextToken"`
+	PhoneNumbers []XMLOriginationPhone `xml:"PhoneNumbers>member"`
+}
+
+// ListOriginationNumbersResponse is the XML response for ListOriginationNumbers.
+type ListOriginationNumbersResponse struct {
+	XMLName                      xml.Name                     `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListOriginationNumbersResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata             ResponseMetadata             `xml:"ResponseMetadata"`
+	ListOriginationNumbersResult ListOriginationNumbersResult `xml:"ListOriginationNumbersResult"`
+}
+
+// ListPhoneNumbersOptedOutResult holds the result of ListPhoneNumbersOptedOut.
+type ListPhoneNumbersOptedOutResult struct {
+	NextToken    string   `xml:"nextToken"`
+	PhoneNumbers []string `xml:"phoneNumbers>member"`
+}
+
+// ListPhoneNumbersOptedOutResponse is the XML response for ListPhoneNumbersOptedOut.
+type ListPhoneNumbersOptedOutResponse struct {
+	XMLName                        xml.Name                       `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListPhoneNumbersOptedOutResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata               ResponseMetadata               `xml:"ResponseMetadata"`
+	ListPhoneNumbersOptedOutResult ListPhoneNumbersOptedOutResult `xml:"ListPhoneNumbersOptedOutResult"`
+}
+
+// XMLSandboxPhoneNumber is the XML representation of a sandbox phone number entry.
+type XMLSandboxPhoneNumber struct {
+	PhoneNumber  string `xml:"PhoneNumber"`
+	LanguageCode string `xml:"LanguageCode,omitempty"`
+	Status       string `xml:"Status"`
+}
+
+// ListSMSSandboxPhoneNumbersResult holds the result of ListSMSSandboxPhoneNumbers.
+type ListSMSSandboxPhoneNumbersResult struct {
+	NextToken    string                  `xml:"NextToken"`
+	PhoneNumbers []XMLSandboxPhoneNumber `xml:"PhoneNumbers>member"`
+}
+
+// ListSMSSandboxPhoneNumbersResponse is the XML response for ListSMSSandboxPhoneNumbers.
+type ListSMSSandboxPhoneNumbersResponse struct {
+	XMLName                          xml.Name                         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListSMSSandboxPhoneNumbersResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata                 ResponseMetadata                 `xml:"ResponseMetadata"`
+	ListSMSSandboxPhoneNumbersResult ListSMSSandboxPhoneNumbersResult `xml:"ListSMSSandboxPhoneNumbersResult"`
+}
+
+// RemovePermissionResponse is the XML response for RemovePermission.
+type RemovePermissionResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ RemovePermissionResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// OptInPhoneNumberResponse is the XML response for OptInPhoneNumber.
+type OptInPhoneNumberResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ OptInPhoneNumberResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// VerifySMSSandboxPhoneNumberResponse is the XML response for VerifySMSSandboxPhoneNumber.
+type VerifySMSSandboxPhoneNumberResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ VerifySMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SetSMSAttributesResponse is the XML response for SetSMSAttributes.
+type SetSMSAttributesResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetSMSAttributesResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// PutDataProtectionPolicyResponse is the XML response for PutDataProtectionPolicy.
+type PutDataProtectionPolicyResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ PutDataProtectionPolicyResponse"` //nolint:lll // XML namespace.
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
