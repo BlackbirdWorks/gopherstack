@@ -43,9 +43,11 @@ var (
 const (
 	pageSize = 25
 
-	attrFilterPolicy       = "FilterPolicy"
-	attrRawMessageDelivery = "RawMessageDelivery"
-	attrRedrivePolicy      = "RedrivePolicy"
+	attrFilterPolicy        = "FilterPolicy"
+	attrRawMessageDelivery  = "RawMessageDelivery"
+	attrRedrivePolicy       = "RedrivePolicy"
+	attrSubscriptionRoleArn = "SubscriptionRoleArn"
+	attrFilterPolicyScope   = "FilterPolicyScope"
 
 	// platformARNResourceParts is the expected number of slash-delimited parts
 	// in a platform application ARN resource component: "app/{Platform}/{AppName}".
@@ -87,6 +89,20 @@ const (
 
 	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
 	defaultListOptedOutResults = 100
+
+	// maxPublishBatchEntries is the maximum number of entries per PublishBatch request.
+	// This matches the AWS SNS service limit.
+	maxPublishBatchEntries = 10
+
+	// maxTopicNameLen is the maximum length of an SNS topic name.
+	maxTopicNameLen = 256
+
+	// fifoTopicSuffix is the required suffix for FIFO topic names.
+	fifoTopicSuffix = ".fifo"
+
+	// computedTopicAttrCount is the number of computed attributes added to GetTopicAttributes
+	// output beyond stored attributes: Owner, SubscriptionsConfirmed, SubscriptionsPending.
+	computedTopicAttrCount = 3
 )
 
 // isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
@@ -103,6 +119,32 @@ func isValidSMSAttributeName(name string) bool {
 	default:
 		return false
 	}
+}
+
+// isValidTopicName returns true if the topic name is non-empty, at most 256 characters,
+// consists only of alphanumeric characters, hyphens, and underscores, and if it is a
+// FIFO topic (ending in ".fifo") the base name (before the suffix) follows the same rules.
+// Source: https://docs.aws.amazon.com/sns/latest/api/API_CreateTopic.html
+func isValidTopicName(name string) bool {
+	if name == "" || len(name) > maxTopicNameLen {
+		return false
+	}
+
+	base := name
+	if strings.HasSuffix(name, fifoTopicSuffix) {
+		base = name[:len(name)-len(fifoTopicSuffix)]
+		if base == "" {
+			return false
+		}
+	}
+
+	for _, c := range base {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -250,6 +292,13 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 // CreateTopicInRegion creates a new SNS topic in the specified region.
 // If region is empty, the backend's default region is used.
 func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error) {
+	if !isValidTopicName(name) {
+		return nil, fmt.Errorf(
+			"%w: Topic name must be 1-256 characters and contain only alphanumeric characters, hyphens, and underscores",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.mu.Lock("CreateTopicInRegion")
 	defer b.mu.Unlock()
 
@@ -269,6 +318,14 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
 		attrs["Policy"] = defaultPolicyJSON
+	}
+
+	// FIFO topics: auto-set FifoTopic=true and ContentBasedDeduplication if not already set.
+	if strings.HasSuffix(name, fifoTopicSuffix) {
+		attrs["FifoTopic"] = "true"
+		if attrs["ContentBasedDeduplication"] == "" {
+			attrs["ContentBasedDeduplication"] = "false"
+		}
 	}
 
 	topic := &Topic{
@@ -335,7 +392,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 		return nil, ErrTopicNotFound
 	}
 
-	attrs := make(map[string]string, len(topic.Attributes))
+	attrs := make(map[string]string, len(topic.Attributes)+computedTopicAttrCount)
 	maps.Copy(attrs, topic.Attributes)
 
 	// Ensure Policy is always a valid JSON string with an empty Statement array so
@@ -343,6 +400,29 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	if attrs["Policy"] == "" {
 		attrs["Policy"] = defaultPolicyJSON
 	}
+
+	// Populate computed attributes that AWS returns but we store dynamically.
+	if attrs["Owner"] == "" {
+		attrs["Owner"] = b.accountID
+	}
+
+	// Count subscriptions for this topic.
+	confirmed, pending := 0, 0
+
+	for _, sub := range b.subscriptions {
+		if sub.TopicArn != topicArn {
+			continue
+		}
+
+		if sub.PendingConfirmation {
+			pending++
+		} else {
+			confirmed++
+		}
+	}
+
+	attrs["SubscriptionsConfirmed"] = strconv.Itoa(confirmed)
+	attrs["SubscriptionsPending"] = strconv.Itoa(pending)
 
 	return attrs, nil
 }
@@ -364,6 +444,11 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 
 // Subscribe creates a new subscription for the given topic, protocol, and endpoint.
 func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
+	// Validate SMS endpoint is a valid E.164 phone number.
+	if protocol == "sms" && !isValidE164(endpoint) {
+		return nil, fmt.Errorf("%w: Endpoint must be in E.164 format for SMS protocol", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("Subscribe")
 	defer b.mu.Unlock()
 
@@ -458,6 +543,14 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		attrs[attrRedrivePolicy] = sub.RedrivePolicy
 	}
 
+	if sub.SubscriptionRoleArn != "" {
+		attrs[attrSubscriptionRoleArn] = sub.SubscriptionRoleArn
+	}
+
+	if sub.FilterPolicyScope != "" {
+		attrs[attrFilterPolicyScope] = sub.FilterPolicyScope
+	}
+
 	return attrs, nil
 }
 
@@ -478,6 +571,17 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.FilterPolicy = attrValue
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
+	case attrSubscriptionRoleArn:
+		sub.SubscriptionRoleArn = attrValue
+	case attrFilterPolicyScope:
+		if attrValue != "MessageBody" && attrValue != "MessageAttributes" {
+			return fmt.Errorf(
+				"%w: FilterPolicyScope must be MessageBody or MessageAttributes",
+				ErrInvalidParameter,
+			)
+		}
+
+		sub.FilterPolicyScope = attrValue
 	default:
 		return ErrInvalidParameter
 	}

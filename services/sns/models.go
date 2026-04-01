@@ -38,6 +38,8 @@ type Subscription struct {
 	Owner               string    `json:"owner"`
 	FilterPolicy        string    `json:"filterPolicy,omitempty"`
 	RedrivePolicy       string    `json:"redrivePolicy,omitempty"`
+	SubscriptionRoleArn string    `json:"subscriptionRoleArn,omitempty"`
+	FilterPolicyScope   string    `json:"filterPolicyScope,omitempty"`
 	RawMessageDelivery  bool      `json:"rawMessageDelivery,omitempty"`
 	PendingConfirmation bool      `json:"pendingConfirmation"`
 }

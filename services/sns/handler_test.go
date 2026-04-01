@@ -4500,3 +4500,359 @@ func TestSNS_MaxResultsListSandbox(t *testing.T) {
 		})
 	}
 }
+
+// TestSNS_FIFOTopic validates that FIFO topic names are accepted and attributes auto-set.
+func TestSNS_FIFOTopic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		topicName string
+		wantFifo  bool
+		wantErr   bool
+	}{
+		{
+			name:      "standard_topic",
+			topicName: "my-topic",
+			wantFifo:  false,
+		},
+		{
+			name:      "fifo_topic",
+			topicName: "my-topic.fifo",
+			wantFifo:  true,
+		},
+		{
+			name:      "invalid_name_too_long",
+			topicName: strings.Repeat("a", sns.ExportedMaxTopicNameLen+1),
+			wantErr:   true,
+		},
+		{
+			name:      "invalid_name_special_chars",
+			topicName: "my topic!",
+			wantErr:   true,
+		},
+		{
+			name:      "empty_name",
+			topicName: "",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topic, err := b.CreateTopic(tt.topicName, nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			attrs, err := b.GetTopicAttributes(topic.TopicArn)
+			require.NoError(t, err)
+
+			if tt.wantFifo {
+				assert.Equal(t, "true", attrs["FifoTopic"])
+				assert.Equal(t, "false", attrs["ContentBasedDeduplication"])
+			} else {
+				assert.Empty(t, attrs["FifoTopic"])
+			}
+		})
+	}
+}
+
+// TestSNS_SubscribeProtocols validates that all supported protocols are accepted and unsupported ones rejected.
+func TestSNS_SubscribeProtocols(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		protocol   string
+		wantStatus int
+	}{
+		{name: "http", protocol: "http", wantStatus: http.StatusOK},
+		{name: "https", protocol: "https", wantStatus: http.StatusOK},
+		{name: "email", protocol: "email", wantStatus: http.StatusOK},
+		{name: "email_json", protocol: "email-json", wantStatus: http.StatusOK},
+		{name: "sqs", protocol: "sqs", wantStatus: http.StatusOK},
+		{name: "lambda", protocol: "lambda", wantStatus: http.StatusOK},
+		{name: "sms", protocol: "sms", wantStatus: http.StatusOK},
+		{name: "application", protocol: "application", wantStatus: http.StatusOK},
+		{name: "firehose", protocol: "firehose", wantStatus: http.StatusOK},
+		{name: "invalid", protocol: "ftp", wantStatus: http.StatusBadRequest},
+		{name: "empty", protocol: "", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := mustCreateTopic(t, b, "proto-test")
+
+			form := url.Values{
+				"Action":   {"Subscribe"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {topicArn},
+				"Protocol": {tt.protocol},
+				"Endpoint": {"arn:aws:sqs:us-east-1:123456789012:my-queue"},
+			}
+			if tt.protocol == "sms" {
+				form["Endpoint"] = []string{"+12125551234"}
+			}
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestSNS_SubscribeSMSEndpointValidation validates that SMS subscriptions require E.164 endpoint.
+func TestSNS_SubscribeSMSEndpointValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		endpoint   string
+		wantStatus int
+	}{
+		{
+			name:       "valid_e164",
+			endpoint:   "+12125551234",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_no_plus",
+			endpoint:   "12125551234",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_letters",
+			endpoint:   "+1212ABCD",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := mustCreateTopic(t, b, "sms-val-topic")
+
+			rec := snsPost(t, h, url.Values{
+				"Action":   {"Subscribe"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {topicArn},
+				"Protocol": {"sms"},
+				"Endpoint": {tt.endpoint},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestSNS_ReturnSubscriptionArn validates that ReturnSubscriptionArn=true returns the real ARN.
+func TestSNS_ReturnSubscriptionArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		protocol       string
+		returnSubArn   string
+		wantPendingStr bool
+	}{
+		{
+			name:           "http_without_flag_returns_pending",
+			protocol:       "http",
+			returnSubArn:   "false",
+			wantPendingStr: true,
+		},
+		{
+			name:           "http_with_flag_returns_real_arn",
+			protocol:       "http",
+			returnSubArn:   "true",
+			wantPendingStr: false,
+		},
+		{
+			name:           "sqs_always_returns_real_arn",
+			protocol:       "sqs",
+			returnSubArn:   "false",
+			wantPendingStr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := mustCreateTopic(t, b, "ret-sub-arn-topic")
+
+			form := url.Values{
+				"Action":                {"Subscribe"},
+				"Version":               {"2010-03-31"},
+				"TopicArn":              {topicArn},
+				"Protocol":              {tt.protocol},
+				"Endpoint":              {"https://example.com/endpoint"},
+				"ReturnSubscriptionArn": {tt.returnSubArn},
+			}
+			if tt.protocol == "sqs" {
+				form["Endpoint"] = []string{"arn:aws:sqs:us-east-1:123:queue"}
+			}
+
+			rec := snsPost(t, h, form)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			if tt.wantPendingStr {
+				assert.Contains(t, rec.Body.String(), "PendingConfirmation")
+			} else {
+				assert.NotContains(t, rec.Body.String(), "PendingConfirmation")
+				assert.Contains(t, rec.Body.String(), "arn:aws:sns:")
+			}
+		})
+	}
+}
+
+// TestSNS_PublishBatchMaxEntries validates the 10-entry limit for PublishBatch.
+func TestSNS_PublishBatchMaxEntries(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	topicArn := mustCreateTopic(t, b, "batch-limit-topic")
+
+	// Build a form with 11 entries (exceeding the 10-entry limit).
+	form := url.Values{
+		"Action":   {"PublishBatch"},
+		"Version":  {"2010-03-31"},
+		"TopicArn": {topicArn},
+	}
+
+	for i := 1; i <= sns.ExportedMaxPublishBatchEntries+1; i++ {
+		form[fmt.Sprintf("PublishBatchRequestEntries.member.%d.Id", i)] = []string{fmt.Sprintf("id%d", i)}
+		form[fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)] = []string{"msg"}
+	}
+
+	rec := snsPost(t, h, form)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TooManyEntriesInBatchRequest")
+}
+
+// TestSNS_GetTopicAttributesComputed validates that GetTopicAttributes returns computed attributes.
+func TestSNS_GetTopicAttributesComputed(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	topic, err := b.CreateTopic("computed-attrs-topic", nil)
+	require.NoError(t, err)
+
+	// Before any subscriptions: counts should be zero.
+	attrs, err := b.GetTopicAttributes(topic.TopicArn)
+	require.NoError(t, err)
+	assert.Equal(t, "0", attrs["SubscriptionsConfirmed"])
+	assert.Equal(t, "0", attrs["SubscriptionsPending"])
+	assert.NotEmpty(t, attrs["Owner"])
+
+	// Add an http subscription (PendingConfirmation=true) and an sqs subscription (confirmed).
+	_, err = b.Subscribe(topic.TopicArn, "http", "https://example.com", "")
+	require.NoError(t, err)
+	_, err = b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:123:queue", "")
+	require.NoError(t, err)
+
+	attrs, err = b.GetTopicAttributes(topic.TopicArn)
+	require.NoError(t, err)
+	assert.Equal(t, "1", attrs["SubscriptionsConfirmed"])
+	assert.Equal(t, "1", attrs["SubscriptionsPending"])
+}
+
+// TestSNS_SetSubscriptionAttributesExtended validates SubscriptionRoleArn and FilterPolicyScope.
+func TestSNS_SetSubscriptionAttributesExtended(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		attrName  string
+		attrValue string
+		wantErr   bool
+	}{
+		{
+			name:      "set_subscription_role_arn",
+			attrName:  "SubscriptionRoleArn",
+			attrValue: "arn:aws:iam::123456789012:role/MyRole",
+		},
+		{
+			name:      "set_filter_policy_scope_message_body",
+			attrName:  "FilterPolicyScope",
+			attrValue: "MessageBody",
+		},
+		{
+			name:      "set_filter_policy_scope_message_attributes",
+			attrName:  "FilterPolicyScope",
+			attrValue: "MessageAttributes",
+		},
+		{
+			name:      "invalid_filter_policy_scope",
+			attrName:  "FilterPolicyScope",
+			attrValue: "InvalidValue",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topic, err := b.CreateTopic("ext-attrs-topic", nil)
+			require.NoError(t, err)
+			sub, err := b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:123:q", "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, tt.attrName, tt.attrValue)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+
+			attrs, err := b.GetSubscriptionAttributes(sub.SubscriptionArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.attrValue, attrs[tt.attrName])
+		})
+	}
+}
+
+// TestSNS_TopicNameValidation validates CreateTopic name format rules.
+func TestSNS_TopicNameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		topicName string
+		wantValid bool
+	}{
+		{name: "valid_alphanumeric", topicName: "MyTopic123", wantValid: true},
+		{name: "valid_with_hyphen", topicName: "my-topic", wantValid: true},
+		{name: "valid_with_underscore", topicName: "my_topic", wantValid: true},
+		{name: "valid_fifo", topicName: "my-topic.fifo", wantValid: true},
+		{name: "max_length", topicName: strings.Repeat("a", sns.ExportedMaxTopicNameLen), wantValid: true},
+		{name: "too_long", topicName: strings.Repeat("a", sns.ExportedMaxTopicNameLen+1), wantValid: false},
+		{name: "empty", topicName: "", wantValid: false},
+		{name: "space", topicName: "my topic", wantValid: false},
+		{name: "dot_only_fifo", topicName: ".fifo", wantValid: false},
+		{name: "special_chars", topicName: "my!topic", wantValid: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.wantValid, sns.IsValidTopicNameForTest(tt.topicName))
+		})
+	}
+}

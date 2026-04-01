@@ -384,7 +384,7 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 
 	validProtocols := map[string]bool{
 		"email": true, "email-json": true, "http": true, "https": true,
-		"sqs": true, "lambda": true, "sms": true,
+		"sqs": true, "lambda": true, "sms": true, "application": true, "firehose": true,
 	}
 	if !validProtocols[protocol] {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
@@ -413,8 +413,11 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 		}
 	}
 
+	// AWS: when ReturnSubscriptionArn is true, always return the real ARN
+	// even for pending http/https subscriptions.
+	returnArn := strings.EqualFold(c.Request().FormValue("ReturnSubscriptionArn"), "true")
 	subArn := sub.SubscriptionArn
-	if sub.PendingConfirmation {
+	if sub.PendingConfirmation && !returnArn {
 		subArn = "PendingConfirmation"
 	}
 
@@ -536,11 +539,20 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PublishBatchRequestEntries is required")
 	}
 
+	if len(entries) > maxPublishBatchEntries {
+		msg := fmt.Sprintf(
+			"The batch request contains more entries than permissible. Maximum is %d.",
+			maxPublishBatchEntries,
+		)
+
+		return h.writeError(c, http.StatusBadRequest, "TooManyEntriesInBatchRequest", msg)
+	}
+
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
 	failed := make([]XMLPublishBatchFailEntry, 0)
 
 	for _, entry := range entries {
-		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "", nil)
+		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "" /* messageStructure */, entry.attrs)
 		if err != nil {
 			failed = append(failed, XMLPublishBatchFailEntry{
 				ID:          entry.id,
@@ -1304,23 +1316,30 @@ func extractFilterPolicy(form url.Values) string {
 
 // extractMessageAttributes reads MessageAttributes.entry.N.Name/Value pairs from the form.
 func extractMessageAttributes(form url.Values) map[string]MessageAttribute {
+	return extractMessageAttributesWithPrefix(form, "MessageAttributes.")
+}
+
+// extractMessageAttributesWithPrefix reads MessageAttributes from form values using the
+// given prefix (e.g. "MessageAttributes." or "PublishBatchRequestEntries.member.1.").
+func extractMessageAttributesWithPrefix(form url.Values, prefix string) map[string]MessageAttribute {
 	attrs := make(map[string]MessageAttribute)
 
 	for i := 1; ; i++ {
-		name := form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Name", i))
+		name := form.Get(fmt.Sprintf("%sentry.%d.Name", prefix, i))
 		if name == "" {
 			return attrs
 		}
 
 		attrs[name] = MessageAttribute{
-			DataType:    form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.DataType", i)),
-			StringValue: form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.StringValue", i)),
+			DataType:    form.Get(fmt.Sprintf("%sentry.%d.Value.DataType", prefix, i)),
+			StringValue: form.Get(fmt.Sprintf("%sentry.%d.Value.StringValue", prefix, i)),
 		}
 	}
 }
 
 // batchEntry holds a single parsed PublishBatch entry.
 type batchEntry struct {
+	attrs   map[string]MessageAttribute
 	id      string
 	message string
 	subject string
@@ -1355,10 +1374,15 @@ func extractBatchEntries(form url.Values) []batchEntry {
 			return entries
 		}
 
+		// Extract per-entry MessageAttributes.
+		prefix := fmt.Sprintf("PublishBatchRequestEntries.member.%d.", i)
+		attrs := extractMessageAttributesWithPrefix(form, prefix)
+
 		entries = append(entries, batchEntry{
 			id:      id,
 			message: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
 			subject: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
+			attrs:   attrs,
 		})
 	}
 }
