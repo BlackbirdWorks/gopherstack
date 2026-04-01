@@ -23,6 +23,7 @@ var (
 	ErrCertNotFound     = errors.New("ResourceNotFoundException")
 	ErrInvalidParameter = errors.New("ValidationException")
 	ErrNotEligible      = errors.New("RequestError")
+	ErrAlreadyRevoked   = errors.New("InvalidStateException")
 	errInvalidPEM       = errors.New("failed to decode PEM block")
 )
 
@@ -31,12 +32,18 @@ const (
 	validationMethodEMAIL   = "EMAIL"
 	statusPendingValidation = "PENDING_VALIDATION"
 	statusIssued            = "ISSUED"
+	statusRevoked           = "REVOKED"
 	validationStatusSuccess = "SUCCESS"
 	validationTokenLen      = 8
 	autoValidateDelayMS     = 100
 	randByteDivisor         = 2
 	certTypeImported        = "IMPORTED"
 	certValidityDuration    = 365 * 24 * time.Hour
+
+	defaultDaysBeforeExpiry = int32(45)
+
+	transparencyLoggingEnabled  = "ENABLED"
+	transparencyLoggingDisabled = "DISABLED"
 )
 
 // ResourceRecord holds the CNAME record used for DNS certificate validation.
@@ -57,20 +64,28 @@ type DomainValidationOption struct {
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	CreatedAt               time.Time                `json:"createdAt"`
-	NotBefore               time.Time                `json:"notBefore"`
-	NotAfter                time.Time                `json:"notAfter"`
-	ARN                     string                   `json:"arn"`
-	DomainName              string                   `json:"domainName"`
-	Status                  string                   `json:"status"`
-	Type                    string                   `json:"type"`
-	RenewalEligibility      string                   `json:"renewalEligibility,omitempty"`
-	ValidationMethod        string                   `json:"validationMethod,omitempty"`
-	CertificateBody         string                   `json:"certificateBody,omitempty"`
-	CertificateChain        string                   `json:"certificateChain,omitempty"`
-	PrivateKey              string                   `json:"privateKey,omitempty"`
-	SubjectAlternativeNames []string                 `json:"subjectAlternativeNames,omitempty"`
-	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+	RevokedAt                          *time.Time               `json:"revokedAt,omitempty"`
+	CreatedAt                          time.Time                `json:"createdAt"`
+	NotBefore                          time.Time                `json:"notBefore"`
+	NotAfter                           time.Time                `json:"notAfter"`
+	ARN                                string                   `json:"arn"`
+	DomainName                         string                   `json:"domainName"`
+	Status                             string                   `json:"status"`
+	Type                               string                   `json:"type"`
+	RevocationReason                   string                   `json:"revocationReason,omitempty"`
+	RenewalEligibility                 string                   `json:"renewalEligibility,omitempty"`
+	ValidationMethod                   string                   `json:"validationMethod,omitempty"`
+	CertificateBody                    string                   `json:"certificateBody,omitempty"`
+	CertificateChain                   string                   `json:"certificateChain,omitempty"`
+	PrivateKey                         string                   `json:"privateKey,omitempty"`
+	CertificateTransparencyLoggingPref string                   `json:"certTransparencyLoggingPref,omitempty"`
+	SubjectAlternativeNames            []string                 `json:"subjectAlternativeNames,omitempty"`
+	DomainValidationOptions            []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+}
+
+// AccountConfig holds account-level ACM configuration.
+type AccountConfig struct {
+	DaysBeforeExpiry int32 `json:"daysBeforeExpiry"`
 }
 
 const (
@@ -80,21 +95,25 @@ const (
 
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
-	timers    map[string]*time.Timer // pending autoValidate timers keyed by cert ARN
-	certs     map[string]*Certificate
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	timers         map[string]*time.Timer
+	certs          map[string]*Certificate
+	idempotencyMap map[string]struct{}
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
+	accountConfig  AccountConfig
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		certs:     make(map[string]*Certificate),
-		timers:    make(map[string]*time.Timer),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("acm"),
+		certs:          make(map[string]*Certificate),
+		timers:         make(map[string]*time.Timer),
+		idempotencyMap: make(map[string]struct{}),
+		accountID:      accountID,
+		region:         region,
+		mu:             lockmetrics.New("acm"),
+		accountConfig:  AccountConfig{DaysBeforeExpiry: defaultDaysBeforeExpiry},
 	}
 }
 
@@ -530,4 +549,180 @@ func (b *InMemoryBackend) Reset() {
 
 	b.certs = make(map[string]*Certificate)
 	b.timers = make(map[string]*time.Timer)
+	b.idempotencyMap = make(map[string]struct{})
+	b.accountConfig = AccountConfig{DaysBeforeExpiry: defaultDaysBeforeExpiry}
+}
+
+// GetAccountConfiguration returns the account-level ACM configuration.
+func (b *InMemoryBackend) GetAccountConfiguration() AccountConfig {
+	b.mu.RLock("GetAccountConfiguration")
+	defer b.mu.RUnlock()
+
+	return b.accountConfig
+}
+
+// PutAccountConfiguration stores the account-level ACM configuration.
+// idempotencyToken must be non-empty; repeated calls with the same token within
+// the same backend lifetime are silently accepted (idempotent).
+func (b *InMemoryBackend) PutAccountConfiguration(idempotencyToken string, daysBeforeExpiry *int32) error {
+	if idempotencyToken == "" {
+		return fmt.Errorf("%w: IdempotencyToken is required", ErrInvalidParameter)
+	}
+
+	if daysBeforeExpiry != nil && *daysBeforeExpiry < 0 {
+		return fmt.Errorf("%w: DaysBeforeExpiry must be non-negative", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("PutAccountConfiguration")
+	defer b.mu.Unlock()
+
+	if _, seen := b.idempotencyMap[idempotencyToken]; seen {
+		return nil
+	}
+
+	b.idempotencyMap[idempotencyToken] = struct{}{}
+
+	if daysBeforeExpiry != nil {
+		b.accountConfig.DaysBeforeExpiry = *daysBeforeExpiry
+	} else {
+		b.accountConfig.DaysBeforeExpiry = defaultDaysBeforeExpiry
+	}
+
+	return nil
+}
+
+// ResendValidationEmail re-triggers the EMAIL validation flow for a certificate
+// that is still in PENDING_VALIDATION status with EMAIL validation method.
+func (b *InMemoryBackend) ResendValidationEmail(certARN, domain, validationDomain string) error {
+	if certARN == "" {
+		return fmt.Errorf("%w: CertificateArn is required", ErrInvalidParameter)
+	}
+
+	if domain == "" {
+		return fmt.Errorf("%w: Domain is required", ErrInvalidParameter)
+	}
+
+	if validationDomain == "" {
+		return fmt.Errorf("%w: ValidationDomain is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ResendValidationEmail")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status != statusPendingValidation {
+		return fmt.Errorf("%w: certificate is not in PENDING_VALIDATION status", ErrInvalidParameter)
+	}
+
+	if cert.ValidationMethod != validationMethodEMAIL {
+		return fmt.Errorf("%w: certificate was not requested with EMAIL validation", ErrInvalidParameter)
+	}
+
+	// Reset the auto-validate timer to simulate email resend triggering re-validation.
+	if t, exists := b.timers[certARN]; exists {
+		t.Stop()
+	}
+
+	t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })
+	b.timers[certARN] = t
+
+	return nil
+}
+
+// validRevocationReasons reports whether a given RevocationReason string is valid.
+func validRevocationReason(r string) bool {
+	switch r {
+	case "UNSPECIFIED", "KEY_COMPROMISE", "CA_COMPROMISE", "AFFILIATION_CHANGED",
+		"SUPERCEDED", "SUPERSEDED", "CESSATION_OF_OPERATION", "CERTIFICATE_HOLD",
+		"REMOVE_FROM_CRL", "PRIVILEGE_WITHDRAWN", "A_A_COMPROMISE":
+		return true
+	default:
+		return false
+	}
+}
+
+// RevokeCertificate marks the certificate as REVOKED with the given reason.
+// Returns ErrAlreadyRevoked if the certificate is already revoked.
+func (b *InMemoryBackend) RevokeCertificate(certARN, revocationReason string) error {
+	if certARN == "" {
+		return fmt.Errorf("%w: CertificateArn is required", ErrInvalidParameter)
+	}
+
+	if revocationReason == "" {
+		return fmt.Errorf("%w: RevocationReason is required", ErrInvalidParameter)
+	}
+
+	if !validRevocationReason(revocationReason) {
+		return fmt.Errorf("%w: invalid RevocationReason %q", ErrInvalidParameter, revocationReason)
+	}
+
+	b.mu.Lock("RevokeCertificate")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status == statusRevoked {
+		return fmt.Errorf("%w: certificate %s is already revoked", ErrAlreadyRevoked, certARN)
+	}
+
+	now := time.Now().UTC()
+	cert.Status = statusRevoked
+	cert.RevocationReason = revocationReason
+	cert.RevokedAt = &now
+
+	// Stop any pending auto-validate timer.
+	if t, exists := b.timers[certARN]; exists {
+		t.Stop()
+		delete(b.timers, certARN)
+	}
+
+	return nil
+}
+
+// validTransparencyPreference reports whether a given CertificateTransparencyLoggingPreference is valid.
+func validTransparencyPreference(p string) bool {
+	return p == transparencyLoggingEnabled || p == transparencyLoggingDisabled
+}
+
+// UpdateCertificateOptions sets the CertificateTransparencyLoggingPreference for
+// a certificate. Only ISSUED certificates may be updated.
+func (b *InMemoryBackend) UpdateCertificateOptions(certARN, transparencyLoggingPref string) error {
+	if certARN == "" {
+		return fmt.Errorf("%w: CertificateArn is required", ErrInvalidParameter)
+	}
+
+	if transparencyLoggingPref == "" {
+		return fmt.Errorf("%w: Options.CertificateTransparencyLoggingPreference is required", ErrInvalidParameter)
+	}
+
+	if !validTransparencyPreference(transparencyLoggingPref) {
+		return fmt.Errorf(
+			"%w: invalid CertificateTransparencyLoggingPreference %q",
+			ErrInvalidParameter,
+			transparencyLoggingPref,
+		)
+	}
+
+	b.mu.Lock("UpdateCertificateOptions")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status != statusIssued {
+		return fmt.Errorf("%w: only ISSUED certificates may have options updated", ErrInvalidParameter)
+	}
+
+	cert.CertificateTransparencyLoggingPref = transparencyLoggingPref
+
+	return nil
 }

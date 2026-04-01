@@ -47,16 +47,23 @@ type resourceRecord struct {
 }
 
 type certificateDetail struct {
+	RevokedAt               *int64                   `json:"RevokedAt,omitempty"`
 	CertificateArn          string                   `json:"CertificateArn"`
 	DomainName              string                   `json:"DomainName"`
 	Status                  string                   `json:"Status"`
 	Type                    string                   `json:"Type"`
+	RevocationReason        string                   `json:"RevocationReason,omitempty"`
 	RenewalEligibility      string                   `json:"RenewalEligibility,omitempty"`
+	Options                 *certificateOptions      `json:"Options,omitempty"`
 	SubjectAlternativeNames []string                 `json:"SubjectAlternativeNames,omitempty"`
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
 	CreatedAt               int64                    `json:"CreatedAt"`
 	NotBefore               int64                    `json:"NotBefore,omitempty"`
 	NotAfter                int64                    `json:"NotAfter,omitempty"`
+}
+
+type certificateOptions struct {
+	CertificateTransparencyLoggingPreference string `json:"CertificateTransparencyLoggingPreference,omitempty"`
 }
 
 type describeCertificateOutput struct {
@@ -151,6 +158,47 @@ type getCertificateOutput struct {
 	CertificateChain string `json:"CertificateChain,omitempty"`
 }
 
+type expiryEventsConfiguration struct {
+	DaysBeforeExpiry *int32 `json:"DaysBeforeExpiry,omitempty"`
+}
+
+type getAccountConfigurationOutput struct {
+	ExpiryEvents *expiryEventsConfiguration `json:"ExpiryEvents,omitempty"`
+}
+
+type putAccountConfigurationInput struct {
+	ExpiryEvents     *expiryEventsConfiguration `json:"ExpiryEvents,omitempty"`
+	IdempotencyToken string                     `json:"IdempotencyToken"`
+}
+
+type putAccountConfigurationOutput struct{}
+
+type resendValidationEmailInput struct {
+	CertificateArn   string `json:"CertificateArn"`
+	Domain           string `json:"Domain"`
+	ValidationDomain string `json:"ValidationDomain"`
+}
+
+type resendValidationEmailOutput struct{}
+
+type revokeCertificateInput struct {
+	CertificateArn   string `json:"CertificateArn"`
+	RevocationReason string `json:"RevocationReason"`
+}
+
+type revokeCertificateOutput struct{}
+
+type certificateOptionsInput struct {
+	CertificateTransparencyLoggingPreference string `json:"CertificateTransparencyLoggingPreference"`
+}
+
+type updateCertificateOptionsInput struct {
+	CertificateArn string                  `json:"CertificateArn"`
+	Options        certificateOptionsInput `json:"Options"`
+}
+
+type updateCertificateOptionsOutput struct{}
+
 // Handler is the Echo HTTP handler for ACM operations.
 type Handler struct {
 	Backend *InMemoryBackend
@@ -226,6 +274,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RenewCertificate",
 		"ExportCertificate",
 		"GetCertificate",
+		"GetAccountConfiguration",
+		"PutAccountConfiguration",
+		"ResendValidationEmail",
+		"RevokeCertificate",
+		"UpdateCertificateOptions",
 	}
 }
 
@@ -319,6 +372,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 var errUnknownACMAction = errors.New("unknown ACM action")
 
 // dispatchJSON routes a JSON-protocol ACM action to the appropriate handler.
+//
+//nolint:cyclop // dispatch table for 16 operations is inherently wide
 func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 	switch action {
 	case "RequestCertificate":
@@ -343,6 +398,16 @@ func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 		return h.jsonExportCertificate(body)
 	case "GetCertificate":
 		return h.jsonGetCertificate(body)
+	case "GetAccountConfiguration":
+		return h.jsonGetAccountConfiguration(body)
+	case "PutAccountConfiguration":
+		return h.jsonPutAccountConfiguration(body)
+	case "ResendValidationEmail":
+		return h.jsonResendValidationEmail(body)
+	case "RevokeCertificate":
+		return h.jsonRevokeCertificate(body)
+	case "UpdateCertificateOptions":
+		return h.jsonUpdateCertificateOptions(body)
 	default:
 		return nil, errUnknownACMAction
 	}
@@ -405,15 +470,19 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 			Status:                  cert.Status,
 			Type:                    cert.Type,
 			RenewalEligibility:      cert.RenewalEligibility,
+			RevocationReason:        cert.RevocationReason,
 			CreatedAt:               cert.CreatedAt.Unix(),
 			NotBefore:               cert.NotBefore.Unix(),
 			NotAfter:                cert.NotAfter.Unix(),
 			SubjectAlternativeNames: cert.SubjectAlternativeNames,
 			DomainValidationOptions: dvoList,
+			Options:                 describeCertOptions(cert),
+			RevokedAt:               certRevokedAtUnix(cert),
 		},
 	}, nil
 }
 
+// jsonListCertificates handles the ListCertificates operation.
 func (h *Handler) jsonListCertificates(body []byte) (any, error) {
 	var input listCertificatesInput
 	_ = json.Unmarshal(body, &input)
@@ -538,6 +607,98 @@ func (h *Handler) jsonGetCertificate(body []byte) (any, error) {
 	}, nil
 }
 
+// jsonGetAccountConfiguration handles the GetAccountConfiguration operation.
+func (h *Handler) jsonGetAccountConfiguration(_ []byte) (any, error) {
+	cfg := h.Backend.GetAccountConfiguration()
+	days := cfg.DaysBeforeExpiry
+
+	return &getAccountConfigurationOutput{
+		ExpiryEvents: &expiryEventsConfiguration{DaysBeforeExpiry: &days},
+	}, nil
+}
+
+func (h *Handler) jsonPutAccountConfiguration(body []byte) (any, error) {
+	var input putAccountConfigurationInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	var days *int32
+	if input.ExpiryEvents != nil {
+		days = input.ExpiryEvents.DaysBeforeExpiry
+	}
+
+	if err := h.Backend.PutAccountConfiguration(input.IdempotencyToken, days); err != nil {
+		return nil, err
+	}
+
+	return &putAccountConfigurationOutput{}, nil
+}
+
+func (h *Handler) jsonResendValidationEmail(body []byte) (any, error) {
+	var input resendValidationEmailInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.ResendValidationEmail(input.CertificateArn, input.Domain, input.ValidationDomain); err != nil {
+		return nil, err
+	}
+
+	return &resendValidationEmailOutput{}, nil
+}
+
+func (h *Handler) jsonRevokeCertificate(body []byte) (any, error) {
+	var input revokeCertificateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.RevokeCertificate(input.CertificateArn, input.RevocationReason); err != nil {
+		return nil, err
+	}
+
+	return &revokeCertificateOutput{}, nil
+}
+
+func (h *Handler) jsonUpdateCertificateOptions(body []byte) (any, error) {
+	var input updateCertificateOptionsInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.UpdateCertificateOptions(
+		input.CertificateArn,
+		input.Options.CertificateTransparencyLoggingPreference,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateCertificateOptionsOutput{}, nil
+}
+
+// describeCertOptions builds the Options response field if the cert has a transparency preference set.
+func describeCertOptions(cert *Certificate) *certificateOptions {
+	if cert.CertificateTransparencyLoggingPref == "" {
+		return nil
+	}
+
+	return &certificateOptions{
+		CertificateTransparencyLoggingPreference: cert.CertificateTransparencyLoggingPref,
+	}
+}
+
+// certRevokedAtUnix returns the Unix timestamp of RevokedAt or nil if not revoked.
+func certRevokedAtUnix(cert *Certificate) *int64 {
+	if cert.RevokedAt == nil {
+		return nil
+	}
+
+	ts := cert.RevokedAt.Unix()
+
+	return &ts
+}
+
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	statusCode := http.StatusBadRequest
 	var code string
@@ -548,6 +709,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "ValidationException"
 	case errors.Is(opErr, ErrNotEligible):
 		code = "RequestError"
+	case errors.Is(opErr, ErrAlreadyRevoked):
+		code = "InvalidStateException"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
