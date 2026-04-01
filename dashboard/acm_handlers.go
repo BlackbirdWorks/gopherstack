@@ -60,7 +60,7 @@ client = boto3.client('acm', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	certs := h.ACMOps.Backend.ListCertificates("", 0).Data
+	certs := h.ACMOps.Backend.ListCertificates("", 0, nil).Data
 	views := make([]acmCertView, 0, len(certs))
 
 	for _, cert := range certs {
@@ -123,7 +123,7 @@ func (h *DashboardHandler) acmRequestCertificate(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.ACMOps.Backend.RequestCertificate(domainName, "", "", nil); err != nil {
+	if _, err := h.ACMOps.Backend.RequestCertificate(domainName, "", "", "", "", nil); err != nil {
 		h.Logger.Error("failed to request ACM certificate", "domain", domainName, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

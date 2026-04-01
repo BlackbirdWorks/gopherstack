@@ -135,7 +135,9 @@ func TestACMHandler(t *testing.T) {
 				t.Helper()
 				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"tag-t1.com"}`)
 			},
-			body:     "", // will be replaced with real ARN in test runner
+			// body is empty: test runner will extract the ARN from the cert list and
+			// send {"CertificateArn": "<arn>"} — empty Tags is valid per AWS API.
+			body:     "",
 			wantCode: http.StatusOK,
 		},
 		{
@@ -145,7 +147,8 @@ func TestACMHandler(t *testing.T) {
 				t.Helper()
 				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"tag-t2.com"}`)
 			},
-			body:         "", // will be replaced with real ARN in test runner
+			// body is empty: test runner injects {"CertificateArn": "<arn>"}.
+			body:         "",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"Tags"},
 		},
@@ -156,7 +159,8 @@ func TestACMHandler(t *testing.T) {
 				t.Helper()
 				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"tag-t3.com"}`)
 			},
-			body:     "", // will be replaced with real ARN in test runner
+			// body is empty: test runner injects {"CertificateArn": "<arn>"}; empty Tags is valid.
+			body:     "",
 			wantCode: http.StatusOK,
 		},
 		{
