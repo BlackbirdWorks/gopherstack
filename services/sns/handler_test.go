@@ -3345,3 +3345,435 @@ func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 		require.FailNow(t, "oversized FilterPolicy should allow all messages through")
 	}
 }
+
+// TestSNS_SMSSandboxFlow validates the SMS sandbox lifecycle: create, list, check opt-out,
+// list opted-out, get sandbox status, and delete.
+func TestSNS_SMSSandboxFlow(t *testing.T) {
+	t.Parallel()
+
+	type operation string
+
+	const (
+		opCreate      operation = "create"
+		opDelete      operation = "delete"
+		opCheckOptOut operation = "check_opt_out"
+	)
+
+	tests := []struct {
+		setup        func(b *sns.InMemoryBackend)
+		wantErr      error
+		name         string
+		phone        string
+		op           operation
+		wantCount    int
+		wantOptedOut bool
+	}{
+		{
+			name:      "create_and_list",
+			op:        opCreate,
+			phone:     "+12125551234",
+			wantCount: 1,
+		},
+		{
+			name:    "invalid_e164_rejected",
+			op:      opCreate,
+			phone:   "12125551234",
+			wantErr: sns.ErrInvalidParameter,
+		},
+		{
+			name: "duplicate_rejected",
+			op:   opCreate,
+			setup: func(b *sns.InMemoryBackend) {
+				require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125559999", ""))
+			},
+			phone:   "+12125559999",
+			wantErr: sns.ErrSandboxPhoneAlreadyExists,
+		},
+		{
+			name:    "delete_not_found",
+			op:      opDelete,
+			phone:   "+19999999999",
+			wantErr: sns.ErrPhoneNumberNotFound,
+		},
+		{
+			name:         "opted_out_false_by_default",
+			op:           opCheckOptOut,
+			phone:        "+12125550001",
+			wantOptedOut: false,
+		},
+		{
+			name:    "check_opted_out_invalid_e164",
+			op:      opCheckOptOut,
+			phone:   "badnumber",
+			wantErr: sns.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			switch tt.op {
+			case opDelete:
+				err := b.DeleteSMSSandboxPhoneNumber(tt.phone)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+
+			case opCheckOptOut:
+				opted, err := b.CheckIfPhoneNumberIsOptedOut(tt.phone)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantOptedOut, opted)
+
+			default: // opCreate
+				err := b.CreateSMSSandboxPhoneNumber(tt.phone, "en-US")
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+
+				nums, _, listErr := b.ListSMSSandboxPhoneNumbers("")
+				require.NoError(t, listErr)
+				assert.Len(t, nums, tt.wantCount)
+			}
+		})
+	}
+}
+
+// TestSNS_SMSSandboxHandlerFlow validates SMS sandbox HTTP handler operations end-to-end.
+func TestSNS_SMSSandboxHandlerFlow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		action     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:   "create_sandbox_number",
+			action: "CreateSMSSandboxPhoneNumber",
+			form: url.Values{
+				"Action":      {"CreateSMSSandboxPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"PhoneNumber": {"+12125551111"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "CreateSMSSandboxPhoneNumberResponse",
+		},
+		{
+			name:   "create_sandbox_number_invalid_e164",
+			action: "CreateSMSSandboxPhoneNumber",
+			form: url.Values{
+				"Action":      {"CreateSMSSandboxPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"PhoneNumber": {"12125551111"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "list_sandbox_numbers",
+			action:     "ListSMSSandboxPhoneNumbers",
+			form:       url.Values{"Action": {"ListSMSSandboxPhoneNumbers"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "ListSMSSandboxPhoneNumbersResponse",
+		},
+		{
+			name:       "get_sandbox_status",
+			action:     "GetSMSSandboxAccountStatus",
+			form:       url.Values{"Action": {"GetSMSSandboxAccountStatus"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "GetSMSSandboxAccountStatusResponse",
+		},
+		{
+			name:   "check_opted_out_false",
+			action: "CheckIfPhoneNumberIsOptedOut",
+			form: url.Values{
+				"Action":      {"CheckIfPhoneNumberIsOptedOut"},
+				"Version":     {"2010-03-31"},
+				"phoneNumber": {"+12125551234"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "CheckIfPhoneNumberIsOptedOutResponse",
+		},
+		{
+			name:       "list_opted_out_empty",
+			action:     "ListPhoneNumbersOptedOut",
+			form:       url.Values{"Action": {"ListPhoneNumbersOptedOut"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "ListPhoneNumbersOptedOutResponse",
+		},
+		{
+			name:       "get_sms_attributes_empty",
+			action:     "GetSMSAttributes",
+			form:       url.Values{"Action": {"GetSMSAttributes"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "GetSMSAttributesResponse",
+		},
+		{
+			name:       "list_origination_numbers_empty",
+			action:     "ListOriginationNumbers",
+			form:       url.Values{"Action": {"ListOriginationNumbers"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusOK,
+			wantBody:   "ListOriginationNumbersResponse",
+		},
+		{
+			name:   "delete_sandbox_number_not_found",
+			action: "DeleteSMSSandboxPhoneNumber",
+			form: url.Values{
+				"Action":      {"DeleteSMSSandboxPhoneNumber"},
+				"Version":     {"2010-03-31"},
+				"PhoneNumber": {"+19999999999"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_sandbox_number_missing_param",
+			action:     "DeleteSMSSandboxPhoneNumber",
+			form:       url.Values{"Action": {"DeleteSMSSandboxPhoneNumber"}, "Version": {"2010-03-31"}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_TopicPermissions validates the AddPermission operation lifecycle.
+func TestSNS_TopicPermissions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr  error
+		setup    func(b *sns.InMemoryBackend) string
+		name     string
+		label    string
+		accounts []string
+		actions  []string
+	}{
+		{
+			name: "add_permission_success",
+			setup: func(b *sns.InMemoryBackend) string {
+				t, _ := b.CreateTopic("perm-topic", nil)
+
+				return t.TopicArn
+			},
+			label:    "allow-publish",
+			accounts: []string{"123456789012"},
+			actions:  []string{"Publish"},
+		},
+		{
+			name: "add_permission_duplicate_label",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("perm-topic-dup", nil)
+				b.AddPermission(tp.TopicArn, "my-label", []string{"123"}, []string{"Publish"})
+
+				return tp.TopicArn
+			},
+			label:    "my-label",
+			accounts: []string{"999"},
+			actions:  []string{"Subscribe"},
+			wantErr:  sns.ErrPermissionLabelExists,
+		},
+		{
+			name:     "add_permission_topic_not_found",
+			setup:    func(_ *sns.InMemoryBackend) string { return "arn:aws:sns:us-east-1:000000000000:missing" },
+			label:    "some-label",
+			accounts: []string{"123"},
+			actions:  []string{"Publish"},
+			wantErr:  sns.ErrTopicNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := tt.setup(b)
+
+			err := b.AddPermission(topicArn, tt.label, tt.accounts, tt.actions)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestSNS_TopicPermissionsHandler validates AddPermission HTTP handler.
+func TestSNS_TopicPermissionsHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "add_permission_success",
+			form: url.Values{
+				"Action":                {"AddPermission"},
+				"Version":               {"2010-03-31"},
+				"TopicArn":              {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+				"Label":                 {"allow-sub"},
+				"AWSAccountId.member.1": {"123456789012"},
+				"ActionName.member.1":   {"Publish"},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "AddPermissionResponse",
+		},
+		{
+			name: "add_permission_missing_topic_arn",
+			form: url.Values{
+				"Action":  {"AddPermission"},
+				"Version": {"2010-03-31"},
+				"Label":   {"x"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "add_permission_missing_label",
+			form: url.Values{
+				"Action":   {"AddPermission"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:perm-test"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			_, err := b.CreateTopic("perm-test", nil)
+			require.NoError(t, err)
+
+			rec := snsPost(t, h, tt.form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestSNS_GetDataProtectionPolicy validates the GetDataProtectionPolicy operation.
+func TestSNS_GetDataProtectionPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(b *sns.InMemoryBackend) string
+		name       string
+		wantPolicy string
+		wantStatus int
+	}{
+		{
+			name: "empty_policy",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("policy-topic", nil)
+
+				return tp.TopicArn
+			},
+			wantStatus: http.StatusOK,
+			wantPolicy: "",
+		},
+		{
+			name: "with_policy",
+			setup: func(b *sns.InMemoryBackend) string {
+				tp, _ := b.CreateTopic("policy-topic2", nil)
+				b.SetTopicAttributes(tp.TopicArn, "DataProtectionPolicy", `{"Version":"2021-06-01"}`)
+
+				return tp.TopicArn
+			},
+			wantStatus: http.StatusOK,
+			wantPolicy: "GetDataProtectionPolicyResponse",
+		},
+		{
+			name: "topic_not_found",
+			setup: func(_ *sns.InMemoryBackend) string {
+				return "arn:aws:sns:us-east-1:000000000000:missing"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			topicArn := tt.setup(b)
+
+			form := url.Values{
+				"Action":      {"GetDataProtectionPolicy"},
+				"Version":     {"2010-03-31"},
+				"ResourceArn": {topicArn},
+			}
+
+			rec := snsPost(t, h, form)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantPolicy != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantPolicy)
+			}
+		})
+	}
+}
+
+// TestSNS_PersistenceWithNewFields validates that Snapshot/Restore correctly round-trips
+// SMS sandbox and opted-out phone numbers.
+func TestSNS_PersistenceWithNewFields(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550001", ""))
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550002", ""))
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := sns.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(snap))
+
+	nums, _, err := b2.ListSMSSandboxPhoneNumbers("")
+	require.NoError(t, err)
+	assert.Len(t, nums, 2)
+}

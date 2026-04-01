@@ -60,33 +60,43 @@ func (h *Handler) Purge(cutoff time.Time) {
 // GetSupportedOperations returns the list of supported SNS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateTopic",
-		"DeleteTopic",
-		"ListTopics",
-		"GetTopicAttributes",
-		"SetTopicAttributes",
-		"Subscribe",
+		"AddPermission",
+		"CheckIfPhoneNumberIsOptedOut",
 		"ConfirmSubscription",
-		"Unsubscribe",
+		"CreatePlatformApplication",
+		"CreatePlatformEndpoint",
+		"CreateSMSSandboxPhoneNumber",
+		"CreateTopic",
+		"DeleteEndpoint",
+		"DeletePlatformApplication",
+		"DeleteSMSSandboxPhoneNumber",
+		"DeleteTopic",
+		"GetDataProtectionPolicy",
+		"GetEndpointAttributes",
+		"GetPlatformApplicationAttributes",
+		"GetSMSAttributes",
+		"GetSMSSandboxAccountStatus",
+		"GetSubscriptionAttributes",
+		"GetTopicAttributes",
+		"ListEndpointsByPlatformApplication",
+		"ListOriginationNumbers",
+		"ListPhoneNumbersOptedOut",
+		"ListPlatformApplications",
+		"ListSMSSandboxPhoneNumbers",
 		"ListSubscriptions",
 		"ListSubscriptionsByTopic",
+		"ListTagsForResource",
+		"ListTopics",
 		"Publish",
 		"PublishBatch",
-		"GetSubscriptionAttributes",
-		"SetSubscriptionAttributes",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		"CreatePlatformApplication",
-		"GetPlatformApplicationAttributes",
-		"SetPlatformApplicationAttributes",
-		"ListPlatformApplications",
-		"DeletePlatformApplication",
-		"CreatePlatformEndpoint",
-		"GetEndpointAttributes",
 		"SetEndpointAttributes",
-		"ListEndpointsByPlatformApplication",
-		"DeleteEndpoint",
+		"SetPlatformApplicationAttributes",
+		"SetSubscriptionAttributes",
+		"SetTopicAttributes",
+		"Subscribe",
+		"TagResource",
+		"Unsubscribe",
+		"UntagResource",
 	}
 }
 
@@ -221,33 +231,43 @@ func (h *Handler) dispatch(c *echo.Context, action string) error {
 // buildActions constructs the action dispatch table.
 func (h *Handler) buildActions() map[string]snsActionFn {
 	return map[string]snsActionFn{
-		"CreateTopic":                        h.handleCreateTopic,
-		"DeleteTopic":                        h.handleDeleteTopic,
-		"ListTopics":                         h.handleListTopics,
-		"GetTopicAttributes":                 h.handleGetTopicAttributes,
-		"SetTopicAttributes":                 h.handleSetTopicAttributes,
-		"Subscribe":                          h.handleSubscribe,
+		"AddPermission":                      h.handleAddPermission,
+		"CheckIfPhoneNumberIsOptedOut":       h.handleCheckIfPhoneNumberIsOptedOut,
 		"ConfirmSubscription":                h.handleConfirmSubscription,
-		"Unsubscribe":                        h.handleUnsubscribe,
+		"CreatePlatformApplication":          h.handleCreatePlatformApplication,
+		"CreatePlatformEndpoint":             h.handleCreatePlatformEndpoint,
+		"CreateSMSSandboxPhoneNumber":        h.handleCreateSMSSandboxPhoneNumber,
+		"CreateTopic":                        h.handleCreateTopic,
+		"DeleteEndpoint":                     h.handleDeleteEndpoint,
+		"DeletePlatformApplication":          h.handleDeletePlatformApplication,
+		"DeleteSMSSandboxPhoneNumber":        h.handleDeleteSMSSandboxPhoneNumber,
+		"DeleteTopic":                        h.handleDeleteTopic,
+		"GetDataProtectionPolicy":            h.handleGetDataProtectionPolicy,
+		"GetEndpointAttributes":              h.handleGetEndpointAttributes,
+		"GetPlatformApplicationAttributes":   h.handleGetPlatformApplicationAttributes,
+		"GetSMSAttributes":                   h.handleGetSMSAttributes,
+		"GetSMSSandboxAccountStatus":         h.handleGetSMSSandboxAccountStatus,
+		"GetSubscriptionAttributes":          h.handleGetSubscriptionAttributes,
+		"GetTopicAttributes":                 h.handleGetTopicAttributes,
+		"ListEndpointsByPlatformApplication": h.handleListEndpointsByPlatformApplication,
+		"ListOriginationNumbers":             h.handleListOriginationNumbers,
+		"ListPhoneNumbersOptedOut":           h.handleListPhoneNumbersOptedOut,
+		"ListPlatformApplications":           h.handleListPlatformApplications,
+		"ListSMSSandboxPhoneNumbers":         h.handleListSMSSandboxPhoneNumbers,
 		"ListSubscriptions":                  h.handleListSubscriptions,
 		"ListSubscriptionsByTopic":           h.handleListSubscriptionsByTopic,
+		"ListTagsForResource":                h.handleListTagsForResource,
+		"ListTopics":                         h.handleListTopics,
 		"Publish":                            h.handlePublish,
 		"PublishBatch":                       h.handlePublishBatch,
-		"GetSubscriptionAttributes":          h.handleGetSubscriptionAttributes,
-		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
-		"ListTagsForResource":                h.handleListTagsForResource,
-		"TagResource":                        h.handleTagResource,
-		"UntagResource":                      h.handleUntagResource,
-		"CreatePlatformApplication":          h.handleCreatePlatformApplication,
-		"GetPlatformApplicationAttributes":   h.handleGetPlatformApplicationAttributes,
-		"SetPlatformApplicationAttributes":   h.handleSetPlatformApplicationAttributes,
-		"ListPlatformApplications":           h.handleListPlatformApplications,
-		"DeletePlatformApplication":          h.handleDeletePlatformApplication,
-		"CreatePlatformEndpoint":             h.handleCreatePlatformEndpoint,
-		"GetEndpointAttributes":              h.handleGetEndpointAttributes,
 		"SetEndpointAttributes":              h.handleSetEndpointAttributes,
-		"ListEndpointsByPlatformApplication": h.handleListEndpointsByPlatformApplication,
-		"DeleteEndpoint":                     h.handleDeleteEndpoint,
+		"SetPlatformApplicationAttributes":   h.handleSetPlatformApplicationAttributes,
+		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
+		"SetTopicAttributes":                 h.handleSetTopicAttributes,
+		"Subscribe":                          h.handleSubscribe,
+		"TagResource":                        h.handleTagResource,
+		"Unsubscribe":                        h.handleUnsubscribe,
+		"UntagResource":                      h.handleUntagResource,
 	}
 }
 
@@ -845,6 +865,188 @@ func (h *Handler) handleDeleteEndpoint(c *echo.Context) error {
 	})
 }
 
+// parseMemberList reads Name.member.N values from the form and returns the slice.
+func parseMemberList(c *echo.Context, prefix string) []string {
+	var items []string
+
+	for i := 1; ; i++ {
+		v := c.Request().FormValue(fmt.Sprintf("%s.member.%d", prefix, i))
+		if v == "" {
+			return items
+		}
+
+		items = append(items, v)
+	}
+}
+
+func (h *Handler) handleAddPermission(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	label := c.Request().FormValue("Label")
+
+	if topicArn == "" || label == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Label are required")
+	}
+
+	accounts := parseMemberList(c, "AWSAccountId")
+	actions := parseMemberList(c, "ActionName")
+
+	if err := h.Backend.AddPermission(topicArn, label, accounts, actions); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, AddPermissionResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleCheckIfPhoneNumberIsOptedOut(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("phoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "phoneNumber is required")
+	}
+
+	optedOut, err := h.Backend.CheckIfPhoneNumberIsOptedOut(phoneNumber)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CheckIfPhoneNumberIsOptedOutResponse{
+		CheckIfPhoneNumberIsOptedOutResult: CheckIfPhoneNumberIsOptedOutResult{IsOptedOut: optedOut},
+		ResponseMetadata:                   ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleCreateSMSSandboxPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("PhoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PhoneNumber is required")
+	}
+
+	languageCode := c.Request().FormValue("LanguageCode")
+
+	if err := h.Backend.CreateSMSSandboxPhoneNumber(phoneNumber, languageCode); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CreateSMSSandboxPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleDeleteSMSSandboxPhoneNumber(c *echo.Context) error {
+	phoneNumber := c.Request().FormValue("PhoneNumber")
+	if phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PhoneNumber is required")
+	}
+
+	if err := h.Backend.DeleteSMSSandboxPhoneNumber(phoneNumber); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, DeleteSMSSandboxPhoneNumberResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetDataProtectionPolicy(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	if resourceArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "ResourceArn is required")
+	}
+
+	policy, err := h.Backend.GetDataProtectionPolicy(resourceArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetDataProtectionPolicyResponse{
+		GetDataProtectionPolicyResult: GetDataProtectionPolicyResult{DataProtectionPolicy: policy},
+		ResponseMetadata:              ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetSMSAttributes(c *echo.Context) error {
+	names := parseMemberList(c, "attributes")
+
+	attrs, err := h.Backend.GetSMSAttributes(names)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetSMSAttributesResponse{
+		GetSMSAttributesResult: GetSMSAttributesResult{Attributes: attrsToEntries(attrs)},
+		ResponseMetadata:       ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetSMSSandboxAccountStatus(c *echo.Context) error {
+	inSandbox, err := h.Backend.GetSMSSandboxAccountStatus()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetSMSSandboxAccountStatusResponse{
+		GetSMSSandboxAccountStatusResult: GetSMSSandboxAccountStatusResult{IsInSandbox: inSandbox},
+		ResponseMetadata:                 ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListOriginationNumbers(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+
+	nums, token, err := h.Backend.ListOriginationNumbers(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ListOriginationNumbersResponse{
+		ListOriginationNumbersResult: ListOriginationNumbersResult{
+			PhoneNumbers: nums,
+			NextToken:    token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListPhoneNumbersOptedOut(c *echo.Context) error {
+	nextToken := c.Request().FormValue("nextToken")
+
+	nums, token, err := h.Backend.ListPhoneNumbersOptedOut(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ListPhoneNumbersOptedOutResponse{
+		ListPhoneNumbersOptedOutResult: ListPhoneNumbersOptedOutResult{
+			PhoneNumbers: nums,
+			NextToken:    token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListSMSSandboxPhoneNumbers(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+
+	nums, token, err := h.Backend.ListSMSSandboxPhoneNumbers(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	members := make([]XMLSandboxPhoneNumber, len(nums))
+	for i, n := range nums {
+		members[i] = XMLSandboxPhoneNumber(n)
+	}
+
+	return h.writeXML(c, ListSMSSandboxPhoneNumbersResponse{
+		ListSMSSandboxPhoneNumbersResult: ListSMSSandboxPhoneNumbersResult{
+			PhoneNumbers: members,
+			NextToken:    token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
 	httputils.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
@@ -874,12 +1076,16 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
-		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
+		errors.Is(err, ErrPhoneNumberNotFound):
 		log.WarnContext(ctx, "SNS resource not found", "error", err)
-	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists):
+	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists),
+		errors.Is(err, ErrSandboxPhoneAlreadyExists):
 		log.WarnContext(ctx, "SNS resource already exists", "error", err)
 	case errors.Is(err, ErrInvalidParameter):
 		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
+	case errors.Is(err, ErrPermissionLabelExists):
+		log.WarnContext(ctx, "SNS permission label already exists", "error", err)
 	default:
 		status = http.StatusInternalServerError
 		log.ErrorContext(ctx, "SNS internal error", "error", err)
@@ -892,14 +1098,19 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 func errorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
-		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
+		errors.Is(err, ErrPhoneNumberNotFound):
 		return "NotFound"
 	case errors.Is(err, ErrTopicAlreadyExists):
 		return "TopicAlreadyExists"
 	case errors.Is(err, ErrPlatformApplicationAlreadyExists):
 		return "PlatformApplicationAlreadyExists"
+	case errors.Is(err, ErrSandboxPhoneAlreadyExists):
+		return "AlreadyExists"
 	case errors.Is(err, ErrInvalidParameter):
 		return "InvalidParameter"
+	case errors.Is(err, ErrPermissionLabelExists):
+		return "AuthorizationError"
 	default:
 		return "InternalError"
 	}

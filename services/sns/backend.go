@@ -33,6 +33,9 @@ var (
 	ErrPlatformApplicationAlreadyExists = errors.New("PlatformApplicationAlreadyExists")
 	ErrEndpointNotFound                 = errors.New("NotFound")
 	ErrInvalidParameter                 = errors.New("InvalidParameter")
+	ErrPhoneNumberNotFound              = errors.New("ResourceNotFound")
+	ErrSandboxPhoneAlreadyExists        = errors.New("AlreadyExists")
+	ErrPermissionLabelExists            = errors.New("AuthorizationError")
 )
 
 const (
@@ -103,6 +106,22 @@ type StorageBackend interface {
 	SetEndpointAttributes(endpointArn string, attributes map[string]string) error
 	ListEndpointsByPlatformApplication(platformApplicationArn, nextToken string) ([]PlatformEndpoint, string, error)
 	DeleteEndpoint(endpointArn string) error
+	// Permission operations.
+	AddPermission(topicArn, label string, accounts, actions []string) error
+	// SMS Sandbox operations.
+	GetSMSSandboxAccountStatus() (bool, error)
+	CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error
+	DeleteSMSSandboxPhoneNumber(phoneNumber string) error
+	ListSMSSandboxPhoneNumbers(nextToken string) ([]SandboxPhoneNumber, string, error)
+	// SMS opt-out operations.
+	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
+	ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error)
+	// SMS attribute operations.
+	GetSMSAttributes(names []string) (map[string]string, error)
+	// Data protection policy operations.
+	GetDataProtectionPolicy(resourceArn string) (string, error)
+	// Origination number operations.
+	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
@@ -113,6 +132,9 @@ type InMemoryBackend struct {
 	subscriptions        map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
+	smsSandbox           map[string]*SandboxPhoneNumber
+	optedOutPhoneNumbers map[string]bool
+	smsAttributes        map[string]string
 	httpClient           *http.Client
 	svcCtx               context.Context
 	workerSem            chan struct{}
@@ -149,6 +171,9 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		topicTags:            make(map[string]*svcTags.Tags),
 		platformApplications: make(map[string]*PlatformApplication),
 		platformEndpoints:    make(map[string]*PlatformEndpoint),
+		smsSandbox:           make(map[string]*SandboxPhoneNumber),
+		optedOutPhoneNumbers: make(map[string]bool),
+		smsAttributes:        make(map[string]string),
 		accountID:            accountID,
 		region:               region,
 		svcCtx:               svcCtx,
@@ -1181,6 +1206,209 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 	return eps
 }
 
+// isValidE164 returns true if the phone number string is a valid E.164 number
+// (starts with '+' followed by 1–15 digits).
+func isValidE164(phone string) bool {
+	if len(phone) < 2 || len(phone) > 16 || phone[0] != '+' {
+		return false
+	}
+
+	for _, c := range phone[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// AddPermission adds a permission statement to an SNS topic's access policy.
+// Duplicate labels are rejected with ErrPermissionLabelExists.
+func (b *InMemoryBackend) AddPermission(topicArn, label string, accounts, actions []string) error {
+	b.mu.Lock("AddPermission")
+	defer b.mu.Unlock()
+
+	topic, exists := b.topics[topicArn]
+	if !exists {
+		return ErrTopicNotFound
+	}
+
+	if topic.Permissions == nil {
+		topic.Permissions = make(map[string]*TopicPermission)
+	}
+
+	if _, alreadyExists := topic.Permissions[label]; alreadyExists {
+		return ErrPermissionLabelExists
+	}
+
+	topic.Permissions[label] = &TopicPermission{
+		Label:      label,
+		AWSAccount: accounts,
+		Actions:    actions,
+	}
+
+	return nil
+}
+
+// GetSMSSandboxAccountStatus always returns true (sandbox mode) for the mock backend.
+func (b *InMemoryBackend) GetSMSSandboxAccountStatus() (bool, error) {
+	return true, nil
+}
+
+// CreateSMSSandboxPhoneNumber adds a phone number to the SMS sandbox.
+// The phone number must be in E.164 format. The mock backend marks numbers as
+// Verified immediately (simulating instantaneous verification).
+func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, _ string) error {
+	if !isValidE164(phoneNumber) {
+		return fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateSMSSandboxPhoneNumber")
+	defer b.mu.Unlock()
+
+	if _, exists := b.smsSandbox[phoneNumber]; exists {
+		return ErrSandboxPhoneAlreadyExists
+	}
+
+	b.smsSandbox[phoneNumber] = &SandboxPhoneNumber{
+		PhoneNumber: phoneNumber,
+		Status:      "Verified",
+	}
+
+	return nil
+}
+
+// DeleteSMSSandboxPhoneNumber removes a phone number from the SMS sandbox.
+func (b *InMemoryBackend) DeleteSMSSandboxPhoneNumber(phoneNumber string) error {
+	b.mu.Lock("DeleteSMSSandboxPhoneNumber")
+	defer b.mu.Unlock()
+
+	if _, exists := b.smsSandbox[phoneNumber]; !exists {
+		return ErrPhoneNumberNotFound
+	}
+
+	delete(b.smsSandbox, phoneNumber)
+
+	return nil
+}
+
+// ListSMSSandboxPhoneNumbers returns a paginated list of SMS sandbox phone numbers.
+func (b *InMemoryBackend) ListSMSSandboxPhoneNumbers(nextToken string) ([]SandboxPhoneNumber, string, error) {
+	b.mu.RLock("ListSMSSandboxPhoneNumbers")
+	defer b.mu.RUnlock()
+
+	all := b.sortedSandboxNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	nums, next := paginate(all, offset, pageSize)
+
+	return nums, next, nil
+}
+
+// sortedSandboxNumbers returns sandbox phone numbers sorted by phone number.
+// Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedSandboxNumbers() []SandboxPhoneNumber {
+	nums := make([]SandboxPhoneNumber, 0, len(b.smsSandbox))
+	for _, n := range b.smsSandbox {
+		nums = append(nums, *n)
+	}
+
+	sort.Slice(nums, func(i, j int) bool {
+		return nums[i].PhoneNumber < nums[j].PhoneNumber
+	})
+
+	return nums
+}
+
+// CheckIfPhoneNumberIsOptedOut returns whether a phone number has opted out of SMS messages.
+func (b *InMemoryBackend) CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error) {
+	if !isValidE164(phoneNumber) {
+		return false, fmt.Errorf("%w: phone number must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("CheckIfPhoneNumberIsOptedOut")
+	defer b.mu.RUnlock()
+
+	return b.optedOutPhoneNumbers[phoneNumber], nil
+}
+
+// ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS.
+func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error) {
+	b.mu.RLock("ListPhoneNumbersOptedOut")
+	defer b.mu.RUnlock()
+
+	all := b.sortedOptedOutNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	nums, next := paginate(all, offset, pageSize)
+
+	return nums, next, nil
+}
+
+// sortedOptedOutNumbers returns opted-out phone numbers sorted lexicographically.
+// Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedOptedOutNumbers() []string {
+	nums := make([]string, 0, len(b.optedOutPhoneNumbers))
+	for phone := range b.optedOutPhoneNumbers {
+		if b.optedOutPhoneNumbers[phone] {
+			nums = append(nums, phone)
+		}
+	}
+
+	sort.Strings(nums)
+
+	return nums
+}
+
+// GetSMSAttributes returns the current SMS account attributes, optionally filtered by name.
+// If names is empty all attributes are returned.
+func (b *InMemoryBackend) GetSMSAttributes(names []string) (map[string]string, error) {
+	b.mu.RLock("GetSMSAttributes")
+	defer b.mu.RUnlock()
+
+	if len(names) == 0 {
+		result := make(map[string]string, len(b.smsAttributes))
+		maps.Copy(result, b.smsAttributes)
+
+		return result, nil
+	}
+
+	result := make(map[string]string, len(names))
+	for _, name := range names {
+		result[name] = b.smsAttributes[name]
+	}
+
+	return result, nil
+}
+
+// GetDataProtectionPolicy returns the data protection policy JSON for the given topic ARN.
+// The policy is stored as the "DataProtectionPolicy" attribute on the topic.
+func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, error) {
+	b.mu.RLock("GetDataProtectionPolicy")
+	defer b.mu.RUnlock()
+
+	topic, exists := b.topics[resourceArn]
+	if !exists {
+		return "", ErrTopicNotFound
+	}
+
+	return topic.Attributes["DataProtectionPolicy"], nil
+}
+
+// ListOriginationNumbers returns a paginated list of origination phone numbers.
+// The mock backend maintains no origination numbers by default; callers receive an empty list.
+func (b *InMemoryBackend) ListOriginationNumbers(_ string) ([]XMLOriginationPhone, string, error) {
+	return []XMLOriginationPhone{}, "", nil
+}
+
 // WaitDeliveries stops accepting new HTTP/HTTPS delivery goroutines and blocks
 // until all currently in-flight delivery goroutines have finished. It is called
 // during graceful shutdown by Handler.Shutdown.
@@ -1249,4 +1477,7 @@ func (b *InMemoryBackend) Reset() {
 	b.topicTags = make(map[string]*svcTags.Tags)
 	b.platformApplications = make(map[string]*PlatformApplication)
 	b.platformEndpoints = make(map[string]*PlatformEndpoint)
+	b.smsSandbox = make(map[string]*SandboxPhoneNumber)
+	b.optedOutPhoneNumbers = make(map[string]bool)
+	b.smsAttributes = make(map[string]string)
 }
