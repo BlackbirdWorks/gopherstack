@@ -13,6 +13,7 @@ type backendSnapshot struct {
 	TargetGroups  map[string]*TargetGroup  `json:"targetGroups"`
 	Listeners     map[string]*Listener     `json:"listeners"`
 	Rules         map[string]*Rule         `json:"rules"`
+	TrustStores   map[string]*TrustStore   `json:"trustStores"`
 	AccountID     string                   `json:"accountID"`
 	Region        string                   `json:"region"`
 }
@@ -28,6 +29,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TargetGroups:  b.targetGroups,
 		Listeners:     b.listeners,
 		Rules:         b.rules,
+		TrustStores:   b.trustStores,
 		AccountID:     b.accountID,
 		Region:        b.region,
 	}
@@ -68,10 +70,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Rules = make(map[string]*Rule)
 	}
 
+	if snap.TrustStores == nil {
+		snap.TrustStores = make(map[string]*TrustStore)
+	}
+
 	b.loadBalancers = snap.LoadBalancers
 	b.targetGroups = snap.TargetGroups
 	b.listeners = snap.Listeners
 	b.rules = snap.Rules
+	b.trustStores = snap.TrustStores
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

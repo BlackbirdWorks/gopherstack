@@ -2089,3 +2089,447 @@ func TestRuleTagOperations(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, delRec.Code)
 }
+
+// TestELBv2_TrustStoreLifecycle validates create, describe, revocations, associations, and delete.
+func TestELBv2_TrustStoreLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		checkResp  func(t *testing.T, rec *httptest.ResponseRecorder)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "create_trust_store",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"my-trust-store"},
+				}
+			},
+			wantStatus: http.StatusOK,
+			checkResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var resp struct {
+					Result struct {
+						TrustStores struct {
+							Members []struct {
+								TrustStoreArn string `xml:"TrustStoreArn"`
+								Name          string `xml:"Name"`
+								Status        string `xml:"Status"`
+							} `xml:"member"`
+						} `xml:"TrustStores"`
+					} `xml:"CreateTrustStoreResult"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				require.Len(t, resp.Result.TrustStores.Members, 1)
+				assert.NotEmpty(t, resp.Result.TrustStores.Members[0].TrustStoreArn)
+				assert.Equal(t, "my-trust-store", resp.Result.TrustStores.Members[0].Name)
+				assert.Equal(t, "ACTIVE", resp.Result.TrustStores.Members[0].Status)
+			},
+		},
+		{
+			name: "create_trust_store_missing_name",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "delete_trust_store_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"DeleteTrustStore"},
+					"Version": {"2015-12-01"},
+					"TrustStoreArn": {
+						"arn:aws:elasticloadbalancing:us-east-1:123456789012:truststore/nonexistent/abc123",
+					},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "delete_trust_store_missing_arn",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"DeleteTrustStore"},
+					"Version": {"2015-12-01"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := tt.setup(t, h)
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp != nil {
+				tt.checkResp(t, rec)
+			}
+		})
+	}
+}
+
+// TestELBv2_TrustStoreFullLifecycle tests the complete lifecycle in sequence.
+func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create a trust store.
+	createRec := doELBv2(t, h, url.Values{
+		"Action":  {"CreateTrustStore"},
+		"Version": {"2015-12-01"},
+		"Name":    {"my-ts"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp struct {
+		Result struct {
+			TrustStores struct {
+				Members []struct {
+					TrustStoreArn string `xml:"TrustStoreArn"`
+				} `xml:"member"`
+			} `xml:"TrustStores"`
+		} `xml:"CreateTrustStoreResult"`
+	}
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.Len(t, createResp.Result.TrustStores.Members, 1)
+
+	tsArn := createResp.Result.TrustStores.Members[0].TrustStoreArn
+	assert.NotEmpty(t, tsArn)
+
+	// Add revocations.
+	revRec := doELBv2(t, h, url.Values{
+		"Action":                      {"AddTrustStoreRevocations"},
+		"Version":                     {"2015-12-01"},
+		"TrustStoreArn":               {tsArn},
+		"RevocationContents.member.1": {"s3://my-bucket/revocations.crl"},
+	})
+	assert.Equal(t, http.StatusOK, revRec.Code)
+
+	// Describe trust store associations (expect empty).
+	assocRec := doELBv2(t, h, url.Values{
+		"Action":        {"DescribeTrustStoreAssociations"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+	})
+	require.Equal(t, http.StatusOK, assocRec.Code)
+
+	var assocResp struct {
+		Result struct {
+			TrustStoreAssociations struct {
+				Members []struct {
+					ResourceArn string `xml:"ResourceArn"`
+				} `xml:"member"`
+			} `xml:"TrustStoreAssociations"`
+		} `xml:"DescribeTrustStoreAssociationsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	assert.Empty(t, assocResp.Result.TrustStoreAssociations.Members)
+
+	// DeleteSharedTrustStoreAssociation (no-op) succeeds.
+	delAssocRec := doELBv2(t, h, url.Values{
+		"Action":        {"DeleteSharedTrustStoreAssociation"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+	})
+	assert.Equal(t, http.StatusOK, delAssocRec.Code)
+
+	// Delete trust store.
+	delRec := doELBv2(t, h, url.Values{
+		"Action":        {"DeleteTrustStore"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+	})
+	assert.Equal(t, http.StatusOK, delRec.Code)
+
+	// Deleting again must return NotFound.
+	delRec2 := doELBv2(t, h, url.Values{
+		"Action":        {"DeleteTrustStore"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+	})
+	assert.Equal(t, http.StatusNotFound, delRec2.Code)
+}
+
+// TestELBv2_ListenerCertificates validates add/describe/remove of listener certificates.
+func TestELBv2_ListenerCertificates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		checkResp  func(t *testing.T, rec *httptest.ResponseRecorder)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "add_certificates_listener_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"AddListenerCertificates"},
+					"Version": {"2015-12-01"},
+					"ListenerArn": {
+						"arn:aws:elasticloadbalancing:us-east-1:123:listener/nonexistent",
+					},
+					"Certificates.member.1.CertificateArn": {"arn:aws:acm:us-east-1:123:certificate/abc"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "describe_certificates_listener_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":      {"DescribeListenerCertificates"},
+					"Version":     {"2015-12-01"},
+					"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123:listener/nonexistent"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "add_certificates_missing_listener_arn",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"AddListenerCertificates"},
+					"Version": {"2015-12-01"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := tt.setup(t, h)
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp != nil {
+				tt.checkResp(t, rec)
+			}
+		})
+	}
+}
+
+// TestELBv2_ListenerCertificatesFullLifecycle tests add, describe, and removal in sequence.
+func TestELBv2_ListenerCertificatesFullLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "cert-lb")
+	tgArn := mustCreateTG(t, h, "cert-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	cert1 := "arn:aws:acm:us-east-1:123456789012:certificate/cert-1"
+	cert2 := "arn:aws:acm:us-east-1:123456789012:certificate/cert-2"
+
+	// Add two certificates.
+	addRec := doELBv2(t, h, url.Values{
+		"Action":                               {"AddListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {listenerArn},
+		"Certificates.member.1.CertificateArn": {cert1},
+		"Certificates.member.2.CertificateArn": {cert2},
+	})
+	require.Equal(t, http.StatusOK, addRec.Code)
+
+	var addResp struct {
+		Result struct {
+			Certificates struct {
+				Members []struct {
+					CertificateArn string `xml:"CertificateArn"`
+				} `xml:"member"`
+			} `xml:"Certificates"`
+		} `xml:"AddListenerCertificatesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(addRec.Body.Bytes(), &addResp))
+	assert.Len(t, addResp.Result.Certificates.Members, 2)
+
+	// Describe certificates — both should appear.
+	descRec := doELBv2(t, h, url.Values{
+		"Action":      {"DescribeListenerCertificates"},
+		"Version":     {"2015-12-01"},
+		"ListenerArn": {listenerArn},
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp struct {
+		Result struct {
+			Certificates struct {
+				Members []struct {
+					CertificateArn string `xml:"CertificateArn"`
+				} `xml:"member"`
+			} `xml:"Certificates"`
+		} `xml:"DescribeListenerCertificatesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(descRec.Body.Bytes(), &descResp))
+	assert.Len(t, descResp.Result.Certificates.Members, 2)
+
+	// Adding same certs again is idempotent.
+	addRec2 := doELBv2(t, h, url.Values{
+		"Action":                               {"AddListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {listenerArn},
+		"Certificates.member.1.CertificateArn": {cert1},
+	})
+	assert.Equal(t, http.StatusOK, addRec2.Code)
+
+	descRec2 := doELBv2(t, h, url.Values{
+		"Action":      {"DescribeListenerCertificates"},
+		"Version":     {"2015-12-01"},
+		"ListenerArn": {listenerArn},
+	})
+	require.Equal(t, http.StatusOK, descRec2.Code)
+
+	var descResp2 struct {
+		Result struct {
+			Certificates struct {
+				Members []struct {
+					CertificateArn string `xml:"CertificateArn"`
+				} `xml:"member"`
+			} `xml:"Certificates"`
+		} `xml:"DescribeListenerCertificatesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(descRec2.Body.Bytes(), &descResp2))
+	assert.Len(t, descResp2.Result.Certificates.Members, 2, "duplicate add should be idempotent")
+}
+
+// TestELBv2_DescribeAccountLimits verifies the handler returns hardcoded limits.
+func TestELBv2_DescribeAccountLimits(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":  {"DescribeAccountLimits"},
+		"Version": {"2015-12-01"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Limits struct {
+				Members []struct {
+					Name string `xml:"Name"`
+					Max  string `xml:"Max"`
+				} `xml:"member"`
+			} `xml:"Limits"`
+		} `xml:"DescribeAccountLimitsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.Result.Limits.Members)
+}
+
+// TestELBv2_DescribeCapacityReservation verifies the handler succeeds for a known LB.
+func TestELBv2_DescribeCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "existing_lb",
+			setup: func(t *testing.T, h *elbv2.Handler) string {
+				t.Helper()
+
+				return mustCreateLB(t, h, "cap-lb")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_lb_arn",
+			setup: func(t *testing.T, _ *elbv2.Handler) string {
+				t.Helper()
+
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			lbArn := tt.setup(t, h)
+
+			vals := url.Values{
+				"Action":  {"DescribeCapacityReservation"},
+				"Version": {"2015-12-01"},
+			}
+			if lbArn != "" {
+				vals.Set("LoadBalancerArn", lbArn)
+			}
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestELBv2_DescribeSSLPolicies verifies the handler returns standard SSL policies.
+func TestELBv2_DescribeSSLPolicies(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":  {"DescribeSSLPolicies"},
+		"Version": {"2015-12-01"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			SslPolicies struct {
+				Members []struct {
+					Name string `xml:"Name"`
+				} `xml:"member"`
+			} `xml:"SslPolicies"`
+		} `xml:"DescribeSSLPoliciesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.Result.SslPolicies.Members)
+
+	names := make([]string, 0, len(resp.Result.SslPolicies.Members))
+	for _, m := range resp.Result.SslPolicies.Members {
+		names = append(names, m.Name)
+	}
+
+	assert.Contains(t, names, "ELBSecurityPolicy-2016-08")
+}

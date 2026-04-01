@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -24,10 +26,14 @@ var (
 	ErrListenerNotFound = awserr.New("ListenerNotFound", awserr.ErrNotFound)
 	// ErrRuleNotFound is returned when the requested rule does not exist.
 	ErrRuleNotFound = awserr.New("RuleNotFound", awserr.ErrNotFound)
+	// ErrTrustStoreNotFound is returned when the requested trust store does not exist.
+	ErrTrustStoreNotFound = awserr.New("TrustStoreNotFound", awserr.ErrNotFound)
 	// ErrLoadBalancerAlreadyExists is returned when a load balancer with that name already exists.
 	ErrLoadBalancerAlreadyExists = awserr.New("DuplicateLoadBalancerName", awserr.ErrAlreadyExists)
 	// ErrTargetGroupAlreadyExists is returned when a target group with that name already exists.
 	ErrTargetGroupAlreadyExists = awserr.New("DuplicateTargetGroupName", awserr.ErrAlreadyExists)
+	// ErrTrustStoreAlreadyExists is returned when a trust store with that name already exists.
+	ErrTrustStoreAlreadyExists = awserr.New("DuplicateTrustStoreName", awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned when a request parameter is invalid or missing.
 	ErrInvalidParameter = awserr.New("ValidationError", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned when the requested action is not recognized.
@@ -92,6 +98,7 @@ type Listener struct {
 	LoadBalancerArn string     `json:"loadBalancerArn"`
 	Protocol        string     `json:"protocol"`
 	DefaultActions  []Action   `json:"defaultActions"`
+	Certificates    []string   `json:"certificates,omitempty"`
 	Port            int32      `json:"port"`
 }
 
@@ -103,6 +110,15 @@ type Rule struct {
 	Priority    string     `json:"priority"`
 	Actions     []Action   `json:"actions"`
 	IsDefault   bool       `json:"isDefault"`
+}
+
+// TrustStore represents an ELBv2 trust store.
+type TrustStore struct {
+	Tags          *tags.Tags `json:"tags,omitempty"`
+	TrustStoreArn string     `json:"trustStoreArn"`
+	Name          string     `json:"name"`
+	Status        string     `json:"status"`
+	Revocations   []string   `json:"revocations,omitempty"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.
@@ -126,6 +142,16 @@ type StorageBackend interface {
 	AddTags(resourceArns []string, kvs []tags.KV) error
 	RemoveTags(resourceArns []string, keys []string) error
 	DescribeTags(resourceArns []string) (map[string][]tags.KV, error)
+	// TrustStore operations.
+	CreateTrustStore(name string, kvs []tags.KV) (*TrustStore, error)
+	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
+	DeleteTrustStore(trustStoreArn string) error
+	AddTrustStoreRevocations(trustStoreArn string, revocations []string) error
+	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
+	// Listener certificate operations.
+	AddListenerCertificates(listenerArn string, certArns []string) error
+	DescribeListenerCertificates(listenerArn string) ([]string, error)
+	RemoveListenerCertificates(listenerArn string, certArns []string) error
 }
 
 // CreateLoadBalancerInput holds the parameters for creating a load balancer.
@@ -172,6 +198,7 @@ type InMemoryBackend struct {
 	targetGroups  map[string]*TargetGroup  // keyed by ARN
 	listeners     map[string]*Listener     // keyed by ARN
 	rules         map[string]*Rule         // keyed by ARN
+	trustStores   map[string]*TrustStore   // keyed by ARN
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
@@ -184,6 +211,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		targetGroups:  make(map[string]*TargetGroup),
 		listeners:     make(map[string]*Listener),
 		rules:         make(map[string]*Rule),
+		trustStores:   make(map[string]*TrustStore),
 		accountID:     accountID,
 		region:        region,
 		mu:            lockmetrics.New("elbv2"),
@@ -220,6 +248,10 @@ func (b *InMemoryBackend) ruleARN(listenerArn, idx string) string {
 	}
 
 	return arn.Build("elasticloadbalancing", b.region, b.accountID, resource)
+}
+
+func (b *InMemoryBackend) trustStoreARN(id string) string {
+	return arn.Build("elasticloadbalancing", b.region, b.accountID, "truststore/"+id)
 }
 
 // CreateLoadBalancer creates a new load balancer.
@@ -772,4 +804,204 @@ func (b *InMemoryBackend) DescribeTags(resourceArns []string) (map[string][]tags
 	}
 
 	return result, nil
+}
+
+// CreateTrustStore creates a new trust store.
+func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustStore, error) {
+	b.mu.Lock("CreateTrustStore")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	for _, ts := range b.trustStores {
+		if ts.Name == name {
+			return nil, ErrTrustStoreAlreadyExists
+		}
+	}
+
+	id := name + "/" + uuid.New().String()
+	tsArn := b.trustStoreARN(id)
+
+	t := tags.New("elbv2.ts." + name + ".tags")
+	for _, kv := range kvs {
+		t.Set(kv.Key, kv.Value)
+	}
+
+	ts := &TrustStore{
+		TrustStoreArn: tsArn,
+		Name:          name,
+		Status:        "ACTIVE",
+		Revocations:   []string{},
+		Tags:          t,
+	}
+
+	b.trustStores[tsArn] = ts
+
+	cp := *ts
+
+	return &cp, nil
+}
+
+// DescribeTrustStores returns trust stores filtered by ARNs and/or names.
+func (b *InMemoryBackend) DescribeTrustStores(arns []string, names []string) ([]TrustStore, error) {
+	b.mu.RLock("DescribeTrustStores")
+	defer b.mu.RUnlock()
+
+	filterArns := len(arns) > 0
+	filterNames := len(names) > 0
+
+	var wantArn map[string]struct{}
+	if filterArns {
+		wantArn = make(map[string]struct{}, len(arns))
+		for _, a := range arns {
+			wantArn[a] = struct{}{}
+		}
+	}
+
+	var wantName map[string]struct{}
+	if filterNames {
+		wantName = make(map[string]struct{}, len(names))
+		for _, n := range names {
+			wantName[n] = struct{}{}
+		}
+	}
+
+	result := make([]TrustStore, 0, len(b.trustStores))
+
+	for _, ts := range b.trustStores {
+		if filterArns {
+			if _, ok := wantArn[ts.TrustStoreArn]; !ok {
+				continue
+			}
+		}
+
+		if filterNames {
+			if _, ok := wantName[ts.Name]; !ok {
+				continue
+			}
+		}
+
+		result = append(result, *ts)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// DeleteTrustStore deletes a trust store by ARN.
+func (b *InMemoryBackend) DeleteTrustStore(trustStoreArn string) error {
+	b.mu.Lock("DeleteTrustStore")
+	defer b.mu.Unlock()
+
+	ts, ok := b.trustStores[trustStoreArn]
+	if !ok {
+		return ErrTrustStoreNotFound
+	}
+
+	ts.Tags.Close()
+	delete(b.trustStores, trustStoreArn)
+
+	return nil
+}
+
+// AddTrustStoreRevocations appends revocation entries to a trust store.
+func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocations []string) error {
+	b.mu.Lock("AddTrustStoreRevocations")
+	defer b.mu.Unlock()
+
+	ts, ok := b.trustStores[trustStoreArn]
+	if !ok {
+		return ErrTrustStoreNotFound
+	}
+
+	ts.Revocations = append(ts.Revocations, revocations...)
+
+	return nil
+}
+
+// DescribeTrustStoreAssociations returns listener ARNs associated with a trust store.
+// In this implementation, trust stores are not automatically linked to listeners,
+// so we return an empty list.
+func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error) {
+	b.mu.RLock("DescribeTrustStoreAssociations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.trustStores[trustStoreArn]; !ok {
+		return nil, ErrTrustStoreNotFound
+	}
+
+	return []string{}, nil
+}
+
+// AddListenerCertificates adds ACM certificate ARNs to a listener.
+func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certArns []string) error {
+	b.mu.Lock("AddListenerCertificates")
+	defer b.mu.Unlock()
+
+	listener, ok := b.listeners[listenerArn]
+	if !ok {
+		return ErrListenerNotFound
+	}
+
+	existing := make(map[string]bool, len(listener.Certificates))
+	for _, c := range listener.Certificates {
+		existing[c] = true
+	}
+
+	for _, c := range certArns {
+		if !existing[c] {
+			listener.Certificates = append(listener.Certificates, c)
+			existing[c] = true
+		}
+	}
+
+	return nil
+}
+
+// DescribeListenerCertificates returns certificate ARNs on a listener.
+func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]string, error) {
+	b.mu.RLock("DescribeListenerCertificates")
+	defer b.mu.RUnlock()
+
+	listener, ok := b.listeners[listenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	result := make([]string, len(listener.Certificates))
+	copy(result, listener.Certificates)
+
+	return result, nil
+}
+
+// RemoveListenerCertificates removes certificate ARNs from a listener.
+func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArns []string) error {
+	b.mu.Lock("RemoveListenerCertificates")
+	defer b.mu.Unlock()
+
+	listener, ok := b.listeners[listenerArn]
+	if !ok {
+		return ErrListenerNotFound
+	}
+
+	remove := make(map[string]bool, len(certArns))
+	for _, c := range certArns {
+		remove[c] = true
+	}
+
+	remaining := make([]string, 0, len(listener.Certificates))
+	for _, c := range listener.Certificates {
+		if !remove[c] {
+			remaining = append(remaining, c)
+		}
+	}
+
+	listener.Certificates = remaining
+
+	return nil
 }
