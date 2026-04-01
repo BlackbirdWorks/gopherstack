@@ -146,8 +146,13 @@ type StorageBackend interface {
 	CreateTrustStore(name string, kvs []tags.KV) (*TrustStore, error)
 	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
 	DeleteTrustStore(trustStoreArn string) error
+	ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error)
 	AddTrustStoreRevocations(trustStoreArn string, revocations []string) error
+	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error
+	DescribeTrustStoreRevocations(trustStoreArn string) ([]string, error)
 	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
+	// Rule priority operations.
+	SetRulePriorities(priorities []RulePriority) ([]Rule, error)
 	// Listener certificate operations.
 	AddListenerCertificates(listenerArn string, certArns []string) error
 	DescribeListenerCertificates(listenerArn string) ([]string, error)
@@ -190,6 +195,12 @@ type CreateRuleInput struct {
 	Priority    string
 	Actions     []Action
 	Tags        []tags.KV
+}
+
+// RulePriority holds an ARN-to-priority mapping used by SetRulePriorities.
+type RulePriority struct {
+	RuleArn  string
+	Priority string
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -1004,4 +1015,86 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 	listener.Certificates = remaining
 
 	return nil
+}
+
+// ModifyTrustStore updates a trust store's name.
+func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error) {
+	b.mu.Lock("ModifyTrustStore")
+	defer b.mu.Unlock()
+
+	ts, ok := b.trustStores[trustStoreArn]
+	if !ok {
+		return nil, ErrTrustStoreNotFound
+	}
+
+	if name != "" {
+		ts.Name = name
+	}
+
+	cp := *ts
+
+	return &cp, nil
+}
+
+// RemoveTrustStoreRevocations removes revocation entries from a trust store by index value.
+func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error {
+	b.mu.Lock("RemoveTrustStoreRevocations")
+	defer b.mu.Unlock()
+
+	ts, ok := b.trustStores[trustStoreArn]
+	if !ok {
+		return ErrTrustStoreNotFound
+	}
+
+	remove := make(map[string]bool, len(revocationIDs))
+	for _, id := range revocationIDs {
+		remove[id] = true
+	}
+
+	remaining := make([]string, 0, len(ts.Revocations))
+	for _, r := range ts.Revocations {
+		if !remove[r] {
+			remaining = append(remaining, r)
+		}
+	}
+
+	ts.Revocations = remaining
+
+	return nil
+}
+
+// DescribeTrustStoreRevocations returns revocation entries for a trust store.
+func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([]string, error) {
+	b.mu.RLock("DescribeTrustStoreRevocations")
+	defer b.mu.RUnlock()
+
+	ts, ok := b.trustStores[trustStoreArn]
+	if !ok {
+		return nil, ErrTrustStoreNotFound
+	}
+
+	result := make([]string, len(ts.Revocations))
+	copy(result, ts.Revocations)
+
+	return result, nil
+}
+
+// SetRulePriorities updates the priorities of one or more rules.
+func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, error) {
+	b.mu.Lock("SetRulePriorities")
+	defer b.mu.Unlock()
+
+	result := make([]Rule, 0, len(priorities))
+
+	for _, p := range priorities {
+		r, ok := b.rules[p.RuleArn]
+		if !ok {
+			return nil, ErrRuleNotFound
+		}
+
+		r.Priority = p.Priority
+		result = append(result, *r)
+	}
+
+	return result, nil
 }

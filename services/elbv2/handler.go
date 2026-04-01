@@ -64,6 +64,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteRule",
 		"DescribeRules",
 		"ModifyRule",
+		"SetRulePriorities",
 		"AddTags",
 		"RemoveTags",
 		"DescribeTags",
@@ -80,6 +81,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeListenerCertificates",
 		"DescribeSSLPolicies",
 		"DescribeTrustStoreAssociations",
+		"DescribeTrustStoreRevocations",
+		"DescribeTrustStores",
+		"GetResourcePolicy",
+		"GetTrustStoreCaCertificatesBundle",
+		"GetTrustStoreRevocationContent",
+		"ModifyCapacityReservation",
+		"ModifyIpPools",
+		"ModifyTrustStore",
+		"RemoveListenerCertificates",
+		"RemoveTrustStoreRevocations",
 	}
 }
 
@@ -219,6 +230,7 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
 		"DeleteRule":                        h.handleDeleteRule,
 		"DescribeRules":                     h.handleDescribeRules,
 		"ModifyRule":                        h.handleModifyRule,
+		"SetRulePriorities":                 h.handleSetRulePriorities,
 		"AddTags":                           h.handleAddTags,
 		"RemoveTags":                        h.handleRemoveTags,
 		"DescribeTags":                      h.handleDescribeTags,
@@ -232,6 +244,16 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
 		"DescribeListenerCertificates":      h.handleDescribeListenerCertificates,
 		"DescribeSSLPolicies":               h.handleDescribeSSLPolicies,
 		"DescribeTrustStoreAssociations":    h.handleDescribeTrustStoreAssociations,
+		"DescribeTrustStoreRevocations":     h.handleDescribeTrustStoreRevocations,
+		"DescribeTrustStores":               h.handleDescribeTrustStores,
+		"GetResourcePolicy":                 h.handleGetResourcePolicy,
+		"GetTrustStoreCaCertificatesBundle": h.handleGetTrustStoreCaCertificatesBundle,
+		"GetTrustStoreRevocationContent":    h.handleGetTrustStoreRevocationContent,
+		"ModifyCapacityReservation":         h.handleModifyCapacityReservation,
+		"ModifyIpPools":                     h.handleModifyIPPools,
+		"ModifyTrustStore":                  h.handleModifyTrustStore,
+		"RemoveListenerCertificates":        h.handleRemoveListenerCertificates,
+		"RemoveTrustStoreRevocations":       h.handleRemoveTrustStoreRevocations,
 	}
 }
 
@@ -1082,23 +1104,30 @@ func (h *Handler) handleDescribeTrustStoreAssociations(vals url.Values) (any, er
 
 // --- listener certificate handlers ---
 
+// parseCertArns extracts certificate ARNs from indexed form parameters.
+func parseCertArns(vals url.Values) []string {
+	arns := make([]string, 0)
+	for i := 1; ; i++ {
+		c := vals.Get(fmt.Sprintf("Certificates.member.%d.CertificateArn", i))
+		if c == "" {
+			break
+		}
+
+		arns = append(arns, c)
+	}
+
+	return arns
+}
+
 func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 	listenerArn := vals.Get("ListenerArn")
 	if listenerArn == "" {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	certArns := parseMembers(vals, "Certificates.member.CertificateArn")
+	certArns := parseCertArns(vals)
 	if len(certArns) == 0 {
-		// Try alternate key format used by AWS SDK.
-		for i := 1; ; i++ {
-			c := vals.Get(fmt.Sprintf("Certificates.member.%d.CertificateArn", i))
-			if c == "" {
-				break
-			}
-
-			certArns = append(certArns, c)
-		}
+		return nil, fmt.Errorf("%w: at least one certificate ARN is required", ErrInvalidParameter)
 	}
 
 	if err := h.Backend.AddListenerCertificates(listenerArn, certArns); err != nil {
@@ -1144,6 +1173,27 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 	}, nil
 }
 
+func (h *Handler) handleRemoveListenerCertificates(vals url.Values) (any, error) {
+	listenerArn := vals.Get("ListenerArn")
+	if listenerArn == "" {
+		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
+	}
+
+	certArns := parseCertArns(vals)
+	if len(certArns) == 0 {
+		return nil, fmt.Errorf("%w: at least one certificate ARN is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.RemoveListenerCertificates(listenerArn, certArns); err != nil {
+		return nil, err
+	}
+
+	return &removeListenerCertificatesResponse{
+		Xmlns:            elbv2XMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-remove-listener-certs"},
+	}, nil
+}
+
 // --- misc/stub handlers ---
 
 func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
@@ -1171,6 +1221,15 @@ func (h *Handler) handleDescribeCapacityReservation(vals url.Values) (any, error
 	lbArn := vals.Get("LoadBalancerArn")
 	if lbArn == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
+	}
+
+	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(lbs) == 0 {
+		return nil, ErrLoadBalancerNotFound
 	}
 
 	return &describeCapacityReservationResponse{
@@ -1231,6 +1290,236 @@ func (h *Handler) handleDescribeSSLPolicies(_ url.Values) (any, error) {
 			SslPolicies: xmlSSLPolicyList{Members: policies},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ssl-policies"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeTrustStores(vals url.Values) (any, error) {
+	arns := parseMembers(vals, "TrustStoreArns.member")
+	names := parseMembers(vals, "Names.member")
+
+	stores, err := h.Backend.DescribeTrustStores(arns, names)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlTrustStore, 0, len(stores))
+	for i := range stores {
+		members = append(members, toXMLTrustStore(&stores[i]))
+	}
+
+	return &describeTrustStoresResponse{
+		Xmlns: elbv2XMLNS,
+		Result: describeTrustStoresResult{
+			TrustStores: xmlTrustStoreList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ts"},
+	}, nil
+}
+
+func (h *Handler) handleModifyTrustStore(vals url.Values) (any, error) {
+	tsArn := vals.Get("TrustStoreArn")
+	if tsArn == "" {
+		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
+	}
+
+	ts, err := h.Backend.ModifyTrustStore(tsArn, vals.Get("Name"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyTrustStoreResponse{
+		Xmlns: elbv2XMLNS,
+		Result: modifyTrustStoreResult{
+			TrustStores: xmlTrustStoreList{
+				Members: []xmlTrustStore{toXMLTrustStore(ts)},
+			},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-ts"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, error) {
+	tsArn := vals.Get("TrustStoreArn")
+	if tsArn == "" {
+		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
+	}
+
+	revocations, err := h.Backend.DescribeTrustStoreRevocations(tsArn)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlRevocationContent, 0, len(revocations))
+	for _, r := range revocations {
+		members = append(members, xmlRevocationContent{RevocationID: r})
+	}
+
+	return &describeTrustStoreRevocationsResponse{
+		Xmlns: elbv2XMLNS,
+		Result: describeTrustStoreRevocationsResult{
+			RevocationContents: xmlRevocationContentList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ts-revocations"},
+	}, nil
+}
+
+func (h *Handler) handleRemoveTrustStoreRevocations(vals url.Values) (any, error) {
+	tsArn := vals.Get("TrustStoreArn")
+	if tsArn == "" {
+		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
+	}
+
+	revocationIDs := parseMembers(vals, "RevocationIds.member")
+	if len(revocationIDs) == 0 {
+		return nil, fmt.Errorf("%w: at least one RevocationId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.RemoveTrustStoreRevocations(tsArn, revocationIDs); err != nil {
+		return nil, err
+	}
+
+	return &removeTrustStoreRevocationsResponse{
+		Xmlns:            elbv2XMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-remove-ts-revocations"},
+	}, nil
+}
+
+func (h *Handler) handleSetRulePriorities(vals url.Values) (any, error) {
+	priorities := make([]RulePriority, 0)
+
+	for i := 1; ; i++ {
+		ruleArn := vals.Get(fmt.Sprintf("RulePriorities.member.%d.RuleArn", i))
+		if ruleArn == "" {
+			break
+		}
+
+		priorities = append(priorities, RulePriority{
+			RuleArn:  ruleArn,
+			Priority: vals.Get(fmt.Sprintf("RulePriorities.member.%d.Priority", i)),
+		})
+	}
+
+	if len(priorities) == 0 {
+		return nil, fmt.Errorf("%w: at least one RulePriority is required", ErrInvalidParameter)
+	}
+
+	rules, err := h.Backend.SetRulePriorities(priorities)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlRule, 0, len(rules))
+	for i := range rules {
+		members = append(members, toXMLRule(&rules[i]))
+	}
+
+	return &setRulePrioritiesResponse{
+		Xmlns: elbv2XMLNS,
+		Result: setRulePrioritiesResult{
+			Rules: xmlRuleList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-rule-priorities"},
+	}, nil
+}
+
+// --- stub handlers for less-critical operations ---
+
+func (h *Handler) handleGetResourcePolicy(vals url.Values) (any, error) {
+	resourceArn := vals.Get("ResourceArn")
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
+	}
+
+	return &getResourcePolicyResponse{
+		Xmlns:            elbv2XMLNS,
+		Result:           getResourcePolicyResult{Policy: ""},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-get-resource-policy"},
+	}, nil
+}
+
+func (h *Handler) handleGetTrustStoreCaCertificatesBundle(vals url.Values) (any, error) {
+	tsArn := vals.Get("TrustStoreArn")
+	if tsArn == "" {
+		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
+	}
+
+	stores, err := h.Backend.DescribeTrustStores([]string{tsArn}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stores) == 0 {
+		return nil, ErrTrustStoreNotFound
+	}
+
+	return &getTrustStoreCaCertificatesBundleResponse{
+		Xmlns:            elbv2XMLNS,
+		Result:           getTrustStoreCaCertificatesBundleResult{Location: ""},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-get-ts-ca-bundle"},
+	}, nil
+}
+
+func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, error) {
+	tsArn := vals.Get("TrustStoreArn")
+	if tsArn == "" {
+		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
+	}
+
+	stores, err := h.Backend.DescribeTrustStores([]string{tsArn}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stores) == 0 {
+		return nil, ErrTrustStoreNotFound
+	}
+
+	return &getTrustStoreRevocationContentResponse{
+		Xmlns:            elbv2XMLNS,
+		Result:           getTrustStoreRevocationContentResult{Location: ""},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-get-ts-revocation-content"},
+	}, nil
+}
+
+func (h *Handler) handleModifyCapacityReservation(vals url.Values) (any, error) {
+	lbArn := vals.Get("LoadBalancerArn")
+	if lbArn == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
+	}
+
+	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(lbs) == 0 {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	return &modifyCapacityReservationResponse{
+		Xmlns:            elbv2XMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-capacity-reservation"},
+	}, nil
+}
+
+func (h *Handler) handleModifyIPPools(vals url.Values) (any, error) {
+	lbArn := vals.Get("LoadBalancerArn")
+	if lbArn == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
+	}
+
+	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(lbs) == 0 {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	return &modifyIPPoolsResponse{
+		Xmlns:            elbv2XMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-ip-pools"},
 	}, nil
 }
 
@@ -2143,4 +2432,115 @@ func toXMLTrustStore(ts *TrustStore) xmlTrustStore {
 		NumberOfCaCerts:     0,
 		TotalRevokedEntries: int64(len(ts.Revocations)),
 	}
+}
+
+// --- additional XML types for newly implemented operations ---
+
+type describeTrustStoresResult struct {
+	TrustStores xmlTrustStoreList `xml:"TrustStores"`
+}
+
+type describeTrustStoresResponse struct {
+	XMLName          xml.Name                  `xml:"DescribeTrustStoresResponse"`
+	Xmlns            string                    `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata       `xml:"ResponseMetadata"`
+	Result           describeTrustStoresResult `xml:"DescribeTrustStoresResult"`
+}
+
+type modifyTrustStoreResult struct {
+	TrustStores xmlTrustStoreList `xml:"TrustStores"`
+}
+
+type modifyTrustStoreResponse struct {
+	XMLName          xml.Name               `xml:"ModifyTrustStoreResponse"`
+	Xmlns            string                 `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata    `xml:"ResponseMetadata"`
+	Result           modifyTrustStoreResult `xml:"ModifyTrustStoreResult"`
+}
+
+type xmlRevocationContent struct {
+	RevocationID string `xml:"RevocationId"`
+}
+
+type xmlRevocationContentList struct {
+	Members []xmlRevocationContent `xml:"member"`
+}
+
+type describeTrustStoreRevocationsResult struct {
+	RevocationContents xmlRevocationContentList `xml:"RevocationContents"`
+}
+
+type describeTrustStoreRevocationsResponse struct {
+	XMLName          xml.Name                            `xml:"DescribeTrustStoreRevocationsResponse"`
+	Xmlns            string                              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
+	Result           describeTrustStoreRevocationsResult `xml:"DescribeTrustStoreRevocationsResult"`
+}
+
+type removeTrustStoreRevocationsResponse struct {
+	XMLName          xml.Name            `xml:"RemoveTrustStoreRevocationsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type removeListenerCertificatesResponse struct {
+	XMLName          xml.Name            `xml:"RemoveListenerCertificatesResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type setRulePrioritiesResult struct {
+	Rules xmlRuleList `xml:"Rules"`
+}
+
+type setRulePrioritiesResponse struct {
+	XMLName          xml.Name                `xml:"SetRulePrioritiesResponse"`
+	Xmlns            string                  `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           setRulePrioritiesResult `xml:"SetRulePrioritiesResult"`
+}
+
+type getResourcePolicyResult struct {
+	Policy string `xml:"Policy,omitempty"`
+}
+
+type getResourcePolicyResponse struct {
+	XMLName          xml.Name                `xml:"GetResourcePolicyResponse"`
+	Xmlns            string                  `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           getResourcePolicyResult `xml:"GetResourcePolicyResult"`
+}
+
+type getTrustStoreCaCertificatesBundleResult struct {
+	Location string `xml:"Location,omitempty"`
+}
+
+type getTrustStoreCaCertificatesBundleResponse struct {
+	XMLName          xml.Name                                `xml:"GetTrustStoreCaCertificatesBundleResponse"`
+	Xmlns            string                                  `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                     `xml:"ResponseMetadata"`
+	Result           getTrustStoreCaCertificatesBundleResult `xml:"GetTrustStoreCaCertificatesBundleResult"`
+}
+
+type getTrustStoreRevocationContentResult struct {
+	Location string `xml:"Location,omitempty"`
+}
+
+type getTrustStoreRevocationContentResponse struct {
+	XMLName          xml.Name                             `xml:"GetTrustStoreRevocationContentResponse"`
+	Xmlns            string                               `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                  `xml:"ResponseMetadata"`
+	Result           getTrustStoreRevocationContentResult `xml:"GetTrustStoreRevocationContentResult"`
+}
+
+type modifyCapacityReservationResponse struct {
+	XMLName          xml.Name            `xml:"ModifyCapacityReservationResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type modifyIPPoolsResponse struct {
+	XMLName          xml.Name            `xml:"ModifyIpPoolsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }

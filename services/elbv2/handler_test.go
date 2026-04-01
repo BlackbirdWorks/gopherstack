@@ -2090,7 +2090,7 @@ func TestRuleTagOperations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, delRec.Code)
 }
 
-// TestELBv2_TrustStoreLifecycle validates create, describe, revocations, associations, and delete.
+// TestELBv2_TrustStoreLifecycle validates trust store create and delete operation error paths.
 func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -2248,6 +2248,100 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(assocRec.Body.Bytes(), &assocResp))
 	assert.Empty(t, assocResp.Result.TrustStoreAssociations.Members)
 
+	// DescribeTrustStoreRevocations — the one we added should be visible.
+	revDescRec := doELBv2(t, h, url.Values{
+		"Action":        {"DescribeTrustStoreRevocations"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+	})
+	require.Equal(t, http.StatusOK, revDescRec.Code)
+
+	var revDescResp struct {
+		Result struct {
+			RevocationContents struct {
+				Members []struct {
+					RevocationID string `xml:"RevocationId"`
+				} `xml:"member"`
+			} `xml:"RevocationContents"`
+		} `xml:"DescribeTrustStoreRevocationsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(revDescRec.Body.Bytes(), &revDescResp))
+	require.Len(t, revDescResp.Result.RevocationContents.Members, 1)
+	assert.Equal(t, "s3://my-bucket/revocations.crl", revDescResp.Result.RevocationContents.Members[0].RevocationID)
+
+	// RemoveTrustStoreRevocations — remove the entry we added.
+	revRmRec := doELBv2(t, h, url.Values{
+		"Action":                 {"RemoveTrustStoreRevocations"},
+		"Version":                {"2015-12-01"},
+		"TrustStoreArn":          {tsArn},
+		"RevocationIds.member.1": {"s3://my-bucket/revocations.crl"},
+	})
+	require.Equal(t, http.StatusOK, revRmRec.Code)
+
+	// Verify revocations are now empty.
+	revDescRec2 := doELBv2(t, h, url.Values{
+		"Action":        {"DescribeTrustStoreRevocations"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+	})
+	require.Equal(t, http.StatusOK, revDescRec2.Code)
+
+	var revDescResp2 struct {
+		Result struct {
+			RevocationContents struct {
+				Members []struct {
+					RevocationID string `xml:"RevocationId"`
+				} `xml:"member"`
+			} `xml:"RevocationContents"`
+		} `xml:"DescribeTrustStoreRevocationsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(revDescRec2.Body.Bytes(), &revDescResp2))
+	assert.Empty(t, revDescResp2.Result.RevocationContents.Members)
+
+	// DescribeTrustStores — should return our trust store.
+	descTSRec := doELBv2(t, h, url.Values{
+		"Action":                  {"DescribeTrustStores"},
+		"Version":                 {"2015-12-01"},
+		"TrustStoreArns.member.1": {tsArn},
+	})
+	require.Equal(t, http.StatusOK, descTSRec.Code)
+
+	var descTSResp struct {
+		Result struct {
+			TrustStores struct {
+				Members []struct {
+					TrustStoreArn string `xml:"TrustStoreArn"`
+					Name          string `xml:"Name"`
+				} `xml:"member"`
+			} `xml:"TrustStores"`
+		} `xml:"DescribeTrustStoresResult"`
+	}
+	require.NoError(t, xml.Unmarshal(descTSRec.Body.Bytes(), &descTSResp))
+	require.Len(t, descTSResp.Result.TrustStores.Members, 1)
+	assert.Equal(t, "my-ts", descTSResp.Result.TrustStores.Members[0].Name)
+
+	// ModifyTrustStore — rename it.
+	modTSRec := doELBv2(t, h, url.Values{
+		"Action":        {"ModifyTrustStore"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+		"Name":          {"my-ts-renamed"},
+	})
+	require.Equal(t, http.StatusOK, modTSRec.Code)
+
+	var modTSResp struct {
+		Result struct {
+			TrustStores struct {
+				Members []struct {
+					Name string `xml:"Name"`
+				} `xml:"member"`
+			} `xml:"TrustStores"`
+		} `xml:"ModifyTrustStoreResult"`
+	}
+	require.NoError(t, xml.Unmarshal(modTSRec.Body.Bytes(), &modTSResp))
+	require.Len(t, modTSResp.Result.TrustStores.Members, 1)
+	assert.Equal(t, "my-ts-renamed", modTSResp.Result.TrustStores.Members[0].Name)
+
 	// DeleteSharedTrustStoreAssociation (no-op) succeeds.
 	delAssocRec := doELBv2(t, h, url.Values{
 		"Action":        {"DeleteSharedTrustStoreAssociation"},
@@ -2273,7 +2367,7 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, delRec2.Code)
 }
 
-// TestELBv2_ListenerCertificates validates add/describe/remove of listener certificates.
+// TestELBv2_ListenerCertificates validates error handling for add and describe listener certificate operations.
 func TestELBv2_ListenerCertificates(t *testing.T) {
 	t.Parallel()
 
@@ -2323,6 +2417,38 @@ func TestELBv2_ListenerCertificates(t *testing.T) {
 				}
 			},
 			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "add_certificates_no_certs_provided",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				lbArn := mustCreateLB(t, h, "nocert-lb")
+				tgArn := mustCreateTG(t, h, "nocert-tg")
+				listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+				return url.Values{
+					"Action":      {"AddListenerCertificates"},
+					"Version":     {"2015-12-01"},
+					"ListenerArn": {listenerArn},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "remove_certificates_listener_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"RemoveListenerCertificates"},
+					"Version": {"2015-12-01"},
+					"ListenerArn": {
+						"arn:aws:elasticloadbalancing:us-east-1:123:listener/nonexistent",
+					},
+					"Certificates.member.1.CertificateArn": {"arn:aws:acm:us-east-1:123:certificate/abc"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -2424,6 +2550,35 @@ func TestELBv2_ListenerCertificatesFullLifecycle(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(descRec2.Body.Bytes(), &descResp2))
 	assert.Len(t, descResp2.Result.Certificates.Members, 2, "duplicate add should be idempotent")
+
+	// Remove cert1 — only cert2 should remain.
+	rmRec := doELBv2(t, h, url.Values{
+		"Action":                               {"RemoveListenerCertificates"},
+		"Version":                              {"2015-12-01"},
+		"ListenerArn":                          {listenerArn},
+		"Certificates.member.1.CertificateArn": {cert1},
+	})
+	require.Equal(t, http.StatusOK, rmRec.Code)
+
+	descRec3 := doELBv2(t, h, url.Values{
+		"Action":      {"DescribeListenerCertificates"},
+		"Version":     {"2015-12-01"},
+		"ListenerArn": {listenerArn},
+	})
+	require.Equal(t, http.StatusOK, descRec3.Code)
+
+	var descResp3 struct {
+		Result struct {
+			Certificates struct {
+				Members []struct {
+					CertificateArn string `xml:"CertificateArn"`
+				} `xml:"member"`
+			} `xml:"Certificates"`
+		} `xml:"DescribeListenerCertificatesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(descRec3.Body.Bytes(), &descResp3))
+	require.Len(t, descResp3.Result.Certificates.Members, 1)
+	assert.Equal(t, cert2, descResp3.Result.Certificates.Members[0].CertificateArn)
 }
 
 // TestELBv2_DescribeAccountLimits verifies the handler returns hardcoded limits.
@@ -2532,4 +2687,440 @@ func TestELBv2_DescribeSSLPolicies(t *testing.T) {
 	}
 
 	assert.Contains(t, names, "ELBSecurityPolicy-2016-08")
+}
+
+// TestELBv2_SetRulePriorities validates rule priority updates.
+func TestELBv2_SetRulePriorities(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		checkResp  func(t *testing.T, rec *httptest.ResponseRecorder)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "update_priorities_success",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				lbArn := mustCreateLB(t, h, "prio-lb")
+				tgArn := mustCreateTG(t, h, "prio-tg")
+				listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+				rec := doELBv2(t, h, url.Values{
+					"Action":                              {"CreateRule"},
+					"Version":                             {"2015-12-01"},
+					"ListenerArn":                         {listenerArn},
+					"Priority":                            {"100"},
+					"Actions.member.1.Type":               {"forward"},
+					"Actions.member.1.TargetGroupArn":     {tgArn},
+					"Conditions.member.1.Field":           {"path-pattern"},
+					"Conditions.member.1.Values.member.1": {"/api/*"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var resp struct {
+					Result struct {
+						Rules struct {
+							Members []struct {
+								RuleArn string `xml:"RuleArn"`
+							} `xml:"member"`
+						} `xml:"Rules"`
+					} `xml:"CreateRuleResult"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				require.Len(t, resp.Result.Rules.Members, 1)
+				ruleArn := resp.Result.Rules.Members[0].RuleArn
+
+				return url.Values{
+					"Action":                           {"SetRulePriorities"},
+					"Version":                          {"2015-12-01"},
+					"RulePriorities.member.1.RuleArn":  {ruleArn},
+					"RulePriorities.member.1.Priority": {"200"},
+				}
+			},
+			wantStatus: http.StatusOK,
+			checkResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var resp struct {
+					Result struct {
+						Rules struct {
+							Members []struct {
+								Priority string `xml:"Priority"`
+							} `xml:"member"`
+						} `xml:"Rules"`
+					} `xml:"SetRulePrioritiesResult"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				require.Len(t, resp.Result.Rules.Members, 1)
+				assert.Equal(t, "200", resp.Result.Rules.Members[0].Priority)
+			},
+		},
+		{
+			name: "rule_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"SetRulePriorities"},
+					"Version": {"2015-12-01"},
+					"RulePriorities.member.1.RuleArn": {
+						"arn:aws:elasticloadbalancing:us-east-1:123:listener-rule/app/lb/id/id/nonexistent",
+					},
+					"RulePriorities.member.1.Priority": {"10"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "no_priorities_provided",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"SetRulePriorities"},
+					"Version": {"2015-12-01"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := tt.setup(t, h)
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp != nil {
+				tt.checkResp(t, rec)
+			}
+		})
+	}
+}
+
+// TestELBv2_DescribeTrustStores validates the DescribeTrustStores operation.
+func TestELBv2_DescribeTrustStores(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		checkResp  func(t *testing.T, rec *httptest.ResponseRecorder)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "describe_all",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				doELBv2(t, h, url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"ts-a"},
+				})
+				doELBv2(t, h, url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"ts-b"},
+				})
+
+				return url.Values{
+					"Action":  {"DescribeTrustStores"},
+					"Version": {"2015-12-01"},
+				}
+			},
+			wantStatus: http.StatusOK,
+			checkResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var resp struct {
+					Result struct {
+						TrustStores struct {
+							Members []struct {
+								Name string `xml:"Name"`
+							} `xml:"member"`
+						} `xml:"TrustStores"`
+					} `xml:"DescribeTrustStoresResult"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Len(t, resp.Result.TrustStores.Members, 2)
+			},
+		},
+		{
+			name: "describe_by_name",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				doELBv2(t, h, url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"ts-named"},
+				})
+				doELBv2(t, h, url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"ts-other"},
+				})
+
+				return url.Values{
+					"Action":         {"DescribeTrustStores"},
+					"Version":        {"2015-12-01"},
+					"Names.member.1": {"ts-named"},
+				}
+			},
+			wantStatus: http.StatusOK,
+			checkResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var resp struct {
+					Result struct {
+						TrustStores struct {
+							Members []struct {
+								Name string `xml:"Name"`
+							} `xml:"member"`
+						} `xml:"TrustStores"`
+					} `xml:"DescribeTrustStoresResult"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				require.Len(t, resp.Result.TrustStores.Members, 1)
+				assert.Equal(t, "ts-named", resp.Result.TrustStores.Members[0].Name)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := tt.setup(t, h)
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp != nil {
+				tt.checkResp(t, rec)
+			}
+		})
+	}
+}
+
+// TestELBv2_ModifyTrustStore validates trust store renaming.
+func TestELBv2_ModifyTrustStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "rename_success",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+
+				createRec := doELBv2(t, h, url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"orig-name"},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var resp struct {
+					Result struct {
+						TrustStores struct {
+							Members []struct {
+								TrustStoreArn string `xml:"TrustStoreArn"`
+							} `xml:"member"`
+						} `xml:"TrustStores"`
+					} `xml:"CreateTrustStoreResult"`
+				}
+				require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &resp))
+				require.Len(t, resp.Result.TrustStores.Members, 1)
+
+				return url.Values{
+					"Action":        {"ModifyTrustStore"},
+					"Version":       {"2015-12-01"},
+					"TrustStoreArn": {resp.Result.TrustStores.Members[0].TrustStoreArn},
+					"Name":          {"new-name"},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":        {"ModifyTrustStore"},
+					"Version":       {"2015-12-01"},
+					"TrustStoreArn": {"arn:aws:elasticloadbalancing:us-east-1:123:truststore/nonexistent/abc"},
+					"Name":          {"new-name"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_arn",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"ModifyTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"new-name"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := tt.setup(t, h)
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestELBv2_StubOperations validates that stub operations return 200 for valid inputs.
+func TestELBv2_StubOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "get_resource_policy",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				lbArn := mustCreateLB(t, h, "rp-lb")
+
+				return url.Values{
+					"Action":      {"GetResourcePolicy"},
+					"Version":     {"2015-12-01"},
+					"ResourceArn": {lbArn},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "get_resource_policy_missing_arn",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":  {"GetResourcePolicy"},
+					"Version": {"2015-12-01"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "get_trust_store_ca_bundle",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+
+				createRec := doELBv2(t, h, url.Values{
+					"Action":  {"CreateTrustStore"},
+					"Version": {"2015-12-01"},
+					"Name":    {"stub-ts"},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var resp struct {
+					Result struct {
+						TrustStores struct {
+							Members []struct {
+								TrustStoreArn string `xml:"TrustStoreArn"`
+							} `xml:"member"`
+						} `xml:"TrustStores"`
+					} `xml:"CreateTrustStoreResult"`
+				}
+				require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &resp))
+
+				return url.Values{
+					"Action":        {"GetTrustStoreCaCertificatesBundle"},
+					"Version":       {"2015-12-01"},
+					"TrustStoreArn": {resp.Result.TrustStores.Members[0].TrustStoreArn},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "get_trust_store_ca_bundle_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":        {"GetTrustStoreCaCertificatesBundle"},
+					"Version":       {"2015-12-01"},
+					"TrustStoreArn": {"arn:aws:elasticloadbalancing:us-east-1:123:truststore/nonexistent/abc"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "modify_capacity_reservation",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				lbArn := mustCreateLB(t, h, "cap-mod-lb")
+
+				return url.Values{
+					"Action":          {"ModifyCapacityReservation"},
+					"Version":         {"2015-12-01"},
+					"LoadBalancerArn": {lbArn},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "modify_capacity_reservation_not_found",
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
+				t.Helper()
+
+				return url.Values{
+					"Action":          {"ModifyCapacityReservation"},
+					"Version":         {"2015-12-01"},
+					"LoadBalancerArn": {"arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/nonexistent/abc"},
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "modify_ip_pools",
+			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+				t.Helper()
+				lbArn := mustCreateLB(t, h, "ip-pools-lb")
+
+				return url.Values{
+					"Action":          {"ModifyIpPools"},
+					"Version":         {"2015-12-01"},
+					"LoadBalancerArn": {lbArn},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals := tt.setup(t, h)
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
