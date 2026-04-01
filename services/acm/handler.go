@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -25,6 +27,8 @@ type requestCertificateInput struct {
 	DomainName              string   `json:"DomainName"`
 	ValidationMethod        string   `json:"ValidationMethod"`
 	CertificateAuthorityArn string   `json:"CertificateAuthorityArn"`
+	IdempotencyToken        string   `json:"IdempotencyToken"`
+	KeyAlgorithm            string   `json:"KeyAlgorithm"`
 	SubjectAlternativeNames []string `json:"SubjectAlternativeNames"`
 }
 
@@ -48,8 +52,15 @@ type resourceRecord struct {
 
 type certificateDetail struct {
 	RevokedAt               *int64                   `json:"RevokedAt,omitempty"`
+	IssuedAt                *int64                   `json:"IssuedAt,omitempty"`
+	ImportedAt              *int64                   `json:"ImportedAt,omitempty"`
 	CertificateArn          string                   `json:"CertificateArn"`
 	DomainName              string                   `json:"DomainName"`
+	Serial                  string                   `json:"Serial,omitempty"`
+	Subject                 string                   `json:"Subject,omitempty"`
+	Issuer                  string                   `json:"Issuer,omitempty"`
+	KeyAlgorithm            string                   `json:"KeyAlgorithm,omitempty"`
+	SignatureAlgorithm      string                   `json:"SignatureAlgorithm,omitempty"`
 	Status                  string                   `json:"Status"`
 	Type                    string                   `json:"Type"`
 	RevocationReason        string                   `json:"RevocationReason,omitempty"`
@@ -71,13 +82,22 @@ type describeCertificateOutput struct {
 }
 
 type certificateSummary struct {
-	CertificateArn string `json:"CertificateArn"`
-	DomainName     string `json:"DomainName"`
+	IssuedAt           *int64 `json:"IssuedAt,omitempty"`
+	ImportedAt         *int64 `json:"ImportedAt,omitempty"`
+	NotBefore          *int64 `json:"NotBefore,omitempty"`
+	NotAfter           *int64 `json:"NotAfter,omitempty"`
+	CertificateArn     string `json:"CertificateArn"`
+	DomainName         string `json:"DomainName"`
+	Status             string `json:"Status,omitempty"`
+	KeyAlgorithm       string `json:"KeyAlgorithm,omitempty"`
+	RenewalEligibility string `json:"RenewalEligibility,omitempty"`
+	Type               string `json:"Type,omitempty"`
 }
 
 type listCertificatesInput struct {
-	NextToken string `json:"NextToken"`
-	MaxItems  int    `json:"MaxItems"`
+	NextToken           string   `json:"NextToken"`
+	CertificateStatuses []string `json:"CertificateStatuses,omitempty"`
+	MaxItems            int      `json:"MaxItems"`
 }
 
 type listCertificatesOutput struct {
@@ -426,6 +446,8 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 		input.DomainName,
 		certType,
 		input.ValidationMethod,
+		input.IdempotencyToken,
+		input.KeyAlgorithm,
 		input.SubjectAlternativeNames,
 	)
 	if err != nil {
@@ -467,6 +489,11 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 		Certificate: certificateDetail{
 			CertificateArn:          cert.ARN,
 			DomainName:              cert.DomainName,
+			Serial:                  cert.Serial,
+			Subject:                 cert.Subject,
+			Issuer:                  cert.Issuer,
+			KeyAlgorithm:            cert.KeyAlgorithm,
+			SignatureAlgorithm:      cert.SignatureAlgorithm,
 			Status:                  cert.Status,
 			Type:                    cert.Type,
 			RenewalEligibility:      cert.RenewalEligibility,
@@ -477,7 +504,9 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 			SubjectAlternativeNames: cert.SubjectAlternativeNames,
 			DomainValidationOptions: dvoList,
 			Options:                 describeCertOptions(cert),
-			RevokedAt:               certRevokedAtUnix(cert),
+			RevokedAt:               certTimeUnix(cert.RevokedAt),
+			IssuedAt:                certTimeUnix(cert.IssuedAt),
+			ImportedAt:              certTimeUnix(cert.ImportedAt),
 		},
 	}, nil
 }
@@ -487,13 +516,32 @@ func (h *Handler) jsonListCertificates(body []byte) (any, error) {
 	var input listCertificatesInput
 	_ = json.Unmarshal(body, &input)
 
-	p := h.Backend.ListCertificates(input.NextToken, input.MaxItems)
+	p := h.Backend.ListCertificates(input.NextToken, input.MaxItems, input.CertificateStatuses)
 	summaries := make([]certificateSummary, 0, len(p.Data))
+
 	for _, c := range p.Data {
-		summaries = append(summaries, certificateSummary{
-			CertificateArn: c.ARN,
-			DomainName:     c.DomainName,
-		})
+		summary := certificateSummary{
+			CertificateArn:     c.ARN,
+			DomainName:         c.DomainName,
+			Status:             c.Status,
+			KeyAlgorithm:       c.KeyAlgorithm,
+			RenewalEligibility: c.RenewalEligibility,
+			Type:               c.Type,
+			IssuedAt:           certTimeUnix(c.IssuedAt),
+			ImportedAt:         certTimeUnix(c.ImportedAt),
+		}
+
+		if !c.NotBefore.IsZero() {
+			ts := c.NotBefore.Unix()
+			summary.NotBefore = &ts
+		}
+
+		if !c.NotAfter.IsZero() {
+			ts := c.NotAfter.Unix()
+			summary.NotAfter = &ts
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	return &listCertificatesOutput{CertificateSummaryList: summaries, NextToken: p.Next}, nil
@@ -518,6 +566,10 @@ func (h *Handler) jsonListTagsForCertificate(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
+	if !h.Backend.CertExists(input.CertificateArn) {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
+	}
+
 	return &listTagsForCertificateOutput{Tags: h.getTags(input.CertificateArn)}, nil
 }
 
@@ -526,6 +578,11 @@ func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
+
+	if !h.Backend.CertExists(input.CertificateArn) {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
+	}
+
 	kv := make(map[string]string, len(input.Tags))
 	for _, t := range input.Tags {
 		kv[t.Key] = t.Value
@@ -540,6 +597,11 @@ func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
+
+	if !h.Backend.CertExists(input.CertificateArn) {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
+	}
+
 	keys := make([]string, 0, len(input.Tags))
 	for _, t := range input.Tags {
 		keys = append(keys, t.Key)
@@ -554,7 +616,12 @@ func (h *Handler) jsonImportCertificate(body []byte) (any, error) {
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
-	cert, err := h.Backend.ImportCertificate(input.Certificate, input.PrivateKey, input.CertificateChain)
+	cert, err := h.Backend.ImportCertificate(
+		input.Certificate,
+		input.PrivateKey,
+		input.CertificateChain,
+		input.CertificateArn,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -688,13 +755,13 @@ func describeCertOptions(cert *Certificate) *certificateOptions {
 	}
 }
 
-// certRevokedAtUnix returns the Unix timestamp of RevokedAt or nil if not revoked.
-func certRevokedAtUnix(cert *Certificate) *int64 {
-	if cert.RevokedAt == nil {
+// certTimeUnix returns the Unix timestamp of a [time.Time] pointer, or nil if nil.
+func certTimeUnix(t *time.Time) *int64 {
+	if t == nil {
 		return nil
 	}
 
-	ts := cert.RevokedAt.Unix()
+	ts := t.Unix()
 
 	return &ts
 }
@@ -711,6 +778,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "RequestError"
 	case errors.Is(opErr, ErrAlreadyRevoked):
 		code = "InvalidStateException"
+	case errors.Is(opErr, ErrConflict):
+		code = "ConflictException"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

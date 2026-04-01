@@ -24,6 +24,7 @@ var (
 	ErrInvalidParameter = errors.New("ValidationException")
 	ErrNotEligible      = errors.New("RequestError")
 	ErrAlreadyRevoked   = errors.New("InvalidStateException")
+	ErrConflict         = errors.New("ConflictException")
 	errInvalidPEM       = errors.New("failed to decode PEM block")
 )
 
@@ -44,6 +45,14 @@ const (
 
 	transparencyLoggingEnabled  = "ENABLED"
 	transparencyLoggingDisabled = "DISABLED"
+
+	// keyAlgorithmEC is the AWS ACM key algorithm name for ECDSA P-256 keys.
+	keyAlgorithmEC = "EC_prime256v1"
+	// signatureAlgorithmECDSA is the signature algorithm string for ECDSA with SHA-256.
+	signatureAlgorithmECDSA = "SHA256WITHECDSA"
+
+	// hexBase is the numeric base used when formatting [big.Int] serial numbers as hex strings.
+	hexBase = 16
 )
 
 // ResourceRecord holds the CNAME record used for DNS certificate validation.
@@ -65,11 +74,18 @@ type DomainValidationOption struct {
 // Certificate represents an ACM certificate.
 type Certificate struct {
 	RevokedAt                          *time.Time               `json:"revokedAt,omitempty"`
+	IssuedAt                           *time.Time               `json:"issuedAt,omitempty"`
+	ImportedAt                         *time.Time               `json:"importedAt,omitempty"`
 	CreatedAt                          time.Time                `json:"createdAt"`
 	NotBefore                          time.Time                `json:"notBefore"`
 	NotAfter                           time.Time                `json:"notAfter"`
 	ARN                                string                   `json:"arn"`
 	DomainName                         string                   `json:"domainName"`
+	Serial                             string                   `json:"serial,omitempty"`
+	Subject                            string                   `json:"subject,omitempty"`
+	Issuer                             string                   `json:"issuer,omitempty"`
+	KeyAlgorithm                       string                   `json:"keyAlgorithm,omitempty"`
+	SignatureAlgorithm                 string                   `json:"signatureAlgorithm,omitempty"`
 	Status                             string                   `json:"status"`
 	Type                               string                   `json:"type"`
 	RevocationReason                   string                   `json:"revocationReason,omitempty"`
@@ -79,12 +95,18 @@ type Certificate struct {
 	CertificateChain                   string                   `json:"certificateChain,omitempty"`
 	PrivateKey                         string                   `json:"privateKey,omitempty"`
 	CertificateTransparencyLoggingPref string                   `json:"certTransparencyLoggingPref,omitempty"`
+	IdempotencyToken                   string                   `json:"idempotencyToken,omitempty"`
 	SubjectAlternativeNames            []string                 `json:"subjectAlternativeNames,omitempty"`
 	DomainValidationOptions            []DomainValidationOption `json:"domainValidationOptions,omitempty"`
 }
 
 // AccountConfig holds account-level ACM configuration.
 type AccountConfig struct {
+	DaysBeforeExpiry int32 `json:"daysBeforeExpiry"`
+}
+
+// idempotencyEntry stores the settings associated with a PutAccountConfiguration idempotency token.
+type idempotencyEntry struct {
 	DaysBeforeExpiry int32 `json:"daysBeforeExpiry"`
 }
 
@@ -95,25 +117,29 @@ const (
 
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
-	timers         map[string]*time.Timer
-	certs          map[string]*Certificate
-	idempotencyMap map[string]struct{}
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
-	accountConfig  AccountConfig
+	timers map[string]*time.Timer
+	certs  map[string]*Certificate
+	// idempotencyMap maps RequestCertificate idempotency tokens to cert ARNs.
+	idempotencyMap map[string]string
+	// accountIdempotency maps PutAccountConfiguration tokens to their applied settings.
+	accountIdempotency map[string]idempotencyEntry
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
+	accountConfig      AccountConfig
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		certs:          make(map[string]*Certificate),
-		timers:         make(map[string]*time.Timer),
-		idempotencyMap: make(map[string]struct{}),
-		accountID:      accountID,
-		region:         region,
-		mu:             lockmetrics.New("acm"),
-		accountConfig:  AccountConfig{DaysBeforeExpiry: defaultDaysBeforeExpiry},
+		certs:              make(map[string]*Certificate),
+		timers:             make(map[string]*time.Timer),
+		idempotencyMap:     make(map[string]string),
+		accountIdempotency: make(map[string]idempotencyEntry),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("acm"),
+		accountConfig:      AccountConfig{DaysBeforeExpiry: defaultDaysBeforeExpiry},
 	}
 }
 
@@ -123,21 +149,38 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // RequestCertificate creates a new certificate for the given domain.
 // When validationMethod is "DNS" or "EMAIL" the certificate starts in
 // PENDING_VALIDATION and automatically transitions to ISSUED after a short delay.
+// idempotencyToken, if non-empty, deduplicates the request — repeated calls with
+// the same token return the previously created certificate ARN.
 func (b *InMemoryBackend) RequestCertificate(
-	domainName, certType, validationMethod string,
+	domainName, certType, validationMethod, idempotencyToken, keyAlgorithm string,
 	sans []string,
 ) (*Certificate, error) {
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	certBody, privateKey, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
+	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
 
+	if keyAlgorithm == "" {
+		keyAlgorithm = keyAlgorithmEC
+	}
+
 	b.mu.Lock("RequestCertificate")
 	defer b.mu.Unlock()
+
+	// Idempotency: return existing cert if same token was already used.
+	if idempotencyToken != "" {
+		if existingARN, ok := b.idempotencyMap[idempotencyToken]; ok {
+			if c, exists := b.certs[existingARN]; exists {
+				cp := copyCert(c)
+
+				return &cp, nil
+			}
+		}
+	}
 
 	id := fmt.Sprintf("%x", time.Now().UnixNano())
 	certARN := arn.Build("acm", b.region, b.accountID, "certificate/"+id)
@@ -151,46 +194,46 @@ func (b *InMemoryBackend) RequestCertificate(
 		renewalEligibility = renewalEligibilityIneligible
 	}
 
-	status := statusIssued
-	var dvoList []DomainValidationOption
-
-	allDomains := append([]string{domainName}, sans...)
-
-	switch validationMethod {
-	case validationMethodDNS, validationMethodEMAIL:
-		status = statusPendingValidation
-		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod)
-	default:
-		dvoList, err = buildDomainValidationOptions(allDomains, validationMethodDNS)
-	}
-
+	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod)
 	if err != nil {
 		return nil, err
 	}
 
 	// When the certificate is issued immediately, mark all DVOs as validated.
+	now := time.Now().UTC()
+	var issuedAt *time.Time
+
 	if status == statusIssued {
-		for i := range dvoList {
-			dvoList[i].ValidationStatus = validationStatusSuccess
-		}
+		issuedAt = &now
 	}
 
 	cert := &Certificate{
 		ARN:                     certARN,
 		DomainName:              domainName,
+		Serial:                  certMeta.serial,
+		Subject:                 certMeta.subject,
+		Issuer:                  certMeta.issuer,
+		KeyAlgorithm:            keyAlgorithm,
+		SignatureAlgorithm:      certMeta.signatureAlgorithm,
 		Status:                  status,
 		Type:                    certType,
 		RenewalEligibility:      renewalEligibility,
 		ValidationMethod:        validationMethod,
+		IdempotencyToken:        idempotencyToken,
 		SubjectAlternativeNames: sans,
 		DomainValidationOptions: dvoList,
 		CertificateBody:         certBody,
 		PrivateKey:              privateKey,
-		CreatedAt:               time.Now().UTC(),
+		CreatedAt:               now,
+		IssuedAt:                issuedAt,
 		NotBefore:               notBefore,
 		NotAfter:                notAfter,
 	}
 	b.certs[certARN] = cert
+
+	if idempotencyToken != "" {
+		b.idempotencyMap[idempotencyToken] = certARN
+	}
 
 	if status == statusPendingValidation {
 		t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })
@@ -202,10 +245,65 @@ func (b *InMemoryBackend) RequestCertificate(
 	return &cp, nil
 }
 
-// copyCert returns a deep copy of a Certificate, ensuring the DomainValidationOptions
-// slice and its ResourceRecord pointers are not shared with the original.
+// buildInitialDVOList constructs the initial DomainValidationOptions list and determines
+// the certificate's initial status based on the validation method.
+func buildInitialDVOList(
+	domainName string,
+	sans []string,
+	validationMethod string,
+) (string, []DomainValidationOption, error) {
+	allDomains := append([]string{domainName}, sans...)
+	status := statusIssued
+
+	var (
+		dvoList []DomainValidationOption
+		err     error
+	)
+
+	switch validationMethod {
+	case validationMethodDNS, validationMethodEMAIL:
+		status = statusPendingValidation
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod)
+	default:
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethodDNS)
+	}
+
+	if err != nil {
+		return "", nil, err
+	}
+
+	if status == statusIssued {
+		for i := range dvoList {
+			dvoList[i].ValidationStatus = validationStatusSuccess
+		}
+	}
+
+	return status, dvoList, nil
+}
+
+// copyCert returns a deep copy of a Certificate, ensuring all pointer fields
+// and the DomainValidationOptions slice are not shared with the original.
 func copyCert(c *Certificate) Certificate {
 	cp := *c
+
+	if c.RevokedAt != nil {
+		t := *c.RevokedAt
+		cp.RevokedAt = &t
+	}
+
+	if c.IssuedAt != nil {
+		t := *c.IssuedAt
+		cp.IssuedAt = &t
+	}
+
+	if c.ImportedAt != nil {
+		t := *c.ImportedAt
+		cp.ImportedAt = &t
+	}
+
+	if len(c.SubjectAlternativeNames) > 0 {
+		cp.SubjectAlternativeNames = append([]string(nil), c.SubjectAlternativeNames...)
+	}
 
 	if len(c.DomainValidationOptions) > 0 {
 		cp.DomainValidationOptions = make([]DomainValidationOption, len(c.DomainValidationOptions))
@@ -235,16 +333,23 @@ func (b *InMemoryBackend) autoValidate(certARN string) {
 		return
 	}
 
+	now := time.Now().UTC()
 	c.Status = statusIssued
+	c.IssuedAt = &now
 
 	for i := range c.DomainValidationOptions {
-		c.DomainValidationOptions[i].ValidationStatus = "SUCCESS"
+		c.DomainValidationOptions[i].ValidationStatus = validationStatusSuccess
 	}
 }
 
 // ImportCertificate stores a PEM-encoded certificate, private key, and optional
-// certificate chain, returning the ARN of the newly created entry.
-func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain string) (*Certificate, error) {
+// certificate chain, returning the ARN of the newly created or updated entry.
+// When certARNToUpdate is non-empty, the existing certificate is updated in-place
+// (re-import), matching AWS behavior where CertificateArn may be passed to replace
+// an existing imported certificate.
+func (b *InMemoryBackend) ImportCertificate(
+	certBody, privateKey, certChain, certARNToUpdate string,
+) (*Certificate, error) {
 	if certBody == "" {
 		return nil, fmt.Errorf("%w: Certificate is required", ErrInvalidParameter)
 	}
@@ -253,13 +358,40 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 		return nil, fmt.Errorf("%w: PrivateKey is required", ErrInvalidParameter)
 	}
 
-	domainName, notBefore, notAfter, err := extractCertMetadata(certBody)
+	domainName, meta, notBefore, notAfter, err := extractCertMetadataFull(certBody)
 	if err != nil {
 		domainName = "imported"
 	}
 
+	now := time.Now().UTC()
+
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
+
+	// Re-import: update existing certificate in-place.
+	if certARNToUpdate != "" {
+		existing, ok := b.certs[certARNToUpdate]
+		if !ok {
+			return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARNToUpdate)
+		}
+
+		existing.CertificateBody = certBody
+		existing.CertificateChain = certChain
+		existing.PrivateKey = privateKey
+		existing.DomainName = domainName
+		existing.NotBefore = notBefore
+		existing.NotAfter = notAfter
+		existing.Serial = meta.serial
+		existing.Subject = meta.subject
+		existing.Issuer = meta.issuer
+		existing.SignatureAlgorithm = meta.signatureAlgorithm
+		existing.ImportedAt = &now
+		existing.Status = statusIssued
+
+		cp := copyCert(existing)
+
+		return &cp, nil
+	}
 
 	id := fmt.Sprintf("%x", time.Now().UnixNano())
 	certARN := arn.Build("acm", b.region, b.accountID, "certificate/"+id)
@@ -267,13 +399,19 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 	cert := &Certificate{
 		ARN:                certARN,
 		DomainName:         domainName,
-		Status:             "ISSUED",
+		Serial:             meta.serial,
+		Subject:            meta.subject,
+		Issuer:             meta.issuer,
+		KeyAlgorithm:       keyAlgorithmEC,
+		SignatureAlgorithm: meta.signatureAlgorithm,
+		Status:             statusIssued,
 		Type:               certTypeImported,
 		RenewalEligibility: renewalEligibilityIneligible,
 		CertificateBody:    certBody,
 		CertificateChain:   certChain,
 		PrivateKey:         privateKey,
-		CreatedAt:          time.Now().UTC(),
+		CreatedAt:          now,
+		ImportedAt:         &now,
 		NotBefore:          notBefore,
 		NotAfter:           notAfter,
 	}
@@ -309,7 +447,7 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 		return fmt.Errorf("%w: only AMAZON_ISSUED certificates can be renewed", ErrNotEligible)
 	}
 
-	certBody, privateKey, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
+	certBody, privateKey, meta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
 	if err != nil {
 		return fmt.Errorf("failed to regenerate certificate: %w", err)
 	}
@@ -324,6 +462,10 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 
 	c.CertificateBody = certBody
 	c.PrivateKey = privateKey
+	c.Serial = meta.serial
+	c.Subject = meta.subject
+	c.Issuer = meta.issuer
+	c.SignatureAlgorithm = meta.signatureAlgorithm
 	c.NotBefore = notBefore
 	c.NotAfter = notAfter
 
@@ -379,12 +521,29 @@ func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) 
 }
 
 // ListCertificates returns a paginated list of certificates sorted by ARN.
-func (b *InMemoryBackend) ListCertificates(nextToken string, maxItems int) page.Page[Certificate] {
+// statusFilter, when non-empty, restricts results to certificates with matching statuses.
+func (b *InMemoryBackend) ListCertificates(
+	nextToken string,
+	maxItems int,
+	statusFilter []string,
+) page.Page[Certificate] {
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
+	statusSet := make(map[string]struct{}, len(statusFilter))
+	for _, s := range statusFilter {
+		statusSet[s] = struct{}{}
+	}
+
 	certs := make([]Certificate, 0, len(b.certs))
+
 	for _, c := range b.certs {
+		if len(statusSet) > 0 {
+			if _, ok := statusSet[c.Status]; !ok {
+				continue
+			}
+		}
+
 		certs = append(certs, copyCert(c))
 	}
 
@@ -395,21 +554,32 @@ func (b *InMemoryBackend) ListCertificates(nextToken string, maxItems int) page.
 
 const acmDefaultMaxItems = 100
 
+// CertExists reports whether a certificate with the given ARN exists in the backend.
+// This is used by the handler to validate tag operations.
+func (b *InMemoryBackend) CertExists(certARN string) bool {
+	b.mu.RLock("CertExists")
+	defer b.mu.RUnlock()
+
+	_, ok := b.certs[certARN]
+
+	return ok
+}
+
 // DeleteCertificate removes the certificate with the given ARN.
-func (b *InMemoryBackend) DeleteCertificate(arn string) error {
+func (b *InMemoryBackend) DeleteCertificate(certARN string) error {
 	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.certs[arn]; !exists {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
+	if _, exists := b.certs[certARN]; !exists {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
 
-	if t, ok := b.timers[arn]; ok {
+	if t, ok := b.timers[certARN]; ok {
 		t.Stop()
-		delete(b.timers, arn)
+		delete(b.timers, certARN)
 	}
 
-	delete(b.certs, arn)
+	delete(b.certs, certARN)
 
 	return nil
 }
@@ -466,21 +636,29 @@ func randHex(n int) (string, error) {
 	return hex.EncodeToString(b)[:n], nil
 }
 
+// certMetadata holds extracted metadata from a parsed X.509 certificate.
+type certMetadata struct {
+	serial             string
+	subject            string
+	issuer             string
+	signatureAlgorithm string
+}
+
 // generateSelfSignedCert generates a self-signed ECDSA P-256 certificate for
 // the given domain (and optional SANs) and returns PEM-encoded certificate,
-// private key, and the certificate's NotBefore/NotAfter validity times.
+// private key, extracted metadata, and the certificate's NotBefore/NotAfter validity times.
 func generateSelfSignedCert(
 	domainName string,
 	sans []string,
-) (string, string, time.Time, time.Time, error) {
+) (string, string, certMetadata, time.Time, time.Time, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
 	if err != nil {
-		return "", "", time.Time{}, time.Time{}, fmt.Errorf("generate key: %w", err)
+		return "", "", certMetadata{}, time.Time{}, time.Time{}, fmt.Errorf("generate key: %w", err)
 	}
 
 	serialBytes := make([]byte, 16) //nolint:mnd // 128-bit random serial
 	if _, err = cryptorand.Read(serialBytes); err != nil {
-		return "", "", time.Time{}, time.Time{}, fmt.Errorf("generate serial: %w", err)
+		return "", "", certMetadata{}, time.Time{}, time.Time{}, fmt.Errorf("generate serial: %w", err)
 	}
 
 	serial := new(big.Int).SetBytes(serialBytes)
@@ -490,9 +668,11 @@ func generateSelfSignedCert(
 	notBefore := time.Now().UTC().Truncate(time.Second)
 	notAfter := notBefore.Add(certValidityDuration)
 
+	subjectName := pkix.Name{CommonName: domainName}
+
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: domainName},
+		Subject:      subjectName,
 		DNSNames:     dnsNames,
 		NotBefore:    notBefore,
 		NotAfter:     notAfter,
@@ -502,32 +682,39 @@ func generateSelfSignedCert(
 
 	certDER, err := x509.CreateCertificate(cryptorand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	if err != nil {
-		return "", "", time.Time{}, time.Time{}, fmt.Errorf("create certificate: %w", err)
+		return "", "", certMetadata{}, time.Time{}, time.Time{}, fmt.Errorf("create certificate: %w", err)
 	}
 
 	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
 
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return "", "", time.Time{}, time.Time{}, fmt.Errorf("marshal key: %w", err)
+		return "", "", certMetadata{}, time.Time{}, time.Time{}, fmt.Errorf("marshal key: %w", err)
 	}
 
 	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
 
-	return certPEM, keyPEM, notBefore, notAfter, nil
+	meta := certMetadata{
+		serial:             serial.Text(hexBase),
+		subject:            "CN=" + domainName,
+		issuer:             "CN=" + domainName, // self-signed: issuer == subject
+		signatureAlgorithm: signatureAlgorithmECDSA,
+	}
+
+	return certPEM, keyPEM, meta, notBefore, notAfter, nil
 }
 
-// extractCertMetadata parses a PEM-encoded certificate and returns the primary
-// domain name (first SAN or CN), NotBefore, and NotAfter.
-func extractCertMetadata(certPEM string) (string, time.Time, time.Time, error) {
+// extractCertMetadataFull parses a PEM-encoded certificate and returns the primary
+// domain name (first SAN or CN), extracted metadata, NotBefore, and NotAfter.
+func extractCertMetadataFull(certPEM string) (string, certMetadata, time.Time, time.Time, error) {
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil {
-		return "", time.Time{}, time.Time{}, errInvalidPEM
+		return "", certMetadata{}, time.Time{}, time.Time{}, errInvalidPEM
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, fmt.Errorf("parse certificate: %w", err)
+		return "", certMetadata{}, time.Time{}, time.Time{}, fmt.Errorf("parse certificate: %w", err)
 	}
 
 	domainName := cert.Subject.CommonName
@@ -535,7 +722,14 @@ func extractCertMetadata(certPEM string) (string, time.Time, time.Time, error) {
 		domainName = cert.DNSNames[0]
 	}
 
-	return domainName, cert.NotBefore.UTC(), cert.NotAfter.UTC(), nil
+	meta := certMetadata{
+		serial:             cert.SerialNumber.Text(hexBase),
+		subject:            cert.Subject.String(),
+		issuer:             cert.Issuer.String(),
+		signatureAlgorithm: cert.SignatureAlgorithm.String(),
+	}
+
+	return domainName, meta, cert.NotBefore.UTC(), cert.NotAfter.UTC(), nil
 }
 
 // Reset clears all certificate state and stops any pending auto-validate timers.
@@ -549,7 +743,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.certs = make(map[string]*Certificate)
 	b.timers = make(map[string]*time.Timer)
-	b.idempotencyMap = make(map[string]struct{})
+	b.idempotencyMap = make(map[string]string)
+	b.accountIdempotency = make(map[string]idempotencyEntry)
 	b.accountConfig = AccountConfig{DaysBeforeExpiry: defaultDaysBeforeExpiry}
 }
 
@@ -562,31 +757,39 @@ func (b *InMemoryBackend) GetAccountConfiguration() AccountConfig {
 }
 
 // PutAccountConfiguration stores the account-level ACM configuration.
-// idempotencyToken must be non-empty; repeated calls with the same token within
-// the same backend lifetime are silently accepted (idempotent).
+// idempotencyToken must be non-empty; repeated calls with the same token are
+// silently accepted only when the configuration is identical (AWS behavior).
+// A conflicting call with the same token but different settings returns ErrConflict.
 func (b *InMemoryBackend) PutAccountConfiguration(idempotencyToken string, daysBeforeExpiry *int32) error {
 	if idempotencyToken == "" {
 		return fmt.Errorf("%w: IdempotencyToken is required", ErrInvalidParameter)
 	}
 
-	if daysBeforeExpiry != nil && *daysBeforeExpiry < 0 {
-		return fmt.Errorf("%w: DaysBeforeExpiry must be non-negative", ErrInvalidParameter)
+	wantDays := defaultDaysBeforeExpiry
+	if daysBeforeExpiry != nil {
+		if *daysBeforeExpiry < 0 {
+			return fmt.Errorf("%w: DaysBeforeExpiry must be non-negative", ErrInvalidParameter)
+		}
+
+		wantDays = *daysBeforeExpiry
 	}
 
 	b.mu.Lock("PutAccountConfiguration")
 	defer b.mu.Unlock()
 
-	if _, seen := b.idempotencyMap[idempotencyToken]; seen {
+	if prev, seen := b.accountIdempotency[idempotencyToken]; seen {
+		if prev.DaysBeforeExpiry != wantDays {
+			return fmt.Errorf(
+				"%w: IdempotencyToken %q was already used with different settings",
+				ErrConflict, idempotencyToken,
+			)
+		}
+		// Same token + same settings → idempotent success.
 		return nil
 	}
 
-	b.idempotencyMap[idempotencyToken] = struct{}{}
-
-	if daysBeforeExpiry != nil {
-		b.accountConfig.DaysBeforeExpiry = *daysBeforeExpiry
-	} else {
-		b.accountConfig.DaysBeforeExpiry = defaultDaysBeforeExpiry
-	}
+	b.accountIdempotency[idempotencyToken] = idempotencyEntry{DaysBeforeExpiry: wantDays}
+	b.accountConfig.DaysBeforeExpiry = wantDays
 
 	return nil
 }
@@ -647,6 +850,7 @@ func validRevocationReason(r string) bool {
 
 // RevokeCertificate marks the certificate as REVOKED with the given reason.
 // Returns ErrAlreadyRevoked if the certificate is already revoked.
+// Only ISSUED certificates can be revoked; PENDING_VALIDATION certs return ErrInvalidParameter.
 func (b *InMemoryBackend) RevokeCertificate(certARN, revocationReason string) error {
 	if certARN == "" {
 		return fmt.Errorf("%w: CertificateArn is required", ErrInvalidParameter)
@@ -670,6 +874,13 @@ func (b *InMemoryBackend) RevokeCertificate(certARN, revocationReason string) er
 
 	if cert.Status == statusRevoked {
 		return fmt.Errorf("%w: certificate %s is already revoked", ErrAlreadyRevoked, certARN)
+	}
+
+	if cert.Status == statusPendingValidation {
+		return fmt.Errorf(
+			"%w: certificate %s is in PENDING_VALIDATION and cannot be revoked",
+			ErrInvalidParameter, certARN,
+		)
 	}
 
 	now := time.Now().UTC()
