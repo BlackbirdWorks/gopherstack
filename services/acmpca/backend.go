@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -29,6 +31,12 @@ var (
 	ErrInvalidParameter = errors.New("InvalidParameterException")
 	// ErrInvalidState is returned when the CA is in an invalid state for the operation.
 	ErrInvalidState = errors.New("InvalidStateException")
+	// ErrPermissionNotFound is returned when a CA permission is not found.
+	ErrPermissionNotFound = errors.New("ResourceNotFoundException")
+	// ErrPolicyNotFound is returned when a CA policy is not found.
+	ErrPolicyNotFound = errors.New("ResourceNotFoundException")
+	// ErrAuditReportNotFound is returned when a CA audit report is not found.
+	ErrAuditReportNotFound = errors.New("ResourceNotFoundException")
 
 	errCAPrivKeyNil    = errors.New("CA private key is nil")
 	errDecodeCSRPEM    = errors.New("failed to decode CSR PEM")
@@ -36,22 +44,43 @@ var (
 )
 
 const (
-	caStatusCreating     = "CREATING"
-	caStatusActive       = "ACTIVE"
-	caStatusDisabled     = "DISABLED"
-	caStatusDeleted      = "DELETED"
-	caTypePRoot          = "ROOT"
-	caTypeSubordinate    = "SUBORDINATE"
-	defaultMaxItems      = 100
-	certStatusActive     = "ACTIVE"
-	certStatusRevoked    = "REVOKED"
-	defaultKeyAlgorithm  = "EC_prime256v1"
-	defaultSignAlgorithm = "SHA256WITHECDSA"
-	caResourceIDPrefix   = "certificate-authority/"
-	certResourceIDPrefix = "certificate/"
+	caStatusCreating           = "CREATING"
+	caStatusActive             = "ACTIVE"
+	caStatusDisabled           = "DISABLED"
+	caStatusDeleted            = "DELETED"
+	caStatusPendingCertificate = "PENDING_CERTIFICATE"
+	caTypePRoot                = "ROOT"
+	caTypeSubordinate          = "SUBORDINATE"
+	defaultMaxItems            = 100
+	certStatusActive           = "ACTIVE"
+	certStatusRevoked          = "REVOKED"
+	defaultKeyAlgorithm        = "EC_prime256v1"
+	defaultSignAlgorithm       = "SHA256WITHECDSA"
+	caResourceIDPrefix         = "certificate-authority/"
+	certResourceIDPrefix       = "certificate/"
+	reportResourcePrefix       = "audit-report/"
+	auditReportStatus          = "SUCCESS"
+	auditReportFormatCSV       = "CSV"
+	auditReportFormatJSON      = "JSON"
+	actionGetCertificate       = "GetCertificate"
+	actionIssueCertificate     = "IssueCertificate"
+	actionListPermissions      = "ListPermissions"
+	permanentDeletionMinDays   = int32(7)
+	permanentDeletionMaxDays   = int32(30)
 
 	// serialBitLen is the number of bits for a random serial number.
 	serialBitLen = 128
+)
+
+const (
+	revocationReasonUnspecified   = "UNSPECIFIED"
+	revocationReasonKeyCompromise = "KEY_COMPROMISE"
+	revocationReasonCACompromise  = "CERTIFICATE_AUTHORITY_COMPROMISE"
+	revocationReasonAffiliation   = "AFFILIATION_CHANGED"
+	revocationReasonSuperseded    = "SUPERSEDED"
+	revocationReasonCessation     = "CESSATION_OF_OPERATION"
+	revocationReasonPrivWithdrawn = "PRIVILEGE_WITHDRAWN"
+	revocationReasonAACompromise  = "A_A_COMPROMISE"
 )
 
 // CertificateAuthoritySubject holds the subject fields for a Certificate Authority.
@@ -88,14 +117,36 @@ type CertificateAuthority struct {
 
 // IssuedCertificate represents a certificate issued by an ACM PCA Certificate Authority.
 type IssuedCertificate struct {
-	IssuedAt  time.Time `json:"issuedAt"`
-	NotBefore time.Time `json:"notBefore"`
-	NotAfter  time.Time `json:"notAfter"`
-	ARN       string    `json:"arn"`
-	CAARN     string    `json:"caArn"`
-	Status    string    `json:"status"`
-	Serial    string    `json:"serial"`
-	CertBody  string    `json:"certBody"`
+	IssuedAt         time.Time  `json:"issuedAt"`
+	NotBefore        time.Time  `json:"notBefore"`
+	NotAfter         time.Time  `json:"notAfter"`
+	RevokedAt        *time.Time `json:"revokedAt,omitempty"`
+	ARN              string     `json:"arn"`
+	CAARN            string     `json:"caArn"`
+	Status           string     `json:"status"`
+	Serial           string     `json:"serial"`
+	CertBody         string     `json:"certBody"`
+	RevocationReason string     `json:"revocationReason,omitempty"`
+}
+
+// Permission represents an ACM PCA permission granted on a certificate authority.
+type Permission struct {
+	CreatedAt               time.Time `json:"createdAt"`
+	CertificateAuthorityArn string    `json:"certificateAuthorityArn"`
+	Policy                  string    `json:"policy,omitempty"`
+	Principal               string    `json:"principal"`
+	SourceAccount           string    `json:"sourceAccount,omitempty"`
+	Actions                 []string  `json:"actions"`
+}
+
+// AuditReport represents an ACM PCA audit report generated for a certificate authority.
+type AuditReport struct {
+	CreatedAt               time.Time `json:"createdAt"`
+	AuditReportID           string    `json:"auditReportId"`
+	CertificateAuthorityArn string    `json:"certificateAuthorityArn"`
+	S3BucketName            string    `json:"s3BucketName"`
+	S3Key                   string    `json:"s3Key"`
+	Status                  string    `json:"status"`
 }
 
 // InMemoryBackend is the in-memory store for ACM PCA resources.
@@ -103,6 +154,9 @@ type InMemoryBackend struct {
 	cas             map[string]*CertificateAuthority
 	certs           map[string]*IssuedCertificate
 	certsByCASerial map[string]string // caARN+"#"+serial → certARN (O(1) RevokeCertificate)
+	permissions     map[string]*Permission
+	auditReports    map[string]*AuditReport
+	policies        map[string]string
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -114,6 +168,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		cas:             make(map[string]*CertificateAuthority),
 		certs:           make(map[string]*IssuedCertificate),
 		certsByCASerial: make(map[string]string),
+		permissions:     make(map[string]*Permission),
+		auditReports:    make(map[string]*AuditReport),
+		policies:        make(map[string]string),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("acmpca"),
@@ -206,8 +263,29 @@ func (b *InMemoryBackend) selfSignAndActivate(ca *CertificateAuthority, now time
 	return nil
 }
 
+// verifyCertificateAuthorityActive checks that the CA exists and is not DELETED.
+func (b *InMemoryBackend) verifyCertificateAuthorityActive(caARN string) error {
+	b.mu.RLock("verifyCertificateAuthorityActive")
+	defer b.mu.RUnlock()
+
+	ca, ok := b.cas[caARN]
+	if !ok {
+		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	if ca.Status == caStatusDeleted {
+		return fmt.Errorf("%w: CA is DELETED", ErrInvalidState)
+	}
+
+	return nil
+}
+
 // DescribeCertificateAuthority returns the CA with the given ARN.
 func (b *InMemoryBackend) DescribeCertificateAuthority(caARN string) (*CertificateAuthority, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("DescribeCertificateAuthority")
 	defer b.mu.RUnlock()
 
@@ -237,7 +315,17 @@ func (b *InMemoryBackend) ListCertificateAuthorities(nextToken string, maxItems 
 }
 
 // DeleteCertificateAuthority marks the CA as DELETED.
-func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string) error {
+func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string, permanentDeletionDays int32) error {
+	if permanentDeletionDays != 0 &&
+		(permanentDeletionDays < permanentDeletionMinDays || permanentDeletionDays > permanentDeletionMaxDays) {
+		return fmt.Errorf(
+			"%w: PermanentDeletionTimeInDays must be between %d and %d",
+			ErrInvalidParameter,
+			permanentDeletionMinDays,
+			permanentDeletionMaxDays,
+		)
+	}
+
 	b.mu.Lock("DeleteCertificateAuthority")
 	defer b.mu.Unlock()
 
@@ -246,8 +334,15 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string) error {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	if ca.Status != caStatusDisabled {
-		return fmt.Errorf("%w: CA must be in DISABLED state before deletion (current: %s)", ErrInvalidState, ca.Status)
+	switch ca.Status {
+	case caStatusDisabled, caStatusCreating, caStatusPendingCertificate:
+		// allowed
+	default:
+		return fmt.Errorf(
+			"%w: CA must be in DISABLED, CREATING, or PENDING_CERTIFICATE state (current: %s)",
+			ErrInvalidState,
+			ca.Status,
+		)
 	}
 
 	ca.Status = caStatusDeleted
@@ -257,6 +352,14 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string) error {
 
 // UpdateCertificateAuthority updates the CA status.
 func (b *InMemoryBackend) UpdateCertificateAuthority(caARN, status string) error {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return err
+	}
+
+	if status != "" && status != caStatusActive && status != caStatusDisabled {
+		return fmt.Errorf("%w: status must be ACTIVE or DISABLED", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("UpdateCertificateAuthority")
 	defer b.mu.Unlock()
 
@@ -274,6 +377,10 @@ func (b *InMemoryBackend) UpdateCertificateAuthority(caARN, status string) error
 
 // GetCertificateAuthorityCsr returns the CSR PEM for the given CA.
 func (b *InMemoryBackend) GetCertificateAuthorityCsr(caARN string) (string, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return "", err
+	}
+
 	b.mu.RLock("GetCertificateAuthorityCsr")
 	defer b.mu.RUnlock()
 
@@ -288,6 +395,10 @@ func (b *InMemoryBackend) GetCertificateAuthorityCsr(caARN string) (string, erro
 // ImportCertificateAuthorityCertificate imports a signed certificate for the CA, activating it.
 // It parses the certificate to extract NotBefore/NotAfter and stores the optional chain.
 func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM, chainPEM string) error {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return err
+	}
+
 	b.mu.Lock("ImportCertificateAuthorityCertificate")
 	defer b.mu.Unlock()
 
@@ -318,6 +429,10 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM, 
 
 // GetCertificateAuthorityCertificate returns the certificate body and chain PEM for the given CA.
 func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (string, string, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return "", "", err
+	}
+
 	b.mu.RLock("GetCertificateAuthorityCertificate")
 	defer b.mu.RUnlock()
 
@@ -331,6 +446,14 @@ func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (stri
 
 // IssueCertificate issues a new certificate signed by the given CA.
 func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays int) (*IssuedCertificate, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
+	if err := validateRequiredParameter(csrPEM, "Csr"); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("IssueCertificate")
 	defer b.mu.Unlock()
 
@@ -401,7 +524,18 @@ func (b *InMemoryBackend) GetCertificate(caARN, certARN string) (*IssuedCertific
 }
 
 // RevokeCertificate revokes the given certificate using the O(1) serial index.
-func (b *InMemoryBackend) RevokeCertificate(caARN, serial, _ string) error {
+func (b *InMemoryBackend) RevokeCertificate(caARN, serial, revocationReason string) error {
+	if revocationReason != "" {
+		switch revocationReason {
+		case revocationReasonUnspecified, revocationReasonKeyCompromise, revocationReasonCACompromise,
+			revocationReasonAffiliation, revocationReasonSuperseded, revocationReasonCessation,
+			revocationReasonPrivWithdrawn, revocationReasonAACompromise:
+			// valid
+		default:
+			return fmt.Errorf("%w: invalid RevocationReason %q", ErrInvalidParameter, revocationReason)
+		}
+	}
+
 	b.mu.Lock("RevokeCertificate")
 	defer b.mu.Unlock()
 
@@ -415,6 +549,9 @@ func (b *InMemoryBackend) RevokeCertificate(caARN, serial, _ string) error {
 	}
 
 	b.certs[certARN].Status = certStatusRevoked
+	now := time.Now().UTC()
+	b.certs[certARN].RevokedAt = &now
+	b.certs[certARN].RevocationReason = revocationReason
 
 	return nil
 }
@@ -440,12 +577,312 @@ func (b *InMemoryBackend) ListCertificates(
 	return page.New(certs, nextToken, maxItems, defaultMaxItems)
 }
 
+// CreateCertificateAuthorityAuditReport creates a new audit report for the given CA.
+func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
+	caARN string,
+	s3BucketName string,
+	responseFormat string,
+) (*AuditReport, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
+	if s3BucketName == "" {
+		return nil, fmt.Errorf("%w: S3BucketName is required", ErrInvalidParameter)
+	}
+
+	format := strings.ToUpper(responseFormat)
+	if format != auditReportFormatJSON && format != auditReportFormatCSV {
+		return nil, fmt.Errorf("%w: AuditReportResponseFormat must be JSON or CSV", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateCertificateAuthorityAuditReport")
+	defer b.mu.Unlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	id, err := newRandomID()
+	if err != nil {
+		return nil, err
+	}
+
+	report := &AuditReport{
+		CreatedAt:               time.Now().UTC(),
+		AuditReportID:           id,
+		CertificateAuthorityArn: caARN,
+		S3BucketName:            s3BucketName,
+		S3Key:                   fmt.Sprintf("%s%s.%s", reportResourcePrefix, id, strings.ToLower(format)),
+		Status:                  auditReportStatus,
+	}
+	b.auditReports[id] = report
+
+	cp := copyAuditReport(report)
+
+	return &cp, nil
+}
+
+// DescribeCertificateAuthorityAuditReport returns the audit report for the given CA.
+func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
+	caARN string,
+	auditReportID string,
+) (*AuditReport, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
+	if err := validateRequiredParameter(auditReportID, "AuditReportId"); err != nil {
+		return nil, err
+	}
+
+	b.mu.RLock("DescribeCertificateAuthorityAuditReport")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	report, ok := b.auditReports[auditReportID]
+	if !ok || report.CertificateAuthorityArn != caARN {
+		return nil, fmt.Errorf("%w: audit report %s not found", ErrAuditReportNotFound, auditReportID)
+	}
+
+	cp := copyAuditReport(report)
+
+	return &cp, nil
+}
+
+// CreatePermission creates a permission on the given CA.
+func (b *InMemoryBackend) CreatePermission(
+	caARN string,
+	principal string,
+	sourceAccount string,
+	actions []string,
+) (*Permission, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
+	if principal == "" {
+		return nil, fmt.Errorf("%w: Principal is required", ErrInvalidParameter)
+	}
+
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("%w: Actions is required", ErrInvalidParameter)
+	}
+
+	for _, action := range actions {
+		switch action {
+		case actionIssueCertificate, actionGetCertificate, actionListPermissions:
+		default:
+			return nil, fmt.Errorf("%w: unsupported action %s", ErrInvalidParameter, action)
+		}
+	}
+
+	b.mu.Lock("CreatePermission")
+	defer b.mu.Unlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	key := permissionKey(caARN, principal, sourceAccount)
+	permission := &Permission{
+		CreatedAt:               time.Now().UTC(),
+		Actions:                 append([]string(nil), actions...),
+		CertificateAuthorityArn: caARN,
+		Principal:               principal,
+		SourceAccount:           sourceAccount,
+	}
+	b.permissions[key] = permission
+
+	cp := copyPermission(permission)
+
+	return &cp, nil
+}
+
+// DeletePermission deletes a permission on the given CA.
+func (b *InMemoryBackend) DeletePermission(caARN, principal, sourceAccount string) error {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return err
+	}
+
+	if err := validateRequiredParameter(principal, "Principal"); err != nil {
+		return err
+	}
+
+	b.mu.Lock("DeletePermission")
+	defer b.mu.Unlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	key := permissionKey(caARN, principal, sourceAccount)
+	if _, ok := b.permissions[key]; !ok {
+		return fmt.Errorf("%w: permission for principal %s not found", ErrPermissionNotFound, principal)
+	}
+
+	delete(b.permissions, key)
+
+	return nil
+}
+
+// ListPermissions lists permissions on the given CA.
+func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int) (page.Page[Permission], error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return page.Page[Permission]{}, err
+	}
+
+	b.mu.RLock("ListPermissions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return page.Page[Permission]{}, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	perms := make([]Permission, 0)
+	for _, perm := range b.permissions {
+		if perm.CertificateAuthorityArn == caARN {
+			perms = append(perms, copyPermission(perm))
+		}
+	}
+
+	sort.Slice(perms, func(i, j int) bool {
+		if perms[i].Principal == perms[j].Principal {
+			return perms[i].SourceAccount < perms[j].SourceAccount
+		}
+
+		return perms[i].Principal < perms[j].Principal
+	})
+
+	return page.New(perms, nextToken, maxItems, defaultMaxItems), nil
+}
+
+// PutPolicy stores a resource policy on the given CA.
+func (b *InMemoryBackend) PutPolicy(caARN, policy string) error {
+	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+		return err
+	}
+
+	if policy == "" {
+		return fmt.Errorf("%w: Policy is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("PutPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	b.policies[caARN] = policy
+
+	return nil
+}
+
+// GetPolicy returns the resource policy for the given CA.
+func (b *InMemoryBackend) GetPolicy(caARN string) (string, error) {
+	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+		return "", err
+	}
+
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	policy, ok := b.policies[caARN]
+	if !ok {
+		return "", fmt.Errorf("%w: policy for CA %s not found", ErrPolicyNotFound, caARN)
+	}
+
+	return policy, nil
+}
+
+// DeletePolicy deletes the resource policy for the given CA.
+func (b *InMemoryBackend) DeletePolicy(caARN string) error {
+	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+		return err
+	}
+
+	b.mu.Lock("DeletePolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	if _, ok := b.policies[caARN]; !ok {
+		return fmt.Errorf("%w: policy for CA %s not found", ErrPolicyNotFound, caARN)
+	}
+
+	delete(b.policies, caARN)
+
+	return nil
+}
+
+// RestoreCertificateAuthority restores a deleted CA into the DISABLED state.
+func (b *InMemoryBackend) RestoreCertificateAuthority(caARN string) error {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return err
+	}
+
+	b.mu.Lock("RestoreCertificateAuthority")
+	defer b.mu.Unlock()
+
+	ca, ok := b.cas[caARN]
+	if !ok {
+		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	if ca.Status != caStatusDeleted {
+		return fmt.Errorf("%w: CA %s is not DELETED", ErrInvalidState, caARN)
+	}
+
+	ca.Status = caStatusDisabled
+
+	return nil
+}
+
 // copyCA returns a shallow copy of the CertificateAuthority, excluding the private key.
 func copyCA(ca *CertificateAuthority) CertificateAuthority {
 	cp := *ca
 	cp.privKey = nil
 
 	return cp
+}
+
+func copyPermission(permission *Permission) Permission {
+	cp := *permission
+	cp.Actions = append([]string(nil), permission.Actions...)
+
+	return cp
+}
+
+func copyAuditReport(report *AuditReport) AuditReport {
+	return *report
+}
+
+func permissionKey(caARN, principal, sourceAccount string) string {
+	// url.QueryEscape does not emit pipe characters, so "|" remains a safe separator.
+	return strings.Join([]string{
+		url.QueryEscape(caARN),
+		url.QueryEscape(principal),
+		url.QueryEscape(sourceAccount),
+	}, "|")
+}
+
+// validateRequiredParameter returns ErrInvalidParameter when a required field is empty.
+func validateRequiredParameter(value, fieldName string) error {
+	if value == "" {
+		return fmt.Errorf("%w: %s is required", ErrInvalidParameter, fieldName)
+	}
+
+	return nil
 }
 
 // generateCSR generates a PEM-encoded CSR from the given private key and subject.
@@ -494,8 +931,15 @@ func selfSignCA(ca *CertificateAuthority, now time.Time) (string, error) {
 	}
 
 	tmpl := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: cn},
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:         cn,
+			Organization:       nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.Organization),
+			Country:            nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.Country),
+			OrganizationalUnit: nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.OrganizationalUnit),
+			Province:           nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.State),
+			Locality:           nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.Locality),
+		},
 		NotBefore:             now,
 		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
 		IsCA:                  true,
@@ -620,7 +1064,7 @@ func splitARN(a string) []string {
 	return nil
 }
 
-// Reset clears all CAs and issued certificates.
+// Reset clears all backend state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -628,4 +1072,7 @@ func (b *InMemoryBackend) Reset() {
 	b.cas = make(map[string]*CertificateAuthority)
 	b.certs = make(map[string]*IssuedCertificate)
 	b.certsByCASerial = make(map[string]string)
+	b.permissions = make(map[string]*Permission)
+	b.auditReports = make(map[string]*AuditReport)
+	b.policies = make(map[string]string)
 }

@@ -17,14 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := acmpca.NewInMemoryBackend("000000000000", "us-east-1")
 	h := acmpca.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &acmpcasdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCertificateAuthorityAuditReport",
-		"CreatePermission",
-		"DeletePermission",
-		"DeletePolicy",
-		"DescribeCertificateAuthorityAuditReport",
-		"GetPolicy",
-		"PutPolicy",
-		"RestoreCertificateAuthority",
-	})
+	sdkcheck.CheckCompleteness(t, &acmpcasdk.Client{}, h.GetSupportedOperations(), nil)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -19,6 +20,8 @@ import (
 const (
 	acmpcaMatchPriority = 82
 	acmpcaTargetPrefix  = "ACMPrivateCA."
+	daysPerYear         = 365
+	daysPerMonth        = 30
 )
 
 // Handler is the Echo HTTP handler for ACM PCA operations.
@@ -104,21 +107,29 @@ func (h *Handler) Name() string { return "ACMPCA" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateCertificateAuthority",
-		"DescribeCertificateAuthority",
-		"ListCertificateAuthorities",
+		"CreateCertificateAuthorityAuditReport",
+		"CreatePermission",
 		"DeleteCertificateAuthority",
-		"UpdateCertificateAuthority",
-		"GetCertificateAuthorityCsr",
-		"ImportCertificateAuthorityCertificate",
-		"GetCertificateAuthorityCertificate",
-		"IssueCertificate",
+		"DeletePermission",
+		"DeletePolicy",
+		"DescribeCertificateAuthority",
+		"DescribeCertificateAuthorityAuditReport",
 		"GetCertificate",
-		"RevokeCertificate",
+		"GetCertificateAuthorityCertificate",
+		"GetCertificateAuthorityCsr",
+		"GetPolicy",
+		"ImportCertificateAuthorityCertificate",
+		"IssueCertificate",
+		"ListCertificateAuthorities",
 		"ListPermissions",
+		"ListTags",
+		"ListTagsForCertificateAuthority",
+		"PutPolicy",
+		"RevokeCertificate",
+		"RestoreCertificateAuthority",
 		"TagCertificateAuthority",
 		"UntagCertificateAuthority",
-		"ListTagsForCertificateAuthority",
-		"ListTags",
+		"UpdateCertificateAuthority",
 	}
 }
 
@@ -159,7 +170,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return strings.TrimPrefix(target, acmpcaTargetPrefix)
 }
 
-// ExtractResource returns the CA ARN from the JSON body.
+// ExtractResource returns the primary ARN from the JSON body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -171,16 +182,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"CertificateAuthorityArn", "CertificateArn"} {
-		if raw, ok := m[key]; ok {
-			var arnStr string
-			if jsonErr := json.Unmarshal(raw, &arnStr); jsonErr == nil {
-				return arnStr
-			}
-		}
-	}
-
-	return ""
+	return extractFirstResourceByKeys(m, "CertificateAuthorityArn", "CertificateArn", "ResourceArn")
 }
 
 // Handler returns the Echo handler function.
@@ -292,7 +294,8 @@ type listCertificateAuthoritiesOutput struct {
 }
 
 type deleteCertificateAuthorityInput struct {
-	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+	CertificateAuthorityArn     string `json:"CertificateAuthorityArn"`
+	PermanentDeletionTimeInDays int32  `json:"PermanentDeletionTimeInDays"`
 }
 
 type deleteCertificateAuthorityOutput struct{}
@@ -366,12 +369,89 @@ type revokeCertificateOutput struct{}
 type listPermissionsInput struct {
 	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
 	NextToken               string `json:"NextToken"`
+	MaxResults              int    `json:"MaxResults"`
+}
+
+type permissionOutput struct {
+	CertificateAuthorityArn string   `json:"CertificateAuthorityArn"`
+	Policy                  string   `json:"Policy,omitempty"`
+	Principal               string   `json:"Principal"`
+	SourceAccount           string   `json:"SourceAccount,omitempty"`
+	Actions                 []string `json:"Actions"`
+	CreatedAt               int64    `json:"CreatedAt,omitempty"`
 }
 
 type listPermissionsOutput struct {
-	NextToken   string `json:"NextToken,omitempty"`
-	Permissions []any  `json:"Permissions"`
+	NextToken   string             `json:"NextToken,omitempty"`
+	Permissions []permissionOutput `json:"Permissions"`
 }
+
+type createPermissionInput struct {
+	CertificateAuthorityArn string   `json:"CertificateAuthorityArn"`
+	Principal               string   `json:"Principal"`
+	SourceAccount           string   `json:"SourceAccount"`
+	Actions                 []string `json:"Actions"`
+}
+
+type createPermissionOutput struct{}
+
+type deletePermissionInput struct {
+	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+	Principal               string `json:"Principal"`
+	SourceAccount           string `json:"SourceAccount"`
+}
+
+type deletePermissionOutput struct{}
+
+type createCertificateAuthorityAuditReportInput struct {
+	AuditReportResponseFormat string `json:"AuditReportResponseFormat"`
+	CertificateAuthorityArn   string `json:"CertificateAuthorityArn"`
+	S3BucketName              string `json:"S3BucketName"`
+}
+
+type createCertificateAuthorityAuditReportOutput struct {
+	AuditReportID string `json:"AuditReportId,omitempty"`
+	S3Key         string `json:"S3Key,omitempty"`
+}
+
+type describeCertificateAuthorityAuditReportInput struct {
+	AuditReportID           string `json:"AuditReportId"`
+	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+}
+
+type describeCertificateAuthorityAuditReportOutput struct {
+	AuditReportStatus string `json:"AuditReportStatus,omitempty"`
+	S3BucketName      string `json:"S3BucketName,omitempty"`
+	S3Key             string `json:"S3Key,omitempty"`
+	CreatedAt         int64  `json:"CreatedAt,omitempty"`
+}
+
+type getPolicyInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type getPolicyOutput struct {
+	Policy string `json:"Policy,omitempty"`
+}
+
+type putPolicyInput struct {
+	Policy      string `json:"Policy"`
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type putPolicyOutput struct{}
+
+type deletePolicyInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type deletePolicyOutput struct{}
+
+type restoreCertificateAuthorityInput struct {
+	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+}
+
+type restoreCertificateAuthorityOutput struct{}
 
 type tagCertificateAuthorityInput struct {
 	CertificateAuthorityArn string       `json:"CertificateAuthorityArn"`
@@ -440,6 +520,29 @@ func (h *Handler) dispatchCertAndTagOps(action string, body []byte) (any, error)
 		return h.jsonUntagCA(body)
 	case "ListTagsForCertificateAuthority", "ListTags":
 		return h.jsonListTags(body)
+	default:
+		return h.dispatchPermissionAndAuditOps(action, body)
+	}
+}
+
+func (h *Handler) dispatchPermissionAndAuditOps(action string, body []byte) (any, error) {
+	switch action {
+	case "CreateCertificateAuthorityAuditReport":
+		return h.jsonCreateAuditReport(body)
+	case "CreatePermission":
+		return h.jsonCreatePermission(body)
+	case "DeletePermission":
+		return h.jsonDeletePermission(body)
+	case "DeletePolicy":
+		return h.jsonDeletePolicy(body)
+	case "DescribeCertificateAuthorityAuditReport":
+		return h.jsonDescribeAuditReport(body)
+	case "GetPolicy":
+		return h.jsonGetPolicy(body)
+	case "PutPolicy":
+		return h.jsonPutPolicy(body)
+	case "RestoreCertificateAuthority":
+		return h.jsonRestoreCA(body)
 	default:
 		return nil, errUnknownACMPCAAction
 	}
@@ -518,7 +621,10 @@ func (h *Handler) jsonDeleteCA(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.DeleteCertificateAuthority(input.CertificateAuthorityArn); err != nil {
+	if err := h.Backend.DeleteCertificateAuthority(
+		input.CertificateAuthorityArn,
+		input.PermanentDeletionTimeInDays,
+	); err != nil {
 		return nil, err
 	}
 
@@ -591,9 +697,17 @@ func (h *Handler) jsonIssueCert(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	days := int(input.Validity.Value)
-	if input.Validity.Type == "YEARS" {
-		days *= 365
+	var days int
+	switch input.Validity.Type {
+	case "YEARS":
+		days = int(input.Validity.Value) * daysPerYear
+	case "MONTHS":
+		days = int(input.Validity.Value) * daysPerMonth
+	case "DAYS", "":
+		days = int(input.Validity.Value)
+	default:
+		return nil, fmt.Errorf("%w: unsupported Validity.Type %q (must be DAYS, MONTHS, or YEARS)",
+			ErrInvalidParameter, input.Validity.Type)
 	}
 
 	cert, err := h.Backend.IssueCertificate(input.CertificateAuthorityArn, input.Csr, days)
@@ -615,7 +729,15 @@ func (h *Handler) jsonGetCert(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return &getCertificateOutput{Certificate: cert.CertBody}, nil
+	caChain := ""
+	if certPEM, _, chainErr := h.Backend.GetCertificateAuthorityCertificate(
+		input.CertificateAuthorityArn,
+	); chainErr == nil &&
+		certPEM != "" {
+		caChain = certPEM
+	}
+
+	return &getCertificateOutput{Certificate: cert.CertBody, CertificateChain: caChain}, nil
 }
 
 func (h *Handler) jsonRevokeCert(body []byte) (any, error) {
@@ -637,15 +759,179 @@ func (h *Handler) jsonRevokeCert(body []byte) (any, error) {
 
 func (h *Handler) jsonListPermissions(body []byte) (any, error) {
 	var input listPermissionsInput
-	_ = json.Unmarshal(body, &input)
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
 
-	return &listPermissionsOutput{Permissions: []any{}}, nil
+	p, err := h.Backend.ListPermissions(input.CertificateAuthorityArn, input.NextToken, input.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	permissions := make([]permissionOutput, 0, len(p.Data))
+	for _, permission := range p.Data {
+		out := permissionOutput{
+			Actions:                 copyStringSlice(permission.Actions),
+			CertificateAuthorityArn: permission.CertificateAuthorityArn,
+			Policy:                  permission.Policy,
+			Principal:               permission.Principal,
+			SourceAccount:           permission.SourceAccount,
+		}
+		if !permission.CreatedAt.IsZero() {
+			out.CreatedAt = permission.CreatedAt.Unix()
+		}
+		permissions = append(permissions, out)
+	}
+
+	return &listPermissionsOutput{
+		NextToken:   p.Next,
+		Permissions: permissions,
+	}, nil
+}
+
+func (h *Handler) jsonCreatePermission(body []byte) (any, error) {
+	var input createPermissionInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if _, err := h.Backend.CreatePermission(
+		input.CertificateAuthorityArn,
+		input.Principal,
+		input.SourceAccount,
+		input.Actions,
+	); err != nil {
+		return nil, err
+	}
+
+	return &createPermissionOutput{}, nil
+}
+
+func (h *Handler) jsonDeletePermission(body []byte) (any, error) {
+	var input deletePermissionInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.DeletePermission(
+		input.CertificateAuthorityArn,
+		input.Principal,
+		input.SourceAccount,
+	); err != nil {
+		return nil, err
+	}
+
+	return &deletePermissionOutput{}, nil
+}
+
+func (h *Handler) jsonCreateAuditReport(body []byte) (any, error) {
+	var input createCertificateAuthorityAuditReportInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	report, err := h.Backend.CreateCertificateAuthorityAuditReport(
+		input.CertificateAuthorityArn,
+		input.S3BucketName,
+		input.AuditReportResponseFormat,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createCertificateAuthorityAuditReportOutput{
+		AuditReportID: report.AuditReportID,
+		S3Key:         report.S3Key,
+	}, nil
+}
+
+func (h *Handler) jsonDescribeAuditReport(body []byte) (any, error) {
+	var input describeCertificateAuthorityAuditReportInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	report, err := h.Backend.DescribeCertificateAuthorityAuditReport(
+		input.CertificateAuthorityArn,
+		input.AuditReportID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeCertificateAuthorityAuditReportOutput{
+		AuditReportStatus: report.Status,
+		S3BucketName:      report.S3BucketName,
+		S3Key:             report.S3Key,
+	}
+	if !report.CreatedAt.IsZero() {
+		out.CreatedAt = report.CreatedAt.Unix()
+	}
+
+	return out, nil
+}
+
+func (h *Handler) jsonGetPolicy(body []byte) (any, error) {
+	var input getPolicyInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	policy, err := h.Backend.GetPolicy(input.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getPolicyOutput{Policy: policy}, nil
+}
+
+func (h *Handler) jsonPutPolicy(body []byte) (any, error) {
+	var input putPolicyInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.PutPolicy(input.ResourceArn, input.Policy); err != nil {
+		return nil, err
+	}
+
+	return &putPolicyOutput{}, nil
+}
+
+func (h *Handler) jsonDeletePolicy(body []byte) (any, error) {
+	var input deletePolicyInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.DeletePolicy(input.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	return &deletePolicyOutput{}, nil
+}
+
+func (h *Handler) jsonRestoreCA(body []byte) (any, error) {
+	var input restoreCertificateAuthorityInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.RestoreCertificateAuthority(input.CertificateAuthorityArn); err != nil {
+		return nil, err
+	}
+
+	return &restoreCertificateAuthorityOutput{}, nil
 }
 
 func (h *Handler) jsonTagCA(body []byte) (any, error) {
 	var input tagCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+		return nil, err
 	}
 
 	kv := make(map[string]string, len(input.Tags))
@@ -664,6 +950,10 @@ func (h *Handler) jsonUntagCA(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
+	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+		return nil, err
+	}
+
 	keys := make([]string, 0, len(input.Tags))
 	for _, t := range input.Tags {
 		keys = append(keys, t.Key)
@@ -680,6 +970,10 @@ func (h *Handler) jsonListTags(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
+	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+		return nil, err
+	}
+
 	return &listTagsOutput{Tags: h.getTags(input.CertificateAuthorityArn)}, nil
 }
 
@@ -690,7 +984,9 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	var code string
 
 	switch {
-	case errors.Is(opErr, ErrCANotFound), errors.Is(opErr, ErrCertNotFound):
+	case errors.Is(opErr, ErrCANotFound), errors.Is(opErr, ErrCertNotFound),
+		errors.Is(opErr, ErrPermissionNotFound), errors.Is(opErr, ErrPolicyNotFound),
+		errors.Is(opErr, ErrAuditReportNotFound):
 		code = "ResourceNotFoundException"
 	case errors.Is(opErr, ErrInvalidParameter):
 		code = "InvalidParameterException"
@@ -743,6 +1039,24 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 	}
 
 	return out
+}
+
+func copyStringSlice(values []string) []string {
+	return append([]string(nil), values...)
+}
+
+// extractFirstResourceByKeys returns the first string resource found for the provided JSON field names.
+func extractFirstResourceByKeys(body map[string]json.RawMessage, keys ...string) string {
+	for _, key := range keys {
+		if raw, ok := body[key]; ok {
+			var resourceID string
+			if err := json.Unmarshal(raw, &resourceID); err == nil {
+				return resourceID
+			}
+		}
+	}
+
+	return ""
 }
 
 // Reset clears all handler tag state and delegates to the backend Reset.

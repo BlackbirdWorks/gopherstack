@@ -53,10 +53,13 @@ func unmarshalPrivKey(pemStr string) (*ecdsa.PrivateKey, error) {
 }
 
 type backendSnapshot struct {
-	CAs       map[string]*caSnapshot        `json:"cas"`
-	Certs     map[string]*IssuedCertificate `json:"certs"`
-	AccountID string                        `json:"accountID"`
-	Region    string                        `json:"region"`
+	CAs          map[string]*caSnapshot        `json:"cas"`
+	Certs        map[string]*IssuedCertificate `json:"certs"`
+	Permissions  map[string]*Permission        `json:"permissions"`
+	AuditReports map[string]*AuditReport       `json:"auditReports"`
+	Policies     map[string]string             `json:"policies"`
+	AccountID    string                        `json:"accountID"`
+	Region       string                        `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -76,10 +79,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	data, _ := json.Marshal(backendSnapshot{
-		CAs:       cas,
-		Certs:     b.certs,
-		AccountID: b.accountID,
-		Region:    b.region,
+		CAs:          cas,
+		Certs:        b.certs,
+		Permissions:  b.permissions,
+		AuditReports: b.auditReports,
+		Policies:     b.policies,
+		AccountID:    b.accountID,
+		Region:       b.region,
 	})
 
 	return data
@@ -104,6 +110,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Certs = make(map[string]*IssuedCertificate)
 	}
 
+	if snap.Permissions == nil {
+		snap.Permissions = make(map[string]*Permission)
+	}
+
+	if snap.AuditReports == nil {
+		snap.AuditReports = make(map[string]*AuditReport)
+	}
+
+	if snap.Policies == nil {
+		snap.Policies = make(map[string]string)
+	}
+
 	cas := make(map[string]*CertificateAuthority, len(snap.CAs))
 	for k, s := range snap.CAs {
 		ca := s.CertificateAuthority
@@ -122,6 +140,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.cas = cas
 	b.certs = snap.Certs
+	b.permissions = snap.Permissions
+	b.auditReports = snap.AuditReports
+	b.policies = snap.Policies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
