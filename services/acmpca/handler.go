@@ -730,9 +730,9 @@ func (h *Handler) jsonGetCert(body []byte) (any, error) {
 	}
 
 	caChain := ""
-	if certPEM, _, err2 := h.Backend.GetCertificateAuthorityCertificate(
+	if certPEM, _, chainErr := h.Backend.GetCertificateAuthorityCertificate(
 		input.CertificateAuthorityArn,
-	); err2 == nil &&
+	); chainErr == nil &&
 		certPEM != "" {
 		caChain = certPEM
 	}

@@ -549,7 +549,7 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 	}
 }
 
-func TestInMemoryBackend_RefinementItems(t *testing.T) {
+func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

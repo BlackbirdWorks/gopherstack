@@ -265,7 +265,7 @@ func TestACMPCAHandler_NewOperationValidation(t *testing.T) {
 	}
 }
 
-func TestACMPCAHandler_RefinementItems(t *testing.T) {
+func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
