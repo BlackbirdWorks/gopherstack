@@ -165,7 +165,7 @@ func (h *DashboardHandler) acmpcaDeleteCA(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if err := h.ACMPCAOps.Backend.DeleteCertificateAuthority(caARN); err != nil {
+	if err := h.ACMPCAOps.Backend.DeleteCertificateAuthority(caARN, 0); err != nil {
 		h.Logger.Error("failed to delete ACM PCA certificate authority", "arn", caARN, "error", err)
 
 		return c.NoContent(http.StatusNotFound)

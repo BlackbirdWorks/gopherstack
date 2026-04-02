@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -19,6 +20,8 @@ import (
 const (
 	acmpcaMatchPriority = 82
 	acmpcaTargetPrefix  = "ACMPrivateCA."
+	daysPerYear         = 365
+	daysPerMonth        = 30
 )
 
 // Handler is the Echo HTTP handler for ACM PCA operations.
@@ -291,7 +294,8 @@ type listCertificateAuthoritiesOutput struct {
 }
 
 type deleteCertificateAuthorityInput struct {
-	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+	CertificateAuthorityArn     string `json:"CertificateAuthorityArn"`
+	PermanentDeletionTimeInDays int32  `json:"PermanentDeletionTimeInDays"`
 }
 
 type deleteCertificateAuthorityOutput struct{}
@@ -617,7 +621,10 @@ func (h *Handler) jsonDeleteCA(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.DeleteCertificateAuthority(input.CertificateAuthorityArn); err != nil {
+	if err := h.Backend.DeleteCertificateAuthority(
+		input.CertificateAuthorityArn,
+		input.PermanentDeletionTimeInDays,
+	); err != nil {
 		return nil, err
 	}
 
@@ -690,9 +697,17 @@ func (h *Handler) jsonIssueCert(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	days := int(input.Validity.Value)
-	if input.Validity.Type == "YEARS" {
-		days *= 365
+	var days int
+	switch input.Validity.Type {
+	case "YEARS":
+		days = int(input.Validity.Value) * daysPerYear
+	case "MONTHS":
+		days = int(input.Validity.Value) * daysPerMonth
+	case "DAYS", "":
+		days = int(input.Validity.Value)
+	default:
+		return nil, fmt.Errorf("%w: unsupported Validity.Type %q (must be DAYS, MONTHS, or YEARS)",
+			ErrInvalidParameter, input.Validity.Type)
 	}
 
 	cert, err := h.Backend.IssueCertificate(input.CertificateAuthorityArn, input.Csr, days)
@@ -714,7 +729,15 @@ func (h *Handler) jsonGetCert(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return &getCertificateOutput{Certificate: cert.CertBody}, nil
+	caChain := ""
+	if certPEM, _, err2 := h.Backend.GetCertificateAuthorityCertificate(
+		input.CertificateAuthorityArn,
+	); err2 == nil &&
+		certPEM != "" {
+		caChain = certPEM
+	}
+
+	return &getCertificateOutput{Certificate: cert.CertBody, CertificateChain: caChain}, nil
 }
 
 func (h *Handler) jsonRevokeCert(body []byte) (any, error) {
@@ -736,7 +759,9 @@ func (h *Handler) jsonRevokeCert(body []byte) (any, error) {
 
 func (h *Handler) jsonListPermissions(body []byte) (any, error) {
 	var input listPermissionsInput
-	_ = json.Unmarshal(body, &input)
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
 
 	p, err := h.Backend.ListPermissions(input.CertificateAuthorityArn, input.NextToken, input.MaxResults)
 	if err != nil {
@@ -905,6 +930,10 @@ func (h *Handler) jsonTagCA(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
+	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+		return nil, err
+	}
+
 	kv := make(map[string]string, len(input.Tags))
 	for _, t := range input.Tags {
 		kv[t.Key] = t.Value
@@ -921,6 +950,10 @@ func (h *Handler) jsonUntagCA(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
+	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+		return nil, err
+	}
+
 	keys := make([]string, 0, len(input.Tags))
 	for _, t := range input.Tags {
 		keys = append(keys, t.Key)
@@ -935,6 +968,10 @@ func (h *Handler) jsonListTags(body []byte) (any, error) {
 	var input listTagsInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+		return nil, err
 	}
 
 	return &listTagsOutput{Tags: h.getTags(input.CertificateAuthorityArn)}, nil

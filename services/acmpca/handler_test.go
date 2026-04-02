@@ -155,7 +155,7 @@ func TestACMPCAHandler_MissingOperations(t *testing.T) {
 				assert.Equal(t, "SUCCESS", describeResp["AuditReportStatus"])
 
 				require.NoError(t, h.Backend.UpdateCertificateAuthority(caARN, "DISABLED"))
-				require.NoError(t, h.Backend.DeleteCertificateAuthority(caARN))
+				require.NoError(t, h.Backend.DeleteCertificateAuthority(caARN, 0))
 
 				restoreRec := doACMPCARequest(t, h, "RestoreCertificateAuthority", map[string]any{
 					"CertificateAuthorityArn": caARN,
@@ -261,6 +261,98 @@ func TestACMPCAHandler_NewOperationValidation(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 			resp := parseACMPCAResponse(t, rec)
 			assert.Equal(t, tt.wantType, resp["__type"])
+		})
+	}
+}
+
+func TestACMPCAHandler_RefinementItems(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *acmpca.Handler)
+		name string
+	}{
+		{
+			name: "tagCA on non-existent CA returns error",
+			run: func(t *testing.T, h *acmpca.Handler) {
+				t.Helper()
+
+				rec := doACMPCARequest(t, h, "TagCertificateAuthority", map[string]any{
+					"CertificateAuthorityArn": "arn:aws:acm-pca:us-east-1:000000000000:certificate-authority/nonexistent",
+					"Tags":                    []map[string]string{{"Key": "env", "Value": "test"}},
+				})
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+				resp := parseACMPCAResponse(t, rec)
+				assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+			},
+		},
+		{
+			name: "issueCert with MONTHS validity",
+			run: func(t *testing.T, h *acmpca.Handler) {
+				t.Helper()
+
+				caARN := createHandlerCA(t, h)
+
+				subCA, err := h.Backend.CreateCertificateAuthority(
+					"SUBORDINATE",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+					},
+				)
+				require.NoError(t, err)
+
+				csr, err := h.Backend.GetCertificateAuthorityCsr(subCA.ARN)
+				require.NoError(t, err)
+
+				rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
+					"CertificateAuthorityArn": caARN,
+					"Csr":                     csr,
+					"SigningAlgorithm":        "SHA256WITHECDSA",
+					"Validity":                map[string]any{"Type": "MONTHS", "Value": 6},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseACMPCAResponse(t, rec)
+				assert.NotEmpty(t, resp["CertificateArn"])
+			},
+		},
+		{
+			name: "getCert returns chain",
+			run: func(t *testing.T, h *acmpca.Handler) {
+				t.Helper()
+
+				caARN := createHandlerCA(t, h)
+
+				subCA, err := h.Backend.CreateCertificateAuthority(
+					"SUBORDINATE",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+					},
+				)
+				require.NoError(t, err)
+
+				csr, err := h.Backend.GetCertificateAuthorityCsr(subCA.ARN)
+				require.NoError(t, err)
+
+				cert, err := h.Backend.IssueCertificate(caARN, csr, 365)
+				require.NoError(t, err)
+
+				rec := doACMPCARequest(t, h, "GetCertificate", map[string]any{
+					"CertificateAuthorityArn": caARN,
+					"CertificateArn":          cert.ARN,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseACMPCAResponse(t, rec)
+				assert.NotEmpty(t, resp["Certificate"])
+				assert.NotEmpty(t, resp["CertificateChain"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t, newACMPCAHandler())
 		})
 	}
 }
