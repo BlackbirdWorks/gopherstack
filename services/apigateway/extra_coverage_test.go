@@ -175,6 +175,54 @@ func (n *noopBackend) UpdateRequestValidator(
 
 func (n *noopBackend) DeleteRequestValidator(_ string, _ string) error { return nil }
 
+func (n *noopBackend) CreateAPIKey(_ apigateway.CreateAPIKeyInput) (*apigateway.APIKey, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateBasePathMapping(
+	_ apigateway.CreateBasePathMappingInput,
+) (*apigateway.BasePathMapping, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateDocumentationPart(
+	_ apigateway.CreateDocumentationPartInput,
+) (*apigateway.DocumentationPart, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateDocumentationVersion(
+	_ apigateway.CreateDocumentationVersionInput,
+) (*apigateway.DocumentationVersion, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateDomainName(_ apigateway.CreateDomainNameInput) (*apigateway.DomainName, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateDomainNameAccessAssociation(
+	_ apigateway.CreateDomainNameAccessAssociationInput,
+) (*apigateway.DomainNameAccessAssociation, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateModel(_ apigateway.CreateModelInput) (*apigateway.Model, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateStage(_ apigateway.CreateStageInput) (*apigateway.Stage, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateUsagePlan(_ apigateway.CreateUsagePlanInput) (*apigateway.UsagePlan, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) CreateUsagePlanKey(_ apigateway.CreateUsagePlanKeyInput) (*apigateway.UsagePlanKey, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
