@@ -7,9 +7,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Certs     map[string]*Certificate `json:"certs"`
-	AccountID string                  `json:"accountID"`
-	Region    string                  `json:"region"`
+	Certs              map[string]*Certificate     `json:"certs"`
+	IdempotencyMap     map[string]string           `json:"idempotencyMap,omitempty"`
+	AccountIdempotency map[string]idempotencyEntry `json:"accountIdempotency,omitempty"`
+	AccountID          string                      `json:"accountID"`
+	Region             string                      `json:"region"`
+	AccountConfig      AccountConfig               `json:"accountConfig"`
 }
 
 type handlerSnapshot struct {
@@ -24,9 +27,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Certs:     b.certs,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Certs:              b.certs,
+		IdempotencyMap:     b.idempotencyMap,
+		AccountIdempotency: b.accountIdempotency,
+		AccountConfig:      b.accountConfig,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -53,7 +59,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Certs = make(map[string]*Certificate)
 	}
 
+	if snap.IdempotencyMap == nil {
+		snap.IdempotencyMap = make(map[string]string)
+	}
+
+	if snap.AccountIdempotency == nil {
+		snap.AccountIdempotency = make(map[string]idempotencyEntry)
+	}
+
+	// Preserve default if snapshot was taken before accountConfig was tracked.
+	if snap.AccountConfig.DaysBeforeExpiry == 0 {
+		snap.AccountConfig.DaysBeforeExpiry = defaultDaysBeforeExpiry
+	}
+
 	b.certs = snap.Certs
+	b.idempotencyMap = snap.IdempotencyMap
+	b.accountIdempotency = snap.AccountIdempotency
+	b.accountConfig = snap.AccountConfig
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
