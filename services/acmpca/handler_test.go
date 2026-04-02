@@ -173,3 +173,94 @@ func TestACMPCAHandler_MissingOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestACMPCAHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		want string
+	}{
+		{
+			name: "certificate authority arn",
+			body: map[string]any{
+				"CertificateAuthorityArn": "arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/ca-1",
+			},
+			want: "arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/ca-1",
+		},
+		{
+			name: "resource arn",
+			body: map[string]any{"ResourceArn": "arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/ca-2"},
+			want: "arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/ca-2",
+		},
+		{
+			name: "no supported resource field",
+			body: map[string]any{"AuditReportId": "report-1"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, newACMPCAHandler().ExtractResource(c))
+		})
+	}
+}
+
+func TestACMPCAHandler_NewOperationValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		op       string
+		wantType string
+		wantCode int
+	}{
+		{
+			name:     "list permissions requires certificate authority arn",
+			op:       "ListPermissions",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name:     "get policy requires resource arn",
+			op:       "GetPolicy",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name: "describe audit report requires report id",
+			op:   "DescribeCertificateAuthorityAuditReport",
+			body: map[string]any{
+				"CertificateAuthorityArn": "arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/ca-1",
+			},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doACMPCARequest(t, newACMPCAHandler(), tt.op, tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+			resp := parseACMPCAResponse(t, rec)
+			assert.Equal(t, tt.wantType, resp["__type"])
+		})
+	}
+}

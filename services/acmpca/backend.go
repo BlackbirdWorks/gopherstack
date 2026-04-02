@@ -487,6 +487,10 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 	s3BucketName string,
 	responseFormat string,
 ) (*AuditReport, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
 	if s3BucketName == "" {
 		return nil, fmt.Errorf("%w: S3BucketName is required", ErrInvalidParameter)
 	}
@@ -528,6 +532,14 @@ func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
 	caARN string,
 	auditReportID string,
 ) (*AuditReport, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
+	if err := validateRequiredParameter(auditReportID, "AuditReportId"); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("DescribeCertificateAuthorityAuditReport")
 	defer b.mu.RUnlock()
 
@@ -552,6 +564,10 @@ func (b *InMemoryBackend) CreatePermission(
 	sourceAccount string,
 	actions []string,
 ) (*Permission, error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return nil, err
+	}
+
 	if principal == "" {
 		return nil, fmt.Errorf("%w: Principal is required", ErrInvalidParameter)
 	}
@@ -592,6 +608,14 @@ func (b *InMemoryBackend) CreatePermission(
 
 // DeletePermission deletes a permission on the given CA.
 func (b *InMemoryBackend) DeletePermission(caARN, principal, sourceAccount string) error {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return err
+	}
+
+	if err := validateRequiredParameter(principal, "Principal"); err != nil {
+		return err
+	}
+
 	b.mu.Lock("DeletePermission")
 	defer b.mu.Unlock()
 
@@ -610,9 +634,17 @@ func (b *InMemoryBackend) DeletePermission(caARN, principal, sourceAccount strin
 }
 
 // ListPermissions lists permissions on the given CA.
-func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int) page.Page[Permission] {
+func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int) (page.Page[Permission], error) {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return page.Page[Permission]{}, err
+	}
+
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.cas[caARN]; !ok {
+		return page.Page[Permission]{}, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
 
 	perms := make([]Permission, 0)
 	for _, perm := range b.permissions {
@@ -629,11 +661,15 @@ func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int)
 		return perms[i].Principal < perms[j].Principal
 	})
 
-	return page.New(perms, nextToken, maxItems, defaultMaxItems)
+	return page.New(perms, nextToken, maxItems, defaultMaxItems), nil
 }
 
 // PutPolicy stores a resource policy on the given CA.
 func (b *InMemoryBackend) PutPolicy(caARN, policy string) error {
+	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+		return err
+	}
+
 	if policy == "" {
 		return fmt.Errorf("%w: Policy is required", ErrInvalidParameter)
 	}
@@ -652,6 +688,10 @@ func (b *InMemoryBackend) PutPolicy(caARN, policy string) error {
 
 // GetPolicy returns the resource policy for the given CA.
 func (b *InMemoryBackend) GetPolicy(caARN string) (string, error) {
+	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+		return "", err
+	}
+
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
@@ -669,6 +709,10 @@ func (b *InMemoryBackend) GetPolicy(caARN string) (string, error) {
 
 // DeletePolicy deletes the resource policy for the given CA.
 func (b *InMemoryBackend) DeletePolicy(caARN string) error {
+	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
+		return err
+	}
+
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
@@ -687,6 +731,10 @@ func (b *InMemoryBackend) DeletePolicy(caARN string) error {
 
 // RestoreCertificateAuthority restores a deleted CA into the DISABLED state.
 func (b *InMemoryBackend) RestoreCertificateAuthority(caARN string) error {
+	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
+		return err
+	}
+
 	b.mu.Lock("RestoreCertificateAuthority")
 	defer b.mu.Unlock()
 
@@ -730,6 +778,15 @@ func permissionKey(caARN, principal, sourceAccount string) string {
 		url.QueryEscape(principal),
 		url.QueryEscape(sourceAccount),
 	}, "|")
+}
+
+// validateRequiredParameter returns ErrInvalidParameter when a required field is empty.
+func validateRequiredParameter(value, fieldName string) error {
+	if value == "" {
+		return fmt.Errorf("%w: %s is required", ErrInvalidParameter, fieldName)
+	}
+
+	return nil
 }
 
 // generateCSR generates a PEM-encoded CSR from the given private key and subject.

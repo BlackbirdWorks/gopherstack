@@ -329,7 +329,8 @@ func TestInMemoryBackend_SnapshotRestore_AdditionalState(t *testing.T) {
 			verify: func(t *testing.T, b *acmpca.InMemoryBackend, caARN, reportID string) {
 				t.Helper()
 
-				perms := b.ListPermissions(caARN, "", 0)
+				perms, err := b.ListPermissions(caARN, "", 0)
+				require.NoError(t, err)
 				require.Len(t, perms.Data, 1)
 				assert.Equal(t, "acm.amazonaws.com", perms.Data[0].Principal)
 

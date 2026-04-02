@@ -396,12 +396,15 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 				assert.Equal(t, caARN, created.CertificateAuthorityArn)
 				assert.Equal(t, "acm.amazonaws.com", created.Principal)
 
-				list := b.ListPermissions(caARN, "", 0)
+				list, err := b.ListPermissions(caARN, "", 0)
+				require.NoError(t, err)
 				require.Len(t, list.Data, 1)
 				assert.Equal(t, []string{"IssueCertificate", "GetCertificate"}, list.Data[0].Actions)
 
 				require.NoError(t, b.DeletePermission(caARN, "acm.amazonaws.com", testAccountID))
-				assert.Empty(t, b.ListPermissions(caARN, "", 0).Data)
+				list, err = b.ListPermissions(caARN, "", 0)
+				require.NoError(t, err)
+				assert.Empty(t, list.Data)
 			},
 		},
 		{
@@ -457,6 +460,91 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 			require.NoError(t, err)
 
 			tt.run(t, b, ca.ARN)
+		})
+	}
+}
+
+func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *acmpca.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "create permission requires ca arn",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreatePermission("", "acm.amazonaws.com", testAccountID, []string{"IssueCertificate"})
+				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+			},
+		},
+		{
+			name: "delete permission requires principal",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				err := b.DeletePermission(
+					"arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/test",
+					"",
+					testAccountID,
+				)
+				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+			},
+		},
+		{
+			name: "list permissions requires existing ca",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.ListPermissions(
+					"arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/missing",
+					"",
+					0,
+				)
+				require.ErrorIs(t, err, acmpca.ErrCANotFound)
+			},
+		},
+		{
+			name: "audit report requires report id on describe",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Validate CA"},
+				})
+				require.NoError(t, err)
+
+				_, err = b.DescribeCertificateAuthorityAuditReport(ca.ARN, "")
+				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+			},
+		},
+		{
+			name: "policy requires resource arn",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.GetPolicy("")
+				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+			},
+		},
+		{
+			name: "restore requires ca arn",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				err := b.RestoreCertificateAuthority("")
+				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t, newTestBackend())
 		})
 	}
 }

@@ -167,7 +167,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return strings.TrimPrefix(target, acmpcaTargetPrefix)
 }
 
-// ExtractResource returns the CA ARN from the JSON body.
+// ExtractResource returns the primary ARN from the JSON body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -179,16 +179,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"CertificateAuthorityArn", "CertificateArn"} {
-		if raw, ok := m[key]; ok {
-			var arnStr string
-			if jsonErr := json.Unmarshal(raw, &arnStr); jsonErr == nil {
-				return arnStr
-			}
-		}
-	}
-
-	return ""
+	return extractFirstResourceByKeys(m, "CertificateAuthorityArn", "CertificateArn", "ResourceArn")
 }
 
 // Handler returns the Echo handler function.
@@ -747,7 +738,11 @@ func (h *Handler) jsonListPermissions(body []byte) (any, error) {
 	var input listPermissionsInput
 	_ = json.Unmarshal(body, &input)
 
-	p := h.Backend.ListPermissions(input.CertificateAuthorityArn, input.NextToken, input.MaxResults)
+	p, err := h.Backend.ListPermissions(input.CertificateAuthorityArn, input.NextToken, input.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
 	permissions := make([]permissionOutput, 0, len(p.Data))
 	for _, permission := range p.Data {
 		out := permissionOutput{
@@ -1011,6 +1006,20 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 
 func copyStringSlice(values []string) []string {
 	return append([]string(nil), values...)
+}
+
+// extractFirstResourceByKeys returns the first string resource found for the provided JSON field names.
+func extractFirstResourceByKeys(body map[string]json.RawMessage, keys ...string) string {
+	for _, key := range keys {
+		if raw, ok := body[key]; ok {
+			var resourceID string
+			if err := json.Unmarshal(raw, &resourceID); err == nil {
+				return resourceID
+			}
+		}
+	}
+
+	return ""
 }
 
 // Reset clears all handler tag state and delegates to the backend Reset.
