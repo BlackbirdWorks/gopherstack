@@ -17,11 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := acm.NewInMemoryBackend("000000000000", "us-east-1")
 	h := acm.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &acmsdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetAccountConfiguration",
-		"PutAccountConfiguration",
-		"ResendValidationEmail",
-		"RevokeCertificate",
-		"UpdateCertificateOptions",
-	})
+	sdkcheck.CheckCompleteness(t, &acmsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
