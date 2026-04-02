@@ -335,18 +335,18 @@ type CLI struct {
 	iamClient                     *iam.Client
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
-	ElastiCacheEngine             string                    `                                  name:"elasticache-engine"   env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                    `                                  name:"port"                 env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                    `                                  name:"data-dir"             env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                    `                                  name:"dns-addr"             env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                    `                                  name:"log-level"            env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                    `                                  name:"region"               env:"REGION"                  default:"us-east-1"    help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                    `                                  name:"opensearch-engine"    env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                    `                                  name:"elasticsearch-engine" env:"ELASTICSEARCH_ENGINE"    default:"stub"         help:"Elasticsearch engine mode: stub (API-only) or docker."`                                        //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                    `                                  name:"dns-resolve-ip"       env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                    `                                  name:"account-id"           env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
-	InitScripts                   []string                  `                                  name:"init-script"          env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."`                           //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                  `                                  name:"s3-bucket"            env:"S3_BUCKETS"                                     help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`  //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                    `                                  name:"elasticache-engine"   env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                    `                                  name:"port"                 env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                    `                                  name:"data-dir"             env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`         //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                    `                                  name:"dns-addr"             env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                     //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                    `                                  name:"log-level"            env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                    `                                  name:"region"               env:"REGION"                  default:"us-east-1"    help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                       //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                    `                                  name:"opensearch-engine"    env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                    `                                  name:"elasticsearch-engine" env:"ELASTICSEARCH_ENGINE"    default:"stub"         help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                    `                                  name:"dns-resolve-ip"       env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                    `                                  name:"account-id"           env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	InitScripts                   []string                  `                                  name:"init-script"          env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                  `                                  name:"s3-bucket"            env:"S3_BUCKETS"                                     help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings        `embed:"" prefix:"s3-"`
 	Lambda                        lambdabackend.Settings    `embed:"" prefix:"lambda-"`
 	DynamoDB                      ddbbackend.Settings       `embed:"" prefix:"dynamodb-"`
@@ -1592,8 +1592,9 @@ func applyExplicitOverrides(original, loaded CLI) CLI {
 
 	// Also accept the standard AWS SDK region environment variables so that
 	// tools using `AWS_DEFAULT_REGION` or `AWS_REGION` work without remapping.
-	// AWS_DEFAULT_REGION takes precedence over AWS_REGION if both are set.
-	if r := os.Getenv("AWS_REGION"); r != "" && loaded.Region == defaultRegion {
+	// AWS_DEFAULT_REGION takes the highest precedence, then AWS_REGION,
+	// then the REGION env var / --region flag (already applied above via original.Region).
+	if r := os.Getenv("AWS_REGION"); r != "" {
 		loaded.Region = r
 	}
 
@@ -1662,27 +1663,7 @@ func run(ctx context.Context, cli CLI) error {
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
-	// Use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY if provided, so that tools
-	// which set these standard env vars work against Gopherstack without remapping.
-	// The server itself never validates credentials, but using recognisable values
-	// makes request-signing easier for local tooling (e.g. awslocal, aws-cli).
-	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-
-	if accessKeyID == "" {
-		accessKeyID = "dummy"
-	}
-
-	if secretAccessKey == "" {
-		secretAccessKey = "dummy"
-	}
-
-	awsCfgVal, err := awscfg.LoadDefaultConfig(
-		ctx,
-		awscfg.WithRegion(cli.Region),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),
-		awscfg.WithHTTPClient(inMemClient),
-	)
+	awsCfgVal, err := buildInternalAWSConfig(ctx, cli.Region, inMemClient)
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load AWS config", "error", err)
 
@@ -1774,7 +1755,7 @@ func createS3InitBuckets(ctx context.Context, cli *CLI, log *slog.Logger) {
 	var buckets []string
 
 	for _, entry := range cli.S3InitBuckets {
-		for _, name := range strings.Split(entry, ",") {
+		for name := range strings.SplitSeq(entry, ",") {
 			if trimmed := strings.TrimSpace(name); trimmed != "" {
 				buckets = append(buckets, trimmed)
 			}
@@ -1790,6 +1771,30 @@ func createS3InitBuckets(ctx context.Context, cli *CLI, log *slog.Logger) {
 			log.InfoContext(ctx, "Created S3 bucket on startup", "bucket", bucket)
 		}
 	}
+}
+
+// buildInternalAWSConfig constructs an [aws.Config] for the server's own SDK clients.
+// AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are used when set, so that tooling that
+// configures these standard env vars (e.g. awslocal) works without credential remapping.
+// The server never validates incoming credentials, so the exact values do not matter.
+func buildInternalAWSConfig(ctx context.Context, region string, httpClient awscfg.HTTPClient) (aws.Config, error) {
+	keyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	secret := os.Getenv("AWS_SECRET_ACCESS_KEY")
+
+	if keyID == "" {
+		keyID = "dummy"
+	}
+
+	if secret == "" {
+		secret = "dummy"
+	}
+
+	return awscfg.LoadDefaultConfig(
+		ctx,
+		awscfg.WithRegion(region),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(keyID, secret, "")),
+		awscfg.WithHTTPClient(httpClient),
+	)
 }
 
 // lambdaCloseFn returns a cleanup function that shuts down the Lambda backend's
