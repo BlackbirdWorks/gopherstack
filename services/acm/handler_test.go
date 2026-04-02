@@ -1333,3 +1333,245 @@ func TestACMHandler_RevokeCertificate_PendingValidationRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, revokeRec.Code)
 	assert.Contains(t, revokeRec.Body.String(), "ValidationException")
 }
+
+// TestACMHandler_RequestCertificate_Tags verifies that tags passed at request time are stored.
+func TestACMHandler_RequestCertificate_Tags(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	body := `{"DomainName":"tagged.example.com","Tags":[{"Key":"env","Value":"test"},{"Key":"team","Value":"infra"}]}`
+	rec := postACMJSON(t, h, "RequestCertificate", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		CertificateArn string `json:"CertificateArn"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	// Verify tags are stored
+	listBody, _ := json.Marshal(map[string]string{"CertificateArn": out.CertificateArn})
+	listRec := postACMJSON(t, h, "ListTagsForCertificate", string(listBody))
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var tagsOut struct {
+		Tags []map[string]string `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+
+	tagMap := make(map[string]string)
+	for _, t2 := range tagsOut.Tags {
+		tagMap[t2["Key"]] = t2["Value"]
+	}
+
+	assert.Equal(t, "test", tagMap["env"])
+	assert.Equal(t, "infra", tagMap["team"])
+}
+
+// TestACMHandler_RequestCertificate_DomainValidation verifies domain name validation errors.
+func TestACMHandler_RequestCertificate_DomainValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		domain string
+	}{
+		{
+			name:   "empty_domain",
+			domain: "",
+		},
+		{
+			name:   "domain_too_long",
+			domain: "a." + strings.Repeat("b", 252) + ".com",
+		},
+		{
+			name:   "label_too_long",
+			domain: strings.Repeat("x", 64) + ".example.com",
+		},
+		{
+			name:   "empty_label",
+			domain: "foo..example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACMHandler()
+			body, _ := json.Marshal(map[string]string{"DomainName": tt.domain})
+			rec := postACMJSON(t, h, "RequestCertificate", string(body))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestACMHandler_DescribeCertificate_KeyUsageAndInUseBy verifies new fields in DescribeCertificate.
+func TestACMHandler_DescribeCertificate_KeyUsageAndInUseBy(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	reqRec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"keyusage.example.com"}`)
+	require.Equal(t, http.StatusOK, reqRec.Code)
+
+	var reqOut struct {
+		CertificateArn string `json:"CertificateArn"`
+	}
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut struct {
+		Certificate struct {
+			KeyUsage         []map[string]string `json:"KeyUsage"`
+			ExtendedKeyUsage []map[string]string `json:"ExtendedKeyUsage"`
+			InUseBy          []string            `json:"InUseBy"`
+		} `json:"Certificate"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+
+	require.NotEmpty(t, descOut.Certificate.KeyUsage, "KeyUsage should be set")
+	assert.Equal(t, "DIGITAL_SIGNATURE", descOut.Certificate.KeyUsage[0]["Name"])
+
+	require.NotEmpty(t, descOut.Certificate.ExtendedKeyUsage, "ExtendedKeyUsage should be set")
+	assert.Equal(t, "TLS_WEB_SERVER_AUTHENTICATION", descOut.Certificate.ExtendedKeyUsage[0]["Name"])
+}
+
+// TestACMHandler_ListCertificates_SortByCreatedAt verifies SortBy=CREATED_AT ordering.
+func TestACMHandler_ListCertificates_SortByCreatedAt(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	// Create three certs in sequence
+	for _, domain := range []string{"sort-a.example.com", "sort-b.example.com", "sort-c.example.com"} {
+		body, _ := json.Marshal(map[string]string{"DomainName": domain})
+		rec := postACMJSON(t, h, "RequestCertificate", string(body))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// List with CREATED_AT DESCENDING
+	listRec := postACMJSON(t, h, "ListCertificates",
+		`{"SortBy":"CREATED_AT","SortOrder":"DESCENDING"}`)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var out struct {
+		CertificateSummaryList []struct {
+			DomainName string `json:"DomainName"`
+		} `json:"CertificateSummaryList"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.Len(t, out.CertificateSummaryList, 3)
+
+	// Descending means newest first: sort-c, sort-b, sort-a
+	assert.Equal(t, "sort-c.example.com", out.CertificateSummaryList[0].DomainName)
+	assert.Equal(t, "sort-a.example.com", out.CertificateSummaryList[2].DomainName)
+}
+
+// TestACMHandler_ListCertificates_KeyTypesFilter verifies Includes.keyTypes filtering.
+func TestACMHandler_ListCertificates_KeyTypesFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"kt.example.com","KeyAlgorithm":"EC_prime256v1"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Filter that matches
+	matchRec := postACMJSON(t, h, "ListCertificates",
+		`{"Includes":{"keyTypes":["EC_prime256v1"]}}`)
+	require.Equal(t, http.StatusOK, matchRec.Code)
+
+	var matchOut struct {
+		CertificateSummaryList []struct {
+			DomainName string `json:"DomainName"`
+		} `json:"CertificateSummaryList"`
+	}
+	require.NoError(t, json.Unmarshal(matchRec.Body.Bytes(), &matchOut))
+	require.NotEmpty(t, matchOut.CertificateSummaryList, "EC_prime256v1 filter should return results")
+
+	// Filter that does not match
+	noMatchRec := postACMJSON(t, h, "ListCertificates",
+		`{"Includes":{"keyTypes":["RSA_2048"]}}`)
+	require.Equal(t, http.StatusOK, noMatchRec.Code)
+
+	var noMatchOut struct {
+		CertificateSummaryList []struct{} `json:"CertificateSummaryList"`
+	}
+	require.NoError(t, json.Unmarshal(noMatchRec.Body.Bytes(), &noMatchOut))
+	assert.Empty(t, noMatchOut.CertificateSummaryList, "RSA_2048 filter should return no results")
+}
+
+// TestACMHandler_ListCertificates_SubjectAlternativeNameSummaries verifies SANs in summary.
+func TestACMHandler_ListCertificates_SubjectAlternativeNameSummaries(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	body := `{"DomainName":"san.example.com","SubjectAlternativeNames":["www.san.example.com","api.san.example.com"]}`
+	rec := postACMJSON(t, h, "RequestCertificate", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := postACMJSON(t, h, "ListCertificates", `{}`)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var out struct {
+		CertificateSummaryList []struct {
+			DomainName                      string   `json:"DomainName"`
+			SubjectAlternativeNameSummaries []string `json:"SubjectAlternativeNameSummaries"`
+		} `json:"CertificateSummaryList"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NotEmpty(t, out.CertificateSummaryList)
+	assert.Contains(t, out.CertificateSummaryList[0].SubjectAlternativeNameSummaries, "www.san.example.com")
+	assert.Contains(t, out.CertificateSummaryList[0].SubjectAlternativeNameSummaries, "api.san.example.com")
+}
+
+// TestACMHandler_RequestCertificate_EMAIL_ValidationEmails verifies ValidationEmails for EMAIL method.
+func TestACMHandler_RequestCertificate_EMAIL_ValidationEmails(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	reqRec := postACMJSON(t, h, "RequestCertificate",
+		`{"DomainName":"email-val.example.com","ValidationMethod":"EMAIL"}`)
+	require.Equal(t, http.StatusOK, reqRec.Code)
+
+	var reqOut struct {
+		CertificateArn string `json:"CertificateArn"`
+	}
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut struct {
+		Certificate struct {
+			DomainValidationOptions []struct {
+				ValidationMethod string   `json:"ValidationMethod"`
+				ValidationEmails []string `json:"ValidationEmails"`
+			} `json:"DomainValidationOptions"`
+		} `json:"Certificate"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NotEmpty(t, descOut.Certificate.DomainValidationOptions)
+
+	dvo := descOut.Certificate.DomainValidationOptions[0]
+	assert.Equal(t, "EMAIL", dvo.ValidationMethod)
+	assert.NotEmpty(t, dvo.ValidationEmails, "ValidationEmails should be set for EMAIL validation")
+	assert.Contains(t, dvo.ValidationEmails, "admin@email-val.example.com")
+}
+
+// TestACMHandler_WildcardCertificate_Accepted verifies wildcard domains are accepted.
+func TestACMHandler_WildcardCertificate_Accepted(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"*.example.com"}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}

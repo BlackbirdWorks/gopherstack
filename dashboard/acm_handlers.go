@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	acm "github.com/blackbirdworks/gopherstack/services/acm"
 )
 
 // acmCertView is the view model for a single ACM certificate.
@@ -60,7 +62,7 @@ client = boto3.client('acm', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	certs := h.ACMOps.Backend.ListCertificates("", 0, nil).Data
+	certs := h.ACMOps.Backend.ListCertificates(acm.ListCertificatesParams{}).Data
 	views := make([]acmCertView, 0, len(certs))
 
 	for _, cert := range certs {

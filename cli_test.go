@@ -564,3 +564,60 @@ func TestCLI_AutoPurgeLoop(t *testing.T) {
 	assert.True(t, svc1.purged)
 	assert.True(t, svc2.resetted)
 }
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_AWSDefaultRegionEnvVar(t *testing.T) {
+tests := []struct {
+name        string
+env         map[string]string
+wantRegion  string
+}{
+{
+name:       "AWS_DEFAULT_REGION_takes_precedence",
+env:        map[string]string{"AWS_DEFAULT_REGION": "eu-central-1"},
+wantRegion: "eu-central-1",
+},
+{
+name:       "AWS_REGION_is_used",
+env:        map[string]string{"AWS_REGION": "ap-southeast-1"},
+wantRegion: "ap-southeast-1",
+},
+{
+name:       "AWS_DEFAULT_REGION_overrides_AWS_REGION",
+env:        map[string]string{"AWS_REGION": "us-west-1", "AWS_DEFAULT_REGION": "us-west-2"},
+wantRegion: "us-west-2",
+},
+{
+name:       "REGION_env_sets_region",
+env:        map[string]string{"REGION": "ca-central-1"},
+wantRegion: "ca-central-1",
+},
+{
+name:       "AWS_DEFAULT_REGION_overrides_REGION_default",
+env:        map[string]string{"AWS_DEFAULT_REGION": "sa-east-1"},
+wantRegion: "sa-east-1",
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+// Clear existing AWS env vars before each sub-test
+for _, k := range []string{"REGION", "AWS_REGION", "AWS_DEFAULT_REGION"} {
+t.Setenv(k, "")
+}
+
+cli := parseCLI(t, tt.env)
+result := applyExplicitOverrides(cli, cli)
+assert.Equal(t, tt.wantRegion, result.Region)
+})
+}
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_S3InitBuckets_Parsing(t *testing.T) {
+// Single bucket via env var
+cli := parseCLI(t, map[string]string{
+"S3_BUCKETS": "my-bucket",
+})
+assert.Equal(t, []string{"my-bucket"}, cli.S3InitBuckets)
+}

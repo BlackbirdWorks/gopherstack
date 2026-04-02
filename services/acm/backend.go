@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -53,6 +55,19 @@ const (
 
 	// hexBase is the numeric base used when formatting [big.Int] serial numbers as hex strings.
 	hexBase = 16
+
+	// maxDomainLength is the maximum length of a domain name per RFC 1035 / AWS ACM constraints.
+	maxDomainLength = 253
+	// maxDomainLabelLength is the maximum length of a single DNS label (component between dots).
+	maxDomainLabelLength = 63
+
+	// keyUsageDigitalSignature is the AWS string for the X.509 digitalSignature key usage.
+	keyUsageDigitalSignature = "DIGITAL_SIGNATURE"
+	// extKeyUsageServerAuth is the AWS string for the X.509 serverAuth extended key usage.
+	extKeyUsageServerAuth = "TLS_WEB_SERVER_AUTHENTICATION"
+
+	// listCertSortByCreatedAt is the sort-by field name for creation timestamp.
+	listCertSortByCreatedAt = "CREATED_AT"
 )
 
 // ResourceRecord holds the CNAME record used for DNS certificate validation.
@@ -69,35 +84,45 @@ type DomainValidationOption struct {
 	ValidationDomain string          `json:"validationDomain"`
 	ValidationStatus string          `json:"validationStatus"`
 	ValidationMethod string          `json:"validationMethod"`
+	// ValidationEmails is populated when ValidationMethod is EMAIL.
+	ValidationEmails []string `json:"validationEmails,omitempty"`
 }
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	RevokedAt                          *time.Time               `json:"revokedAt,omitempty"`
-	IssuedAt                           *time.Time               `json:"issuedAt,omitempty"`
-	ImportedAt                         *time.Time               `json:"importedAt,omitempty"`
-	CreatedAt                          time.Time                `json:"createdAt"`
-	NotBefore                          time.Time                `json:"notBefore"`
-	NotAfter                           time.Time                `json:"notAfter"`
-	ARN                                string                   `json:"arn"`
-	DomainName                         string                   `json:"domainName"`
-	Serial                             string                   `json:"serial,omitempty"`
-	Subject                            string                   `json:"subject,omitempty"`
-	Issuer                             string                   `json:"issuer,omitempty"`
-	KeyAlgorithm                       string                   `json:"keyAlgorithm,omitempty"`
-	SignatureAlgorithm                 string                   `json:"signatureAlgorithm,omitempty"`
-	Status                             string                   `json:"status"`
-	Type                               string                   `json:"type"`
-	RevocationReason                   string                   `json:"revocationReason,omitempty"`
-	RenewalEligibility                 string                   `json:"renewalEligibility,omitempty"`
-	ValidationMethod                   string                   `json:"validationMethod,omitempty"`
-	CertificateBody                    string                   `json:"certificateBody,omitempty"`
-	CertificateChain                   string                   `json:"certificateChain,omitempty"`
-	PrivateKey                         string                   `json:"privateKey,omitempty"`
-	CertificateTransparencyLoggingPref string                   `json:"certTransparencyLoggingPref,omitempty"`
-	IdempotencyToken                   string                   `json:"idempotencyToken,omitempty"`
-	SubjectAlternativeNames            []string                 `json:"subjectAlternativeNames,omitempty"`
-	DomainValidationOptions            []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+	RevokedAt                          *time.Time `json:"revokedAt,omitempty"`
+	IssuedAt                           *time.Time `json:"issuedAt,omitempty"`
+	ImportedAt                         *time.Time `json:"importedAt,omitempty"`
+	CreatedAt                          time.Time  `json:"createdAt"`
+	NotBefore                          time.Time  `json:"notBefore"`
+	NotAfter                           time.Time  `json:"notAfter"`
+	ARN                                string     `json:"arn"`
+	DomainName                         string     `json:"domainName"`
+	Serial                             string     `json:"serial,omitempty"`
+	Subject                            string     `json:"subject,omitempty"`
+	Issuer                             string     `json:"issuer,omitempty"`
+	KeyAlgorithm                       string     `json:"keyAlgorithm,omitempty"`
+	SignatureAlgorithm                 string     `json:"signatureAlgorithm,omitempty"`
+	Status                             string     `json:"status"`
+	Type                               string     `json:"type"`
+	RevocationReason                   string     `json:"revocationReason,omitempty"`
+	RenewalEligibility                 string     `json:"renewalEligibility,omitempty"`
+	ValidationMethod                   string     `json:"validationMethod,omitempty"`
+	CertificateBody                    string     `json:"certificateBody,omitempty"`
+	CertificateChain                   string     `json:"certificateChain,omitempty"`
+	PrivateKey                         string     `json:"privateKey,omitempty"`
+	CertificateTransparencyLoggingPref string     `json:"certTransparencyLoggingPref,omitempty"`
+	IdempotencyToken                   string     `json:"idempotencyToken,omitempty"`
+	// FailureReason is set when the certificate enters FAILED status.
+	FailureReason           string                   `json:"failureReason,omitempty"`
+	SubjectAlternativeNames []string                 `json:"subjectAlternativeNames,omitempty"`
+	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+	// InUseBy holds the ARNs of AWS resources that use this certificate.
+	InUseBy []string `json:"inUseBy,omitempty"`
+	// KeyUsage lists the allowed key usages parsed from the X.509 certificate.
+	KeyUsage []string `json:"keyUsage,omitempty"`
+	// ExtendedKeyUsage lists the extended key usages parsed from the X.509 certificate.
+	ExtendedKeyUsage []string `json:"extendedKeyUsage,omitempty"`
 }
 
 // AccountConfig holds account-level ACM configuration.
@@ -155,8 +180,8 @@ func (b *InMemoryBackend) RequestCertificate(
 	domainName, certType, validationMethod, idempotencyToken, keyAlgorithm string,
 	sans []string,
 ) (*Certificate, error) {
-	if domainName == "" {
-		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	if err := validateRequestCertInput(domainName, sans); err != nil {
+		return nil, err
 	}
 
 	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
@@ -199,7 +224,6 @@ func (b *InMemoryBackend) RequestCertificate(
 		return nil, err
 	}
 
-	// When the certificate is issued immediately, mark all DVOs as validated.
 	now := time.Now().UTC()
 	var issuedAt *time.Time
 
@@ -228,6 +252,8 @@ func (b *InMemoryBackend) RequestCertificate(
 		IssuedAt:                issuedAt,
 		NotBefore:               notBefore,
 		NotAfter:                notAfter,
+		KeyUsage:                []string{keyUsageDigitalSignature},
+		ExtendedKeyUsage:        []string{extKeyUsageServerAuth},
 	}
 	b.certs[certARN] = cert
 
@@ -243,6 +269,50 @@ func (b *InMemoryBackend) RequestCertificate(
 	cp := copyCert(cert)
 
 	return &cp, nil
+}
+
+// validateRequestCertInput validates the DomainName and all SANs for a RequestCertificate call.
+func validateRequestCertInput(domainName string, sans []string) error {
+	if domainName == "" {
+		return fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	if err := validateDomainName(domainName); err != nil {
+		return err
+	}
+
+	for _, san := range sans {
+		if err := validateDomainName(san); err != nil {
+			return fmt.Errorf("%w: invalid SAN %q: %w", ErrInvalidParameter, san, err)
+		}
+	}
+
+	return nil
+}
+
+// validateDomainName checks that the given domain name satisfies AWS ACM constraints.
+// AWS rejects domain names longer than 253 characters, empty labels, labels exceeding 63
+// characters, and labels that are purely numeric (which would be IP addresses).
+func validateDomainName(name string) error {
+	if len(name) > maxDomainLength {
+		return fmt.Errorf("%w: domain %q exceeds maximum length of %d", ErrInvalidParameter, name, maxDomainLength)
+	}
+
+	// Strip leading wildcard component (*.example.com → example.com for label checks)
+	checkName := strings.TrimPrefix(name, "*.")
+
+	for label := range strings.SplitSeq(checkName, ".") {
+		if label == "" {
+			return fmt.Errorf("%w: domain %q contains an empty label", ErrInvalidParameter, name)
+		}
+
+		if len(label) > maxDomainLabelLength {
+			return fmt.Errorf("%w: domain label %q in %q exceeds %d characters",
+				ErrInvalidParameter, label, name, maxDomainLabelLength)
+		}
+	}
+
+	return nil
 }
 
 // buildInitialDVOList constructs the initial DomainValidationOptions list and determines
@@ -305,6 +375,18 @@ func copyCert(c *Certificate) Certificate {
 		cp.SubjectAlternativeNames = append([]string(nil), c.SubjectAlternativeNames...)
 	}
 
+	if len(c.InUseBy) > 0 {
+		cp.InUseBy = append([]string(nil), c.InUseBy...)
+	}
+
+	if len(c.KeyUsage) > 0 {
+		cp.KeyUsage = append([]string(nil), c.KeyUsage...)
+	}
+
+	if len(c.ExtendedKeyUsage) > 0 {
+		cp.ExtendedKeyUsage = append([]string(nil), c.ExtendedKeyUsage...)
+	}
+
 	if len(c.DomainValidationOptions) > 0 {
 		cp.DomainValidationOptions = make([]DomainValidationOption, len(c.DomainValidationOptions))
 		copy(cp.DomainValidationOptions, c.DomainValidationOptions)
@@ -313,6 +395,10 @@ func copyCert(c *Certificate) Certificate {
 			if dvo.ResourceRecord != nil {
 				rr := *dvo.ResourceRecord
 				cp.DomainValidationOptions[i].ResourceRecord = &rr
+			}
+
+			if len(dvo.ValidationEmails) > 0 {
+				cp.DomainValidationOptions[i].ValidationEmails = append([]string(nil), dvo.ValidationEmails...)
 			}
 		}
 	}
@@ -520,19 +606,30 @@ func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) 
 	return &cp, nil
 }
 
-// ListCertificates returns a paginated list of certificates sorted by ARN.
-// statusFilter, when non-empty, restricts results to certificates with matching statuses.
-func (b *InMemoryBackend) ListCertificates(
-	nextToken string,
-	maxItems int,
-	statusFilter []string,
-) page.Page[Certificate] {
+// ListCertificatesParams holds all filter and sorting options for ListCertificates.
+type ListCertificatesParams struct {
+	NextToken    string
+	SortBy       string
+	SortOrder    string
+	StatusFilter []string
+	KeyTypes     []string
+	MaxItems     int
+}
+
+// ListCertificates returns a paginated list of certificates, with optional
+// filtering and sorting.
+func (b *InMemoryBackend) ListCertificates(p ListCertificatesParams) page.Page[Certificate] {
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
-	statusSet := make(map[string]struct{}, len(statusFilter))
-	for _, s := range statusFilter {
+	statusSet := make(map[string]struct{}, len(p.StatusFilter))
+	for _, s := range p.StatusFilter {
 		statusSet[s] = struct{}{}
+	}
+
+	keyTypeSet := make(map[string]struct{}, len(p.KeyTypes))
+	for _, k := range p.KeyTypes {
+		keyTypeSet[k] = struct{}{}
 	}
 
 	certs := make([]Certificate, 0, len(b.certs))
@@ -544,12 +641,38 @@ func (b *InMemoryBackend) ListCertificates(
 			}
 		}
 
+		if len(keyTypeSet) > 0 {
+			if _, ok := keyTypeSet[c.KeyAlgorithm]; !ok {
+				continue
+			}
+		}
+
 		certs = append(certs, copyCert(c))
 	}
 
-	sort.Slice(certs, func(i, j int) bool { return certs[i].ARN < certs[j].ARN })
+	descending := strings.EqualFold(p.SortOrder, "DESCENDING")
 
-	return page.New(certs, nextToken, maxItems, acmDefaultMaxItems)
+	switch strings.ToUpper(p.SortBy) {
+	case listCertSortByCreatedAt:
+		sort.Slice(certs, func(i, j int) bool {
+			if descending {
+				return certs[i].CreatedAt.After(certs[j].CreatedAt)
+			}
+
+			return certs[i].CreatedAt.Before(certs[j].CreatedAt)
+		})
+	default:
+		// Default: sort by ARN for stable, deterministic ordering.
+		sort.Slice(certs, func(i, j int) bool {
+			if descending {
+				return certs[i].ARN > certs[j].ARN
+			}
+
+			return certs[i].ARN < certs[j].ARN
+		})
+	}
+
+	return page.New(certs, p.NextToken, p.MaxItems, acmDefaultMaxItems)
 }
 
 const acmDefaultMaxItems = 100
@@ -563,6 +686,46 @@ func (b *InMemoryBackend) CertExists(certARN string) bool {
 	_, ok := b.certs[certARN]
 
 	return ok
+}
+
+// AddInUseBy records that a resource ARN is using the certificate. It is a no-op
+// if the certificate does not exist or the ARN is already present.
+func (b *InMemoryBackend) AddInUseBy(certARN, resourceARN string) {
+	b.mu.Lock("AddInUseBy")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return
+	}
+
+	if slices.Contains(cert.InUseBy, resourceARN) {
+		return
+	}
+
+	cert.InUseBy = append(cert.InUseBy, resourceARN)
+}
+
+// RemoveInUseBy removes a resource ARN from the certificate's InUseBy list. It is a no-op
+// if the certificate does not exist or the ARN is not present.
+func (b *InMemoryBackend) RemoveInUseBy(certARN, resourceARN string) {
+	b.mu.Lock("RemoveInUseBy")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs[certARN]
+	if !ok {
+		return
+	}
+
+	filtered := cert.InUseBy[:0]
+
+	for _, existing := range cert.InUseBy {
+		if existing != resourceARN {
+			filtered = append(filtered, existing)
+		}
+	}
+
+	cert.InUseBy = filtered
 }
 
 // DeleteCertificate removes the certificate with the given ARN.
@@ -585,7 +748,7 @@ func (b *InMemoryBackend) DeleteCertificate(certARN string) error {
 }
 
 // buildDomainValidationOptions creates DomainValidationOption entries with
-// synthetic CNAME records for each domain in the list.
+// synthetic CNAME records for DNS validation, or synthetic email addresses for EMAIL validation.
 func buildDomainValidationOptions(domains []string, validationMethod string) ([]DomainValidationOption, error) {
 	opts := make([]DomainValidationOption, 0, len(domains))
 
@@ -602,7 +765,8 @@ func buildDomainValidationOptions(domains []string, validationMethod string) ([]
 			ValidationMethod: validationMethod,
 		}
 
-		if validationMethod == validationMethodDNS {
+		switch validationMethod {
+		case validationMethodDNS:
 			nameToken, err := randHex(validationTokenLen)
 			if err != nil {
 				return nil, err
@@ -617,6 +781,21 @@ func buildDomainValidationOptions(domains []string, validationMethod string) ([]
 				Name:  "_" + nameToken + "." + d + ".",
 				Type:  "CNAME",
 				Value: "_" + valueToken + ".acm-validations.aws.",
+			}
+
+		case validationMethodEMAIL:
+			// AWS sends validation emails to well-known addresses at the domain root.
+			rootDomain := d
+			if strings.HasPrefix(d, "*.") {
+				rootDomain = d[2:]
+			}
+
+			opt.ValidationEmails = []string{
+				"admin@" + rootDomain,
+				"administrator@" + rootDomain,
+				"hostmaster@" + rootDomain,
+				"postmaster@" + rootDomain,
+				"webmaster@" + rootDomain,
 			}
 		}
 

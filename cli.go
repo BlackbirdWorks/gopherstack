@@ -340,12 +340,13 @@ type CLI struct {
 	DataDir                       string                    `                                  name:"data-dir"             env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
 	DNSListenAddr                 string                    `                                  name:"dns-addr"             env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
 	LogLevel                      string                    `                                  name:"log-level"            env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                    `                                  name:"region"               env:"REGION"                  default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                    `                                  name:"region"               env:"REGION"                  default:"us-east-1"    help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	OpenSearchEngine              string                    `                                  name:"opensearch-engine"    env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
 	ElasticsearchEngine           string                    `                                  name:"elasticsearch-engine" env:"ELASTICSEARCH_ENGINE"    default:"stub"         help:"Elasticsearch engine mode: stub (API-only) or docker."`                                        //nolint:lll // config struct tags are intentionally verbose
 	DNSResolveIP                  string                    `                                  name:"dns-resolve-ip"       env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
 	AccountID                     string                    `                                  name:"account-id"           env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	InitScripts                   []string                  `                                  name:"init-script"          env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."`                           //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                  `                                  name:"s3-bucket"            env:"S3_BUCKETS"                                     help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`  //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings        `embed:"" prefix:"s3-"`
 	Lambda                        lambdabackend.Settings    `embed:"" prefix:"lambda-"`
 	DynamoDB                      ddbbackend.Settings       `embed:"" prefix:"dynamodb-"`
@@ -1580,11 +1581,26 @@ func Run() {
 // back onto loaded (merged from persisted config) so that explicit CLI/env settings
 // take precedence over persisted values.
 // Precedence: defaults < persisted config < env/CLI.
+//
+// Standard AWS environment variables AWS_DEFAULT_REGION and AWS_REGION are also
+// honoured as aliases for the region setting, matching LocalStack and awslocal behaviour.
 func applyExplicitOverrides(original, loaded CLI) CLI {
 	const defaultAccountID = "000000000000"
 	if original.Region != "" && original.Region != defaultRegion {
 		loaded.Region = original.Region
 	}
+
+	// Also accept the standard AWS SDK region environment variables so that
+	// tools using `AWS_DEFAULT_REGION` or `AWS_REGION` work without remapping.
+	// AWS_DEFAULT_REGION takes precedence over AWS_REGION if both are set.
+	if r := os.Getenv("AWS_REGION"); r != "" && loaded.Region == defaultRegion {
+		loaded.Region = r
+	}
+
+	if r := os.Getenv("AWS_DEFAULT_REGION"); r != "" {
+		loaded.Region = r
+	}
+
 	if original.Port != "" && original.Port != defaultPort {
 		loaded.Port = original.Port
 	}
@@ -1646,10 +1662,25 @@ func run(ctx context.Context, cli CLI) error {
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
+	// Use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY if provided, so that tools
+	// which set these standard env vars work against Gopherstack without remapping.
+	// The server itself never validates credentials, but using recognisable values
+	// makes request-signing easier for local tooling (e.g. awslocal, aws-cli).
+	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+
+	if accessKeyID == "" {
+		accessKeyID = "dummy"
+	}
+
+	if secretAccessKey == "" {
+		secretAccessKey = "dummy"
+	}
+
 	awsCfgVal, err := awscfg.LoadDefaultConfig(
 		ctx,
 		awscfg.WithRegion(cli.Region),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),
 		awscfg.WithHTTPClient(inMemClient),
 	)
 	if err != nil {
@@ -1714,6 +1745,7 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	runInitHooks(ctx, &cli, log)
+	createS3InitBuckets(ctx, &cli, log)
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services)
 
 	return startServer(ctx, cli.Port, e)
@@ -1727,6 +1759,37 @@ func runInitHooks(ctx context.Context, cli *CLI, log *slog.Logger) {
 
 	runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
 	runner.Run(ctx)
+}
+
+// createS3InitBuckets creates S3 buckets listed in cli.S3InitBuckets on startup.
+// Bucket names may be passed individually (--s3-bucket name) or as a comma-separated
+// list (S3_BUCKETS=a,b,c), matching the awslocal convention of `awslocal s3 mb s3://name`.
+// Errors are logged but do not abort server startup.
+func createS3InitBuckets(ctx context.Context, cli *CLI, log *slog.Logger) {
+	if len(cli.S3InitBuckets) == 0 {
+		return
+	}
+
+	// Flatten comma-separated entries that may come from the S3_BUCKETS env var.
+	var buckets []string
+
+	for _, entry := range cli.S3InitBuckets {
+		for _, name := range strings.Split(entry, ",") {
+			if trimmed := strings.TrimSpace(name); trimmed != "" {
+				buckets = append(buckets, trimmed)
+			}
+		}
+	}
+
+	for _, bucket := range buckets {
+		if _, err := cli.s3Client.CreateBucket(ctx, &s3.CreateBucketInput{
+			Bucket: aws.String(bucket),
+		}); err != nil {
+			log.WarnContext(ctx, "Failed to create init S3 bucket", "bucket", bucket, "error", err)
+		} else {
+			log.InfoContext(ctx, "Created S3 bucket on startup", "bucket", bucket)
+		}
+	}
 }
 
 // lambdaCloseFn returns a cleanup function that shuts down the Lambda backend's

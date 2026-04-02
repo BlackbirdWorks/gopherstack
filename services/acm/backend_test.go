@@ -283,7 +283,7 @@ func TestACMBackend_ListCertificates(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			certs := b.ListCertificates("", 0, nil).Data
+			certs := b.ListCertificates(acm.ListCertificatesParams{}).Data
 			assert.Len(t, certs, tt.wantCount)
 		})
 	}
