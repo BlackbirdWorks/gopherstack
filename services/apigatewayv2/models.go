@@ -207,6 +207,60 @@ type UpdateAuthorizerInput struct {
 	AuthorizerResultTTLInSeconds int32  `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
+// UpdateAPIMappingInput is the input for UpdateAPIMapping (PATCH).
+type UpdateAPIMappingInput struct {
+	APIID         string `json:"apiId,omitempty"`
+	Stage         string `json:"stage,omitempty"`
+	APIMappingKey string `json:"apiMappingKey,omitempty"`
+}
+
+// UpdateDeploymentInput is the input for UpdateDeployment (PATCH).
+type UpdateDeploymentInput struct {
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateDomainNameInput is the input for UpdateDomainName (PATCH).
+type UpdateDomainNameInput struct {
+	Tags map[string]string `json:"tags,omitempty"`
+}
+
+// UpdateIntegrationResponseInput is the input for UpdateIntegrationResponse (PATCH).
+type UpdateIntegrationResponseInput struct {
+	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
+	ResponseTemplates           map[string]string `json:"responseTemplates,omitempty"`
+	IntegrationResponseKey      string            `json:"integrationResponseKey,omitempty"`
+	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+}
+
+// UpdateModelInput is the input for UpdateModel (PATCH).
+type UpdateModelInput struct {
+	Name        string `json:"name,omitempty"`
+	Schema      string `json:"schema,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateRouteResponseInput is the input for UpdateRouteResponse (PATCH).
+type UpdateRouteResponseInput struct {
+	ResponseModels           map[string]string `json:"responseModels,omitempty"`
+	RouteResponseKey         string            `json:"routeResponseKey,omitempty"`
+	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
+}
+
+// UpdatePortalInput is the input for UpdatePortal (PATCH).
+type UpdatePortalInput struct {
+	Tags    map[string]string `json:"tags,omitempty"`
+	LogoURI string            `json:"logoUri,omitempty"`
+}
+
+// UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
+type UpdatePortalProductInput struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	DisplayName string            `json:"displayName,omitempty"`
+	Description string            `json:"description,omitempty"`
+}
+
 // listApisOutput is the response body for GetAPIs.
 type listApisOutput struct {
 	NextToken string `json:"nextToken,omitempty"`
@@ -246,4 +300,215 @@ type listAuthorizersOutput struct {
 // notFoundResponse is returned when a resource is not found.
 type notFoundResponse struct {
 	Message string `json:"message"`
+}
+
+// DomainNameConfiguration represents a domain name configuration entry.
+type DomainNameConfiguration struct {
+	CertificateArn   string `json:"certificateArn,omitempty"`
+	DomainNameStatus string `json:"domainNameStatus,omitempty"`
+	EndpointType     string `json:"endpointType,omitempty"`
+}
+
+// DomainName represents a custom domain name for API Gateway v2.
+type DomainName struct {
+	Tags                          map[string]string         `json:"tags,omitempty"`
+	DomainNameValue               string                    `json:"domainName"`
+	APIMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
+	DomainNameConfigurations      []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
+}
+
+// CreateDomainNameInput is the input for CreateDomainName.
+type CreateDomainNameInput struct {
+	Tags                     map[string]string         `json:"tags,omitempty"`
+	DomainNameValue          string                    `json:"domainName"`
+	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
+}
+
+// APIMapping represents an API mapping for a custom domain name.
+type APIMapping struct {
+	APIID         string `json:"apiId"`
+	APIMappingID  string `json:"apiMappingId"`
+	DomainName    string `json:"-"`
+	Stage         string `json:"stage"`
+	APIMappingKey string `json:"apiMappingKey,omitempty"`
+}
+
+// CreateAPIMappingInput is the input for CreateAPIMapping.
+type CreateAPIMappingInput struct {
+	APIID         string `json:"apiId"`
+	Stage         string `json:"stage"`
+	APIMappingKey string `json:"apiMappingKey,omitempty"`
+}
+
+// IntegrationResponse represents an integration response.
+type IntegrationResponse struct {
+	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
+	ResponseTemplates           map[string]string `json:"responseTemplates,omitempty"`
+	IntegrationResponseID       string            `json:"integrationResponseId"`
+	IntegrationResponseKey      string            `json:"integrationResponseKey"`
+	APIID                       string            `json:"-"`
+	IntegrationID               string            `json:"-"`
+	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+}
+
+// CreateIntegrationResponseInput is the input for CreateIntegrationResponse.
+type CreateIntegrationResponseInput struct {
+	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
+	ResponseTemplates           map[string]string `json:"responseTemplates,omitempty"`
+	IntegrationResponseKey      string            `json:"integrationResponseKey"`
+	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+}
+
+// Model represents a data model for an API.
+type Model struct {
+	ModelID     string `json:"modelId"`
+	APIID       string `json:"-"`
+	Name        string `json:"name"`
+	Schema      string `json:"schema,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// CreateModelInput is the input for CreateModel.
+type CreateModelInput struct {
+	Name        string `json:"name"`
+	Schema      string `json:"schema,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// Portal represents an API Gateway v2 portal.
+type Portal struct {
+	Tags     map[string]string `json:"tags,omitempty"`
+	PortalID string            `json:"portalId"`
+	LogoURI  string            `json:"logoUri,omitempty"`
+	Status   string            `json:"status,omitempty"`
+}
+
+// CreatePortalInput is the input for CreatePortal.
+type CreatePortalInput struct {
+	Tags    map[string]string `json:"tags,omitempty"`
+	LogoURI string            `json:"logoUri,omitempty"`
+}
+
+// PortalProduct represents a portal product.
+type PortalProduct struct {
+	Tags            map[string]string `json:"tags,omitempty"`
+	PortalProductID string            `json:"portalProductId"`
+	DisplayName     string            `json:"displayName"`
+	Description     string            `json:"description,omitempty"`
+}
+
+// CreatePortalProductInput is the input for CreatePortalProduct.
+type CreatePortalProductInput struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	DisplayName string            `json:"displayName"`
+	Description string            `json:"description,omitempty"`
+}
+
+// ProductPage represents a product page within a portal product.
+type ProductPage struct {
+	LastModified    *isoTime `json:"lastModified,omitempty"`
+	ProductPageID   string   `json:"productPageId"`
+	PortalProductID string   `json:"-"`
+}
+
+// CreateProductPageInput is the input for CreateProductPage.
+type CreateProductPageInput struct {
+	PortalProductID string `json:"-"`
+}
+
+// ProductRestEndpointPage represents a REST endpoint page within a portal product.
+type ProductRestEndpointPage struct {
+	LastModified              *isoTime `json:"lastModified,omitempty"`
+	ProductRestEndpointPageID string   `json:"productRestEndpointPageId"`
+	PortalProductID           string   `json:"-"`
+}
+
+// CreateProductRestEndpointPageInput is the input for CreateProductRestEndpointPage.
+type CreateProductRestEndpointPageInput struct {
+	PortalProductID string `json:"-"`
+}
+
+// RouteResponse represents a route response.
+type RouteResponse struct {
+	ResponseModels           map[string]string `json:"responseModels,omitempty"`
+	RouteResponseID          string            `json:"routeResponseId"`
+	RouteResponseKey         string            `json:"routeResponseKey"`
+	APIID                    string            `json:"-"`
+	RouteID                  string            `json:"-"`
+	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
+}
+
+// CreateRouteResponseInput is the input for CreateRouteResponse.
+type CreateRouteResponseInput struct {
+	ResponseModels           map[string]string `json:"responseModels,omitempty"`
+	RouteResponseKey         string            `json:"routeResponseKey"`
+	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
+}
+
+// listDomainNamesOutput is the response body for GetDomainNames.
+type listDomainNamesOutput struct {
+	NextToken string       `json:"nextToken,omitempty"`
+	Items     []DomainName `json:"items"`
+}
+
+// listAPIMappingsOutput is the response body for GetApiMappings.
+type listAPIMappingsOutput struct {
+	NextToken string       `json:"nextToken,omitempty"`
+	Items     []APIMapping `json:"items"`
+}
+
+// listIntegrationResponsesOutput is the response body for GetIntegrationResponses.
+type listIntegrationResponsesOutput struct {
+	NextToken string                `json:"nextToken,omitempty"`
+	Items     []IntegrationResponse `json:"items"`
+}
+
+// listModelsOutput is the response body for GetModels.
+type listModelsOutput struct {
+	NextToken string  `json:"nextToken,omitempty"`
+	Items     []Model `json:"items"`
+}
+
+// listRouteResponsesOutput is the response body for GetRouteResponses.
+type listRouteResponsesOutput struct {
+	NextToken string          `json:"nextToken,omitempty"`
+	Items     []RouteResponse `json:"items"`
+}
+
+// listPortalsOutput is the response body for ListPortals.
+type listPortalsOutput struct {
+	NextToken string   `json:"nextToken,omitempty"`
+	Items     []Portal `json:"items"`
+}
+
+// listPortalProductsOutput is the response body for ListPortalProducts.
+type listPortalProductsOutput struct {
+	NextToken string          `json:"nextToken,omitempty"`
+	Items     []PortalProduct `json:"items"`
+}
+
+// listProductPagesOutput is the response body for ListProductPages.
+type listProductPagesOutput struct {
+	NextToken string        `json:"nextToken,omitempty"`
+	Items     []ProductPage `json:"items"`
+}
+
+// listProductREPagesOutput is the response body for ListProductRestEndpointPages.
+type listProductREPagesOutput struct {
+	NextToken string                    `json:"nextToken,omitempty"`
+	Items     []ProductRestEndpointPage `json:"items"`
+}
+
+// getTagsOutput is the response body for GetTags.
+type getTagsOutput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+// tagResourceInput is the input for TagResource.
+type tagResourceInput struct {
+	Tags map[string]string `json:"tags"`
 }
