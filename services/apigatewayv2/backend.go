@@ -28,6 +28,20 @@ var (
 	ErrDeploymentNotFound = errors.New("NotFoundException")
 	// ErrAuthorizerNotFound is returned when a requested authorizer does not exist.
 	ErrAuthorizerNotFound = errors.New("NotFoundException")
+	// ErrDomainNameNotFound is returned when a requested domain name does not exist.
+	ErrDomainNameNotFound = errors.New("NotFoundException")
+	// ErrAPIMappingNotFound is returned when a requested API mapping does not exist.
+	ErrAPIMappingNotFound = errors.New("NotFoundException")
+	// ErrIntegrationResponseNotFound is returned when a requested integration response does not exist.
+	ErrIntegrationResponseNotFound = errors.New("NotFoundException")
+	// ErrModelNotFound is returned when a requested model does not exist.
+	ErrModelNotFound = errors.New("NotFoundException")
+	// ErrRouteResponseNotFound is returned when a requested route response does not exist.
+	ErrRouteResponseNotFound = errors.New("NotFoundException")
+	// ErrPortalNotFound is returned when a requested portal does not exist.
+	ErrPortalNotFound = errors.New("NotFoundException")
+	// ErrPortalProductNotFound is returned when a requested portal product does not exist.
+	ErrPortalProductNotFound = errors.New("NotFoundException")
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
@@ -72,29 +86,73 @@ type StorageBackend interface {
 	GetAuthorizers(apiID string) ([]Authorizer, error)
 	DeleteAuthorizer(apiID, authorizerID string) error
 	UpdateAuthorizer(apiID, authorizerID string, input UpdateAuthorizerInput) (*Authorizer, error)
+
+	// Domain Names
+	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
+
+	// API Mappings
+	CreateAPIMapping(domainName string, input CreateAPIMappingInput) (*APIMapping, error)
+
+	// Integration Responses
+	CreateIntegrationResponse(
+		apiID, integrationID string,
+		input CreateIntegrationResponseInput,
+	) (*IntegrationResponse, error)
+
+	// Models
+	CreateModel(apiID string, input CreateModelInput) (*Model, error)
+
+	// Route Responses
+	CreateRouteResponse(apiID, routeID string, input CreateRouteResponseInput) (*RouteResponse, error)
+
+	// Portals
+	CreatePortal(input CreatePortalInput) (*Portal, error)
+
+	// Portal Products
+	CreatePortalProduct(input CreatePortalProductInput) (*PortalProduct, error)
+
+	// Product Pages
+	CreateProductPage(portalProductID string, input CreateProductPageInput) (*ProductPage, error)
+
+	// Product REST Endpoint Pages
+	CreateProductRestEndpointPage(
+		portalProductID string,
+		input CreateProductRestEndpointPageInput,
+	) (*ProductRestEndpointPage, error)
 }
 
 // apiData holds per-API state.
 type apiData struct {
-	stages       map[string]*Stage
-	routes       map[string]*Route
-	integrations map[string]*Integration
-	deployments  map[string]*Deployment
-	authorizers  map[string]*Authorizer
-	api          API
+	stages               map[string]*Stage
+	routes               map[string]*Route
+	integrations         map[string]*Integration
+	deployments          map[string]*Deployment
+	authorizers          map[string]*Authorizer
+	integrationResponses map[string]map[string]*IntegrationResponse
+	models               map[string]*Model
+	routeResponses       map[string]map[string]*RouteResponse
+	api                  API
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	apis map[string]*apiData
-	mu   *lockmetrics.RWMutex
+	apis           map[string]*apiData
+	domainNames    map[string]*DomainName
+	apiMappings    map[string]map[string]*APIMapping
+	portals        map[string]*Portal
+	portalProducts map[string]*PortalProduct
+	mu             *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		apis: make(map[string]*apiData),
-		mu:   lockmetrics.New("apigatewayv2"),
+		apis:           make(map[string]*apiData),
+		domainNames:    make(map[string]*DomainName),
+		apiMappings:    make(map[string]map[string]*APIMapping),
+		portals:        make(map[string]*Portal),
+		portalProducts: make(map[string]*PortalProduct),
+		mu:             lockmetrics.New("apigatewayv2"),
 	}
 }
 
@@ -134,12 +192,15 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 	}
 
 	b.apis[id] = &apiData{
-		api:          api,
-		stages:       make(map[string]*Stage),
-		routes:       make(map[string]*Route),
-		integrations: make(map[string]*Integration),
-		deployments:  make(map[string]*Deployment),
-		authorizers:  make(map[string]*Authorizer),
+		api:                  api,
+		stages:               make(map[string]*Stage),
+		routes:               make(map[string]*Route),
+		integrations:         make(map[string]*Integration),
+		deployments:          make(map[string]*Deployment),
+		authorizers:          make(map[string]*Authorizer),
+		integrationResponses: make(map[string]map[string]*IntegrationResponse),
+		models:               make(map[string]*Model),
+		routeResponses:       make(map[string]map[string]*RouteResponse),
 	}
 
 	return &api, nil
@@ -860,6 +921,262 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 	}
 
 	cp := *a
+
+	return &cp, nil
+}
+
+// --- Domain Names ---
+
+// CreateDomainName creates a new custom domain name.
+func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*DomainName, error) {
+	b.mu.Lock("CreateDomainName")
+	defer b.mu.Unlock()
+
+	dn := &DomainName{
+		DomainNameValue: input.DomainNameValue,
+		Tags:            input.Tags,
+	}
+
+	b.domainNames[input.DomainNameValue] = dn
+	b.apiMappings[input.DomainNameValue] = make(map[string]*APIMapping)
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// --- API Mappings ---
+
+// CreateAPIMapping creates a new API mapping for a custom domain name.
+func (b *InMemoryBackend) CreateAPIMapping(domainName string, input CreateAPIMappingInput) (*APIMapping, error) {
+	b.mu.Lock("CreateAPIMapping")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	id := randomID()
+	mapping := &APIMapping{
+		APIMappingID:  id,
+		DomainName:    domainName,
+		APIID:         input.APIID,
+		Stage:         input.Stage,
+		APIMappingKey: input.APIMappingKey,
+	}
+
+	b.apiMappings[domainName][id] = mapping
+
+	cp := *mapping
+
+	return &cp, nil
+}
+
+// --- Integration Responses ---
+
+// CreateIntegrationResponse creates a new integration response.
+func (b *InMemoryBackend) CreateIntegrationResponse(
+	apiID, integrationID string,
+	input CreateIntegrationResponseInput,
+) (*IntegrationResponse, error) {
+	b.mu.Lock("CreateIntegrationResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.integrations[integrationID]; !exists {
+		return nil, ErrIntegrationNotFound
+	}
+
+	if _, exists := d.integrationResponses[integrationID]; !exists {
+		d.integrationResponses[integrationID] = make(map[string]*IntegrationResponse)
+	}
+
+	id := randomID()
+	ir := &IntegrationResponse{
+		IntegrationResponseID:       id,
+		IntegrationResponseKey:      input.IntegrationResponseKey,
+		APIID:                       apiID,
+		IntegrationID:               integrationID,
+		ContentHandlingStrategy:     input.ContentHandlingStrategy,
+		TemplateSelectionExpression: input.TemplateSelectionExpression,
+		ResponseParameters:          input.ResponseParameters,
+		ResponseTemplates:           input.ResponseTemplates,
+	}
+
+	d.integrationResponses[integrationID][id] = ir
+
+	cp := *ir
+
+	return &cp, nil
+}
+
+// --- Models ---
+
+// CreateModel creates a new model for an API.
+func (b *InMemoryBackend) CreateModel(apiID string, input CreateModelInput) (*Model, error) {
+	b.mu.Lock("CreateModel")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	id := randomID()
+	model := &Model{
+		ModelID:     id,
+		APIID:       apiID,
+		Name:        input.Name,
+		Schema:      input.Schema,
+		ContentType: input.ContentType,
+		Description: input.Description,
+	}
+
+	d.models[id] = model
+
+	cp := *model
+
+	return &cp, nil
+}
+
+// --- Route Responses ---
+
+// CreateRouteResponse creates a new route response.
+func (b *InMemoryBackend) CreateRouteResponse(
+	apiID, routeID string,
+	input CreateRouteResponseInput,
+) (*RouteResponse, error) {
+	b.mu.Lock("CreateRouteResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.routes[routeID]; !exists {
+		return nil, ErrRouteNotFound
+	}
+
+	if _, exists := d.routeResponses[routeID]; !exists {
+		d.routeResponses[routeID] = make(map[string]*RouteResponse)
+	}
+
+	id := randomID()
+	rr := &RouteResponse{
+		RouteResponseID:          id,
+		RouteResponseKey:         input.RouteResponseKey,
+		APIID:                    apiID,
+		RouteID:                  routeID,
+		ModelSelectionExpression: input.ModelSelectionExpression,
+		ResponseModels:           input.ResponseModels,
+	}
+
+	d.routeResponses[routeID][id] = rr
+
+	cp := *rr
+
+	return &cp, nil
+}
+
+// --- Portals ---
+
+// CreatePortal creates a new portal.
+func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error) {
+	b.mu.Lock("CreatePortal")
+	defer b.mu.Unlock()
+
+	id := randomID()
+	portal := &Portal{
+		PortalID: id,
+		LogoURI:  input.LogoURI,
+		Tags:     input.Tags,
+		Status:   "ACTIVE",
+	}
+
+	b.portals[id] = portal
+
+	cp := *portal
+
+	return &cp, nil
+}
+
+// --- Portal Products ---
+
+// CreatePortalProduct creates a new portal product.
+func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*PortalProduct, error) {
+	b.mu.Lock("CreatePortalProduct")
+	defer b.mu.Unlock()
+
+	id := randomID()
+	product := &PortalProduct{
+		PortalProductID: id,
+		DisplayName:     input.DisplayName,
+		Description:     input.Description,
+		Tags:            input.Tags,
+	}
+
+	b.portalProducts[id] = product
+
+	cp := *product
+
+	return &cp, nil
+}
+
+// --- Product Pages ---
+
+// CreateProductPage creates a new product page for a portal product.
+func (b *InMemoryBackend) CreateProductPage(
+	portalProductID string,
+	_ CreateProductPageInput,
+) (*ProductPage, error) {
+	b.mu.Lock("CreateProductPage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	now := isoTime{time.Now()}
+	id := randomID()
+	page := &ProductPage{
+		ProductPageID:   id,
+		PortalProductID: portalProductID,
+		LastModified:    &now,
+	}
+
+	cp := *page
+
+	return &cp, nil
+}
+
+// --- Product REST Endpoint Pages ---
+
+// CreateProductRestEndpointPage creates a new product REST endpoint page for a portal product.
+func (b *InMemoryBackend) CreateProductRestEndpointPage(
+	portalProductID string,
+	_ CreateProductRestEndpointPageInput,
+) (*ProductRestEndpointPage, error) {
+	b.mu.Lock("CreateProductRestEndpointPage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	now := isoTime{time.Now()}
+	id := randomID()
+	page := &ProductRestEndpointPage{
+		ProductRestEndpointPageID: id,
+		PortalProductID:           portalProductID,
+		LastModified:              &now,
+	}
+
+	cp := *page
 
 	return &cp, nil
 }

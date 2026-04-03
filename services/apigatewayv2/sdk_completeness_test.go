@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := apigatewayv2.NewInMemoryBackend()
 	h := apigatewayv2.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &apigatewayv2sdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateApi",
-		"CreateApiMapping",
-		"CreateDomainName",
-		"CreateIntegrationResponse",
-		"CreateModel",
-		"CreatePortal",
-		"CreatePortalProduct",
-		"CreateProductPage",
-		"CreateProductRestEndpointPage",
-		"CreateRouteResponse",
 		"CreateRoutingRule",
 		"CreateVpcLink",
 		"DeleteAccessLogSettings",

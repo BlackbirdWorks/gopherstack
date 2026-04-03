@@ -17,19 +17,30 @@ import (
 const (
 	apigwV2MatchPriority = service.PriorityPathVersioned
 	apisPathPrefix       = "/v2/apis"
+	domainNamesPrefix    = "/v2/domainnames"
+	portalsPrefix        = "/v2/portals"
+	portalProductsPrefix = "/v2/portalproducts"
 
 	// path segment count constants.
-	segCountAPIs    = 0
-	segCountAPIByID = 1
-	segCountSubColl = 2
-	segCountSubRes  = 3
+	segCountAPIs     = 0
+	segCountAPIByID  = 1
+	segCountSubColl  = 2
+	segCountSubRes   = 3
+	segCountDeepColl = 4
 
 	// collection name constants.
-	collStages       = "stages"
-	collRoutes       = "routes"
-	collIntegrations = "integrations"
-	collDeployments  = "deployments"
-	collAuthorizers  = "authorizers"
+	collStages               = "stages"
+	collRoutes               = "routes"
+	collIntegrations         = "integrations"
+	collDeployments          = "deployments"
+	collAuthorizers          = "authorizers"
+	collModels               = "models"
+	collIntegrationResponses = "integrationresponses"
+	collRouteResponses       = "routeresponses"
+	collAPIMappings          = "apimappings"
+	collProducts             = "products"
+	collProductPages         = "productpages"
+	collProductREPages       = "productrestendpointpages"
 
 	// error messages.
 	msgNotFound         = "Not Found"
@@ -53,12 +64,21 @@ func (h *Handler) Name() string { return "APIGatewayV2" }
 // GetSupportedOperations returns all supported API operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateAPI", "GetAPI", "GetAPIs", "DeleteAPI", "UpdateAPI",
+		"CreateApi", "GetAPI", "GetAPIs", "DeleteAPI", "UpdateAPI",
 		"CreateStage", "GetStage", "GetStages", "DeleteStage", "UpdateStage",
 		"CreateRoute", "GetRoute", "GetRoutes", "DeleteRoute", "UpdateRoute",
 		"CreateIntegration", "GetIntegration", "GetIntegrations", "DeleteIntegration", "UpdateIntegration",
 		"CreateDeployment", "GetDeployment", "GetDeployments", "DeleteDeployment",
 		"CreateAuthorizer", "GetAuthorizer", "GetAuthorizers", "DeleteAuthorizer", "UpdateAuthorizer",
+		"CreateApiMapping",
+		"CreateDomainName",
+		"CreateIntegrationResponse",
+		"CreateModel",
+		"CreatePortal",
+		"CreatePortalProduct",
+		"CreateProductPage",
+		"CreateProductRestEndpointPage",
+		"CreateRouteResponse",
 	}
 }
 
@@ -76,7 +96,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/")
+		return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/") ||
+			path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/") ||
+			path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
+			path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/")
 	}
 }
 
@@ -96,7 +119,7 @@ type operationKey struct {
 var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 	return map[operationKey]string{
 		// /v2/apis
-		{segs: segCountAPIs, method: http.MethodPost}: "CreateAPI",
+		{segs: segCountAPIs, method: http.MethodPost}: "CreateApi",
 		{segs: segCountAPIs, method: http.MethodGet}:  "GetAPIs",
 		// /v2/apis/{apiId}
 		{segs: segCountAPIByID, method: http.MethodGet}:    "GetAPI",
@@ -117,6 +140,9 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/authorizers
 		{segs: segCountSubColl, seg1: collAuthorizers, method: http.MethodPost}: "CreateAuthorizer",
 		{segs: segCountSubColl, seg1: collAuthorizers, method: http.MethodGet}:  "GetAuthorizers",
+		// /v2/apis/{apiId}/models
+		{segs: segCountSubColl, seg1: collModels, method: http.MethodPost}: "CreateModel",
+		{segs: segCountSubColl, seg1: collModels, method: http.MethodGet}:  "GetModels",
 		// /v2/apis/{apiId}/stages/{stageName}
 		{segs: segCountSubRes, seg1: collStages, method: http.MethodGet}:    "GetStage",
 		{segs: segCountSubRes, seg1: collStages, method: http.MethodDelete}: "DeleteStage",
@@ -136,6 +162,10 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		{segs: segCountSubRes, seg1: collAuthorizers, method: http.MethodGet}:    "GetAuthorizer",
 		{segs: segCountSubRes, seg1: collAuthorizers, method: http.MethodDelete}: "DeleteAuthorizer",
 		{segs: segCountSubRes, seg1: collAuthorizers, method: http.MethodPatch}:  "UpdateAuthorizer",
+		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses
+		{segs: segCountDeepColl, seg1: collIntegrationResponses, method: http.MethodPost}: "CreateIntegrationResponse",
+		// /v2/apis/{apiId}/routes/{routeId}/routeresponses
+		{segs: segCountDeepColl, seg1: collRouteResponses, method: http.MethodPost}: "CreateRouteResponse",
 	}
 })
 
@@ -171,30 +201,43 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for API Gateway v2 operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		log := logger.Load(c.Request().Context())
 		path := c.Request().URL.Path
 		method := c.Request().Method
 
-		if !strings.HasPrefix(path, apisPathPrefix) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
-		}
-
-		segs := pathSegments(path)
-
-		switch len(segs) {
-		case segCountAPIs:
-			return h.handleAPIs(c, method)
-		case segCountAPIByID:
-			return h.handleAPI(c, method, segs[0])
-		case segCountSubColl:
-			return h.handleSubCollection(c, method, segs[0], segs[1])
-		case segCountSubRes:
-			return h.handleSubResource(c, method, segs[0], segs[1], segs[2])
+		switch {
+		case path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/"):
+			return h.handleDomainNamesPath(c, method, path)
+		case path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/"):
+			return h.handlePortalsPath(c, method, path)
+		case path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/"):
+			return h.handlePortalProductsPath(c, method, path)
+		case path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/"):
+			return h.handleAPIsPath(c, method, path)
 		default:
-			log.Warn("apigatewayv2: unhandled path", "path", path)
-
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
+	}
+}
+
+// handleAPIsPath dispatches requests under the /v2/apis prefix.
+func (h *Handler) handleAPIsPath(c *echo.Context, method, path string) error {
+	segs := pathSegments(path)
+
+	switch len(segs) {
+	case segCountAPIs:
+		return h.handleAPIs(c, method)
+	case segCountAPIByID:
+		return h.handleAPI(c, method, segs[0])
+	case segCountSubColl:
+		return h.handleSubCollection(c, method, segs[0], segs[1])
+	case segCountSubRes:
+		return h.handleSubResource(c, method, segs[0], segs[1], segs[2])
+	case segCountDeepColl:
+		return h.handleDeepCollection(c, method, segs[0], segs[1], segs[2], segs[3])
+	default:
+		logger.Load(c.Request().Context()).Warn("apigatewayv2: unhandled path", "path", path)
+
+		return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 	}
 }
 
@@ -243,6 +286,7 @@ func (h *Handler) handleSubCollection(c *echo.Context, method, apiID, collection
 		{http.MethodGet, collDeployments}:   h.handleGetDeployments,
 		{http.MethodPost, collAuthorizers}:  h.handleCreateAuthorizer,
 		{http.MethodGet, collAuthorizers}:   h.handleGetAuthorizers,
+		{http.MethodPost, collModels}:       h.handleCreateModel,
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, collection}]; ok {
@@ -280,7 +324,128 @@ func (h *Handler) handleSubResource(c *echo.Context, method, apiID, collection, 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 }
 
-// --- API handlers ---
+// handleDeepCollection handles POST on /v2/apis/{apiId}/{collection}/{resourceId}/{subCollection}.
+// This supports integration responses (/integrations/{id}/integrationresponses)
+// and route responses (/routes/{id}/routeresponses).
+func (h *Handler) handleDeepCollection(
+	c *echo.Context,
+	method, apiID, _ /* collection */, resourceID, subCollection string,
+) error {
+	type nestedResourceHandler func(*echo.Context, string, string) error
+
+	dispatch := map[subDispatchKey]nestedResourceHandler{
+		{http.MethodPost, collIntegrationResponses}: func(c *echo.Context, apiID, resourceID string) error {
+			return handleCreateMulti(c, apiID, "integration response",
+				func(input CreateIntegrationResponseInput) (*IntegrationResponse, error) {
+					return h.Backend.CreateIntegrationResponse(apiID, resourceID, input)
+				},
+				ErrAPINotFound, ErrIntegrationNotFound)
+		},
+		{http.MethodPost, collRouteResponses}: func(c *echo.Context, apiID, resourceID string) error {
+			return handleCreateMulti(c, apiID, "route response",
+				func(input CreateRouteResponseInput) (*RouteResponse, error) {
+					return h.Backend.CreateRouteResponse(apiID, resourceID, input)
+				},
+				ErrAPINotFound, ErrRouteNotFound)
+		},
+	}
+
+	if fn, ok := dispatch[subDispatchKey{method, subCollection}]; ok {
+		return fn(c, apiID, resourceID)
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+// handleDomainNamesPath handles requests for /v2/domainnames and /v2/domainnames/{domainName}/...
+func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) error {
+	suffix := strings.TrimPrefix(path, domainNamesPrefix)
+	suffix = strings.Trim(suffix, "/")
+
+	if suffix == "" {
+		if method == http.MethodPost {
+			return handleCreateNoParent(c, "domain name", func(input CreateDomainNameInput) (*DomainName, error) {
+				return h.Backend.CreateDomainName(input)
+			})
+		}
+
+		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+	}
+
+	parts := strings.Split(suffix, "/")
+
+	if len(parts) == 2 && parts[1] == collAPIMappings && method == http.MethodPost {
+		domainName := parts[0]
+
+		return handleCreateMulti(c, domainName, "api mapping",
+			func(input CreateAPIMappingInput) (*APIMapping, error) {
+				return h.Backend.CreateAPIMapping(domainName, input)
+			},
+			ErrDomainNameNotFound)
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+// handlePortalsPath handles requests for /v2/portals and /v2/portals/{portalId}/...
+func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error {
+	suffix := strings.TrimPrefix(path, portalsPrefix)
+	suffix = strings.Trim(suffix, "/")
+
+	if suffix == "" {
+		if method == http.MethodPost {
+			return handleCreateNoParent(c, "portal", func(input CreatePortalInput) (*Portal, error) {
+				return h.Backend.CreatePortal(input)
+			})
+		}
+
+		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+// handlePortalProductsPath handles requests for /v2/portalproducts and nested paths.
+func (h *Handler) handlePortalProductsPath(c *echo.Context, method, path string) error {
+	suffix := strings.TrimPrefix(path, portalProductsPrefix)
+	suffix = strings.Trim(suffix, "/")
+
+	if suffix == "" {
+		if method == http.MethodPost {
+			return handleCreateNoParent(
+				c,
+				"portal product",
+				func(input CreatePortalProductInput) (*PortalProduct, error) {
+					return h.Backend.CreatePortalProduct(input)
+				},
+			)
+		}
+
+		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+	}
+
+	parts := strings.Split(suffix, "/")
+
+	if len(parts) == 2 && method == http.MethodPost {
+		portalProductID := parts[0]
+		subColl := parts[1]
+
+		switch subColl {
+		case collProductPages:
+			return handleCreate(c, portalProductID, "product page", ErrPortalProductNotFound,
+				func(input CreateProductPageInput) (*ProductPage, error) {
+					return h.Backend.CreateProductPage(portalProductID, input)
+				})
+		case collProductREPages:
+			return handleCreate(c, portalProductID, "product rest endpoint page", ErrPortalProductNotFound,
+				func(input CreateProductRestEndpointPageInput) (*ProductRestEndpointPage, error) {
+					return h.Backend.CreateProductRestEndpointPage(portalProductID, input)
+				})
+		}
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
 
 func (h *Handler) handleCreateAPI(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
@@ -637,6 +802,14 @@ func (h *Handler) handleUpdateAuthorizer(c *echo.Context, apiID, authorizerID st
 		ErrAPINotFound, ErrAuthorizerNotFound)
 }
 
+// --- Model handlers ---
+
+func (h *Handler) handleCreateModel(c *echo.Context, apiID string) error {
+	return handleCreate(c, apiID, "model", ErrAPINotFound, func(input CreateModelInput) (*Model, error) {
+		return h.Backend.CreateModel(apiID, input)
+	})
+}
+
 // handleCreate is a generic helper for Create* handlers that decode a body,
 // call a backend function, and return 201 Created on success.
 func handleCreate[I, O any](
@@ -644,6 +817,17 @@ func handleCreate[I, O any](
 	apiID, resourceName string,
 	notFoundErr error,
 	backendFn func(I) (*O, error),
+) error {
+	return handleCreateMulti(c, apiID, resourceName, backendFn, notFoundErr)
+}
+
+// handleCreateMulti is a generic helper for Create* handlers that supports
+// multiple not-found errors.
+func handleCreateMulti[I, O any](
+	c *echo.Context,
+	apiID, resourceName string,
+	backendFn func(I) (*O, error),
+	notFoundErrs ...error,
 ) error {
 	log := logger.Load(c.Request().Context())
 
@@ -656,8 +840,10 @@ func handleCreate[I, O any](
 	if err != nil {
 		log.Error("apigatewayv2: create "+resourceName+" failed", "apiId", apiID, "error", err)
 
-		if errors.Is(err, notFoundErr) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		for _, nfe := range notFoundErrs {
+			if errors.Is(err, nfe) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
 		}
 
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
@@ -719,6 +905,29 @@ func handleGetList[T any](
 	}
 
 	return c.JSON(http.StatusOK, wrapFn(items))
+}
+
+// handleCreateNoParent is a generic helper for top-level Create* handlers (no parent resource).
+func handleCreateNoParent[I, O any](
+	c *echo.Context,
+	resourceName string,
+	backendFn func(I) (*O, error),
+) error {
+	log := logger.Load(c.Request().Context())
+
+	var input I
+	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	result, err := backendFn(input)
+	if err != nil {
+		log.Error("apigatewayv2: create "+resourceName+" failed", "error", err)
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, result)
 }
 
 // pathSegments strips the /v2/apis prefix and returns the remaining path segments.
