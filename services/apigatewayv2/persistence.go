@@ -26,11 +26,13 @@ type apiDataSnapshot struct {
 }
 
 type backendSnapshot struct {
-	APIs           map[string]*apiDataSnapshot       `json:"apis"`
-	DomainNames    map[string]*DomainName            `json:"domainNames"`
-	APIMappings    map[string]map[string]*APIMapping `json:"apiMappings"`
-	Portals        map[string]*Portal                `json:"portals"`
-	PortalProducts map[string]*PortalProduct         `json:"portalProducts"`
+	APIs           map[string]*apiDataSnapshot           `json:"apis"`
+	DomainNames    map[string]*DomainName                `json:"domainNames"`
+	APIMappings    map[string]map[string]*APIMapping     `json:"apiMappings"`
+	Portals        map[string]*Portal                    `json:"portals"`
+	PortalProducts map[string]*PortalProduct             `json:"portalProducts"`
+	ProductPages   map[string][]*ProductPage             `json:"productPages"`
+	ProductREPages map[string][]*ProductRestEndpointPage `json:"productREPages"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -45,6 +47,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		APIMappings:    b.apiMappings,
 		Portals:        b.portals,
 		PortalProducts: b.portalProducts,
+		ProductPages:   b.productPages,
+		ProductREPages: b.productREPages,
 	}
 
 	for id, d := range b.apis {
@@ -138,6 +142,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.apiMappings = ensureMap(snap.APIMappings)
 	b.portals = ensureMap(snap.Portals)
 	b.portalProducts = ensureMap(snap.PortalProducts)
+	b.productPages = ensureMap(snap.ProductPages)
+	b.productREPages = ensureMap(snap.ProductREPages)
 
 	return nil
 }

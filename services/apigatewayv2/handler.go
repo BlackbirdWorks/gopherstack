@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -28,6 +29,9 @@ const (
 	segCountSubRes   = 3
 	segCountDeepColl = 4
 
+	// splitPathMax is the max number of parts when splitting a non-apis path suffix.
+	splitPathMax = 3
+
 	// collection name constants.
 	collStages               = "stages"
 	collRoutes               = "routes"
@@ -38,7 +42,6 @@ const (
 	collIntegrationResponses = "integrationresponses"
 	collRouteResponses       = "routeresponses"
 	collAPIMappings          = "apimappings"
-	collProducts             = "products"
 	collProductPages         = "productpages"
 	collProductREPages       = "productrestendpointpages"
 
@@ -46,6 +49,9 @@ const (
 	msgNotFound         = "Not Found"
 	msgMethodNotAllowed = "Method Not Allowed"
 	msgInvalidBody      = "invalid request body"
+
+	// opUnknown is returned when no matching operation is found.
+	opUnknown = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for API Gateway v2 (HTTP API) operations.
@@ -64,7 +70,7 @@ func (h *Handler) Name() string { return "APIGatewayV2" }
 // GetSupportedOperations returns all supported API operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateApi", "GetAPI", "GetAPIs", "DeleteAPI", "UpdateAPI",
+		"CreateApi", "GetApi", "GetApis", "DeleteApi", "UpdateApi",
 		"CreateStage", "GetStage", "GetStages", "DeleteStage", "UpdateStage",
 		"CreateRoute", "GetRoute", "GetRoutes", "DeleteRoute", "UpdateRoute",
 		"CreateIntegration", "GetIntegration", "GetIntegrations", "DeleteIntegration", "UpdateIntegration",
@@ -120,11 +126,11 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 	return map[operationKey]string{
 		// /v2/apis
 		{segs: segCountAPIs, method: http.MethodPost}: "CreateApi",
-		{segs: segCountAPIs, method: http.MethodGet}:  "GetAPIs",
+		{segs: segCountAPIs, method: http.MethodGet}:  "GetApis",
 		// /v2/apis/{apiId}
-		{segs: segCountAPIByID, method: http.MethodGet}:    "GetAPI",
-		{segs: segCountAPIByID, method: http.MethodDelete}: "DeleteAPI",
-		{segs: segCountAPIByID, method: http.MethodPatch}:  "UpdateAPI",
+		{segs: segCountAPIByID, method: http.MethodGet}:    "GetApi",
+		{segs: segCountAPIByID, method: http.MethodDelete}: "DeleteApi",
+		{segs: segCountAPIByID, method: http.MethodPatch}:  "UpdateApi",
 		// /v2/apis/{apiId}/stages
 		{segs: segCountSubColl, seg1: collStages, method: http.MethodPost}: "CreateStage",
 		{segs: segCountSubColl, seg1: collStages, method: http.MethodGet}:  "GetStages",
@@ -142,7 +148,6 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		{segs: segCountSubColl, seg1: collAuthorizers, method: http.MethodGet}:  "GetAuthorizers",
 		// /v2/apis/{apiId}/models
 		{segs: segCountSubColl, seg1: collModels, method: http.MethodPost}: "CreateModel",
-		{segs: segCountSubColl, seg1: collModels, method: http.MethodGet}:  "GetModels",
 		// /v2/apis/{apiId}/stages/{stageName}
 		{segs: segCountSubRes, seg1: collStages, method: http.MethodGet}:    "GetStage",
 		{segs: segCountSubRes, seg1: collStages, method: http.MethodDelete}: "DeleteStage",
@@ -171,21 +176,86 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 
 // ExtractOperation returns the operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	segs := pathSegments(c.Request().URL.Path)
+	path := c.Request().URL.Path
 	method := c.Request().Method
 
+	// Handle non-/v2/apis paths.
+	switch {
+	case path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/"):
+		return extractDomainNamesOp(path, method)
+	case path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/"):
+		return extractPortalsOp(path, method)
+	case path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/"):
+		return extractPortalProductsOp(path, method)
+	}
+
+	return extractAPIsOp(path, method)
+}
+
+func extractDomainNamesOp(path, method string) string {
+	suffix := strings.Trim(strings.TrimPrefix(path, domainNamesPrefix), "/")
+	if suffix == "" && method == http.MethodPost {
+		return "CreateDomainName"
+	}
+
+	parts := strings.SplitN(suffix, "/", splitPathMax)
+	if len(parts) == 2 && parts[1] == collAPIMappings && method == http.MethodPost {
+		return "CreateApiMapping"
+	}
+
+	return opUnknown
+}
+
+func extractPortalsOp(path, method string) string {
+	suffix := strings.Trim(strings.TrimPrefix(path, portalsPrefix), "/")
+	if suffix == "" && method == http.MethodPost {
+		return "CreatePortal"
+	}
+
+	return opUnknown
+}
+
+func extractPortalProductsOp(path, method string) string {
+	suffix := strings.Trim(strings.TrimPrefix(path, portalProductsPrefix), "/")
+	if suffix == "" && method == http.MethodPost {
+		return "CreatePortalProduct"
+	}
+
+	parts := strings.SplitN(suffix, "/", splitPathMax)
+	if len(parts) == 2 && method == http.MethodPost {
+		switch parts[1] {
+		case collProductPages:
+			return "CreateProductPage"
+		case collProductREPages:
+			return "CreateProductRestEndpointPage"
+		}
+	}
+
+	return opUnknown
+}
+
+func extractAPIsOp(path, method string) string {
+	segs := pathSegments(path)
+	nsegs := len(segs)
+
 	var seg1 string
-	if len(segs) >= segCountSubColl {
+
+	switch {
+	case nsegs == segCountDeepColl:
+		// pathSegments strips the /v2/apis prefix, so segs[3] is the 4th element
+		// (0-indexed last) of e.g. ["{apiId}", "integrations", "{id}", "integrationresponses"].
+		seg1 = segs[segCountDeepColl-1]
+	case nsegs >= segCountSubColl:
 		seg1 = segs[segCountSubColl-1]
 	}
 
-	key := operationKey{segs: len(segs), seg1: seg1, method: method}
+	key := operationKey{segs: nsegs, seg1: seg1, method: method}
 
 	if op, ok := onceOpTable()[key]; ok {
 		return op
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 // ExtractResource extracts the API ID from the URL path for metrics.
@@ -381,7 +451,7 @@ func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) er
 			func(input CreateAPIMappingInput) (*APIMapping, error) {
 				return h.Backend.CreateAPIMapping(domainName, input)
 			},
-			ErrDomainNameNotFound)
+			ErrDomainNameNotFound, ErrAPINotFound, ErrStageNotFound)
 	}
 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
@@ -840,6 +910,14 @@ func handleCreateMulti[I, O any](
 	if err != nil {
 		log.Error("apigatewayv2: create "+resourceName+" failed", "apiId", apiID, "error", err)
 
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return c.JSON(http.StatusConflict, notFoundResponse{Message: err.Error()})
+		}
+
+		if errors.Is(err, ErrBadRequest) {
+			return c.JSON(http.StatusBadRequest, notFoundResponse{Message: err.Error()})
+		}
+
 		for _, nfe := range notFoundErrs {
 			if errors.Is(err, nfe) {
 				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
@@ -923,6 +1001,14 @@ func handleCreateNoParent[I, O any](
 	result, err := backendFn(input)
 	if err != nil {
 		log.Error("apigatewayv2: create "+resourceName+" failed", "error", err)
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return c.JSON(http.StatusConflict, notFoundResponse{Message: err.Error()})
+		}
+
+		if errors.Is(err, ErrBadRequest) {
+			return c.JSON(http.StatusBadRequest, notFoundResponse{Message: err.Error()})
+		}
 
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}

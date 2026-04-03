@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"maps"
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -42,6 +45,10 @@ var (
 	ErrPortalNotFound = errors.New("NotFoundException")
 	// ErrPortalProductNotFound is returned when a requested portal product does not exist.
 	ErrPortalProductNotFound = errors.New("NotFoundException")
+	// ErrBadRequest is returned when required fields are missing or invalid.
+	ErrBadRequest = errors.New("BadRequestException")
+	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
+	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
@@ -141,6 +148,8 @@ type InMemoryBackend struct {
 	apiMappings    map[string]map[string]*APIMapping
 	portals        map[string]*Portal
 	portalProducts map[string]*PortalProduct
+	productPages   map[string][]*ProductPage             // key: portalProductID
+	productREPages map[string][]*ProductRestEndpointPage // key: portalProductID
 	mu             *lockmetrics.RWMutex
 }
 
@@ -152,8 +161,36 @@ func NewInMemoryBackend() *InMemoryBackend {
 		apiMappings:    make(map[string]map[string]*APIMapping),
 		portals:        make(map[string]*Portal),
 		portalProducts: make(map[string]*PortalProduct),
+		productPages:   make(map[string][]*ProductPage),
+		productREPages: make(map[string][]*ProductRestEndpointPage),
 		mu:             lockmetrics.New("apigatewayv2"),
 	}
+}
+
+// copyTags returns a deep copy of a tags map, guarding against nil.
+func copyTags(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+
+	dst := make(map[string]string, len(src))
+	maps.Copy(dst, src)
+
+	return dst
+}
+
+// Reset clears all backend state, reinitialising all maps.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.apis = make(map[string]*apiData)
+	b.domainNames = make(map[string]*DomainName)
+	b.apiMappings = make(map[string]map[string]*APIMapping)
+	b.portals = make(map[string]*Portal)
+	b.portalProducts = make(map[string]*PortalProduct)
+	b.productPages = make(map[string][]*ProductPage)
+	b.productREPages = make(map[string][]*ProductRestEndpointPage)
 }
 
 // randomID generates a cryptographically random 10-character alphanumeric ID.
@@ -929,12 +966,20 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 
 // CreateDomainName creates a new custom domain name.
 func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*DomainName, error) {
+	if input.DomainNameValue == "" {
+		return nil, fmt.Errorf("%w: domainName is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreateDomainName")
 	defer b.mu.Unlock()
 
+	if _, exists := b.domainNames[input.DomainNameValue]; exists {
+		return nil, fmt.Errorf("%w: domain name %q already exists", ErrAlreadyExists, input.DomainNameValue)
+	}
+
 	dn := &DomainName{
 		DomainNameValue: input.DomainNameValue,
-		Tags:            input.Tags,
+		Tags:            copyTags(input.Tags),
 	}
 
 	b.domainNames[input.DomainNameValue] = dn
@@ -949,11 +994,28 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 
 // CreateAPIMapping creates a new API mapping for a custom domain name.
 func (b *InMemoryBackend) CreateAPIMapping(domainName string, input CreateAPIMappingInput) (*APIMapping, error) {
+	if input.APIID == "" {
+		return nil, fmt.Errorf("%w: apiId is required", ErrBadRequest)
+	}
+
+	if input.Stage == "" {
+		return nil, fmt.Errorf("%w: stage is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreateAPIMapping")
 	defer b.mu.Unlock()
 
 	if _, ok := b.domainNames[domainName]; !ok {
 		return nil, ErrDomainNameNotFound
+	}
+
+	d, ok := b.apis[input.APIID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, stageExists := d.stages[input.Stage]; !stageExists {
+		return nil, ErrStageNotFound
 	}
 
 	id := randomID()
@@ -979,6 +1041,10 @@ func (b *InMemoryBackend) CreateIntegrationResponse(
 	apiID, integrationID string,
 	input CreateIntegrationResponseInput,
 ) (*IntegrationResponse, error) {
+	if input.IntegrationResponseKey == "" {
+		return nil, fmt.Errorf("%w: integrationResponseKey is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreateIntegrationResponse")
 	defer b.mu.Unlock()
 
@@ -993,6 +1059,16 @@ func (b *InMemoryBackend) CreateIntegrationResponse(
 
 	if _, exists := d.integrationResponses[integrationID]; !exists {
 		d.integrationResponses[integrationID] = make(map[string]*IntegrationResponse)
+	}
+
+	for _, existing := range d.integrationResponses[integrationID] {
+		if existing.IntegrationResponseKey == input.IntegrationResponseKey {
+			return nil, fmt.Errorf(
+				"%w: integration response key %q already exists",
+				ErrAlreadyExists,
+				input.IntegrationResponseKey,
+			)
+		}
 	}
 
 	id := randomID()
@@ -1018,12 +1094,22 @@ func (b *InMemoryBackend) CreateIntegrationResponse(
 
 // CreateModel creates a new model for an API.
 func (b *InMemoryBackend) CreateModel(apiID string, input CreateModelInput) (*Model, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreateModel")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[apiID]
 	if !ok {
 		return nil, ErrAPINotFound
+	}
+
+	for _, existing := range d.models {
+		if existing.Name == input.Name {
+			return nil, fmt.Errorf("%w: model name %q already exists", ErrAlreadyExists, input.Name)
+		}
 	}
 
 	id := randomID()
@@ -1050,6 +1136,10 @@ func (b *InMemoryBackend) CreateRouteResponse(
 	apiID, routeID string,
 	input CreateRouteResponseInput,
 ) (*RouteResponse, error) {
+	if input.RouteResponseKey == "" {
+		return nil, fmt.Errorf("%w: routeResponseKey is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreateRouteResponse")
 	defer b.mu.Unlock()
 
@@ -1064,6 +1154,12 @@ func (b *InMemoryBackend) CreateRouteResponse(
 
 	if _, exists := d.routeResponses[routeID]; !exists {
 		d.routeResponses[routeID] = make(map[string]*RouteResponse)
+	}
+
+	for _, existing := range d.routeResponses[routeID] {
+		if existing.RouteResponseKey == input.RouteResponseKey {
+			return nil, fmt.Errorf("%w: route response key %q already exists", ErrAlreadyExists, input.RouteResponseKey)
+		}
 	}
 
 	id := randomID()
@@ -1094,7 +1190,7 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	portal := &Portal{
 		PortalID: id,
 		LogoURI:  input.LogoURI,
-		Tags:     input.Tags,
+		Tags:     copyTags(input.Tags),
 		Status:   "ACTIVE",
 	}
 
@@ -1109,6 +1205,10 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 
 // CreatePortalProduct creates a new portal product.
 func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*PortalProduct, error) {
+	if input.DisplayName == "" {
+		return nil, fmt.Errorf("%w: displayName is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreatePortalProduct")
 	defer b.mu.Unlock()
 
@@ -1117,7 +1217,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 		PortalProductID: id,
 		DisplayName:     input.DisplayName,
 		Description:     input.Description,
-		Tags:            input.Tags,
+		Tags:            copyTags(input.Tags),
 	}
 
 	b.portalProducts[id] = product
@@ -1149,6 +1249,8 @@ func (b *InMemoryBackend) CreateProductPage(
 		LastModified:    &now,
 	}
 
+	b.productPages[portalProductID] = append(b.productPages[portalProductID], page)
+
 	cp := *page
 
 	return &cp, nil
@@ -1175,6 +1277,8 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		PortalProductID:           portalProductID,
 		LastModified:              &now,
 	}
+
+	b.productREPages[portalProductID] = append(b.productREPages[portalProductID], page)
 
 	cp := *page
 

@@ -354,7 +354,7 @@ type ProductPage struct {
 
 // CreateProductPageInput is the input for CreateProductPage.
 type CreateProductPageInput struct {
-	PortalProductID string `json:"portalProductId"`
+	PortalProductID string `json:"-"`
 }
 
 // ProductRestEndpointPage represents a REST endpoint page within a portal product.
@@ -366,7 +366,7 @@ type ProductRestEndpointPage struct {
 
 // CreateProductRestEndpointPageInput is the input for CreateProductRestEndpointPage.
 type CreateProductRestEndpointPageInput struct {
-	PortalProductID string `json:"portalProductId"`
+	PortalProductID string `json:"-"`
 }
 
 // RouteResponse represents a route response.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1427,19 +1428,19 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			name:   "get_apis",
 			method: http.MethodGet,
 			path:   "/v2/apis",
-			wantOp: "GetAPIs",
+			wantOp: "GetApis",
 		},
 		{
 			name:   "get_api",
 			method: http.MethodGet,
 			path:   "/v2/apis/abc123",
-			wantOp: "GetAPI",
+			wantOp: "GetApi",
 		},
 		{
 			name:   "delete_api",
 			method: http.MethodDelete,
 			path:   "/v2/apis/abc123",
-			wantOp: "DeleteAPI",
+			wantOp: "DeleteApi",
 		},
 		{
 			name:   "create_stage",
@@ -1482,6 +1483,54 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/v2/apis/abc123/authorizers",
 			wantOp: "CreateAuthorizer",
+		},
+		{
+			name:   "create_integration_response",
+			method: http.MethodPost,
+			path:   "/v2/apis/abc123/integrations/int1/integrationresponses",
+			wantOp: "CreateIntegrationResponse",
+		},
+		{
+			name:   "create_route_response",
+			method: http.MethodPost,
+			path:   "/v2/apis/abc123/routes/r1/routeresponses",
+			wantOp: "CreateRouteResponse",
+		},
+		{
+			name:   "create_domain_name",
+			method: http.MethodPost,
+			path:   "/v2/domainnames",
+			wantOp: "CreateDomainName",
+		},
+		{
+			name:   "create_api_mapping",
+			method: http.MethodPost,
+			path:   "/v2/domainnames/example.com/apimappings",
+			wantOp: "CreateApiMapping",
+		},
+		{
+			name:   "create_portal",
+			method: http.MethodPost,
+			path:   "/v2/portals",
+			wantOp: "CreatePortal",
+		},
+		{
+			name:   "create_portal_product",
+			method: http.MethodPost,
+			path:   "/v2/portalproducts",
+			wantOp: "CreatePortalProduct",
+		},
+		{
+			name:   "create_product_page",
+			method: http.MethodPost,
+			path:   "/v2/portalproducts/pp1/productpages",
+			wantOp: "CreateProductPage",
+		},
+		{
+			name:   "create_product_rest_endpoint_page",
+			method: http.MethodPost,
+			path:   "/v2/portalproducts/pp1/productrestendpointpages",
+			wantOp: "CreateProductRestEndpointPage",
 		},
 	}
 
@@ -1815,25 +1864,53 @@ func TestHandler_CreateApiMapping(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       any
-		name       string
-		domainName string
-		wantAPIID  string
-		wantStatus int
+		body         any
+		setup        func(h *apigatewayv2.Handler) (apiID, stageName, domainName string)
+		extraBody    map[string]any
+		name         string
+		domainName   string
+		wantStatus   int
+		wantAPIIDSet bool
 	}{
 		{
-			name:       "success",
-			domainName: "example.com",
-			body:       map[string]any{"apiId": "abc123", "stage": "prod"},
-			wantStatus: http.StatusCreated,
-			wantAPIID:  "abc123",
+			name: "success",
+			setup: func(h *apigatewayv2.Handler) (string, string, string) {
+				apiID := createAPI(t, h, "test-api")
+				rr := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					fmt.Sprintf("/v2/apis/%s/stages", apiID),
+					map[string]any{"stageName": "prod"},
+				)
+				require.Equal(t, http.StatusCreated, rr.Code)
+				rr = doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{"domainName": "example.com"})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				return apiID, "prod", "example.com"
+			},
+			wantStatus:   http.StatusCreated,
+			wantAPIIDSet: true,
 		},
 		{
-			name:       "with_mapping_key",
-			domainName: "example.com",
-			body:       map[string]any{"apiId": "xyz999", "stage": "dev", "apiMappingKey": "v1"},
+			name: "with_mapping_key",
+			setup: func(h *apigatewayv2.Handler) (string, string, string) {
+				apiID := createAPI(t, h, "test-api")
+				rr := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					fmt.Sprintf("/v2/apis/%s/stages", apiID),
+					map[string]any{"stageName": "dev"},
+				)
+				require.Equal(t, http.StatusCreated, rr.Code)
+				rr = doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{"domainName": "example.com"})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				return apiID, "dev", "example.com"
+			},
+			extraBody:  map[string]any{"apiMappingKey": "v1"},
 			wantStatus: http.StatusCreated,
-			wantAPIID:  "xyz999",
 		},
 		{
 			name:       "domain_not_found",
@@ -1845,6 +1922,12 @@ func TestHandler_CreateApiMapping(t *testing.T) {
 			name:       "invalid_body",
 			domainName: "example.com",
 			body:       "not-json",
+			setup: func(h *apigatewayv2.Handler) (string, string, string) {
+				rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{"domainName": "example.com"})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				return "", "", "example.com"
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -1855,27 +1938,35 @@ func TestHandler_CreateApiMapping(t *testing.T) {
 
 			h := newTestHandler()
 
-			if tt.domainName == "example.com" {
-				rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{"domainName": tt.domainName})
-				require.Equal(t, http.StatusCreated, rr.Code)
+			var apiID, stageName, domainName string
+			domainName = tt.domainName
+
+			if tt.setup != nil {
+				apiID, stageName, domainName = tt.setup(h)
 			}
 
-			path := fmt.Sprintf("/v2/domainnames/%s/apimappings", tt.domainName)
+			path := fmt.Sprintf("/v2/domainnames/%s/apimappings", domainName)
 
 			var rr *httptest.ResponseRecorder
 
-			if s, ok := tt.body.(string); ok {
-				rr = doRequestRaw(t, h, path, s)
+			if tt.body != nil {
+				if s, ok := tt.body.(string); ok {
+					rr = doRequestRaw(t, h, path, s)
+				} else {
+					rr = doRequest(t, h, http.MethodPost, path, tt.body)
+				}
 			} else {
-				rr = doRequest(t, h, http.MethodPost, path, tt.body)
+				body := map[string]any{"apiId": apiID, "stage": stageName}
+				maps.Copy(body, tt.extraBody)
+				rr = doRequest(t, h, http.MethodPost, path, body)
 			}
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 
-			if tt.wantAPIID != "" {
+			if tt.wantAPIIDSet {
 				var mapping apigatewayv2.APIMapping
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping))
-				assert.Equal(t, tt.wantAPIID, mapping.APIID)
+				assert.Equal(t, apiID, mapping.APIID)
 				assert.NotEmpty(t, mapping.APIMappingID)
 			}
 		})
@@ -2367,6 +2458,251 @@ func TestHandler_CreateProductRestEndpointPage(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page))
 				assert.NotEmpty(t, page.ProductRestEndpointPageID)
 			}
+		})
+	}
+}
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(b *apigatewayv2.InMemoryBackend)
+		verify func(t *testing.T, b *apigatewayv2.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "clears_apis",
+			setup: func(b *apigatewayv2.InMemoryBackend) {
+				_, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *apigatewayv2.InMemoryBackend) {
+				t.Helper()
+				apis, err := b.GetAPIs()
+				require.NoError(t, err)
+				assert.Empty(t, apis)
+			},
+		},
+		{
+			name: "clears_domain_names",
+			setup: func(b *apigatewayv2.InMemoryBackend) {
+				_, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{DomainNameValue: "example.com"})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *apigatewayv2.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{DomainNameValue: "example.com"})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:  "empty_backend_reset_is_safe",
+			setup: func(_ *apigatewayv2.InMemoryBackend) {},
+			verify: func(t *testing.T, b *apigatewayv2.InMemoryBackend) {
+				t.Helper()
+				apis, err := b.GetAPIs()
+				require.NoError(t, err)
+				assert.Empty(t, apis)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+			tt.setup(b)
+			b.Reset()
+			tt.verify(t, b)
+		})
+	}
+}
+
+func TestHandler_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "create_domain_name_missing_field",
+			method:     http.MethodPost,
+			path:       "/v2/domainnames",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "create_portal_product_missing_display_name",
+			method:     http.MethodPost,
+			path:       "/v2/portalproducts",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rr := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DuplicateDomainName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "duplicate_domain_name_returns_409",
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DuplicateModelName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "duplicate_model_name_returns_409",
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/models", apiID), map[string]any{
+				"name": "MyModel",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/models", apiID), map[string]any{
+				"name": "MyModel",
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DuplicateIntegrationResponseKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "duplicate_key_returns_409",
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/integrations", apiID), map[string]any{
+				"integrationType": "HTTP_PROXY",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var integration apigatewayv2.Integration
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+
+			path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integration.IntegrationID)
+
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"integrationResponseKey": "$default",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"integrationResponseKey": "$default",
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DuplicateRouteResponseKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "duplicate_key_returns_409",
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/routes", apiID), map[string]any{
+				"routeKey": "GET /items",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var route apigatewayv2.Route
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+
+			path := fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, route.RouteID)
+
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"routeResponseKey": "$default",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"routeResponseKey": "$default",
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
 	}
 }
