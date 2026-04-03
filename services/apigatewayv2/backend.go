@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -126,6 +127,50 @@ type StorageBackend interface {
 		portalProductID string,
 		input CreateProductRestEndpointPageInput,
 	) (*ProductRestEndpointPage, error)
+
+	// Domain Names - Get/Delete
+	GetDomainName(domainName string) (*DomainName, error)
+	GetDomainNames() ([]DomainName, error)
+	DeleteDomainName(domainName string) error
+
+	// API Mappings - Get/Delete
+	GetAPIMapping(domainName, mappingID string) (*APIMapping, error)
+	GetAPIMappings(domainName string) ([]APIMapping, error)
+	DeleteAPIMapping(domainName, mappingID string) error
+
+	// Integration Responses - Get/Delete
+	GetIntegrationResponse(apiID, integrationID, responseID string) (*IntegrationResponse, error)
+	GetIntegrationResponses(apiID, integrationID string) ([]IntegrationResponse, error)
+	DeleteIntegrationResponse(apiID, integrationID, responseID string) error
+
+	// Models - Get/Delete
+	GetModel(apiID, modelID string) (*Model, error)
+	GetModels(apiID string) ([]Model, error)
+	DeleteModel(apiID, modelID string) error
+
+	// Route Responses - Get/Delete
+	GetRouteResponse(apiID, routeID, responseID string) (*RouteResponse, error)
+	GetRouteResponses(apiID, routeID string) ([]RouteResponse, error)
+	DeleteRouteResponse(apiID, routeID, responseID string) error
+
+	// Portals - Get/List
+	GetPortal(portalID string) (*Portal, error)
+	ListPortals() ([]Portal, error)
+
+	// Portal Products - Get/List
+	GetPortalProduct(portalProductID string) (*PortalProduct, error)
+	ListPortalProducts() ([]PortalProduct, error)
+
+	// Product Pages - List
+	ListProductPages(portalProductID string) ([]ProductPage, error)
+
+	// Product REST Endpoint Pages - List
+	ListProductRestEndpointPages(portalProductID string) ([]ProductRestEndpointPage, error)
+
+	// Tags
+	TagResource(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
+	GetTags(resourceARN string) (map[string]string, error)
 }
 
 // apiData holds per-API state.
@@ -1280,4 +1325,531 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 	cp := *page
 
 	return &cp, nil
+}
+
+// --- Get/Delete Domain Names ---
+
+// GetDomainName retrieves a domain name by name.
+func (b *InMemoryBackend) GetDomainName(domainName string) (*DomainName, error) {
+	b.mu.RLock("GetDomainName")
+	defer b.mu.RUnlock()
+
+	dn, ok := b.domainNames[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// GetDomainNames retrieves all custom domain names.
+func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
+	b.mu.RLock("GetDomainNames")
+	defer b.mu.RUnlock()
+
+	result := make([]DomainName, 0, len(b.domainNames))
+	for _, dn := range b.domainNames {
+		result = append(result, *dn)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].DomainNameValue < result[j].DomainNameValue
+	})
+
+	return result, nil
+}
+
+// DeleteDomainName removes a custom domain name and all its API mappings.
+func (b *InMemoryBackend) DeleteDomainName(domainName string) error {
+	b.mu.Lock("DeleteDomainName")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return ErrDomainNameNotFound
+	}
+
+	delete(b.domainNames, domainName)
+	delete(b.apiMappings, domainName)
+
+	return nil
+}
+
+// --- Get/Delete API Mappings ---
+
+// GetAPIMapping retrieves a specific API mapping.
+func (b *InMemoryBackend) GetAPIMapping(domainName, mappingID string) (*APIMapping, error) {
+	b.mu.RLock("GetAPIMapping")
+	defer b.mu.RUnlock()
+
+	mappings, ok := b.apiMappings[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	m, ok := mappings[mappingID]
+	if !ok {
+		return nil, ErrAPIMappingNotFound
+	}
+
+	cp := *m
+
+	return &cp, nil
+}
+
+// GetAPIMappings retrieves all API mappings for a domain name.
+func (b *InMemoryBackend) GetAPIMappings(domainName string) ([]APIMapping, error) {
+	b.mu.RLock("GetAPIMappings")
+	defer b.mu.RUnlock()
+
+	mappings, ok := b.apiMappings[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	result := make([]APIMapping, 0, len(mappings))
+	for _, m := range mappings {
+		result = append(result, *m)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].APIMappingID < result[j].APIMappingID
+	})
+
+	return result, nil
+}
+
+// DeleteAPIMapping removes an API mapping from a domain name.
+func (b *InMemoryBackend) DeleteAPIMapping(domainName, mappingID string) error {
+	b.mu.Lock("DeleteAPIMapping")
+	defer b.mu.Unlock()
+
+	mappings, ok := b.apiMappings[domainName]
+	if !ok {
+		return ErrDomainNameNotFound
+	}
+
+	if _, exists := mappings[mappingID]; !exists {
+		return ErrAPIMappingNotFound
+	}
+
+	delete(b.apiMappings[domainName], mappingID)
+
+	return nil
+}
+
+// --- Get/Delete Integration Responses ---
+
+// GetIntegrationResponse retrieves a specific integration response.
+func (b *InMemoryBackend) GetIntegrationResponse(
+	apiID, integrationID, responseID string,
+) (*IntegrationResponse, error) {
+	b.mu.RLock("GetIntegrationResponse")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.integrations[integrationID]; !exists {
+		return nil, ErrIntegrationNotFound
+	}
+
+	responses, hasResponses := d.integrationResponses[integrationID]
+	if !hasResponses {
+		return nil, ErrIntegrationResponseNotFound
+	}
+
+	ir, exists := responses[responseID]
+	if !exists {
+		return nil, ErrIntegrationResponseNotFound
+	}
+
+	cp := *ir
+
+	return &cp, nil
+}
+
+// GetIntegrationResponses retrieves all integration responses for an integration.
+func (b *InMemoryBackend) GetIntegrationResponses(apiID, integrationID string) ([]IntegrationResponse, error) {
+	b.mu.RLock("GetIntegrationResponses")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.integrations[integrationID]; !exists {
+		return nil, ErrIntegrationNotFound
+	}
+
+	responses := d.integrationResponses[integrationID]
+	result := make([]IntegrationResponse, 0, len(responses))
+
+	for _, ir := range responses {
+		result = append(result, *ir)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].IntegrationResponseID < result[j].IntegrationResponseID
+	})
+
+	return result, nil
+}
+
+// DeleteIntegrationResponse removes an integration response.
+func (b *InMemoryBackend) DeleteIntegrationResponse(apiID, integrationID, responseID string) error {
+	b.mu.Lock("DeleteIntegrationResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	if _, exists := d.integrations[integrationID]; !exists {
+		return ErrIntegrationNotFound
+	}
+
+	responses, hasResponses := d.integrationResponses[integrationID]
+	if !hasResponses {
+		return ErrIntegrationResponseNotFound
+	}
+
+	if _, exists := responses[responseID]; !exists {
+		return ErrIntegrationResponseNotFound
+	}
+
+	delete(d.integrationResponses[integrationID], responseID)
+
+	return nil
+}
+
+// --- Get/Delete Models ---
+
+// GetModel retrieves a model by ID.
+func (b *InMemoryBackend) GetModel(apiID, modelID string) (*Model, error) {
+	b.mu.RLock("GetModel")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	m, ok := d.models[modelID]
+	if !ok {
+		return nil, ErrModelNotFound
+	}
+
+	cp := *m
+
+	return &cp, nil
+}
+
+// GetModels retrieves all models for an API.
+func (b *InMemoryBackend) GetModels(apiID string) ([]Model, error) {
+	b.mu.RLock("GetModels")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	result := make([]Model, 0, len(d.models))
+	for _, m := range d.models {
+		result = append(result, *m)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ModelID < result[j].ModelID
+	})
+
+	return result, nil
+}
+
+// DeleteModel removes a model from an API.
+func (b *InMemoryBackend) DeleteModel(apiID, modelID string) error {
+	b.mu.Lock("DeleteModel")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	if _, exists := d.models[modelID]; !exists {
+		return ErrModelNotFound
+	}
+
+	delete(d.models, modelID)
+
+	return nil
+}
+
+// --- Get/Delete Route Responses ---
+
+// GetRouteResponse retrieves a specific route response.
+func (b *InMemoryBackend) GetRouteResponse(apiID, routeID, responseID string) (*RouteResponse, error) {
+	b.mu.RLock("GetRouteResponse")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.routes[routeID]; !exists {
+		return nil, ErrRouteNotFound
+	}
+
+	responses, hasResponses := d.routeResponses[routeID]
+	if !hasResponses {
+		return nil, ErrRouteResponseNotFound
+	}
+
+	rr, exists := responses[responseID]
+	if !exists {
+		return nil, ErrRouteResponseNotFound
+	}
+
+	cp := *rr
+
+	return &cp, nil
+}
+
+// GetRouteResponses retrieves all route responses for a route.
+func (b *InMemoryBackend) GetRouteResponses(apiID, routeID string) ([]RouteResponse, error) {
+	b.mu.RLock("GetRouteResponses")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.routes[routeID]; !exists {
+		return nil, ErrRouteNotFound
+	}
+
+	responses := d.routeResponses[routeID]
+	result := make([]RouteResponse, 0, len(responses))
+
+	for _, rr := range responses {
+		result = append(result, *rr)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].RouteResponseID < result[j].RouteResponseID
+	})
+
+	return result, nil
+}
+
+// DeleteRouteResponse removes a route response.
+func (b *InMemoryBackend) DeleteRouteResponse(apiID, routeID, responseID string) error {
+	b.mu.Lock("DeleteRouteResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	if _, exists := d.routes[routeID]; !exists {
+		return ErrRouteNotFound
+	}
+
+	responses, hasResponses := d.routeResponses[routeID]
+	if !hasResponses {
+		return ErrRouteResponseNotFound
+	}
+
+	if _, exists := responses[responseID]; !exists {
+		return ErrRouteResponseNotFound
+	}
+
+	delete(d.routeResponses[routeID], responseID)
+
+	return nil
+}
+
+// --- Get/List Portals ---
+
+// GetPortal retrieves a portal by ID.
+func (b *InMemoryBackend) GetPortal(portalID string) (*Portal, error) {
+	b.mu.RLock("GetPortal")
+	defer b.mu.RUnlock()
+
+	p, ok := b.portals[portalID]
+	if !ok {
+		return nil, ErrPortalNotFound
+	}
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// ListPortals retrieves all portals.
+func (b *InMemoryBackend) ListPortals() ([]Portal, error) {
+	b.mu.RLock("ListPortals")
+	defer b.mu.RUnlock()
+
+	result := make([]Portal, 0, len(b.portals))
+	for _, p := range b.portals {
+		result = append(result, *p)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].PortalID < result[j].PortalID
+	})
+
+	return result, nil
+}
+
+// --- Get/List Portal Products ---
+
+// GetPortalProduct retrieves a portal product by ID.
+func (b *InMemoryBackend) GetPortalProduct(portalProductID string) (*PortalProduct, error) {
+	b.mu.RLock("GetPortalProduct")
+	defer b.mu.RUnlock()
+
+	pp, ok := b.portalProducts[portalProductID]
+	if !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	cp := *pp
+
+	return &cp, nil
+}
+
+// ListPortalProducts retrieves all portal products.
+func (b *InMemoryBackend) ListPortalProducts() ([]PortalProduct, error) {
+	b.mu.RLock("ListPortalProducts")
+	defer b.mu.RUnlock()
+
+	result := make([]PortalProduct, 0, len(b.portalProducts))
+	for _, pp := range b.portalProducts {
+		result = append(result, *pp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].PortalProductID < result[j].PortalProductID
+	})
+
+	return result, nil
+}
+
+// --- List Product Pages ---
+
+// ListProductPages retrieves all product pages for a portal product.
+func (b *InMemoryBackend) ListProductPages(portalProductID string) ([]ProductPage, error) {
+	b.mu.RLock("ListProductPages")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	pages := b.productPages[portalProductID]
+	result := make([]ProductPage, 0, len(pages))
+
+	for _, p := range pages {
+		result = append(result, *p)
+	}
+
+	return result, nil
+}
+
+// --- List Product REST Endpoint Pages ---
+
+// ListProductRestEndpointPages retrieves all product REST endpoint pages for a portal product.
+func (b *InMemoryBackend) ListProductRestEndpointPages(portalProductID string) ([]ProductRestEndpointPage, error) {
+	b.mu.RLock("ListProductRestEndpointPages")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	pages := b.productREPages[portalProductID]
+	result := make([]ProductRestEndpointPage, 0, len(pages))
+
+	for _, p := range pages {
+		result = append(result, *p)
+	}
+
+	return result, nil
+}
+
+// --- Tags ---
+
+// TagResource adds tags to a resource identified by ARN. For the in-memory
+// backend the last path segment of the ARN is treated as the API ID.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	apiID := arnToAPIID(resourceARN)
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	if d.api.Tags == nil {
+		d.api.Tags = make(map[string]string)
+	}
+
+	maps.Copy(d.api.Tags, tags)
+
+	return nil
+}
+
+// UntagResource removes tag keys from a resource identified by ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	apiID := arnToAPIID(resourceARN)
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	for _, k := range tagKeys {
+		delete(d.api.Tags, k)
+	}
+
+	return nil
+}
+
+// GetTags retrieves all tags for a resource identified by ARN.
+func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("GetTags")
+	defer b.mu.RUnlock()
+
+	apiID := arnToAPIID(resourceARN)
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	return copyTags(d.api.Tags), nil
+}
+
+// arnToAPIID extracts the API ID from a resource ARN. For the in-memory
+// backend the last path segment of the ARN is used as the API ID.
+func arnToAPIID(arn string) string {
+	parts := strings.Split(arn, "/")
+
+	return parts[len(parts)-1]
 }

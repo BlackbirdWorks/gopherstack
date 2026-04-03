@@ -385,3 +385,67 @@ type CreateRouteResponseInput struct {
 	RouteResponseKey         string            `json:"routeResponseKey"`
 	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
 }
+
+// listDomainNamesOutput is the response body for GetDomainNames.
+type listDomainNamesOutput struct {
+	NextToken string       `json:"nextToken,omitempty"`
+	Items     []DomainName `json:"items"`
+}
+
+// listAPIMappingsOutput is the response body for GetApiMappings.
+type listAPIMappingsOutput struct {
+	NextToken string       `json:"nextToken,omitempty"`
+	Items     []APIMapping `json:"items"`
+}
+
+// listIntegrationResponsesOutput is the response body for GetIntegrationResponses.
+type listIntegrationResponsesOutput struct {
+	NextToken string                `json:"nextToken,omitempty"`
+	Items     []IntegrationResponse `json:"items"`
+}
+
+// listModelsOutput is the response body for GetModels.
+type listModelsOutput struct {
+	NextToken string  `json:"nextToken,omitempty"`
+	Items     []Model `json:"items"`
+}
+
+// listRouteResponsesOutput is the response body for GetRouteResponses.
+type listRouteResponsesOutput struct {
+	NextToken string          `json:"nextToken,omitempty"`
+	Items     []RouteResponse `json:"items"`
+}
+
+// listPortalsOutput is the response body for ListPortals.
+type listPortalsOutput struct {
+	NextToken string   `json:"nextToken,omitempty"`
+	Items     []Portal `json:"items"`
+}
+
+// listPortalProductsOutput is the response body for ListPortalProducts.
+type listPortalProductsOutput struct {
+	NextToken string          `json:"nextToken,omitempty"`
+	Items     []PortalProduct `json:"items"`
+}
+
+// listProductPagesOutput is the response body for ListProductPages.
+type listProductPagesOutput struct {
+	NextToken string        `json:"nextToken,omitempty"`
+	Items     []ProductPage `json:"items"`
+}
+
+// listProductREPagesOutput is the response body for ListProductRestEndpointPages.
+type listProductREPagesOutput struct {
+	NextToken string                    `json:"nextToken,omitempty"`
+	Items     []ProductRestEndpointPage `json:"items"`
+}
+
+// getTagsOutput is the response body for GetTags.
+type getTagsOutput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+// tagResourceInput is the input for TagResource.
+type tagResourceInput struct {
+	Tags map[string]string `json:"tags"`
+}

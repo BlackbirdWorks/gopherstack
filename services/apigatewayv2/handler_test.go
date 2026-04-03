@@ -2255,7 +2255,7 @@ func TestHandler_CreatePortal(t *testing.T) {
 			var rr *httptest.ResponseRecorder
 
 			if tt.name == "method_not_allowed" {
-				rr = doRequest(t, h, http.MethodGet, "/v2/portals", nil)
+				rr = doRequest(t, h, http.MethodDelete, "/v2/portals", nil)
 			} else if s, ok := tt.body.(string); ok {
 				rr = doRequestRaw(t, h, "/v2/portals", s)
 			} else {
@@ -2703,6 +2703,1450 @@ func TestHandler_DuplicateRouteResponseKey(t *testing.T) {
 				"routeResponseKey": "$default",
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+// --- Tests for new operations (refinement 2) ---
+
+func TestHandler_GetDomainNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		domainCnt  int
+		wantStatus int
+	}{
+		{
+			name:       "empty_list",
+			domainCnt:  0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "multiple",
+			domainCnt:  2,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for i := range tt.domainCnt {
+				rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+					"domainName": fmt.Sprintf("domain%d.example.com", i),
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet, "/v2/domainnames", nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.DomainName `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.domainCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_GetDomainName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		domain     string
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			domain:     "example.com",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			domain:     "nonexistent.com",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/domainnames/"+tt.domain, nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var dn apigatewayv2.DomainName
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn))
+				assert.Equal(t, "example.com", dn.DomainNameValue)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteDomainName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		domain     string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			domain:     "example.com",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "not_found",
+			domain:     "nonexistent.com",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodDelete, "/v2/domainnames/"+tt.domain, nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_GetAPIMappings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		domainName  string
+		wantStatus  int
+		mappingsCnt int
+	}{
+		{
+			name:        "found_empty",
+			domainName:  "example.com",
+			wantStatus:  http.StatusOK,
+			mappingsCnt: 0,
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent.com",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			// Create a stage for the api mapping
+			rr = doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/stages", apiID), map[string]any{
+				"stageName": "prod",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/domainnames/"+tt.domainName+"/apimappings", nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.APIMapping `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.mappingsCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_GetAPIMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useBadDN   bool
+		useBadID   bool
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "bad_domain",
+			useBadDN:   true,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "bad_mapping_id",
+			useBadID:   true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/stages", apiID), map[string]any{
+				"stageName": "prod",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, "/v2/domainnames/example.com/apimappings", map[string]any{
+				"apiId": apiID,
+				"stage": "prod",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var mapping apigatewayv2.APIMapping
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping))
+
+			domainName := "example.com"
+			mappingID := mapping.APIMappingID
+
+			if tt.useBadDN {
+				domainName = "bad.com"
+			}
+
+			if tt.useBadID {
+				mappingID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/domainnames/%s/apimappings/%s", domainName, mappingID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteAPIMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useBadDN   bool
+		useBadID   bool
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "bad_domain",
+			useBadDN:   true,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "bad_mapping_id",
+			useBadID:   true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", map[string]any{
+				"domainName": "example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/stages", apiID), map[string]any{
+				"stageName": "prod",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodPost, "/v2/domainnames/example.com/apimappings", map[string]any{
+				"apiId": apiID,
+				"stage": "prod",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var mapping apigatewayv2.APIMapping
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping))
+
+			domainName := "example.com"
+			mappingID := mapping.APIMappingID
+
+			if tt.useBadDN {
+				domainName = "bad.com"
+			}
+
+			if tt.useBadID {
+				mappingID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodDelete,
+				fmt.Sprintf("/v2/domainnames/%s/apimappings/%s", domainName, mappingID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_GetModels(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		apiExists  bool
+		modelCnt   int
+		wantStatus int
+	}{
+		{
+			name:       "empty",
+			apiExists:  true,
+			modelCnt:   0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "multiple",
+			apiExists:  true,
+			modelCnt:   2,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "api_not_found",
+			apiExists:  false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			apiID := "nonexistent"
+			if tt.apiExists {
+				apiID = createAPI(t, h, "test-api")
+			}
+
+			for i := range tt.modelCnt {
+				rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/models", apiID), map[string]any{
+					"name":        fmt.Sprintf("Model%d", i),
+					"schema":      `{}`,
+					"contentType": "application/json",
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet, fmt.Sprintf("/v2/apis/%s/models", apiID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.Model `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.modelCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_GetModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/models", apiID), map[string]any{
+				"name":        "MyModel",
+				"schema":      `{}`,
+				"contentType": "application/json",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var model apigatewayv2.Model
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model))
+
+			modelID := model.ModelID
+			if tt.useWrongID {
+				modelID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodGet, fmt.Sprintf("/v2/apis/%s/models/%s", apiID, modelID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var got apigatewayv2.Model
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+				assert.Equal(t, "MyModel", got.Name)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/models", apiID), map[string]any{
+				"name":        "MyModel",
+				"schema":      `{}`,
+				"contentType": "application/json",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var model apigatewayv2.Model
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model))
+
+			modelID := model.ModelID
+			if tt.useWrongID {
+				modelID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodDelete, fmt.Sprintf("/v2/apis/%s/models/%s", apiID, modelID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_GetIntegrationResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		apiExists         bool
+		integrationExists bool
+		responseCnt       int
+		wantStatus        int
+	}{
+		{
+			name:              "empty",
+			apiExists:         true,
+			integrationExists: true,
+			responseCnt:       0,
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "one_response",
+			apiExists:         true,
+			integrationExists: true,
+			responseCnt:       1,
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "api_not_found",
+			apiExists:         false,
+			integrationExists: false,
+			wantStatus:        http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			apiID := "nonexistent"
+			integrationID := "nonexistent"
+
+			if tt.apiExists {
+				apiID = createAPI(t, h, "test-api")
+			}
+
+			if tt.integrationExists {
+				rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/integrations", apiID), map[string]any{
+					"integrationType": "HTTP_PROXY",
+					"integrationUri":  "https://example.com",
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				var integration apigatewayv2.Integration
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+				integrationID = integration.IntegrationID
+			}
+
+			for i := range tt.responseCnt {
+				path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integrationID)
+				rr := doRequest(t, h, http.MethodPost, path, map[string]any{
+					"integrationResponseKey": fmt.Sprintf("/2%d0/", i),
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integrationID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.IntegrationResponse `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.responseCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_GetIntegrationResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/integrations", apiID), map[string]any{
+				"integrationType": "HTTP_PROXY",
+				"integrationUri":  "https://example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var integration apigatewayv2.Integration
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+
+			path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integration.IntegrationID)
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"integrationResponseKey": "$default",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var ir apigatewayv2.IntegrationResponse
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir))
+
+			responseID := ir.IntegrationResponseID
+			if tt.useWrongID {
+				responseID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses/%s",
+					apiID, integration.IntegrationID, responseID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteIntegrationResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/integrations", apiID), map[string]any{
+				"integrationType": "HTTP_PROXY",
+				"integrationUri":  "https://example.com",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var integration apigatewayv2.Integration
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+
+			path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integration.IntegrationID)
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"integrationResponseKey": "$default",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var ir apigatewayv2.IntegrationResponse
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir))
+
+			responseID := ir.IntegrationResponseID
+			if tt.useWrongID {
+				responseID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodDelete,
+				fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses/%s",
+					apiID, integration.IntegrationID, responseID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_GetRouteResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		apiExists   bool
+		routeExists bool
+		responseCnt int
+		wantStatus  int
+	}{
+		{
+			name:        "empty",
+			apiExists:   true,
+			routeExists: true,
+			responseCnt: 0,
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "api_not_found",
+			apiExists:   false,
+			routeExists: false,
+			wantStatus:  http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			apiID := "nonexistent"
+			routeID := "nonexistent"
+
+			if tt.apiExists {
+				apiID = createAPI(t, h, "test-api")
+			}
+
+			if tt.routeExists {
+				rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/routes", apiID), map[string]any{
+					"routeKey": "GET /items",
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				var route apigatewayv2.Route
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+				routeID = route.RouteID
+			}
+
+			rr := doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, routeID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.RouteResponse `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.responseCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_GetRouteResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/routes", apiID), map[string]any{
+				"routeKey": "GET /items",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var route apigatewayv2.Route
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+
+			path := fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, route.RouteID)
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"routeResponseKey": "$default",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var rr2 apigatewayv2.RouteResponse
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2))
+
+			responseID := rr2.RouteResponseID
+			if tt.useWrongID {
+				responseID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses/%s", apiID, route.RouteID, responseID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteRouteResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "test-api")
+
+			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/routes", apiID), map[string]any{
+				"routeKey": "GET /items",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var route apigatewayv2.Route
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+
+			path := fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, route.RouteID)
+			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
+				"routeResponseKey": "$default",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var rr2 apigatewayv2.RouteResponse
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2))
+
+			responseID := rr2.RouteResponseID
+			if tt.useWrongID {
+				responseID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodDelete,
+				fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses/%s", apiID, route.RouteID, responseID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_ListPortals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		portalCnt  int
+		wantStatus int
+	}{
+		{
+			name:       "empty",
+			portalCnt:  0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "multiple",
+			portalCnt:  2,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for range tt.portalCnt {
+				rr := doRequest(t, h, http.MethodPost, "/v2/portals", map[string]any{})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet, "/v2/portals", nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			var out struct {
+				Items []apigatewayv2.Portal `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+			assert.Len(t, out.Items, tt.portalCnt)
+		})
+	}
+}
+
+func TestHandler_GetPortal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/portals", map[string]any{})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var portal apigatewayv2.Portal
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal))
+
+			portalID := portal.PortalID
+			if tt.useWrongID {
+				portalID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/portals/"+portalID, nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_ListPortalProducts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		productCnt int
+		wantStatus int
+	}{
+		{
+			name:       "empty",
+			productCnt: 0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "multiple",
+			productCnt: 2,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for i := range tt.productCnt {
+				rr := doRequest(t, h, http.MethodPost, "/v2/portalproducts", map[string]any{
+					"displayName": fmt.Sprintf("Product %d", i),
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet, "/v2/portalproducts", nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			var out struct {
+				Items []apigatewayv2.PortalProduct `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+			assert.Len(t, out.Items, tt.productCnt)
+		})
+	}
+}
+
+func TestHandler_GetPortalProduct(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useWrongID bool
+		wantStatus int
+	}{
+		{
+			name:       "found",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			useWrongID: true,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			rr := doRequest(t, h, http.MethodPost, "/v2/portalproducts", map[string]any{
+				"displayName": "My Product",
+			})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var pp apigatewayv2.PortalProduct
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+
+			ppID := pp.PortalProductID
+			if tt.useWrongID {
+				ppID = "nonexistent"
+			}
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/portalproducts/"+ppID, nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_ListProductPages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ppExists   bool
+		pageCnt    int
+		wantStatus int
+	}{
+		{
+			name:       "empty",
+			ppExists:   true,
+			pageCnt:    0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "one_page",
+			ppExists:   true,
+			pageCnt:    1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "portal_product_not_found",
+			ppExists:   false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			ppID := "nonexistent"
+			if tt.ppExists {
+				rr := doRequest(t, h, http.MethodPost, "/v2/portalproducts", map[string]any{
+					"displayName": "My Product",
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				var pp apigatewayv2.PortalProduct
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+				ppID = pp.PortalProductID
+			}
+
+			for range tt.pageCnt {
+				rr := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/v2/portalproducts/%s/productpages", ppID), map[string]any{})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/portalproducts/%s/productpages", ppID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.ProductPage `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.pageCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_ListProductRestEndpointPages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ppExists   bool
+		pageCnt    int
+		wantStatus int
+	}{
+		{
+			name:       "empty",
+			ppExists:   true,
+			pageCnt:    0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "one_page",
+			ppExists:   true,
+			pageCnt:    1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "portal_product_not_found",
+			ppExists:   false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			ppID := "nonexistent"
+			if tt.ppExists {
+				rr := doRequest(t, h, http.MethodPost, "/v2/portalproducts", map[string]any{
+					"displayName": "My Product",
+				})
+				require.Equal(t, http.StatusCreated, rr.Code)
+
+				var pp apigatewayv2.PortalProduct
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+				ppID = pp.PortalProductID
+			}
+
+			for range tt.pageCnt {
+				rr := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/v2/portalproducts/%s/productrestendpointpages", ppID), map[string]any{})
+				require.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/portalproducts/%s/productrestendpointpages", ppID), nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Items []apigatewayv2.ProductRestEndpointPage `json:"items"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Len(t, out.Items, tt.pageCnt)
+			}
+		})
+	}
+}
+
+func TestHandler_Tags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tagsToSet  map[string]string
+		wantTags   map[string]string
+		name       string
+		keysToRM   []string
+		wantStatus int
+	}{
+		{
+			name:       "get_tags_empty",
+			wantTags:   map[string]string{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "tag_and_get",
+			tagsToSet:  map[string]string{"env": "prod", "team": "platform"},
+			wantTags:   map[string]string{"env": "prod", "team": "platform"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "tag_then_untag",
+			tagsToSet:  map[string]string{"env": "prod", "team": "platform"},
+			keysToRM:   []string{"team"},
+			wantTags:   map[string]string{"env": "prod"},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "tagged-api")
+
+			arn := "arn:aws:apigateway:us-east-1::/apis/" + apiID
+
+			if len(tt.tagsToSet) > 0 {
+				rr := doRequest(t, h, http.MethodPut, "/v2/tags/"+arn, map[string]any{
+					"tags": tt.tagsToSet,
+				})
+				assert.Equal(t, http.StatusCreated, rr.Code)
+			}
+
+			if len(tt.keysToRM) > 0 {
+				tagKeysParam := strings.Join(tt.keysToRM, ",")
+				req := httptest.NewRequest(http.MethodDelete, "/v2/tags/"+arn+"?tagKeys="+tagKeysParam, nil)
+				rr := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rr)
+				require.NoError(t, h.Handler()(c))
+				assert.Equal(t, http.StatusNoContent, rr.Code)
+			}
+
+			rr := doRequest(t, h, http.MethodGet, "/v2/tags/"+arn, nil)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Tags map[string]string `json:"tags"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				assert.Equal(t, tt.wantTags, out.Tags)
+			}
+		})
+	}
+}
+
+func TestHandler_Tags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		wantStatus int
+	}{
+		{
+			name:       "get_not_found",
+			method:     http.MethodGet,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "put_not_found",
+			method:     http.MethodPut,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete_not_found",
+			method:     http.MethodDelete,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			arn := "arn:aws:apigateway:us-east-1::/apis/nonexistent"
+
+			var rr *httptest.ResponseRecorder
+			if tt.method == http.MethodPut {
+				rr = doRequest(t, h, tt.method, "/v2/tags/"+arn, map[string]any{"tags": map[string]string{}})
+			} else {
+				rr = doRequest(t, h, tt.method, "/v2/tags/"+arn, nil)
+			}
+
+			assert.Equal(t, tt.wantStatus, rr.Code)
+		})
+	}
+}
+
+func TestHandler_ExtractOperation_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		{
+			name:   "get_domain_names",
+			method: http.MethodGet,
+			path:   "/v2/domainnames",
+			wantOp: "GetDomainNames",
+		},
+		{
+			name:   "get_domain_name",
+			method: http.MethodGet,
+			path:   "/v2/domainnames/example.com",
+			wantOp: "GetDomainName",
+		},
+		{
+			name:   "delete_domain_name",
+			method: http.MethodDelete,
+			path:   "/v2/domainnames/example.com",
+			wantOp: "DeleteDomainName",
+		},
+		{
+			name:   "get_api_mappings",
+			method: http.MethodGet,
+			path:   "/v2/domainnames/example.com/apimappings",
+			wantOp: "GetApiMappings",
+		},
+		{
+			name:   "get_api_mapping",
+			method: http.MethodGet,
+			path:   "/v2/domainnames/example.com/apimappings/abc123",
+			wantOp: "GetApiMapping",
+		},
+		{
+			name:   "delete_api_mapping",
+			method: http.MethodDelete,
+			path:   "/v2/domainnames/example.com/apimappings/abc123",
+			wantOp: "DeleteApiMapping",
+		},
+		{
+			name:   "list_portals",
+			method: http.MethodGet,
+			path:   "/v2/portals",
+			wantOp: "ListPortals",
+		},
+		{
+			name:   "get_portal",
+			method: http.MethodGet,
+			path:   "/v2/portals/abc123",
+			wantOp: "GetPortal",
+		},
+		{
+			name:   "list_portal_products",
+			method: http.MethodGet,
+			path:   "/v2/portalproducts",
+			wantOp: "ListPortalProducts",
+		},
+		{
+			name:   "get_portal_product",
+			method: http.MethodGet,
+			path:   "/v2/portalproducts/abc123",
+			wantOp: "GetPortalProduct",
+		},
+		{
+			name:   "list_product_pages",
+			method: http.MethodGet,
+			path:   "/v2/portalproducts/abc123/productpages",
+			wantOp: "ListProductPages",
+		},
+		{
+			name:   "list_product_re_pages",
+			method: http.MethodGet,
+			path:   "/v2/portalproducts/abc123/productrestendpointpages",
+			wantOp: "ListProductRestEndpointPages",
+		},
+		{
+			name:   "get_models",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/models",
+			wantOp: "GetModels",
+		},
+		{
+			name:   "get_model",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/models/modelId",
+			wantOp: "GetModel",
+		},
+		{
+			name:   "delete_model",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/models/modelId",
+			wantOp: "DeleteModel",
+		},
+		{
+			name:   "get_integration_responses",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/integrations/int1/integrationresponses",
+			wantOp: "GetIntegrationResponses",
+		},
+		{
+			name:   "get_integration_response",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/integrations/int1/integrationresponses/resp1",
+			wantOp: "GetIntegrationResponse",
+		},
+		{
+			name:   "delete_integration_response",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/integrations/int1/integrationresponses/resp1",
+			wantOp: "DeleteIntegrationResponse",
+		},
+		{
+			name:   "get_route_responses",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/routes/r1/routeresponses",
+			wantOp: "GetRouteResponses",
+		},
+		{
+			name:   "get_route_response",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/routes/r1/routeresponses/resp1",
+			wantOp: "GetRouteResponse",
+		},
+		{
+			name:   "delete_route_response",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/routes/r1/routeresponses/resp1",
+			wantOp: "DeleteRouteResponse",
+		},
+		{
+			name:   "get_tags",
+			method: http.MethodGet,
+			path:   "/v2/tags/arn:aws:apigateway:us-east-1::/apis/abc123",
+			wantOp: "GetTags",
+		},
+		{
+			name:   "tag_resource",
+			method: http.MethodPut,
+			path:   "/v2/tags/arn:aws:apigateway:us-east-1::/apis/abc123",
+			wantOp: "TagResource",
+		},
+		{
+			name:   "untag_resource",
+			method: http.MethodDelete,
+			path:   "/v2/tags/arn:aws:apigateway:us-east-1::/apis/abc123",
+			wantOp: "UntagResource",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rr := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rr)
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
 		})
 	}
 }
