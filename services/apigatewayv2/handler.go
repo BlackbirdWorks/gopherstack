@@ -29,8 +29,8 @@ const (
 	segCountSubRes   = 3
 	segCountDeepColl = 4
 
-	// splitPathMax is the max number of parts when splitting a non-apis path suffix.
-	splitPathMax = 3
+	// maxPathParts is the max number of parts when splitting a non-apis path suffix.
+	maxPathParts = 3
 
 	// collection name constants.
 	collStages               = "stages"
@@ -198,7 +198,7 @@ func extractDomainNamesOp(path, method string) string {
 		return "CreateDomainName"
 	}
 
-	parts := strings.SplitN(suffix, "/", splitPathMax)
+	parts := strings.SplitN(suffix, "/", maxPathParts)
 	if len(parts) == 2 && parts[1] == collAPIMappings && method == http.MethodPost {
 		return "CreateApiMapping"
 	}
@@ -221,7 +221,7 @@ func extractPortalProductsOp(path, method string) string {
 		return "CreatePortalProduct"
 	}
 
-	parts := strings.SplitN(suffix, "/", splitPathMax)
+	parts := strings.SplitN(suffix, "/", maxPathParts)
 	if len(parts) == 2 && method == http.MethodPost {
 		switch parts[1] {
 		case collProductPages:
