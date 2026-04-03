@@ -50,6 +50,10 @@ var (
 	ErrBadRequest = errors.New("BadRequestException")
 	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrProductPageNotFound is returned when a requested product page does not exist.
+	ErrProductPageNotFound = errors.New("NotFoundException")
+	// ErrProductREPageNotFound is returned when a requested product REST endpoint page does not exist.
+	ErrProductREPageNotFound = errors.New("NotFoundException")
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
@@ -171,6 +175,54 @@ type StorageBackend interface {
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	GetTags(resourceARN string) (map[string]string, error)
+
+	// UpdateAPIMapping
+	UpdateAPIMapping(domainName, mappingID string, input UpdateAPIMappingInput) (*APIMapping, error)
+
+	// UpdateDeployment
+	UpdateDeployment(apiID, deploymentID string, input UpdateDeploymentInput) (*Deployment, error)
+
+	// UpdateDomainName
+	UpdateDomainName(domainName string, input UpdateDomainNameInput) (*DomainName, error)
+
+	// UpdateIntegrationResponse
+	UpdateIntegrationResponse(
+		apiID, integrationID, responseID string,
+		input UpdateIntegrationResponseInput,
+	) (*IntegrationResponse, error)
+
+	// UpdateModel
+	UpdateModel(apiID, modelID string, input UpdateModelInput) (*Model, error)
+
+	// UpdateRouteResponse
+	UpdateRouteResponse(apiID, routeID, responseID string, input UpdateRouteResponseInput) (*RouteResponse, error)
+
+	// UpdatePortal
+	UpdatePortal(portalID string, input UpdatePortalInput) (*Portal, error)
+
+	// UpdatePortalProduct
+	UpdatePortalProduct(portalProductID string, input UpdatePortalProductInput) (*PortalProduct, error)
+
+	// DeletePortal
+	DeletePortal(portalID string) error
+
+	// DeletePortalProduct
+	DeletePortalProduct(portalProductID string) error
+
+	// GetProductPage
+	GetProductPage(portalProductID, pageID string) (*ProductPage, error)
+
+	// GetProductRestEndpointPage
+	GetProductRestEndpointPage(portalProductID, pageID string) (*ProductRestEndpointPage, error)
+
+	// DeleteProductPage
+	DeleteProductPage(portalProductID, pageID string) error
+
+	// DeleteProductRestEndpointPage
+	DeleteProductRestEndpointPage(portalProductID, pageID string) error
+
+	// ResetAuthorizersCache
+	ResetAuthorizersCache(apiID, stageName string) error
 }
 
 // apiData holds per-API state.
@@ -256,6 +308,11 @@ func randomID() string {
 func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
+
+	validProtocols := map[string]bool{"HTTP": true, "WEBSOCKET": true}
+	if !validProtocols[input.ProtocolType] {
+		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
+	}
 
 	id := randomID()
 	api := API{
@@ -508,6 +565,12 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, ErrAPINotFound
 	}
 
+	for _, existing := range d.routes {
+		if existing.RouteKey == input.RouteKey {
+			return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
+		}
+	}
+
 	id := randomID()
 	route := &Route{
 		RouteID:           id,
@@ -637,6 +700,14 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	d, ok := b.apis[apiID]
 	if !ok {
 		return nil, ErrAPINotFound
+	}
+
+	validTypes := map[string]bool{"AWS": true, "HTTP": true, "MOCK": true, "AWS_PROXY": true, "HTTP_PROXY": true}
+	if !validTypes[input.IntegrationType] {
+		return nil, fmt.Errorf(
+			"%w: integrationType must be one of AWS, HTTP, MOCK, AWS_PROXY, HTTP_PROXY",
+			ErrBadRequest,
+		)
 	}
 
 	id := randomID()
@@ -877,6 +948,11 @@ func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerI
 		return nil, ErrAPINotFound
 	}
 
+	validTypes := map[string]bool{"JWT": true, "REQUEST": true, "CUSTOM": true}
+	if !validTypes[input.AuthorizerType] {
+		return nil, fmt.Errorf("%w: authorizerType must be JWT, REQUEST, or CUSTOM", ErrBadRequest)
+	}
+
 	id := randomID()
 	authorizer := &Authorizer{
 		AuthorizerID:                 id,
@@ -1022,6 +1098,17 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 	dn := &DomainName{
 		DomainNameValue: input.DomainNameValue,
 		Tags:            copyTags(input.Tags),
+	}
+
+	if len(input.DomainNameConfigurations) > 0 {
+		configs := make([]DomainNameConfiguration, len(input.DomainNameConfigurations))
+		copy(configs, input.DomainNameConfigurations)
+		for i := range configs {
+			if configs[i].DomainNameStatus == "" {
+				configs[i].DomainNameStatus = "AVAILABLE"
+			}
+		}
+		dn.DomainNameConfigurations = configs
 	}
 
 	b.domainNames[input.DomainNameValue] = dn
@@ -1846,8 +1933,427 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 	return copyTags(d.api.Tags), nil
 }
 
-// arnToAPIID extracts the API ID from a resource ARN. For the in-memory
-// backend the last path segment of the ARN is used as the API ID (e.g.
+// UpdateAPIMapping updates fields on an existing API mapping.
+func (b *InMemoryBackend) UpdateAPIMapping(
+	domainName, mappingID string,
+	input UpdateAPIMappingInput,
+) (*APIMapping, error) {
+	b.mu.Lock("UpdateAPIMapping")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	mappings, ok := b.apiMappings[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	m, ok := mappings[mappingID]
+	if !ok {
+		return nil, ErrAPIMappingNotFound
+	}
+
+	if input.APIID != "" {
+		d, apiExists := b.apis[input.APIID]
+		if !apiExists {
+			return nil, ErrAPINotFound
+		}
+		stageToCheck := m.Stage
+		if input.Stage != "" {
+			stageToCheck = input.Stage
+		}
+		if _, exists := d.stages[stageToCheck]; !exists {
+			return nil, ErrStageNotFound
+		}
+		m.APIID = input.APIID
+	}
+
+	if input.Stage != "" {
+		m.Stage = input.Stage
+	}
+
+	if input.APIMappingKey != "" {
+		m.APIMappingKey = input.APIMappingKey
+	}
+
+	cp := *m
+
+	return &cp, nil
+}
+
+// UpdateDeployment updates fields on an existing deployment.
+func (b *InMemoryBackend) UpdateDeployment(
+	apiID, deploymentID string,
+	input UpdateDeploymentInput,
+) (*Deployment, error) {
+	b.mu.Lock("UpdateDeployment")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	dep, ok := d.deployments[deploymentID]
+	if !ok {
+		return nil, ErrDeploymentNotFound
+	}
+
+	if input.Description != "" {
+		dep.Description = input.Description
+	}
+
+	cp := *dep
+
+	return &cp, nil
+}
+
+// UpdateDomainName updates fields on an existing domain name.
+func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomainNameInput) (*DomainName, error) {
+	b.mu.Lock("UpdateDomainName")
+	defer b.mu.Unlock()
+
+	dn, ok := b.domainNames[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+
+	if input.Tags != nil {
+		if dn.Tags == nil {
+			dn.Tags = make(map[string]string)
+		}
+		maps.Copy(dn.Tags, input.Tags)
+	}
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// UpdateIntegrationResponse updates fields on an existing integration response.
+func (b *InMemoryBackend) UpdateIntegrationResponse(
+	apiID, integrationID, responseID string,
+	input UpdateIntegrationResponseInput,
+) (*IntegrationResponse, error) {
+	b.mu.Lock("UpdateIntegrationResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.integrations[integrationID]; !exists {
+		return nil, ErrIntegrationNotFound
+	}
+
+	responses, hasResponses := d.integrationResponses[integrationID]
+	if !hasResponses {
+		return nil, ErrIntegrationResponseNotFound
+	}
+
+	ir, exists := responses[responseID]
+	if !exists {
+		return nil, ErrIntegrationResponseNotFound
+	}
+
+	if input.IntegrationResponseKey != "" {
+		ir.IntegrationResponseKey = input.IntegrationResponseKey
+	}
+
+	if input.ContentHandlingStrategy != "" {
+		ir.ContentHandlingStrategy = input.ContentHandlingStrategy
+	}
+
+	if input.TemplateSelectionExpression != "" {
+		ir.TemplateSelectionExpression = input.TemplateSelectionExpression
+	}
+
+	if input.ResponseParameters != nil {
+		ir.ResponseParameters = input.ResponseParameters
+	}
+
+	if input.ResponseTemplates != nil {
+		ir.ResponseTemplates = input.ResponseTemplates
+	}
+
+	cp := *ir
+
+	return &cp, nil
+}
+
+// UpdateModel updates fields on an existing model.
+func (b *InMemoryBackend) UpdateModel(apiID, modelID string, input UpdateModelInput) (*Model, error) {
+	b.mu.Lock("UpdateModel")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	m, ok := d.models[modelID]
+	if !ok {
+		return nil, ErrModelNotFound
+	}
+
+	if input.Name != "" {
+		m.Name = input.Name
+	}
+
+	if input.Schema != "" {
+		m.Schema = input.Schema
+	}
+
+	if input.ContentType != "" {
+		m.ContentType = input.ContentType
+	}
+
+	if input.Description != "" {
+		m.Description = input.Description
+	}
+
+	cp := *m
+
+	return &cp, nil
+}
+
+// UpdateRouteResponse updates fields on an existing route response.
+func (b *InMemoryBackend) UpdateRouteResponse(
+	apiID, routeID, responseID string,
+	input UpdateRouteResponseInput,
+) (*RouteResponse, error) {
+	b.mu.Lock("UpdateRouteResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	if _, exists := d.routes[routeID]; !exists {
+		return nil, ErrRouteNotFound
+	}
+
+	responses, hasResponses := d.routeResponses[routeID]
+	if !hasResponses {
+		return nil, ErrRouteResponseNotFound
+	}
+
+	rr, exists := responses[responseID]
+	if !exists {
+		return nil, ErrRouteResponseNotFound
+	}
+
+	if input.RouteResponseKey != "" {
+		rr.RouteResponseKey = input.RouteResponseKey
+	}
+
+	if input.ModelSelectionExpression != "" {
+		rr.ModelSelectionExpression = input.ModelSelectionExpression
+	}
+
+	if input.ResponseModels != nil {
+		rr.ResponseModels = input.ResponseModels
+	}
+
+	cp := *rr
+
+	return &cp, nil
+}
+
+// UpdatePortal updates fields on an existing portal.
+func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput) (*Portal, error) {
+	b.mu.Lock("UpdatePortal")
+	defer b.mu.Unlock()
+
+	p, ok := b.portals[portalID]
+	if !ok {
+		return nil, ErrPortalNotFound
+	}
+
+	if input.Tags != nil {
+		if p.Tags == nil {
+			p.Tags = make(map[string]string)
+		}
+		maps.Copy(p.Tags, input.Tags)
+	}
+
+	if input.LogoURI != "" {
+		p.LogoURI = input.LogoURI
+	}
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// UpdatePortalProduct updates fields on an existing portal product.
+func (b *InMemoryBackend) UpdatePortalProduct(
+	portalProductID string,
+	input UpdatePortalProductInput,
+) (*PortalProduct, error) {
+	b.mu.Lock("UpdatePortalProduct")
+	defer b.mu.Unlock()
+
+	pp, ok := b.portalProducts[portalProductID]
+	if !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	if input.Tags != nil {
+		if pp.Tags == nil {
+			pp.Tags = make(map[string]string)
+		}
+		maps.Copy(pp.Tags, input.Tags)
+	}
+
+	if input.DisplayName != "" {
+		pp.DisplayName = input.DisplayName
+	}
+
+	if input.Description != "" {
+		pp.Description = input.Description
+	}
+
+	cp := *pp
+
+	return &cp, nil
+}
+
+// DeletePortal removes a portal by ID.
+func (b *InMemoryBackend) DeletePortal(portalID string) error {
+	b.mu.Lock("DeletePortal")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portals[portalID]; !ok {
+		return ErrPortalNotFound
+	}
+
+	delete(b.portals, portalID)
+
+	return nil
+}
+
+// DeletePortalProduct removes a portal product and all its associated pages.
+func (b *InMemoryBackend) DeletePortalProduct(portalProductID string) error {
+	b.mu.Lock("DeletePortalProduct")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return ErrPortalProductNotFound
+	}
+
+	delete(b.portalProducts, portalProductID)
+	delete(b.productPages, portalProductID)
+	delete(b.productREPages, portalProductID)
+
+	return nil
+}
+
+// GetProductPage retrieves a specific product page.
+func (b *InMemoryBackend) GetProductPage(portalProductID, pageID string) (*ProductPage, error) {
+	b.mu.RLock("GetProductPage")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	for _, p := range b.productPages[portalProductID] {
+		if p.ProductPageID == pageID {
+			cp := *p
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrProductPageNotFound
+}
+
+// GetProductRestEndpointPage retrieves a specific product REST endpoint page.
+func (b *InMemoryBackend) GetProductRestEndpointPage(portalProductID, pageID string) (*ProductRestEndpointPage, error) {
+	b.mu.RLock("GetProductRestEndpointPage")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	for _, p := range b.productREPages[portalProductID] {
+		if p.ProductRestEndpointPageID == pageID {
+			cp := *p
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrProductREPageNotFound
+}
+
+// DeleteProductPage removes a product page from a portal product.
+func (b *InMemoryBackend) DeleteProductPage(portalProductID, pageID string) error {
+	b.mu.Lock("DeleteProductPage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return ErrPortalProductNotFound
+	}
+
+	pages := b.productPages[portalProductID]
+	for i, p := range pages {
+		if p.ProductPageID == pageID {
+			b.productPages[portalProductID] = append(pages[:i], pages[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return ErrProductPageNotFound
+}
+
+// DeleteProductRestEndpointPage removes a product REST endpoint page from a portal product.
+func (b *InMemoryBackend) DeleteProductRestEndpointPage(portalProductID, pageID string) error {
+	b.mu.Lock("DeleteProductRestEndpointPage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return ErrPortalProductNotFound
+	}
+
+	pages := b.productREPages[portalProductID]
+	for i, p := range pages {
+		if p.ProductRestEndpointPageID == pageID {
+			b.productREPages[portalProductID] = append(pages[:i], pages[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return ErrProductREPageNotFound
+}
+
+// ResetAuthorizersCache is a no-op for the in-memory backend (caching is not simulated).
+func (b *InMemoryBackend) ResetAuthorizersCache(apiID, stageName string) error {
+	b.mu.RLock("ResetAuthorizersCache")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	if _, exists := d.stages[stageName]; !exists {
+		return ErrStageNotFound
+	}
+
+	return nil
+}
+
+// arnToAPIID extracts the API ID from a resource ARN.
+// For the in-memory backend the last path segment of the ARN is used as the API ID (e.g.
 // "arn:aws:apigateway:us-east-1::/apis/abc123" → "abc123").
 // An ARN with no slashes (e.g. a bare API ID) is returned unchanged.
 // [strings.Split] always returns at least one element so len(parts)-1 is safe.

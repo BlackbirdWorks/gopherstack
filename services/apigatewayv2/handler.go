@@ -93,6 +93,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateProductRestEndpointPage", "ListProductRestEndpointPages",
 		"CreateRouteResponse", "GetRouteResponse", "GetRouteResponses", "DeleteRouteResponse",
 		"GetTags", "TagResource", "UntagResource",
+		"UpdateApiMapping", "UpdateDeployment", "UpdateDomainName", "UpdateIntegrationResponse",
+		"UpdateModel", "UpdatePortal", "UpdatePortalProduct", "UpdateRouteResponse",
+		"DeletePortal", "DeletePortalProduct",
+		"DeleteProductPage", "DeleteProductRestEndpointPage",
+		"GetProductPage", "GetProductRestEndpointPage",
+		"ResetAuthorizersCache",
 	}
 }
 
@@ -173,6 +179,8 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/deployments/{deploymentId}
 		{segs: segCountSubRes, seg1: collDeployments, method: http.MethodGet}:    "GetDeployment",
 		{segs: segCountSubRes, seg1: collDeployments, method: http.MethodDelete}: "DeleteDeployment",
+		// /v2/apis/{apiId}/deployments/{deploymentId} PATCH
+		{segs: segCountSubRes, seg1: collDeployments, method: http.MethodPatch}: "UpdateDeployment",
 		// /v2/apis/{apiId}/authorizers/{authorizerId}
 		{segs: segCountSubRes, seg1: collAuthorizers, method: http.MethodGet}:    "GetAuthorizer",
 		{segs: segCountSubRes, seg1: collAuthorizers, method: http.MethodDelete}: "DeleteAuthorizer",
@@ -180,6 +188,8 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/models/{modelId}
 		{segs: segCountSubRes, seg1: collModels, method: http.MethodGet}:    "GetModel",
 		{segs: segCountSubRes, seg1: collModels, method: http.MethodDelete}: "DeleteModel",
+		// /v2/apis/{apiId}/models/{modelId} PATCH
+		{segs: segCountSubRes, seg1: collModels, method: http.MethodPatch}: "UpdateModel",
 		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses
 		{segs: segCountDeepColl, seg1: collIntegrationResponses, method: http.MethodPost}: "CreateIntegrationResponse",
 		{segs: segCountDeepColl, seg1: collIntegrationResponses, method: http.MethodGet}:  "GetIntegrationResponses",
@@ -192,6 +202,12 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/routes/{routeId}/routeresponses/{id}
 		{segs: segCountDeepRes, seg1: collRouteResponses, method: http.MethodGet}:    "GetRouteResponse",
 		{segs: segCountDeepRes, seg1: collRouteResponses, method: http.MethodDelete}: "DeleteRouteResponse",
+		// /v2/apis/{apiId}/stages/{stageName}/cache DELETE
+		{segs: segCountDeepColl, seg1: "cache", method: http.MethodDelete}: "ResetAuthorizersCache",
+		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{id} PATCH
+		{segs: segCountDeepRes, seg1: collIntegrationResponses, method: http.MethodPatch}: "UpdateIntegrationResponse",
+		// /v2/apis/{apiId}/routes/{routeId}/routeresponses/{id} PATCH
+		{segs: segCountDeepRes, seg1: collRouteResponses, method: http.MethodPatch}: "UpdateRouteResponse",
 	}
 })
 
@@ -233,30 +249,56 @@ func extractDomainNamesOp(path, method string) string {
 
 	switch len(parts) {
 	case pathPartOne:
-		switch method {
-		case http.MethodGet:
-			return "GetDomainName"
-		case http.MethodDelete:
-			return "DeleteDomainName"
-		}
+		return extractDomainNameByIDOp(method)
 	case pathPartTwo:
-		if parts[1] == collAPIMappings {
-			switch method {
-			case http.MethodPost:
-				return "CreateApiMapping"
-			case http.MethodGet:
-				return "GetApiMappings"
-			}
-		}
+		return extractAPIMappingsCollOp(parts[1], method)
 	case maxPathParts:
-		if parts[1] == collAPIMappings {
-			switch method {
-			case http.MethodGet:
-				return "GetApiMapping"
-			case http.MethodDelete:
-				return "DeleteApiMapping"
-			}
-		}
+		return extractAPIMappingResourceOp(parts[1], method)
+	}
+
+	return opUnknown
+}
+
+func extractDomainNameByIDOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetDomainName"
+	case http.MethodDelete:
+		return "DeleteDomainName"
+	case http.MethodPatch:
+		return "UpdateDomainName"
+	}
+
+	return opUnknown
+}
+
+func extractAPIMappingsCollOp(collection, method string) string {
+	if collection != collAPIMappings {
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodPost:
+		return "CreateApiMapping"
+	case http.MethodGet:
+		return "GetApiMappings"
+	}
+
+	return opUnknown
+}
+
+func extractAPIMappingResourceOp(collection, method string) string {
+	if collection != collAPIMappings {
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetApiMapping"
+	case http.MethodDelete:
+		return "DeleteApiMapping"
+	case http.MethodPatch:
+		return "UpdateApiMapping"
 	}
 
 	return opUnknown
@@ -277,8 +319,15 @@ func extractPortalsOp(path, method string) string {
 	}
 
 	parts := strings.SplitN(suffix, "/", maxPathParts)
-	if len(parts) == 1 && method == http.MethodGet {
-		return "GetPortal"
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodGet:
+			return "GetPortal"
+		case http.MethodPatch:
+			return "UpdatePortal"
+		case http.MethodDelete:
+			return "DeletePortal"
+		}
 	}
 
 	return opUnknown
@@ -302,25 +351,65 @@ func extractPortalProductsOp(path, method string) string {
 
 	switch len(parts) {
 	case pathPartOne:
-		if method == http.MethodGet {
-			return "GetPortalProduct"
-		}
+		return extractPortalProductByIDOp(method)
 	case pathPartTwo:
-		switch parts[1] {
-		case collProductPages:
-			switch method {
-			case http.MethodPost:
-				return "CreateProductPage"
-			case http.MethodGet:
-				return "ListProductPages"
-			}
-		case collProductREPages:
-			switch method {
-			case http.MethodPost:
-				return "CreateProductRestEndpointPage"
-			case http.MethodGet:
-				return "ListProductRestEndpointPages"
-			}
+		return extractPortalProductSubCollOp(parts[1], method)
+	case maxPathParts:
+		return extractPortalProductPageOp(parts[1], method)
+	}
+
+	return opUnknown
+}
+
+func extractPortalProductByIDOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetPortalProduct"
+	case http.MethodPatch:
+		return "UpdatePortalProduct"
+	case http.MethodDelete:
+		return "DeletePortalProduct"
+	}
+
+	return opUnknown
+}
+
+func extractPortalProductSubCollOp(collection, method string) string {
+	switch collection {
+	case collProductPages:
+		switch method {
+		case http.MethodPost:
+			return "CreateProductPage"
+		case http.MethodGet:
+			return "ListProductPages"
+		}
+	case collProductREPages:
+		switch method {
+		case http.MethodPost:
+			return "CreateProductRestEndpointPage"
+		case http.MethodGet:
+			return "ListProductRestEndpointPages"
+		}
+	}
+
+	return opUnknown
+}
+
+func extractPortalProductPageOp(collection, method string) string {
+	switch collection {
+	case collProductPages:
+		switch method {
+		case http.MethodGet:
+			return "GetProductPage"
+		case http.MethodDelete:
+			return "DeleteProductPage"
+		}
+	case collProductREPages:
+		switch method {
+		case http.MethodGet:
+			return "GetProductRestEndpointPage"
+		case http.MethodDelete:
+			return "DeleteProductRestEndpointPage"
 		}
 	}
 
@@ -483,11 +572,13 @@ func (h *Handler) handleSubResource(c *echo.Context, method, apiID, collection, 
 		{http.MethodPatch, collIntegrations}:  h.handleUpdateIntegration,
 		{http.MethodGet, collDeployments}:     h.handleGetDeployment,
 		{http.MethodDelete, collDeployments}:  h.handleDeleteDeployment,
+		{http.MethodPatch, collDeployments}:   h.handleUpdateDeployment,
 		{http.MethodGet, collAuthorizers}:     h.handleGetAuthorizer,
 		{http.MethodDelete, collAuthorizers}:  h.handleDeleteAuthorizer,
 		{http.MethodPatch, collAuthorizers}:   h.handleUpdateAuthorizer,
 		{http.MethodGet, collModels}:          h.handleGetModel,
 		{http.MethodDelete, collModels}:       h.handleDeleteModel,
+		{http.MethodPatch, collModels}:        h.handleUpdateModel,
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, collection}]; ok {
@@ -527,6 +618,9 @@ func (h *Handler) handleDeepCollection(
 		{http.MethodGet, collRouteResponses}: func(c *echo.Context, apiID, resourceID string) error {
 			return h.handleGetRouteResponses(c, apiID, resourceID)
 		},
+		{http.MethodDelete, "cache"}: func(c *echo.Context, apiID, resourceID string) error {
+			return h.handleResetAuthorizersCache(c, apiID, resourceID)
+		},
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, subCollection}]; ok {
@@ -564,6 +658,8 @@ func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) er
 			return h.handleGetDomainName(c, domainName)
 		case http.MethodDelete:
 			return h.handleDeleteDomainName(c, domainName)
+		case http.MethodPatch:
+			return h.handleUpdateDomainName(c, domainName)
 		}
 	case pathPartTwo:
 		if parts[1] == collAPIMappings {
@@ -599,6 +695,8 @@ func (h *Handler) handleAPIMappingResource(c *echo.Context, method, domainName, 
 		return h.handleGetAPIMapping(c, domainName, mappingID)
 	case http.MethodDelete:
 		return h.handleDeleteAPIMapping(c, domainName, mappingID)
+	case http.MethodPatch:
+		return h.handleUpdateAPIMapping(c, domainName, mappingID)
 	}
 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
@@ -623,8 +721,15 @@ func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error 
 	}
 
 	parts := strings.Split(suffix, "/")
-	if len(parts) == 1 && method == http.MethodGet {
-		return h.handleGetPortal(c, parts[0])
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodGet:
+			return h.handleGetPortal(c, parts[0])
+		case http.MethodPatch:
+			return h.handleUpdatePortal(c, parts[0])
+		case http.MethodDelete:
+			return h.handleDeletePortal(c, parts[0])
+		}
 	}
 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
@@ -656,34 +761,69 @@ func (h *Handler) handlePortalProductsPath(c *echo.Context, method, path string)
 
 	switch len(parts) {
 	case pathPartOne:
-		if method == http.MethodGet {
+		switch method {
+		case http.MethodGet:
 			return h.handleGetPortalProduct(c, parts[0])
+		case http.MethodPatch:
+			return h.handleUpdatePortalProduct(c, parts[0])
+		case http.MethodDelete:
+			return h.handleDeletePortalProduct(c, parts[0])
 		}
 	case pathPartTwo:
-		portalProductID := parts[0]
-		subColl := parts[1]
+		return h.handlePortalProductSubCollection(c, method, parts[0], parts[1])
+	case maxPathParts:
+		return h.handlePortalProductPage(c, method, parts[0], parts[1], parts[pathPartTwo])
+	}
 
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+func (h *Handler) handlePortalProductSubCollection(
+	c *echo.Context, method, portalProductID, subColl string,
+) error {
+	switch method {
+	case http.MethodPost:
+		switch subColl {
+		case collProductPages:
+			return handleCreate(c, portalProductID, "product page", ErrPortalProductNotFound,
+				func(input CreateProductPageInput) (*ProductPage, error) {
+					return h.Backend.CreateProductPage(portalProductID, input)
+				})
+		case collProductREPages:
+			return handleCreate(c, portalProductID, "product rest endpoint page", ErrPortalProductNotFound,
+				func(input CreateProductRestEndpointPageInput) (*ProductRestEndpointPage, error) {
+					return h.Backend.CreateProductRestEndpointPage(portalProductID, input)
+				})
+		}
+	case http.MethodGet:
+		switch subColl {
+		case collProductPages:
+			return h.handleListProductPages(c, portalProductID)
+		case collProductREPages:
+			return h.handleListProductRestEndpointPages(c, portalProductID)
+		}
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+func (h *Handler) handlePortalProductPage(
+	c *echo.Context, method, portalProductID, collection, pageID string,
+) error {
+	switch collection {
+	case collProductPages:
 		switch method {
-		case http.MethodPost:
-			switch subColl {
-			case collProductPages:
-				return handleCreate(c, portalProductID, "product page", ErrPortalProductNotFound,
-					func(input CreateProductPageInput) (*ProductPage, error) {
-						return h.Backend.CreateProductPage(portalProductID, input)
-					})
-			case collProductREPages:
-				return handleCreate(c, portalProductID, "product rest endpoint page", ErrPortalProductNotFound,
-					func(input CreateProductRestEndpointPageInput) (*ProductRestEndpointPage, error) {
-						return h.Backend.CreateProductRestEndpointPage(portalProductID, input)
-					})
-			}
 		case http.MethodGet:
-			switch subColl {
-			case collProductPages:
-				return h.handleListProductPages(c, portalProductID)
-			case collProductREPages:
-				return h.handleListProductRestEndpointPages(c, portalProductID)
-			}
+			return h.handleGetProductPage(c, portalProductID, pageID)
+		case http.MethodDelete:
+			return h.handleDeleteProductPage(c, portalProductID, pageID)
+		}
+	case collProductREPages:
+		switch method {
+		case http.MethodGet:
+			return h.handleGetProductRestEndpointPage(c, portalProductID, pageID)
+		case http.MethodDelete:
+			return h.handleDeleteProductRestEndpointPage(c, portalProductID, pageID)
 		}
 	}
 
@@ -701,6 +841,10 @@ func (h *Handler) handleCreateAPI(c *echo.Context) error {
 	api, err := h.Backend.CreateAPI(input)
 	if err != nil {
 		log.Error("apigatewayv2: create api failed", "error", err)
+
+		if errors.Is(err, ErrBadRequest) {
+			return c.JSON(http.StatusBadRequest, notFoundResponse{Message: err.Error()})
+		}
 
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
@@ -1365,8 +1509,10 @@ func (h *Handler) handleDeepResource(
 	dispatch := map[subDispatchKey]threeArgHandler{
 		{http.MethodGet, collIntegrationResponses}:    h.handleGetIntegrationResponse,
 		{http.MethodDelete, collIntegrationResponses}: h.handleDeleteIntegrationResponse,
+		{http.MethodPatch, collIntegrationResponses}:  h.handleUpdateIntegrationResponse,
 		{http.MethodGet, collRouteResponses}:          h.handleGetRouteResponse,
 		{http.MethodDelete, collRouteResponses}:       h.handleDeleteRouteResponse,
+		{http.MethodPatch, collRouteResponses}:        h.handleUpdateRouteResponse,
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, subCollection}]; ok {
@@ -1673,6 +1819,188 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 		log.Error("apigatewayv2: untag resource failed", "resourceArn", resourceARN, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUpdateAPIMapping(c *echo.Context, domainName, mappingID string) error {
+	return handleUpdate(c, domainName, mappingID, "api mapping",
+		func(input UpdateAPIMappingInput) (*APIMapping, error) {
+			return h.Backend.UpdateAPIMapping(domainName, mappingID, input)
+		},
+		ErrDomainNameNotFound, ErrAPIMappingNotFound, ErrAPINotFound, ErrStageNotFound)
+}
+
+func (h *Handler) handleUpdateDeployment(c *echo.Context, apiID, deploymentID string) error {
+	return handleUpdate(c, apiID, deploymentID, "deployment",
+		func(input UpdateDeploymentInput) (*Deployment, error) {
+			return h.Backend.UpdateDeployment(apiID, deploymentID, input)
+		},
+		ErrAPINotFound, ErrDeploymentNotFound)
+}
+
+func (h *Handler) handleUpdateDomainName(c *echo.Context, domainName string) error {
+	return handleUpdate(c, domainName, "", "domain name",
+		func(input UpdateDomainNameInput) (*DomainName, error) {
+			return h.Backend.UpdateDomainName(domainName, input)
+		},
+		ErrDomainNameNotFound)
+}
+
+func (h *Handler) handleUpdateIntegrationResponse(c *echo.Context, apiID, integrationID, responseID string) error {
+	return handleUpdate(c, apiID, responseID, "integration response",
+		func(input UpdateIntegrationResponseInput) (*IntegrationResponse, error) {
+			return h.Backend.UpdateIntegrationResponse(apiID, integrationID, responseID, input)
+		},
+		ErrAPINotFound, ErrIntegrationNotFound, ErrIntegrationResponseNotFound)
+}
+
+func (h *Handler) handleUpdateModel(c *echo.Context, apiID, modelID string) error {
+	return handleUpdate(c, apiID, modelID, "model",
+		func(input UpdateModelInput) (*Model, error) {
+			return h.Backend.UpdateModel(apiID, modelID, input)
+		},
+		ErrAPINotFound, ErrModelNotFound)
+}
+
+func (h *Handler) handleUpdateRouteResponse(c *echo.Context, apiID, routeID, responseID string) error {
+	return handleUpdate(c, apiID, responseID, "route response",
+		func(input UpdateRouteResponseInput) (*RouteResponse, error) {
+			return h.Backend.UpdateRouteResponse(apiID, routeID, responseID, input)
+		},
+		ErrAPINotFound, ErrRouteNotFound, ErrRouteResponseNotFound)
+}
+
+func (h *Handler) handleUpdatePortal(c *echo.Context, portalID string) error {
+	return handleUpdate(c, portalID, "", "portal",
+		func(input UpdatePortalInput) (*Portal, error) {
+			return h.Backend.UpdatePortal(portalID, input)
+		},
+		ErrPortalNotFound)
+}
+
+func (h *Handler) handleDeletePortal(c *echo.Context, portalID string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeletePortal(portalID); err != nil {
+		log.Error("apigatewayv2: delete portal failed", "portalId", portalID, "error", err)
+
+		if errors.Is(err, ErrPortalNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUpdatePortalProduct(c *echo.Context, portalProductID string) error {
+	return handleUpdate(c, portalProductID, "", "portal product",
+		func(input UpdatePortalProductInput) (*PortalProduct, error) {
+			return h.Backend.UpdatePortalProduct(portalProductID, input)
+		},
+		ErrPortalProductNotFound)
+}
+
+func (h *Handler) handleDeletePortalProduct(c *echo.Context, portalProductID string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeletePortalProduct(portalProductID); err != nil {
+		log.Error("apigatewayv2: delete portal product failed", "portalProductId", portalProductID, "error", err)
+
+		if errors.Is(err, ErrPortalProductNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleGetProductPage(c *echo.Context, portalProductID, pageID string) error {
+	log := logger.Load(c.Request().Context())
+
+	p, err := h.Backend.GetProductPage(portalProductID, pageID)
+	if err != nil {
+		log.Error("apigatewayv2: get product page failed",
+			"portalProductId", portalProductID, "pageId", pageID, "error", err)
+
+		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductPageNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, p)
+}
+
+func (h *Handler) handleDeleteProductPage(c *echo.Context, portalProductID, pageID string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteProductPage(portalProductID, pageID); err != nil {
+		log.Error("apigatewayv2: delete product page failed",
+			"portalProductId", portalProductID, "pageId", pageID, "error", err)
+
+		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductPageNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleGetProductRestEndpointPage(c *echo.Context, portalProductID, pageID string) error {
+	log := logger.Load(c.Request().Context())
+
+	p, err := h.Backend.GetProductRestEndpointPage(portalProductID, pageID)
+	if err != nil {
+		log.Error("apigatewayv2: get product rest endpoint page failed",
+			"portalProductId", portalProductID, "pageId", pageID, "error", err)
+
+		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductREPageNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, p)
+}
+
+func (h *Handler) handleDeleteProductRestEndpointPage(c *echo.Context, portalProductID, pageID string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteProductRestEndpointPage(portalProductID, pageID); err != nil {
+		log.Error("apigatewayv2: delete product rest endpoint page failed",
+			"portalProductId", portalProductID, "pageId", pageID, "error", err)
+
+		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductREPageNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleResetAuthorizersCache(c *echo.Context, apiID, stageName string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.ResetAuthorizersCache(apiID, stageName); err != nil {
+		log.Error("apigatewayv2: reset authorizers cache failed", "apiId", apiID, "stageName", stageName, "error", err)
+
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 

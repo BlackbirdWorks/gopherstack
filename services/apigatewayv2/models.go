@@ -207,6 +207,60 @@ type UpdateAuthorizerInput struct {
 	AuthorizerResultTTLInSeconds int32  `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
+// UpdateAPIMappingInput is the input for UpdateAPIMapping (PATCH).
+type UpdateAPIMappingInput struct {
+	APIID         string `json:"apiId,omitempty"`
+	Stage         string `json:"stage,omitempty"`
+	APIMappingKey string `json:"apiMappingKey,omitempty"`
+}
+
+// UpdateDeploymentInput is the input for UpdateDeployment (PATCH).
+type UpdateDeploymentInput struct {
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateDomainNameInput is the input for UpdateDomainName (PATCH).
+type UpdateDomainNameInput struct {
+	Tags map[string]string `json:"tags,omitempty"`
+}
+
+// UpdateIntegrationResponseInput is the input for UpdateIntegrationResponse (PATCH).
+type UpdateIntegrationResponseInput struct {
+	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
+	ResponseTemplates           map[string]string `json:"responseTemplates,omitempty"`
+	IntegrationResponseKey      string            `json:"integrationResponseKey,omitempty"`
+	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+}
+
+// UpdateModelInput is the input for UpdateModel (PATCH).
+type UpdateModelInput struct {
+	Name        string `json:"name,omitempty"`
+	Schema      string `json:"schema,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateRouteResponseInput is the input for UpdateRouteResponse (PATCH).
+type UpdateRouteResponseInput struct {
+	ResponseModels           map[string]string `json:"responseModels,omitempty"`
+	RouteResponseKey         string            `json:"routeResponseKey,omitempty"`
+	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
+}
+
+// UpdatePortalInput is the input for UpdatePortal (PATCH).
+type UpdatePortalInput struct {
+	Tags    map[string]string `json:"tags,omitempty"`
+	LogoURI string            `json:"logoUri,omitempty"`
+}
+
+// UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
+type UpdatePortalProductInput struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	DisplayName string            `json:"displayName,omitempty"`
+	Description string            `json:"description,omitempty"`
+}
+
 // listApisOutput is the response body for GetAPIs.
 type listApisOutput struct {
 	NextToken string `json:"nextToken,omitempty"`
@@ -248,17 +302,26 @@ type notFoundResponse struct {
 	Message string `json:"message"`
 }
 
+// DomainNameConfiguration represents a domain name configuration entry.
+type DomainNameConfiguration struct {
+	CertificateArn   string `json:"certificateArn,omitempty"`
+	DomainNameStatus string `json:"domainNameStatus,omitempty"`
+	EndpointType     string `json:"endpointType,omitempty"`
+}
+
 // DomainName represents a custom domain name for API Gateway v2.
 type DomainName struct {
-	Tags                          map[string]string `json:"tags,omitempty"`
-	DomainNameValue               string            `json:"domainName"`
-	APIMappingSelectionExpression string            `json:"apiMappingSelectionExpression,omitempty"`
+	Tags                          map[string]string         `json:"tags,omitempty"`
+	DomainNameValue               string                    `json:"domainName"`
+	APIMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
+	DomainNameConfigurations      []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
 type CreateDomainNameInput struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	DomainNameValue string            `json:"domainName"`
+	Tags                     map[string]string         `json:"tags,omitempty"`
+	DomainNameValue          string                    `json:"domainName"`
+	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
 
 // APIMapping represents an API mapping for a custom domain name.
