@@ -32,35 +32,40 @@ func newResourceID() string {
 
 // InMemoryBackend implements StorageBackend for AppConfig using in-memory maps.
 type InMemoryBackend struct {
-	applications         map[string]*Application
-	environments         map[string]map[string]*Environment
-	configProfiles       map[string]map[string]*ConfigurationProfile
-	hostedConfigVersions map[string]map[string]map[int32]*HostedConfigurationVersion
-	deploymentStrategies map[string]*DeploymentStrategy
-	deployments          map[string]map[string]map[int32]*Deployment
-	tags                 map[string]map[string]string
-	versionCounters      map[string]map[string]int32
-	deploymentCounters   map[string]map[string]int32
-	mu                   *lockmetrics.RWMutex
-	accountID            string
-	region               string
+	applications          map[string]*Application
+	environments          map[string]map[string]*Environment
+	configProfiles        map[string]map[string]*ConfigurationProfile
+	hostedConfigVersions  map[string]map[string]map[int32]*HostedConfigurationVersion
+	deploymentStrategies  map[string]*DeploymentStrategy
+	deployments           map[string]map[string]map[int32]*Deployment
+	extensions            map[string]*Extension
+	extensionAssociations map[string]*ExtensionAssociation
+	tags                  map[string]map[string]string
+	accountSettings       AccountSettings
+	versionCounters       map[string]map[string]int32
+	deploymentCounters    map[string]map[string]int32
+	mu                    *lockmetrics.RWMutex
+	accountID             string
+	region                string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for AppConfig.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications:         make(map[string]*Application),
-		environments:         make(map[string]map[string]*Environment),
-		configProfiles:       make(map[string]map[string]*ConfigurationProfile),
-		hostedConfigVersions: make(map[string]map[string]map[int32]*HostedConfigurationVersion),
-		deploymentStrategies: make(map[string]*DeploymentStrategy),
-		deployments:          make(map[string]map[string]map[int32]*Deployment),
-		tags:                 make(map[string]map[string]string),
-		versionCounters:      make(map[string]map[string]int32),
-		deploymentCounters:   make(map[string]map[string]int32),
-		mu:                   lockmetrics.New("appconfig"),
-		accountID:            accountID,
-		region:               region,
+		applications:          make(map[string]*Application),
+		environments:          make(map[string]map[string]*Environment),
+		configProfiles:        make(map[string]map[string]*ConfigurationProfile),
+		hostedConfigVersions:  make(map[string]map[string]map[int32]*HostedConfigurationVersion),
+		deploymentStrategies:  make(map[string]*DeploymentStrategy),
+		deployments:           make(map[string]map[string]map[int32]*Deployment),
+		extensions:            make(map[string]*Extension),
+		extensionAssociations: make(map[string]*ExtensionAssociation),
+		tags:                  make(map[string]map[string]string),
+		versionCounters:       make(map[string]map[string]int32),
+		deploymentCounters:    make(map[string]map[string]int32),
+		mu:                    lockmetrics.New("appconfig"),
+		accountID:             accountID,
+		region:                region,
 	}
 }
 
@@ -818,6 +823,269 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	}
 
 	return nil
+}
+
+// CreateExtension creates a new AppConfig extension.
+func (b *InMemoryBackend) CreateExtension(
+	name, description string,
+	actions map[string][]ExtensionAction,
+	parameters map[string]ExtensionParameter,
+) (*Extension, error) {
+	b.mu.Lock("CreateExtension")
+	defer b.mu.Unlock()
+
+	id := newResourceID()
+	ext := &Extension{
+		ID:            id,
+		Name:          name,
+		Description:   description,
+		Arn:           b.appconfigARN("extension/" + id),
+		VersionNumber: 1,
+		Actions:       actions,
+		Parameters:    parameters,
+	}
+	b.extensions[ext.ID] = ext
+	cp := *ext
+
+	return &cp, nil
+}
+
+// resolveExtension finds an extension by ID or name.
+func (b *InMemoryBackend) resolveExtension(identifier string) *Extension {
+	if ext, ok := b.extensions[identifier]; ok {
+		return ext
+	}
+
+	for _, ext := range b.extensions {
+		if ext.Name == identifier {
+			return ext
+		}
+	}
+
+	return nil
+}
+
+// GetExtension retrieves an extension by identifier (ID or name).
+func (b *InMemoryBackend) GetExtension(extensionIdentifier string) (*Extension, error) {
+	b.mu.RLock("GetExtension")
+	defer b.mu.RUnlock()
+
+	ext := b.resolveExtension(extensionIdentifier)
+	if ext == nil {
+		return nil, fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
+	}
+
+	cp := *ext
+
+	return &cp, nil
+}
+
+// ListExtensions returns paginated extensions.
+func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int) ([]Extension, string) {
+	b.mu.RLock("ListExtensions")
+	defer b.mu.RUnlock()
+
+	out := make([]Extension, 0, len(b.extensions))
+	for _, ext := range b.extensions {
+		out = append(out, *ext)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+
+	page, token := appConfigPaginate(out, nextToken, maxResults)
+
+	return page, token
+}
+
+// DeleteExtension deletes an extension by identifier (ID or name).
+func (b *InMemoryBackend) DeleteExtension(extensionIdentifier string) error {
+	b.mu.Lock("DeleteExtension")
+	defer b.mu.Unlock()
+
+	ext := b.resolveExtension(extensionIdentifier)
+	if ext == nil {
+		return fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
+	}
+
+	delete(b.extensions, ext.ID)
+	delete(b.tags, ext.Arn)
+
+	return nil
+}
+
+// CreateExtensionAssociation creates an association between an extension and a resource.
+func (b *InMemoryBackend) CreateExtensionAssociation(
+	extensionIdentifier, resourceIdentifier string,
+	parameters map[string]string,
+	extensionVersionNumber *int32,
+) (*ExtensionAssociation, error) {
+	b.mu.Lock("CreateExtensionAssociation")
+	defer b.mu.Unlock()
+
+	ext := b.resolveExtension(extensionIdentifier)
+	if ext == nil {
+		return nil, fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
+	}
+
+	versionNum := ext.VersionNumber
+	if extensionVersionNumber != nil {
+		versionNum = *extensionVersionNumber
+	}
+
+	id := newResourceID()
+	assoc := &ExtensionAssociation{
+		ID:                     id,
+		Arn:                    b.appconfigARN("extensionassociation/" + id),
+		ExtensionArn:           ext.Arn,
+		ResourceArn:            resourceIdentifier,
+		ExtensionVersionNumber: versionNum,
+		Parameters:             parameters,
+	}
+	b.extensionAssociations[assoc.ID] = assoc
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// GetExtensionAssociation retrieves an extension association by ID.
+func (b *InMemoryBackend) GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error) {
+	b.mu.RLock("GetExtensionAssociation")
+	defer b.mu.RUnlock()
+
+	assoc, ok := b.extensionAssociations[extensionAssociationID]
+	if !ok {
+		return nil, fmt.Errorf("%w: extension association %s", ErrExtensionAssociationNotFound, extensionAssociationID)
+	}
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// ListExtensionAssociations returns paginated extension associations.
+func (b *InMemoryBackend) ListExtensionAssociations(nextToken string, maxResults int) ([]ExtensionAssociation, string) {
+	b.mu.RLock("ListExtensionAssociations")
+	defer b.mu.RUnlock()
+
+	out := make([]ExtensionAssociation, 0, len(b.extensionAssociations))
+	for _, a := range b.extensionAssociations {
+		out = append(out, *a)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+
+	page, token := appConfigPaginate(out, nextToken, maxResults)
+
+	return page, token
+}
+
+// DeleteExtensionAssociation deletes an extension association by ID.
+func (b *InMemoryBackend) DeleteExtensionAssociation(extensionAssociationID string) error {
+	b.mu.Lock("DeleteExtensionAssociation")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.extensionAssociations[extensionAssociationID]
+	if !ok {
+		return fmt.Errorf("%w: extension association %s", ErrExtensionAssociationNotFound, extensionAssociationID)
+	}
+
+	delete(b.extensionAssociations, extensionAssociationID)
+	delete(b.tags, assoc.Arn)
+
+	return nil
+}
+
+// GetAccountSettings returns the account-level AppConfig settings.
+func (b *InMemoryBackend) GetAccountSettings() (*AccountSettings, error) {
+	b.mu.RLock("GetAccountSettings")
+	defer b.mu.RUnlock()
+
+	cp := b.accountSettings
+
+	return &cp, nil
+}
+
+// GetConfiguration retrieves the latest deployed configuration for the given application,
+// environment, and configuration profile (deprecated API).
+func (b *InMemoryBackend) GetConfiguration(
+	application, environment, configuration string,
+) (*HostedConfigurationVersion, error) {
+	b.mu.RLock("GetConfiguration")
+	defer b.mu.RUnlock()
+
+	appID, err := b.resolveAppID(application)
+	if err != nil {
+		return nil, err
+	}
+
+	_, envErr := b.resolveEnvID(appID, environment)
+	if envErr != nil {
+		return nil, envErr
+	}
+
+	profileID, err := b.resolveProfileID(appID, configuration)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.latestConfigVersion(appID, profileID), nil
+}
+
+// resolveAppID finds an application ID by ID or name. Must be called under lock.
+func (b *InMemoryBackend) resolveAppID(identifier string) (string, error) {
+	for id, app := range b.applications {
+		if id == identifier || app.Name == identifier {
+			return id, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: application %s", ErrApplicationNotFound, identifier)
+}
+
+// resolveEnvID finds an environment ID by ID or name within an application. Must be called under lock.
+func (b *InMemoryBackend) resolveEnvID(appID, identifier string) (string, error) {
+	for id, env := range b.environments[appID] {
+		if id == identifier || env.Name == identifier {
+			return id, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, identifier)
+}
+
+// resolveProfileID finds a configuration profile ID by ID or name. Must be called under lock.
+func (b *InMemoryBackend) resolveProfileID(appID, identifier string) (string, error) {
+	for id, profile := range b.configProfiles[appID] {
+		if id == identifier || profile.Name == identifier {
+			return id, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, identifier)
+}
+
+// latestConfigVersion returns the latest hosted configuration version for a profile. Must be called under lock.
+func (b *InMemoryBackend) latestConfigVersion(appID, profileID string) *HostedConfigurationVersion {
+	profileVersions := b.hostedConfigVersions[appID][profileID]
+	if len(profileVersions) == 0 {
+		return &HostedConfigurationVersion{
+			ApplicationID:          appID,
+			ConfigurationProfileID: profileID,
+			ContentType:            "application/octet-stream",
+			Content:                []byte{},
+		}
+	}
+
+	var latest *HostedConfigurationVersion
+
+	for _, v := range profileVersions {
+		if latest == nil || v.VersionNumber > latest.VersionNumber {
+			vCopy := *v
+			latest = &vCopy
+		}
+	}
+
+	return latest
 }
 
 // appConfigPaginate applies token-based pagination to a sorted slice.

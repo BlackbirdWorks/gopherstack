@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -1202,6 +1203,381 @@ func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 			} else {
 				assert.Empty(t, outToken)
 			}
+		})
+	}
+}
+
+func TestHandler_Extension_CRUD(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantField  string
+		wantValue  string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name:       "list extensions empty",
+			method:     http.MethodGet,
+			path:       "/extensions",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "create extension",
+			method:     http.MethodPost,
+			path:       "/extensions",
+			body:       []byte(`{"Name":"my-ext","Description":"test extension"}`),
+			wantStatus: http.StatusCreated,
+			wantField:  "Name",
+			wantValue:  "my-ext",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantField != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantValue, resp[tt.wantField])
+			}
+		})
+	}
+}
+
+func TestHandler_Extension_GetDeleteByID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create extension.
+	rec := doRequest(t, h, http.MethodPost, "/extensions", []byte(`{"Name":"ext-to-delete"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var ext appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	assert.NotEmpty(t, ext.ID)
+	assert.Equal(t, "ext-to-delete", ext.Name)
+
+	// Get by ID.
+	rec = doRequest(t, h, http.MethodGet, "/extensions/"+ext.ID, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Get by name.
+	rec = doRequest(t, h, http.MethodGet, "/extensions/ext-to-delete", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Delete by ID.
+	rec = doRequest(t, h, http.MethodDelete, "/extensions/"+ext.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Get should now return 404.
+	rec = doRequest(t, h, http.MethodGet, "/extensions/"+ext.ID, nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_Extension_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "get not found", method: http.MethodGet, path: "/extensions/nonexistent"},
+		{name: "delete not found", method: http.MethodDelete, path: "/extensions/nonexistent"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, tt.method, tt.path, nil)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestHandler_Extension_ListPaginated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 3 {
+		body := []byte(`{"Name":"ext-` + strconv.Itoa(i) + `"}`)
+		rec := doRequest(t, h, http.MethodPost, "/extensions", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+	}
+
+	rec := doRequest(t, h, http.MethodGet, "/extensions?max_results=2", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	items, ok := resp["Items"].([]any)
+	require.True(t, ok)
+	assert.Len(t, items, 2)
+	assert.NotEmpty(t, resp["NextToken"])
+}
+
+func TestHandler_ExtensionAssociation_CRUD(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create an extension first.
+	rec := doRequest(t, h, http.MethodPost, "/extensions", []byte(`{"Name":"assoc-ext"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var ext appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+
+	// Create an application to use as resource.
+	rec = doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"assoc-app"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+
+	// List associations empty.
+	rec = doRequest(t, h, http.MethodGet, "/extensionassociations", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Create association.
+	resourceID := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
+	body := []byte(
+		`{"ExtensionIdentifier":"` + ext.ID + `","ResourceIdentifier":"` + resourceID + `"}`,
+	)
+	rec = doRequest(t, h, http.MethodPost, "/extensionassociations", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var assoc appconfig.ExtensionAssociation
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc))
+	assert.NotEmpty(t, assoc.ID)
+	assert.Equal(t, ext.Arn, assoc.ExtensionArn)
+
+	// Get association.
+	rec = doRequest(t, h, http.MethodGet, "/extensionassociations/"+assoc.ID, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List associations shows one.
+	rec = doRequest(t, h, http.MethodGet, "/extensionassociations", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	items, ok := listResp["Items"].([]any)
+	require.True(t, ok)
+	assert.Len(t, items, 1)
+
+	// Delete association.
+	rec = doRequest(t, h, http.MethodDelete, "/extensionassociations/"+assoc.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Get should now return 404.
+	rec = doRequest(t, h, http.MethodGet, "/extensionassociations/"+assoc.ID, nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_ExtensionAssociation_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   []byte
+	}{
+		{
+			name:   "get not found",
+			method: http.MethodGet,
+			path:   "/extensionassociations/nonexistent",
+		},
+		{
+			name:   "delete not found",
+			method: http.MethodDelete,
+			path:   "/extensionassociations/nonexistent",
+		},
+		{
+			name:   "create with missing extension",
+			method: http.MethodPost,
+			path:   "/extensionassociations",
+			body: []byte(`{"ExtensionIdentifier":"missing-ext",` +
+				`"ResourceIdentifier":"arn:aws:appconfig:us-east-1:123456789012:application/abc"}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetAccountSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/settings", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var settings appconfig.AccountSettings
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+}
+
+func TestHandler_GetConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Setup: create application, environment, config profile, and hosted config version.
+	rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"conf-app"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"conf-env"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var env appconfig.Environment
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
+		[]byte(`{"Name":"conf-profile","LocationUri":"hosted","Type":"AWS.Freeform"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var profile appconfig.ConfigurationProfile
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "no version returns 204",
+			path:       "/applications/" + app.ID + "/environments/" + env.ID + "/configurations/" + profile.ID,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "app not found",
+			path:       "/applications/nonexistent/environments/" + env.ID + "/configurations/" + profile.ID,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "env not found",
+			path:       "/applications/" + app.ID + "/environments/nonexistent/configurations/" + profile.ID,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "profile not found",
+			path:       "/applications/" + app.ID + "/environments/" + env.ID + "/configurations/nonexistent",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestHandler_GetConfiguration_WithContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Setup.
+	rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"content-app"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"content-env"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var env appconfig.Environment
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
+		[]byte(`{"Name":"content-profile","LocationUri":"hosted","Type":"AWS.Freeform"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var profile appconfig.ConfigurationProfile
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+
+	// Create a hosted configuration version.
+	e := echo.New()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions",
+		bytes.NewReader([]byte(`{"feature":"enabled"}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(logger.Save(t.Context(), slog.Default()))
+	recVer := httptest.NewRecorder()
+	c := e.NewContext(req, recVer)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, recVer.Code)
+
+	// GetConfiguration should now return 200 with content.
+	rec = doRequest(t, h, http.MethodGet,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/configurations/"+profile.ID, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.NotEmpty(t, rec.Body.Bytes())
+	assert.Equal(t, "1", rec.Header().Get("Configuration-Version"))
+}
+
+func TestHandler_RouteMatcher_NewPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "extensions prefix", path: "/extensions", want: true},
+		{name: "extensions with id", path: "/extensions/ext-1", want: true},
+		{name: "extensionassociations prefix", path: "/extensionassociations", want: true},
+		{name: "extensionassociations with id", path: "/extensionassociations/assoc-1", want: true},
+		{name: "settings", path: "/settings", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
 		})
 	}
 }

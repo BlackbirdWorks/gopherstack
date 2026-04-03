@@ -23,6 +23,7 @@ const (
 	pathPartsSubLevel  = 3 // /applications/{id}/subresource
 	pathPartsSubItem   = 4 // /applications/{id}/subresource/{subId}
 	pathPartsDeepLevel = 5 // /applications/{id}/subresource/{subId}/nested
+	pathPartsDeepItem  = 6 // /applications/{id}/subresource/{subId}/nested/{nestedId}
 )
 
 // Handler is the Echo HTTP handler for AppConfig operations.
@@ -72,6 +73,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"CreateExtension",
+		"GetExtension",
+		"ListExtensions",
+		"DeleteExtension",
+		"CreateExtensionAssociation",
+		"GetExtensionAssociation",
+		"ListExtensionAssociations",
+		"DeleteExtensionAssociation",
+		"GetAccountSettings",
+		"GetConfiguration",
 	}
 }
 
@@ -91,6 +102,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, "/applications") ||
 			strings.HasPrefix(path, "/deploymentstrategies") ||
+			strings.HasPrefix(path, "/extensions") ||
+			strings.HasPrefix(path, "/extensionassociations") ||
+			path == "/settings" ||
 			strings.HasPrefix(path, "/tags/arn:aws:appconfig:")
 	}
 }
@@ -117,14 +131,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // appConfigRoute holds parsed path segments and the derived operation name.
 type appConfigRoute struct {
-	applicationID string
-	environmentID string
-	profileID     string
-	strategyID    string
-	resourceArn   string
-	operation     string
-	versionNumber int32
-	deploymentNum int32
+	applicationID          string
+	environmentID          string
+	profileID              string
+	strategyID             string
+	resourceArn            string
+	extensionID            string
+	extensionAssociationID string
+	configurationID        string
+	operation              string
+	versionNumber          int32
+	deploymentNum          int32
 }
 
 // parseAppConfigPath parses an HTTP method and URL path into an appConfigRoute,
@@ -143,6 +160,14 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 		return parseDeploymentStrategyRoute(method, parts)
 	case "applications":
 		return parseApplicationRoute(method, parts)
+	case "extensions":
+		return parseExtensionRoute(method, parts)
+	case "extensionassociations":
+		return parseExtensionAssociationRoute(method, parts)
+	case "settings":
+		if method == http.MethodGet && len(parts) == 1 {
+			return appConfigRoute{operation: "GetAccountSettings"}
+		}
 	case "tags":
 		// ARN spans all remaining path segments joined by "/"
 		return parseTagRoute(method, strings.Join(parts[1:], "/"))
@@ -166,6 +191,54 @@ func parseTagRoute(method, resourceArn string) appConfigRoute {
 	}
 
 	return base
+}
+
+func parseExtensionRoute(method string, parts []string) appConfigRoute {
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodPost:
+			return appConfigRoute{operation: "CreateExtension"}
+		case http.MethodGet:
+			return appConfigRoute{operation: "ListExtensions"}
+		}
+
+		return appConfigRoute{operation: "Unknown"}
+	}
+
+	extID := parts[1]
+
+	switch method {
+	case http.MethodGet:
+		return appConfigRoute{extensionID: extID, operation: "GetExtension"}
+	case http.MethodDelete:
+		return appConfigRoute{extensionID: extID, operation: "DeleteExtension"}
+	}
+
+	return appConfigRoute{extensionID: extID, operation: "Unknown"}
+}
+
+func parseExtensionAssociationRoute(method string, parts []string) appConfigRoute {
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodPost:
+			return appConfigRoute{operation: "CreateExtensionAssociation"}
+		case http.MethodGet:
+			return appConfigRoute{operation: "ListExtensionAssociations"}
+		}
+
+		return appConfigRoute{operation: "Unknown"}
+	}
+
+	assocID := parts[1]
+
+	switch method {
+	case http.MethodGet:
+		return appConfigRoute{extensionAssociationID: assocID, operation: "GetExtensionAssociation"}
+	case http.MethodDelete:
+		return appConfigRoute{extensionAssociationID: assocID, operation: "DeleteExtensionAssociation"}
+	}
+
+	return appConfigRoute{extensionAssociationID: assocID, operation: "Unknown"}
 }
 
 func parseDeploymentStrategyRoute(method string, parts []string) appConfigRoute {
@@ -258,6 +331,15 @@ func parseEnvironmentRoute(method, appID string, parts []string) appConfigRoute 
 
 	if len(parts) >= pathPartsDeepLevel && parts[4] == "deployments" {
 		return parseDeploymentRoute(method, appID, envID, parts)
+	}
+
+	if len(parts) == pathPartsDeepItem && parts[4] == "configurations" && method == http.MethodGet {
+		return appConfigRoute{
+			applicationID:   appID,
+			environmentID:   envID,
+			configurationID: parts[5],
+			operation:       "GetConfiguration",
+		}
 	}
 
 	return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
@@ -485,6 +567,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleTagResource(c, route.resourceArn)
 		case "UntagResource":
 			return h.handleUntagResource(c, route.resourceArn)
+		case "CreateExtension":
+			return h.handleCreateExtension(c)
+		case "GetExtension":
+			return h.handleGetExtension(c, route.extensionID)
+		case "ListExtensions":
+			return h.handleListExtensions(c)
+		case "DeleteExtension":
+			return h.handleDeleteExtension(c, route.extensionID)
+		case "CreateExtensionAssociation":
+			return h.handleCreateExtensionAssociation(c)
+		case "GetExtensionAssociation":
+			return h.handleGetExtensionAssociation(c, route.extensionAssociationID)
+		case "ListExtensionAssociations":
+			return h.handleListExtensionAssociations(c)
+		case "DeleteExtensionAssociation":
+			return h.handleDeleteExtensionAssociation(c, route.extensionAssociationID)
+		case "GetAccountSettings":
+			return h.handleGetAccountSettings(c)
+		case "GetConfiguration":
+			return h.handleGetConfiguration(c, route.applicationID, route.environmentID, route.configurationID)
 		default:
 			log.Warn("appconfig: unmatched route", "method", c.Request().Method, "path", c.Request().URL.Path)
 
@@ -1067,6 +1169,162 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleCreateExtension(c *echo.Context) error {
+	var req struct {
+		Actions     map[string][]ExtensionAction  `json:"Actions"`
+		Parameters  map[string]ExtensionParameter `json:"Parameters"`
+		Name        string                        `json:"Name"`
+		Description string                        `json:"Description"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+	}
+
+	ext, err := h.Backend.CreateExtension(req.Name, req.Description, req.Actions, req.Parameters)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, ext)
+}
+
+func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error {
+	ext, err := h.Backend.GetExtension(extensionID)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, ext)
+}
+
+func (h *Handler) handleListExtensions(c *echo.Context) error {
+	nextToken, maxResults := appConfigPaginationParams(c)
+	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults)
+
+	resp := map[string]any{"Items": exts}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDeleteExtension(c *echo.Context, extensionID string) error {
+	if err := h.Backend.DeleteExtension(extensionID); err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
+	var req struct {
+		Parameters             map[string]string `json:"Parameters"`
+		ExtensionVersionNumber *int32            `json:"ExtensionVersionNumber"`
+		ExtensionIdentifier    string            `json:"ExtensionIdentifier"`
+		ResourceIdentifier     string            `json:"ResourceIdentifier"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+	}
+
+	assoc, err := h.Backend.CreateExtensionAssociation(
+		req.ExtensionIdentifier,
+		req.ResourceIdentifier,
+		req.Parameters,
+		req.ExtensionVersionNumber,
+	)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, assoc)
+}
+
+func (h *Handler) handleGetExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
+	assoc, err := h.Backend.GetExtensionAssociation(extensionAssociationID)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, assoc)
+}
+
+func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
+	nextToken, maxResults := appConfigPaginationParams(c)
+	assocs, outToken := h.Backend.ListExtensionAssociations(nextToken, maxResults)
+
+	resp := map[string]any{"Items": assocs}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
+	if err := h.Backend.DeleteExtensionAssociation(extensionAssociationID); err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
+	settings, err := h.Backend.GetAccountSettings()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, settings)
+}
+
+func (h *Handler) handleGetConfiguration(c *echo.Context, application, environment, configuration string) error {
+	v, err := h.Backend.GetConfiguration(application, environment, configuration)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	if v.VersionNumber > 0 {
+		c.Response().Header().Set("Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
+	}
+
+	if len(v.Content) == 0 {
+		return c.NoContent(http.StatusNoContent)
+	}
+
+	contentType := v.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	return c.Blob(http.StatusOK, contentType, v.Content)
 }
 
 // appConfigPaginationParams reads the next_token and max_results query parameters.
