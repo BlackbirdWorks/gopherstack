@@ -17,16 +17,25 @@ import (
 )
 
 var (
-	ErrRestAPINotFound             = errors.New("NotFoundException")
-	ErrResourceNotFound            = errors.New("NotFoundException")
-	ErrMethodNotFound              = errors.New("NotFoundException")
-	ErrMethodResponseNotFound      = errors.New("NotFoundException")
-	ErrIntegrationResponseNotFound = errors.New("NotFoundException")
-	ErrDeploymentNotFound          = errors.New("NotFoundException")
-	ErrAuthorizerNotFound          = errors.New("NotFoundException")
-	ErrValidatorNotFound           = errors.New("NotFoundException")
-	ErrAlreadyExists               = awserr.New("ConflictException", awserr.ErrAlreadyExists)
-	ErrInvalidParameter            = errors.New("BadRequestException")
+	ErrRestAPINotFound                     = errors.New("NotFoundException")
+	ErrResourceNotFound                    = errors.New("NotFoundException")
+	ErrMethodNotFound                      = errors.New("NotFoundException")
+	ErrMethodResponseNotFound              = errors.New("NotFoundException")
+	ErrIntegrationResponseNotFound         = errors.New("NotFoundException")
+	ErrDeploymentNotFound                  = errors.New("NotFoundException")
+	ErrAuthorizerNotFound                  = errors.New("NotFoundException")
+	ErrValidatorNotFound                   = errors.New("NotFoundException")
+	ErrAPIKeyNotFound                      = errors.New("NotFoundException")
+	ErrBasePathMappingNotFound             = errors.New("NotFoundException")
+	ErrDocumentationPartNotFound           = errors.New("NotFoundException")
+	ErrDocumentationVersionNotFound        = errors.New("NotFoundException")
+	ErrDomainNameNotFound                  = errors.New("NotFoundException")
+	ErrDomainNameAccessAssociationNotFound = errors.New("NotFoundException")
+	ErrModelNotFound                       = errors.New("NotFoundException")
+	ErrUsagePlanNotFound                   = errors.New("NotFoundException")
+	ErrUsagePlanKeyNotFound                = errors.New("NotFoundException")
+	ErrAlreadyExists                       = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	ErrInvalidParameter                    = errors.New("BadRequestException")
 )
 
 // StorageBackend is the interface for the API Gateway in-memory store.
@@ -96,13 +105,46 @@ type StorageBackend interface {
 	GetRequestValidators(restAPIID string) ([]RequestValidator, error)
 	UpdateRequestValidator(restAPIID, validatorID string, input UpdateRequestValidatorInput) (*RequestValidator, error)
 	DeleteRequestValidator(restAPIID, validatorID string) error
+
+	// API Keys
+	CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
+
+	// Base Path Mappings
+	CreateBasePathMapping(input CreateBasePathMappingInput) (*BasePathMapping, error)
+
+	// Documentation Parts (per-API)
+	CreateDocumentationPart(input CreateDocumentationPartInput) (*DocumentationPart, error)
+
+	// Documentation Versions (per-API)
+	CreateDocumentationVersion(input CreateDocumentationVersionInput) (*DocumentationVersion, error)
+
+	// Domain Names
+	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
+
+	// Domain Name Access Associations
+	CreateDomainNameAccessAssociation(
+		input CreateDomainNameAccessAssociationInput,
+	) (*DomainNameAccessAssociation, error)
+
+	// Models (per-API)
+	CreateModel(input CreateModelInput) (*Model, error)
+
+	// Standalone Stage creation
+	CreateStage(input CreateStageInput) (*Stage, error)
+
+	// Usage Plans
+	CreateUsagePlan(input CreateUsagePlanInput) (*UsagePlan, error)
+
+	// Usage Plan Keys
+	CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*UsagePlanKey, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 const (
-	apiIDLength      = 10
-	resourceIDLength = 6
+	apiIDLength       = 10
+	resourceIDLength  = 6
+	apiKeyValueLength = 40 // AWS generates a 40-character alphanumeric key value
 )
 
 // randomID generates a cryptographically random alphanumeric ID of the given length.
@@ -119,27 +161,52 @@ func randomID(length int) string {
 	return string(b)
 }
 
+// initTagsFromInput returns a new tags.Tags store seeded from inputTags (if non-nil)
+// or an empty store, using the given name prefix for the backing store label.
+func initTagsFromInput(name string, inputTags *tags.Tags) *tags.Tags {
+	if inputTags == nil {
+		return tags.New(name)
+	}
+
+	return tags.FromMap(name, inputTags.Clone())
+}
+
 // apiData holds per-REST-API state.
 type apiData struct {
-	resources         map[string]*Resource
-	deployments       map[string]*Deployment
-	stages            map[string]*Stage
-	authorizers       map[string]*Authorizer
-	requestValidators map[string]*RequestValidator
-	api               RestAPI
+	resources             map[string]*Resource
+	deployments           map[string]*Deployment
+	stages                map[string]*Stage
+	authorizers           map[string]*Authorizer
+	requestValidators     map[string]*RequestValidator
+	documentationParts    map[string]*DocumentationPart
+	documentationVersions map[string]*DocumentationVersion
+	models                map[string]*Model
+	api                   RestAPI
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	apis map[string]*apiData
-	mu   *lockmetrics.RWMutex
+	apis                         map[string]*apiData
+	apiKeys                      map[string]*APIKey
+	basePathMappings             map[string]*BasePathMapping // key: domainName + "#" + basePath
+	domainNames                  map[string]*DomainName
+	domainNameAccessAssociations map[string]*DomainNameAccessAssociation
+	usagePlans                   map[string]*UsagePlan
+	usagePlanKeys                map[string]map[string]*UsagePlanKey // usagePlanID → keyID → key
+	mu                           *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		apis: make(map[string]*apiData),
-		mu:   lockmetrics.New("apigateway"),
+		apis:                         make(map[string]*apiData),
+		apiKeys:                      make(map[string]*APIKey),
+		basePathMappings:             make(map[string]*BasePathMapping),
+		domainNames:                  make(map[string]*DomainName),
+		domainNameAccessAssociations: make(map[string]*DomainNameAccessAssociation),
+		usagePlans:                   make(map[string]*UsagePlan),
+		usagePlanKeys:                make(map[string]map[string]*UsagePlanKey),
+		mu:                           lockmetrics.New("apigateway"),
 	}
 }
 
@@ -153,14 +220,7 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 	defer b.mu.Unlock()
 
 	id := randomID(apiIDLength)
-
-	var backendTags *tags.Tags
-	if inputTags == nil {
-		backendTags = tags.New("apigw.api." + id + ".tags")
-	} else {
-		backendTags = tags.FromMap("apigw.api."+id+".tags", inputTags.Clone())
-	}
-
+	backendTags := initTagsFromInput("apigw.api."+id+".tags", inputTags)
 	rootID := randomID(resourceIDLength)
 
 	api := RestAPI{
@@ -182,12 +242,15 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 	}
 
 	b.apis[id] = &apiData{
-		api:               api,
-		resources:         map[string]*Resource{rootID: root},
-		deployments:       make(map[string]*Deployment),
-		stages:            make(map[string]*Stage),
-		authorizers:       make(map[string]*Authorizer),
-		requestValidators: make(map[string]*RequestValidator),
+		api:                   api,
+		resources:             map[string]*Resource{rootID: root},
+		deployments:           make(map[string]*Deployment),
+		stages:                make(map[string]*Stage),
+		authorizers:           make(map[string]*Authorizer),
+		requestValidators:     make(map[string]*RequestValidator),
+		documentationParts:    make(map[string]*DocumentationPart),
+		documentationVersions: make(map[string]*DocumentationVersion),
+		models:                make(map[string]*Model),
 	}
 
 	return &api, nil
@@ -1147,5 +1210,413 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
+	for _, k := range b.apiKeys {
+		if k.Tags != nil {
+			k.Tags.Close()
+		}
+	}
+
+	for _, dn := range b.domainNames {
+		if dn.Tags != nil {
+			dn.Tags.Close()
+		}
+	}
+
+	for _, p := range b.usagePlans {
+		if p.Tags != nil {
+			p.Tags.Close()
+		}
+	}
+
 	b.apis = make(map[string]*apiData)
+	b.apiKeys = make(map[string]*APIKey)
+	b.basePathMappings = make(map[string]*BasePathMapping)
+	b.domainNames = make(map[string]*DomainName)
+	b.domainNameAccessAssociations = make(map[string]*DomainNameAccessAssociation)
+	b.usagePlans = make(map[string]*UsagePlan)
+	b.usagePlanKeys = make(map[string]map[string]*UsagePlanKey)
+}
+
+// CreateAPIKey creates a new API key with an optional auto-generated value.
+func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateAPIKey")
+	defer b.mu.Unlock()
+
+	for _, k := range b.apiKeys {
+		if k.Name == input.Name {
+			return nil, fmt.Errorf("%w: API key with name %q already exists", ErrAlreadyExists, input.Name)
+		}
+	}
+
+	now := unixEpochTime{time.Now()}
+	id := randomID(apiIDLength)
+
+	backendTags := initTagsFromInput("apigw.apikey."+id+".tags", input.Tags)
+
+	value := input.Value
+	if value == "" {
+		// AWS generates a 40-character alphanumeric key value when none is provided.
+		value = randomID(apiKeyValueLength)
+	}
+
+	key := &APIKey{
+		ID:              id,
+		Name:            input.Name,
+		Description:     input.Description,
+		Value:           value,
+		Enabled:         input.Enabled,
+		Tags:            backendTags,
+		CreatedDate:     now,
+		LastUpdatedDate: now,
+	}
+	b.apiKeys[id] = key
+
+	cp := *key
+
+	return &cp, nil
+}
+
+// CreateBasePathMapping creates a new base path mapping for a domain name.
+func (b *InMemoryBackend) CreateBasePathMapping(input CreateBasePathMappingInput) (*BasePathMapping, error) {
+	if input.DomainName == "" {
+		return nil, fmt.Errorf("%w: domainName is required", ErrInvalidParameter)
+	}
+
+	if input.RestAPIID == "" {
+		return nil, fmt.Errorf("%w: restApiId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateBasePathMapping")
+	defer b.mu.Unlock()
+
+	mapKey := input.DomainName + "#" + input.BasePath
+	if _, exists := b.basePathMappings[mapKey]; exists {
+		return nil, fmt.Errorf("%w: base path mapping already exists for domain %q path %q",
+			ErrAlreadyExists, input.DomainName, input.BasePath)
+	}
+
+	bpm := &BasePathMapping{
+		DomainName: input.DomainName,
+		BasePath:   input.BasePath,
+		RestAPIID:  input.RestAPIID,
+		Stage:      input.Stage,
+	}
+	b.basePathMappings[mapKey] = bpm
+
+	cp := *bpm
+
+	return &cp, nil
+}
+
+// CreateDocumentationPart creates a documentation part for a REST API.
+func (b *InMemoryBackend) CreateDocumentationPart(input CreateDocumentationPartInput) (*DocumentationPart, error) {
+	if input.RestAPIID == "" {
+		return nil, fmt.Errorf("%w: restApiId is required", ErrInvalidParameter)
+	}
+
+	if input.Location.Type == "" {
+		return nil, fmt.Errorf("%w: location.type is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateDocumentationPart")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	id := randomID(resourceIDLength)
+	part := &DocumentationPart{
+		ID:         id,
+		RestAPIID:  input.RestAPIID,
+		Location:   input.Location,
+		Properties: input.Properties,
+	}
+	d.documentationParts[id] = part
+
+	cp := *part
+
+	return &cp, nil
+}
+
+// CreateDocumentationVersion creates a documentation version snapshot for a REST API.
+func (b *InMemoryBackend) CreateDocumentationVersion(
+	input CreateDocumentationVersionInput,
+) (*DocumentationVersion, error) {
+	if input.RestAPIID == "" {
+		return nil, fmt.Errorf("%w: restApiId is required", ErrInvalidParameter)
+	}
+
+	if input.Version == "" {
+		return nil, fmt.Errorf("%w: documentationVersion is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateDocumentationVersion")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	if _, exists := d.documentationVersions[input.Version]; exists {
+		return nil, fmt.Errorf("%w: documentation version %q already exists", ErrAlreadyExists, input.Version)
+	}
+
+	ver := &DocumentationVersion{
+		RestAPIID:   input.RestAPIID,
+		Version:     input.Version,
+		Description: input.Description,
+		CreatedDate: unixEpochTime{time.Now()},
+	}
+	d.documentationVersions[input.Version] = ver
+
+	cp := *ver
+
+	return &cp, nil
+}
+
+// CreateDomainName creates a new custom domain name.
+func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*DomainName, error) {
+	if input.DomainName == "" {
+		return nil, fmt.Errorf("%w: domainName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateDomainName")
+	defer b.mu.Unlock()
+
+	if _, exists := b.domainNames[input.DomainName]; exists {
+		return nil, fmt.Errorf("%w: domain name %q already exists", ErrAlreadyExists, input.DomainName)
+	}
+
+	now := unixEpochTime{time.Now()}
+	backendTags := initTagsFromInput("apigw.domain."+input.DomainName+".tags", input.Tags)
+
+	dn := &DomainName{
+		DomainNameValue:        input.DomainName,
+		CertificateARN:         input.CertificateARN,
+		RegionalCertificateARN: input.RegionalCertificateARN,
+		Tags:                   backendTags,
+		CreatedDate:            &now,
+	}
+	b.domainNames[input.DomainName] = dn
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// CreateDomainNameAccessAssociation creates an access association for a domain name.
+func (b *InMemoryBackend) CreateDomainNameAccessAssociation(
+	input CreateDomainNameAccessAssociationInput,
+) (*DomainNameAccessAssociation, error) {
+	if input.DomainNameARN == "" {
+		return nil, fmt.Errorf("%w: domainNameArn is required", ErrInvalidParameter)
+	}
+
+	if input.AccessAssociationSource == "" {
+		return nil, fmt.Errorf("%w: accessAssociationSource is required", ErrInvalidParameter)
+	}
+
+	if input.AccessAssociationSourceType == "" {
+		return nil, fmt.Errorf("%w: accessAssociationSourceType is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateDomainNameAccessAssociation")
+	defer b.mu.Unlock()
+
+	assocARN := "arn:aws:apigateway:us-east-1::/accessassociations/" + randomID(apiIDLength)
+	assoc := &DomainNameAccessAssociation{
+		DomainNameAccessAssociationARN: assocARN,
+		DomainNameARN:                  input.DomainNameARN,
+		AccessAssociationSource:        input.AccessAssociationSource,
+		AccessAssociationSourceType:    input.AccessAssociationSourceType,
+	}
+	b.domainNameAccessAssociations[assocARN] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// CreateModel creates a data model for a REST API.
+func (b *InMemoryBackend) CreateModel(input CreateModelInput) (*Model, error) {
+	if input.RestAPIID == "" {
+		return nil, fmt.Errorf("%w: restApiId is required", ErrInvalidParameter)
+	}
+
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
+	}
+
+	if input.ContentType == "" {
+		return nil, fmt.Errorf("%w: contentType is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateModel")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	for _, m := range d.models {
+		if m.Name == input.Name {
+			return nil, fmt.Errorf(
+				"%w: model %q already exists in REST API %s",
+				ErrAlreadyExists,
+				input.Name,
+				input.RestAPIID,
+			)
+		}
+	}
+
+	id := randomID(resourceIDLength)
+	model := &Model{
+		ID:          id,
+		RestAPIID:   input.RestAPIID,
+		Name:        input.Name,
+		Description: input.Description,
+		ContentType: input.ContentType,
+		Schema:      input.Schema,
+	}
+	d.models[id] = model
+
+	cp := *model
+
+	return &cp, nil
+}
+
+// CreateStage creates a new deployment stage for a REST API without creating a deployment.
+func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
+	if input.RestAPIID == "" {
+		return nil, fmt.Errorf("%w: restApiId is required", ErrInvalidParameter)
+	}
+
+	if input.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", ErrInvalidParameter)
+	}
+
+	if input.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateStage")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	if _, exists := d.deployments[input.DeploymentID]; !exists {
+		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, input.DeploymentID)
+	}
+
+	if _, exists := d.stages[input.StageName]; exists {
+		return nil, fmt.Errorf("%w: stage %q already exists", ErrAlreadyExists, input.StageName)
+	}
+
+	variables := input.Variables
+	if variables == nil {
+		variables = make(map[string]string)
+	}
+
+	now := unixEpochTime{time.Now()}
+	stage := &Stage{
+		StageName:       input.StageName,
+		RestAPIID:       input.RestAPIID,
+		DeploymentID:    input.DeploymentID,
+		Description:     input.Description,
+		Variables:       variables,
+		CreatedDate:     now,
+		LastUpdatedDate: now,
+	}
+	d.stages[input.StageName] = stage
+
+	cp := *stage
+
+	return &cp, nil
+}
+
+// CreateUsagePlan creates a new usage plan.
+func (b *InMemoryBackend) CreateUsagePlan(input CreateUsagePlanInput) (*UsagePlan, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateUsagePlan")
+	defer b.mu.Unlock()
+
+	id := randomID(apiIDLength)
+	backendTags := initTagsFromInput("apigw.usageplan."+id+".tags", input.Tags)
+
+	plan := &UsagePlan{
+		ID:          id,
+		Name:        input.Name,
+		Description: input.Description,
+		Throttle:    input.Throttle,
+		Quota:       input.Quota,
+		Tags:        backendTags,
+	}
+	b.usagePlans[id] = plan
+	b.usagePlanKeys[id] = make(map[string]*UsagePlanKey)
+
+	cp := *plan
+
+	return &cp, nil
+}
+
+// CreateUsagePlanKey associates an API key with a usage plan.
+func (b *InMemoryBackend) CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*UsagePlanKey, error) {
+	if input.UsagePlanID == "" {
+		return nil, fmt.Errorf("%w: usagePlanId is required", ErrInvalidParameter)
+	}
+
+	if input.KeyID == "" {
+		return nil, fmt.Errorf("%w: keyId is required", ErrInvalidParameter)
+	}
+
+	if input.KeyType == "" {
+		return nil, fmt.Errorf("%w: keyType is required", ErrInvalidParameter)
+	}
+
+	if input.KeyType != "API_KEY" {
+		return nil, fmt.Errorf("%w: keyType must be API_KEY, got %q", ErrInvalidParameter, input.KeyType)
+	}
+
+	b.mu.Lock("CreateUsagePlanKey")
+	defer b.mu.Unlock()
+
+	if _, exists := b.usagePlans[input.UsagePlanID]; !exists {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	apiKey, exists := b.apiKeys[input.KeyID]
+	if !exists {
+		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, input.KeyID)
+	}
+
+	keys := b.usagePlanKeys[input.UsagePlanID]
+	if _, alreadyAssoc := keys[input.KeyID]; alreadyAssoc {
+		return nil, fmt.Errorf("%w: key %s already associated with usage plan", ErrAlreadyExists, input.KeyID)
+	}
+
+	upk := &UsagePlanKey{
+		ID:    apiKey.ID,
+		Type:  input.KeyType,
+		Value: apiKey.Value,
+		Name:  apiKey.Name,
+	}
+	keys[input.KeyID] = upk
+
+	cp := *upk
+
+	return &cp, nil
 }

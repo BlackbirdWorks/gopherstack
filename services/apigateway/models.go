@@ -210,3 +210,186 @@ type ErrorResponse struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`
 }
+
+// APIKey represents an API Gateway API key.
+type APIKey struct {
+	CreatedDate     unixEpochTime `json:"createdDate"`
+	LastUpdatedDate unixEpochTime `json:"lastUpdatedDate"`
+	Tags            *tags.Tags    `json:"tags,omitempty"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Description     string        `json:"description,omitempty"`
+	Value           string        `json:"value,omitempty"`
+	Enabled         bool          `json:"enabled"`
+}
+
+// CreateAPIKeyInput is the input for CreateAPIKey.
+type CreateAPIKeyInput struct {
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	Value       string     `json:"value,omitempty"`
+	Enabled     bool       `json:"enabled"`
+}
+
+// BasePathMapping maps a base path on a custom domain to an API stage.
+type BasePathMapping struct {
+	DomainName string `json:"domainName,omitempty"`
+	BasePath   string `json:"basePath"`
+	RestAPIID  string `json:"restApiId"`
+	Stage      string `json:"stage,omitempty"`
+}
+
+// CreateBasePathMappingInput is the input for CreateBasePathMapping.
+type CreateBasePathMappingInput struct {
+	DomainName string `json:"domainName"`
+	BasePath   string `json:"basePath"`
+	RestAPIID  string `json:"restApiId"`
+	Stage      string `json:"stage,omitempty"`
+}
+
+// DocumentationLocation specifies where a documentation part applies.
+type DocumentationLocation struct {
+	Type       string `json:"type"`
+	Path       string `json:"path,omitempty"`
+	Method     string `json:"method,omitempty"`
+	StatusCode string `json:"statusCode,omitempty"`
+	Name       string `json:"name,omitempty"`
+}
+
+// DocumentationPart represents a piece of API documentation.
+type DocumentationPart struct {
+	Location   DocumentationLocation `json:"location"`
+	ID         string                `json:"id"`
+	RestAPIID  string                `json:"-"`
+	Properties string                `json:"properties"`
+}
+
+// CreateDocumentationPartInput is the input for CreateDocumentationPart.
+type CreateDocumentationPartInput struct {
+	Location   DocumentationLocation `json:"location"`
+	RestAPIID  string                `json:"restApiId"`
+	Properties string                `json:"properties"`
+}
+
+// DocumentationVersion represents a versioned snapshot of API documentation.
+type DocumentationVersion struct {
+	CreatedDate unixEpochTime `json:"createdDate"`
+	RestAPIID   string        `json:"-"`
+	Version     string        `json:"version"`
+	Description string        `json:"description,omitempty"`
+}
+
+// CreateDocumentationVersionInput is the input for CreateDocumentationVersion.
+type CreateDocumentationVersionInput struct {
+	RestAPIID   string `json:"restApiId"`
+	Version     string `json:"documentationVersion"`
+	Description string `json:"description,omitempty"`
+}
+
+// DomainName represents a custom domain name for an API.
+type DomainName struct {
+	CreatedDate            *unixEpochTime `json:"createdDate,omitempty"`
+	Tags                   *tags.Tags     `json:"tags,omitempty"`
+	DomainNameValue        string         `json:"domainName"`
+	CertificateARN         string         `json:"certificateArn,omitempty"`
+	RegionalCertificateARN string         `json:"regionalCertificateArn,omitempty"`
+}
+
+// CreateDomainNameInput is the input for CreateDomainName.
+type CreateDomainNameInput struct {
+	Tags                   *tags.Tags `json:"tags,omitempty"`
+	DomainName             string     `json:"domainName"`
+	CertificateARN         string     `json:"certificateArn,omitempty"`
+	RegionalCertificateARN string     `json:"regionalCertificateArn,omitempty"`
+}
+
+// DomainNameAccessAssociation links a domain name to an access source such as a VPC endpoint.
+type DomainNameAccessAssociation struct {
+	DomainNameAccessAssociationARN string `json:"domainNameAccessAssociationArn,omitempty"`
+	DomainNameARN                  string `json:"domainNameArn"`
+	AccessAssociationSource        string `json:"accessAssociationSource"`
+	AccessAssociationSourceType    string `json:"accessAssociationSourceType"`
+}
+
+// CreateDomainNameAccessAssociationInput is the input for CreateDomainNameAccessAssociation.
+type CreateDomainNameAccessAssociationInput struct {
+	DomainNameARN               string `json:"domainNameArn"`
+	AccessAssociationSource     string `json:"accessAssociationSource"`
+	AccessAssociationSourceType string `json:"accessAssociationSourceType"`
+}
+
+// Model represents a data model for a REST API.
+type Model struct {
+	ID          string `json:"id"`
+	RestAPIID   string `json:"-"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Schema      string `json:"schema,omitempty"`
+}
+
+// CreateModelInput is the input for CreateModel.
+type CreateModelInput struct {
+	RestAPIID   string `json:"restApiId"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Schema      string `json:"schema,omitempty"`
+}
+
+// CreateStageInput is the input for the standalone CreateStage operation.
+type CreateStageInput struct {
+	Variables    map[string]string `json:"variables,omitempty"`
+	RestAPIID    string            `json:"restApiId"`
+	StageName    string            `json:"stageName"`
+	DeploymentID string            `json:"deploymentId"`
+	Description  string            `json:"description,omitempty"`
+}
+
+// ThrottleSettings controls request rate limiting for a usage plan.
+type ThrottleSettings struct {
+	BurstLimit int     `json:"burstLimit,omitempty"`
+	RateLimit  float64 `json:"rateLimit,omitempty"`
+}
+
+// QuotaSettings controls request quota limiting for a usage plan.
+type QuotaSettings struct {
+	Period string `json:"period,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Offset int    `json:"offset,omitempty"`
+}
+
+// UsagePlan represents an API Gateway usage plan.
+type UsagePlan struct {
+	Tags        *tags.Tags        `json:"tags,omitempty"`
+	Throttle    *ThrottleSettings `json:"throttle,omitempty"`
+	Quota       *QuotaSettings    `json:"quota,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+}
+
+// CreateUsagePlanInput is the input for CreateUsagePlan.
+type CreateUsagePlanInput struct {
+	Tags        *tags.Tags        `json:"tags,omitempty"`
+	Throttle    *ThrottleSettings `json:"throttle,omitempty"`
+	Quota       *QuotaSettings    `json:"quota,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+}
+
+// UsagePlanKey represents an API key associated with a usage plan.
+type UsagePlanKey struct {
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	Value string `json:"value,omitempty"`
+	Name  string `json:"name,omitempty"`
+}
+
+// CreateUsagePlanKeyInput is the input for CreateUsagePlanKey.
+type CreateUsagePlanKeyInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+	KeyID       string `json:"keyId"`
+	KeyType     string `json:"keyType"`
+}
