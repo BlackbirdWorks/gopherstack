@@ -1018,9 +1018,8 @@ func (b *InMemoryBackend) GetConfiguration(
 		return nil, err
 	}
 
-	_, envErr := b.resolveEnvID(appID, environment)
-	if envErr != nil {
-		return nil, envErr
+	if _, err = b.resolveEnvID(appID, environment); err != nil {
+		return nil, err
 	}
 
 	profileID, err := b.resolveProfileID(appID, configuration)
