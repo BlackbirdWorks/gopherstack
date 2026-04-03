@@ -1661,8 +1661,8 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 	tagKeysRaw := c.Request().URL.Query().Get("tagKeys")
 	tagKeys := strings.Split(tagKeysRaw, ",")
 
-	// Filter out empty strings.
-	filtered := tagKeys[:0]
+	// Filter out empty strings that result from missing/empty query parameter.
+	filtered := make([]string, 0, len(tagKeys))
 	for _, k := range tagKeys {
 		if k != "" {
 			filtered = append(filtered, k)

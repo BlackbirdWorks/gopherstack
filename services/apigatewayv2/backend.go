@@ -1847,7 +1847,9 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 }
 
 // arnToAPIID extracts the API ID from a resource ARN. For the in-memory
-// backend the last path segment of the ARN is used as the API ID.
+// backend the last path segment of the ARN is used as the API ID (e.g.
+// "arn:aws:apigateway:us-east-1::/apis/abc123" → "abc123").
+// An ARN with no slashes (e.g. a bare API ID) is returned unchanged.
 // [strings.Split] always returns at least one element so len(parts)-1 is safe.
 func arnToAPIID(arn string) string {
 	if arn == "" {
