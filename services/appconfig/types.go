@@ -25,6 +25,10 @@ var (
 	ErrExtensionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrExtensionAssociationNotFound is returned when the requested extension association does not exist.
 	ErrExtensionAssociationNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrExtensionAlreadyExists is returned when an extension with the same name already exists.
+	ErrExtensionAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrBadRequest is returned when a required field is missing or invalid.
+	ErrBadRequest = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 // Application represents an AppConfig application.

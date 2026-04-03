@@ -79,6 +79,10 @@ func (b *InMemoryBackend) CreateApplication(name, description string) (*Applicat
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
 	now := time.Now()
 	app := &Application{
 		ID:          newResourceID(),
@@ -834,6 +838,17 @@ func (b *InMemoryBackend) CreateExtension(
 	b.mu.Lock("CreateExtension")
 	defer b.mu.Unlock()
 
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
+	// Enforce name uniqueness.
+	for _, ext := range b.extensions {
+		if ext.Name == name {
+			return nil, fmt.Errorf("%w: extension with name %s already exists", ErrExtensionAlreadyExists, name)
+		}
+	}
+
 	id := newResourceID()
 	ext := &Extension{
 		ID:            id,
@@ -880,13 +895,18 @@ func (b *InMemoryBackend) GetExtension(extensionIdentifier string) (*Extension, 
 	return &cp, nil
 }
 
-// ListExtensions returns paginated extensions.
-func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int) ([]Extension, string) {
+// ListExtensions returns paginated extensions, optionally filtered by name.
+func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameFilter string) ([]Extension, string) {
 	b.mu.RLock("ListExtensions")
 	defer b.mu.RUnlock()
 
 	out := make([]Extension, 0, len(b.extensions))
+
 	for _, ext := range b.extensions {
+		if nameFilter != "" && ext.Name != nameFilter {
+			continue
+		}
+
 		out = append(out, *ext)
 	}
 
@@ -895,6 +915,36 @@ func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int) ([]Ex
 	page, token := appConfigPaginate(out, nextToken, maxResults)
 
 	return page, token
+}
+
+// UpdateExtension updates an extension's description, actions, and parameters.
+func (b *InMemoryBackend) UpdateExtension(
+	extensionIdentifier, description string,
+	actions map[string][]ExtensionAction,
+	parameters map[string]ExtensionParameter,
+) (*Extension, error) {
+	b.mu.Lock("UpdateExtension")
+	defer b.mu.Unlock()
+
+	ext := b.resolveExtension(extensionIdentifier)
+	if ext == nil {
+		return nil, fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
+	}
+
+	ext.Description = description
+
+	if actions != nil {
+		ext.Actions = actions
+	}
+
+	if parameters != nil {
+		ext.Parameters = parameters
+	}
+
+	ext.VersionNumber++
+	cp := *ext
+
+	return &cp, nil
 }
 
 // DeleteExtension deletes an extension by identifier (ID or name).
@@ -921,6 +971,14 @@ func (b *InMemoryBackend) CreateExtensionAssociation(
 ) (*ExtensionAssociation, error) {
 	b.mu.Lock("CreateExtensionAssociation")
 	defer b.mu.Unlock()
+
+	if extensionIdentifier == "" {
+		return nil, fmt.Errorf("%w: ExtensionIdentifier is required", ErrBadRequest)
+	}
+
+	if resourceIdentifier == "" {
+		return nil, fmt.Errorf("%w: ResourceIdentifier is required", ErrBadRequest)
+	}
 
 	ext := b.resolveExtension(extensionIdentifier)
 	if ext == nil {
@@ -1003,6 +1061,62 @@ func (b *InMemoryBackend) GetAccountSettings() (*AccountSettings, error) {
 	cp := b.accountSettings
 
 	return &cp, nil
+}
+
+// UpdateAccountSettings updates account-level AppConfig settings.
+func (b *InMemoryBackend) UpdateAccountSettings(
+	deletionProtection *DeletionProtectionSettings,
+) (*AccountSettings, error) {
+	b.mu.Lock("UpdateAccountSettings")
+	defer b.mu.Unlock()
+
+	if deletionProtection != nil {
+		b.accountSettings.DeletionProtection = deletionProtection
+	}
+
+	cp := b.accountSettings
+
+	return &cp, nil
+}
+
+// UpdateExtensionAssociation updates an extension association's parameters.
+func (b *InMemoryBackend) UpdateExtensionAssociation(
+	extensionAssociationID string,
+	parameters map[string]string,
+) (*ExtensionAssociation, error) {
+	b.mu.Lock("UpdateExtensionAssociation")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.extensionAssociations[extensionAssociationID]
+	if !ok {
+		return nil, fmt.Errorf("%w: extension association %s", ErrExtensionAssociationNotFound, extensionAssociationID)
+	}
+
+	if parameters != nil {
+		assoc.Parameters = parameters
+	}
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// ValidateConfiguration validates a configuration version against its validators.
+// In this implementation, all well-formed configurations are considered valid.
+func (b *InMemoryBackend) ValidateConfiguration(applicationID, profileID, _ string) error {
+	b.mu.RLock("ValidateConfiguration")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationID]; !ok {
+		return fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+	}
+
+	profiles, ok := b.configProfiles[applicationID]
+	if !ok || profiles[profileID] == nil {
+		return fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+	}
+
+	return nil
 }
 
 // GetConfiguration retrieves the latest deployed configuration for the given application,

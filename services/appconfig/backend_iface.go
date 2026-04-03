@@ -101,8 +101,14 @@ type StorageBackend interface {
 	) (*Extension, error)
 	// GetExtension retrieves an extension by identifier (ID or name).
 	GetExtension(extensionIdentifier string) (*Extension, error)
-	// ListExtensions returns paginated extensions.
-	ListExtensions(nextToken string, maxResults int) ([]Extension, string)
+	// ListExtensions returns paginated extensions, optionally filtered by name.
+	ListExtensions(nextToken string, maxResults int, nameFilter string) ([]Extension, string)
+	// UpdateExtension updates an extension's description, actions, and parameters.
+	UpdateExtension(
+		extensionIdentifier, description string,
+		actions map[string][]ExtensionAction,
+		parameters map[string]ExtensionParameter,
+	) (*Extension, error)
 	// DeleteExtension deletes an extension by identifier (ID or name).
 	DeleteExtension(extensionIdentifier string) error
 
@@ -116,12 +122,21 @@ type StorageBackend interface {
 	GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error)
 	// ListExtensionAssociations returns paginated extension associations.
 	ListExtensionAssociations(nextToken string, maxResults int) ([]ExtensionAssociation, string)
+	// UpdateExtensionAssociation updates an extension association's parameters.
+	UpdateExtensionAssociation(
+		extensionAssociationID string,
+		parameters map[string]string,
+	) (*ExtensionAssociation, error)
 	// DeleteExtensionAssociation deletes an extension association by ID.
 	DeleteExtensionAssociation(extensionAssociationID string) error
 
 	// GetAccountSettings returns the account-level AppConfig settings.
 	GetAccountSettings() (*AccountSettings, error)
+	// UpdateAccountSettings updates account-level AppConfig settings.
+	UpdateAccountSettings(deletionProtection *DeletionProtectionSettings) (*AccountSettings, error)
 
 	// GetConfiguration retrieves the latest deployed configuration (deprecated API).
 	GetConfiguration(application, environment, configuration string) (*HostedConfigurationVersion, error)
+	// ValidateConfiguration validates a configuration version against its validators.
+	ValidateConfiguration(applicationID, profileID, configurationVersion string) error
 }

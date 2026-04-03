@@ -76,13 +76,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateExtension",
 		"GetExtension",
 		"ListExtensions",
+		"UpdateExtension",
 		"DeleteExtension",
 		"CreateExtensionAssociation",
 		"GetExtensionAssociation",
 		"ListExtensionAssociations",
+		"UpdateExtensionAssociation",
 		"DeleteExtensionAssociation",
 		"GetAccountSettings",
+		"UpdateAccountSettings",
 		"GetConfiguration",
+		"ValidateConfiguration",
 	}
 }
 
@@ -165,8 +169,13 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 	case "extensionassociations":
 		return parseExtensionAssociationRoute(method, parts)
 	case "settings":
-		if method == http.MethodGet && len(parts) == 1 {
-			return appConfigRoute{operation: "GetAccountSettings"}
+		if len(parts) == 1 {
+			switch method {
+			case http.MethodGet:
+				return appConfigRoute{operation: "GetAccountSettings"}
+			case http.MethodPatch:
+				return appConfigRoute{operation: "UpdateAccountSettings"}
+			}
 		}
 	case "tags":
 		// ARN spans all remaining path segments joined by "/"
@@ -210,6 +219,8 @@ func parseExtensionRoute(method string, parts []string) appConfigRoute {
 	switch method {
 	case http.MethodGet:
 		return appConfigRoute{extensionID: extID, operation: "GetExtension"}
+	case http.MethodPatch:
+		return appConfigRoute{extensionID: extID, operation: "UpdateExtension"}
 	case http.MethodDelete:
 		return appConfigRoute{extensionID: extID, operation: "DeleteExtension"}
 	}
@@ -234,6 +245,8 @@ func parseExtensionAssociationRoute(method string, parts []string) appConfigRout
 	switch method {
 	case http.MethodGet:
 		return appConfigRoute{extensionAssociationID: assocID, operation: "GetExtensionAssociation"}
+	case http.MethodPatch:
+		return appConfigRoute{extensionAssociationID: assocID, operation: "UpdateExtensionAssociation"}
 	case http.MethodDelete:
 		return appConfigRoute{extensionAssociationID: assocID, operation: "DeleteExtensionAssociation"}
 	}
@@ -425,6 +438,14 @@ func parseConfigProfileRoute(method, appID string, parts []string) appConfigRout
 		return parseHostedVersionRoute(method, appID, profileID, parts)
 	}
 
+	if len(parts) == pathPartsDeepLevel && parts[4] == "validators" && method == http.MethodPost {
+		return appConfigRoute{
+			applicationID: appID,
+			profileID:     profileID,
+			operation:     "ValidateConfiguration",
+		}
+	}
+
 	return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
 }
 
@@ -493,7 +514,7 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 
 // Handler returns the Echo handler function for AppConfig operations.
 //
-//nolint:cyclop,gocyclo // dispatch table requires multiple branches
+//nolint:cyclop,gocyclo,funlen // dispatch table requires multiple branches
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		log := logger.Load(c.Request().Context())
@@ -573,6 +594,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleGetExtension(c, route.extensionID)
 		case "ListExtensions":
 			return h.handleListExtensions(c)
+		case "UpdateExtension":
+			return h.handleUpdateExtension(c, route.extensionID)
 		case "DeleteExtension":
 			return h.handleDeleteExtension(c, route.extensionID)
 		case "CreateExtensionAssociation":
@@ -581,12 +604,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleGetExtensionAssociation(c, route.extensionAssociationID)
 		case "ListExtensionAssociations":
 			return h.handleListExtensionAssociations(c)
+		case "UpdateExtensionAssociation":
+			return h.handleUpdateExtensionAssociation(c, route.extensionAssociationID)
 		case "DeleteExtensionAssociation":
 			return h.handleDeleteExtensionAssociation(c, route.extensionAssociationID)
 		case "GetAccountSettings":
 			return h.handleGetAccountSettings(c)
+		case "UpdateAccountSettings":
+			return h.handleUpdateAccountSettings(c)
 		case "GetConfiguration":
 			return h.handleGetConfiguration(c, route.applicationID, route.environmentID, route.configurationID)
+		case "ValidateConfiguration":
+			return h.handleValidateConfiguration(c, route.applicationID, route.profileID)
 		default:
 			log.Warn("appconfig: unmatched route", "method", c.Request().Method, "path", c.Request().URL.Path)
 
@@ -597,6 +626,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func notFoundResponse(c *echo.Context, err error) error {
 	return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+}
+
+func badRequestResponse(c *echo.Context, err error) error {
+	return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+}
+
+func conflictResponse(c *echo.Context, err error) error {
+	return c.JSON(http.StatusConflict, map[string]string{"message": err.Error()})
 }
 
 func (h *Handler) handleCreateApplication(c *echo.Context) error {
@@ -610,6 +647,10 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 
 	app, err := h.Backend.CreateApplication(req.Name, req.Description)
 	if err != nil {
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -1184,6 +1225,14 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 
 	ext, err := h.Backend.CreateExtension(req.Name, req.Description, req.Actions, req.Parameters)
 	if err != nil {
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -1205,7 +1254,8 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 
 func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults)
+	nameFilter := c.Request().URL.Query().Get("name")
+	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter)
 
 	resp := map[string]any{"Items": exts}
 	if outToken != "" {
@@ -1213,6 +1263,28 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) error {
+	var req struct {
+		Actions     map[string][]ExtensionAction  `json:"Actions"`
+		Parameters  map[string]ExtensionParameter `json:"Parameters"`
+		Description string                        `json:"Description"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+	}
+
+	ext, err := h.Backend.UpdateExtension(extensionID, req.Description, req.Actions, req.Parameters)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, ext)
 }
 
 func (h *Handler) handleDeleteExtension(c *echo.Context, extensionID string) error {
@@ -1245,6 +1317,10 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 		req.ExtensionVersionNumber,
 	)
 	if err != nil {
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
@@ -1280,6 +1356,26 @@ func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+func (h *Handler) handleUpdateExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
+	var req struct {
+		Parameters map[string]string `json:"Parameters"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+	}
+
+	assoc, err := h.Backend.UpdateExtensionAssociation(extensionAssociationID, req.Parameters)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, assoc)
+}
+
 func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
 	if err := h.Backend.DeleteExtensionAssociation(extensionAssociationID); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
@@ -1294,6 +1390,22 @@ func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAss
 
 func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
 	settings, err := h.Backend.GetAccountSettings()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, settings)
+}
+
+func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
+	var req struct {
+		DeletionProtection *DeletionProtectionSettings `json:"DeletionProtection"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+	}
+
+	settings, err := h.Backend.UpdateAccountSettings(req.DeletionProtection)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
@@ -1325,6 +1437,20 @@ func (h *Handler) handleGetConfiguration(c *echo.Context, application, environme
 	}
 
 	return c.Blob(http.StatusOK, contentType, v.Content)
+}
+
+func (h *Handler) handleValidateConfiguration(c *echo.Context, applicationID, profileID string) error {
+	configVersion := c.Request().URL.Query().Get("configuration_version")
+
+	if err := h.Backend.ValidateConfiguration(applicationID, profileID, configVersion); err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 // appConfigPaginationParams reads the next_token and max_results query parameters.
