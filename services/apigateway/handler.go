@@ -23,15 +23,25 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 
 // path segment constants used in REST route matching.
 const (
-	apiGWUnknownOp      = "Unknown"
-	apiGWSegResources   = "resources"
-	apiGWSegDeployment  = "deployments"
-	apiGWSegStages      = "stages"
-	apiGWSegMethods     = "methods"
-	apiGWSegInteg       = "integration"
-	apiGWSegResponses   = "responses"
-	apiGWSegAuthorizers = "authorizers"
-	apiGWSegValidators  = "requestvalidators"
+	apiGWUnknownOp             = "Unknown"
+	apiGWSegResources          = "resources"
+	apiGWSegDeployment         = "deployments"
+	apiGWSegStages             = "stages"
+	apiGWSegMethods            = "methods"
+	apiGWSegInteg              = "integration"
+	apiGWSegResponses          = "responses"
+	apiGWSegAuthorizers        = "authorizers"
+	apiGWSegValidators         = "requestvalidators"
+	apiGWSegAPIKeys            = "apikeys"
+	apiGWSegDomainNames        = "domainnames"
+	apiGWSegBasePathMappings   = "basepathmappings"
+	apiGWSegAccessAssociations = "accessassociations"
+	apiGWSegDocumentation      = "documentation"
+	apiGWSegDocParts           = "parts"
+	apiGWSegDocVersions        = "versions"
+	apiGWSegModels             = "models"
+	apiGWSegUsagePlans         = "usageplans"
+	apiGWSegUsagePlanKeys      = "keys"
 )
 
 type createRestAPIInput struct {
@@ -343,6 +353,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetRequestValidators",
 		"UpdateRequestValidator",
 		"DeleteRequestValidator",
+		"CreateApiKey",
+		"CreateBasePathMapping",
+		"CreateDocumentationPart",
+		"CreateDocumentationVersion",
+		"CreateDomainName",
+		"CreateDomainNameAccessAssociation",
+		"CreateModel",
+		"CreateStage",
+		"CreateUsagePlan",
+		"CreateUsagePlanKey",
 	}
 }
 
@@ -356,14 +376,19 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a matcher for API Gateway requests.
-// Matches both X-Amz-Target (JSON protocol) and REST API paths (/restapis/...).
+// Matches X-Amz-Target (JSON protocol) and REST paths (/restapis/..., /apikeys, /domainnames/..., /usageplans/...).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return true
 		}
 
-		return strings.HasPrefix(c.Request().URL.Path, "/restapis")
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, "/restapis") ||
+			strings.HasPrefix(path, "/apikeys") ||
+			strings.HasPrefix(path, "/domainnames") ||
+			strings.HasPrefix(path, "/usageplans")
 	}
 }
 
@@ -424,9 +449,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleUserRequestEcho(c)
 		}
 
-		// REST API paths: /restapis/...
-		if strings.HasPrefix(c.Request().URL.Path, "/restapis") &&
-			!strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
+		// REST API paths: /restapis/..., /apikeys, /domainnames/..., /usageplans/...
+		path := c.Request().URL.Path
+		isRESTPath := strings.HasPrefix(path, "/restapis") ||
+			strings.HasPrefix(path, "/apikeys") ||
+			strings.HasPrefix(path, "/domainnames") ||
+			strings.HasPrefix(path, "/usageplans")
+
+		if isRESTPath && !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return h.handleRESTAPI(c)
 		}
 
@@ -541,18 +571,74 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 
 // parseAPIGWRESTPath maps an HTTP method + URL path to an API Gateway operation name
 // and extracts path parameters. Returns ("Unknown", nil, false) when no pattern matches.
-//
-//nolint:cyclop,gocyclo,gocognit,funlen // path routing table is inherently a multi-branch switch
 func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 	// Strip leading "/" and split into path segments.
 	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	n := len(segs)
 
-	// All API Gateway REST paths start with "restapis".
-	if n == 0 || segs[0] != "restapis" {
+	if n == 0 {
 		return apiGWUnknownOp, nil, false
 	}
 
+	switch segs[0] {
+	case "restapis":
+		return parseAPIGWRestAPIsPath(method, segs, n)
+	case apiGWSegAPIKeys:
+		return parseAPIGWAPIKeysPath(method, segs, n)
+	case apiGWSegDomainNames:
+		return parseAPIGWDomainNamesPath(method, segs, n)
+	case apiGWSegUsagePlans:
+		return parseAPIGWUsagePlansPath(method, segs, n)
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWAPIKeysPath handles /apikeys/... paths.
+func parseAPIGWAPIKeysPath(method string, _ []string, n int) (string, map[string]string, bool) {
+	// POST /apikeys → CreateAPIKey
+	if n == 1 && method == http.MethodPost {
+		return "CreateApiKey", nil, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWDomainNamesPath handles /domainnames/... paths.
+func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch {
+	// POST /domainnames → CreateDomainName
+	case n == 1 && method == http.MethodPost:
+		return "CreateDomainName", nil, true
+	// POST /domainnames/{domainName}/basepathmappings → CreateBasePathMapping
+	case n == 3 && segs[2] == apiGWSegBasePathMappings && method == http.MethodPost:
+		return "CreateBasePathMapping", map[string]string{"domainName": segs[1]}, true
+	// POST /domainnames/{domainName}/accessassociations → CreateDomainNameAccessAssociation
+	case n == 3 && segs[2] == apiGWSegAccessAssociations && method == http.MethodPost:
+		return "CreateDomainNameAccessAssociation", map[string]string{"domainName": segs[1]}, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWUsagePlansPath handles /usageplans/... paths.
+func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch {
+	// POST /usageplans → CreateUsagePlan
+	case n == 1 && method == http.MethodPost:
+		return "CreateUsagePlan", nil, true
+	// POST /usageplans/{usagePlanId}/keys → CreateUsagePlanKey
+	case n == 3 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodPost:
+		return "CreateUsagePlanKey", map[string]string{"usagePlanId": segs[1]}, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsPath handles /restapis/... paths.
+//
+//nolint:cyclop,gocyclo,gocognit,funlen // path routing table is inherently a multi-branch switch
+func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch {
 	// POST /restapis → CreateRestApi
 	case n == 1 && method == http.MethodPost:
@@ -632,6 +718,18 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 	// DELETE /restapis/{id}/requestvalidators/{id} → DeleteRequestValidator
 	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodDelete:
 		return "DeleteRequestValidator", map[string]string{"restApiId": segs[1], "requestValidatorId": segs[3]}, true
+	// POST /restapis/{id}/stages → CreateStage (standalone)
+	case n == 3 && segs[2] == apiGWSegStages && method == http.MethodPost:
+		return "CreateStage", map[string]string{"restApiId": segs[1]}, true
+	// POST /restapis/{id}/models → CreateModel
+	case n == 3 && segs[2] == apiGWSegModels && method == http.MethodPost:
+		return "CreateModel", map[string]string{"restApiId": segs[1]}, true
+	// POST /restapis/{id}/documentation/parts → CreateDocumentationPart
+	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodPost:
+		return "CreateDocumentationPart", map[string]string{"restApiId": segs[1]}, true
+	// POST /restapis/{id}/documentation/versions → CreateDocumentationVersion
+	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodPost:
+		return "CreateDocumentationVersion", map[string]string{"restApiId": segs[1]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1368,8 +1466,145 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.deploymentActions())
 	maps.Copy(table, h.authorizerActions())
 	maps.Copy(table, h.requestValidatorActions())
+	maps.Copy(table, h.newResourceActions())
 
 	return table
+}
+
+//nolint:cyclop,funlen,gocognit // action table - one closure per op; complexity unavoidable
+func (h *Handler) newResourceActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateApiKey": func(b []byte) (int, any, error) {
+			var input CreateAPIKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			key, err := h.Backend.CreateAPIKey(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, key, nil
+		},
+		"CreateBasePathMapping": func(b []byte) (int, any, error) {
+			var input CreateBasePathMappingInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			bpm, err := h.Backend.CreateBasePathMapping(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, bpm, nil
+		},
+		"CreateDocumentationPart": func(b []byte) (int, any, error) {
+			var input CreateDocumentationPartInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			part, err := h.Backend.CreateDocumentationPart(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, part, nil
+		},
+		"CreateDocumentationVersion": func(b []byte) (int, any, error) {
+			var input CreateDocumentationVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			ver, err := h.Backend.CreateDocumentationVersion(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, ver, nil
+		},
+		"CreateDomainName": func(b []byte) (int, any, error) {
+			var input CreateDomainNameInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			dn, err := h.Backend.CreateDomainName(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, dn, nil
+		},
+		"CreateDomainNameAccessAssociation": func(b []byte) (int, any, error) {
+			var input CreateDomainNameAccessAssociationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			assoc, err := h.Backend.CreateDomainNameAccessAssociation(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, assoc, nil
+		},
+		"CreateModel": func(b []byte) (int, any, error) {
+			var input CreateModelInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			model, err := h.Backend.CreateModel(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, model, nil
+		},
+		"CreateStage": func(b []byte) (int, any, error) {
+			var input CreateStageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			stage, err := h.Backend.CreateStage(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, stage, nil
+		},
+		"CreateUsagePlan": func(b []byte) (int, any, error) {
+			var input CreateUsagePlanInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			plan, err := h.Backend.CreateUsagePlan(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, plan, nil
+		},
+		"CreateUsagePlanKey": func(b []byte) (int, any, error) {
+			var input CreateUsagePlanKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			upk, err := h.Backend.CreateUsagePlanKey(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, upk, nil
+		},
+	}
 }
 
 // dispatch routes the action to the correct handler function.
@@ -1408,7 +1643,16 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrIntegrationResponseNotFound),
 		errors.Is(reqErr, ErrDeploymentNotFound),
 		errors.Is(reqErr, ErrAuthorizerNotFound),
-		errors.Is(reqErr, ErrValidatorNotFound):
+		errors.Is(reqErr, ErrValidatorNotFound),
+		errors.Is(reqErr, ErrAPIKeyNotFound),
+		errors.Is(reqErr, ErrBasePathMappingNotFound),
+		errors.Is(reqErr, ErrDocumentationPartNotFound),
+		errors.Is(reqErr, ErrDocumentationVersionNotFound),
+		errors.Is(reqErr, ErrDomainNameNotFound),
+		errors.Is(reqErr, ErrDomainNameAccessAssociationNotFound),
+		errors.Is(reqErr, ErrModelNotFound),
+		errors.Is(reqErr, ErrUsagePlanNotFound),
+		errors.Is(reqErr, ErrUsagePlanKeyNotFound):
 		errType = "NotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrAlreadyExists):

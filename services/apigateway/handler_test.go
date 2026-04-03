@@ -665,3 +665,604 @@ func TestBuildProxyEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_CreateAPIKey(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	// Pre-create a key to test duplicate name validation.
+	setupRec := postWithHandler(t, handler, e, "CreateApiKey", `{"name":"dup-key","enabled":true}`)
+	require.Equal(t, http.StatusCreated, setupRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantName   string
+		wantValue  string
+		wantStatus int
+	}{
+		{
+			name:       "success_with_explicit_value",
+			body:       `{"name":"my-key","value":"abc123","enabled":true}`,
+			wantStatus: http.StatusCreated,
+			wantName:   "my-key",
+			wantValue:  "abc123",
+		},
+		{
+			name:       "success_auto_generated_value",
+			body:       `{"name":"auto-key","enabled":false}`,
+			wantStatus: http.StatusCreated,
+			wantName:   "auto-key",
+		},
+		{
+			name:       "missing_name",
+			body:       `{"enabled":true}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_name",
+			body:       `{"name":"dup-key","enabled":true}`,
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateApiKey", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantName, resp["name"])
+				// value must be non-empty (either provided or auto-generated)
+				assert.NotEmpty(t, resp["value"])
+				if tt.wantValue != "" {
+					assert.Equal(t, tt.wantValue, resp["value"])
+				}
+			}
+		})
+	}
+}
+
+func TestHandler_CreateBasePathMapping(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	// Pre-create to test duplicate detection.
+	setupRec := postWithHandler(t, handler, e, "CreateBasePathMapping",
+		`{"domainName":"dup.example.com","basePath":"v1","restApiId":"abc123"}`)
+	require.Equal(t, http.StatusCreated, setupRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       `{"domainName":"api.example.com","basePath":"v1","restApiId":"abc123"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_domain_name",
+			body:       `{"basePath":"v1","restApiId":"abc123"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_rest_api_id",
+			body:       `{"domainName":"api.example.com","basePath":"v1"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_base_path",
+			body:       `{"domainName":"dup.example.com","basePath":"v1","restApiId":"abc123"}`,
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateBasePathMapping", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDocumentationPart(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	apiRec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"test-api"}`)
+	require.Equal(t, http.StatusCreated, apiRec.Code)
+
+	var apiResp map[string]any
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	apiID, _ := apiResp["id"].(string)
+	require.NotEmpty(t, apiID)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			body: fmt.Sprintf(
+				`{"restApiId":%q,"location":{"type":"METHOD","path":"/pets","method":"GET"},`+
+					`"properties":"{\"description\":\"pets\"}"}`,
+				apiID,
+			),
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_location_type",
+			body:       fmt.Sprintf(`{"restApiId":%q,"location":{},"properties":"{}"}`, apiID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "api_not_found",
+			body:       `{"restApiId":"notexist","location":{"type":"METHOD"},"properties":"{}"}`,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateDocumentationPart", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDocumentationVersion(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	apiRec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"test-api"}`)
+	require.Equal(t, http.StatusCreated, apiRec.Code)
+
+	var apiResp map[string]any
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	apiID, _ := apiResp["id"].(string)
+	require.NotEmpty(t, apiID)
+
+	// Pre-create to test duplicate.
+	setupRec := postWithHandler(t, handler, e, "CreateDocumentationVersion",
+		fmt.Sprintf(`{"restApiId":%q,"documentationVersion":"dup"}`, apiID))
+	require.Equal(t, http.StatusCreated, setupRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       fmt.Sprintf(`{"restApiId":%q,"documentationVersion":"1.0","description":"initial"}`, apiID),
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "duplicate_version",
+			body:       fmt.Sprintf(`{"restApiId":%q,"documentationVersion":"dup"}`, apiID),
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "missing_version",
+			body:       fmt.Sprintf(`{"restApiId":%q}`, apiID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "api_not_found",
+			body:       `{"restApiId":"notexist","documentationVersion":"1.0"}`,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateDocumentationVersion", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDomainName(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	// Pre-create to test duplicate.
+	setupRec := postWithHandler(t, handler, e, "CreateDomainName", `{"domainName":"dup.example.com"}`)
+	require.Equal(t, http.StatusCreated, setupRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "success_minimal",
+			body:       `{"domainName":"api.example.com"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "success_with_certificate",
+			body:       `{"domainName":"secure.example.com","certificateArn":"arn:aws:acm:us-east-1:123:certificate/abc"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_domain_name",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_domain_name",
+			body:       `{"domainName":"dup.example.com"}`,
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateDomainName", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDomainNameAccessAssociation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			body: `{"domainNameArn":"arn:aws:apigateway:us-east-1::/domainnames/api.example.com",` +
+				`"accessAssociationSource":"vpce-12345","accessAssociationSourceType":"VPCE"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_arn",
+			body:       `{"accessAssociationSource":"vpce-12345","accessAssociationSourceType":"VPCE"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_source",
+			body: `{"domainNameArn":"arn:aws:apigateway:us-east-1::/domainnames/api.example.com",` +
+				`"accessAssociationSourceType":"VPCE"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_source_type",
+			body: `{"domainNameArn":"arn:aws:apigateway:us-east-1::/domainnames/api.example.com",` +
+				`"accessAssociationSource":"vpce-12345"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	handler, e := sharedSetup()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateDomainNameAccessAssociation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateModel(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	apiRec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"test-api"}`)
+	require.Equal(t, http.StatusCreated, apiRec.Code)
+
+	var apiResp map[string]any
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	apiID, _ := apiResp["id"].(string)
+	require.NotEmpty(t, apiID)
+
+	// Pre-create to test duplicate name.
+	setupRec := postWithHandler(t, handler, e, "CreateModel",
+		fmt.Sprintf(`{"restApiId":%q,"name":"DupModel","contentType":"application/json"}`, apiID))
+	require.Equal(t, http.StatusCreated, setupRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success_with_schema",
+			body: fmt.Sprintf(
+				`{"restApiId":%q,"name":"User","contentType":"application/json","schema":"{\"type\":\"object\"}"}`,
+				apiID,
+			),
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_name",
+			body:       fmt.Sprintf(`{"restApiId":%q,"contentType":"application/json"}`, apiID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_content_type",
+			body:       fmt.Sprintf(`{"restApiId":%q,"name":"Order"}`, apiID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_model_name",
+			body:       fmt.Sprintf(`{"restApiId":%q,"name":"DupModel","contentType":"application/json"}`, apiID),
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "api_not_found",
+			body:       `{"restApiId":"notexist","name":"User","contentType":"application/json"}`,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateModel", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateStageStandalone(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	// Create REST API and a deployment first.
+	apiRec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"test-api"}`)
+	require.Equal(t, http.StatusCreated, apiRec.Code)
+
+	var apiResp map[string]any
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	apiID, _ := apiResp["id"].(string)
+	require.NotEmpty(t, apiID)
+
+	deplRec := postWithHandler(t, handler, e, "CreateDeployment", fmt.Sprintf(`{"restApiId":%q}`, apiID))
+	require.Equal(t, http.StatusCreated, deplRec.Code)
+
+	var deplResp map[string]any
+	require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &deplResp))
+	deplID, _ := deplResp["id"].(string)
+	require.NotEmpty(t, deplID)
+
+	// Pre-create a stage to test duplicate.
+	setupRec := postWithHandler(t, handler, e, "CreateStage",
+		fmt.Sprintf(`{"restApiId":%q,"stageName":"dup","deploymentId":%q}`, apiID, deplID))
+	require.Equal(t, http.StatusCreated, setupRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success_with_variables",
+			body: fmt.Sprintf(
+				`{"restApiId":%q,"stageName":"prod","deploymentId":%q,"variables":{"env":"production"}}`,
+				apiID,
+				deplID,
+			),
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "success_minimal",
+			body:       fmt.Sprintf(`{"restApiId":%q,"stageName":"beta","deploymentId":%q}`, apiID, deplID),
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "duplicate_stage_name",
+			body:       fmt.Sprintf(`{"restApiId":%q,"stageName":"dup","deploymentId":%q}`, apiID, deplID),
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "deployment_not_found",
+			body:       fmt.Sprintf(`{"restApiId":%q,"stageName":"gamma","deploymentId":"notexist"}`, apiID),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "missing_stage_name",
+			body:       fmt.Sprintf(`{"restApiId":%q,"deploymentId":%q}`, apiID, deplID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "api_not_found",
+			body:       fmt.Sprintf(`{"restApiId":"notexist","stageName":"prod","deploymentId":%q}`, deplID),
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateStage", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateUsagePlan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		checkResp  func(t *testing.T, resp map[string]any)
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "success_minimal",
+			body:       `{"name":"basic-plan"}`,
+			wantStatus: http.StatusCreated,
+			checkResp: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Equal(t, "basic-plan", resp["name"])
+				assert.NotEmpty(t, resp["id"])
+			},
+		},
+		{
+			name:       "success_with_throttle",
+			body:       `{"name":"throttled","throttle":{"burstLimit":100,"rateLimit":50.0}}`,
+			wantStatus: http.StatusCreated,
+			checkResp: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				throttle, ok := resp["throttle"].(map[string]any)
+				require.True(t, ok)
+				assert.InDelta(t, float64(100), throttle["burstLimit"], 0.001)
+			},
+		},
+		{
+			name:       "success_with_quota",
+			body:       `{"name":"quota-plan","quota":{"limit":1000,"period":"MONTH"}}`,
+			wantStatus: http.StatusCreated,
+			checkResp: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				quota, ok := resp["quota"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "MONTH", quota["period"])
+			},
+		},
+		{
+			name:       "missing_name",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	handler, e := sharedSetup()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateUsagePlan", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp != nil && rec.Code == http.StatusCreated {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.checkResp(t, resp)
+			}
+		})
+	}
+}
+
+func TestHandler_CreateUsagePlanKey(t *testing.T) {
+	t.Parallel()
+
+	handler, e := sharedSetup()
+
+	// Create prerequisite API key and usage plan.
+	keyRec := postWithHandler(t, handler, e, "CreateApiKey", `{"name":"test-key","enabled":true}`)
+	require.Equal(t, http.StatusCreated, keyRec.Code)
+
+	var keyResp map[string]any
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &keyResp))
+	keyID, _ := keyResp["id"].(string)
+	require.NotEmpty(t, keyID)
+
+	planRec := postWithHandler(t, handler, e, "CreateUsagePlan", `{"name":"test-plan"}`)
+	require.Equal(t, http.StatusCreated, planRec.Code)
+
+	var planResp map[string]any
+	require.NoError(t, json.Unmarshal(planRec.Body.Bytes(), &planResp))
+	planID, _ := planResp["id"].(string)
+	require.NotEmpty(t, planID)
+
+	// Create a second key and pre-associate it so duplicate detection can be tested.
+	dupKeyRec := postWithHandler(t, handler, e, "CreateApiKey", `{"name":"dup-key","enabled":true}`)
+	require.Equal(t, http.StatusCreated, dupKeyRec.Code)
+
+	var dupKeyResp map[string]any
+	require.NoError(t, json.Unmarshal(dupKeyRec.Body.Bytes(), &dupKeyResp))
+	dupKeyID, _ := dupKeyResp["id"].(string)
+	require.NotEmpty(t, dupKeyID)
+
+	preRec := postWithHandler(t, handler, e, "CreateUsagePlanKey",
+		fmt.Sprintf(`{"usagePlanId":%q,"keyId":%q,"keyType":"API_KEY"}`, planID, dupKeyID))
+	require.Equal(t, http.StatusCreated, preRec.Code)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       fmt.Sprintf(`{"usagePlanId":%q,"keyId":%q,"keyType":"API_KEY"}`, planID, keyID),
+			wantStatus: http.StatusCreated,
+			wantType:   "API_KEY",
+		},
+		{
+			name:       "invalid_key_type",
+			body:       fmt.Sprintf(`{"usagePlanId":%q,"keyId":%q,"keyType":"WRONG"}`, planID, keyID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_association",
+			body:       fmt.Sprintf(`{"usagePlanId":%q,"keyId":%q,"keyType":"API_KEY"}`, planID, dupKeyID),
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "missing_usage_plan_id",
+			body:       fmt.Sprintf(`{"keyId":%q,"keyType":"API_KEY"}`, keyID),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "plan_not_found",
+			body:       fmt.Sprintf(`{"usagePlanId":"notexist","keyId":%q,"keyType":"API_KEY"}`, keyID),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "key_not_found",
+			body:       fmt.Sprintf(`{"usagePlanId":%q,"keyId":"notexist","keyType":"API_KEY"}`, planID),
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postWithHandler(t, handler, e, "CreateUsagePlanKey", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantType != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantType, resp["type"])
+			}
+		})
+	}
+}

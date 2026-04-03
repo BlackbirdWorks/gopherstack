@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := apigateway.NewInMemoryBackend()
 	h := apigateway.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &apigatewaysdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateApiKey",
-		"CreateBasePathMapping",
-		"CreateDocumentationPart",
-		"CreateDocumentationVersion",
-		"CreateDomainName",
-		"CreateDomainNameAccessAssociation",
-		"CreateModel",
-		"CreateStage",
-		"CreateUsagePlan",
-		"CreateUsagePlanKey",
 		"CreateVpcLink",
 		"DeleteApiKey",
 		"DeleteBasePathMapping",
