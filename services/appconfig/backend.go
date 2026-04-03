@@ -1103,6 +1103,7 @@ func (b *InMemoryBackend) UpdateExtensionAssociation(
 
 // ValidateConfiguration validates a configuration version against its validators.
 // In this implementation, all well-formed configurations are considered valid.
+// The configurationVersion parameter is accepted for API compatibility but not evaluated.
 func (b *InMemoryBackend) ValidateConfiguration(applicationID, profileID, _ string) error {
 	b.mu.RLock("ValidateConfiguration")
 	defer b.mu.RUnlock()

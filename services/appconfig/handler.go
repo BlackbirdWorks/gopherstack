@@ -1414,7 +1414,7 @@ func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetConfiguration(c *echo.Context, application, environment, configuration string) error {
-	v, err := h.Backend.GetConfiguration(application, environment, configuration)
+	configVersion, err := h.Backend.GetConfiguration(application, environment, configuration)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1423,20 +1423,20 @@ func (h *Handler) handleGetConfiguration(c *echo.Context, application, environme
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	if v.VersionNumber > 0 {
-		c.Response().Header().Set("Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
+	if configVersion.VersionNumber > 0 {
+		c.Response().Header().Set("Configuration-Version", strconv.Itoa(int(configVersion.VersionNumber)))
 	}
 
-	if len(v.Content) == 0 {
+	if len(configVersion.Content) == 0 {
 		return c.NoContent(http.StatusNoContent)
 	}
 
-	contentType := v.ContentType
+	contentType := configVersion.ContentType
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	return c.Blob(http.StatusOK, contentType, v.Content)
+	return c.Blob(http.StatusOK, contentType, configVersion.Content)
 }
 
 func (h *Handler) handleValidateConfiguration(c *echo.Context, applicationID, profileID string) error {
