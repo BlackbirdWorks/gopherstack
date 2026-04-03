@@ -1358,7 +1358,7 @@ func (h *Handler) handleDeleteRouteResponse(c *echo.Context, apiID, routeID, res
 // handleDeepResource handles GET/DELETE on /v2/apis/{apiId}/{coll}/{resourceId}/{subColl}/{subResourceId}.
 func (h *Handler) handleDeepResource(
 	c *echo.Context,
-	method, apiID, _ /* collection */, resourceID, subCollection, subResourceID string,
+	method, apiID, _ /* parentCollection */, resourceID, subCollection, subResourceID string,
 ) error {
 	type threeArgHandler func(*echo.Context, string, string, string) error
 
