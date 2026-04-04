@@ -277,9 +277,11 @@ func TestHandler_GetNamedQuery(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantQuery {
-				var resp map[string]map[string]string
+				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Equal(t, "q", resp["NamedQuery"]["Name"])
+				nq, _ := resp["NamedQuery"].(map[string]any)
+				require.NotNil(t, nq)
+				assert.Equal(t, "q", nq["Name"])
 			}
 		})
 	}
@@ -450,9 +452,11 @@ func TestHandler_GetDataCatalog(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantType != "" {
-				var resp map[string]map[string]string
+				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Equal(t, tt.wantType, resp["DataCatalog"]["Type"])
+				dc, _ := resp["DataCatalog"].(map[string]any)
+				require.NotNil(t, dc)
+				assert.Equal(t, tt.wantType, dc["Type"])
 			}
 		})
 	}
@@ -855,15 +859,45 @@ func TestHandler_StopQueryExecution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *athena.Handler) string {
+				startRec := doRequest(t, h, "StartQueryExecution", `{"QueryString":"SELECT 1"}`)
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+
+				execID := cr["QueryExecutionId"]
+				// Override state to RUNNING so it can be stopped.
+				h.Backend.(*athena.InMemoryBackend).SetQueryExecutionState(execID, "RUNNING", 0)
+
+				return execID
+			},
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "not_found",
+			name: "not_found",
+			setup: func(_ *athena.Handler) string {
+				return "missing"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "already_terminal",
+			setup: func(h *athena.Handler) string {
+				startRec := doRequest(t, h, "StartQueryExecution", `{"QueryString":"SELECT 1"}`)
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+
+				return cr["QueryExecutionId"] // default state is SUCCEEDED
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -873,21 +907,11 @@ func TestHandler_StopQueryExecution(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			execID := tt.setup(h)
 
-			if tt.name == "success" {
-				startRec := doRequest(t, h, "StartQueryExecution", `{"QueryString":"SELECT 1"}`)
-				require.Equal(t, http.StatusOK, startRec.Code)
-
-				var cr map[string]string
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
-
-				rec := doRequest(t, h, "StopQueryExecution",
-					`{"QueryExecutionId":"`+cr["QueryExecutionId"]+`"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			} else {
-				rec := doRequest(t, h, "StopQueryExecution", `{"QueryExecutionId":"missing"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			}
+			rec := doRequest(t, h, "StopQueryExecution",
+				`{"QueryExecutionId":"`+execID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
@@ -993,6 +1017,865 @@ func TestHandler_GetQueryResults(t *testing.T) {
 			require.NotNil(t, rs, "ResultSet should be present")
 			rows, _ := rs["Rows"].([]any)
 			assert.Empty(t, rows, "rows should be empty for mock")
+		})
+	}
+}
+
+// --- PreparedStatement tests ---
+
+func TestHandler_CreatePreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			body:       `{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "duplicate",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`)
+			},
+			body:       `{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "CreatePreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantErr {
+				var errResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.NotEmpty(t, errResp["__type"])
+			}
+		})
+	}
+}
+
+func TestHandler_BatchGetPreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(*athena.Handler)
+		name            string
+		body            string
+		wantStatus      int
+		wantFound       int
+		wantUnprocessed int
+	}{
+		{
+			name: "found_and_unprocessed",
+			setup: func(h *athena.Handler) {
+				createRec := doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"s1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+			},
+			body:            `{"WorkGroup":"primary","StatementNames":["s1","missing"]}`,
+			wantStatus:      http.StatusOK,
+			wantFound:       1,
+			wantUnprocessed: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "BatchGetPreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			found, _ := resp["PreparedStatements"].([]any)
+			assert.Len(t, found, tt.wantFound)
+			unprocessed, _ := resp["UnprocessedStatementNames"].([]any)
+			assert.Len(t, unprocessed, tt.wantUnprocessed)
+		})
+	}
+}
+
+func TestHandler_DeletePreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"del-stmt","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+			},
+			body:       `{"StatementName":"del-stmt","WorkGroup":"primary"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			body:       `{"StatementName":"no-such-stmt","WorkGroup":"primary"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "DeletePreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- CapacityReservation tests ---
+
+func TestHandler_CreateCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			body:       `{"Name":"res1","TargetDpus":24}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "duplicate",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"res1","TargetDpus":24}`)
+			},
+			body:       `{"Name":"res1","TargetDpus":24}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "CreateCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantErr {
+				var errResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.NotEmpty(t, errResp["__type"])
+			}
+		})
+	}
+}
+
+func TestHandler_CancelCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cancel-res","TargetDpus":24}`)
+			},
+			body:       `{"Name":"cancel-res"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			body:       `{"Name":"no-such-res"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "CancelCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"del-res","TargetDpus":24}`)
+				_ = doRequest(t, h, "CancelCapacityReservation", `{"Name":"del-res"}`)
+			},
+			body:       `{"Name":"del-res"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			body:       `{"Name":"no-such-res"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "DeleteCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- Notebook tests ---
+
+func TestHandler_CreateNotebook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantID     bool
+	}{
+		{
+			name:       "success",
+			body:       `{"WorkGroup":"primary","Name":"my-notebook"}`,
+			wantStatus: http.StatusOK,
+			wantID:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateNotebook", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantID {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["NotebookId"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		sessionID  string
+		wantStatus int
+		wantURL    bool
+	}{
+		{
+			name:       "success",
+			sessionID:  "sess-abc123",
+			body:       `{"SessionId":"sess-abc123"}`,
+			wantStatus: http.StatusOK,
+			wantURL:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreatePresignedNotebookUrl", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantURL {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["NotebookSessionUrl"], tt.sessionID)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteNotebook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *athena.Handler) string {
+				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"del-nb"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				return cr["NotebookId"]
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *athena.Handler) string {
+				return "nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			notebookID := tt.setup(h)
+
+			rec := doRequest(t, h, "DeleteNotebook", `{"NotebookId":"`+notebookID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ExportNotebook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler) string
+		name       string
+		wantName   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *athena.Handler) string {
+				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"exp-nb"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				return cr["NotebookId"]
+			},
+			wantStatus: http.StatusOK,
+			wantName:   "exp-nb",
+		},
+		{
+			name: "not_found",
+			setup: func(_ *athena.Handler) string {
+				return "nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			notebookID := tt.setup(h)
+
+			rec := doRequest(t, h, "ExportNotebook", `{"NotebookId":"`+notebookID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				meta, _ := resp["NotebookMetadata"].(map[string]any)
+				require.NotNil(t, meta, "NotebookMetadata should be present")
+				assert.Equal(t, tt.wantName, meta["Name"])
+			}
+		})
+	}
+}
+
+// --- Tags via CreateWorkGroup and CreateCapacityReservation ---
+
+func TestHandler_CreateWorkGroup_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "with_tags",
+			body:       `{"Name":"tagged-wg","Tags":[{"Key":"env","Value":"test"}]}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateWorkGroup", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateCapacityReservation_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "with_tags",
+			body:       `{"Name":"tagged-res","TargetDpus":24,"Tags":[{"Key":"owner","Value":"platform"}]}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateNotebook_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "with_tags",
+			body:       `{"WorkGroup":"primary","Name":"tagged-nb","Tags":[{"Key":"env","Value":"dev"}]}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateNotebook", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- Validation tests ---
+
+func TestHandler_CreateWorkGroup_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_name",
+			body:       `{"Description":"no name"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateWorkGroup", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateNamedQuery_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_query_name",
+			body:       `{"Database":"db","QueryString":"SELECT 1"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_database",
+			body:       `{"Name":"q1","QueryString":"SELECT 1"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_query_string",
+			body:       `{"Name":"q1","Database":"db"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateNamedQuery", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDataCatalog_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_name",
+			body:       `{"Type":"GLUE"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_type",
+			body:       `{"Name":"cat1"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_type",
+			body:       `{"Name":"cat1","Type":"INVALID"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "valid_federated_type",
+			body:       `{"Name":"fed-cat","Type":"FEDERATED"}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateDataCatalog", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreatePreparedStatement_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_statement_name",
+			body:       `{"WorkGroup":"primary","QueryStatement":"SELECT ?"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_workgroup",
+			body:       `{"StatementName":"s1","QueryStatement":"SELECT ?"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_query_statement",
+			body:       `{"StatementName":"s1","WorkGroup":"primary"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreatePreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateCapacityReservation_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_name",
+			body:       `{"TargetDpus":24}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "zero_target_dpus",
+			body:       `{"Name":"res1","TargetDpus":0}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "negative_target_dpus",
+			body:       `{"Name":"res1","TargetDpus":-1}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateNotebook_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_workgroup",
+			body:       `{"Name":"nb1"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_name",
+			body:       `{"WorkGroup":"primary"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_name_in_workgroup",
+			body:       `{"WorkGroup":"primary","Name":"dup-nb"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "duplicate_name_in_workgroup" {
+				rec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"dup-nb"}`)
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "CreateNotebook", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteCapacityReservation_ActiveBlocked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "active_reservation_cannot_be_deleted",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"active-res","TargetDpus":24}`)
+
+			rec := doRequest(t, h, "DeleteCapacityReservation", `{"Name":"active-res"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- GetPreparedStatement and ListPreparedStatements tests ---
+
+func TestHandler_GetPreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantName   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"get-stmt","WorkGroup":"primary","QueryStatement":"SELECT ?"}`)
+			},
+			body:       `{"StatementName":"get-stmt","WorkGroup":"primary"}`,
+			wantStatus: http.StatusOK,
+			wantName:   "get-stmt",
+		},
+		{
+			name:       "not_found",
+			body:       `{"StatementName":"missing","WorkGroup":"primary"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "GetPreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				ps, _ := resp["PreparedStatement"].(map[string]any)
+				require.NotNil(t, ps, "PreparedStatement must be present")
+				assert.Equal(t, tt.wantName, ps["StatementName"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListPreparedStatements(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*athena.Handler)
+		name       string
+		body       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name: "returns_statements_in_workgroup",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"s1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"s2","WorkGroup":"primary","QueryStatement":"SELECT 2"}`)
+			},
+			body:       `{"WorkGroup":"primary"}`,
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name:       "empty_workgroup_returns_empty_list",
+			body:       `{"WorkGroup":"primary"}`,
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "ListPreparedStatements", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string][]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp["PreparedStatements"], tt.wantCount)
 		})
 	}
 }
