@@ -723,6 +723,8 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		Tags               map[string]string `json:"tags"`
 		Name               string            `json:"name"`
 		AuthenticationType string            `json:"authenticationType"`
+		APIType            string            `json:"apiType"`
+		XrayEnabled        bool              `json:"xrayEnabled"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
@@ -738,7 +740,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		authType = AuthTypeAPIKey
 	}
 
-	api, createErr := h.Backend.CreateGraphqlAPI(input.Name, authType, input.Tags)
+	api, createErr := h.Backend.CreateGraphqlAPI(input.Name, authType, input.XrayEnabled, input.APIType, input.Tags)
 	if createErr != nil {
 		return h.handleError(ctx, c, "CreateGraphqlApi", createErr)
 	}
@@ -748,7 +750,9 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 
 // listGraphqlAPIs handles GET /v1/apis.
 func (h *Handler) listGraphqlAPIs(ctx context.Context, c *echo.Context) error {
-	apis, err := h.Backend.ListGraphqlAPIs()
+	apiType := c.Request().URL.Query().Get("apiType")
+
+	apis, err := h.Backend.ListGraphqlAPIs(apiType)
 	if err != nil {
 		return h.handleError(ctx, c, "ListGraphqlApis", err)
 	}
@@ -1104,6 +1108,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, op string, e
 	}
 
 	if errors.Is(err, ErrInvalidSchema) {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+	}
+
+	if errors.Is(err, ErrValidation) {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	}
 
@@ -1706,6 +1714,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 	}
 
 	var input struct {
+		XrayEnabled        *bool  `json:"xrayEnabled"`
 		Name               string `json:"name"`
 		AuthenticationType string `json:"authenticationType"`
 	}
@@ -1714,7 +1723,12 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	api, updateErr := h.Backend.UpdateGraphqlAPI(apiID, input.Name, AuthenticationType(input.AuthenticationType))
+	api, updateErr := h.Backend.UpdateGraphqlAPI(
+		apiID,
+		input.Name,
+		AuthenticationType(input.AuthenticationType),
+		input.XrayEnabled,
+	)
 	if updateErr != nil {
 		return h.handleError(ctx, c, "UpdateGraphqlApi", updateErr)
 	}

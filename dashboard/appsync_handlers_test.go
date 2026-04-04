@@ -34,6 +34,8 @@ func TestDashboard_AppSync(t *testing.T) {
 				_, err := s.AppSyncHandler.Backend.CreateGraphqlAPI(
 					"my-graphql-api",
 					appsync.AuthTypeAPIKey,
+					false,
+					"",
 					nil,
 				)
 				require.NoError(t, err)

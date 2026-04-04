@@ -3,6 +3,7 @@ package appsync_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
@@ -48,7 +49,7 @@ func TestInMemoryBackend_CreateGraphqlAPI(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI(tt.apiName, tt.authType, nil)
+			api, err := b.CreateGraphqlAPI(tt.apiName, tt.authType, false, "", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -78,7 +79,7 @@ func TestInMemoryBackend_GetGraphqlAPI(t *testing.T) {
 		{
 			name: "returns_existing_api",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 				return api.APIID
 			},
@@ -128,8 +129,8 @@ func TestInMemoryBackend_ListGraphqlAPIs(t *testing.T) {
 		{
 			name: "returns_all_apis",
 			setup: func(b *appsync.InMemoryBackend) {
-				_, _ = b.CreateGraphqlAPI("API1", appsync.AuthTypeAPIKey, nil)
-				_, _ = b.CreateGraphqlAPI("API2", appsync.AuthTypeIAM, nil)
+				_, _ = b.CreateGraphqlAPI("API1", appsync.AuthTypeAPIKey, false, "", nil)
+				_, _ = b.CreateGraphqlAPI("API2", appsync.AuthTypeIAM, false, "", nil)
 			},
 			wantCount: 2,
 		},
@@ -141,7 +142,7 @@ func TestInMemoryBackend_ListGraphqlAPIs(t *testing.T) {
 
 			b := newTestBackend()
 			tt.setup(b)
-			apis, err := b.ListGraphqlAPIs()
+			apis, err := b.ListGraphqlAPIs("")
 			require.NoError(t, err)
 			assert.Len(t, apis, tt.wantCount)
 		})
@@ -175,7 +176,7 @@ func TestInMemoryBackend_DeleteGraphqlAPI(t *testing.T) {
 			apiID := tt.apiID
 
 			if apiID == "" {
-				api, _ := b.CreateGraphqlAPI("ToDelete", appsync.AuthTypeAPIKey, nil)
+				api, _ := b.CreateGraphqlAPI("ToDelete", appsync.AuthTypeAPIKey, false, "", nil)
 				apiID = api.APIID
 			}
 
@@ -227,7 +228,7 @@ func TestInMemoryBackend_StartSchemaCreation(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			schema, err := b.StartSchemaCreation(api.APIID, tt.sdl)
 
 			if tt.wantErr {
@@ -277,7 +278,7 @@ func TestInMemoryBackend_GetSchemaCreationStatus(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 			apiID := tt.apiID
 			if apiID == "" {
@@ -342,7 +343,7 @@ func TestInMemoryBackend_CreateDataSource(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 			if tt.wantErr {
 				// Create once to set up duplicate condition.
@@ -403,11 +404,12 @@ func TestInMemoryBackend_CreateResolver(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 			if tt.duplicate {
 				_, _ = b.CreateResolver(api.APIID, tt.typeName, &appsync.Resolver{
-					FieldName: tt.resolver.FieldName,
+					FieldName:      tt.resolver.FieldName,
+					DataSourceName: tt.resolver.DataSourceName,
 				})
 			}
 
@@ -449,9 +451,17 @@ func TestInMemoryBackend_ListResolvers(t *testing.T) {
 		{
 			name: "returns_resolvers_for_type",
 			setup: func(b *appsync.InMemoryBackend, apiID string) {
-				_, _ = b.CreateResolver(apiID, "Query", &appsync.Resolver{FieldName: "getItem"})
-				_, _ = b.CreateResolver(apiID, "Query", &appsync.Resolver{FieldName: "listItems"})
-				_, _ = b.CreateResolver(apiID, "Mutation", &appsync.Resolver{FieldName: "createItem"})
+				_, _ = b.CreateResolver(apiID, "Query", &appsync.Resolver{FieldName: "getItem", DataSourceName: "myDs"})
+				_, _ = b.CreateResolver(
+					apiID,
+					"Query",
+					&appsync.Resolver{FieldName: "listItems", DataSourceName: "myDs"},
+				)
+				_, _ = b.CreateResolver(
+					apiID,
+					"Mutation",
+					&appsync.Resolver{FieldName: "createItem", DataSourceName: "myDs"},
+				)
 			},
 			typeName:  "Query",
 			wantCount: 2,
@@ -470,7 +480,7 @@ func TestInMemoryBackend_ListResolvers(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 			apiID := tt.apiID
 			if apiID == "" {
@@ -626,7 +636,7 @@ func TestInMemoryBackend_ExecuteGraphQL_LambdaResolver(t *testing.T) {
 			mock := &mockLambdaInvoker{payload: tt.lambdaPayload}
 			b.SetLambdaInvoker(mock)
 
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
 			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "LambdaDS",
@@ -673,7 +683,7 @@ func TestInMemoryBackend_ExecuteGraphQL_NoneResolver(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
 			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "NoneDS",
@@ -702,7 +712,7 @@ func TestInMemoryBackend_ExecuteGraphQL_NoSchema(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { hello }`, "", nil)
 	require.Error(t, err)
 }
@@ -711,7 +721,7 @@ func TestInMemoryBackend_ExecuteGraphQL_InvalidQuery(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 
 	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `{ not valid gql`, "", nil)
@@ -745,7 +755,7 @@ func TestInMemoryBackend_GetDataSource(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "MyDS",
 				Type: appsync.DataSourceTypeNone,
@@ -808,7 +818,7 @@ func TestInMemoryBackend_ListDataSources(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 			apiID := tt.apiID
 			if apiID == "" {
@@ -856,7 +866,7 @@ func TestInMemoryBackend_DeleteDataSource(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "MyDS",
 				Type: appsync.DataSourceTypeNone,
@@ -905,8 +915,8 @@ func TestInMemoryBackend_GetResolver(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
-			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem"})
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem", DataSourceName: "myDs"})
 
 			r, err := b.GetResolver(api.APIID, "Query", tt.fieldName)
 
@@ -948,8 +958,8 @@ func TestInMemoryBackend_DeleteResolver(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
-			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem"})
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem", DataSourceName: "myDs"})
 
 			err := b.DeleteResolver(api.APIID, "Query", tt.fieldName)
 
@@ -991,7 +1001,7 @@ func TestInMemoryBackend_GetIntrospectionSchema(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 			if tt.hasSchema {
 				_, _ = b.StartSchemaCreation(api.APIID, tt.wantSDL)
@@ -1069,7 +1079,7 @@ func TestInMemoryBackend_ExecuteGraphQL_LambdaResolver_WithTemplates(t *testing.
 			mock := &mockLambdaInvoker{payload: tt.lambdaPayload}
 			b.SetLambdaInvoker(mock)
 
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
 			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "LambdaDS",
@@ -1127,7 +1137,7 @@ func TestInMemoryBackend_ExecuteGraphQL_NoneResolver_WithTemplates(t *testing.T)
 			t.Parallel()
 
 			b := newTestBackend()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
 			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "NoneDS",
@@ -1155,7 +1165,7 @@ type Mutation { createItem(name: String): String }`
 	query := `mutation { createItem(name: "test") }`
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	_, _ = b.StartSchemaCreation(api.APIID, schema)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "NoneDS",
@@ -1175,7 +1185,7 @@ func TestInMemoryBackend_ExecuteGraphQL_UnsupportedDataSource(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "HTTPDS",
@@ -1296,7 +1306,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, map[string]string{"k": "v"})
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", map[string]string{"k": "v"})
 	require.NoError(t, err)
 
 	// Create a data source with tags so Reset() must close them too.
@@ -1310,7 +1320,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 	// Reset must not panic and must clear all resources.
 	b.Reset()
 
-	apis, err := b.ListGraphqlAPIs()
+	apis, err := b.ListGraphqlAPIs("")
 	require.NoError(t, err)
 	assert.Empty(t, apis)
 
@@ -1341,7 +1351,7 @@ func TestInMemoryBackend_CreateGraphqlAPI_InvalidAuthType(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", tt.authType, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", tt.authType, false, "", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1360,7 +1370,7 @@ func TestInMemoryBackend_DeleteGraphqlAPI_CascadeDelete(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	apiID := api.APIID
@@ -1396,7 +1406,7 @@ func TestInMemoryBackend_CreateAPIKey_DefaultExpiry(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	key, err := b.CreateAPIKey(api.APIID, "test", 0)
@@ -1410,7 +1420,7 @@ func TestInMemoryBackend_CreateAPIKey_Da2Prefix(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	key, err := b.CreateAPIKey(api.APIID, "test", 0)
@@ -1481,7 +1491,7 @@ func TestInMemoryBackend_CreateAPICache_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			require.NoError(t, err)
 
 			_, cacheErr := b.CreateAPICache(api.APIID, &tt.cache)
@@ -1501,7 +1511,7 @@ func TestInMemoryBackend_CreateFunction_DefaultVersion(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{
@@ -1516,7 +1526,7 @@ func TestInMemoryBackend_CreateType_DuplicateDetection(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	def := "type MyType { id: ID! }"
@@ -1539,7 +1549,7 @@ func TestInMemoryBackend_AssociateAPI_UpdatesDomainName(t *testing.T) {
 	assert.Empty(t, dn.APIID)
 
 	// Create a GraphQL API and associate it.
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	assoc, err := b.AssociateAPI("api.example.com", api.APIID)
@@ -1576,7 +1586,7 @@ func TestInMemoryBackend_CreateDataSource_RequiredFields(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			require.NoError(t, err)
 
 			_, dsErr := b.CreateDataSource(api.APIID, &tt.ds)
@@ -1649,10 +1659,10 @@ func TestInMemoryBackend_UpdateGraphqlAPI(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("OriginalName", appsync.AuthTypeAPIKey, nil)
+			api, err := b.CreateGraphqlAPI("OriginalName", appsync.AuthTypeAPIKey, false, "", nil)
 			require.NoError(t, err)
 
-			updated, err := b.UpdateGraphqlAPI(api.APIID, tt.newName, tt.authType)
+			updated, err := b.UpdateGraphqlAPI(api.APIID, tt.newName, tt.authType, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1675,7 +1685,7 @@ func TestInMemoryBackend_ListAndDeleteAPIKeys(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	key1, err := b.CreateAPIKey(api.APIID, "k1", 0)
@@ -1706,7 +1716,7 @@ func TestInMemoryBackend_GetAndDeleteAPICache(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	cache := &appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"}
@@ -1731,7 +1741,7 @@ func TestInMemoryBackend_FunctionCRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -1761,7 +1771,7 @@ func TestInMemoryBackend_TypeCRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
@@ -1844,7 +1854,7 @@ func TestInMemoryBackend_GetAPIAssociation(t *testing.T) {
 			setup: func(b *appsync.InMemoryBackend) {
 				_, _ = b.CreateDomainName("api.example.com",
 					"arn:aws:acm:us-east-1:000000000000:certificate/abc", "", nil)
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 				_, _ = b.AssociateAPI("api.example.com", api.APIID)
 			},
 			domainName: "api.example.com",
@@ -1888,7 +1898,7 @@ func TestInMemoryBackend_DeleteDomainName_CascadesAssociation(t *testing.T) {
 	_, err := b.CreateDomainName("api.example.com", certARN, "", nil)
 	require.NoError(t, err)
 
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.AssociateAPI("api.example.com", api.APIID)
@@ -1917,7 +1927,7 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 		{
 			name: "tag_and_untag",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("T", appsync.AuthTypeAPIKey, nil)
+				api, _ := b.CreateGraphqlAPI("T", appsync.AuthTypeAPIKey, false, "", nil)
 
 				return api.APIID
 			},
@@ -1987,7 +1997,7 @@ func TestInMemoryBackend_UpdateDataSource(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 			require.NoError(t, err)
 
 			_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "myds", Type: "NONE"})
@@ -2011,7 +2021,7 @@ func TestInMemoryBackend_UpdateFunction(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -2030,7 +2040,7 @@ func TestInMemoryBackend_UpdateAPIKey(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	key, err := b.CreateAPIKey(api.APIID, "original", 0)
@@ -2049,7 +2059,7 @@ func TestInMemoryBackend_UpdateAPICache(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(
@@ -2068,7 +2078,7 @@ func TestInMemoryBackend_UpdateAPICache(t *testing.T) {
 	require.Error(t, err)
 
 	// Not found API cache returns error.
-	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, nil)
+	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 	_, err = b.UpdateAPICache(api2.APIID, &appsync.APICache{TTL: 60})
 	require.ErrorIs(t, err, awserr.ErrNotFound)
@@ -2078,7 +2088,7 @@ func TestInMemoryBackend_FlushAPICache(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(
@@ -2092,7 +2102,7 @@ func TestInMemoryBackend_FlushAPICache(t *testing.T) {
 	require.NoError(t, err)
 
 	// Flush without cache returns error.
-	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, nil)
+	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 	err = b.FlushAPICache(api2.APIID)
 	require.ErrorIs(t, err, awserr.ErrNotFound)
@@ -2102,7 +2112,7 @@ func TestInMemoryBackend_UpdateType(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
@@ -2121,7 +2131,7 @@ func TestInMemoryBackend_UpdateResolver(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
@@ -2206,7 +2216,7 @@ func TestInMemoryBackend_DisassociateAPI(t *testing.T) {
 	_, err := b.CreateDomainName("api.example.com", certARN, "", nil)
 	require.NoError(t, err)
 
-	gqlAPI, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	gqlAPI, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.AssociateAPI("api.example.com", gqlAPI.APIID)
@@ -2250,7 +2260,7 @@ func TestInMemoryBackend_GetFunction_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.GetFunction(api.APIID, "nonexistent")
@@ -2270,7 +2280,7 @@ func TestInMemoryBackend_ListTagsForResource_EmptyTags(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	// No tags set yet — should return empty map.
@@ -2283,7 +2293,7 @@ func TestInMemoryBackend_UpdateFunction_AllFields(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{
@@ -2310,7 +2320,7 @@ func TestInMemoryBackend_UpdateAPICache_CachingBehaviorValidation(t *testing.T) 
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
@@ -2327,7 +2337,7 @@ func TestInMemoryBackend_UpdateDataSource_AllFields(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "ds1", Type: "NONE"})
@@ -2549,7 +2559,7 @@ func TestInMemoryBackend_EnvironmentVariables(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	// Get empty env vars.
@@ -2588,7 +2598,7 @@ func TestInMemoryBackend_ListResolversByFunction(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -2596,6 +2606,7 @@ func TestInMemoryBackend_ListResolversByFunction(t *testing.T) {
 
 	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
 		FieldName:      "getItem",
+		Kind:           "PIPELINE",
 		PipelineConfig: []string{fn.FunctionID},
 	})
 	require.NoError(t, err)
@@ -2705,7 +2716,7 @@ func TestInMemoryBackend_DeleteDomainName_APIAssoc_Cascade(t *testing.T) {
 	_, err := b.CreateDomainName("api.example.com", certARN, "desc", nil)
 	require.NoError(t, err)
 
-	gqlAPI, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	gqlAPI, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.AssociateAPI("api.example.com", gqlAPI.APIID)
@@ -2727,4 +2738,287 @@ func TestInMemoryBackend_DeleteAPIKey_APINotFound(t *testing.T) {
 
 	err := b.DeleteAPIKey("nonexistent", "key-id")
 	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+// ---- Refinement 5: backend tests ----
+
+func TestInMemoryBackend_CreateGraphqlAPI_XrayEnabled(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, true, "GRAPHQL", nil)
+	require.NoError(t, err)
+	assert.True(t, api.XrayEnabled)
+	assert.Equal(t, "GRAPHQL", api.APIType)
+	assert.NotZero(t, api.CreatedAt)
+	assert.NotZero(t, api.UpdatedAt)
+	assert.Equal(t, api.CreatedAt, api.UpdatedAt)
+}
+
+func TestInMemoryBackend_CreateGraphqlAPI_APIType_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		apiType string
+		wantErr bool
+	}{
+		{name: "default_graphql", apiType: "", wantErr: false},
+		{name: "explicit_graphql", apiType: "GRAPHQL", wantErr: false},
+		{name: "merged_type", apiType: "MERGED", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, tt.apiType, nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, api)
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateGraphqlAPI_XrayEnabled(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+	assert.False(t, api.XrayEnabled)
+
+	xrayEnabled := true
+	updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", &xrayEnabled)
+	require.NoError(t, err)
+	assert.True(t, updated.XrayEnabled)
+	assert.GreaterOrEqual(t, updated.UpdatedAt, api.UpdatedAt)
+}
+
+func TestInMemoryBackend_ListGraphqlAPIs_TypeFilter(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.CreateGraphqlAPI("GraphQL1", appsync.AuthTypeAPIKey, false, "GRAPHQL", nil)
+	require.NoError(t, err)
+	_, err = b.CreateGraphqlAPI("Merged1", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+	require.NoError(t, err)
+
+	// Filter by GRAPHQL.
+	graphqlAPIs, err := b.ListGraphqlAPIs("GRAPHQL")
+	require.NoError(t, err)
+	assert.Len(t, graphqlAPIs, 1)
+	assert.Equal(t, "GraphQL1", graphqlAPIs[0].Name)
+
+	// Filter by MERGED.
+	mergedAPIs, err := b.ListGraphqlAPIs("MERGED")
+	require.NoError(t, err)
+	assert.Len(t, mergedAPIs, 1)
+	assert.Equal(t, "Merged1", mergedAPIs[0].Name)
+
+	// No filter returns all.
+	allAPIs, err := b.ListGraphqlAPIs("")
+	require.NoError(t, err)
+	assert.Len(t, allAPIs, 2)
+}
+
+func TestInMemoryBackend_CreateAPIKey_MaxKeysLimit(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPIKey(api.APIID, "key1", 0)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPIKey(api.APIID, "key2", 0)
+	require.NoError(t, err)
+
+	// Third key should fail.
+	_, err = b.CreateAPIKey(api.APIID, "key3", 0)
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_CreateAPIKey_ExpiresCapToMaxDays(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	// Set expires to 2 years from now (> 365 days).
+	farFuture := time.Now().AddDate(2, 0, 0).Unix()
+	key, err := b.CreateAPIKey(api.APIID, "key1", farFuture)
+	require.NoError(t, err)
+
+	// Expires should be capped at 365 days.
+	maxExpires := time.Now().AddDate(0, 0, 365).Unix()
+	assert.LessOrEqual(t, key.Expires, maxExpires+60) // +60s tolerance
+}
+
+func TestInMemoryBackend_CreateDataSource_InvalidType(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "invalid_ds",
+		Type: "INVALID_TYPE",
+	})
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_CreateDataSource_HTTPConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		ds        *appsync.DataSource
+		name      string
+		wantErr   bool
+	}{
+		{
+			name: "http_with_endpoint",
+			ds: &appsync.DataSource{
+				Name:       "httpDs",
+				Type:       "HTTP",
+				HTTPConfig: &appsync.HTTPDataSourceConfig{Endpoint: "https://example.com"},
+			},
+		},
+		{
+			name: "http_missing_endpoint",
+			ds: &appsync.DataSource{
+				Name: "httpDs",
+				Type: "HTTP",
+			},
+			wantErr: true,
+		},
+		{
+			name: "none_type_ok",
+			ds: &appsync.DataSource{
+				Name: "noneDs",
+				Type: "NONE",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateDataSource(api.APIID, tt.ds)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateType_FormatValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		format  appsync.TypeDefinitionFormat
+		wantErr bool
+	}{
+		{name: "sdl_format", format: appsync.TypeFormatSDL},
+		{name: "json_format", format: appsync.TypeFormatJSON},
+		{name: "invalid_format", format: "XML", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateType(api.APIID, "type Item { id: ID! }", tt.format)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateResolver_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		resolver *appsync.Resolver
+		name     string
+		wantErr  bool
+	}{
+		{
+			name:     "missing_fieldName",
+			resolver: &appsync.Resolver{DataSourceName: "ds"},
+			wantErr:  true,
+		},
+		{
+			name:     "invalid_kind",
+			resolver: &appsync.Resolver{FieldName: "getItem", DataSourceName: "ds", Kind: "INVALID"},
+			wantErr:  true,
+		},
+		{
+			name:     "pipeline_missing_config",
+			resolver: &appsync.Resolver{FieldName: "getItem", Kind: "PIPELINE"},
+			wantErr:  true,
+		},
+		{
+			name:     "unit_missing_datasource",
+			resolver: &appsync.Resolver{FieldName: "getItem"},
+			wantErr:  true,
+		},
+		{
+			name:     "valid_unit",
+			resolver: &appsync.Resolver{FieldName: "getItem", DataSourceName: "ds"},
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateResolver(api.APIID, "Query", tt.resolver)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }

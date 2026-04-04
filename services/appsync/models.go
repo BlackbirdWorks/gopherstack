@@ -33,6 +33,8 @@ const (
 	DataSourceTypeDynamoDB DataSourceType = "AMAZON_DYNAMODB"
 	// DataSourceTypeHTTP forwards requests to an HTTP endpoint.
 	DataSourceTypeHTTP DataSourceType = "HTTP"
+	// DataSourceTypeRelational queries an RDS database.
+	DataSourceTypeRelational DataSourceType = "RELATIONAL_DATABASE"
 	// DataSourceTypeOpenSearch queries an OpenSearch domain.
 	DataSourceTypeOpenSearch DataSourceType = "AMAZON_OPENSEARCH_SERVICE"
 )
@@ -50,11 +52,17 @@ type DynamoDBDataSourceConfig struct {
 	Versioned            bool   `json:"versioned"`
 }
 
+// HTTPDataSourceConfig holds the configuration for an HTTP endpoint data source.
+type HTTPDataSourceConfig struct {
+	Endpoint string `json:"endpoint"`
+}
+
 // DataSource represents an AppSync data source.
 type DataSource struct {
 	Tags           *tags.Tags                `json:"tags,omitempty"`
 	LambdaConfig   *LambdaDataSourceConfig   `json:"lambdaConfig,omitempty"`
 	DynamoDBConfig *DynamoDBDataSourceConfig `json:"dynamodbConfig,omitempty"`
+	HTTPConfig     *HTTPDataSourceConfig     `json:"httpConfig,omitempty"`
 	DataSourceARN  string                    `json:"dataSourceArn"`
 	Name           string                    `json:"name"`
 	Description    string                    `json:"description,omitempty"`
@@ -86,6 +94,9 @@ type GraphqlAPI struct {
 	ARN                  string             `json:"arn"`
 	AuthenticationType   AuthenticationType `json:"authenticationType"`
 	Region               string             `json:"region"`
+	APIType              string             `json:"apiType,omitempty"`
+	CreatedAt            int64              `json:"createdAt,omitempty"`
+	UpdatedAt            int64              `json:"updatedAt,omitempty"`
 	XrayEnabled          bool               `json:"xrayEnabled,omitempty"`
 }
 
@@ -135,6 +146,7 @@ type APICache struct {
 	TTL                int64  `json:"ttl"`
 	TransitEncryption  bool   `json:"transitEncryptionEnabled,omitempty"`
 	AtRestEncryption   bool   `json:"atRestEncryptionEnabled,omitempty"`
+	HealthMetrics      bool   `json:"healthMetricsConfig,omitempty"`
 }
 
 // Function represents an AppSync pipeline function.

@@ -956,7 +956,7 @@ func (rc *ResourceCreator) createAppSyncGraphQLAPI(
 		authType = appsyncbackend.AuthTypeAPIKey
 	}
 
-	api, err := imb.CreateGraphqlAPI(name, authType, nil)
+	api, err := imb.CreateGraphqlAPI(name, authType, false, "", nil)
 	if err != nil {
 		return "", fmt.Errorf("create AppSync GraphQL API %s: %w", name, err)
 	}

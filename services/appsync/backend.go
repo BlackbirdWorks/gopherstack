@@ -45,10 +45,16 @@ type DynamoDBBackend interface {
 
 // StorageBackend defines the interface for AppSync storage operations.
 type StorageBackend interface {
-	CreateGraphqlAPI(name string, authType AuthenticationType, tagMap map[string]string) (*GraphqlAPI, error)
+	CreateGraphqlAPI(
+		name string,
+		authType AuthenticationType,
+		xrayEnabled bool,
+		apiType string,
+		tagMap map[string]string,
+	) (*GraphqlAPI, error)
 	GetGraphqlAPI(apiID string) (*GraphqlAPI, error)
-	UpdateGraphqlAPI(apiID, name string, authType AuthenticationType) (*GraphqlAPI, error)
-	ListGraphqlAPIs() ([]*GraphqlAPI, error)
+	UpdateGraphqlAPI(apiID, name string, authType AuthenticationType, xrayEnabled *bool) (*GraphqlAPI, error)
+	ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error)
 	DeleteGraphqlAPI(apiID string) error
 	StartSchemaCreation(apiID, sdl string) (*Schema, error)
 	GetSchemaCreationStatus(apiID string) (*Schema, error)
@@ -154,8 +160,17 @@ const apiKeyIDPrefix = "da2-"
 // defaultAPIKeyExpiryDays is the default expiry in days when not specified.
 const defaultAPIKeyExpiryDays = 365
 
+// maxAPIKeysPerAPI is the AWS-enforced limit of API keys per GraphQL API.
+const maxAPIKeysPerAPI = 2
+
 // defaultFunctionVersion is the default AppSync function runtime version.
 const defaultFunctionVersion = "2018-05-29"
+
+// resolverKindUnit is the "UNIT" resolver kind.
+const resolverKindUnit = "UNIT"
+
+// resolverKindPipeline is the "PIPELINE" resolver kind.
+const resolverKindPipeline = "PIPELINE"
 
 // isValidAPICacheType returns true if the given cache type is a valid AppSync API cache type.
 func isValidAPICacheType(t string) bool {
@@ -190,8 +205,32 @@ func isValidAuthType(a AuthenticationType) bool {
 	}
 }
 
-// randomAPIID generates a cryptographically random 26-character alphanumeric ID,
-// matching the format of real AWS AppSync API IDs (no hyphens).
+// isValidDataSourceType returns true if the given data source type is valid.
+func isValidDataSourceType(t DataSourceType) bool {
+	switch t {
+	case DataSourceTypeNone, DataSourceTypeLambda, DataSourceTypeDynamoDB,
+		DataSourceTypeHTTP, DataSourceTypeOpenSearch, DataSourceTypeRelational:
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidGraphqlAPIType returns true if the given API type is valid.
+func isValidGraphqlAPIType(t string) bool {
+	return t == "GRAPHQL" || t == "MERGED"
+}
+
+// isValidTypeFormat returns true if the given type format is valid.
+func isValidTypeFormat(f TypeDefinitionFormat) bool {
+	return f == TypeFormatSDL || f == TypeFormatJSON
+}
+
+// isValidResolverKind returns true if the given resolver kind is valid.
+func isValidResolverKind(kind string) bool {
+	return kind == "" || kind == resolverKindUnit || kind == resolverKindPipeline
+}
+
 func randomAPIID() string {
 	const length = 26
 
@@ -320,6 +359,8 @@ func (b *InMemoryBackend) SetDynamoDBBackend(ddb DynamoDBBackend) {
 func (b *InMemoryBackend) CreateGraphqlAPI(
 	name string,
 	authType AuthenticationType,
+	xrayEnabled bool,
+	apiType string,
 	tagMap map[string]string,
 ) (*GraphqlAPI, error) {
 	b.mu.Lock("CreateGraphqlApi")
@@ -333,10 +374,18 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		authType = AuthTypeAPIKey
 	}
 
+	if apiType == "" {
+		apiType = "GRAPHQL"
+	} else if !isValidGraphqlAPIType(apiType) {
+		return nil, fmt.Errorf("%w: invalid apiType %q, must be GRAPHQL or MERGED", ErrValidation, apiType)
+	}
+
 	apiID := randomAPIID()
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
 
 	graphqlEndpoint := fmt.Sprintf("%s/v1/apis/%s/graphql", b.endpoint, apiID)
+
+	now := time.Now().Unix()
 
 	api := &GraphqlAPI{
 		APIID:              apiID,
@@ -344,6 +393,10 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		Name:               name,
 		AuthenticationType: authType,
 		Region:             b.region,
+		XrayEnabled:        xrayEnabled,
+		APIType:            apiType,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 		URIs: map[string]string{
 			"GRAPHQL":  graphqlEndpoint,
 			"REALTIME": graphqlEndpoint,
@@ -378,7 +431,11 @@ func (b *InMemoryBackend) GetGraphqlAPI(apiID string) (*GraphqlAPI, error) {
 }
 
 // UpdateGraphqlAPI updates an existing GraphQL API's name and/or authentication type.
-func (b *InMemoryBackend) UpdateGraphqlAPI(apiID, name string, authType AuthenticationType) (*GraphqlAPI, error) {
+func (b *InMemoryBackend) UpdateGraphqlAPI(
+	apiID, name string,
+	authType AuthenticationType,
+	xrayEnabled *bool,
+) (*GraphqlAPI, error) {
 	b.mu.Lock("UpdateGraphqlApi")
 	defer b.mu.Unlock()
 
@@ -399,18 +456,29 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(apiID, name string, authType Authenti
 		api.AuthenticationType = authType
 	}
 
+	if xrayEnabled != nil {
+		api.XrayEnabled = *xrayEnabled
+	}
+
+	api.UpdatedAt = time.Now().Unix()
+
 	cp := *api
 
 	return &cp, nil
 }
 
-// ListGraphqlAPIs returns all GraphQL APIs.
-func (b *InMemoryBackend) ListGraphqlAPIs() ([]*GraphqlAPI, error) {
+// ListGraphqlAPIs returns all GraphQL APIs, optionally filtered by apiType ("GRAPHQL" or "MERGED").
+func (b *InMemoryBackend) ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error) {
 	b.mu.RLock("ListGraphqlApis")
 	defer b.mu.RUnlock()
 
 	out := make([]*GraphqlAPI, 0, len(b.apis))
+
 	for _, api := range b.apis {
+		if apiType != "" && api.APIType != apiType {
+			continue
+		}
+
 		cp := *api
 		out = append(out, &cp)
 	}
@@ -546,6 +614,14 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 		return nil, fmt.Errorf("%w: type is required", ErrValidation)
 	}
 
+	if !isValidDataSourceType(ds.Type) {
+		return nil, fmt.Errorf("%w: invalid type %q", ErrValidation, ds.Type)
+	}
+
+	if ds.Type == DataSourceTypeHTTP && (ds.HTTPConfig == nil || ds.HTTPConfig.Endpoint == "") {
+		return nil, fmt.Errorf("%w: httpConfig.endpoint is required for HTTP data sources", ErrValidation)
+	}
+
 	if b.datasources[apiID] == nil {
 		b.datasources[apiID] = make(map[string]*DataSource)
 	}
@@ -647,6 +723,22 @@ func (b *InMemoryBackend) CreateResolver(apiID, typeName string, r *Resolver) (*
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
+	if r.FieldName == "" {
+		return nil, fmt.Errorf("%w: fieldName is required", ErrValidation)
+	}
+
+	if !isValidResolverKind(r.Kind) {
+		return nil, fmt.Errorf("%w: invalid kind %q, must be UNIT or PIPELINE", ErrValidation, r.Kind)
+	}
+
+	if r.Kind == resolverKindPipeline && len(r.PipelineConfig) == 0 {
+		return nil, fmt.Errorf("%w: pipelineConfig is required for PIPELINE resolvers", ErrValidation)
+	}
+
+	if (r.Kind == "" || r.Kind == resolverKindUnit) && r.DataSourceName == "" {
+		return nil, fmt.Errorf("%w: dataSourceName is required for UNIT resolvers", ErrValidation)
+	}
+
 	if b.resolvers[apiID] == nil {
 		b.resolvers[apiID] = make(map[string]*Resolver)
 	}
@@ -662,7 +754,7 @@ func (b *InMemoryBackend) CreateResolver(apiID, typeName string, r *Resolver) (*
 		fmt.Sprintf("apis/%s/types/%s/resolvers/%s", apiID, typeName, r.FieldName))
 
 	if r.Kind == "" {
-		r.Kind = "UNIT"
+		r.Kind = resolverKindUnit
 	}
 
 	b.resolvers[apiID][key] = r
@@ -778,9 +870,24 @@ func (b *InMemoryBackend) CreateAPIKey(apiID, description string, expires int64)
 		b.apiKeys[apiID] = make(map[string]*APIKey)
 	}
 
+	if len(b.apiKeys[apiID]) >= maxAPIKeysPerAPI {
+		return nil, fmt.Errorf(
+			"%w: api %s already has the maximum of %d API keys",
+			ErrValidation,
+			apiID,
+			maxAPIKeysPerAPI,
+		)
+	}
+
 	// Default expiry to 365 days from now if not specified.
 	if expires <= 0 {
 		expires = time.Now().AddDate(0, 0, defaultAPIKeyExpiryDays).Unix()
+	}
+
+	// Cap expiry at 365 days from now (AWS enforces this).
+	maxExpires := time.Now().AddDate(0, 0, defaultAPIKeyExpiryDays).Unix()
+	if expires > maxExpires {
+		expires = maxExpires
 	}
 
 	keyID := randomAPIKeyID()
@@ -883,6 +990,10 @@ func (b *InMemoryBackend) CreateType(apiID, definition string, format TypeDefini
 
 	if _, ok := b.apis[apiID]; !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if format != "" && !isValidTypeFormat(format) {
+		return nil, fmt.Errorf("%w: invalid format %q, must be SDL or JSON", ErrValidation, format)
 	}
 
 	if b.types[apiID] == nil {
