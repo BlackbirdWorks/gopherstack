@@ -857,15 +857,17 @@ func extractTypeName(definition string) string {
 
 // isValidDomainName returns true if the given domain name looks like a valid DNS name.
 func isValidDomainName(domain string) bool {
-	if domain == "" || len(domain) > 253 {
+	n := len(domain)
+	if n == 0 || n > 253 {
 		return false
 	}
 
-	// Must contain at least one dot and no leading/trailing dots.
-	if domain[0] == '.' || domain[len(domain)-1] == '.' {
+	// Must not have leading or trailing dots.
+	if domain[0] == '.' || domain[n-1] == '.' {
 		return false
 	}
 
+	// Must contain at least one dot (ruling out bare hostnames).
 	return strings.Contains(domain, ".")
 }
 

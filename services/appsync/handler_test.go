@@ -1630,5 +1630,6 @@ func TestHandler_CreateAPIKey_Da2Prefix(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&keyResp))
 	apiKey := keyResp["apiKey"].(map[string]any)
 	keyID := apiKey["id"].(string)
+	require.GreaterOrEqual(t, len(keyID), 4, "key ID must be at least 4 characters")
 	assert.Equal(t, "da2-", keyID[:4])
 }
