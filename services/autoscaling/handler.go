@@ -717,8 +717,8 @@ func (h *Handler) handleDescribeLifecycleHooks(vals url.Values) (any, error) {
 	}
 
 	members := make([]xmlLifecycleHook, 0, len(hooks))
-	for _, h := range hooks {
-		members = append(members, xmlLifecycleHook(h))
+	for _, hook := range hooks {
+		members = append(members, xmlLifecycleHook(hook))
 	}
 
 	return &describeLifecycleHooksResponse{
@@ -740,15 +740,15 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	}
 
 	members := make([]xmlScheduledAction, 0, len(actions))
-	for _, a := range actions {
+	for _, action := range actions {
 		members = append(members, xmlScheduledAction{
-			ScheduledActionName:  a.ScheduledActionName,
-			AutoScalingGroupName: a.AutoScalingGroupName,
-			Recurrence:           a.Recurrence,
-			TimeZone:             a.TimeZone,
-			DesiredCapacity:      a.DesiredCapacity,
-			MinSize:              a.MinSize,
-			MaxSize:              a.MaxSize,
+			ScheduledActionName:  action.ScheduledActionName,
+			AutoScalingGroupName: action.AutoScalingGroupName,
+			Recurrence:           action.Recurrence,
+			TimeZone:             action.TimeZone,
+			DesiredCapacity:      action.DesiredCapacity,
+			MinSize:              action.MinSize,
+			MaxSize:              action.MaxSize,
 		})
 	}
 
@@ -783,12 +783,12 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 	}
 
 	members := make([]xmlResourceTag, 0, len(tags))
-	for _, t := range tags {
+	for _, tag := range tags {
 		members = append(members, xmlResourceTag{
-			ResourceID:   t.ResourceID,
-			ResourceType: t.ResourceType,
-			Key:          t.Key,
-			Value:        t.Value,
+			ResourceID:   tag.ResourceID,
+			ResourceType: tag.ResourceType,
+			Key:          tag.Key,
+			Value:        tag.Value,
 		})
 	}
 

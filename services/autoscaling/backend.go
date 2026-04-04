@@ -698,20 +698,10 @@ func (b *InMemoryBackend) BatchDeleteScheduledAction(
 
 	actions := b.scheduledActions[groupName]
 
-	var failed []FailedScheduledAction
+	failed := make([]FailedScheduledAction, 0, len(scheduledActionNames))
 
 	for _, name := range scheduledActionNames {
-		if actions == nil {
-			failed = append(failed, FailedScheduledAction{
-				ScheduledActionName: name,
-				ErrorCode:           "ValidationError",
-				ErrorMessage:        fmt.Sprintf("scheduled action %q not found", name),
-			})
-
-			continue
-		}
-
-		if _, exists := actions[name]; !exists {
+		if actions == nil || actions[name] == nil {
 			failed = append(failed, FailedScheduledAction{
 				ScheduledActionName: name,
 				ErrorCode:           "ValidationError",
@@ -743,7 +733,7 @@ func (b *InMemoryBackend) BatchPutScheduledUpdateGroupAction(
 		b.scheduledActions[groupName] = make(map[string]*ScheduledAction)
 	}
 
-	var failed []FailedScheduledAction
+	failed := make([]FailedScheduledAction, 0, len(actions))
 
 	for _, a := range actions {
 		if a.ScheduledActionName == "" {
