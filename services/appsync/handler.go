@@ -821,6 +821,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, op string, e
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	}
 
+	if errors.Is(err, awserr.ErrInvalidParameter) {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+	}
+
 	if errors.Is(err, ErrInvalidSchema) {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	}

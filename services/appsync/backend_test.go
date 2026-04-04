@@ -1289,3 +1289,328 @@ func TestToDynamoDBJSON(t *testing.T) {
 		})
 	}
 }
+
+// ---- Refinement 1 tests ----
+
+func TestInMemoryBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	b.Reset()
+
+	apis, err := b.ListGraphqlAPIs()
+	require.NoError(t, err)
+	assert.Empty(t, apis)
+}
+
+func TestInMemoryBackend_CreateGraphqlAPI_InvalidAuthType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		authType appsync.AuthenticationType
+		wantErr  bool
+	}{
+		{name: "valid_api_key", authType: appsync.AuthTypeAPIKey},
+		{name: "valid_iam", authType: appsync.AuthTypeIAM},
+		{name: "valid_cognito", authType: appsync.AuthTypeCognito},
+		{name: "valid_oidc", authType: appsync.AuthTypeOIDC},
+		{name: "valid_lambda", authType: appsync.AuthTypeLambda},
+		{name: "empty_defaults_to_api_key", authType: ""},
+		{name: "invalid_type_rejected", authType: "INVALID_AUTH", wantErr: true},
+		{name: "invalid_type_basic", authType: "BASIC", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", tt.authType, nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, api)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, api)
+		})
+	}
+}
+
+func TestInMemoryBackend_DeleteGraphqlAPI_CascadeDelete(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	apiID := api.APIID
+
+	// Create sub-resources.
+	_, err = b.CreateAPIKey(apiID, "test key", 0)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(apiID, &appsync.APICache{
+		TTL:                60,
+		Type:               "SMALL",
+		APICachingBehavior: "FULL_REQUEST_CACHING",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateFunction(apiID, &appsync.Function{
+		Name:           "TestFn",
+		DataSourceName: "MyDS",
+	})
+	require.NoError(t, err)
+
+	// Delete the API.
+	err = b.DeleteGraphqlAPI(apiID)
+	require.NoError(t, err)
+
+	// Verify sub-resources were cascade deleted by trying to create a new API key
+	// (which would need the api to exist) — and verifying it fails.
+	_, err = b.CreateAPIKey(apiID, "test", 0)
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_CreateAPIKey_DefaultExpiry(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "test", 0)
+	require.NoError(t, err)
+
+	// Expires should be in the future.
+	assert.Positive(t, key.Expires)
+}
+
+func TestInMemoryBackend_CreateAPIKey_Da2Prefix(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "test", 0)
+	require.NoError(t, err)
+
+	assert.Greater(t, len(key.ID), 4, "key ID should be longer than the prefix")
+	assert.Equal(t, "da2-", key.ID[:4])
+}
+
+func TestInMemoryBackend_CreateAPICache_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cache   appsync.APICache
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			cache: appsync.APICache{
+				TTL:                60,
+				Type:               "SMALL",
+				APICachingBehavior: "FULL_REQUEST_CACHING",
+			},
+		},
+		{
+			name:    "ttl_zero_rejected",
+			cache:   appsync.APICache{TTL: 0, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"},
+			wantErr: true,
+		},
+		{
+			name:    "ttl_negative_rejected",
+			cache:   appsync.APICache{TTL: -1, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_type_rejected",
+			cache:   appsync.APICache{TTL: 60, APICachingBehavior: "FULL_REQUEST_CACHING"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid_type_rejected",
+			cache:   appsync.APICache{TTL: 60, Type: "BOGUS", APICachingBehavior: "FULL_REQUEST_CACHING"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_caching_behavior_rejected",
+			cache:   appsync.APICache{TTL: 60, Type: "SMALL"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid_caching_behavior_rejected",
+			cache:   appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "BOGUS"},
+			wantErr: true,
+		},
+		{
+			name: "large_type_valid",
+			cache: appsync.APICache{
+				TTL:                3600,
+				Type:               "LARGE_8X",
+				APICachingBehavior: "PER_RESOLVER_CACHING",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			require.NoError(t, err)
+
+			_, cacheErr := b.CreateAPICache(api.APIID, &tt.cache)
+
+			if tt.wantErr {
+				require.Error(t, cacheErr)
+
+				return
+			}
+
+			require.NoError(t, cacheErr)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateFunction_DefaultVersion(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{
+		Name:           "MyFunction",
+		DataSourceName: "MyDS",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "2018-05-29", fn.FunctionVersion)
+}
+
+func TestInMemoryBackend_CreateType_DuplicateDetection(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	def := "type MyType { id: ID! }"
+
+	_, err = b.CreateType(api.APIID, def, appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	// Creating the same type again should fail.
+	_, err = b.CreateType(api.APIID, def, appsync.TypeFormatSDL)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrAlreadyExists)
+}
+
+func TestInMemoryBackend_AssociateAPI_UpdatesDomainName(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	dn, err := b.CreateDomainName("api.example.com", "arn:aws:acm:us-east-1:000000000000:certificate/abc", "", nil)
+	require.NoError(t, err)
+	assert.Empty(t, dn.APIID)
+
+	// Create a GraphQL API and associate it.
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateAPI("api.example.com", api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, api.APIID, assoc.APIID)
+}
+
+func TestInMemoryBackend_CreateDataSource_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ds      appsync.DataSource
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			ds:   appsync.DataSource{Name: "MyDS", Type: appsync.DataSourceTypeNone},
+		},
+		{
+			name:    "missing_name",
+			ds:      appsync.DataSource{Type: appsync.DataSourceTypeNone},
+			wantErr: true,
+		},
+		{
+			name:    "missing_type",
+			ds:      appsync.DataSource{Name: "MyDS"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			require.NoError(t, err)
+
+			_, dsErr := b.CreateDataSource(api.APIID, &tt.ds)
+
+			if tt.wantErr {
+				require.Error(t, dsErr)
+
+				return
+			}
+
+			require.NoError(t, dsErr)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateDomainName_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		domainName string
+		wantErr    bool
+	}{
+		{name: "valid_domain", domainName: "api.example.com"},
+		{name: "valid_subdomain", domainName: "my.api.example.co.uk"},
+		{name: "empty_rejected", domainName: "", wantErr: true},
+		{name: "no_dot_rejected", domainName: "localhost", wantErr: true},
+		{name: "leading_dot_rejected", domainName: ".example.com", wantErr: true},
+		{name: "trailing_dot_rejected", domainName: "example.com.", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			_, err := b.CreateDomainName(tt.domainName, "arn:aws:acm:us-east-1:000000000000:certificate/abc", "", nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

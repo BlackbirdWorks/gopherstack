@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -24,6 +25,8 @@ var (
 	ErrAlreadyExists = awserr.New("BadRequestException", awserr.ErrAlreadyExists)
 	// ErrInvalidSchema is returned when the provided schema SDL is invalid.
 	ErrInvalidSchema = errors.New("InvalidSchemaError")
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 // LambdaInvoker can invoke a Lambda function by name or ARN.
@@ -88,6 +91,51 @@ type StorageBackend interface {
 // Real AWS AppSync API IDs are lowercase alphanumeric strings without hyphens.
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
+// apiKeyIDChars is the character set used for API key IDs.
+const apiKeyIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// apiKeyIDPrefix is the prefix used in AppSync API key IDs.
+const apiKeyIDPrefix = "da2-"
+
+// defaultAPIKeyExpiryDays is the default expiry in days when not specified.
+const defaultAPIKeyExpiryDays = 365
+
+// defaultFunctionVersion is the default AppSync function runtime version.
+const defaultFunctionVersion = "2018-05-29"
+
+// isValidAPICacheType returns true if the given cache type is a valid AppSync API cache type.
+func isValidAPICacheType(t string) bool {
+	switch t {
+	case "SMALL", "MEDIUM", "LARGE", "XLARGE",
+		"LARGE_2X", "LARGE_4X", "LARGE_8X", "LARGE_12X",
+		"T2_SMALL", "T2_MEDIUM",
+		"R4_1XLARGE", "R4_2XLARGE", "R4_4XLARGE", "R4_8XLARGE":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidAPICachingBehavior returns true if the given caching behavior is valid.
+func isValidAPICachingBehavior(behavior string) bool {
+	switch behavior {
+	case "FULL_REQUEST_CACHING", "PER_RESOLVER_CACHING", "FULL_REQUEST_DATA_CACHING":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidAuthType returns true if the given authentication type is valid.
+func isValidAuthType(a AuthenticationType) bool {
+	switch a {
+	case AuthTypeAPIKey, AuthTypeIAM, AuthTypeCognito, AuthTypeOIDC, AuthTypeLambda:
+		return true
+	default:
+		return false
+	}
+}
+
 // randomAPIID generates a cryptographically random 26-character alphanumeric ID,
 // matching the format of real AWS AppSync API IDs (no hyphens).
 func randomAPIID() string {
@@ -103,6 +151,23 @@ func randomAPIID() string {
 	}
 
 	return string(b)
+}
+
+// randomAPIKeyID generates a random API key ID with the "da2-" prefix,
+// matching the format of real AWS AppSync API key IDs.
+func randomAPIKeyID() string {
+	const length = 13
+
+	b := make([]byte, length)
+	charCount := uint64(len(apiKeyIDChars))
+
+	for i := range b {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		b[i] = apiKeyIDChars[binary.BigEndian.Uint64(v[:])%charCount]
+	}
+
+	return apiKeyIDPrefix + string(b)
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -151,6 +216,42 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all state from the backend, returning it to a clean initial state.
+// Useful for resetting state between tests.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	// Close tag resources before discarding.
+	for _, api := range b.apis {
+		if api.Tags != nil {
+			api.Tags.Close()
+		}
+	}
+
+	for _, dss := range b.datasources {
+		for _, ds := range dss {
+			if ds != nil && ds.Tags != nil {
+				ds.Tags.Close()
+			}
+		}
+	}
+
+	b.apis = make(map[string]*GraphqlAPI)
+	b.schemas = make(map[string]*Schema)
+	b.datasources = make(map[string]map[string]*DataSource)
+	b.resolvers = make(map[string]map[string]*Resolver)
+	b.apiKeys = make(map[string]map[string]*APIKey)
+	b.apiCaches = make(map[string]*APICache)
+	b.functions = make(map[string]map[string]*Function)
+	b.types = make(map[string]map[string]*APIType)
+	b.domainNames = make(map[string]*DomainName)
+	b.apiAssociations = make(map[string]*APIAssociation)
+	b.eventAPIs = make(map[string]*API)
+	b.channelNamespaces = make(map[string]map[string]*ChannelNamespace)
+	b.sourceAssocs = make(map[string]*SourceAPIAssociation)
+}
+
 // SetLambdaInvoker configures the Lambda invoker for LAMBDA data sources.
 func (b *InMemoryBackend) SetLambdaInvoker(fn LambdaInvoker) {
 	b.lambdaFn = fn
@@ -169,6 +270,14 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 ) (*GraphqlAPI, error) {
 	b.mu.Lock("CreateGraphqlApi")
 	defer b.mu.Unlock()
+
+	if authType != "" && !isValidAuthType(authType) {
+		return nil, fmt.Errorf("%w: invalid authenticationType %q", ErrValidation, authType)
+	}
+
+	if authType == "" {
+		authType = AuthTypeAPIKey
+	}
 
 	apiID := randomAPIID()
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
@@ -245,6 +354,12 @@ func (b *InMemoryBackend) DeleteGraphqlAPI(apiID string) error {
 	delete(b.schemas, apiID)
 	delete(b.datasources, apiID)
 	delete(b.resolvers, apiID)
+
+	// Cascade-delete sub-resources added as part of issue #842.
+	delete(b.apiKeys, apiID)
+	delete(b.apiCaches, apiID)
+	delete(b.functions, apiID)
+	delete(b.types, apiID)
 
 	if api.Tags != nil {
 		api.Tags.Close()
@@ -340,6 +455,14 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 
 	if _, ok := b.apis[apiID]; !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if ds.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if ds.Type == "" {
+		return nil, fmt.Errorf("%w: type is required", ErrValidation)
 	}
 
 	if b.datasources[apiID] == nil {
@@ -574,7 +697,12 @@ func (b *InMemoryBackend) CreateAPIKey(apiID, description string, expires int64)
 		b.apiKeys[apiID] = make(map[string]*APIKey)
 	}
 
-	keyID := randomAPIID()
+	// Default expiry to 365 days from now if not specified.
+	if expires <= 0 {
+		expires = time.Now().AddDate(0, 0, defaultAPIKeyExpiryDays).Unix()
+	}
+
+	keyID := randomAPIKeyID()
 
 	key := &APIKey{
 		ID:          keyID,
@@ -596,6 +724,26 @@ func (b *InMemoryBackend) CreateAPICache(apiID string, cache *APICache) (*APICac
 
 	if _, ok := b.apis[apiID]; !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if cache.TTL <= 0 {
+		return nil, fmt.Errorf("%w: ttl must be greater than 0", ErrValidation)
+	}
+
+	if cache.Type == "" {
+		return nil, fmt.Errorf("%w: type is required", ErrValidation)
+	}
+
+	if !isValidAPICacheType(cache.Type) {
+		return nil, fmt.Errorf("%w: invalid cache type %q", ErrValidation, cache.Type)
+	}
+
+	if cache.APICachingBehavior == "" {
+		return nil, fmt.Errorf("%w: apiCachingBehavior is required", ErrValidation)
+	}
+
+	if !isValidAPICachingBehavior(cache.APICachingBehavior) {
+		return nil, fmt.Errorf("%w: invalid apiCachingBehavior %q", ErrValidation, cache.APICachingBehavior)
 	}
 
 	if _, exists := b.apiCaches[apiID]; exists {
@@ -635,6 +783,11 @@ func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, 
 	f.FunctionID = funcID
 	f.FunctionARN = funcARN
 
+	// Default to the well-known function runtime version.
+	if f.FunctionVersion == "" {
+		f.FunctionVersion = defaultFunctionVersion
+	}
+
 	b.functions[apiID][funcID] = f
 
 	cp := *f
@@ -659,6 +812,10 @@ func (b *InMemoryBackend) CreateType(apiID, definition string, format TypeDefini
 	name := extractTypeName(definition)
 	if name == "" {
 		name = randomAPIID()
+	}
+
+	if _, exists := b.types[apiID][name]; exists {
+		return nil, fmt.Errorf("%w: type %s already exists for api %s", ErrAlreadyExists, name, apiID)
 	}
 
 	typeARN := arn.Build("appsync", b.region, b.accountID,
@@ -698,6 +855,20 @@ func extractTypeName(definition string) string {
 	return ""
 }
 
+// isValidDomainName returns true if the given domain name looks like a valid DNS name.
+func isValidDomainName(domain string) bool {
+	if domain == "" || len(domain) > 253 {
+		return false
+	}
+
+	// Must contain at least one dot and no leading/trailing dots.
+	if domain[0] == '.' || domain[len(domain)-1] == '.' {
+		return false
+	}
+
+	return strings.Contains(domain, ".")
+}
+
 // CreateDomainName creates a custom domain name.
 func (b *InMemoryBackend) CreateDomainName(
 	domainName, certificateARN, description string,
@@ -705,6 +876,10 @@ func (b *InMemoryBackend) CreateDomainName(
 ) (*DomainName, error) {
 	b.mu.Lock("CreateDomainName")
 	defer b.mu.Unlock()
+
+	if !isValidDomainName(domainName) {
+		return nil, fmt.Errorf("%w: invalid domain name %q", ErrValidation, domainName)
+	}
 
 	if _, exists := b.domainNames[domainName]; exists {
 		return nil, fmt.Errorf("%w: domain name %s already exists", ErrAlreadyExists, domainName)
@@ -734,7 +909,8 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 	b.mu.Lock("AssociateAPI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	dn, ok := b.domainNames[domainName]
+	if !ok {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
 
@@ -745,6 +921,9 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 	}
 
 	b.apiAssociations[domainName] = assoc
+
+	// Update the domain name record to reflect the associated API.
+	dn.APIID = apiID
 
 	cp := *assoc
 

@@ -1506,3 +1506,129 @@ func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_CreateGraphqlAPI_InvalidAuthType(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	body := map[string]any{"name": "TestAPI", "authenticationType": "INVALID_TYPE"}
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateAPICache_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "valid",
+			body: map[string]any{
+				"ttl":                int64(60),
+				"type":               "SMALL",
+				"apiCachingBehavior": "FULL_REQUEST_CACHING",
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "ttl_zero_rejected",
+			body:       map[string]any{"ttl": 0, "type": "SMALL", "apiCachingBehavior": "FULL_REQUEST_CACHING"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_type_rejected",
+			body:       map[string]any{"ttl": 60, "type": "BOGUS", "apiCachingBehavior": "FULL_REQUEST_CACHING"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_caching_behavior_rejected",
+			body:       map[string]any{"ttl": 60, "type": "SMALL", "apiCachingBehavior": "BOGUS"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			// Create an API first.
+			body := map[string]any{"name": "TestAPI", "authenticationType": "API_KEY"}
+			rec := doRequest(t, h, http.MethodPost, "/v1/apis", body)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			gqlAPI := resp["graphqlApi"].(map[string]any)
+			apiID := gqlAPI["apiId"].(string)
+
+			rec2 := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/ApiCaches", tt.body)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDomainName_InvalidDomain(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	body := map[string]any{
+		"domainName":     "notadomain",
+		"certificateArn": "arn:aws:acm:us-east-1:000000000000:certificate/abc",
+	}
+	rec := doRequest(t, h, http.MethodPost, "/v1/domainnames", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateType_DuplicateRejected(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	// Create an API.
+	body := map[string]any{"name": "TestAPI", "authenticationType": "API_KEY"}
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	gqlAPI := resp["graphqlApi"].(map[string]any)
+	apiID := gqlAPI["apiId"].(string)
+
+	typeBody := map[string]any{"definition": "type MyType { id: ID! }", "format": "SDL"}
+
+	// First creation succeeds.
+	rec2 := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/types", typeBody)
+	assert.Equal(t, http.StatusCreated, rec2.Code)
+
+	// Second creation with same type name fails.
+	rec3 := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/types", typeBody)
+	assert.Equal(t, http.StatusBadRequest, rec3.Code)
+}
+
+func TestHandler_CreateAPIKey_Da2Prefix(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	// Create an API.
+	body := map[string]any{"name": "TestAPI", "authenticationType": "API_KEY"}
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	gqlAPI := resp["graphqlApi"].(map[string]any)
+	apiID := gqlAPI["apiId"].(string)
+
+	keyBody := map[string]any{"description": "test key"}
+	rec2 := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/apikeys", keyBody)
+	require.Equal(t, http.StatusCreated, rec2.Code)
+
+	var keyResp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&keyResp))
+	apiKey := keyResp["apiKey"].(map[string]any)
+	keyID := apiKey["id"].(string)
+	assert.Equal(t, "da2-", keyID[:4])
+}
