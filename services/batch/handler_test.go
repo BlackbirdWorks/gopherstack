@@ -1421,3 +1421,372 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	require.Len(t, listed, 1)
 	assert.Equal(t, job.JobID, listed[0].JobID)
 }
+
+// --- ConsumableResource tests ---
+
+func TestHandler_ConsumableResource_CRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *batch.Handler)
+		name       string
+		wantStatus int
+		wantARN    bool
+	}{
+		{
+			name:       "create_success",
+			wantStatus: http.StatusOK,
+			wantARN:    true,
+		},
+		{
+			name: "create_duplicate",
+			setup: func(t *testing.T, h *batch.Handler) {
+				t.Helper()
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": "test-cr",
+					"totalQuantity":          10,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+				"consumableResourceName": "test-cr",
+				"totalQuantity":          10,
+				"resourceType":           "REPLENISHABLE",
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantARN {
+				var out map[string]string
+				mustUnmarshal(t, rec, &out)
+				assert.Contains(t, out["consumableResourceArn"], "test-cr")
+				assert.Equal(t, "test-cr", out["consumableResourceName"])
+			}
+		})
+	}
+}
+
+func TestHandler_ConsumableResource_DescribeAndDelete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		resourceToUse    string
+		wantDescStatus   int
+		wantDeleteStatus int
+		createFirst      bool
+	}{
+		{
+			name:             "describe_and_delete_success",
+			createFirst:      true,
+			resourceToUse:    "my-cr",
+			wantDescStatus:   http.StatusOK,
+			wantDeleteStatus: http.StatusOK,
+		},
+		{
+			name:             "describe_not_found",
+			createFirst:      false,
+			resourceToUse:    "missing-cr",
+			wantDescStatus:   http.StatusBadRequest,
+			wantDeleteStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.createFirst {
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": tt.resourceToUse,
+					"totalQuantity":          5,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			descRec := post(t, h, "/v1/describeconsumableresource", map[string]any{
+				"consumableResource": tt.resourceToUse,
+			})
+			assert.Equal(t, tt.wantDescStatus, descRec.Code)
+
+			if tt.wantDescStatus == http.StatusOK {
+				var out map[string]any
+				mustUnmarshal(t, descRec, &out)
+				assert.Equal(t, tt.resourceToUse, out["consumableResourceName"])
+				assert.NotEmpty(t, out["consumableResourceArn"])
+			}
+
+			delRec := post(t, h, "/v1/deleteconsumableresource", map[string]any{
+				"consumableResource": tt.resourceToUse,
+			})
+			assert.Equal(t, tt.wantDeleteStatus, delRec.Code)
+		})
+	}
+}
+
+func TestHandler_ConsumableResource_DescribeByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+		"consumableResourceName": "arn-cr",
+		"totalQuantity":          20,
+		"resourceType":           "NON_REPLENISHABLE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]string
+	mustUnmarshal(t, rec, &createOut)
+	crARN := createOut["consumableResourceArn"]
+	require.NotEmpty(t, crARN)
+
+	descRec := post(t, h, "/v1/describeconsumableresource", map[string]any{
+		"consumableResource": crARN,
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	mustUnmarshal(t, descRec, &descOut)
+	assert.Equal(t, "arn-cr", descOut["consumableResourceName"])
+	assert.Equal(t, "NON_REPLENISHABLE", descOut["resourceType"])
+	assert.InDelta(t, float64(20), descOut["totalQuantity"], 0)
+}
+
+// --- SchedulingPolicy tests ---
+
+func TestHandler_SchedulingPolicy_CRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *batch.Handler)
+		name       string
+		wantStatus int
+		wantARN    bool
+	}{
+		{
+			name:       "create_success",
+			wantStatus: http.StatusOK,
+			wantARN:    true,
+		},
+		{
+			name: "create_duplicate",
+			setup: func(t *testing.T, h *batch.Handler) {
+				t.Helper()
+				rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{
+					"name": "my-policy",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{
+				"name": "my-policy",
+				"tags": map[string]string{"env": "test"},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantARN {
+				var out map[string]string
+				mustUnmarshal(t, rec, &out)
+				assert.Contains(t, out["arn"], "my-policy")
+				assert.Equal(t, "my-policy", out["name"])
+			}
+		})
+	}
+}
+
+func TestHandler_SchedulingPolicy_Delete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		useName    bool
+	}{
+		{name: "delete_success", wantStatus: http.StatusOK, useName: true},
+		{name: "delete_not_found", wantStatus: http.StatusBadRequest, useName: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			policyARN := "nonexistent-arn"
+
+			if tt.useName {
+				rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{
+					"name": "del-policy",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out map[string]string
+				mustUnmarshal(t, rec, &out)
+				policyARN = out["arn"]
+			}
+
+			delRec := post(t, h, "/v1/deleteschedulingpolicy", map[string]any{
+				"arn": policyARN,
+			})
+			assert.Equal(t, tt.wantStatus, delRec.Code)
+		})
+	}
+}
+
+// --- ServiceEnvironment tests ---
+
+func TestHandler_ServiceEnvironment_CRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *batch.Handler)
+		name       string
+		wantStatus int
+		wantARN    bool
+	}{
+		{
+			name:       "create_success",
+			wantStatus: http.StatusOK,
+			wantARN:    true,
+		},
+		{
+			name: "create_duplicate",
+			setup: func(t *testing.T, h *batch.Handler) {
+				t.Helper()
+				rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
+					"serviceEnvironmentName": "my-senv",
+					"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
+				"serviceEnvironmentName": "my-senv",
+				"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+				"state":                  "ENABLED",
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantARN {
+				var out map[string]string
+				mustUnmarshal(t, rec, &out)
+				assert.Contains(t, out["serviceEnvironmentArn"], "my-senv")
+				assert.Equal(t, "my-senv", out["serviceEnvironmentName"])
+			}
+		})
+	}
+}
+
+func TestHandler_ServiceEnvironment_Delete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		createEnv  string
+		deleteEnv  string
+		wantStatus int
+	}{
+		{
+			name:       "delete_success",
+			wantStatus: http.StatusOK,
+			createEnv:  "senv-to-delete",
+			deleteEnv:  "senv-to-delete",
+		},
+		{
+			name:       "delete_not_found",
+			wantStatus: http.StatusBadRequest,
+			createEnv:  "another-senv",
+			deleteEnv:  "missing-senv",
+		},
+		{
+			name:       "delete_by_arn",
+			wantStatus: http.StatusOK,
+			createEnv:  "senv-arn-del",
+			deleteEnv:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
+				"serviceEnvironmentName": tt.createEnv,
+				"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			deleteTarget := tt.deleteEnv
+			if tt.name == "delete_by_arn" {
+				var createOut map[string]string
+				mustUnmarshal(t, rec, &createOut)
+				deleteTarget = createOut["serviceEnvironmentArn"]
+			}
+
+			delRec := post(t, h, "/v1/deleteserviceenvironment", map[string]any{
+				"serviceEnvironment": deleteTarget,
+			})
+			assert.Equal(t, tt.wantStatus, delRec.Code)
+		})
+	}
+}
+
+func TestHandler_ServiceEnvironment_DefaultState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
+		"serviceEnvironmentName": "default-state-senv",
+		"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]string
+	mustUnmarshal(t, rec, &out)
+	assert.Contains(t, out["serviceEnvironmentArn"], "default-state-senv")
+}

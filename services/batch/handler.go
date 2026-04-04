@@ -94,6 +94,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"CreateConsumableResource",
+		"DeleteConsumableResource",
+		"DescribeConsumableResource",
+		"CreateSchedulingPolicy",
+		"DeleteSchedulingPolicy",
+		"CreateServiceEnvironment",
+		"DeleteServiceEnvironment",
 	}
 }
 
@@ -269,6 +276,13 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"/v1/submitjob":                   service.WrapOp(h.handleSubmitJob),
 		"/v1/terminatejob":                service.WrapOp(h.handleTerminateJob),
 		"/v1/canceljob":                   service.WrapOp(h.handleCancelJob),
+		"/v1/createconsumableresource":    service.WrapOp(h.handleCreateConsumableResource),
+		"/v1/deleteconsumableresource":    service.WrapOp(h.handleDeleteConsumableResource),
+		"/v1/describeconsumableresource":  service.WrapOp(h.handleDescribeConsumableResource),
+		"/v1/createschedulingpolicy":      service.WrapOp(h.handleCreateSchedulingPolicy),
+		"/v1/deleteschedulingpolicy":      service.WrapOp(h.handleDeleteSchedulingPolicy),
+		"/v1/createserviceenvironment":    service.WrapOp(h.handleCreateServiceEnvironment),
+		"/v1/deleteserviceenvironment":    service.WrapOp(h.handleDeleteServiceEnvironment),
 	}
 }
 
@@ -330,6 +344,13 @@ func pathToOperation(path string) string {
 		"/v1/submitjob":                   "SubmitJob",
 		"/v1/terminatejob":                "TerminateJob",
 		"/v1/canceljob":                   "CancelJob",
+		"/v1/createconsumableresource":    "CreateConsumableResource",
+		"/v1/deleteconsumableresource":    "DeleteConsumableResource",
+		"/v1/describeconsumableresource":  "DescribeConsumableResource",
+		"/v1/createschedulingpolicy":      "CreateSchedulingPolicy",
+		"/v1/deleteschedulingpolicy":      "DeleteSchedulingPolicy",
+		"/v1/createserviceenvironment":    "CreateServiceEnvironment",
+		"/v1/deleteserviceenvironment":    "DeleteServiceEnvironment",
 	}
 
 	if op, ok := ops[path]; ok {
@@ -359,7 +380,7 @@ func (h *Handler) handleCreateComputeEnvironment(
 ) (*createComputeEnvironmentOutput, error) {
 	state := in.State
 	if state == "" {
-		state = "ENABLED"
+		state = stateEnabled
 	}
 
 	ce, err := h.Backend.CreateComputeEnvironment(in.ComputeEnvironmentName, in.Type, state, in.Tags)
@@ -451,7 +472,7 @@ func (h *Handler) handleCreateJobQueue(
 ) (*createJobQueueOutput, error) {
 	state := in.State
 	if state == "" {
-		state = "ENABLED"
+		state = stateEnabled
 	}
 
 	jq, err := h.Backend.CreateJobQueue(in.JobQueueName, in.Priority, state, in.ComputeEnvironmentOrder, in.Tags)
@@ -758,4 +779,175 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, query
 	}
 
 	return c.JSON(http.StatusOK, emptyOutput{})
+}
+
+// --- ConsumableResource handlers ---
+
+type createConsumableResourceInput struct {
+	Tags                   map[string]string `json:"tags"`
+	ConsumableResourceName string            `json:"consumableResourceName"`
+	ResourceType           string            `json:"resourceType"`
+	TotalQuantity          int64             `json:"totalQuantity"`
+}
+
+type createConsumableResourceOutput struct {
+	ConsumableResourceArn  string `json:"consumableResourceArn"`
+	ConsumableResourceName string `json:"consumableResourceName"`
+}
+
+func (h *Handler) handleCreateConsumableResource(
+	_ context.Context,
+	in *createConsumableResourceInput,
+) (*createConsumableResourceOutput, error) {
+	cr, err := h.Backend.CreateConsumableResource(in.ConsumableResourceName, in.ResourceType, in.TotalQuantity, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createConsumableResourceOutput{
+		ConsumableResourceArn:  cr.ConsumableResourceArn,
+		ConsumableResourceName: cr.ConsumableResourceName,
+	}, nil
+}
+
+type deleteConsumableResourceInput struct {
+	ConsumableResource string `json:"consumableResource"`
+}
+
+func (h *Handler) handleDeleteConsumableResource(
+	_ context.Context,
+	in *deleteConsumableResourceInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteConsumableResource(in.ConsumableResource); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type describeConsumableResourceInput struct {
+	ConsumableResource string `json:"consumableResource"`
+}
+
+type describeConsumableResourceOutput struct {
+	Tags                   map[string]string `json:"tags,omitempty"`
+	ConsumableResourceArn  string            `json:"consumableResourceArn"`
+	ConsumableResourceName string            `json:"consumableResourceName"`
+	ResourceType           string            `json:"resourceType,omitempty"`
+	CreatedAt              int64             `json:"createdAt"`
+	TotalQuantity          int64             `json:"totalQuantity"`
+	AvailableQuantity      int64             `json:"availableQuantity"`
+	InUseQuantity          int64             `json:"inUseQuantity"`
+}
+
+func (h *Handler) handleDescribeConsumableResource(
+	_ context.Context,
+	in *describeConsumableResourceInput,
+) (*describeConsumableResourceOutput, error) {
+	cr, err := h.Backend.DescribeConsumableResource(in.ConsumableResource)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConsumableResourceOutput{
+		ConsumableResourceArn:  cr.ConsumableResourceArn,
+		ConsumableResourceName: cr.ConsumableResourceName,
+		ResourceType:           cr.ResourceType,
+		Tags:                   cr.Tags,
+		CreatedAt:              cr.CreatedAt,
+		TotalQuantity:          cr.TotalQuantity,
+		AvailableQuantity:      cr.AvailableQuantity,
+		InUseQuantity:          cr.InUseQuantity,
+	}, nil
+}
+
+// --- SchedulingPolicy handlers ---
+
+type createSchedulingPolicyInput struct {
+	Tags map[string]string `json:"tags"`
+	Name string            `json:"name"`
+}
+
+type createSchedulingPolicyOutput struct {
+	Arn  string `json:"arn"`
+	Name string `json:"name"`
+}
+
+func (h *Handler) handleCreateSchedulingPolicy(
+	_ context.Context,
+	in *createSchedulingPolicyInput,
+) (*createSchedulingPolicyOutput, error) {
+	sp, err := h.Backend.CreateSchedulingPolicy(in.Name, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSchedulingPolicyOutput{
+		Arn:  sp.Arn,
+		Name: sp.Name,
+	}, nil
+}
+
+type deleteSchedulingPolicyInput struct {
+	Arn string `json:"arn"`
+}
+
+func (h *Handler) handleDeleteSchedulingPolicy(
+	_ context.Context,
+	in *deleteSchedulingPolicyInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteSchedulingPolicy(in.Arn); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- ServiceEnvironment handlers ---
+
+type createServiceEnvironmentInput struct {
+	Tags                   map[string]string `json:"tags"`
+	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
+	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
+	State                  string            `json:"state"`
+}
+
+type createServiceEnvironmentOutput struct {
+	ServiceEnvironmentArn  string `json:"serviceEnvironmentArn"`
+	ServiceEnvironmentName string `json:"serviceEnvironmentName"`
+}
+
+func (h *Handler) handleCreateServiceEnvironment(
+	_ context.Context,
+	in *createServiceEnvironmentInput,
+) (*createServiceEnvironmentOutput, error) {
+	se, err := h.Backend.CreateServiceEnvironment(
+		in.ServiceEnvironmentName,
+		in.ServiceEnvironmentType,
+		in.State,
+		in.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createServiceEnvironmentOutput{
+		ServiceEnvironmentArn:  se.ServiceEnvironmentArn,
+		ServiceEnvironmentName: se.ServiceEnvironmentName,
+	}, nil
+}
+
+type deleteServiceEnvironmentInput struct {
+	ServiceEnvironment string `json:"serviceEnvironment"`
+}
+
+func (h *Handler) handleDeleteServiceEnvironment(
+	_ context.Context,
+	in *deleteServiceEnvironmentInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteServiceEnvironment(in.ServiceEnvironment); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
 }

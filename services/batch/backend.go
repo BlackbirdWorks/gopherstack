@@ -31,6 +31,8 @@ const (
 	jobStatusRunning   = "RUNNING"
 	jobStatusSucceeded = "SUCCEEDED"
 	jobStatusFailed    = "FAILED"
+
+	stateEnabled = "ENABLED"
 )
 
 // ComputeEnvironment represents a Batch compute environment.
@@ -86,6 +88,35 @@ type Job struct {
 	CreatedAt     int64             `json:"createdAt"`
 }
 
+// ConsumableResource represents a Batch consumable resource.
+type ConsumableResource struct {
+	Tags                   map[string]string `json:"tags,omitempty"`
+	ConsumableResourceName string            `json:"consumableResourceName"`
+	ConsumableResourceArn  string            `json:"consumableResourceArn"`
+	ResourceType           string            `json:"resourceType,omitempty"`
+	CreatedAt              int64             `json:"createdAt"`
+	TotalQuantity          int64             `json:"totalQuantity"`
+	AvailableQuantity      int64             `json:"availableQuantity"`
+	InUseQuantity          int64             `json:"inUseQuantity"`
+}
+
+// SchedulingPolicy represents a Batch scheduling policy.
+type SchedulingPolicy struct {
+	TagsMap map[string]string `json:"tags,omitempty"`
+	Arn     string            `json:"arn"`
+	Name    string            `json:"name"`
+}
+
+// ServiceEnvironment represents a Batch service environment.
+type ServiceEnvironment struct {
+	Tags                   map[string]string `json:"tags,omitempty"`
+	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
+	ServiceEnvironmentArn  string            `json:"serviceEnvironmentArn"`
+	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
+	State                  string            `json:"state"`
+	Status                 string            `json:"status"`
+}
+
 // InMemoryBackend stores AWS Batch state in memory.
 type InMemoryBackend struct {
 	computeEnvironments map[string]*ComputeEnvironment
@@ -94,6 +125,9 @@ type InMemoryBackend struct {
 	jobs                map[string]*Job     // job ID → Job
 	jobsByQueue         map[string][]string // queue ARN/name → []jobID
 	jobDefRevisions     map[string]int32
+	consumableResources map[string]*ConsumableResource
+	schedulingPolicies  map[string]*SchedulingPolicy // ARN → SchedulingPolicy
+	serviceEnvironments map[string]*ServiceEnvironment
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -108,6 +142,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobs:                make(map[string]*Job),
 		jobsByQueue:         make(map[string][]string),
 		jobDefRevisions:     make(map[string]int32),
+		consumableResources: make(map[string]*ConsumableResource),
+		schedulingPolicies:  make(map[string]*SchedulingPolicy),
+		serviceEnvironments: make(map[string]*ServiceEnvironment),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("batch"),
@@ -695,4 +732,193 @@ func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
 	j.StoppedAt = &now
 
 	return nil
+}
+
+// CreateConsumableResource creates a new consumable resource.
+func (b *InMemoryBackend) CreateConsumableResource(
+	name, resourceType string,
+	totalQuantity int64,
+	tags map[string]string,
+) (*ConsumableResource, error) {
+	b.mu.Lock("CreateConsumableResource")
+	defer b.mu.Unlock()
+
+	if _, ok := b.consumableResources[name]; ok {
+		return nil, fmt.Errorf("%w: consumable resource %s already exists", ErrAlreadyExists, name)
+	}
+
+	crARN := arn.Build("batch", b.region, b.accountID, "consumable-resource/"+name)
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	if resourceType == "" {
+		resourceType = "REPLENISHABLE"
+	}
+
+	cr := &ConsumableResource{
+		ConsumableResourceName: name,
+		ConsumableResourceArn:  crARN,
+		ResourceType:           resourceType,
+		TotalQuantity:          totalQuantity,
+		AvailableQuantity:      totalQuantity,
+		InUseQuantity:          0,
+		CreatedAt:              time.Now().UnixMilli(),
+		Tags:                   tagsCopy,
+	}
+	b.consumableResources[name] = cr
+	cp := *cr
+
+	return &cp, nil
+}
+
+// DeleteConsumableResource removes a consumable resource by name or ARN.
+func (b *InMemoryBackend) DeleteConsumableResource(nameOrARN string) error {
+	b.mu.Lock("DeleteConsumableResource")
+	defer b.mu.Unlock()
+
+	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	if !ok {
+		return fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
+	}
+
+	delete(b.consumableResources, cr.ConsumableResourceName)
+
+	return nil
+}
+
+// DescribeConsumableResource returns details for a consumable resource identified by name or ARN.
+func (b *InMemoryBackend) DescribeConsumableResource(nameOrARN string) (*ConsumableResource, error) {
+	b.mu.RLock("DescribeConsumableResource")
+	defer b.mu.RUnlock()
+
+	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
+	}
+
+	cp := *cr
+
+	return &cp, nil
+}
+
+// lookupConsumableResourceByNameOrARN returns a consumable resource by name or ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(nameOrARN string) (*ConsumableResource, bool) {
+	if cr, ok := b.consumableResources[nameOrARN]; ok {
+		return cr, true
+	}
+
+	for _, cr := range b.consumableResources {
+		if cr.ConsumableResourceArn == nameOrARN {
+			return cr, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateSchedulingPolicy creates a new scheduling policy.
+func (b *InMemoryBackend) CreateSchedulingPolicy(name string, tags map[string]string) (*SchedulingPolicy, error) {
+	b.mu.Lock("CreateSchedulingPolicy")
+	defer b.mu.Unlock()
+
+	policyARN := arn.Build("batch", b.region, b.accountID, "scheduling-policy/"+name)
+
+	if _, ok := b.schedulingPolicies[policyARN]; ok {
+		return nil, fmt.Errorf("%w: scheduling policy %s already exists", ErrAlreadyExists, name)
+	}
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	sp := &SchedulingPolicy{
+		Arn:     policyARN,
+		Name:    name,
+		TagsMap: tagsCopy,
+	}
+	b.schedulingPolicies[policyARN] = sp
+	cp := *sp
+
+	return &cp, nil
+}
+
+// DeleteSchedulingPolicy removes a scheduling policy by ARN.
+func (b *InMemoryBackend) DeleteSchedulingPolicy(policyARN string) error {
+	b.mu.Lock("DeleteSchedulingPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.schedulingPolicies[policyARN]; !ok {
+		return fmt.Errorf("%w: scheduling policy %s not found", ErrNotFound, policyARN)
+	}
+
+	delete(b.schedulingPolicies, policyARN)
+
+	return nil
+}
+
+// CreateServiceEnvironment creates a new service environment.
+func (b *InMemoryBackend) CreateServiceEnvironment(
+	name, envType, state string,
+	tags map[string]string,
+) (*ServiceEnvironment, error) {
+	b.mu.Lock("CreateServiceEnvironment")
+	defer b.mu.Unlock()
+
+	if _, ok := b.serviceEnvironments[name]; ok {
+		return nil, fmt.Errorf("%w: service environment %s already exists", ErrAlreadyExists, name)
+	}
+
+	seARN := arn.Build("batch", b.region, b.accountID, "service-environment/"+name)
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	if state == "" {
+		state = stateEnabled
+	}
+
+	se := &ServiceEnvironment{
+		ServiceEnvironmentName: name,
+		ServiceEnvironmentArn:  seARN,
+		ServiceEnvironmentType: envType,
+		State:                  state,
+		Status:                 "VALID",
+		Tags:                   tagsCopy,
+	}
+	b.serviceEnvironments[name] = se
+	cp := *se
+
+	return &cp, nil
+}
+
+// DeleteServiceEnvironment removes a service environment by name or ARN.
+func (b *InMemoryBackend) DeleteServiceEnvironment(nameOrARN string) error {
+	b.mu.Lock("DeleteServiceEnvironment")
+	defer b.mu.Unlock()
+
+	se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN)
+	if !ok {
+		return fmt.Errorf("%w: service environment %s not found", ErrNotFound, nameOrARN)
+	}
+
+	delete(b.serviceEnvironments, se.ServiceEnvironmentName)
+
+	return nil
+}
+
+// lookupServiceEnvironmentByNameOrARN returns a service environment by name or ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupServiceEnvironmentByNameOrARN(nameOrARN string) (*ServiceEnvironment, bool) {
+	if se, ok := b.serviceEnvironments[nameOrARN]; ok {
+		return se, true
+	}
+
+	for _, se := range b.serviceEnvironments {
+		if se.ServiceEnvironmentArn == nameOrARN {
+			return se, true
+		}
+	}
+
+	return nil, false
 }
