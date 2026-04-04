@@ -174,13 +174,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
-// formatTimeProp returns t formatted as RFC3339 when non-zero, or empty string.
-func formatTimeProp(t time.Time) string {
+// epochSecondsPtr converts a non-zero [time.Time] to a pointer to its Unix epoch
+// seconds value (float64), as required by the AWS JSON protocol for timestamp
+// fields. Returns nil for zero-value times so omitempty omits the field.
+func epochSecondsPtr(t time.Time) *float64 {
 	if t.IsZero() {
-		return ""
+		return nil
 	}
 
-	return t.UTC().Format(time.RFC3339)
+	v := float64(t.Unix())
+
+	return &v
 }
 
 // --- Input/Output types ---
@@ -237,12 +241,12 @@ type describeScalableTargetsInput struct {
 
 type scalableTargetSummary struct {
 	Tags              map[string]string `json:"Tags,omitempty"`
+	CreationTime      *float64          `json:"CreationTime,omitempty"`
+	LastModifiedTime  *float64          `json:"LastModifiedTime,omitempty"`
 	ServiceNamespace  string            `json:"ServiceNamespace"`
 	ResourceID        string            `json:"ResourceId"`
 	ScalableDimension string            `json:"ScalableDimension"`
 	ScalableTargetARN string            `json:"ScalableTargetARN"`
-	CreationTime      string            `json:"CreationTime,omitempty"`
-	LastModifiedTime  string            `json:"LastModifiedTime,omitempty"`
 	MinCapacity       int32             `json:"MinCapacity"`
 	MaxCapacity       int32             `json:"MaxCapacity"`
 }
@@ -258,7 +262,7 @@ func (h *Handler) handleDescribeScalableTargets(
 	targets := h.Backend.DescribeScalableTargets(in.ServiceNamespace)
 	items := make([]scalableTargetSummary, 0, len(targets))
 	for _, t := range targets {
-		s := scalableTargetSummary{
+		items = append(items, scalableTargetSummary{
 			ServiceNamespace:  t.ServiceNamespace,
 			ResourceID:        t.ResourceID,
 			ScalableDimension: t.ScalableDimension,
@@ -266,11 +270,9 @@ func (h *Handler) handleDescribeScalableTargets(
 			MaxCapacity:       t.MaxCapacity,
 			ScalableTargetARN: t.ARN,
 			Tags:              t.Tags,
-			CreationTime:      formatTimeProp(t.CreationTime),
-			LastModifiedTime:  formatTimeProp(t.LastModifiedTime),
-		}
-
-		items = append(items, s)
+			CreationTime:      epochSecondsPtr(t.CreationTime),
+			LastModifiedTime:  epochSecondsPtr(t.LastModifiedTime),
+		})
 	}
 
 	return &describeScalableTargetsOutput{ScalableTargets: items}, nil
@@ -340,14 +342,14 @@ type describeScalingPoliciesInput struct {
 }
 
 type scalingPolicySummary struct {
-	ServiceNamespace  string `json:"ServiceNamespace"`
-	ResourceID        string `json:"ResourceId"`
-	ScalableDimension string `json:"ScalableDimension"`
-	PolicyName        string `json:"PolicyName"`
-	PolicyType        string `json:"PolicyType"`
-	PolicyARN         string `json:"PolicyARN"`
-	CreationTime      string `json:"CreationTime,omitempty"`
-	LastModifiedTime  string `json:"LastModifiedTime,omitempty"`
+	CreationTime      *float64 `json:"CreationTime,omitempty"`
+	LastModifiedTime  *float64 `json:"LastModifiedTime,omitempty"`
+	ServiceNamespace  string   `json:"ServiceNamespace"`
+	ResourceID        string   `json:"ResourceId"`
+	ScalableDimension string   `json:"ScalableDimension"`
+	PolicyName        string   `json:"PolicyName"`
+	PolicyType        string   `json:"PolicyType"`
+	PolicyARN         string   `json:"PolicyARN"`
 }
 
 type describeScalingPoliciesOutput struct {
@@ -373,8 +375,8 @@ func (h *Handler) handleDescribeScalingPolicies(
 			PolicyName:        p.PolicyName,
 			PolicyType:        p.PolicyType,
 			PolicyARN:         p.ARN,
-			CreationTime:      formatTimeProp(p.CreationTime),
-			LastModifiedTime:  formatTimeProp(p.LastModifiedTime),
+			CreationTime:      epochSecondsPtr(p.CreationTime),
+			LastModifiedTime:  epochSecondsPtr(p.LastModifiedTime),
 		})
 	}
 
@@ -456,14 +458,14 @@ type describeScheduledActionsInput struct {
 }
 
 type scheduledActionSummary struct {
-	ServiceNamespace    string `json:"ServiceNamespace"`
-	ResourceID          string `json:"ResourceId"`
-	ScalableDimension   string `json:"ScalableDimension"`
-	ScheduledActionName string `json:"ScheduledActionName"`
-	Schedule            string `json:"Schedule"`
-	ScheduledActionARN  string `json:"ScheduledActionARN"`
-	CreationTime        string `json:"CreationTime,omitempty"`
-	LastModifiedTime    string `json:"LastModifiedTime,omitempty"`
+	CreationTime        *float64 `json:"CreationTime,omitempty"`
+	LastModifiedTime    *float64 `json:"LastModifiedTime,omitempty"`
+	ServiceNamespace    string   `json:"ServiceNamespace"`
+	ResourceID          string   `json:"ResourceId"`
+	ScalableDimension   string   `json:"ScalableDimension"`
+	ScheduledActionName string   `json:"ScheduledActionName"`
+	Schedule            string   `json:"Schedule"`
+	ScheduledActionARN  string   `json:"ScheduledActionARN"`
 }
 
 type describeScheduledActionsOutput struct {
@@ -489,8 +491,8 @@ func (h *Handler) handleDescribeScheduledActions(
 			ScheduledActionName: a.ScheduledActionName,
 			Schedule:            a.Schedule,
 			ScheduledActionARN:  a.ARN,
-			CreationTime:        formatTimeProp(a.CreationTime),
-			LastModifiedTime:    formatTimeProp(a.LastModifiedTime),
+			CreationTime:        epochSecondsPtr(a.CreationTime),
+			LastModifiedTime:    epochSecondsPtr(a.LastModifiedTime),
 		})
 	}
 
