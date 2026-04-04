@@ -20,6 +20,8 @@ const (
 	arnRegion        = "us-east-1"
 	arnAccount       = "000000000000"
 	millisToSeconds  = 1000.0
+
+	presignedURLBase = "https://athena.us-east-1.amazonaws.com/notebooks/presigned/"
 )
 
 var (
@@ -135,6 +137,53 @@ type Tag struct {
 	Value string `json:"Value"`
 }
 
+// PreparedStatement represents an Athena prepared statement.
+type PreparedStatement struct {
+	StatementName    string  `json:"StatementName"`
+	WorkGroupName    string  `json:"WorkGroupName"`
+	QueryStatement   string  `json:"QueryStatement"`
+	Description      string  `json:"Description,omitempty"`
+	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
+}
+
+// UnprocessedPreparedStatementName describes a prepared statement that could not be retrieved.
+type UnprocessedPreparedStatementName struct {
+	StatementName string `json:"StatementName"`
+	ErrorMessage  string `json:"ErrorMessage"`
+}
+
+// CapacityReservation represents an Athena capacity reservation.
+type CapacityReservation struct {
+	Tags           map[string]string `json:"Tags,omitempty"`
+	Name           string            `json:"Name"`
+	Status         string            `json:"Status"`
+	CreationTime   float64           `json:"CreationTime,omitempty"`
+	LastAllocation float64           `json:"LastAllocation,omitempty"`
+	TargetDpus     int32             `json:"TargetDpus"`
+	AllocatedDpus  int32             `json:"AllocatedDpus"`
+}
+
+// NotebookMetadata holds metadata for an Athena notebook.
+type NotebookMetadata struct {
+	NotebookID       string  `json:"NotebookId"`
+	Name             string  `json:"Name"`
+	WorkGroup        string  `json:"WorkGroup"`
+	Type             string  `json:"Type"`
+	CreationTime     float64 `json:"CreationTime,omitempty"`
+	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
+}
+
+// Notebook represents an Athena notebook with its content.
+type Notebook struct {
+	NotebookID       string  `json:"NotebookId"`
+	Name             string  `json:"Name"`
+	WorkGroup        string  `json:"WorkGroup"`
+	Type             string  `json:"Type"`
+	Content          string  `json:"Content"`
+	CreationTime     float64 `json:"CreationTime,omitempty"`
+	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
+}
+
 // StorageBackend is the interface for the Athena in-memory store.
 type StorageBackend interface {
 	// WorkGroups
@@ -169,27 +218,52 @@ type StorageBackend interface {
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, keys []string) error
 	ListTagsForResource(arn string) ([]Tag, error)
+
+	// Prepared Statements
+	BatchGetPreparedStatement(
+		workGroup string,
+		names []string,
+	) ([]PreparedStatement, []UnprocessedPreparedStatementName)
+	CreatePreparedStatement(name, description, workGroup, queryStatement string) error
+	DeletePreparedStatement(name, workGroup string) error
+
+	// Capacity Reservations
+	CancelCapacityReservation(name string) error
+	CreateCapacityReservation(name string, targetDPUs int32, tags map[string]string) error
+	DeleteCapacityReservation(name string) error
+
+	// Notebooks
+	CreateNotebook(workGroup, name string, tags map[string]string) (string, error)
+	CreatePresignedNotebookURL(sessionID string) (string, error)
+	DeleteNotebook(notebookID string) error
+	ExportNotebook(notebookID string) (NotebookMetadata, string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	workGroups      map[string]*WorkGroup
-	namedQueries    map[string]*NamedQuery
-	dataCatalogs    map[string]*DataCatalog
-	queryExecutions map[string]*QueryExecution
-	resourceTags    map[string]map[string]string
-	mu              *lockmetrics.RWMutex
+	workGroups           map[string]*WorkGroup
+	namedQueries         map[string]*NamedQuery
+	dataCatalogs         map[string]*DataCatalog
+	queryExecutions      map[string]*QueryExecution
+	resourceTags         map[string]map[string]string
+	preparedStatements   map[string]*PreparedStatement // key: "workGroup/name"
+	capacityReservations map[string]*CapacityReservation
+	notebooks            map[string]*Notebook // key: notebookID
+	mu                   *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend and seeds the default "primary" workgroup.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		workGroups:      make(map[string]*WorkGroup),
-		namedQueries:    make(map[string]*NamedQuery),
-		dataCatalogs:    make(map[string]*DataCatalog),
-		queryExecutions: make(map[string]*QueryExecution),
-		resourceTags:    make(map[string]map[string]string),
-		mu:              lockmetrics.New("athena"),
+		workGroups:           make(map[string]*WorkGroup),
+		namedQueries:         make(map[string]*NamedQuery),
+		dataCatalogs:         make(map[string]*DataCatalog),
+		queryExecutions:      make(map[string]*QueryExecution),
+		resourceTags:         make(map[string]map[string]string),
+		preparedStatements:   make(map[string]*PreparedStatement),
+		capacityReservations: make(map[string]*CapacityReservation),
+		notebooks:            make(map[string]*Notebook),
+		mu:                   lockmetrics.New("athena"),
 	}
 
 	b.workGroups[defaultWorkGroup] = &WorkGroup{
@@ -681,4 +755,196 @@ func copyTags(tags map[string]string) map[string]string {
 	maps.Copy(cp, tags)
 
 	return cp
+}
+
+// preparedStatementKey returns the map key for a prepared statement.
+func preparedStatementKey(workGroup, name string) string {
+	return workGroup + "/" + name
+}
+
+// --- Prepared Statements ---
+
+// CreatePreparedStatement creates a new prepared statement in a workgroup.
+func (b *InMemoryBackend) CreatePreparedStatement(name, description, workGroup, queryStatement string) error {
+	b.mu.Lock("CreatePreparedStatement")
+	defer b.mu.Unlock()
+
+	key := preparedStatementKey(workGroup, name)
+	if _, ok := b.preparedStatements[key]; ok {
+		return fmt.Errorf("%w: prepared statement %q already exists in workgroup %q", ErrAlreadyExists, name, workGroup)
+	}
+
+	now := float64(time.Now().UnixMilli()) / millisToSeconds
+	b.preparedStatements[key] = &PreparedStatement{
+		StatementName:    name,
+		WorkGroupName:    workGroup,
+		QueryStatement:   queryStatement,
+		Description:      description,
+		LastModifiedTime: now,
+	}
+
+	return nil
+}
+
+// BatchGetPreparedStatement retrieves multiple prepared statements by name within a workgroup.
+func (b *InMemoryBackend) BatchGetPreparedStatement(
+	workGroup string,
+	names []string,
+) ([]PreparedStatement, []UnprocessedPreparedStatementName) {
+	b.mu.RLock("BatchGetPreparedStatement")
+	defer b.mu.RUnlock()
+
+	found := make([]PreparedStatement, 0)
+	unprocessed := make([]UnprocessedPreparedStatementName, 0)
+
+	for _, name := range names {
+		key := preparedStatementKey(workGroup, name)
+		ps, ok := b.preparedStatements[key]
+		if ok {
+			found = append(found, *ps)
+		} else {
+			unprocessed = append(unprocessed, UnprocessedPreparedStatementName{
+				StatementName: name,
+				ErrorMessage:  fmt.Sprintf("prepared statement %q not found in workgroup %q", name, workGroup),
+			})
+		}
+	}
+
+	return found, unprocessed
+}
+
+// DeletePreparedStatement removes a prepared statement by name and workgroup.
+func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error {
+	b.mu.Lock("DeletePreparedStatement")
+	defer b.mu.Unlock()
+
+	key := preparedStatementKey(workGroup, name)
+	if _, ok := b.preparedStatements[key]; !ok {
+		return fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrNotFound, name, workGroup)
+	}
+
+	delete(b.preparedStatements, key)
+
+	return nil
+}
+
+// --- Capacity Reservations ---
+
+// CreateCapacityReservation creates a new capacity reservation.
+func (b *InMemoryBackend) CreateCapacityReservation(name string, targetDPUs int32, tags map[string]string) error {
+	b.mu.Lock("CreateCapacityReservation")
+	defer b.mu.Unlock()
+
+	if _, ok := b.capacityReservations[name]; ok {
+		return fmt.Errorf("%w: capacity reservation %q already exists", ErrAlreadyExists, name)
+	}
+
+	now := float64(time.Now().UnixMilli()) / millisToSeconds
+	b.capacityReservations[name] = &CapacityReservation{
+		Name:          name,
+		Status:        "ACTIVE",
+		TargetDpus:    targetDPUs,
+		AllocatedDpus: targetDPUs,
+		Tags:          maps.Clone(tags),
+		CreationTime:  now,
+	}
+
+	return nil
+}
+
+// CancelCapacityReservation cancels an active capacity reservation.
+func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
+	b.mu.Lock("CancelCapacityReservation")
+	defer b.mu.Unlock()
+
+	cr, ok := b.capacityReservations[name]
+	if !ok {
+		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
+	}
+
+	cr.Status = "CANCELLING"
+
+	return nil
+}
+
+// DeleteCapacityReservation removes a capacity reservation.
+func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
+	b.mu.Lock("DeleteCapacityReservation")
+	defer b.mu.Unlock()
+
+	if _, ok := b.capacityReservations[name]; !ok {
+		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
+	}
+
+	delete(b.capacityReservations, name)
+
+	return nil
+}
+
+// --- Notebooks ---
+
+// CreateNotebook creates a new Athena notebook and returns its ID.
+func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string]string) (string, error) {
+	b.mu.Lock("CreateNotebook")
+	defer b.mu.Unlock()
+
+	id := randomID()
+	now := float64(time.Now().UnixMilli()) / millisToSeconds
+	b.notebooks[id] = &Notebook{
+		NotebookID:       id,
+		Name:             name,
+		WorkGroup:        workGroup,
+		Type:             "IPYNB",
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Content:          "",
+	}
+
+	if len(tags) > 0 {
+		notebookARN := fmt.Sprintf("arn:aws:athena:%s:%s:notebook/%s", arnRegion, arnAccount, id)
+		b.resourceTags[notebookARN] = copyTags(tags)
+	}
+
+	return id, nil
+}
+
+// CreatePresignedNotebookURL generates a presigned URL for a notebook session.
+func (b *InMemoryBackend) CreatePresignedNotebookURL(sessionID string) (string, error) {
+	return presignedURLBase + sessionID, nil
+}
+
+// DeleteNotebook removes a notebook by its ID.
+func (b *InMemoryBackend) DeleteNotebook(notebookID string) error {
+	b.mu.Lock("DeleteNotebook")
+	defer b.mu.Unlock()
+
+	if _, ok := b.notebooks[notebookID]; !ok {
+		return fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
+	}
+
+	delete(b.notebooks, notebookID)
+
+	return nil
+}
+
+// ExportNotebook returns the notebook metadata and content for the given notebook ID.
+func (b *InMemoryBackend) ExportNotebook(notebookID string) (NotebookMetadata, string, error) {
+	b.mu.RLock("ExportNotebook")
+	defer b.mu.RUnlock()
+
+	nb, ok := b.notebooks[notebookID]
+	if !ok {
+		return NotebookMetadata{}, "", fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
+	}
+
+	meta := NotebookMetadata{
+		NotebookID:       nb.NotebookID,
+		Name:             nb.Name,
+		WorkGroup:        nb.WorkGroup,
+		Type:             nb.Type,
+		CreationTime:     nb.CreationTime,
+		LastModifiedTime: nb.LastModifiedTime,
+	}
+
+	return meta, nb.Content, nil
 }

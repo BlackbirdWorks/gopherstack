@@ -996,3 +996,487 @@ func TestHandler_GetQueryResults(t *testing.T) {
 		})
 	}
 }
+
+// --- PreparedStatement tests ---
+
+func TestHandler_CreatePreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			body:       `{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "duplicate",
+			body:       `{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "duplicate" {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`)
+			}
+
+			rec := doRequest(t, h, "CreatePreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantErr {
+				var errResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.NotEmpty(t, errResp["__type"])
+			}
+		})
+	}
+}
+
+func TestHandler_BatchGetPreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		wantStatus      int
+		wantFound       int
+		wantUnprocessed int
+	}{
+		{
+			name:            "found_and_unprocessed",
+			wantStatus:      http.StatusOK,
+			wantFound:       1,
+			wantUnprocessed: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, "CreatePreparedStatement",
+				`{"StatementName":"s1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			rec := doRequest(t, h, "BatchGetPreparedStatement",
+				`{"WorkGroup":"primary","StatementNames":["s1","missing"]}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			found, _ := resp["PreparedStatements"].([]any)
+			assert.Len(t, found, tt.wantFound)
+			unprocessed, _ := resp["UnprocessedStatementNames"].([]any)
+			assert.Len(t, unprocessed, tt.wantUnprocessed)
+		})
+	}
+}
+
+func TestHandler_DeletePreparedStatement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"del-stmt","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+
+				rec := doRequest(t, h, "DeletePreparedStatement",
+					`{"StatementName":"del-stmt","WorkGroup":"primary"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "DeletePreparedStatement",
+					`{"StatementName":"no-such-stmt","WorkGroup":"primary"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+// --- CapacityReservation tests ---
+
+func TestHandler_CreateCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			body:       `{"Name":"res1","TargetDpus":24}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "duplicate",
+			body:       `{"Name":"res1","TargetDpus":24}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "duplicate" {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"res1","TargetDpus":24}`)
+			}
+
+			rec := doRequest(t, h, "CreateCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantErr {
+				var errResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.NotEmpty(t, errResp["__type"])
+			}
+		})
+	}
+}
+
+func TestHandler_CancelCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cancel-res","TargetDpus":24}`)
+
+				rec := doRequest(t, h, "CancelCapacityReservation", `{"Name":"cancel-res"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "CancelCapacityReservation", `{"Name":"no-such-res"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteCapacityReservation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"del-res","TargetDpus":24}`)
+
+				rec := doRequest(t, h, "DeleteCapacityReservation", `{"Name":"del-res"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "DeleteCapacityReservation", `{"Name":"no-such-res"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+// --- Notebook tests ---
+
+func TestHandler_CreateNotebook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantID     bool
+	}{
+		{
+			name:       "success",
+			body:       `{"WorkGroup":"primary","Name":"my-notebook"}`,
+			wantStatus: http.StatusOK,
+			wantID:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateNotebook", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantID {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["NotebookId"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		sessionID  string
+		wantStatus int
+		wantURL    bool
+	}{
+		{
+			name:       "success",
+			sessionID:  "sess-abc123",
+			wantStatus: http.StatusOK,
+			wantURL:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreatePresignedNotebookUrl",
+				`{"SessionId":"`+tt.sessionID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantURL {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["NotebookSessionUrl"], tt.sessionID)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteNotebook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"del-nb"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				rec := doRequest(t, h, "DeleteNotebook", `{"NotebookId":"`+cr["NotebookId"]+`"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "DeleteNotebook", `{"NotebookId":"nonexistent"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHandler_ExportNotebook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		wantMeta   bool
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+			wantMeta:   true,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.wantMeta {
+				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"exp-nb"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				rec := doRequest(t, h, "ExportNotebook", `{"NotebookId":"`+cr["NotebookId"]+`"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				meta, _ := resp["NotebookMetadata"].(map[string]any)
+				require.NotNil(t, meta, "NotebookMetadata should be present")
+				assert.Equal(t, "exp-nb", meta["Name"])
+			} else {
+				rec := doRequest(t, h, "ExportNotebook", `{"NotebookId":"nonexistent"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+// --- Tags via CreateWorkGroup and CreateCapacityReservation ---
+
+func TestHandler_CreateWorkGroup_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "with_tags",
+			body:       `{"Name":"tagged-wg","Tags":[{"Key":"env","Value":"test"}]}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateWorkGroup", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateCapacityReservation_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "with_tags",
+			body:       `{"Name":"tagged-res","TargetDpus":24,"Tags":[{"Key":"owner","Value":"platform"}]}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateNotebook_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "with_tags",
+			body:       `{"WorkGroup":"primary","Name":"tagged-nb","Tags":[{"Key":"env","Value":"dev"}]}`,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateNotebook", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

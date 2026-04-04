@@ -84,6 +84,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListQueryExecutions",
 		"BatchGetQueryExecution",
 		"GetQueryResults",
+		"BatchGetPreparedStatement",
+		"CreatePreparedStatement",
+		"DeletePreparedStatement",
+		"CancelCapacityReservation",
+		"CreateCapacityReservation",
+		"DeleteCapacityReservation",
+		"CreateNotebook",
+		"CreatePresignedNotebookUrl",
+		"DeleteNotebook",
+		"ExportNotebook",
 	}
 }
 
@@ -266,6 +276,55 @@ type batchGetQueryExecutionInput struct {
 	QueryExecutionIDs []string `json:"QueryExecutionIds"`
 }
 
+type batchGetPreparedStatementInput struct {
+	WorkGroup      string   `json:"WorkGroup"`
+	StatementNames []string `json:"StatementNames"`
+}
+
+type createPreparedStatementInput struct {
+	StatementName  string `json:"StatementName"`
+	Description    string `json:"Description"`
+	WorkGroup      string `json:"WorkGroup"`
+	QueryStatement string `json:"QueryStatement"`
+}
+
+type deletePreparedStatementInput struct {
+	StatementName string `json:"StatementName"`
+	WorkGroup     string `json:"WorkGroup"`
+}
+
+type cancelCapacityReservationInput struct {
+	Name string `json:"Name"`
+}
+
+type createCapacityReservationInput struct {
+	Name       string `json:"Name"`
+	Tags       []Tag  `json:"Tags"`
+	TargetDpus int32  `json:"TargetDpus"`
+}
+
+type deleteCapacityReservationInput struct {
+	Name string `json:"Name"`
+}
+
+type createNotebookInput struct {
+	WorkGroup string `json:"WorkGroup"`
+	Name      string `json:"Name"`
+	Tags      []Tag  `json:"Tags"`
+}
+
+type createPresignedNotebookURLInput struct {
+	SessionID string `json:"SessionId"`
+}
+
+type deleteNotebookInput struct {
+	NotebookID string `json:"NotebookId"`
+}
+
+type exportNotebookInput struct {
+	NotebookID string `json:"NotebookId"`
+}
+
 // --- Dispatch ---
 
 type athenaActionFn func([]byte) (any, error)
@@ -278,6 +337,9 @@ func (h *Handler) dispatchTable() map[string]athenaActionFn {
 	maps.Copy(ops, h.dataCatalogOps())
 	maps.Copy(ops, h.queryExecutionOps())
 	maps.Copy(ops, h.tagOps())
+	maps.Copy(ops, h.preparedStatementOps())
+	maps.Copy(ops, h.capacityReservationOps())
+	maps.Copy(ops, h.notebookOps())
 
 	return ops
 }
@@ -566,6 +628,128 @@ func (h *Handler) tagOps() map[string]athenaActionFn {
 			}
 
 			return map[string]any{"Tags": tags}, nil
+		},
+	}
+}
+
+func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
+		"CreatePreparedStatement": func(b []byte) (any, error) {
+			var input createPreparedStatementInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.CreatePreparedStatement(
+				input.StatementName, input.Description, input.WorkGroup, input.QueryStatement,
+			)
+		},
+		"BatchGetPreparedStatement": func(b []byte) (any, error) {
+			var input batchGetPreparedStatementInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			found, unprocessed := h.Backend.BatchGetPreparedStatement(input.WorkGroup, input.StatementNames)
+
+			return map[string]any{
+				"PreparedStatements":        found,
+				"UnprocessedStatementNames": unprocessed,
+			}, nil
+		},
+		"DeletePreparedStatement": func(b []byte) (any, error) {
+			var input deletePreparedStatementInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeletePreparedStatement(input.StatementName, input.WorkGroup)
+		},
+	}
+}
+
+func (h *Handler) capacityReservationOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
+		"CreateCapacityReservation": func(b []byte) (any, error) {
+			var input createCapacityReservationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.CreateCapacityReservation(
+				input.Name, input.TargetDpus, tagsFromSlice(input.Tags),
+			)
+		},
+		"CancelCapacityReservation": func(b []byte) (any, error) {
+			var input cancelCapacityReservationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.CancelCapacityReservation(input.Name)
+		},
+		"DeleteCapacityReservation": func(b []byte) (any, error) {
+			var input deleteCapacityReservationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteCapacityReservation(input.Name)
+		},
+	}
+}
+
+func (h *Handler) notebookOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
+		"CreateNotebook": func(b []byte) (any, error) {
+			var input createNotebookInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			id, err := h.Backend.CreateNotebook(input.WorkGroup, input.Name, tagsFromSlice(input.Tags))
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"NotebookId": id}, nil
+		},
+		"CreatePresignedNotebookUrl": func(b []byte) (any, error) {
+			var input createPresignedNotebookURLInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			url, err := h.Backend.CreatePresignedNotebookURL(input.SessionID)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"NotebookSessionUrl": url}, nil
+		},
+		"DeleteNotebook": func(b []byte) (any, error) {
+			var input deleteNotebookInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteNotebook(input.NotebookID)
+		},
+		"ExportNotebook": func(b []byte) (any, error) {
+			var input exportNotebookInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			metadata, content, err := h.Backend.ExportNotebook(input.NotebookID)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{
+				"NotebookMetadata": metadata,
+				"Payload":          content,
+			}, nil
 		},
 	}
 }

@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := athena.NewInMemoryBackend()
 	h := athena.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &athenasdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchGetPreparedStatement",
-		"CancelCapacityReservation",
-		"CreateCapacityReservation",
-		"CreateNotebook",
-		"CreatePreparedStatement",
-		"CreatePresignedNotebookUrl",
-		"DeleteCapacityReservation",
-		"DeleteNotebook",
-		"DeletePreparedStatement",
-		"ExportNotebook",
 		"GetCalculationExecution",
 		"GetCalculationExecutionCode",
 		"GetCalculationExecutionStatus",
