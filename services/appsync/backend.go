@@ -86,13 +86,36 @@ type StorageBackend interface {
 	GetType(apiID, typeName string) (*APIType, error)
 	ListTypes(apiID string) ([]*APIType, error)
 	DeleteType(apiID, typeName string) error
+	// DataSource update.
+	UpdateDataSource(apiID, name string, ds *DataSource) (*DataSource, error)
+	// Resolver update.
+	UpdateResolver(apiID, typeName string, r *Resolver) (*Resolver, error)
+	// Function update.
+	UpdateFunction(apiID, functionID string, f *Function) (*Function, error)
+	// Type update.
+	UpdateType(apiID, typeName, definition string, format TypeDefinitionFormat) (*APIType, error)
+	// API key update.
+	UpdateAPIKey(apiID, keyID, description string, expires int64) (*APIKey, error)
+	// API cache update and flush.
+	UpdateAPICache(apiID string, cache *APICache) (*APICache, error)
+	FlushAPICache(apiID string) error
+	// Tag operations (GraphQL APIs).
+	TagResource(apiID string, tagMap map[string]string) error
+	UntagResource(apiID string, tagKeys []string) error
+	ListTagsForResource(apiID string) (map[string]string, error)
 	// Domain name operations.
 	CreateDomainName(domainName, certificateARN, description string, tagMap map[string]string) (*DomainName, error)
 	GetDomainName(domainName string) (*DomainName, error)
+	UpdateDomainName(domainName, description, certificateARN string) (*DomainName, error)
 	ListDomainNames() ([]*DomainName, error)
 	DeleteDomainName(domainName string) error
 	AssociateAPI(domainName, apiID string) (*APIAssociation, error)
 	GetAPIAssociation(domainName string) (*APIAssociation, error)
+	DisassociateAPI(domainName string) error
+	// Event API (v2) operations.
+	GetAPI(apiID string) (*API, error)
+	ListAPIs() ([]*API, error)
+	DeleteAPI(apiID string) error
 	// Merged/source API association operations.
 	AssociateMergedGraphqlAPI(
 		sourceAPIIdentifier, mergedAPIIdentifier, description string,
@@ -1339,4 +1362,375 @@ func (b *InMemoryBackend) GetAPIAssociation(domainName string) (*APIAssociation,
 	cp := *assoc
 
 	return &cp, nil
+}
+
+// UpdateDataSource updates an existing data source.
+func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (*DataSource, error) {
+	b.mu.Lock("UpdateDataSource")
+	defer b.mu.Unlock()
+
+	dss := b.datasources[apiID]
+	if dss == nil || dss[name] == nil {
+		return nil, fmt.Errorf("%w: data source %s not found", ErrNotFound, name)
+	}
+
+	existing := dss[name]
+
+	if ds.Description != "" {
+		existing.Description = ds.Description
+	}
+
+	if ds.Type != "" {
+		existing.Type = ds.Type
+	}
+
+	if ds.ServiceRoleARN != "" {
+		existing.ServiceRoleARN = ds.ServiceRoleARN
+	}
+
+	if ds.LambdaConfig != nil {
+		existing.LambdaConfig = ds.LambdaConfig
+	}
+
+	if ds.DynamoDBConfig != nil {
+		existing.DynamoDBConfig = ds.DynamoDBConfig
+	}
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// UpdateResolver updates an existing resolver.
+func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*Resolver, error) {
+	b.mu.Lock("UpdateResolver")
+	defer b.mu.Unlock()
+
+	key := typeName + "." + r.FieldName
+	res := b.resolvers[apiID]
+
+	if res == nil || res[key] == nil {
+		return nil, fmt.Errorf("%w: resolver %s not found", ErrNotFound, key)
+	}
+
+	existing := res[key]
+
+	if r.RequestMappingTemplate != "" {
+		existing.RequestMappingTemplate = r.RequestMappingTemplate
+	}
+
+	if r.ResponseMappingTemplate != "" {
+		existing.ResponseMappingTemplate = r.ResponseMappingTemplate
+	}
+
+	if r.DataSourceName != "" {
+		existing.DataSourceName = r.DataSourceName
+	}
+
+	if r.Kind != "" {
+		existing.Kind = r.Kind
+	}
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// UpdateFunction updates an existing pipeline function.
+func (b *InMemoryBackend) UpdateFunction(apiID, functionID string, f *Function) (*Function, error) {
+	b.mu.Lock("UpdateFunction")
+	defer b.mu.Unlock()
+
+	fns := b.functions[apiID]
+	if fns == nil || fns[functionID] == nil {
+		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	existing := fns[functionID]
+
+	if f.Name != "" {
+		existing.Name = f.Name
+	}
+
+	if f.Description != "" {
+		existing.Description = f.Description
+	}
+
+	if f.DataSourceName != "" {
+		existing.DataSourceName = f.DataSourceName
+	}
+
+	if f.RequestMappingTemplate != "" {
+		existing.RequestMappingTemplate = f.RequestMappingTemplate
+	}
+
+	if f.ResponseMappingTemplate != "" {
+		existing.ResponseMappingTemplate = f.ResponseMappingTemplate
+	}
+
+	if f.Code != "" {
+		existing.Code = f.Code
+	}
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// UpdateType updates an existing GraphQL type definition.
+func (b *InMemoryBackend) UpdateType(
+	apiID, typeName, definition string,
+	format TypeDefinitionFormat,
+) (*APIType, error) {
+	b.mu.Lock("UpdateType")
+	defer b.mu.Unlock()
+
+	types := b.types[apiID]
+	if types == nil || types[typeName] == nil {
+		return nil, fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
+	}
+
+	existing := types[typeName]
+
+	if definition != "" {
+		existing.Definition = definition
+	}
+
+	if format != "" {
+		existing.Format = format
+	}
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// UpdateAPIKey updates an existing API key's description and/or expiry.
+func (b *InMemoryBackend) UpdateAPIKey(apiID, keyID, description string, expires int64) (*APIKey, error) {
+	b.mu.Lock("UpdateApiKey")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	keys := b.apiKeys[apiID]
+	if keys == nil || keys[keyID] == nil {
+		return nil, fmt.Errorf("%w: api key %s not found", ErrNotFound, keyID)
+	}
+
+	existing := keys[keyID]
+
+	if description != "" {
+		existing.Description = description
+	}
+
+	if expires > 0 {
+		existing.Expires = expires
+	}
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// UpdateAPICache updates the cache configuration for a GraphQL API.
+func (b *InMemoryBackend) UpdateAPICache(apiID string, cache *APICache) (*APICache, error) {
+	b.mu.Lock("UpdateApiCache")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	existing, ok := b.apiCaches[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
+	}
+
+	if cache.TTL > 0 {
+		existing.TTL = cache.TTL
+	}
+
+	if cache.Type != "" {
+		if !isValidAPICacheType(cache.Type) {
+			return nil, fmt.Errorf("%w: invalid cache type %q", ErrValidation, cache.Type)
+		}
+
+		existing.Type = cache.Type
+	}
+
+	if cache.APICachingBehavior != "" {
+		if !isValidAPICachingBehavior(cache.APICachingBehavior) {
+			return nil, fmt.Errorf("%w: invalid apiCachingBehavior %q", ErrValidation, cache.APICachingBehavior)
+		}
+
+		existing.APICachingBehavior = cache.APICachingBehavior
+	}
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// FlushAPICache flushes the cache for a GraphQL API.
+func (b *InMemoryBackend) FlushAPICache(apiID string) error {
+	b.mu.RLock("FlushApiCache")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if _, ok := b.apiCaches[apiID]; !ok {
+		return fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
+	}
+
+	return nil
+}
+
+// TagResource adds or updates tags on a GraphQL API.
+func (b *InMemoryBackend) TagResource(apiID string, tagMap map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	api, ok := b.apis[apiID]
+	if !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if api.Tags == nil {
+		api.Tags = tags.New("appsync.api." + apiID + ".tags")
+	}
+
+	for k, v := range tagMap {
+		api.Tags.Set(k, v)
+	}
+
+	return nil
+}
+
+// UntagResource removes tags from a GraphQL API.
+func (b *InMemoryBackend) UntagResource(apiID string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	api, ok := b.apis[apiID]
+	if !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if api.Tags != nil {
+		api.Tags.DeleteKeys(tagKeys)
+	}
+
+	return nil
+}
+
+// ListTagsForResource returns all tags on a GraphQL API.
+func (b *InMemoryBackend) ListTagsForResource(apiID string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	api, ok := b.apis[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if api.Tags == nil {
+		return map[string]string{}, nil
+	}
+
+	return api.Tags.Clone(), nil
+}
+
+// UpdateDomainName updates an existing custom domain name configuration.
+func (b *InMemoryBackend) UpdateDomainName(domainName, description, certificateARN string) (*DomainName, error) {
+	b.mu.Lock("UpdateDomainName")
+	defer b.mu.Unlock()
+
+	dn, ok := b.domainNames[domainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
+	}
+
+	if description != "" {
+		dn.Description = description
+	}
+
+	if certificateARN != "" {
+		dn.CertificateARN = certificateARN
+	}
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// DisassociateAPI removes the API association from a domain name.
+func (b *InMemoryBackend) DisassociateAPI(domainName string) error {
+	b.mu.Lock("DisassociateApi")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
+	}
+
+	if _, ok := b.apiAssociations[domainName]; !ok {
+		return fmt.Errorf("%w: no api associated with domain %s", ErrNotFound, domainName)
+	}
+
+	// Clear APIID from domain name and remove association.
+	if dn, ok := b.domainNames[domainName]; ok {
+		dn.APIID = ""
+	}
+
+	delete(b.apiAssociations, domainName)
+
+	return nil
+}
+
+// GetAPI returns an Event API by ID.
+func (b *InMemoryBackend) GetAPI(apiID string) (*API, error) {
+	b.mu.RLock("GetApi")
+	defer b.mu.RUnlock()
+
+	api, ok := b.eventAPIs[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	cp := *api
+
+	return &cp, nil
+}
+
+// ListAPIs returns all Event APIs.
+func (b *InMemoryBackend) ListAPIs() ([]*API, error) {
+	b.mu.RLock("ListApis")
+	defer b.mu.RUnlock()
+
+	out := make([]*API, 0, len(b.eventAPIs))
+
+	for _, api := range b.eventAPIs {
+		cp := *api
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// DeleteAPI deletes an Event API and all its channel namespaces.
+func (b *InMemoryBackend) DeleteAPI(apiID string) error {
+	b.mu.Lock("DeleteApi")
+	defer b.mu.Unlock()
+
+	if _, ok := b.eventAPIs[apiID]; !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	delete(b.eventAPIs, apiID)
+	delete(b.channelNamespaces, apiID)
+
+	return nil
 }

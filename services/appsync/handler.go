@@ -44,6 +44,7 @@ const (
 	pathSegResolvers         = "resolvers"
 	pathSegAPIKeys           = "apikeys"
 	pathSegAPICaches         = "ApiCaches"
+	pathSegTags              = "tags"
 	pathSegFunctions         = "functions"
 	pathSegChannelNamespaces = "channelNamespaces"
 
@@ -79,37 +80,52 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetIntrospectionSchema",
 		"CreateDataSource",
 		"GetDataSource",
+		"UpdateDataSource",
 		"ListDataSources",
 		"DeleteDataSource",
 		"CreateResolver",
 		"GetResolver",
+		"UpdateResolver",
 		"ListResolvers",
 		"DeleteResolver",
 		"ExecuteGraphQL",
 		"AssociateApi",
+		"DisassociateApi",
 		"AssociateMergedGraphqlApi",
 		"AssociateSourceGraphqlApi",
 		"CreateApi",
+		"GetApi",
+		"ListApis",
+		"DeleteApi",
 		"CreateApiCache",
 		"DeleteApiCache",
+		"FlushApiCache",
 		"GetApiCache",
+		"UpdateApiCache",
 		"CreateApiKey",
 		"DeleteApiKey",
 		"ListApiKeys",
+		"UpdateApiKey",
 		"CreateChannelNamespace",
 		"CreateDomainName",
 		"DeleteDomainName",
 		"GetApiAssociation",
 		"GetDomainName",
 		"ListDomainNames",
+		"UpdateDomainName",
 		"CreateFunction",
 		"DeleteFunction",
 		"GetFunction",
 		"ListFunctions",
+		"UpdateFunction",
 		"CreateType",
 		"DeleteType",
 		"GetType",
 		"ListTypes",
+		"UpdateType",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -211,6 +227,8 @@ func parseOperationDomainNames(method string, segs []string) string {
 			return "GetDomainName"
 		case http.MethodDelete:
 			return "DeleteDomainName"
+		case http.MethodPut, http.MethodPatch:
+			return "UpdateDomainName"
 		}
 
 		return opUnknown
@@ -222,6 +240,8 @@ func parseOperationDomainNames(method string, segs []string) string {
 				return "AssociateApi"
 			case http.MethodGet:
 				return "GetApiAssociation"
+			case http.MethodDelete:
+				return "DisassociateApi"
 			}
 		}
 
@@ -257,11 +277,24 @@ func parseOperationV2APIs(method string, segs []string) string {
 	switch len(segs) {
 	case pathSegsAPIs:
 		// /v2/apis
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return "CreateApi"
+		case http.MethodGet:
+			return "ListApis"
 		}
 
-		return "ListAPIs"
+		return opUnknown
+	case pathSegsAPIID:
+		// /v2/apis/{apiId}
+		switch method {
+		case http.MethodGet:
+			return "GetApi"
+		case http.MethodDelete:
+			return "DeleteApi"
+		}
+
+		return opUnknown
 	case pathSegsAPISubresource:
 		// /v2/apis/{apiId}/{resource}
 		if segs[3] == pathSegChannelNamespaces && method == http.MethodPost {
@@ -327,37 +360,77 @@ func parseOperationSub(method, seg string) string {
 	case "schema":
 		return "GetIntrospectionSchema"
 	case pathSegDatasources:
-		if method == http.MethodPost {
-			return "CreateDataSource"
-		}
-
-		return "ListDataSources"
+		return parseOperationSubDatasources(method)
 	case pathSegAPIKeys:
-		if method == http.MethodPost {
-			return "CreateApiKey"
-		}
-
-		return "ListApiKeys"
+		return parseOperationSubAPIKeys(method)
 	case pathSegAPICaches:
-		if method == http.MethodPost {
-			return "CreateApiCache"
-		}
-
-		return "GetApiCache"
+		return parseOperationSubAPICaches(method)
 	case pathSegFunctions:
-		if method == http.MethodPost {
-			return "CreateFunction"
-		}
-
-		return "ListFunctions"
+		return parseOperationSubFunctions(method)
 	case pathSegTypes:
-		if method == http.MethodPost {
-			return "CreateType"
-		}
-
-		return "ListTypes"
+		return parseOperationSubTypes(method)
 	case "graphql":
 		return "ExecuteGraphQL"
+	case pathSegTags:
+		return parseOperationSubTags(method)
+	}
+
+	return opUnknown
+}
+
+func parseOperationSubDatasources(method string) string {
+	if method == http.MethodPost {
+		return "CreateDataSource"
+	}
+
+	return "ListDataSources"
+}
+
+func parseOperationSubAPIKeys(method string) string {
+	if method == http.MethodPost {
+		return "CreateApiKey"
+	}
+
+	return "ListApiKeys"
+}
+
+func parseOperationSubAPICaches(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateApiCache"
+	case http.MethodPut:
+		return "UpdateApiCache"
+	case http.MethodDelete:
+		return "DeleteApiCache"
+	}
+
+	return "GetApiCache"
+}
+
+func parseOperationSubFunctions(method string) string {
+	if method == http.MethodPost {
+		return "CreateFunction"
+	}
+
+	return "ListFunctions"
+}
+
+func parseOperationSubTypes(method string) string {
+	if method == http.MethodPost {
+		return "CreateType"
+	}
+
+	return "ListTypes"
+}
+
+func parseOperationSubTags(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "TagResource"
+	case http.MethodGet:
+		return "ListTagsForResource"
+	case http.MethodDelete:
+		return "UntagResource"
 	}
 
 	return opUnknown
@@ -366,38 +439,62 @@ func parseOperationSub(method, seg string) string {
 func parseOperationNamed(method, seg3 string) string {
 	switch seg3 {
 	case pathSegDatasources:
-		if method == http.MethodDelete {
+		switch method {
+		case http.MethodDelete:
 			return "DeleteDataSource"
+		case http.MethodPut:
+			return "UpdateDataSource"
 		}
 
 		return "GetDataSource"
 	case pathSegAPIKeys:
-		if method == http.MethodDelete {
+		switch method {
+		case http.MethodDelete:
 			return "DeleteApiKey"
+		case http.MethodPut, http.MethodPatch:
+			return "UpdateApiKey"
 		}
 
 		return opUnknown
 	case pathSegFunctions:
-		if method == http.MethodDelete {
+		switch method {
+		case http.MethodDelete:
 			return "DeleteFunction"
+		case http.MethodPut:
+			return "UpdateFunction"
 		}
 
 		return "GetFunction"
 	case pathSegAPICaches:
-		if method == http.MethodDelete {
-			return "DeleteApiCache"
-		}
-
-		return "GetApiCache"
+		// /v1/apis/{id}/ApiCaches/entries → FlushApiCache
+		return "FlushApiCache"
 	case pathSegTypes:
-		if method == http.MethodDelete {
+		switch method {
+		case http.MethodDelete:
 			return "DeleteType"
+		case http.MethodPut:
+			return "UpdateType"
 		}
 
 		return "GetType"
 	}
 
 	return opUnknown
+}
+
+func parseOperationResolver(method, seg3, seg5 string) string {
+	if seg3 != pathSegTypes || seg5 != pathSegResolvers {
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodDelete:
+		return "DeleteResolver"
+	case http.MethodPut, http.MethodPatch:
+		return "UpdateResolver"
+	}
+
+	return "GetResolver"
 }
 
 func parseOperationTypeResolvers(method, seg3, seg5 string) string {
@@ -410,18 +507,6 @@ func parseOperationTypeResolvers(method, seg3, seg5 string) string {
 	}
 
 	return "ListResolvers"
-}
-
-func parseOperationResolver(method, seg3, seg5 string) string {
-	if seg3 != pathSegTypes || seg5 != pathSegResolvers {
-		return opUnknown
-	}
-
-	if method == http.MethodDelete {
-		return "DeleteResolver"
-	}
-
-	return "GetResolver"
 }
 
 // splitPath splits a URL path into non-empty segments.
@@ -515,6 +600,8 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 		return h.handleAPICaches(ctx, c, apiID, segs)
 	case pathSegFunctions:
 		return h.handleFunctions(ctx, c, apiID, segs)
+	case pathSegTags:
+		return h.handleTags(ctx, c, apiID)
 	default:
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 	}
@@ -695,6 +782,8 @@ func (h *Handler) handleDataSources(ctx context.Context, c *echo.Context, apiID 
 		return h.getDataSource(ctx, c, apiID, dsName)
 	case http.MethodDelete:
 		return h.deleteDataSource(ctx, c, apiID, dsName)
+	case http.MethodPut:
+		return h.updateDataSource(ctx, c, apiID, dsName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}
@@ -780,13 +869,15 @@ func (h *Handler) handleTypeCollection(ctx context.Context, c *echo.Context, api
 	}
 }
 
-// handleNamedType handles GET/DELETE /v1/apis/{apiId}/types/{typeName}.
+// handleNamedType handles GET/DELETE/PUT /v1/apis/{apiId}/types/{typeName}.
 func (h *Handler) handleNamedType(ctx context.Context, c *echo.Context, apiID, typeName string) error {
 	switch c.Request().Method {
 	case http.MethodGet:
 		return h.getType(ctx, c, apiID, typeName)
 	case http.MethodDelete:
 		return h.deleteType(ctx, c, apiID, typeName)
+	case http.MethodPut:
+		return h.updateType(ctx, c, apiID, typeName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}
@@ -820,6 +911,8 @@ func (h *Handler) handleTypeResolvers(
 		return h.getResolver(ctx, c, apiID, typeName, fieldName)
 	case http.MethodDelete:
 		return h.deleteResolver(ctx, c, apiID, typeName, fieldName)
+	case http.MethodPut, http.MethodPatch:
+		return h.updateResolver(ctx, c, apiID, typeName, fieldName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}
@@ -948,6 +1041,8 @@ func (h *Handler) handleAPIKeys(ctx context.Context, c *echo.Context, apiID stri
 		switch method {
 		case http.MethodDelete:
 			return h.deleteAPIKey(ctx, c, apiID, keyID)
+		case http.MethodPut, http.MethodPatch:
+			return h.updateAPIKey(ctx, c, apiID, keyID)
 		default:
 			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 		}
@@ -988,13 +1083,24 @@ func (h *Handler) createAPIKey(ctx context.Context, c *echo.Context, apiID strin
 	return c.JSON(http.StatusCreated, map[string]any{"apiKey": key})
 }
 
-// handleAPICaches handles /v1/apis/{apiId}/ApiCaches.
-func (h *Handler) handleAPICaches(ctx context.Context, c *echo.Context, apiID string, _ []string) error {
+// handleAPICaches handles /v1/apis/{apiId}/ApiCaches[/entries].
+func (h *Handler) handleAPICaches(ctx context.Context, c *echo.Context, apiID string, segs []string) error {
+	// /v1/apis/{apiId}/ApiCaches/entries → FlushApiCache
+	if len(segs) == pathSegsNamedResource && segs[4] == "entries" {
+		if c.Request().Method == http.MethodDelete {
+			return h.flushAPICache(ctx, c, apiID)
+		}
+
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+
 	switch c.Request().Method {
 	case http.MethodPost:
 		return h.createAPICache(ctx, c, apiID)
 	case http.MethodGet:
 		return h.getAPICache(ctx, c, apiID)
+	case http.MethodPut:
+		return h.updateAPICache(ctx, c, apiID)
 	case http.MethodDelete:
 		return h.deleteAPICache(ctx, c, apiID)
 	default:
@@ -1035,6 +1141,8 @@ func (h *Handler) handleFunctions(ctx context.Context, c *echo.Context, apiID st
 			return h.getFunction(ctx, c, apiID, funcID)
 		case http.MethodDelete:
 			return h.deleteFunction(ctx, c, apiID, funcID)
+		case http.MethodPut:
+			return h.updateFunction(ctx, c, apiID, funcID)
 		default:
 			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 		}
@@ -1114,49 +1222,58 @@ func (h *Handler) createTypeHandler(ctx context.Context, c *echo.Context, apiID 
 
 // handleDomainNames handles /v1/domainnames[/{domainName}[/apiassociation]].
 func (h *Handler) handleDomainNames(ctx context.Context, c *echo.Context, segs []string) error {
-	method := c.Request().Method
-
-	if len(segs) == pathSegsAPIs {
-		// /v1/domainnames
-		switch method {
-		case http.MethodPost:
-			return h.createDomainName(ctx, c)
-		case http.MethodGet:
-			return h.listDomainNames(ctx, c)
-		default:
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
-		}
-	}
-
-	if len(segs) == pathSegsAPIID {
-		// /v1/domainnames/{domainName}
-		domainName := segs[2]
-
-		switch method {
-		case http.MethodGet:
-			return h.getDomainName(ctx, c, domainName)
-		case http.MethodDelete:
-			return h.deleteDomainName(ctx, c, domainName)
-		default:
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
-		}
-	}
-
-	if len(segs) == pathSegsAPISubresource && segs[3] == "apiassociation" {
-		// /v1/domainnames/{domainName}/apiassociation
-		domainName := segs[2]
-
-		switch method {
-		case http.MethodPost:
-			return h.associateAPI(ctx, c, domainName)
-		case http.MethodGet:
-			return h.getAPIAssociation(ctx, c, domainName)
-		default:
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	switch len(segs) {
+	case pathSegsAPIs:
+		return h.handleDomainNamesCollection(ctx, c)
+	case pathSegsAPIID:
+		return h.handleDomainName(ctx, c, segs[2])
+	case pathSegsAPISubresource:
+		if segs[3] == "apiassociation" {
+			return h.handleAPIAssociation(ctx, c, segs[2])
 		}
 	}
 
 	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+}
+
+// handleDomainNamesCollection handles /v1/domainnames.
+func (h *Handler) handleDomainNamesCollection(ctx context.Context, c *echo.Context) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.createDomainName(ctx, c)
+	case http.MethodGet:
+		return h.listDomainNames(ctx, c)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+}
+
+// handleDomainName handles /v1/domainnames/{domainName}.
+func (h *Handler) handleDomainName(ctx context.Context, c *echo.Context, domainName string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.getDomainName(ctx, c, domainName)
+	case http.MethodDelete:
+		return h.deleteDomainName(ctx, c, domainName)
+	case http.MethodPut, http.MethodPatch:
+		return h.updateDomainName(ctx, c, domainName)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+}
+
+// handleAPIAssociation handles /v1/domainnames/{domainName}/apiassociation.
+func (h *Handler) handleAPIAssociation(ctx context.Context, c *echo.Context, domainName string) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.associateAPI(ctx, c, domainName)
+	case http.MethodGet:
+		return h.getAPIAssociation(ctx, c, domainName)
+	case http.MethodDelete:
+		return h.disassociateAPI(ctx, c, domainName)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
 }
 
 // createDomainName handles POST /v1/domainnames.
@@ -1307,14 +1424,32 @@ func (h *Handler) associateSourceGraphqlAPI(ctx context.Context, c *echo.Context
 		h.Backend.AssociateSourceGraphqlAPI, input)
 }
 
-// handleV2APIs handles /v2/apis[/{apiId}/channelNamespaces].
+// handleV2APIs handles /v2/apis[/{apiId}[/channelNamespaces]].
 func (h *Handler) handleV2APIs(ctx context.Context, c *echo.Context, segs []string) error {
 	if len(segs) == pathSegsAPIs {
-		if c.Request().Method == http.MethodPost {
+		// /v2/apis
+		switch c.Request().Method {
+		case http.MethodPost:
 			return h.createAPI(ctx, c)
+		case http.MethodGet:
+			return h.listAPIs(ctx, c)
+		default:
+			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 		}
+	}
 
-		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	if len(segs) == pathSegsAPIID {
+		// /v2/apis/{apiId}
+		apiID := segs[2]
+
+		switch c.Request().Method {
+		case http.MethodGet:
+			return h.getAPI(ctx, c, apiID)
+		case http.MethodDelete:
+			return h.deleteAPI(ctx, c, apiID)
+		default:
+			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+		}
 	}
 
 	if len(segs) == pathSegsAPISubresource {
@@ -1546,4 +1681,268 @@ func (h *Handler) getAPIAssociation(ctx context.Context, c *echo.Context, domain
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"apiAssociation": assoc})
+}
+
+// updateAPIKey handles PUT/PATCH /v1/apis/{apiId}/apikeys/{keyId}.
+func (h *Handler) updateAPIKey(ctx context.Context, c *echo.Context, apiID, keyID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Description string `json:"description"`
+		Expires     int64  `json:"expires"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	key, updateErr := h.Backend.UpdateAPIKey(apiID, keyID, input.Description, input.Expires)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateApiKey", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"apiKey": key})
+}
+
+// updateAPICache handles PUT /v1/apis/{apiId}/ApiCaches.
+func (h *Handler) updateAPICache(ctx context.Context, c *echo.Context, apiID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var cache APICache
+	if jsonErr := json.Unmarshal(body, &cache); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	updated, updateErr := h.Backend.UpdateAPICache(apiID, &cache)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateApiCache", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"apiCache": updated})
+}
+
+// flushAPICache handles DELETE /v1/apis/{apiId}/ApiCaches/entries.
+func (h *Handler) flushAPICache(ctx context.Context, c *echo.Context, apiID string) error {
+	if err := h.Backend.FlushAPICache(apiID); err != nil {
+		return h.handleError(ctx, c, "FlushApiCache", err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// updateDataSource handles PUT /v1/apis/{apiId}/datasources/{name}.
+func (h *Handler) updateDataSource(ctx context.Context, c *echo.Context, apiID, name string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var ds DataSource
+	if jsonErr := json.Unmarshal(body, &ds); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	updated, updateErr := h.Backend.UpdateDataSource(apiID, name, &ds)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateDataSource", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"dataSource": updated})
+}
+
+// updateFunction handles PUT /v1/apis/{apiId}/functions/{functionId}.
+func (h *Handler) updateFunction(ctx context.Context, c *echo.Context, apiID, functionID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var f Function
+	if jsonErr := json.Unmarshal(body, &f); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	updated, updateErr := h.Backend.UpdateFunction(apiID, functionID, &f)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateFunction", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"functionConfiguration": updated})
+}
+
+// updateResolver handles PUT/PATCH /v1/apis/{apiId}/types/{typeName}/resolvers/{fieldName}.
+func (h *Handler) updateResolver(ctx context.Context, c *echo.Context, apiID, typeName, fieldName string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var r Resolver
+	if jsonErr := json.Unmarshal(body, &r); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	r.FieldName = fieldName
+
+	updated, updateErr := h.Backend.UpdateResolver(apiID, typeName, &r)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateResolver", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"resolver": updated})
+}
+
+// updateType handles PUT /v1/apis/{apiId}/types/{typeName}.
+func (h *Handler) updateType(ctx context.Context, c *echo.Context, apiID, typeName string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Definition string `json:"definition"`
+		Format     string `json:"format"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	updated, updateErr := h.Backend.UpdateType(apiID, typeName, input.Definition, TypeDefinitionFormat(input.Format))
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateType", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"type": updated})
+}
+
+// handleTags handles /v1/apis/{apiId}/tags.
+func (h *Handler) handleTags(ctx context.Context, c *echo.Context, apiID string) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.tagResource(ctx, c, apiID)
+	case http.MethodGet:
+		return h.listTagsForResource(ctx, c, apiID)
+	case http.MethodDelete:
+		return h.untagResource(ctx, c, apiID)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+}
+
+// tagResource handles POST /v1/apis/{apiId}/tags.
+func (h *Handler) tagResource(ctx context.Context, c *echo.Context, apiID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Tags map[string]string `json:"tags"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	if tagErr := h.Backend.TagResource(apiID, input.Tags); tagErr != nil {
+		return h.handleError(ctx, c, "TagResource", tagErr)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// untagResource handles DELETE /v1/apis/{apiId}/tags.
+func (h *Handler) untagResource(ctx context.Context, c *echo.Context, apiID string) error {
+	tagKeys := c.Request().URL.Query()["tagKeys"]
+	if len(tagKeys) == 0 {
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("BadRequestException", "tagKeys query parameter is required"),
+		)
+	}
+
+	if tagErr := h.Backend.UntagResource(apiID, tagKeys); tagErr != nil {
+		return h.handleError(ctx, c, "UntagResource", tagErr)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// listTagsForResource handles GET /v1/apis/{apiId}/tags.
+func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, apiID string) error {
+	tagMap, err := h.Backend.ListTagsForResource(apiID)
+	if err != nil {
+		return h.handleError(ctx, c, "ListTagsForResource", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"tags": tagMap})
+}
+
+// updateDomainName handles PUT/PATCH /v1/domainnames/{domainName}.
+func (h *Handler) updateDomainName(ctx context.Context, c *echo.Context, domainName string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Description    string `json:"description"`
+		CertificateARN string `json:"certificateArn"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	dn, updateErr := h.Backend.UpdateDomainName(domainName, input.Description, input.CertificateARN)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateDomainName", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"domainNameConfig": dn})
+}
+
+// disassociateAPI handles DELETE /v1/domainnames/{domainName}/apiassociation.
+func (h *Handler) disassociateAPI(ctx context.Context, c *echo.Context, domainName string) error {
+	if err := h.Backend.DisassociateAPI(domainName); err != nil {
+		return h.handleError(ctx, c, "DisassociateApi", err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// getAPI handles GET /v2/apis/{apiId}.
+func (h *Handler) getAPI(ctx context.Context, c *echo.Context, apiID string) error {
+	api, err := h.Backend.GetAPI(apiID)
+	if err != nil {
+		return h.handleError(ctx, c, "GetApi", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"api": api})
+}
+
+// listAPIs handles GET /v2/apis.
+func (h *Handler) listAPIs(ctx context.Context, c *echo.Context) error {
+	apis, err := h.Backend.ListAPIs()
+	if err != nil {
+		return h.handleError(ctx, c, "ListApis", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"items": apis})
+}
+
+// deleteAPI handles DELETE /v2/apis/{apiId}.
+func (h *Handler) deleteAPI(ctx context.Context, c *echo.Context, apiID string) error {
+	if err := h.Backend.DeleteAPI(apiID); err != nil {
+		return h.handleError(ctx, c, "DeleteApi", err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }

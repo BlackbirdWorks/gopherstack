@@ -1442,7 +1442,7 @@ func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
 		},
 		{
 			name:       "apiassociation_method_not_allowed",
-			method:     http.MethodDelete, // DELETE /apiassociation → 405 (DisassociateApi not implemented)
+			method:     http.MethodPut, // PUT /apiassociation → 405 (not a valid method)
 			path:       "/v1/domainnames/api.example.com/apiassociation",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
@@ -1460,7 +1460,7 @@ func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
 		},
 		{
 			name:       "v2_apis_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodPatch, // PATCH /v2/apis → 405
 			path:       "/v2/apis",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
@@ -1924,4 +1924,410 @@ func TestHandler_GetApiAssociation(t *testing.T) {
 	// Get association (no API associated yet).
 	rec := doRequest(t, h, http.MethodGet, "/v1/domainnames/api.example.com/apiassociation", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// ---- Refinement 3: new operation tests ----
+
+func TestHandler_TagOperations(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	// Tag the resource.
+	tagBody := map[string]any{"tags": map[string]any{"env": "prod", "team": "platform"}}
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/tags", tagBody)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// List tags.
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/tags", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+	tags := resp["tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "platform", tags["team"])
+
+	// Untag one key.
+	rec3, err := http.NewRequest(http.MethodDelete, "/v1/apis/"+api.APIID+"/tags?tagKeys=env", nil)
+	require.NoError(t, err)
+
+	_ = rec3
+	// Use doRequest helper style with query param.
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/v1/apis/"+api.APIID+"/tags?tagKeys=env", nil)
+	rr := httptest.NewRecorder()
+	ctx := e.NewContext(req, rr)
+
+	require.NoError(t, h.Handler()(ctx))
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+
+	// List tags again - should only have "team".
+	rec4 := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/tags", nil)
+	require.Equal(t, http.StatusOK, rec4.Code)
+
+	var resp4 map[string]any
+	require.NoError(t, json.NewDecoder(rec4.Body).Decode(&resp4))
+	tags4 := resp4["tags"].(map[string]any)
+	assert.NotContains(t, tags4, "env")
+	assert.Equal(t, "platform", tags4["team"])
+}
+
+func TestHandler_TagResource_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis/nonexistent/tags", map[string]any{"tags": map[string]any{}})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_UntagResource_MissingQueryParam(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/tags", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UpdateDataSource(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "myds", Type: "NONE"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/datasources/myds",
+		map[string]any{"description": "updated"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	ds := resp["dataSource"].(map[string]any)
+	assert.Equal(t, "updated", ds["description"])
+
+	// Update not-found DS returns 404.
+	rec2 := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/datasources/missing",
+		map[string]any{"description": "x"})
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+func TestHandler_UpdateFunction(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/functions/"+fn.FunctionID,
+		map[string]any{"description": "updated fn"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	fnConfig := resp["functionConfiguration"].(map[string]any)
+	assert.Equal(t, "updated fn", fnConfig["description"])
+}
+
+func TestHandler_UpdateApiKey(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "original", 0)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/apikeys/"+key.ID,
+		map[string]any{"description": "updated"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	apiKey := resp["apiKey"].(map[string]any)
+	assert.Equal(t, "updated", apiKey["description"])
+}
+
+func TestHandler_UpdateApiCache(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(
+		api.APIID,
+		&appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"},
+	)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/ApiCaches",
+		map[string]any{"ttl": 120, "type": "LARGE"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	cache := resp["apiCache"].(map[string]any)
+	assert.Equal(t, "LARGE", cache["type"])
+}
+
+func TestHandler_FlushApiCache(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(
+		api.APIID,
+		&appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"},
+	)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/ApiCaches/entries", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Flush without cache returns 404.
+	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api2.APIID+"/ApiCaches/entries", nil)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+func TestHandler_UpdateType(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/types/MyType",
+		map[string]any{"definition": "type MyType { id: ID! name: String! }", "format": "SDL"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	typeDef := resp["type"].(map[string]any)
+	assert.Contains(t, typeDef["definition"], "name")
+}
+
+func TestHandler_UpdateResolver(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "getItem",
+		DataSourceName: "myds",
+	})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem",
+		map[string]any{"requestMappingTemplate": "$util.toJson($context.args)"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	resolver := resp["resolver"].(map[string]any)
+	assert.Equal(t, "$util.toJson($context.args)", resolver["requestMappingTemplate"])
+}
+
+func TestHandler_EventAPI_CRUD(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	// Create event API.
+	rec := doRequest(t, h, http.MethodPost, "/v2/apis", map[string]any{"name": "MyEventAPI"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	apiID := createResp["api"].(map[string]any)["apiId"].(string)
+
+	// List APIs.
+	rec2 := doRequest(t, h, http.MethodGet, "/v2/apis", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	items := listResp["items"].([]any)
+	assert.Len(t, items, 1)
+
+	// Get API.
+	rec3 := doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID, nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp))
+	assert.Equal(t, "MyEventAPI", getResp["api"].(map[string]any)["name"])
+
+	// Delete API.
+	rec4 := doRequest(t, h, http.MethodDelete, "/v2/apis/"+apiID, nil)
+	assert.Equal(t, http.StatusNoContent, rec4.Code)
+
+	// Get after delete returns 404.
+	rec5 := doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID, nil)
+	assert.Equal(t, http.StatusNotFound, rec5.Code)
+
+	// List after delete returns empty.
+	rec6 := doRequest(t, h, http.MethodGet, "/v2/apis", nil)
+	require.Equal(t, http.StatusOK, rec6.Code)
+
+	var listResp2 map[string]any
+	require.NoError(t, json.NewDecoder(rec6.Body).Decode(&listResp2))
+	assert.Empty(t, listResp2["items"])
+}
+
+func TestHandler_DisassociateAPI(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	// Create domain name.
+	doRequest(t, h, http.MethodPost, "/v1/domainnames", map[string]any{
+		"domainName": "api.example.com", "certificateArn": certARN,
+	})
+
+	// Create and associate a GraphQL API.
+	rec1 := doRequest(t, h, http.MethodPost, "/v1/apis", map[string]any{
+		"name": "TestAPI", "authenticationType": "API_KEY",
+	})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	var apiResp map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&apiResp))
+	apiID := apiResp["graphqlApi"].(map[string]any)["apiId"].(string)
+
+	doRequest(t, h, http.MethodPost, "/v1/domainnames/api.example.com/apiassociation",
+		map[string]any{"apiId": apiID})
+
+	// Disassociate.
+	rec3 := doRequest(t, h, http.MethodDelete, "/v1/domainnames/api.example.com/apiassociation", nil)
+	assert.Equal(t, http.StatusNoContent, rec3.Code)
+
+	// Second disassociate returns 404.
+	rec4 := doRequest(t, h, http.MethodDelete, "/v1/domainnames/api.example.com/apiassociation", nil)
+	assert.Equal(t, http.StatusNotFound, rec4.Code)
+}
+
+func TestHandler_UpdateDomainName(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	doRequest(t, h, http.MethodPost, "/v1/domainnames", map[string]any{
+		"domainName": "api.example.com", "certificateArn": certARN,
+	})
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/domainnames/api.example.com",
+		map[string]any{"description": "updated description"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	dn := resp["domainNameConfig"].(map[string]any)
+	assert.Equal(t, "updated description", dn["description"])
+}
+
+// ---- Coverage boost handler tests ----
+
+func TestHandler_TagOps_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/tags", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_UpdateApiKey_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/apikeys/nonexistent",
+		map[string]any{"description": "x"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_UpdateApiCache_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/ApiCaches",
+		map[string]any{"ttl": 60})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_DisassociateAPI_DomainNotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/domainnames/missing.example.com/apiassociation", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_DomainName_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	// CONNECT on domain names collection → 405.
+	rec := doRequest(t, h, http.MethodConnect, "/v1/domainnames", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+
+	// CONNECT on domain name item → 405.
+	rec2 := doRequest(t, h, http.MethodConnect, "/v1/domainnames/api.example.com", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec2.Code)
+
+	// CONNECT on apiassociation → 405.
+	rec3 := doRequest(t, h, http.MethodConnect, "/v1/domainnames/api.example.com/apiassociation", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec3.Code)
+}
+
+func TestHandler_EventAPI_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodGet, "/v2/apis/nonexistent", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_EventAPI_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodPatch, "/v2/apis/nonexistent", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }

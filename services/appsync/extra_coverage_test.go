@@ -398,8 +398,8 @@ func TestHandler_Types_ResolverMethodNotAllowed(t *testing.T) {
 	h, b := newTestHandler()
 	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
 
-	// PUT on individual resolver should return method not allowed.
-	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem", nil)
+	// CONNECT on individual resolver should return method not allowed (PUT is now UpdateResolver).
+	rec := doRequest(t, h, http.MethodConnect, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
@@ -409,8 +409,8 @@ func TestHandler_DataSource_MethodNotAllowed(t *testing.T) {
 	h, b := newTestHandler()
 	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
 
-	// PUT on named datasource.
-	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/datasources/myds", nil)
+	// PATCH on named datasource should return method not allowed (PUT is UpdateDataSource).
+	rec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+api.APIID+"/datasources/myds", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 

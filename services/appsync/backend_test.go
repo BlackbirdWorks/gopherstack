@@ -1902,3 +1902,460 @@ func TestInMemoryBackend_DeleteDomainName_CascadesAssociation(t *testing.T) {
 	_, err = b.GetAPIAssociation("api.example.com")
 	require.ErrorIs(t, err, awserr.ErrNotFound)
 }
+
+// ---- Refinement 3: backend tests ----
+
+func TestInMemoryBackend_TagOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*appsync.InMemoryBackend) string
+		name       string
+		wantErr    bool
+		wantTagLen int
+	}{
+		{
+			name: "tag_and_untag",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("T", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			wantTagLen: 1,
+		},
+		{
+			name: "tag_not_found",
+			setup: func(_ *appsync.InMemoryBackend) string {
+				return "nonexistent"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			apiID := tt.setup(b)
+
+			err := b.TagResource(apiID, map[string]string{"key": "val", "env": "prod"})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			err = b.UntagResource(apiID, []string{"env"})
+			require.NoError(t, err)
+
+			tags, err := b.ListTagsForResource(apiID)
+			require.NoError(t, err)
+			assert.Len(t, tags, tt.wantTagLen)
+			assert.Equal(t, "val", tags["key"])
+			assert.NotContains(t, tags, "env")
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateDataSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		dsName     string
+		updateDesc string
+		wantErr    bool
+	}{
+		{
+			name:       "updates_description",
+			dsName:     "myds",
+			updateDesc: "updated",
+		},
+		{
+			name:    "not_found_returns_error",
+			dsName:  "nonexistent",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "myds", Type: "NONE"})
+			require.NoError(t, err)
+
+			updated, err := b.UpdateDataSource(api.APIID, tt.dsName, &appsync.DataSource{Description: tt.updateDesc})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.updateDesc, updated.Description)
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateFunction(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateFunction(api.APIID, fn.FunctionID, &appsync.Function{Description: "updated"})
+	require.NoError(t, err)
+	assert.Equal(t, "updated", updated.Description)
+
+	// Not found returns error.
+	_, err = b.UpdateFunction(api.APIID, "nonexistent", &appsync.Function{Description: "x"})
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateAPIKey(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "original", 0)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateAPIKey(api.APIID, key.ID, "updated", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "updated", updated.Description)
+
+	// Not found key returns error.
+	_, err = b.UpdateAPIKey(api.APIID, "nonexistent", "x", 0)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateAPICache(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(
+		api.APIID,
+		&appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"},
+	)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateAPICache(api.APIID, &appsync.APICache{TTL: 120, Type: "LARGE"})
+	require.NoError(t, err)
+	assert.Equal(t, "LARGE", updated.Type)
+	assert.Equal(t, int64(120), updated.TTL)
+
+	// Invalid type returns error.
+	_, err = b.UpdateAPICache(api.APIID, &appsync.APICache{Type: "INVALID"})
+	require.Error(t, err)
+
+	// Not found API cache returns error.
+	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+	_, err = b.UpdateAPICache(api2.APIID, &appsync.APICache{TTL: 60})
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_FlushAPICache(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(
+		api.APIID,
+		&appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"},
+	)
+	require.NoError(t, err)
+
+	// Flush succeeds.
+	err = b.FlushAPICache(api.APIID)
+	require.NoError(t, err)
+
+	// Flush without cache returns error.
+	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+	err = b.FlushAPICache(api2.APIID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateType(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateType(api.APIID, "MyType", "type MyType { id: ID! name: String! }", "")
+	require.NoError(t, err)
+	assert.Contains(t, updated.Definition, "name")
+
+	// Not found returns error.
+	_, err = b.UpdateType(api.APIID, "NonExistent", "type X {}", "")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateResolver(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "getItem",
+		DataSourceName: "myds",
+	})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:              "getItem",
+		RequestMappingTemplate: "updated-template",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "updated-template", updated.RequestMappingTemplate)
+
+	// Not found returns error.
+	_, err = b.UpdateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "nonexistent"})
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_EventAPI_CRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// Create.
+	api, err := b.CreateAPI("MyEventAPI", map[string]string{"env": "test"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, api.APIID)
+
+	// Get.
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "MyEventAPI", got.Name)
+
+	// List.
+	apis, err := b.ListAPIs()
+	require.NoError(t, err)
+	assert.Len(t, apis, 1)
+
+	// Delete.
+	err = b.DeleteAPI(api.APIID)
+	require.NoError(t, err)
+
+	// Get after delete returns error.
+	_, err = b.GetAPI(api.APIID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+
+	// List returns 0.
+	apis, err = b.ListAPIs()
+	require.NoError(t, err)
+	assert.Empty(t, apis)
+}
+
+func TestInMemoryBackend_DeleteAPI_CascadesChannelNamespaces(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	api, err := b.CreateAPI("MyEventAPI", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
+	require.NoError(t, err)
+
+	// Delete should cascade channel namespaces.
+	err = b.DeleteAPI(api.APIID)
+	require.NoError(t, err)
+
+	// Recreate the API - should have no namespaces.
+	api2, err := b.CreateAPI("NewAPI", nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, api.APIID, api2.APIID)
+}
+
+func TestInMemoryBackend_DisassociateAPI(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	_, err := b.CreateDomainName("api.example.com", certARN, "", nil)
+	require.NoError(t, err)
+
+	gqlAPI, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.AssociateAPI("api.example.com", gqlAPI.APIID)
+	require.NoError(t, err)
+
+	// Disassociate.
+	err = b.DisassociateAPI("api.example.com")
+	require.NoError(t, err)
+
+	// Association no longer exists.
+	assoc, err := b.GetAPIAssociation("api.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "NOT_FOUND", assoc.AssociationStatus)
+
+	// Second disassociate returns 404.
+	err = b.DisassociateAPI("api.example.com")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateDomainName(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	_, err := b.CreateDomainName("api.example.com", certARN, "orig desc", nil)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateDomainName("api.example.com", "new desc", "")
+	require.NoError(t, err)
+	assert.Equal(t, "new desc", updated.Description)
+
+	// Not found.
+	_, err = b.UpdateDomainName("missing.example.com", "x", "")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+// ---- Coverage boost tests ----
+
+func TestInMemoryBackend_GetFunction_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.GetFunction(api.APIID, "nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ListTagsForResource_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.ListTagsForResource("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ListTagsForResource_EmptyTags(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	// No tags set yet — should return empty map.
+	tagMap, err := b.ListTagsForResource(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, tagMap)
+}
+
+func TestInMemoryBackend_UpdateFunction_AllFields(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{
+		Name: "fn1", DataSourceName: "ds",
+	})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateFunction(api.APIID, fn.FunctionID, &appsync.Function{
+		Name:                    "fn1-updated",
+		DataSourceName:          "ds2",
+		RequestMappingTemplate:  "req",
+		ResponseMappingTemplate: "resp",
+		Code:                    "code",
+		Description:             "desc",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "fn1-updated", updated.Name)
+	assert.Equal(t, "ds2", updated.DataSourceName)
+	assert.Equal(t, "req", updated.RequestMappingTemplate)
+	assert.Equal(t, "resp", updated.ResponseMappingTemplate)
+}
+
+func TestInMemoryBackend_UpdateAPICache_CachingBehaviorValidation(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
+		TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING",
+	})
+	require.NoError(t, err)
+
+	// Invalid apiCachingBehavior returns validation error.
+	_, err = b.UpdateAPICache(api.APIID, &appsync.APICache{APICachingBehavior: "INVALID"})
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_UpdateDataSource_AllFields(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "ds1", Type: "NONE"})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateDataSource(api.APIID, "ds1", &appsync.DataSource{
+		Type:           "AWS_LAMBDA",
+		ServiceRoleARN: "arn:aws:iam::000000000000:role/role",
+		LambdaConfig:   &appsync.LambdaDataSourceConfig{LambdaFunctionARN: "arn:aws:lambda:us-east-1:000:function:fn"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "AWS_LAMBDA", string(updated.Type))
+}
+
+func TestInMemoryBackend_GetAPI_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.GetAPI("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DeleteAPI_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	err := b.DeleteAPI("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
