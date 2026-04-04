@@ -1133,87 +1133,83 @@ func TestHandler_AssociateApi(t *testing.T) {
 func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "associates_merged_api_successfully",
-			body: map[string]any{
-				"mergedApiIdentifier": "merged-api-id",
-				"description":         "test association",
-			},
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name:       "missing_merged_api_identifier_returns_400",
-			body:       map[string]any{"description": "test"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
+	t.Run("associates_merged_api_successfully", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		h, b := newTestHandler()
+		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+		require.NoError(t, err)
+		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+		require.NoError(t, err)
 
-			h, _ := newTestHandler()
-			rec := doRequest(t, h, http.MethodPost, "/v1/sourceApis/source-api-id/mergedApiAssociations", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+		rec := doRequest(t, h, http.MethodPost,
+			"/v1/sourceApis/"+src.APIID+"/mergedApiAssociations",
+			map[string]any{"mergedApiIdentifier": mrg.APIID, "description": "test"},
+		)
+		assert.Equal(t, http.StatusCreated, rec.Code)
 
-			if tt.wantStatus == http.StatusCreated {
-				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-				assoc, ok := resp["sourceApiAssociation"].(map[string]any)
-				require.True(t, ok)
-				assert.NotEmpty(t, assoc["associationId"])
-				assert.Equal(t, "source-api-id", assoc["sourceApiId"])
-			}
-		})
-	}
+		var resp map[string]any
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		assoc, ok := resp["sourceApiAssociation"].(map[string]any)
+		require.True(t, ok)
+		assert.NotEmpty(t, assoc["associationId"])
+		assert.Equal(t, src.APIID, assoc["sourceApiId"])
+	})
+
+	t.Run("missing_merged_api_identifier_returns_400", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newTestHandler()
+		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+		require.NoError(t, err)
+
+		rec := doRequest(t, h, http.MethodPost,
+			"/v1/sourceApis/"+src.APIID+"/mergedApiAssociations",
+			map[string]any{"description": "test"},
+		)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
 func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "associates_source_api_successfully",
-			body: map[string]any{
-				"sourceApiIdentifier": "source-api-id",
-				"description":         "test association",
-			},
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name:       "missing_source_api_identifier_returns_400",
-			body:       map[string]any{"description": "test"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
+	t.Run("associates_source_api_successfully", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		h, b := newTestHandler()
+		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+		require.NoError(t, err)
+		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+		require.NoError(t, err)
 
-			h, _ := newTestHandler()
-			rec := doRequest(t, h, http.MethodPost, "/v1/mergedApis/merged-api-id/sourceApiAssociations", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+		rec := doRequest(t, h, http.MethodPost,
+			"/v1/mergedApis/"+mrg.APIID+"/sourceApiAssociations",
+			map[string]any{"sourceApiIdentifier": src.APIID, "description": "test"},
+		)
+		assert.Equal(t, http.StatusCreated, rec.Code)
 
-			if tt.wantStatus == http.StatusCreated {
-				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-				assoc, ok := resp["sourceApiAssociation"].(map[string]any)
-				require.True(t, ok)
-				assert.NotEmpty(t, assoc["associationId"])
-				assert.Equal(t, "merged-api-id", assoc["mergedApiId"])
-			}
-		})
-	}
+		var resp map[string]any
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		assoc, ok := resp["sourceApiAssociation"].(map[string]any)
+		require.True(t, ok)
+		assert.NotEmpty(t, assoc["associationId"])
+		assert.Equal(t, mrg.APIID, assoc["mergedApiId"])
+	})
+
+	t.Run("missing_source_api_identifier_returns_400", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newTestHandler()
+		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+		require.NoError(t, err)
+
+		rec := doRequest(t, h, http.MethodPost,
+			"/v1/mergedApis/"+mrg.APIID+"/sourceApiAssociations",
+			map[string]any{"description": "test"},
+		)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
 func TestHandler_CreateApi(t *testing.T) {
@@ -2434,11 +2430,17 @@ func TestHandler_UpdateAPI(t *testing.T) {
 func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler()
+	h, b := newTestHandler()
+
+	// Create the APIs first (validation requires both to exist).
+	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+	mrgAPI, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+	require.NoError(t, err)
 
 	// Associate source graphql API.
-	rec1 := doRequest(t, h, http.MethodPost, "/v1/mergedApis/merged-id/sourceApiAssociations",
-		map[string]any{"sourceApiIdentifier": "source-id", "description": "test"})
+	rec1 := doRequest(t, h, http.MethodPost, "/v1/mergedApis/"+mrgAPI.APIID+"/sourceApiAssociations",
+		map[string]any{"sourceApiIdentifier": srcAPI.APIID, "description": "test"})
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var createResp map[string]any
@@ -2446,7 +2448,7 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	assocID := createResp["sourceApiAssociation"].(map[string]any)["associationId"].(string)
 
 	// List source API associations.
-	rec2 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/merged-id/sourceApiAssociations", nil)
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/"+mrgAPI.APIID+"/sourceApiAssociations", nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listResp map[string]any
@@ -2455,31 +2457,37 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	assert.Len(t, assocs, 1)
 
 	// Get source API association.
-	rec3 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/merged-id/sourceApiAssociations/"+assocID, nil)
+	rec3 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/"+mrgAPI.APIID+"/sourceApiAssociations/"+assocID, nil)
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var getResp map[string]any
 	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp))
 	assoc := getResp["sourceApiAssociation"].(map[string]any)
-	assert.Equal(t, "merged-id", assoc["mergedApiId"])
+	assert.Equal(t, mrgAPI.APIID, assoc["mergedApiId"])
 
 	// Disassociate source graphql API.
-	rec4 := doRequest(t, h, http.MethodDelete, "/v1/mergedApis/merged-id/sourceApiAssociations/"+assocID, nil)
+	rec4 := doRequest(t, h, http.MethodDelete, "/v1/mergedApis/"+mrgAPI.APIID+"/sourceApiAssociations/"+assocID, nil)
 	assert.Equal(t, http.StatusNoContent, rec4.Code)
 
 	// Get after delete returns 404.
-	rec5 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/merged-id/sourceApiAssociations/"+assocID, nil)
+	rec5 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/"+mrgAPI.APIID+"/sourceApiAssociations/"+assocID, nil)
 	assert.Equal(t, http.StatusNotFound, rec5.Code)
 }
 
 func TestHandler_DisassociateMergedGraphqlApi(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler()
+	h, b := newTestHandler()
+
+	// Create the APIs first.
+	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+	mrgAPI, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+	require.NoError(t, err)
 
 	// Associate first.
-	rec1 := doRequest(t, h, http.MethodPost, "/v1/sourceApis/source-id/mergedApiAssociations",
-		map[string]any{"mergedApiIdentifier": "merged-id"})
+	rec1 := doRequest(t, h, http.MethodPost, "/v1/sourceApis/"+srcAPI.APIID+"/mergedApiAssociations",
+		map[string]any{"mergedApiIdentifier": mrgAPI.APIID})
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var createResp map[string]any
@@ -2487,11 +2495,11 @@ func TestHandler_DisassociateMergedGraphqlApi(t *testing.T) {
 	assocID := createResp["sourceApiAssociation"].(map[string]any)["associationId"].(string)
 
 	// Disassociate.
-	rec2 := doRequest(t, h, http.MethodDelete, "/v1/sourceApis/source-id/mergedApiAssociations/"+assocID, nil)
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/sourceApis/"+srcAPI.APIID+"/mergedApiAssociations/"+assocID, nil)
 	assert.Equal(t, http.StatusNoContent, rec2.Code)
 
 	// Second disassociate returns 404.
-	rec3 := doRequest(t, h, http.MethodDelete, "/v1/sourceApis/source-id/mergedApiAssociations/"+assocID, nil)
+	rec3 := doRequest(t, h, http.MethodDelete, "/v1/sourceApis/"+srcAPI.APIID+"/mergedApiAssociations/"+assocID, nil)
 	assert.Equal(t, http.StatusNotFound, rec3.Code)
 }
 
@@ -2822,4 +2830,186 @@ func TestHandler_CreateDataSource_HTTPValidation(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// ---- Refinement 7 handler tests ----
+
+func TestHandler_ChaosInterface(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	h.DefaultRegion = "us-east-1"
+
+	assert.Equal(t, "appsync", h.ChaosServiceName())
+	assert.NotEmpty(t, h.ChaosOperations())
+	assert.Contains(t, h.ChaosOperations(), "CreateGraphqlApi")
+	assert.Contains(t, h.ChaosRegions(), "us-east-1")
+}
+
+func TestHandler_ExtractResource_DomainPath(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/domainnames/example.com/apiAssociation", nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+	resource := h.ExtractResource(c)
+	assert.Equal(t, "example.com", resource)
+}
+
+func TestHandler_ExtractResource_EmptyForUnknown(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/unknown/path", nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+	resource := h.ExtractResource(c)
+	assert.Empty(t, resource)
+}
+
+func TestHandler_Tags_CRUD(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TaggedAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	// Tag the resource.
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/tags", map[string]any{
+		"tags": map[string]string{"env": "prod"},
+	})
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// List tags.
+	rec = doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/tags", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Untag.
+	rec = doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/tags?tagKeys=env", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestHandler_Tags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/nonexistent/tags", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_V2API_GetAndDeleteNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		method   string
+		path     string
+		wantCode int
+	}{
+		{
+			name:     "get_nonexistent",
+			method:   http.MethodGet,
+			path:     "/v2/apis/nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "delete_nonexistent",
+			method:   http.MethodDelete,
+			path:     "/v2/apis/nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "update_nonexistent",
+			method:   http.MethodPut,
+			path:     "/v2/apis/nonexistent",
+			body:     map[string]any{"name": "NewName"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_V2API_ChannelNamespaceNotFound(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateAPI("TestAPI", "", nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/channelNamespaces/nonexistent", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_DeleteDataSource_BlockedByResolver(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "BoundDS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	require.NoError(t, err)
+
+	_, err = b.StartSchemaCreation(api.APIID, "type Query { hello: String }")
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "hello",
+		DataSourceName: "BoundDS",
+		Kind:           "UNIT",
+	})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/datasources/BoundDS", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_AssociateAPI_InvalidAPIID(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+
+	_, err := b.CreateDomainName("assoc.example.com", "arn:aws:acm:us-east-1:000:certificate/abc", "", nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/domainnames/assoc.example.com/ApiAssociation", map[string]any{
+		"apiId": "nonexistent-api",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_EnvironmentVariables_ExceedsLimit(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	// Build a map with 26 entries (exceeds max of 25).
+	envVars := make(map[string]string)
+	for i := range 26 {
+		envVars[strings.Repeat("K", i+1)] = "value"
+	}
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/environmentVariables", map[string]any{
+		"environmentVariables": envVars,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

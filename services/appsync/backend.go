@@ -164,6 +164,9 @@ const defaultAPIKeyExpiryDays = 365
 // AWS default quota is 50 API keys per GraphQL API.
 const maxAPIKeysPerAPI = 50
 
+// maxEnvironmentVariables is the AWS-enforced limit on environment variables per GraphQL API.
+const maxEnvironmentVariables = 25
+
 // defaultFunctionVersion is the default AppSync function runtime version.
 const defaultFunctionVersion = "2018-05-29"
 
@@ -659,12 +662,13 @@ func (b *InMemoryBackend) GetDataSource(apiID, name string) (*DataSource, error)
 	b.mu.RLock("GetDataSource")
 	defer b.mu.RUnlock()
 
-	dss, ok := b.datasources[apiID]
-	if !ok {
-		return nil, fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
+	dss := b.datasources[apiID]
 	ds, ok := dss[name]
+
 	if !ok {
 		return nil, fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
 	}
@@ -699,6 +703,7 @@ func (b *InMemoryBackend) ListDataSources(apiID string) ([]*DataSource, error) {
 }
 
 // DeleteDataSource deletes a data source.
+// Returns an error if any resolver in the API still references this data source.
 func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 	b.mu.Lock("DeleteDataSource")
 	defer b.mu.Unlock()
@@ -706,6 +711,31 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 	dss, ok := b.datasources[apiID]
 	if !ok || dss[name] == nil {
 		return fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
+	}
+
+	// Prevent deletion if any UNIT resolver references this data source.
+	for _, r := range b.resolvers[apiID] {
+		if r.DataSourceName == name {
+			return fmt.Errorf(
+				"%w: data source %s is still referenced by resolver %s.%s",
+				ErrValidation,
+				name,
+				r.TypeName,
+				r.FieldName,
+			)
+		}
+	}
+
+	// Prevent deletion if any function references this data source.
+	for _, fn := range b.functions[apiID] {
+		if fn.DataSourceName == name {
+			return fmt.Errorf(
+				"%w: data source %s is still referenced by function %s",
+				ErrValidation,
+				name,
+				fn.Name,
+			)
+		}
 	}
 
 	ds := dss[name]
@@ -1132,6 +1162,11 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
 
+	// Validate that the API being associated exists.
+	if _, exists := b.apis[apiID]; !exists {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
 	assoc := &APIAssociation{
 		DomainName:        domainName,
 		APIID:             apiID,
@@ -1220,6 +1255,14 @@ func (b *InMemoryBackend) AssociateMergedGraphqlAPI(
 	b.mu.Lock("AssociateMergedGraphqlAPI")
 	defer b.mu.Unlock()
 
+	if _, ok := b.apis[sourceAPIIdentifier]; !ok {
+		return nil, fmt.Errorf("%w: source api %s not found", ErrNotFound, sourceAPIIdentifier)
+	}
+
+	if _, ok := b.apis[mergedAPIIdentifier]; !ok {
+		return nil, fmt.Errorf("%w: merged api %s not found", ErrNotFound, mergedAPIIdentifier)
+	}
+
 	assocID := randomAPIID()
 	assocARN := arn.Build("appsync", b.region, b.accountID,
 		fmt.Sprintf("sourceApis/%s/mergedApiAssociations/%s", sourceAPIIdentifier, assocID))
@@ -1246,6 +1289,14 @@ func (b *InMemoryBackend) AssociateSourceGraphqlAPI(
 ) (*SourceAPIAssociation, error) {
 	b.mu.Lock("AssociateSourceGraphqlAPI")
 	defer b.mu.Unlock()
+
+	if _, ok := b.apis[mergedAPIIdentifier]; !ok {
+		return nil, fmt.Errorf("%w: merged api %s not found", ErrNotFound, mergedAPIIdentifier)
+	}
+
+	if _, ok := b.apis[sourceAPIIdentifier]; !ok {
+		return nil, fmt.Errorf("%w: source api %s not found", ErrNotFound, sourceAPIIdentifier)
+	}
 
 	assocID := randomAPIID()
 	assocARN := arn.Build("appsync", b.region, b.accountID,
@@ -1398,6 +1449,7 @@ func (b *InMemoryBackend) ListFunctions(apiID string) ([]*Function, error) {
 }
 
 // DeleteFunction deletes a pipeline function.
+// Returns an error if any resolver's pipeline config still references this function.
 func (b *InMemoryBackend) DeleteFunction(apiID, functionID string) error {
 	b.mu.Lock("DeleteFunction")
 	defer b.mu.Unlock()
@@ -1405,6 +1457,19 @@ func (b *InMemoryBackend) DeleteFunction(apiID, functionID string) error {
 	fns := b.functions[apiID]
 	if fns == nil || fns[functionID] == nil {
 		return fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	// Prevent deletion if any resolver still references this function.
+	for _, r := range b.resolvers[apiID] {
+		if slices.Contains(r.PipelineConfig, functionID) {
+			return fmt.Errorf(
+				"%w: function %s is still referenced by resolver %s.%s",
+				ErrValidation,
+				functionID,
+				r.TypeName,
+				r.FieldName,
+			)
+		}
 	}
 
 	delete(fns, functionID)
@@ -1712,6 +1777,12 @@ func (b *InMemoryBackend) UpdateAPIKey(apiID, keyID, description string, expires
 	}
 
 	if expires > 0 {
+		// Cap expiry at 365 days from now (AWS enforces this on update too).
+		maxExpires := time.Now().AddDate(0, 0, defaultAPIKeyExpiryDays).Unix()
+		if expires > maxExpires {
+			expires = maxExpires
+		}
+
 		existing.Expires = expires
 	}
 
@@ -2148,6 +2219,14 @@ func (b *InMemoryBackend) PutGraphqlAPIEnvironmentVariables(
 	api, ok := b.apis[apiID]
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if len(envVars) > maxEnvironmentVariables {
+		return nil, fmt.Errorf(
+			"%w: environment variables cannot exceed %d entries",
+			ErrValidation,
+			maxEnvironmentVariables,
+		)
 	}
 
 	api.EnvironmentVariables = maps.Clone(envVars)

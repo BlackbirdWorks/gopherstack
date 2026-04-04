@@ -2506,22 +2506,28 @@ func TestInMemoryBackend_SourceAPIAssociation_CRUD(t *testing.T) {
 
 	b := newTestBackend()
 
+	// Create the source and merged APIs first (validation now requires both to exist).
+	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+	mrg1API, err := b.CreateGraphqlAPI("MergedAPI1", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+	require.NoError(t, err)
+
 	// Associate source API.
-	assoc1, err := b.AssociateSourceGraphqlAPI("merged-1", "source-1", "test")
+	assoc1, err := b.AssociateSourceGraphqlAPI(mrg1API.APIID, srcAPI.APIID, "test")
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc1.AssociationID)
 
 	// Get source API association.
-	got, err := b.GetSourceAPIAssociation("merged-1", assoc1.AssociationID)
+	got, err := b.GetSourceAPIAssociation(mrg1API.APIID, assoc1.AssociationID)
 	require.NoError(t, err)
-	assert.Equal(t, "merged-1", got.MergedAPIID)
+	assert.Equal(t, mrg1API.APIID, got.MergedAPIID)
 
 	// Wrong merged API ID returns error.
 	_, err = b.GetSourceAPIAssociation("wrong-id", assoc1.AssociationID)
 	require.ErrorIs(t, err, awserr.ErrNotFound)
 
 	// List source API associations.
-	assocs, err := b.ListSourceAPIAssociations("merged-1")
+	assocs, err := b.ListSourceAPIAssociations(mrg1API.APIID)
 	require.NoError(t, err)
 	assert.Len(t, assocs, 1)
 
@@ -2531,11 +2537,11 @@ func TestInMemoryBackend_SourceAPIAssociation_CRUD(t *testing.T) {
 	assert.Empty(t, assocs2)
 
 	// Disassociate.
-	err = b.DisassociateSourceGraphqlAPI("merged-1", assoc1.AssociationID)
+	err = b.DisassociateSourceGraphqlAPI(mrg1API.APIID, assoc1.AssociationID)
 	require.NoError(t, err)
 
 	// Second disassociate returns error.
-	err = b.DisassociateSourceGraphqlAPI("merged-1", assoc1.AssociationID)
+	err = b.DisassociateSourceGraphqlAPI(mrg1API.APIID, assoc1.AssociationID)
 	require.ErrorIs(t, err, awserr.ErrNotFound)
 }
 
@@ -2544,7 +2550,13 @@ func TestInMemoryBackend_DisassociateMergedGraphqlAPI(t *testing.T) {
 
 	b := newTestBackend()
 
-	assoc, err := b.AssociateMergedGraphqlAPI("source-1", "merged-1", "")
+	// Create the source and merged APIs first.
+	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+	mrg1API, err := b.CreateGraphqlAPI("MergedAPI1", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateMergedGraphqlAPI(srcAPI.APIID, mrg1API.APIID, "")
 	require.NoError(t, err)
 
 	// Wrong source API ID returns error.
@@ -2552,7 +2564,7 @@ func TestInMemoryBackend_DisassociateMergedGraphqlAPI(t *testing.T) {
 	require.ErrorIs(t, err, awserr.ErrNotFound)
 
 	// Correct source returns success.
-	err = b.DisassociateMergedGraphqlAPI("source-1", assoc.AssociationID)
+	err = b.DisassociateMergedGraphqlAPI(srcAPI.APIID, assoc.AssociationID)
 	require.NoError(t, err)
 }
 
@@ -3184,4 +3196,320 @@ func TestInMemoryBackend_ListGraphqlAPIs_Sorted(t *testing.T) {
 	assert.Equal(t, "Alpha", apis[0].Name)
 	assert.Equal(t, "Mango", apis[1].Name)
 	assert.Equal(t, "Zebra", apis[2].Name)
+}
+
+// ---- Refinement 7 tests ----
+
+func TestInMemoryBackend_UpdateAPIKey_ExpiryCapEnforced(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "desc", 0)
+	require.NoError(t, err)
+
+	// Attempt to update with an expiry far in the future (10 years).
+	farFuture := time.Now().AddDate(10, 0, 0).Unix()
+	updated, err := b.UpdateAPIKey(api.APIID, key.ID, "", farFuture)
+	require.NoError(t, err)
+
+	// Should be capped at 365 days from now.
+	maxAllowed := time.Now().AddDate(0, 0, 365).Unix()
+	assert.LessOrEqual(t, updated.Expires, maxAllowed+60, "expiry should be capped at 365 days")
+	assert.Greater(t, updated.Expires, maxAllowed-60, "expiry should be close to 365 days")
+}
+
+func TestInMemoryBackend_UpdateAPIKey_ValidExpiryUnchanged(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "desc", 0)
+	require.NoError(t, err)
+
+	// Set a valid expiry within the cap.
+	validExpiry := time.Now().AddDate(0, 0, 30).Unix()
+	updated, err := b.UpdateAPIKey(api.APIID, key.ID, "", validExpiry)
+	require.NoError(t, err)
+	assert.Equal(t, validExpiry, updated.Expires, "valid expiry should be stored as-is")
+}
+
+func TestInMemoryBackend_AssociateAPI_ValidatesAPIExists(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.CreateDomainName("example.com", "arn:aws:acm:us-east-1:000:certificate/abc", "", nil)
+	require.NoError(t, err)
+
+	// Associating a non-existent API should fail.
+	_, err = b.AssociateAPI("example.com", "nonexistent-api-id")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrNotFound)
+}
+
+func TestInMemoryBackend_AssociateAPI_ValidAPISucceeds(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.CreateDomainName("api.example.com", "arn:aws:acm:us-east-1:000:certificate/abc", "", nil)
+	require.NoError(t, err)
+
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateAPI("api.example.com", api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, api.APIID, assoc.APIID)
+}
+
+func TestInMemoryBackend_PutEnvVars_ExceedsLimit(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	// Build a map with 26 entries (exceeds max of 25).
+	envVars := make(map[string]string)
+	for i := range 26 {
+		envVars[fmt.Sprintf("KEY_%d", i)] = "value"
+	}
+
+	_, err = b.PutGraphqlAPIEnvironmentVariables(api.APIID, envVars)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrValidation)
+}
+
+func TestInMemoryBackend_PutEnvVars_MaxAllowed(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	// Build a map with exactly 25 entries.
+	envVars := make(map[string]string)
+	for i := range 25 {
+		envVars[fmt.Sprintf("KEY_%d", i)] = "value"
+	}
+
+	out, err := b.PutGraphqlAPIEnvironmentVariables(api.APIID, envVars)
+	require.NoError(t, err)
+	assert.Len(t, out, 25)
+}
+
+func TestInMemoryBackend_DeleteDataSource_BlockedByResolver(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "MyDS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	require.NoError(t, err)
+
+	_, err = b.StartSchemaCreation(api.APIID, "type Query { hello: String }")
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "hello",
+		DataSourceName: "MyDS",
+		Kind:           "UNIT",
+	})
+	require.NoError(t, err)
+
+	// Delete should be blocked.
+	err = b.DeleteDataSource(api.APIID, "MyDS")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrValidation)
+}
+
+func TestInMemoryBackend_DeleteDataSource_BlockedByFunction(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "FuncDS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateFunction(api.APIID, &appsync.Function{
+		Name:           "MyFunc",
+		DataSourceName: "FuncDS",
+	})
+	require.NoError(t, err)
+
+	// Delete should be blocked.
+	err = b.DeleteDataSource(api.APIID, "FuncDS")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrValidation)
+}
+
+func TestInMemoryBackend_DeleteDataSource_SucceedsWhenUnreferenced(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "UnusedDS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	require.NoError(t, err)
+
+	err = b.DeleteDataSource(api.APIID, "UnusedDS")
+	require.NoError(t, err)
+}
+
+func TestInMemoryBackend_DeleteFunction_BlockedByResolver(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "DS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{
+		Name:           "MyFn",
+		DataSourceName: "DS",
+	})
+	require.NoError(t, err)
+
+	_, err = b.StartSchemaCreation(api.APIID, "type Query { hello: String }")
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "hello",
+		Kind:           "PIPELINE",
+		PipelineConfig: []string{fn.FunctionID},
+	})
+	require.NoError(t, err)
+
+	// Delete should be blocked.
+	err = b.DeleteFunction(api.APIID, fn.FunctionID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrValidation)
+}
+
+func TestInMemoryBackend_DeleteFunction_SucceedsWhenUnreferenced(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "DS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{
+		Name:           "UnusedFn",
+		DataSourceName: "DS",
+	})
+	require.NoError(t, err)
+
+	err = b.DeleteFunction(api.APIID, fn.FunctionID)
+	require.NoError(t, err)
+}
+
+func TestInMemoryBackend_GetDataSource_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.GetDataSource("nonexistent-api", "myds")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrNotFound)
+}
+
+func TestInMemoryBackend_AssociateMergedAPI_ValidatesAPIsExist(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		sourceExists bool
+		mergedExists bool
+		wantErr      bool
+	}{
+		{
+			name:         "source_not_found",
+			sourceExists: false,
+			mergedExists: true,
+			wantErr:      true,
+		},
+		{
+			name:         "merged_not_found",
+			sourceExists: true,
+			mergedExists: false,
+			wantErr:      true,
+		},
+		{
+			name:         "both_exist",
+			sourceExists: true,
+			mergedExists: true,
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			sourceID := "nonexistent-source"
+			mergedID := "nonexistent-merged"
+
+			if tt.sourceExists {
+				src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", nil)
+				require.NoError(t, err)
+				sourceID = src.APIID
+			}
+
+			if tt.mergedExists {
+				mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", nil)
+				require.NoError(t, err)
+				mergedID = mrg.APIID
+			}
+
+			_, err := b.AssociateMergedGraphqlAPI(sourceID, mergedID, "test")
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, appsync.ErrNotFound)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_AssociateSourceAPI_ValidatesAPIsExist(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.AssociateSourceGraphqlAPI("nonexistent-merged", "nonexistent-source", "test")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, appsync.ErrNotFound)
 }
