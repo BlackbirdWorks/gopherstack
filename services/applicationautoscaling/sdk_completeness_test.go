@@ -17,7 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := applicationautoscaling.NewInMemoryBackend("000000000000", "us-east-1")
 	h := applicationautoscaling.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &applicationautoscalingsdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetPredictiveScalingForecast",
-	})
+	sdkcheck.CheckCompleteness(t, &applicationautoscalingsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
