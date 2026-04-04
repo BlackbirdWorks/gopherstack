@@ -66,7 +66,7 @@ func (h *DashboardHandler) appSyncIndex(c *echo.Context) error {
 		return nil
 	}
 
-	allAPIs, err := h.AppSyncOps.Backend.ListGraphqlAPIs()
+	allAPIs, err := h.AppSyncOps.Backend.ListGraphqlAPIs("")
 	if err != nil {
 		pkgslogger.Load(ctx).ErrorContext(ctx, "failed to list AppSync APIs", "error", err)
 

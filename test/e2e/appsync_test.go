@@ -20,6 +20,8 @@ func TestAppSyncDashboard(t *testing.T) {
 	_, err := stack.AppSyncHandler.Backend.CreateGraphqlAPI(
 		"e2e-test-api",
 		appsync.AuthTypeAPIKey,
+		false,
+		"",
 		nil,
 	)
 	require.NoError(t, err)
