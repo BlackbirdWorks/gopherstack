@@ -2359,3 +2359,372 @@ func TestInMemoryBackend_DeleteAPI_NotFound(t *testing.T) {
 	err := b.DeleteAPI("nonexistent")
 	require.ErrorIs(t, err, awserr.ErrNotFound)
 }
+
+// ---- Refinement 4: backend tests ----
+
+func TestInMemoryBackend_ChannelNamespace_CRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		nsName    string
+		createTwo bool
+		wantErr   bool
+	}{
+		{name: "creates_and_returns", nsName: "ns1"},
+		{name: "duplicate_returns_error", nsName: "ns2", createTwo: true, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateAPI("EventAPI", nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateChannelNamespace(api.APIID, tt.nsName, nil)
+			require.NoError(t, err)
+
+			if !tt.createTwo {
+				return
+			}
+
+			_, err = b.CreateChannelNamespace(api.APIID, tt.nsName, nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_GetChannelNamespace_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventAPI", nil)
+	require.NoError(t, err)
+
+	_, err = b.GetChannelNamespace(api.APIID, "nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ListChannelNamespaces(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventAPI", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
+	require.NoError(t, err)
+	_, err = b.CreateChannelNamespace(api.APIID, "ns2", nil)
+	require.NoError(t, err)
+
+	nss, err := b.ListChannelNamespaces(api.APIID)
+	require.NoError(t, err)
+	assert.Len(t, nss, 2)
+
+	// Not found API returns error.
+	_, err = b.ListChannelNamespaces("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateChannelNamespace(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventAPI", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateChannelNamespace(api.APIID, "ns1", "export const handler = () => {}")
+	require.NoError(t, err)
+	assert.Equal(t, "export const handler = () => {}", updated.CodeHandlers)
+	assert.NotZero(t, updated.LastModified)
+
+	// Not found returns error.
+	_, err = b.UpdateChannelNamespace(api.APIID, "missing", "code")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DeleteChannelNamespace(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventAPI", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
+	require.NoError(t, err)
+
+	err = b.DeleteChannelNamespace(api.APIID, "ns1")
+	require.NoError(t, err)
+
+	// Second delete returns error.
+	err = b.DeleteChannelNamespace(api.APIID, "ns1")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_UpdateAPI(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventAPI", nil)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateAPI(api.APIID, "UpdatedName", "ops@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "UpdatedName", updated.Name)
+	assert.Equal(t, "ops@example.com", updated.OwnerContact)
+
+	// Not found.
+	_, err = b.UpdateAPI("nonexistent", "x", "")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_SourceAPIAssociation_CRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// Associate source API.
+	assoc1, err := b.AssociateSourceGraphqlAPI("merged-1", "source-1", "test")
+	require.NoError(t, err)
+	assert.NotEmpty(t, assoc1.AssociationID)
+
+	// Get source API association.
+	got, err := b.GetSourceAPIAssociation("merged-1", assoc1.AssociationID)
+	require.NoError(t, err)
+	assert.Equal(t, "merged-1", got.MergedAPIID)
+
+	// Wrong merged API ID returns error.
+	_, err = b.GetSourceAPIAssociation("wrong-id", assoc1.AssociationID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+
+	// List source API associations.
+	assocs, err := b.ListSourceAPIAssociations("merged-1")
+	require.NoError(t, err)
+	assert.Len(t, assocs, 1)
+
+	// List for empty merged API returns empty.
+	assocs2, err := b.ListSourceAPIAssociations("empty-merged")
+	require.NoError(t, err)
+	assert.Empty(t, assocs2)
+
+	// Disassociate.
+	err = b.DisassociateSourceGraphqlAPI("merged-1", assoc1.AssociationID)
+	require.NoError(t, err)
+
+	// Second disassociate returns error.
+	err = b.DisassociateSourceGraphqlAPI("merged-1", assoc1.AssociationID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DisassociateMergedGraphqlAPI(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	assoc, err := b.AssociateMergedGraphqlAPI("source-1", "merged-1", "")
+	require.NoError(t, err)
+
+	// Wrong source API ID returns error.
+	err = b.DisassociateMergedGraphqlAPI("wrong-source", assoc.AssociationID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+
+	// Correct source returns success.
+	err = b.DisassociateMergedGraphqlAPI("source-1", assoc.AssociationID)
+	require.NoError(t, err)
+}
+
+func TestInMemoryBackend_EnvironmentVariables(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	// Get empty env vars.
+	envVars, err := b.GetGraphqlAPIEnvironmentVariables(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, envVars)
+
+	// Put env vars.
+	envVars2, err := b.PutGraphqlAPIEnvironmentVariables(api.APIID, map[string]string{"K1": "V1", "K2": "V2"})
+	require.NoError(t, err)
+	assert.Equal(t, "V1", envVars2["K1"])
+
+	// Get returns updated vars.
+	envVars3, err := b.GetGraphqlAPIEnvironmentVariables(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "V2", envVars3["K2"])
+
+	// Put replaces all vars.
+	_, err = b.PutGraphqlAPIEnvironmentVariables(api.APIID, map[string]string{"NEW_KEY": "new_val"})
+	require.NoError(t, err)
+
+	envVars4, err := b.GetGraphqlAPIEnvironmentVariables(api.APIID)
+	require.NoError(t, err)
+	assert.NotContains(t, envVars4, "K1")
+	assert.Equal(t, "new_val", envVars4["NEW_KEY"])
+
+	// Not found API returns error.
+	_, err = b.GetGraphqlAPIEnvironmentVariables("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+
+	_, err = b.PutGraphqlAPIEnvironmentVariables("nonexistent", map[string]string{})
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ListResolversByFunction(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "getItem",
+		PipelineConfig: []string{fn.FunctionID},
+	})
+	require.NoError(t, err)
+
+	// Resolver without the function — should not appear.
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "listItems",
+		DataSourceName: "ds",
+	})
+	require.NoError(t, err)
+
+	resolvers, err := b.ListResolversByFunction(api.APIID, fn.FunctionID)
+	require.NoError(t, err)
+	assert.Len(t, resolvers, 1)
+	assert.Equal(t, "getItem", resolvers[0].FieldName)
+
+	// Not found API returns error.
+	_, err = b.ListResolversByFunction("nonexistent", fn.FunctionID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ChannelNamespace_HasTimestamps(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventAPI", nil)
+	require.NoError(t, err)
+
+	ns, err := b.CreateChannelNamespace(api.APIID, "ns1", map[string]string{"env": "test"})
+	require.NoError(t, err)
+	assert.NotZero(t, ns.Created)
+	assert.NotZero(t, ns.LastModified)
+	assert.Equal(t, ns.Created, ns.LastModified)
+}
+
+// ---- Coverage boost tests ----
+
+func TestInMemoryBackend_ListAPIKeys_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.ListAPIKeys("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_GetAPICache_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.GetAPICache("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DeleteAPICache_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	err := b.DeleteAPICache("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_GetFunction_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.GetFunction("nonexistent", "fn")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ListFunctions_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.ListFunctions("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_GetType_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.GetType("nonexistent", "MyType")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_ListTypes_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.ListTypes("nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DeleteDomainName_APIAssoc_Cascade(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	_, err := b.CreateDomainName("api.example.com", certARN, "desc", nil)
+	require.NoError(t, err)
+
+	gqlAPI, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.AssociateAPI("api.example.com", gqlAPI.APIID)
+	require.NoError(t, err)
+
+	// Delete domain name - should cascade delete the association.
+	err = b.DeleteDomainName("api.example.com")
+	require.NoError(t, err)
+
+	// Get domain name should return not found.
+	_, err = b.GetDomainName("api.example.com")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DeleteAPIKey_APINotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	err := b.DeleteAPIKey("nonexistent", "key-id")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}

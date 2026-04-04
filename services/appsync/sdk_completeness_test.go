@@ -18,24 +18,12 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
 	h := appsync.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &appsyncsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteChannelNamespace",
-		"DisassociateMergedGraphqlApi",
-		"DisassociateSourceGraphqlApi",
 		"EvaluateCode",
 		"EvaluateMappingTemplate",
-		"GetChannelNamespace",
 		"GetDataSourceIntrospection",
-		"GetGraphqlApiEnvironmentVariables",
-		"GetSourceApiAssociation",
-		"ListChannelNamespaces",
-		"ListResolversByFunction",
-		"ListSourceApiAssociations",
 		"ListTypesByAssociation",
-		"PutGraphqlApiEnvironmentVariables",
 		"StartDataSourceIntrospection",
 		"StartSchemaMerge",
-		"UpdateApi",
-		"UpdateChannelNamespace",
 		"UpdateSourceApiAssociation",
 	})
 }

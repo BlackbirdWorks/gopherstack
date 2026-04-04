@@ -1454,7 +1454,7 @@ func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
 		},
 		{
 			name:       "sourceApiAssociations_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodPut, // PUT on sourceApiAssociations collection → 405
 			path:       "/v1/mergedApis/merged-id/sourceApiAssociations",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
@@ -1466,7 +1466,7 @@ func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
 		},
 		{
 			name:       "channel_namespaces_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodPut, // PUT on channelNamespaces collection → 405 (GET/POST are now valid)
 			path:       "/v2/apis/abc/channelNamespaces",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
@@ -2328,6 +2328,265 @@ func TestHandler_EventAPI_MethodNotAllowed(t *testing.T) {
 
 	h, _ := newTestHandler()
 
-	rec := doRequest(t, h, http.MethodPatch, "/v2/apis/nonexistent", nil)
+	// CONNECT is never allowed on any v2 API endpoint.
+	rec := doRequest(t, h, http.MethodConnect, "/v2/apis/nonexistent", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+// ---- Refinement 4: new operation tests ----
+
+func TestHandler_ChannelNamespace_CRUD(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	// Create event API first.
+	rec1 := doRequest(t, h, http.MethodPost, "/v2/apis", map[string]any{"name": "EventAPI"})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	var apiResp map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&apiResp))
+	apiID := apiResp["api"].(map[string]any)["apiId"].(string)
+
+	// Create namespace.
+	rec2 := doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/channelNamespaces",
+		map[string]any{"name": "ns1"})
+	require.Equal(t, http.StatusCreated, rec2.Code)
+
+	// List channel namespaces.
+	rec3 := doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/channelNamespaces", nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&listResp))
+	items := listResp["channelNamespaces"].([]any)
+	assert.Len(t, items, 1)
+
+	// Get channel namespace.
+	rec4 := doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/channelNamespaces/ns1", nil)
+	require.Equal(t, http.StatusOK, rec4.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.NewDecoder(rec4.Body).Decode(&getResp))
+	ns := getResp["channelNamespace"].(map[string]any)
+	assert.Equal(t, "ns1", ns["name"])
+
+	// Update channel namespace.
+	rec5 := doRequest(t, h, http.MethodPut, "/v2/apis/"+apiID+"/channelNamespaces/ns1",
+		map[string]any{"codeHandlers": "export const handler = () => {}"})
+	require.Equal(t, http.StatusOK, rec5.Code)
+
+	// Delete channel namespace.
+	rec6 := doRequest(t, h, http.MethodDelete, "/v2/apis/"+apiID+"/channelNamespaces/ns1", nil)
+	assert.Equal(t, http.StatusNoContent, rec6.Code)
+
+	// Get after delete returns 404.
+	rec7 := doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/channelNamespaces/ns1", nil)
+	assert.Equal(t, http.StatusNotFound, rec7.Code)
+}
+
+func TestHandler_ChannelNamespace_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodGet, "/v2/apis/nonexistent/channelNamespaces/ns1", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_ChannelNamespace_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodPost, "/v2/apis/x/channelNamespaces/ns1", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_UpdateAPI(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec1 := doRequest(t, h, http.MethodPost, "/v2/apis", map[string]any{"name": "EventAPI"})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&createResp))
+	apiID := createResp["api"].(map[string]any)["apiId"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPut, "/v2/apis/"+apiID,
+		map[string]any{"name": "UpdatedAPI", "ownerContact": "ops@example.com"})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+	api := resp["api"].(map[string]any)
+	assert.Equal(t, "UpdatedAPI", api["name"])
+	assert.Equal(t, "ops@example.com", api["ownerContact"])
+
+	// Update not-found returns 404.
+	rec3 := doRequest(t, h, http.MethodPut, "/v2/apis/nonexistent",
+		map[string]any{"name": "x"})
+	assert.Equal(t, http.StatusNotFound, rec3.Code)
+}
+
+func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	// Associate source graphql API.
+	rec1 := doRequest(t, h, http.MethodPost, "/v1/mergedApis/merged-id/sourceApiAssociations",
+		map[string]any{"sourceApiIdentifier": "source-id", "description": "test"})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&createResp))
+	assocID := createResp["sourceApiAssociation"].(map[string]any)["associationId"].(string)
+
+	// List source API associations.
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/merged-id/sourceApiAssociations", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	assocs := listResp["sourceApiAssociations"].([]any)
+	assert.Len(t, assocs, 1)
+
+	// Get source API association.
+	rec3 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/merged-id/sourceApiAssociations/"+assocID, nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp))
+	assoc := getResp["sourceApiAssociation"].(map[string]any)
+	assert.Equal(t, "merged-id", assoc["mergedApiId"])
+
+	// Disassociate source graphql API.
+	rec4 := doRequest(t, h, http.MethodDelete, "/v1/mergedApis/merged-id/sourceApiAssociations/"+assocID, nil)
+	assert.Equal(t, http.StatusNoContent, rec4.Code)
+
+	// Get after delete returns 404.
+	rec5 := doRequest(t, h, http.MethodGet, "/v1/mergedApis/merged-id/sourceApiAssociations/"+assocID, nil)
+	assert.Equal(t, http.StatusNotFound, rec5.Code)
+}
+
+func TestHandler_DisassociateMergedGraphqlApi(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	// Associate first.
+	rec1 := doRequest(t, h, http.MethodPost, "/v1/sourceApis/source-id/mergedApiAssociations",
+		map[string]any{"mergedApiIdentifier": "merged-id"})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&createResp))
+	assocID := createResp["sourceApiAssociation"].(map[string]any)["associationId"].(string)
+
+	// Disassociate.
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/sourceApis/source-id/mergedApiAssociations/"+assocID, nil)
+	assert.Equal(t, http.StatusNoContent, rec2.Code)
+
+	// Second disassociate returns 404.
+	rec3 := doRequest(t, h, http.MethodDelete, "/v1/sourceApis/source-id/mergedApiAssociations/"+assocID, nil)
+	assert.Equal(t, http.StatusNotFound, rec3.Code)
+}
+
+func TestHandler_ListSourceApiAssociations_Empty(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/mergedApis/empty-id/sourceApiAssociations", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Empty(t, resp["sourceApiAssociations"])
+}
+
+func TestHandler_EnvironmentVariables(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	// Get empty env vars.
+	rec1 := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/environmentVariables", nil)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&getResp))
+	assert.Empty(t, getResp["environmentVariables"])
+
+	// Put env vars.
+	rec2 := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/environmentVariables",
+		map[string]any{"environmentVariables": map[string]any{"KEY1": "value1", "KEY2": "value2"}})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var putResp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&putResp))
+	envVars := putResp["environmentVariables"].(map[string]any)
+	assert.Equal(t, "value1", envVars["KEY1"])
+	assert.Equal(t, "value2", envVars["KEY2"])
+
+	// Get env vars after put.
+	rec3 := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/environmentVariables", nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var getResp2 map[string]any
+	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp2))
+	envVars2 := getResp2["environmentVariables"].(map[string]any)
+	assert.Equal(t, "value1", envVars2["KEY1"])
+}
+
+func TestHandler_EnvironmentVariables_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/nonexistent/environmentVariables", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_EnvironmentVariables_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/environmentVariables", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_ListResolversByFunction(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "getItem",
+		DataSourceName: "myds",
+		PipelineConfig: []string{fn.FunctionID},
+	})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/functions/"+fn.FunctionID+"/resolvers", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	resolvers := resp["resolvers"].([]any)
+	assert.Len(t, resolvers, 1)
+	assert.Equal(t, "getItem", resolvers[0].(map[string]any)["fieldName"])
 }

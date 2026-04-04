@@ -65,25 +65,28 @@ type DataSource struct {
 
 // Resolver represents an AppSync resolver.
 type Resolver struct {
-	RequestMappingTemplate  string `json:"requestMappingTemplate,omitempty"`
-	ResponseMappingTemplate string `json:"responseMappingTemplate,omitempty"`
-	DataSourceName          string `json:"dataSourceName,omitempty"`
-	ResolverARN             string `json:"resolverArn"`
-	TypeName                string `json:"typeName"`
-	FieldName               string `json:"fieldName"`
-	APIID                   string `json:"apiId"`
-	Kind                    string `json:"kind,omitempty"`
+	RequestMappingTemplate  string   `json:"requestMappingTemplate,omitempty"`
+	ResponseMappingTemplate string   `json:"responseMappingTemplate,omitempty"`
+	DataSourceName          string   `json:"dataSourceName,omitempty"`
+	ResolverARN             string   `json:"resolverArn"`
+	TypeName                string   `json:"typeName"`
+	FieldName               string   `json:"fieldName"`
+	APIID                   string   `json:"apiId"`
+	Kind                    string   `json:"kind,omitempty"`
+	PipelineConfig          []string `json:"pipelineConfig,omitempty"` // function IDs for PIPELINE resolvers
 }
 
 // GraphqlAPI represents an AppSync GraphQL API.
 type GraphqlAPI struct {
-	URIs               map[string]string  `json:"uris"`
-	Tags               *tags.Tags         `json:"tags,omitempty"`
-	Name               string             `json:"name"`
-	APIID              string             `json:"apiId"`
-	ARN                string             `json:"arn"`
-	AuthenticationType AuthenticationType `json:"authenticationType"`
-	Region             string             `json:"region"`
+	URIs                 map[string]string  `json:"uris"`
+	Tags                 *tags.Tags         `json:"tags,omitempty"`
+	EnvironmentVariables map[string]string  `json:"environmentVariables,omitempty"`
+	Name                 string             `json:"name"`
+	APIID                string             `json:"apiId"`
+	ARN                  string             `json:"arn"`
+	AuthenticationType   AuthenticationType `json:"authenticationType"`
+	Region               string             `json:"region"`
+	XrayEnabled          bool               `json:"xrayEnabled,omitempty"`
 }
 
 // SchemaStatus represents the schema creation status.
@@ -206,6 +209,8 @@ type ChannelNamespace struct {
 	Name                string            `json:"name"`
 	ChannelNamespaceARN string            `json:"channelNamespaceArn,omitempty"`
 	CodeHandlers        string            `json:"codeHandlers,omitempty"`
+	Created             int64             `json:"created,omitempty"`
+	LastModified        int64             `json:"lastModified,omitempty"`
 }
 
 // SourceAPIAssociation represents an association between a source API and a merged API.

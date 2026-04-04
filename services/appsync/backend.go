@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,7 +116,13 @@ type StorageBackend interface {
 	// Event API (v2) operations.
 	GetAPI(apiID string) (*API, error)
 	ListAPIs() ([]*API, error)
+	UpdateAPI(apiID, name, ownerContact string) (*API, error)
 	DeleteAPI(apiID string) error
+	// Channel namespace operations.
+	GetChannelNamespace(apiID, name string) (*ChannelNamespace, error)
+	ListChannelNamespaces(apiID string) ([]*ChannelNamespace, error)
+	UpdateChannelNamespace(apiID, name, codeHandlers string) (*ChannelNamespace, error)
+	DeleteChannelNamespace(apiID, name string) error
 	// Merged/source API association operations.
 	AssociateMergedGraphqlAPI(
 		sourceAPIIdentifier, mergedAPIIdentifier, description string,
@@ -123,6 +130,15 @@ type StorageBackend interface {
 	AssociateSourceGraphqlAPI(
 		mergedAPIIdentifier, sourceAPIIdentifier, description string,
 	) (*SourceAPIAssociation, error)
+	GetSourceAPIAssociation(mergedAPIID, associationID string) (*SourceAPIAssociation, error)
+	ListSourceAPIAssociations(mergedAPIID string) ([]*SourceAPIAssociation, error)
+	DisassociateMergedGraphqlAPI(sourceAPIID, associationID string) error
+	DisassociateSourceGraphqlAPI(mergedAPIID, associationID string) error
+	// ListResolversByFunction - resolvers attached to a function.
+	ListResolversByFunction(apiID, functionID string) ([]*Resolver, error)
+	// Environment variable operations on GraphQL APIs.
+	GetGraphqlAPIEnvironmentVariables(apiID string) (map[string]string, error)
+	PutGraphqlAPIEnvironmentVariables(apiID string, envVars map[string]string) (map[string]string, error)
 }
 
 // apiIDChars is the character set used to generate AppSync API IDs.
@@ -1043,11 +1059,15 @@ func (b *InMemoryBackend) CreateChannelNamespace(
 	nsARN := arn.Build("appsync", b.region, b.accountID,
 		fmt.Sprintf("apis/%s/channelNamespaces/%s", apiID, name))
 
+	now := time.Now().Unix()
+
 	ns := &ChannelNamespace{
 		APIID:               apiID,
 		Name:                name,
 		Tags:                tagMap,
 		ChannelNamespaceARN: nsARN,
+		Created:             now,
+		LastModified:        now,
 	}
 
 	b.channelNamespaces[apiID][name] = ns
@@ -1733,4 +1753,220 @@ func (b *InMemoryBackend) DeleteAPI(apiID string) error {
 	delete(b.channelNamespaces, apiID)
 
 	return nil
+}
+
+// UpdateAPI updates an Event API's name or owner contact.
+func (b *InMemoryBackend) UpdateAPI(apiID, name, ownerContact string) (*API, error) {
+	b.mu.Lock("UpdateApi")
+	defer b.mu.Unlock()
+
+	api, ok := b.eventAPIs[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if name != "" {
+		api.Name = name
+	}
+
+	if ownerContact != "" {
+		api.OwnerContact = ownerContact
+	}
+
+	cp := *api
+
+	return &cp, nil
+}
+
+// GetChannelNamespace returns a channel namespace by API ID and name.
+func (b *InMemoryBackend) GetChannelNamespace(apiID, name string) (*ChannelNamespace, error) {
+	b.mu.RLock("GetChannelNamespace")
+	defer b.mu.RUnlock()
+
+	nss := b.channelNamespaces[apiID]
+	if nss == nil || nss[name] == nil {
+		return nil, fmt.Errorf("%w: channel namespace %s not found", ErrNotFound, name)
+	}
+
+	cp := *nss[name]
+
+	return &cp, nil
+}
+
+// ListChannelNamespaces returns all channel namespaces for an Event API.
+func (b *InMemoryBackend) ListChannelNamespaces(apiID string) ([]*ChannelNamespace, error) {
+	b.mu.RLock("ListChannelNamespaces")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.eventAPIs[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	nss := b.channelNamespaces[apiID]
+	out := make([]*ChannelNamespace, 0, len(nss))
+
+	for _, ns := range nss {
+		cp := *ns
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// UpdateChannelNamespace updates a channel namespace's code handlers.
+func (b *InMemoryBackend) UpdateChannelNamespace(apiID, name, codeHandlers string) (*ChannelNamespace, error) {
+	b.mu.Lock("UpdateChannelNamespace")
+	defer b.mu.Unlock()
+
+	nss := b.channelNamespaces[apiID]
+	if nss == nil || nss[name] == nil {
+		return nil, fmt.Errorf("%w: channel namespace %s not found", ErrNotFound, name)
+	}
+
+	existing := nss[name]
+
+	if codeHandlers != "" {
+		existing.CodeHandlers = codeHandlers
+	}
+
+	existing.LastModified = time.Now().Unix()
+
+	cp := *existing
+
+	return &cp, nil
+}
+
+// DeleteChannelNamespace removes a channel namespace from an Event API.
+func (b *InMemoryBackend) DeleteChannelNamespace(apiID, name string) error {
+	b.mu.Lock("DeleteChannelNamespace")
+	defer b.mu.Unlock()
+
+	nss := b.channelNamespaces[apiID]
+	if nss == nil || nss[name] == nil {
+		return fmt.Errorf("%w: channel namespace %s not found", ErrNotFound, name)
+	}
+
+	delete(nss, name)
+
+	return nil
+}
+
+// GetSourceAPIAssociation returns a source API association by merged API ID and association ID.
+func (b *InMemoryBackend) GetSourceAPIAssociation(mergedAPIID, associationID string) (*SourceAPIAssociation, error) {
+	b.mu.RLock("GetSourceApiAssociation")
+	defer b.mu.RUnlock()
+
+	assoc, ok := b.sourceAssocs[associationID]
+	if !ok || assoc.MergedAPIID != mergedAPIID {
+		return nil, fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
+	}
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// ListSourceAPIAssociations returns all source API associations for a merged API.
+func (b *InMemoryBackend) ListSourceAPIAssociations(mergedAPIID string) ([]*SourceAPIAssociation, error) {
+	b.mu.RLock("ListSourceApiAssociations")
+	defer b.mu.RUnlock()
+
+	out := make([]*SourceAPIAssociation, 0)
+
+	for _, assoc := range b.sourceAssocs {
+		if assoc.MergedAPIID == mergedAPIID {
+			cp := *assoc
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
+}
+
+// DisassociateMergedGraphqlAPI removes a merged API association from a source API.
+func (b *InMemoryBackend) DisassociateMergedGraphqlAPI(sourceAPIID, associationID string) error {
+	b.mu.Lock("DisassociateMergedGraphqlApi")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.sourceAssocs[associationID]
+	if !ok || assoc.SourceAPIID != sourceAPIID {
+		return fmt.Errorf("%w: merged api association %s not found", ErrNotFound, associationID)
+	}
+
+	delete(b.sourceAssocs, associationID)
+
+	return nil
+}
+
+// DisassociateSourceGraphqlAPI removes a source API association from a merged API.
+func (b *InMemoryBackend) DisassociateSourceGraphqlAPI(mergedAPIID, associationID string) error {
+	b.mu.Lock("DisassociateSourceGraphqlApi")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.sourceAssocs[associationID]
+	if !ok || assoc.MergedAPIID != mergedAPIID {
+		return fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
+	}
+
+	delete(b.sourceAssocs, associationID)
+
+	return nil
+}
+
+// ListResolversByFunction returns all resolvers that use a given function.
+func (b *InMemoryBackend) ListResolversByFunction(apiID, functionID string) ([]*Resolver, error) {
+	b.mu.RLock("ListResolversByFunction")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	var out []*Resolver
+
+	for _, r := range b.resolvers[apiID] {
+		if slices.Contains(r.PipelineConfig, functionID) {
+			cp := *r
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
+}
+
+// GetGraphqlAPIEnvironmentVariables returns environment variables for a GraphQL API.
+func (b *InMemoryBackend) GetGraphqlAPIEnvironmentVariables(apiID string) (map[string]string, error) {
+	b.mu.RLock("GetGraphqlApiEnvironmentVariables")
+	defer b.mu.RUnlock()
+
+	api, ok := b.apis[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if api.EnvironmentVariables == nil {
+		return map[string]string{}, nil
+	}
+
+	out := maps.Clone(api.EnvironmentVariables)
+
+	return out, nil
+}
+
+// PutGraphqlAPIEnvironmentVariables replaces the environment variables for a GraphQL API.
+func (b *InMemoryBackend) PutGraphqlAPIEnvironmentVariables(
+	apiID string,
+	envVars map[string]string,
+) (map[string]string, error) {
+	b.mu.Lock("PutGraphqlApiEnvironmentVariables")
+	defer b.mu.Unlock()
+
+	api, ok := b.apis[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	api.EnvironmentVariables = maps.Clone(envVars)
+
+	return maps.Clone(api.EnvironmentVariables), nil
 }
