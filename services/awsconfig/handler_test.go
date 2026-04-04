@@ -603,3 +603,422 @@ func TestAWSConfigHandler_DescribeConfigurationRecorderStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestAWSConfigHandler_AssociateResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success_with_arn",
+			body: map[string]any{
+				"ConfigurationRecorderArn": "arn:aws:config:us-east-1:000000000000:config-recorder/default",
+				"ResourceTypes":            []string{"AWS::EC2::Instance"},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ConfigurationRecorder"},
+		},
+		{
+			name: "empty_resource_types",
+			body: map[string]any{
+				"ConfigurationRecorderArn": "arn:aws:config:us-east-1:000000000000:config-recorder/default",
+				"ResourceTypes":            []string{},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ConfigurationRecorder"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "AssociateResourceTypes", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "returns_unprocessed_identifiers",
+			body: map[string]any{
+				"ConfigurationAggregatorName": "my-aggregator",
+				"ResourceIdentifiers": []map[string]any{
+					{
+						"SourceAccountId": "000000000000",
+						"SourceRegion":    "us-east-1",
+						"ResourceId":      "i-1234567890abcdef0",
+						"ResourceType":    "AWS::EC2::Instance",
+					},
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BaseConfigurationItems", "UnprocessedResourceIdentifiers"},
+		},
+		{
+			name: "empty_identifiers",
+			body: map[string]any{
+				"ConfigurationAggregatorName": "my-aggregator",
+				"ResourceIdentifiers":         []any{},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BaseConfigurationItems"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "BatchGetAggregateResourceConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestAWSConfigHandler_BatchGetResourceConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "returns_unprocessed_keys",
+			body: map[string]any{
+				"ResourceKeys": []map[string]any{
+					{
+						"resourceType": "AWS::EC2::Instance",
+						"resourceId":   "i-1234567890abcdef0",
+					},
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BaseConfigurationItems", "UnprocessedResourceKeys"},
+		},
+		{
+			name: "empty_resource_keys",
+			body: map[string]any{
+				"ResourceKeys": []any{},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BaseConfigurationItems"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "BatchGetResourceConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteAggregationAuthorization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutAggregationAuthorization("123456789012", "us-east-1"))
+			},
+			body: map[string]any{
+				"AuthorizedAccountId": "123456789012",
+				"AuthorizedAwsRegion": "us-east-1",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			body: map[string]any{
+				"AuthorizedAccountId": "999999999999",
+				"AuthorizedAwsRegion": "us-west-2",
+			},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DeleteAggregationAuthorization", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteConfigRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigRule("my-rule"))
+			},
+			body:     map[string]any{"ConfigRuleName": "my-rule"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"ConfigRuleName": "nonexistent-rule"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DeleteConfigRule", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteConfigurationAggregator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigurationAggregator("my-aggregator"))
+			},
+			body:     map[string]any{"ConfigurationAggregatorName": "my-aggregator"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"ConfigurationAggregatorName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DeleteConfigurationAggregator", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConformancePack("my-pack"))
+			},
+			body:     map[string]any{"ConformancePackName": "my-pack"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"ConformancePackName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DeleteConformancePack", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteEvaluationResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "success_always",
+			body:     map[string]any{"ConfigRuleName": "my-rule"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "empty_rule_name",
+			body:     map[string]any{"ConfigRuleName": ""},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "DeleteEvaluationResults", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteOrganizationConfigRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutOrganizationConfigRule("org-rule"))
+			},
+			body:     map[string]any{"OrganizationConfigRuleName": "org-rule"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"OrganizationConfigRuleName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DeleteOrganizationConfigRule", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DeleteOrganizationConformancePack(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutOrganizationConformancePack("org-pack"))
+			},
+			body:     map[string]any{"OrganizationConformancePackName": "org-pack"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"OrganizationConformancePackName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DeleteOrganizationConformancePack", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

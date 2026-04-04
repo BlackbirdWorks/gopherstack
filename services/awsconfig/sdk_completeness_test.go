@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := awsconfig.NewInMemoryBackend()
 	h := awsconfig.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &awsconfigsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateResourceTypes",
-		"BatchGetAggregateResourceConfig",
-		"BatchGetResourceConfig",
-		"DeleteAggregationAuthorization",
-		"DeleteConfigRule",
-		"DeleteConfigurationAggregator",
-		"DeleteConformancePack",
-		"DeleteEvaluationResults",
-		"DeleteOrganizationConfigRule",
-		"DeleteOrganizationConformancePack",
 		"DeletePendingAggregationRequest",
 		"DeleteRemediationConfiguration",
 		"DeleteRemediationExceptions",

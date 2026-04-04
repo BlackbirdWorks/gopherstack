@@ -50,6 +50,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteDeliveryChannel",
 		"DescribeConfigRules",
 		"GetComplianceDetailsByConfigRule",
+		"AssociateResourceTypes",
+		"BatchGetAggregateResourceConfig",
+		"BatchGetResourceConfig",
+		"DeleteAggregationAuthorization",
+		"DeleteConfigRule",
+		"DeleteConfigurationAggregator",
+		"DeleteConformancePack",
+		"DeleteEvaluationResults",
+		"DeleteOrganizationConfigRule",
+		"DeleteOrganizationConformancePack",
 	}
 }
 
@@ -204,6 +214,16 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DeleteDeliveryChannel":               service.WrapOp(h.handleDeleteDeliveryChannel),
 		"DescribeConfigRules":                 service.WrapOp(h.handleDescribeConfigRules),
 		"GetComplianceDetailsByConfigRule":    service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
+		"AssociateResourceTypes":              service.WrapOp(h.handleAssociateResourceTypes),
+		"BatchGetAggregateResourceConfig":     service.WrapOp(h.handleBatchGetAggregateResourceConfig),
+		"BatchGetResourceConfig":              service.WrapOp(h.handleBatchGetResourceConfig),
+		"DeleteAggregationAuthorization":      service.WrapOp(h.handleDeleteAggregationAuthorization),
+		"DeleteConfigRule":                    service.WrapOp(h.handleDeleteConfigRule),
+		"DeleteConfigurationAggregator":       service.WrapOp(h.handleDeleteConfigurationAggregator),
+		"DeleteConformancePack":               service.WrapOp(h.handleDeleteConformancePack),
+		"DeleteEvaluationResults":             service.WrapOp(h.handleDeleteEvaluationResults),
+		"DeleteOrganizationConfigRule":        service.WrapOp(h.handleDeleteOrganizationConfigRule),
+		"DeleteOrganizationConformancePack":   service.WrapOp(h.handleDeleteOrganizationConformancePack),
 	}
 }
 
@@ -437,4 +457,211 @@ func (h *Handler) handleGetComplianceDetailsByConfigRule(
 	return &getComplianceDetailsByConfigRuleOutput{
 		EvaluationResults: []evaluationResult{},
 	}, nil
+}
+
+// --- AssociateResourceTypes ---
+
+type associateResourceTypesInput struct {
+	ConfigurationRecorderArn string   `json:"ConfigurationRecorderArn"`
+	ResourceTypes            []string `json:"ResourceTypes"`
+}
+
+type associateResourceTypesOutput struct {
+	ConfigurationRecorder *ConfigurationRecorder `json:"ConfigurationRecorder"`
+}
+
+func (h *Handler) handleAssociateResourceTypes(
+	_ context.Context,
+	in *associateResourceTypesInput,
+) (*associateResourceTypesOutput, error) {
+	recorder, err := h.Backend.AssociateResourceTypes(in.ConfigurationRecorderArn, in.ResourceTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateResourceTypesOutput{ConfigurationRecorder: recorder}, nil
+}
+
+// --- BatchGetAggregateResourceConfig ---
+
+type batchGetAggregateResourceConfigInput struct {
+	ConfigurationAggregatorName string                        `json:"ConfigurationAggregatorName"`
+	ResourceIdentifiers         []AggregateResourceIdentifier `json:"ResourceIdentifiers"`
+}
+
+type batchGetAggregateResourceConfigOutput struct {
+	BaseConfigurationItems         []BaseConfigurationItem       `json:"BaseConfigurationItems"`
+	UnprocessedResourceIdentifiers []AggregateResourceIdentifier `json:"UnprocessedResourceIdentifiers"`
+}
+
+func (h *Handler) handleBatchGetAggregateResourceConfig(
+	_ context.Context,
+	in *batchGetAggregateResourceConfigInput,
+) (*batchGetAggregateResourceConfigOutput, error) {
+	items, unprocessed := h.Backend.BatchGetAggregateResourceConfig(
+		in.ConfigurationAggregatorName,
+		in.ResourceIdentifiers,
+	)
+
+	return &batchGetAggregateResourceConfigOutput{
+		BaseConfigurationItems:         items,
+		UnprocessedResourceIdentifiers: unprocessed,
+	}, nil
+}
+
+// --- BatchGetResourceConfig ---
+
+type batchGetResourceConfigInput struct {
+	ResourceKeys []ResourceKey `json:"ResourceKeys"`
+}
+
+type batchGetResourceConfigOutput struct {
+	BaseConfigurationItems  []BaseConfigurationItem `json:"BaseConfigurationItems"`
+	UnprocessedResourceKeys []ResourceKey           `json:"UnprocessedResourceKeys"`
+}
+
+func (h *Handler) handleBatchGetResourceConfig(
+	_ context.Context,
+	in *batchGetResourceConfigInput,
+) (*batchGetResourceConfigOutput, error) {
+	items, unprocessed := h.Backend.BatchGetResourceConfig(in.ResourceKeys)
+
+	return &batchGetResourceConfigOutput{
+		BaseConfigurationItems:  items,
+		UnprocessedResourceKeys: unprocessed,
+	}, nil
+}
+
+// --- DeleteAggregationAuthorization ---
+
+type deleteAggregationAuthorizationInput struct {
+	AuthorizedAccountID string `json:"AuthorizedAccountId"`
+	AuthorizedAwsRegion string `json:"AuthorizedAwsRegion"`
+}
+
+type deleteAggregationAuthorizationOutput struct{}
+
+func (h *Handler) handleDeleteAggregationAuthorization(
+	_ context.Context,
+	in *deleteAggregationAuthorizationInput,
+) (*deleteAggregationAuthorizationOutput, error) {
+	if err := h.Backend.DeleteAggregationAuthorization(in.AuthorizedAccountID, in.AuthorizedAwsRegion); err != nil {
+		return nil, err
+	}
+
+	return &deleteAggregationAuthorizationOutput{}, nil
+}
+
+// --- DeleteConfigRule ---
+
+type deleteConfigRuleInput struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+}
+
+type deleteConfigRuleOutput struct{}
+
+func (h *Handler) handleDeleteConfigRule(
+	_ context.Context,
+	in *deleteConfigRuleInput,
+) (*deleteConfigRuleOutput, error) {
+	if err := h.Backend.DeleteConfigRule(in.ConfigRuleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigRuleOutput{}, nil
+}
+
+// --- DeleteConfigurationAggregator ---
+
+type deleteConfigurationAggregatorInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+}
+
+type deleteConfigurationAggregatorOutput struct{}
+
+func (h *Handler) handleDeleteConfigurationAggregator(
+	_ context.Context,
+	in *deleteConfigurationAggregatorInput,
+) (*deleteConfigurationAggregatorOutput, error) {
+	if err := h.Backend.DeleteConfigurationAggregator(in.ConfigurationAggregatorName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationAggregatorOutput{}, nil
+}
+
+// --- DeleteConformancePack ---
+
+type deleteConformancePackInput struct {
+	ConformancePackName string `json:"ConformancePackName"`
+}
+
+type deleteConformancePackOutput struct{}
+
+func (h *Handler) handleDeleteConformancePack(
+	_ context.Context,
+	in *deleteConformancePackInput,
+) (*deleteConformancePackOutput, error) {
+	if err := h.Backend.DeleteConformancePack(in.ConformancePackName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConformancePackOutput{}, nil
+}
+
+// --- DeleteEvaluationResults ---
+
+type deleteEvaluationResultsInput struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+}
+
+type deleteEvaluationResultsOutput struct{}
+
+func (h *Handler) handleDeleteEvaluationResults(
+	_ context.Context,
+	in *deleteEvaluationResultsInput,
+) (*deleteEvaluationResultsOutput, error) {
+	if err := h.Backend.DeleteEvaluationResults(in.ConfigRuleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteEvaluationResultsOutput{}, nil
+}
+
+// --- DeleteOrganizationConfigRule ---
+
+type deleteOrganizationConfigRuleInput struct {
+	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
+}
+
+type deleteOrganizationConfigRuleOutput struct{}
+
+func (h *Handler) handleDeleteOrganizationConfigRule(
+	_ context.Context,
+	in *deleteOrganizationConfigRuleInput,
+) (*deleteOrganizationConfigRuleOutput, error) {
+	if err := h.Backend.DeleteOrganizationConfigRule(in.OrganizationConfigRuleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteOrganizationConfigRuleOutput{}, nil
+}
+
+// --- DeleteOrganizationConformancePack ---
+
+type deleteOrganizationConformancePackInput struct {
+	OrganizationConformancePackName string `json:"OrganizationConformancePackName"`
+}
+
+type deleteOrganizationConformancePackOutput struct{}
+
+func (h *Handler) handleDeleteOrganizationConformancePack(
+	_ context.Context,
+	in *deleteOrganizationConformancePackInput,
+) (*deleteOrganizationConformancePackOutput, error) {
+	if err := h.Backend.DeleteOrganizationConformancePack(in.OrganizationConformancePackName); err != nil {
+		return nil, err
+	}
+
+	return &deleteOrganizationConformancePackOutput{}, nil
 }
