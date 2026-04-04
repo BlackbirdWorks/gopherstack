@@ -3,6 +3,7 @@ package applicationautoscaling
 import (
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -378,6 +379,79 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	}
 
 	return nil
+}
+
+// CapacityForecastData holds the timestamps and capacity values for a forecast.
+type CapacityForecastData struct {
+	Timestamps []time.Time
+	Values     []float64
+}
+
+// LoadForecastData holds the timestamps, values, and a metric specification label for a load forecast.
+type LoadForecastData struct {
+	MetricSpecification string
+	Timestamps          []time.Time
+	Values              []float64
+}
+
+// GetPredictiveScalingForecast returns simulated hourly forecast data for the requested
+// policy over the given time window. It verifies the associated scaling policy exists.
+func (b *InMemoryBackend) GetPredictiveScalingForecast(
+	serviceNamespace, resourceID, scalableDimension, policyName string,
+	startTime, endTime time.Time,
+) (*CapacityForecastData, []LoadForecastData, time.Time, error) {
+	b.mu.RLock("GetPredictiveScalingForecast")
+	defer b.mu.RUnlock()
+
+	found := false
+
+	for _, p := range b.scalingPolicies {
+		if p.ServiceNamespace == serviceNamespace &&
+			p.ResourceID == resourceID &&
+			p.ScalableDimension == scalableDimension &&
+			p.PolicyName == policyName {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, nil, time.Time{}, fmt.Errorf(
+			"%w: scaling policy %s not found for %s/%s/%s",
+			ErrNotFound, policyName, serviceNamespace, resourceID, scalableDimension,
+		)
+	}
+
+	// Build hourly data points in [startTime, endTime).
+	start := startTime.Truncate(time.Hour)
+	hourCount := int(endTime.Sub(start)/time.Hour) + 1
+
+	timestamps := make([]time.Time, 0, hourCount)
+
+	for t := start; t.Before(endTime); t = t.Add(time.Hour) {
+		timestamps = append(timestamps, t)
+	}
+
+	values := make([]float64, len(timestamps))
+	for i := range values {
+		values[i] = 10.0
+	}
+
+	capacity := &CapacityForecastData{
+		Timestamps: timestamps,
+		Values:     values,
+	}
+
+	load := []LoadForecastData{
+		{
+			Timestamps:          timestamps,
+			Values:              values,
+			MetricSpecification: fmt.Sprintf("%s/%s/%s", serviceNamespace, resourceID, scalableDimension),
+		},
+	}
+
+	return capacity, load, time.Now().UTC(), nil
 }
 
 // Reset clears all backend state, resetting to an empty store.

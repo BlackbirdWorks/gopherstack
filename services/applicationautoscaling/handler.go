@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -53,6 +54,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"GetPredictiveScalingForecast",
 	}
 }
 
@@ -102,19 +104,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RegisterScalableTarget":    service.WrapOp(h.handleRegisterScalableTarget),
-		"DeregisterScalableTarget":  service.WrapOp(h.handleDeregisterScalableTarget),
-		"DescribeScalableTargets":   service.WrapOp(h.handleDescribeScalableTargets),
-		"PutScalingPolicy":          service.WrapOp(h.handlePutScalingPolicy),
-		"DeleteScalingPolicy":       service.WrapOp(h.handleDeleteScalingPolicy),
-		"DescribeScalingPolicies":   service.WrapOp(h.handleDescribeScalingPolicies),
-		"DescribeScalingActivities": service.WrapOp(h.handleDescribeScalingActivities),
-		"PutScheduledAction":        service.WrapOp(h.handlePutScheduledAction),
-		"DeleteScheduledAction":     service.WrapOp(h.handleDeleteScheduledAction),
-		"DescribeScheduledActions":  service.WrapOp(h.handleDescribeScheduledActions),
-		"ListTagsForResource":       service.WrapOp(h.handleListTagsForResource),
-		"TagResource":               service.WrapOp(h.handleTagResource),
-		"UntagResource":             service.WrapOp(h.handleUntagResource),
+		"RegisterScalableTarget":       service.WrapOp(h.handleRegisterScalableTarget),
+		"DeregisterScalableTarget":     service.WrapOp(h.handleDeregisterScalableTarget),
+		"DescribeScalableTargets":      service.WrapOp(h.handleDescribeScalableTargets),
+		"PutScalingPolicy":             service.WrapOp(h.handlePutScalingPolicy),
+		"DeleteScalingPolicy":          service.WrapOp(h.handleDeleteScalingPolicy),
+		"DescribeScalingPolicies":      service.WrapOp(h.handleDescribeScalingPolicies),
+		"DescribeScalingActivities":    service.WrapOp(h.handleDescribeScalingActivities),
+		"PutScheduledAction":           service.WrapOp(h.handlePutScheduledAction),
+		"DeleteScheduledAction":        service.WrapOp(h.handleDeleteScheduledAction),
+		"DescribeScheduledActions":     service.WrapOp(h.handleDescribeScheduledActions),
+		"ListTagsForResource":          service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                  service.WrapOp(h.handleTagResource),
+		"UntagResource":                service.WrapOp(h.handleUntagResource),
+		"GetPredictiveScalingForecast": service.WrapOp(h.handleGetPredictiveScalingForecast),
 	}
 }
 
@@ -489,6 +492,85 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 	}
 
 	return &untagResourceOutput{}, nil
+}
+
+type getPredictiveScalingForecastInput struct {
+	ServiceNamespace  string `json:"ServiceNamespace"`
+	ResourceID        string `json:"ResourceId"`
+	ScalableDimension string `json:"ScalableDimension"`
+	PolicyName        string `json:"PolicyName"`
+	StartTime         string `json:"StartTime"`
+	EndTime           string `json:"EndTime"`
+}
+
+type capacityForecastOutput struct {
+	Timestamps []string  `json:"Timestamps"`
+	Values     []float64 `json:"Values"`
+}
+
+type loadForecastOutput struct {
+	MetricSpecification string    `json:"MetricSpecification"`
+	Timestamps          []string  `json:"Timestamps"`
+	Values              []float64 `json:"Values"`
+}
+
+type getPredictiveScalingForecastOutput struct {
+	CapacityForecast *capacityForecastOutput `json:"CapacityForecast"`
+	UpdateTime       string                  `json:"UpdateTime"`
+	LoadForecast     []loadForecastOutput    `json:"LoadForecast"`
+}
+
+func (h *Handler) handleGetPredictiveScalingForecast(
+	_ context.Context,
+	in *getPredictiveScalingForecastInput,
+) (*getPredictiveScalingForecastOutput, error) {
+	const timeLayout = time.RFC3339
+
+	startTime, err := time.Parse(timeLayout, in.StartTime)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid StartTime: %s", errInvalidRequest, in.StartTime)
+	}
+
+	endTime, err := time.Parse(timeLayout, in.EndTime)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid EndTime: %s", errInvalidRequest, in.EndTime)
+	}
+
+	capacity, load, updateTime, err := h.Backend.GetPredictiveScalingForecast(
+		in.ServiceNamespace, in.ResourceID, in.ScalableDimension, in.PolicyName,
+		startTime, endTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	capTS := make([]string, len(capacity.Timestamps))
+	for i, ts := range capacity.Timestamps {
+		capTS[i] = ts.UTC().Format(timeLayout)
+	}
+
+	loadOut := make([]loadForecastOutput, len(load))
+	for i, lf := range load {
+		ts := make([]string, len(lf.Timestamps))
+		for j, t := range lf.Timestamps {
+			ts[j] = t.UTC().Format(timeLayout)
+		}
+
+		loadOut[i] = loadForecastOutput{
+			Timestamps:          ts,
+			Values:              lf.Values,
+			MetricSpecification: lf.MetricSpecification,
+		}
+	}
+
+	return &getPredictiveScalingForecastOutput{
+		CapacityForecast: &capacityForecastOutput{
+			Timestamps: capTS,
+			Values:     capacity.Values,
+		},
+		LoadForecast: loadOut,
+		UpdateTime:   updateTime.UTC().Format(timeLayout),
+	}, nil
 }
 
 // Reset clears all backend state.
