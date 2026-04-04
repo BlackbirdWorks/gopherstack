@@ -150,3 +150,21 @@ type ScalingActivity struct {
 	StatusMessage        string    `json:"StatusMessage,omitempty"`
 	Progress             int32     `json:"Progress"`
 }
+
+// TagFilter filters tags by resource type, resource ID, or key/value pairs.
+type TagFilter struct {
+	Name   string
+	Values []string
+}
+
+// InstanceDetails holds detailed information about an EC2 instance in an ASG.
+type InstanceDetails struct {
+	AutoScalingGroupName    string `json:"AutoScalingGroupName"`
+	InstanceID              string `json:"InstanceId"`
+	AvailabilityZone        string `json:"AvailabilityZone"`
+	LifecycleState          string `json:"LifecycleState"`
+	HealthStatus            string `json:"HealthStatus"`
+	LaunchConfigurationName string `json:"LaunchConfigurationName,omitempty"`
+	InstanceType            string `json:"InstanceType,omitempty"`
+	ProtectedFromScaleIn    bool   `json:"ProtectedFromScaleIn"`
+}

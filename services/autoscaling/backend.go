@@ -40,6 +40,11 @@ var (
 	ErrActiveInstanceRefreshNotFound = errors.New("ActiveInstanceRefreshNotFound")
 	// ErrLifecycleHookNotFound is returned when the specified lifecycle hook does not exist.
 	ErrLifecycleHookNotFound = errors.New("ValidationError")
+	// ErrScalingActivityInProgress is returned when a delete is attempted on a group with active instances
+	// and ForceDelete is not set.
+	ErrScalingActivityInProgress = errors.New("ScalingActivityInProgress")
+	// ErrInstanceNotFound is returned when a specific instance ID is not found in an ASG.
+	ErrInstanceNotFound = errors.New("ValidationError")
 )
 
 // StorageBackend is the interface for the Autoscaling in-memory store.
@@ -47,7 +52,7 @@ type StorageBackend interface {
 	CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error)
 	DescribeAutoScalingGroups(names []string) ([]AutoScalingGroup, error)
 	UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error)
-	DeleteAutoScalingGroup(name string) error
+	DeleteAutoScalingGroup(name string, forceDelete bool) error
 
 	CreateLaunchConfiguration(input CreateLaunchConfigurationInput) (*LaunchConfiguration, error)
 	DescribeLaunchConfigurations(names []string) ([]LaunchConfiguration, error)
@@ -73,6 +78,15 @@ type StorageBackend interface {
 	CompleteLifecycleAction(input CompleteLifecycleActionInput) error
 	CreateOrUpdateTags(tags []ResourceTag) error
 	DeleteLifecycleHook(groupName, hookName string) error
+
+	SetDesiredCapacity(groupName string, desiredCapacity int32) error
+	TerminateInstanceInAutoScalingGroup(instanceID string, shouldDecrement bool) (*ScalingActivity, error)
+	PutLifecycleHook(hook LifecycleHook) error
+	DescribeLifecycleHooks(groupName string, hookNames []string) ([]LifecycleHook, error)
+	DescribeScheduledActions(groupName string, actionNames []string) ([]ScheduledAction, error)
+	DeleteTags(tags []ResourceTag) error
+	DescribeTags(filters []TagFilter) ([]ResourceTag, error)
+	DescribeAutoScalingInstances(instanceIDs []string) ([]InstanceDetails, error)
 }
 
 // CreateAutoScalingGroupInput holds the input for CreateAutoScalingGroup.
@@ -204,47 +218,36 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	b.mu.Lock("CreateAutoScalingGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[input.AutoScalingGroupName]; exists {
-		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, input.AutoScalingGroupName)
-	}
-
 	if input.AutoScalingGroupName == "" {
 		return nil, fmt.Errorf("%w: AutoScalingGroupName is required", ErrInvalidParameter)
 	}
 
+	if _, exists := b.groups[input.AutoScalingGroupName]; exists {
+		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, input.AutoScalingGroupName)
+	}
+
+	// Validate capacity constraints: MinSize ≤ DesiredCapacity ≤ MaxSize.
 	desired := input.DesiredCapacity
 	if desired == 0 {
 		desired = input.MinSize
 	}
 
-	// Clamp desired to [0, maxDesiredCapacity] so that CodeQL can verify
-	// the make capacity hint is bounded (go/slice-memory-allocation-excessive-size).
-	desiredN := max(0, min(maxDesiredCapacity, int(desired)))
+	if err := validateCapacity(input.MinSize, input.MaxSize, desired); err != nil {
+		return nil, err
+	}
 
 	healthCheckType := input.HealthCheckType
 	if healthCheckType == "" {
 		healthCheckType = "EC2"
 	}
 
-	az := defaultAvailabilityZone
-	if len(input.AvailabilityZones) > 0 {
-		az = input.AvailabilityZones[0]
+	azs := input.AvailabilityZones
+	if len(azs) == 0 {
+		azs = []string{defaultAvailabilityZone}
 	}
 
-	// No capacity hint — user-derived values in make capacity trigger CodeQL
-	// go/slice-memory-allocation-excessive-size even after clamping.
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
-	instances := make([]Instance, 0)
-	for range desiredN {
-		instances = append(instances, Instance{
-			InstanceID:              "i-" + uuid.NewString()[:8],
-			AvailabilityZone:        az,
-			LifecycleState:          "InService",
-			HealthStatus:            "Healthy",
-			LaunchConfigurationName: input.LaunchConfigurationName,
-			InstanceType:            "t2.micro",
-		})
-	}
+	// Use the shared makeInstances helper so all instance IDs use the same format.
+	instances := makeInstances(desired, azs, input.LaunchConfigurationName)
 
 	group := &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
@@ -257,7 +260,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		DefaultCooldown:         input.DefaultCooldown,
 		HealthCheckType:         healthCheckType,
 		HealthCheckGracePeriod:  input.HealthCheckGracePeriod,
-		AvailabilityZones:       input.AvailabilityZones,
+		AvailabilityZones:       azs,
 		LoadBalancerNames:       input.LoadBalancerNames,
 		TargetGroupARNs:         input.TargetGroupARNs,
 		Tags:                    input.Tags,
@@ -320,6 +323,23 @@ func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string) ([]AutoScali
 	return result, nil
 }
 
+// validateCapacity checks that min ≤ desired ≤ max (when max > 0).
+func validateCapacity(minSize, maxSize, desired int32) error {
+	if minSize > desired {
+		return fmt.Errorf("%w: DesiredCapacity must be >= MinSize", ErrInvalidParameter)
+	}
+
+	if maxSize > 0 && desired > maxSize {
+		return fmt.Errorf("%w: DesiredCapacity must be <= MaxSize", ErrInvalidParameter)
+	}
+
+	if maxSize > 0 && minSize > maxSize {
+		return fmt.Errorf("%w: MinSize must be <= MaxSize", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 // UpdateAutoScalingGroup updates an existing Auto Scaling group.
 func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error) {
 	b.mu.Lock("UpdateAutoScalingGroup")
@@ -330,17 +350,31 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
+	newMin := g.MinSize
+	newMax := g.MaxSize
+	newDesired := g.DesiredCapacity
+
 	if input.MinSize != nil {
-		g.MinSize = *input.MinSize
+		newMin = *input.MinSize
 	}
 
 	if input.MaxSize != nil {
-		g.MaxSize = *input.MaxSize
+		newMax = *input.MaxSize
 	}
 
 	if input.DesiredCapacity != nil {
-		desired := min(*input.DesiredCapacity, maxDesiredCapacity)
-		g.DesiredCapacity = desired
+		newDesired = min(*input.DesiredCapacity, maxDesiredCapacity)
+	}
+
+	if err := validateCapacity(newMin, newMax, newDesired); err != nil {
+		return nil, err
+	}
+
+	g.MinSize = newMin
+	g.MaxSize = newMax
+
+	if g.DesiredCapacity != newDesired {
+		g.DesiredCapacity = newDesired
 		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
 	}
 
@@ -370,16 +404,26 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 }
 
 // DeleteAutoScalingGroup removes an Auto Scaling group by name.
-func (b *InMemoryBackend) DeleteAutoScalingGroup(name string) error {
+// When forceDelete is false, AWS rejects the delete if the group has active instances.
+func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) error {
 	b.mu.Lock("DeleteAutoScalingGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[name]; !ok {
+	g, ok := b.groups[name]
+	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, name)
+	}
+
+	if !forceDelete && len(g.Instances) > 0 {
+		return fmt.Errorf("%w: group %q has %d active instance(s); use ForceDelete=true to override",
+			ErrScalingActivityInProgress, name, len(g.Instances))
 	}
 
 	delete(b.groups, name)
 	delete(b.activities, name)
+	delete(b.scheduledActions, name)
+	delete(b.instanceRefreshes, name)
+	delete(b.lifecycleHooks, name)
 
 	return nil
 }
@@ -828,7 +872,8 @@ func (b *InMemoryBackend) DeleteLifecycleHook(groupName, hookName string) error 
 	return nil
 }
 
-// AddLifecycleHook stores a lifecycle hook for the given group (used internally and by PutLifecycleHook).
+// AddLifecycleHook stores a lifecycle hook for the given group.
+// This is the backend helper used by PutLifecycleHook and by tests.
 func (b *InMemoryBackend) AddLifecycleHook(hook LifecycleHook) error {
 	b.mu.Lock("AddLifecycleHook")
 	defer b.mu.Unlock()
@@ -863,4 +908,359 @@ func (b *InMemoryBackend) AddInstanceRefresh(refresh InstanceRefresh) error {
 	)
 
 	return nil
+}
+
+// SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.
+func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity int32) error {
+	b.mu.Lock("SetDesiredCapacity")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	desired := min(desiredCapacity, maxDesiredCapacity)
+
+	if desired < g.MinSize {
+		return fmt.Errorf("%w: DesiredCapacity %d is less than MinSize %d", ErrInvalidParameter, desired, g.MinSize)
+	}
+
+	if g.MaxSize > 0 && desired > g.MaxSize {
+		return fmt.Errorf("%w: DesiredCapacity %d exceeds MaxSize %d", ErrInvalidParameter, desired, g.MaxSize)
+	}
+
+	g.DesiredCapacity = desired
+	g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+
+	return nil
+}
+
+// TerminateInstanceInAutoScalingGroup terminates a specific instance in an ASG.
+// When shouldDecrement is true, MinSize is decremented (capped at 0) and DesiredCapacity is
+// decreased by 1 without a replacement. Otherwise a replacement is launched.
+func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
+	instanceID string,
+	shouldDecrement bool,
+) (*ScalingActivity, error) {
+	b.mu.Lock("TerminateInstanceInAutoScalingGroup")
+	defer b.mu.Unlock()
+
+	var targetGroup *AutoScalingGroup
+
+	for _, g := range b.groups {
+		for _, inst := range g.Instances {
+			if inst.InstanceID == instanceID {
+				targetGroup = g
+
+				break
+			}
+		}
+
+		if targetGroup != nil {
+			break
+		}
+	}
+
+	if targetGroup == nil {
+		return nil, fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
+	}
+
+	// Remove the instance from the group.
+	newInstances := make([]Instance, 0, len(targetGroup.Instances)-1)
+
+	for _, inst := range targetGroup.Instances {
+		if inst.InstanceID != instanceID {
+			newInstances = append(newInstances, inst)
+		}
+	}
+
+	targetGroup.Instances = newInstances
+
+	if shouldDecrement {
+		if targetGroup.DesiredCapacity > 0 {
+			targetGroup.DesiredCapacity--
+		}
+
+		if targetGroup.MinSize > 0 {
+			targetGroup.MinSize--
+		}
+	} else {
+		// Launch a replacement to maintain DesiredCapacity.
+		targetGroup.Instances = adjustInstances(
+			targetGroup.Instances,
+			targetGroup.DesiredCapacity,
+			targetGroup.AvailabilityZones,
+			targetGroup.LaunchConfigurationName,
+		)
+	}
+
+	activity := ScalingActivity{
+		ActivityID:           uuid.NewString(),
+		AutoScalingGroupName: targetGroup.AutoScalingGroupName,
+		Description:          "Terminating EC2 instance: " + instanceID,
+		StatusCode:           "Successful",
+		Progress:             completedProgress,
+		StartTime:            time.Now(),
+		EndTime:              time.Now(),
+	}
+
+	b.activities[targetGroup.AutoScalingGroupName] = append(
+		b.activities[targetGroup.AutoScalingGroupName],
+		activity,
+	)
+
+	return &activity, nil
+}
+
+// PutLifecycleHook creates or updates a lifecycle hook on an Auto Scaling group.
+func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
+	b.mu.Lock("PutLifecycleHook")
+	defer b.mu.Unlock()
+
+	if hook.LifecycleHookName == "" {
+		return fmt.Errorf("%w: LifecycleHookName is required", ErrInvalidParameter)
+	}
+
+	if _, ok := b.groups[hook.AutoScalingGroupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
+	}
+
+	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
+		b.lifecycleHooks[hook.AutoScalingGroupName] = make(map[string]*LifecycleHook)
+	}
+
+	cp := hook
+	b.lifecycleHooks[hook.AutoScalingGroupName][hook.LifecycleHookName] = &cp
+
+	return nil
+}
+
+// DescribeLifecycleHooks returns lifecycle hooks for the given group, optionally filtered by name.
+func (b *InMemoryBackend) DescribeLifecycleHooks(groupName string, hookNames []string) ([]LifecycleHook, error) {
+	b.mu.RLock("DescribeLifecycleHooks")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	hooks := b.lifecycleHooks[groupName]
+
+	if len(hookNames) > 0 {
+		result := make([]LifecycleHook, 0, len(hookNames))
+
+		for _, name := range hookNames {
+			h, exists := hooks[name]
+			if !exists {
+				return nil, fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, name)
+			}
+
+			result = append(result, *h)
+		}
+
+		return result, nil
+	}
+
+	result := make([]LifecycleHook, 0, len(hooks))
+
+	for _, h := range hooks {
+		result = append(result, *h)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].LifecycleHookName < result[j].LifecycleHookName
+	})
+
+	return result, nil
+}
+
+// DescribeScheduledActions returns scheduled actions for the given group, optionally filtered by name.
+func (b *InMemoryBackend) DescribeScheduledActions(
+	groupName string,
+	actionNames []string,
+) ([]ScheduledAction, error) {
+	b.mu.RLock("DescribeScheduledActions")
+	defer b.mu.RUnlock()
+
+	if groupName != "" {
+		if _, ok := b.groups[groupName]; !ok {
+			return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+		}
+	}
+
+	if len(actionNames) > 0 && groupName != "" {
+		actions := b.scheduledActions[groupName]
+		result := make([]ScheduledAction, 0, len(actionNames))
+
+		for _, name := range actionNames {
+			a, exists := actions[name]
+			if !exists {
+				continue
+			}
+
+			result = append(result, *a)
+		}
+
+		return result, nil
+	}
+
+	var result []ScheduledAction
+
+	if groupName != "" {
+		for _, a := range b.scheduledActions[groupName] {
+			result = append(result, *a)
+		}
+	} else {
+		for _, groupActions := range b.scheduledActions {
+			for _, a := range groupActions {
+				result = append(result, *a)
+			}
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ScheduledActionName < result[j].ScheduledActionName
+	})
+
+	return result, nil
+}
+
+// DeleteTags removes tags from Auto Scaling resources.
+// Only auto-scaling-group resource tags are supported.
+func (b *InMemoryBackend) DeleteTags(tags []ResourceTag) error {
+	b.mu.Lock("DeleteTags")
+	defer b.mu.Unlock()
+
+	for _, tag := range tags {
+		if tag.ResourceType != "auto-scaling-group" {
+			continue
+		}
+
+		g, ok := b.groups[tag.ResourceID]
+		if !ok {
+			return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, tag.ResourceID)
+		}
+
+		newTags := make([]Tag, 0, len(g.Tags))
+
+		for _, t := range g.Tags {
+			if t.Key != tag.Key {
+				newTags = append(newTags, t)
+			}
+		}
+
+		g.Tags = newTags
+	}
+
+	return nil
+}
+
+// buildTagFilterMap converts a slice of TagFilters into a nested map for O(1) lookups.
+func buildTagFilterMap(filters []TagFilter) map[string]map[string]bool {
+	m := make(map[string]map[string]bool, len(filters))
+
+	for _, f := range filters {
+		vals := make(map[string]bool, len(f.Values))
+
+		for _, v := range f.Values {
+			vals[v] = true
+		}
+
+		m[f.Name] = vals
+	}
+
+	return m
+}
+
+// tagMatchesFilters reports whether the tag identified by (resourceID, key, value) passes all filters.
+func tagMatchesFilters(filterMap map[string]map[string]bool, resourceID, key, value string) bool {
+	if len(filterMap) == 0 {
+		return true
+	}
+
+	if ids, ok := filterMap["auto-scaling-group"]; ok && !ids[resourceID] {
+		return false
+	}
+
+	if keys, ok := filterMap["key"]; ok && !keys[key] {
+		return false
+	}
+
+	if vals, ok := filterMap["value"]; ok && !vals[value] {
+		return false
+	}
+
+	return true
+}
+
+// DescribeTags returns tags for Auto Scaling resources, with optional filtering.
+func (b *InMemoryBackend) DescribeTags(filters []TagFilter) ([]ResourceTag, error) {
+	b.mu.RLock("DescribeTags")
+	defer b.mu.RUnlock()
+
+	filterMap := buildTagFilterMap(filters)
+
+	var result []ResourceTag
+
+	for _, g := range b.groups {
+		for _, t := range g.Tags {
+			if tagMatchesFilters(filterMap, g.AutoScalingGroupName, t.Key, t.Value) {
+				result = append(result, ResourceTag{
+					ResourceID:   g.AutoScalingGroupName,
+					ResourceType: "auto-scaling-group",
+					Key:          t.Key,
+					Value:        t.Value,
+				})
+			}
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ResourceID != result[j].ResourceID {
+			return result[i].ResourceID < result[j].ResourceID
+		}
+
+		return result[i].Key < result[j].Key
+	})
+
+	return result, nil
+}
+
+// DescribeAutoScalingInstances returns instance details across all ASGs, optionally filtered by instance ID.
+func (b *InMemoryBackend) DescribeAutoScalingInstances(instanceIDs []string) ([]InstanceDetails, error) {
+	b.mu.RLock("DescribeAutoScalingInstances")
+	defer b.mu.RUnlock()
+
+	idFilter := make(map[string]bool, len(instanceIDs))
+
+	for _, id := range instanceIDs {
+		idFilter[id] = true
+	}
+
+	var result []InstanceDetails
+
+	for _, g := range b.groups {
+		for _, inst := range g.Instances {
+			if len(idFilter) > 0 && !idFilter[inst.InstanceID] {
+				continue
+			}
+
+			result = append(result, InstanceDetails{
+				AutoScalingGroupName:    g.AutoScalingGroupName,
+				InstanceID:              inst.InstanceID,
+				AvailabilityZone:        inst.AvailabilityZone,
+				LifecycleState:          inst.LifecycleState,
+				HealthStatus:            inst.HealthStatus,
+				LaunchConfigurationName: inst.LaunchConfigurationName,
+				InstanceType:            inst.InstanceType,
+			})
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].InstanceID < result[j].InstanceID
+	})
+
+	return result, nil
 }

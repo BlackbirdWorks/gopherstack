@@ -322,9 +322,23 @@ func TestSQS_CancelMessageMoveTask(t *testing.T) {
 				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
 				require.NoError(t, err)
 
+				// Seed many messages so the task stays RUNNING long enough to be cancelled.
+				// Without messages the task drains instantly (goroutine completes before Cancel).
+				dlqURL := "http://localhost/000000000000/" + dlqName
+				for i := range 50 {
+					_, sendErr := b.SendMessage(&sqs.SendMessageInput{
+						QueueURL:    dlqURL,
+						MessageBody: "msg-" + strconv.Itoa(i),
+					})
+					require.NoError(t, sendErr)
+				}
+
+				// Rate-limit to 1 msg/sec so the task sleeps between messages and is
+				// still RUNNING when CancelMessageMoveTask is called immediately below.
 				out, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-					SourceArn:      buildQueueARN(dlqName),
-					DestinationArn: buildQueueARN(destName),
+					SourceArn:                    buildQueueARN(dlqName),
+					DestinationArn:               buildQueueARN(destName),
+					MaxNumberOfMessagesPerSecond: 1,
 				})
 				require.NoError(t, err)
 
