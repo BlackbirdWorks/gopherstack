@@ -32,6 +32,12 @@ func isValidPolicyType(t string) bool {
 	}
 }
 
+// maxTagsPerResource is the AWS limit on the number of tags per resource.
+const maxTagsPerResource = 50
+
+// maxDescribeResults is the upper bound for MaxResults on Describe* operations.
+const maxDescribeResults = 100
+
 // maxForecastWindow is the maximum allowed [startTime, endTime) range for
 // GetPredictiveScalingForecast, matching the real AWS constraint of 14 days.
 const maxForecastWindow = 14 * 24 * time.Hour
@@ -83,6 +89,8 @@ type ScalingPolicy struct {
 
 // ScheduledAction represents an Application Auto Scaling scheduled action.
 type ScheduledAction struct {
+	StartTime            *time.Time            `json:"startTime,omitempty"`
+	EndTime              *time.Time            `json:"endTime,omitempty"`
 	CreationTime         time.Time             `json:"creationTime"`
 	LastModifiedTime     time.Time             `json:"lastModifiedTime"`
 	ScalableTargetAction *ScalableTargetAction `json:"scalableTargetAction,omitempty"`
@@ -92,6 +100,7 @@ type ScheduledAction struct {
 	Schedule             string                `json:"schedule"`
 	ScalableDimension    string                `json:"scalableDimension"`
 	ServiceNamespace     string                `json:"serviceNamespace"`
+	Timezone             string                `json:"timezone,omitempty"`
 }
 
 // InMemoryBackend stores Application Auto Scaling state in memory.
@@ -146,6 +155,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	minCapacity, maxCapacity int32,
 	tags map[string]string,
 	roleARN string,
+	suspendedState *SuspendedState,
 ) (*ScalableTarget, error) {
 	if serviceNamespace == "" {
 		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
@@ -168,6 +178,14 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		)
 	}
 
+	if len(tags) > maxTagsPerResource {
+		return nil, fmt.Errorf(
+			"%w: too many tags; maximum allowed is %d",
+			ErrValidation,
+			maxTagsPerResource,
+		)
+	}
+
 	b.mu.Lock("RegisterScalableTarget")
 	defer b.mu.Unlock()
 
@@ -175,27 +193,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	now := time.Now().UTC()
 
 	if existing, ok := b.scalableTargets[key]; ok {
-		// Update in place, then return a copy to prevent callers from
-		// directly mutating backend-owned state.
-		existing.MinCapacity = minCapacity
-		existing.MaxCapacity = maxCapacity
-		existing.LastModifiedTime = now
-		if roleARN != "" {
-			existing.RoleARN = roleARN
-		}
-
-		if len(tags) > 0 {
-			if existing.Tags == nil {
-				existing.Tags = make(map[string]string)
-			}
-
-			maps.Copy(existing.Tags, tags)
-		}
-
-		cp := *existing
-		cp.Tags = maps.Clone(existing.Tags)
-
-		return &cp, nil
+		return b.updateExistingTarget(existing, minCapacity, maxCapacity, tags, roleARN, suspendedState, now)
 	}
 
 	t := &ScalableTarget{
@@ -214,6 +212,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		AccountID:        b.accountID,
 		Region:           b.region,
 		Tags:             maps.Clone(tags),
+		SuspendedState:   suspendedState,
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
@@ -225,6 +224,72 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	b.targetARNIndex[t.ARN] = key
 	cp := *t
 	cp.Tags = maps.Clone(t.Tags)
+
+	return &cp, nil
+}
+
+// mergeTags merges src into dst enforcing the per-resource tag limit.
+// Returns an error if the merge would exceed the limit.
+func mergeTags(dst map[string]string, src map[string]string) error {
+	if len(src) == 0 {
+		return nil
+	}
+
+	// Count net-new keys (keys that do not already exist in dst).
+	netNew := 0
+	for k := range src {
+		if _, exists := dst[k]; !exists {
+			netNew++
+		}
+	}
+
+	if len(dst)+netNew > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: tag count would exceed maximum allowed (%d)",
+			ErrValidation,
+			maxTagsPerResource,
+		)
+	}
+
+	maps.Copy(dst, src)
+
+	return nil
+}
+
+// updateExistingTarget updates an existing scalable target in-place.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) updateExistingTarget(
+	existing *ScalableTarget,
+	minCapacity, maxCapacity int32,
+	tags map[string]string,
+	roleARN string,
+	suspendedState *SuspendedState,
+	now time.Time,
+) (*ScalableTarget, error) {
+	existing.MinCapacity = minCapacity
+	existing.MaxCapacity = maxCapacity
+	existing.LastModifiedTime = now
+
+	if roleARN != "" {
+		existing.RoleARN = roleARN
+	}
+
+	if suspendedState != nil {
+		existing.SuspendedState = suspendedState
+	}
+
+	if len(tags) > 0 {
+		if existing.Tags == nil {
+			existing.Tags = make(map[string]string)
+		}
+
+		if err := mergeTags(existing.Tags, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	cp := *existing
+	cp.Tags = maps.Clone(existing.Tags)
 
 	return &cp, nil
 }
@@ -264,6 +329,22 @@ type DescribeScalableTargetsFilter struct {
 	ServiceNamespace  string
 	ScalableDimension string
 	ResourceIDs       []string
+	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
+	MaxResults int32
+}
+
+// applyMaxResults returns at most maxResults elements from list.
+// When maxResults is 0 or negative the full list is returned.
+func applyMaxResults[T any](list []T, maxResults int32) []T {
+	if maxResults <= 0 || int(maxResults) >= len(list) {
+		return list
+	}
+
+	if maxResults > maxDescribeResults {
+		maxResults = maxDescribeResults
+	}
+
+	return list[:maxResults]
 }
 
 // DescribeScalableTargets lists scalable targets, optionally filtered.
@@ -299,7 +380,7 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 		list = append(list, &cp)
 	}
 
-	return list
+	return applyMaxResults(list, f.MaxResults)
 }
 
 // PutScalingPolicy upserts a scaling policy (update if policyName matches for resource, create otherwise).
@@ -425,6 +506,50 @@ type DescribeScalingPoliciesFilter struct {
 	ScalableDimension string
 	// PolicyNames, when non-empty, limits results to the named policies.
 	PolicyNames []string
+	// PolicyARNs, when non-empty, limits results to these ARNs.
+	PolicyARNs []string
+	// MaxResults, when > 0, limits the number of returned items.
+	MaxResults int32
+}
+
+// buildStringSet converts a string slice into a lookup set.
+// Returns nil when the slice is empty.
+func buildStringSet(ss []string) map[string]bool {
+	if len(ss) == 0 {
+		return nil
+	}
+
+	out := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		out[s] = true
+	}
+
+	return out
+}
+
+// policyMatchesFilter reports whether p should be included given filter f and its pre-built lookup sets.
+func policyMatchesFilter(p *ScalingPolicy, f DescribeScalingPoliciesFilter, nameSet, arnSet map[string]bool) bool {
+	if f.ServiceNamespace != "" && p.ServiceNamespace != f.ServiceNamespace {
+		return false
+	}
+
+	if f.ResourceID != "" && p.ResourceID != f.ResourceID {
+		return false
+	}
+
+	if f.ScalableDimension != "" && p.ScalableDimension != f.ScalableDimension {
+		return false
+	}
+
+	if nameSet != nil && !nameSet[p.PolicyName] {
+		return false
+	}
+
+	if arnSet != nil && !arnSet[p.ARN] {
+		return false
+	}
+
+	return true
 }
 
 // DescribeScalingPolicies lists scaling policies, optionally filtered.
@@ -432,41 +557,23 @@ func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilte
 	b.mu.RLock("DescribeScalingPolicies")
 	defer b.mu.RUnlock()
 
-	var nameSet map[string]bool
-	if len(f.PolicyNames) > 0 {
-		nameSet = make(map[string]bool, len(f.PolicyNames))
-		for _, n := range f.PolicyNames {
-			nameSet[n] = true
-		}
-	}
+	nameSet := buildStringSet(f.PolicyNames)
+	arnSet := buildStringSet(f.PolicyARNs)
 
 	list := make([]*ScalingPolicy, 0, len(b.scalingPolicies))
 	for _, p := range b.scalingPolicies {
-		if f.ServiceNamespace != "" && p.ServiceNamespace != f.ServiceNamespace {
-			continue
+		if policyMatchesFilter(p, f, nameSet, arnSet) {
+			list = append(list, cloneScalingPolicy(p))
 		}
-
-		if f.ResourceID != "" && p.ResourceID != f.ResourceID {
-			continue
-		}
-
-		if f.ScalableDimension != "" && p.ScalableDimension != f.ScalableDimension {
-			continue
-		}
-
-		if nameSet != nil && !nameSet[p.PolicyName] {
-			continue
-		}
-
-		list = append(list, cloneScalingPolicy(p))
 	}
 
-	return list
+	return applyMaxResults(list, f.MaxResults)
 }
 
 // PutScheduledAction upserts a scheduled action.
 func (b *InMemoryBackend) PutScheduledAction(
-	serviceNamespace, resourceID, scalableDimension, scheduledActionName, schedule string,
+	serviceNamespace, resourceID, scalableDimension, scheduledActionName, schedule, timezone string,
+	startTime, endTime *time.Time,
 	scalableTargetAction *ScalableTargetAction,
 ) (*ScheduledAction, error) {
 	if serviceNamespace == "" {
@@ -499,6 +606,18 @@ func (b *InMemoryBackend) PutScheduledAction(
 			a.ScalableTargetAction = scalableTargetAction
 		}
 
+		if startTime != nil {
+			a.StartTime = startTime
+		}
+
+		if endTime != nil {
+			a.EndTime = endTime
+		}
+
+		if timezone != "" {
+			a.Timezone = timezone
+		}
+
 		cp := *a
 
 		return &cp, nil
@@ -514,6 +633,9 @@ func (b *InMemoryBackend) PutScheduledAction(
 		ScheduledActionName:  scheduledActionName,
 		Schedule:             schedule,
 		ScalableTargetAction: scalableTargetAction,
+		StartTime:            startTime,
+		EndTime:              endTime,
+		Timezone:             timezone,
 		ARN:                  actionARN,
 		CreationTime:         now,
 		LastModifiedTime:     now,
@@ -571,6 +693,8 @@ type DescribeScheduledActionsFilter struct {
 	ScalableDimension string
 	// ScheduledActionNames, when non-empty, limits results to the named actions.
 	ScheduledActionNames []string
+	// MaxResults, when > 0, limits the number of returned items.
+	MaxResults int32
 }
 
 // DescribeScheduledActions lists scheduled actions, optionally filtered.
@@ -608,7 +732,7 @@ func (b *InMemoryBackend) DescribeScheduledActions(f DescribeScheduledActionsFil
 		list = append(list, &cp)
 	}
 
-	return list
+	return applyMaxResults(list, f.MaxResults)
 }
 
 // TagResource adds or updates tags on a scalable target identified by its ARN.
@@ -631,13 +755,15 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 		t.Tags = make(map[string]string)
 	}
 
-	maps.Copy(t.Tags, kv)
-
-	return nil
+	return mergeTags(t.Tags, kv)
 }
 
 // ListTagsForResource returns tags for a scalable target identified by its ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+	if resourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
+	}
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
@@ -759,6 +885,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.scalableTargets = make(map[string]*ScalableTarget)
+	b.scalingPolicies = make(map[string]*ScalingPolicy)
+	b.scheduledActions = make(map[string]*ScheduledAction)
+	b.targetARNIndex = make(map[string]string)
+	b.policyNameIndex = make(map[string]string)
+	b.actionNameIndex = make(map[string]string)
+}
+
+// Purge removes all resources from the backend without acquiring the lock.
+// It is only safe to call in single-threaded contexts (e.g., test setup/teardown).
+func (b *InMemoryBackend) Purge() {
 	b.scalableTargets = make(map[string]*ScalableTarget)
 	b.scalingPolicies = make(map[string]*ScalingPolicy)
 	b.scheduledActions = make(map[string]*ScheduledAction)

@@ -137,7 +137,7 @@ func (h *DashboardHandler) applicationautoscalingCreate(c *echo.Context) error {
 	}
 
 	_, err = h.ApplicationAutoscalingOps.Backend.RegisterScalableTarget(
-		namespace, resourceID, scalableDimension, int32(minVal), int32(maxVal), nil, "",
+		namespace, resourceID, scalableDimension, int32(minVal), int32(maxVal), nil, "", nil,
 	)
 	if err != nil {
 		h.Logger.Error("failed to register scalable target", "resource_id", resourceID, "error", err)

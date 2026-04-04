@@ -37,6 +37,7 @@ func TestApplicationAutoScaling_PersistenceSnapshotRestore(t *testing.T) {
 					10,
 					nil,
 					"",
+					nil,
 				)
 			},
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {

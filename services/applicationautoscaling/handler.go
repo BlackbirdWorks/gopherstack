@@ -189,14 +189,21 @@ func epochSecondsPtr(t time.Time) *float64 {
 
 // --- Input/Output types ---
 
+type suspendedStateInput struct {
+	DynamicScalingInSuspended  bool `json:"DynamicScalingInSuspended"`
+	DynamicScalingOutSuspended bool `json:"DynamicScalingOutSuspended"`
+	ScheduledScalingSuspended  bool `json:"ScheduledScalingSuspended"`
+}
+
 type registerScalableTargetInput struct {
-	Tags              map[string]string `json:"Tags,omitempty"`
-	ServiceNamespace  string            `json:"ServiceNamespace"`
-	ResourceID        string            `json:"ResourceId"`
-	ScalableDimension string            `json:"ScalableDimension"`
-	RoleARN           string            `json:"RoleARN,omitempty"`
-	MinCapacity       int32             `json:"MinCapacity"`
-	MaxCapacity       int32             `json:"MaxCapacity"`
+	SuspendedState    *suspendedStateInput `json:"SuspendedState,omitempty"`
+	Tags              map[string]string    `json:"Tags,omitempty"`
+	ServiceNamespace  string               `json:"ServiceNamespace"`
+	ResourceID        string               `json:"ResourceId"`
+	ScalableDimension string               `json:"ScalableDimension"`
+	RoleARN           string               `json:"RoleARN,omitempty"`
+	MinCapacity       int32                `json:"MinCapacity"`
+	MaxCapacity       int32                `json:"MaxCapacity"`
 }
 
 type registerScalableTargetOutput struct {
@@ -207,10 +214,19 @@ func (h *Handler) handleRegisterScalableTarget(
 	_ context.Context,
 	in *registerScalableTargetInput,
 ) (*registerScalableTargetOutput, error) {
+	var ss *SuspendedState
+	if in.SuspendedState != nil {
+		ss = &SuspendedState{
+			DynamicScalingInSuspended:  in.SuspendedState.DynamicScalingInSuspended,
+			DynamicScalingOutSuspended: in.SuspendedState.DynamicScalingOutSuspended,
+			ScheduledScalingSuspended:  in.SuspendedState.ScheduledScalingSuspended,
+		}
+	}
+
 	t, err := h.Backend.RegisterScalableTarget(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
 		in.MinCapacity, in.MaxCapacity,
-		in.Tags, in.RoleARN,
+		in.Tags, in.RoleARN, ss,
 	)
 	if err != nil {
 		return nil, err
@@ -242,6 +258,7 @@ type describeScalableTargetsInput struct {
 	ServiceNamespace  string   `json:"ServiceNamespace"`
 	ScalableDimension string   `json:"ScalableDimension,omitempty"`
 	ResourceIDs       []string `json:"ResourceIds,omitempty"`
+	MaxResults        int32    `json:"MaxResults,omitempty"`
 }
 
 type suspendedStateSummary struct {
@@ -276,6 +293,7 @@ func (h *Handler) handleDescribeScalableTargets(
 		ServiceNamespace:  in.ServiceNamespace,
 		ResourceIDs:       in.ResourceIDs,
 		ScalableDimension: in.ScalableDimension,
+		MaxResults:        in.MaxResults,
 	})
 	items := make([]scalableTargetSummary, 0, len(targets))
 	for _, t := range targets {
@@ -366,6 +384,8 @@ type describeScalingPoliciesInput struct {
 	ResourceID        string   `json:"ResourceId,omitempty"`
 	ScalableDimension string   `json:"ScalableDimension,omitempty"`
 	PolicyNames       []string `json:"PolicyNames,omitempty"`
+	PolicyARNs        []string `json:"PolicyARNs,omitempty"`
+	MaxResults        int32    `json:"MaxResults,omitempty"`
 }
 
 type scalingPolicySummary struct {
@@ -392,6 +412,8 @@ func (h *Handler) handleDescribeScalingPolicies(
 		ResourceID:        in.ResourceID,
 		ScalableDimension: in.ScalableDimension,
 		PolicyNames:       in.PolicyNames,
+		PolicyARNs:        in.PolicyARNs,
+		MaxResults:        in.MaxResults,
 	})
 	items := make([]scalingPolicySummary, 0, len(policies))
 	for _, p := range policies {
@@ -439,6 +461,9 @@ type putScheduledActionInput struct {
 	ScalableDimension    string                     `json:"ScalableDimension"`
 	ScheduledActionName  string                     `json:"ScheduledActionName"`
 	Schedule             string                     `json:"Schedule"`
+	Timezone             string                     `json:"Timezone,omitempty"`
+	StartTime            string                     `json:"StartTime,omitempty"`
+	EndTime              string                     `json:"EndTime,omitempty"`
 }
 
 type putScheduledActionOutput struct {
@@ -449,6 +474,8 @@ func (h *Handler) handlePutScheduledAction(
 	_ context.Context,
 	in *putScheduledActionInput,
 ) (*putScheduledActionOutput, error) {
+	const timeLayout = time.RFC3339
+
 	var sta *ScalableTargetAction
 	if in.ScalableTargetAction != nil {
 		sta = &ScalableTargetAction{
@@ -457,9 +484,30 @@ func (h *Handler) handlePutScheduledAction(
 		}
 	}
 
+	var startTime, endTime *time.Time
+
+	if in.StartTime != "" {
+		t, err := time.Parse(timeLayout, in.StartTime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid StartTime: %s", errInvalidRequest, in.StartTime)
+		}
+
+		startTime = &t
+	}
+
+	if in.EndTime != "" {
+		t, err := time.Parse(timeLayout, in.EndTime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid EndTime: %s", errInvalidRequest, in.EndTime)
+		}
+
+		endTime = &t
+	}
+
 	a, err := h.Backend.PutScheduledAction(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
-		in.ScheduledActionName, in.Schedule, sta,
+		in.ScheduledActionName, in.Schedule, in.Timezone,
+		startTime, endTime, sta,
 	)
 	if err != nil {
 		return nil, err
@@ -498,6 +546,7 @@ type describeScheduledActionsInput struct {
 	ResourceID           string   `json:"ResourceId,omitempty"`
 	ScalableDimension    string   `json:"ScalableDimension,omitempty"`
 	ScheduledActionNames []string `json:"ScheduledActionNames,omitempty"`
+	MaxResults           int32    `json:"MaxResults,omitempty"`
 }
 
 type scalableTargetActionSummary struct {
@@ -509,12 +558,15 @@ type scheduledActionSummary struct {
 	ScalableTargetAction *scalableTargetActionSummary `json:"ScalableTargetAction,omitempty"`
 	CreationTime         *float64                     `json:"CreationTime,omitempty"`
 	LastModifiedTime     *float64                     `json:"LastModifiedTime,omitempty"`
+	StartTime            *float64                     `json:"StartTime,omitempty"`
+	EndTime              *float64                     `json:"EndTime,omitempty"`
 	ServiceNamespace     string                       `json:"ServiceNamespace"`
 	ResourceID           string                       `json:"ResourceId"`
 	ScalableDimension    string                       `json:"ScalableDimension"`
 	ScheduledActionName  string                       `json:"ScheduledActionName"`
 	Schedule             string                       `json:"Schedule"`
 	ScheduledActionARN   string                       `json:"ScheduledActionARN"`
+	Timezone             string                       `json:"Timezone,omitempty"`
 }
 
 type describeScheduledActionsOutput struct {
@@ -530,6 +582,7 @@ func (h *Handler) handleDescribeScheduledActions(
 		ResourceID:           in.ResourceID,
 		ScalableDimension:    in.ScalableDimension,
 		ScheduledActionNames: in.ScheduledActionNames,
+		MaxResults:           in.MaxResults,
 	})
 	items := make([]scheduledActionSummary, 0, len(actions))
 	for _, a := range actions {
@@ -539,10 +592,19 @@ func (h *Handler) handleDescribeScheduledActions(
 			ScalableDimension:   a.ScalableDimension,
 			ScheduledActionName: a.ScheduledActionName,
 			Schedule:            a.Schedule,
+			Timezone:            a.Timezone,
 			ScheduledActionARN:  a.ARN,
 			CreationTime:        epochSecondsPtr(a.CreationTime),
 			LastModifiedTime:    epochSecondsPtr(a.LastModifiedTime),
 		}
+		if a.StartTime != nil {
+			item.StartTime = epochSecondsPtr(*a.StartTime)
+		}
+
+		if a.EndTime != nil {
+			item.EndTime = epochSecondsPtr(*a.EndTime)
+		}
+
 		if a.ScalableTargetAction != nil {
 			item.ScalableTargetAction = &scalableTargetActionSummary{
 				MinCapacity: a.ScalableTargetAction.MinCapacity,
