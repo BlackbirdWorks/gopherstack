@@ -718,8 +718,10 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 	}
 
 	// Build hourly data points in [startTime, endTime).
-	// Start from the first complete hour boundary >= startTime to avoid
-	// emitting timestamps that precede the requested window.
+	// Truncate always rounds down; if startTime is not on an exact hour boundary
+	// the truncated value precedes startTime, so we advance by one hour.
+	// When startTime is exactly on an hour boundary, truncation is a no-op and
+	// the condition is false, keeping the boundary as the first point.
 	start := startTime.Truncate(time.Hour)
 	if start.Before(startTime) {
 		start = start.Add(time.Hour)
