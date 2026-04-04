@@ -989,9 +989,7 @@ func (h *Handler) createAPIKey(ctx context.Context, c *echo.Context, apiID strin
 }
 
 // handleAPICaches handles /v1/apis/{apiId}/ApiCaches.
-func (h *Handler) handleAPICaches(ctx context.Context, c *echo.Context, apiID string, segs []string) error {
-	_ = segs
-
+func (h *Handler) handleAPICaches(ctx context.Context, c *echo.Context, apiID string, _ []string) error {
 	switch c.Request().Method {
 	case http.MethodPost:
 		return h.createAPICache(ctx, c, apiID)

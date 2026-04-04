@@ -1296,14 +1296,26 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, map[string]string{"k": "v"})
 	require.NoError(t, err)
 
+	// Create a data source with tags so Reset() must close them too.
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "ds",
+		Type: "NONE",
+		Tags: nil,
+	})
+	require.NoError(t, err)
+
+	// Reset must not panic and must clear all resources.
 	b.Reset()
 
 	apis, err := b.ListGraphqlAPIs()
 	require.NoError(t, err)
 	assert.Empty(t, apis)
+
+	// Second Reset on empty backend must also not panic.
+	b.Reset()
 }
 
 func TestInMemoryBackend_CreateGraphqlAPI_InvalidAuthType(t *testing.T) {
