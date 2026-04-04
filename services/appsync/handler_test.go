@@ -780,3 +780,729 @@ func TestHandler_API_MethodNotAllowed(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID, nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
+
+func TestHandler_CreateApiKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*appsync.InMemoryBackend) string
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantKeyID  bool
+	}{
+		{
+			name: "creates_api_key_successfully",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body:       map[string]any{"description": "test key", "expires": 1999999999},
+			wantStatus: http.StatusCreated,
+			wantKeyID:  true,
+		},
+		{
+			name: "returns_404_for_missing_api",
+			setup: func(_ *appsync.InMemoryBackend) string {
+				return "nonexistent"
+			},
+			body:       map[string]any{"description": "test key"},
+			wantStatus: http.StatusNotFound,
+			wantKeyID:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			apiID := tt.setup(b)
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/apikeys", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantKeyID {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				key, ok := resp["apiKey"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, key["id"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateApiCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*appsync.InMemoryBackend) string
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "creates_api_cache_successfully",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body: map[string]any{
+				"apiCachingBehavior": "FULL_REQUEST_CACHING",
+				"ttl":                300,
+				"type":               "SMALL",
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name: "returns_404_for_missing_api",
+			setup: func(_ *appsync.InMemoryBackend) string {
+				return "nonexistent"
+			},
+			body:       map[string]any{"ttl": 300},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			apiID := tt.setup(b)
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/ApiCaches", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateFunction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*appsync.InMemoryBackend) string
+		body         map[string]any
+		name         string
+		wantFuncName string
+		wantStatus   int
+	}{
+		{
+			name: "creates_function_successfully",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body: map[string]any{
+				"name":           "MyFunction",
+				"dataSourceName": "MyDS",
+				"description":    "test fn",
+			},
+			wantStatus:   http.StatusCreated,
+			wantFuncName: "MyFunction",
+		},
+		{
+			name: "missing_name_returns_400",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body:       map[string]any{"dataSourceName": "MyDS"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_datasource_returns_400",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body:       map[string]any{"name": "MyFunction"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "returns_404_for_missing_api",
+			setup: func(_ *appsync.InMemoryBackend) string {
+				return "nonexistent"
+			},
+			body:       map[string]any{"name": "Fn", "dataSourceName": "DS"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			apiID := tt.setup(b)
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/functions", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantFuncName != "" {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				fn, ok := resp["functionConfiguration"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantFuncName, fn["name"])
+				assert.NotEmpty(t, fn["functionId"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*appsync.InMemoryBackend) string
+		body       map[string]any
+		name       string
+		wantName   string
+		wantStatus int
+	}{
+		{
+			name: "creates_type_successfully",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body: map[string]any{
+				"definition": "type Post { id: ID! title: String }",
+				"format":     "SDL",
+			},
+			wantStatus: http.StatusCreated,
+			wantName:   "Post",
+		},
+		{
+			name: "missing_definition_returns_400",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+				return api.APIID
+			},
+			body:       map[string]any{"format": "SDL"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "returns_404_for_missing_api",
+			setup: func(_ *appsync.InMemoryBackend) string {
+				return "nonexistent"
+			},
+			body:       map[string]any{"definition": "type Foo { id: ID! }", "format": "SDL"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			apiID := tt.setup(b)
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+apiID+"/types", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				typ, ok := resp["type"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantName, typ["name"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateDomainName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantDomainName string
+		wantStatus     int
+	}{
+		{
+			name: "creates_domain_name_successfully",
+			body: map[string]any{
+				"domainName":     "api.example.com",
+				"certificateArn": "arn:aws:acm:us-east-1:000:certificate/abc",
+				"description":    "my domain",
+			},
+			wantStatus:     http.StatusCreated,
+			wantDomainName: "api.example.com",
+		},
+		{
+			name:       "missing_domain_name_returns_400",
+			body:       map[string]any{"certificateArn": "arn:aws:acm:us-east-1:000:certificate/abc"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_certificate_arn_returns_400",
+			body:       map[string]any{"domainName": "api.example.com"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/domainnames", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantDomainName != "" {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				cfg, ok := resp["domainNameConfig"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantDomainName, cfg["domainName"])
+			}
+		})
+	}
+}
+
+func TestHandler_AssociateApi(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*appsync.InMemoryBackend) (string, string)
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "associates_api_successfully",
+			setup: func(b *appsync.InMemoryBackend) (string, string) {
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+				dn, _ := b.CreateDomainName("api.example.com", "arn:aws:acm:us-east-1:000:certificate/abc", "", nil)
+
+				return dn.DomainName, api.APIID
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name: "returns_404_for_missing_domain",
+			setup: func(_ *appsync.InMemoryBackend) (string, string) {
+				return "missing.example.com", "someapiid"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_api_id_returns_400",
+			setup: func(b *appsync.InMemoryBackend) (string, string) {
+				dn, _ := b.CreateDomainName("api2.example.com", "arn:aws:acm:us-east-1:000:certificate/abc", "", nil)
+
+				return dn.DomainName, ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			domainName, apiID := tt.setup(b)
+
+			var body map[string]any
+			if apiID != "" {
+				body = map[string]any{"apiId": apiID}
+			} else {
+				body = map[string]any{}
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/domainnames/"+domainName+"/apiassociation", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "associates_merged_api_successfully",
+			body: map[string]any{
+				"mergedApiIdentifier": "merged-api-id",
+				"description":         "test association",
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_merged_api_identifier_returns_400",
+			body:       map[string]any{"description": "test"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			rec := doRequest(t, h, http.MethodPost, "/v1/sourceApis/source-api-id/mergedApiAssociations", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusCreated {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				assoc, ok := resp["sourceApiAssociation"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, assoc["associationId"])
+				assert.Equal(t, "source-api-id", assoc["sourceApiId"])
+			}
+		})
+	}
+}
+
+func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "associates_source_api_successfully",
+			body: map[string]any{
+				"sourceApiIdentifier": "source-api-id",
+				"description":         "test association",
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "missing_source_api_identifier_returns_400",
+			body:       map[string]any{"description": "test"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			rec := doRequest(t, h, http.MethodPost, "/v1/mergedApis/merged-api-id/sourceApiAssociations", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusCreated {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				assoc, ok := resp["sourceApiAssociation"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, assoc["associationId"])
+				assert.Equal(t, "merged-api-id", assoc["mergedApiId"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateApi(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantName   string
+		wantStatus int
+	}{
+		{
+			name: "creates_event_api_successfully",
+			body: map[string]any{
+				"name": "MyEventAPI",
+				"tags": map[string]string{"env": "test"},
+			},
+			wantStatus: http.StatusCreated,
+			wantName:   "MyEventAPI",
+		},
+		{
+			name:       "missing_name_returns_400",
+			body:       map[string]any{"ownerContact": "owner@example.com"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			rec := doRequest(t, h, http.MethodPost, "/v2/apis", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				api, ok := resp["api"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantName, api["name"])
+				assert.NotEmpty(t, api["apiId"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateChannelNamespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*appsync.InMemoryBackend) string
+		body       map[string]any
+		name       string
+		wantName   string
+		wantStatus int
+	}{
+		{
+			name: "creates_channel_namespace_successfully",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateAPI("MyEventAPI", nil)
+
+				return api.APIID
+			},
+			body:       map[string]any{"name": "default"},
+			wantStatus: http.StatusCreated,
+			wantName:   "default",
+		},
+		{
+			name: "missing_name_returns_400",
+			setup: func(b *appsync.InMemoryBackend) string {
+				api, _ := b.CreateAPI("MyEventAPI", nil)
+
+				return api.APIID
+			},
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "returns_404_for_missing_api",
+			setup: func(_ *appsync.InMemoryBackend) string {
+				return "nonexistent"
+			},
+			body:       map[string]any{"name": "default"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			apiID := tt.setup(b)
+
+			rec := doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/channelNamespaces", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				ns, ok := resp["channelNamespace"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantName, ns["name"])
+			}
+		})
+	}
+}
+
+func TestHandler_ExtractOperation_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		{
+			name:   "POST /v1/apis/{id}/apikeys",
+			method: http.MethodPost,
+			path:   "/v1/apis/abc/apikeys",
+			wantOp: "CreateApiKey",
+		},
+		{
+			name:   "POST /v1/apis/{id}/ApiCaches",
+			method: http.MethodPost,
+			path:   "/v1/apis/abc/ApiCaches",
+			wantOp: "CreateApiCache",
+		},
+		{
+			name:   "POST /v1/apis/{id}/functions",
+			method: http.MethodPost,
+			path:   "/v1/apis/abc/functions",
+			wantOp: "CreateFunction",
+		},
+		{
+			name:   "POST /v1/apis/{id}/types",
+			method: http.MethodPost,
+			path:   "/v1/apis/abc/types",
+			wantOp: "CreateType",
+		},
+		{
+			name:   "POST /v1/domainnames",
+			method: http.MethodPost,
+			path:   "/v1/domainnames",
+			wantOp: "CreateDomainName",
+		},
+		{
+			name:   "POST /v1/domainnames/{dn}/apiassociation",
+			method: http.MethodPost,
+			path:   "/v1/domainnames/api.example.com/apiassociation",
+			wantOp: "AssociateApi",
+		},
+		{
+			name:   "POST /v1/sourceApis/{id}/mergedApiAssociations",
+			method: http.MethodPost,
+			path:   "/v1/sourceApis/source-id/mergedApiAssociations",
+			wantOp: "AssociateMergedGraphqlApi",
+		},
+		{
+			name:   "POST /v1/mergedApis/{id}/sourceApiAssociations",
+			method: http.MethodPost,
+			path:   "/v1/mergedApis/merged-id/sourceApiAssociations",
+			wantOp: "AssociateSourceGraphqlApi",
+		},
+		{
+			name:   "POST /v2/apis",
+			method: http.MethodPost,
+			path:   "/v2/apis",
+			wantOp: "CreateApi",
+		},
+		{
+			name:   "POST /v2/apis/{id}/channelNamespaces",
+			method: http.MethodPost,
+			path:   "/v2/apis/abc/channelNamespaces",
+			wantOp: "CreateChannelNamespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(""))
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "apikeys_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/apis/abc/apikeys",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "apicaches_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/apis/abc/ApiCaches",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "functions_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/apis/abc/functions",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "domainnames_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/domainnames",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "apiassociation_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/domainnames/api.example.com/apiassociation",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "mergedApiAssociations_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/sourceApis/source-id/mergedApiAssociations",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "sourceApiAssociations_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v1/mergedApis/merged-id/sourceApiAssociations",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "v2_apis_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v2/apis",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "channel_namespaces_method_not_allowed",
+			method:     http.MethodGet,
+			path:       "/v2/apis/abc/channelNamespaces",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "domainnames_unknown_path",
+			method:     http.MethodGet,
+			path:       "/v1/domainnames/api.example.com/unknown",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "sourceApis_unknown_path",
+			method:     http.MethodGet,
+			path:       "/v1/sourceApis/source-id/unknown",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "mergedApis_unknown_path",
+			method:     http.MethodGet,
+			path:       "/v1/mergedApis/merged-id/unknown",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "v2_apis_unknown_path",
+			method:     http.MethodGet,
+			path:       "/v2/apis/abc/unknown",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			rec := doRequest(t, h, tt.method, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

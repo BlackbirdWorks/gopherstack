@@ -61,6 +61,27 @@ type StorageBackend interface {
 		apiID, query, operationName string,
 		variables map[string]any,
 	) (map[string]any, error)
+	// New Event API operations.
+	CreateAPI(name string, tagMap map[string]string) (*API, error)
+	CreateChannelNamespace(apiID, name string, tagMap map[string]string) (*ChannelNamespace, error)
+	// API key operations.
+	CreateAPIKey(apiID, description string, expires int64) (*APIKey, error)
+	// API cache operations.
+	CreateAPICache(apiID string, cache *APICache) (*APICache, error)
+	// Function operations.
+	CreateFunction(apiID string, f *Function) (*Function, error)
+	// Type operations.
+	CreateType(apiID, definition string, format TypeDefinitionFormat) (*APIType, error)
+	// Domain name operations.
+	CreateDomainName(domainName, certificateARN, description string, tagMap map[string]string) (*DomainName, error)
+	AssociateAPI(domainName, apiID string) (*APIAssociation, error)
+	// Merged/source API association operations.
+	AssociateMergedGraphqlAPI(
+		sourceAPIIdentifier, mergedAPIIdentifier, description string,
+	) (*SourceAPIAssociation, error)
+	AssociateSourceGraphqlAPI(
+		mergedAPIIdentifier, sourceAPIIdentifier, description string,
+	) (*SourceAPIAssociation, error)
 }
 
 // apiIDChars is the character set used to generate AppSync API IDs.
@@ -86,29 +107,47 @@ func randomAPIID() string {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	apis        map[string]*GraphqlAPI            // apiID → api
-	schemas     map[string]*Schema                // apiID → schema
-	datasources map[string]map[string]*DataSource // apiID → name → ds
-	resolvers   map[string]map[string]*Resolver   // apiID → "TypeName.FieldName" → resolver
-	lambdaFn    LambdaInvoker
-	ddbBackend  DynamoDBBackend
-	mu          *lockmetrics.RWMutex
-	accountID   string
-	region      string
-	endpoint    string
+	apis              map[string]*GraphqlAPI                  // apiID → api
+	schemas           map[string]*Schema                      // apiID → schema
+	datasources       map[string]map[string]*DataSource       // apiID → name → ds
+	resolvers         map[string]map[string]*Resolver         // apiID → "TypeName.FieldName" → resolver
+	apiKeys           map[string]map[string]*APIKey           // apiID → keyID → key
+	apiCaches         map[string]*APICache                    // apiID → cache
+	functions         map[string]map[string]*Function         // apiID → functionID → function
+	types             map[string]map[string]*APIType          // apiID → typeName → type
+	domainNames       map[string]*DomainName                  // domainName → domainNameConfig
+	apiAssociations   map[string]*APIAssociation              // domainName → association
+	eventAPIs         map[string]*API                         // apiID → event api
+	channelNamespaces map[string]map[string]*ChannelNamespace // apiID → name → ns
+	sourceAssocs      map[string]*SourceAPIAssociation        // associationID → association
+	lambdaFn          LambdaInvoker
+	ddbBackend        DynamoDBBackend
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
+	endpoint          string
 }
 
 // NewInMemoryBackend creates a new in-memory AppSync backend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	return &InMemoryBackend{
-		apis:        make(map[string]*GraphqlAPI),
-		schemas:     make(map[string]*Schema),
-		datasources: make(map[string]map[string]*DataSource),
-		resolvers:   make(map[string]map[string]*Resolver),
-		mu:          lockmetrics.New("appsync"),
-		accountID:   accountID,
-		region:      region,
-		endpoint:    endpoint,
+		apis:              make(map[string]*GraphqlAPI),
+		schemas:           make(map[string]*Schema),
+		datasources:       make(map[string]map[string]*DataSource),
+		resolvers:         make(map[string]map[string]*Resolver),
+		apiKeys:           make(map[string]map[string]*APIKey),
+		apiCaches:         make(map[string]*APICache),
+		functions:         make(map[string]map[string]*Function),
+		types:             make(map[string]map[string]*APIType),
+		domainNames:       make(map[string]*DomainName),
+		apiAssociations:   make(map[string]*APIAssociation),
+		eventAPIs:         make(map[string]*API),
+		channelNamespaces: make(map[string]map[string]*ChannelNamespace),
+		sourceAssocs:      make(map[string]*SourceAPIAssociation),
+		mu:                lockmetrics.New("appsync"),
+		accountID:         accountID,
+		region:            region,
+		endpoint:          endpoint,
 	}
 }
 
@@ -520,4 +559,308 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 	_ = api
 
 	return executeGraphQL(ctx, b, schema, resolversCopy, datasourcesCopy, query, operationName, variables)
+}
+
+// CreateAPIKey creates an API key for a GraphQL API.
+func (b *InMemoryBackend) CreateAPIKey(apiID, description string, expires int64) (*APIKey, error) {
+	b.mu.Lock("CreateAPIKey")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if b.apiKeys[apiID] == nil {
+		b.apiKeys[apiID] = make(map[string]*APIKey)
+	}
+
+	keyID := randomAPIID()
+
+	key := &APIKey{
+		ID:          keyID,
+		Description: description,
+		Expires:     expires,
+	}
+
+	b.apiKeys[apiID][keyID] = key
+
+	cp := *key
+
+	return &cp, nil
+}
+
+// CreateAPICache creates a cache configuration for a GraphQL API.
+func (b *InMemoryBackend) CreateAPICache(apiID string, cache *APICache) (*APICache, error) {
+	b.mu.Lock("CreateAPICache")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if _, exists := b.apiCaches[apiID]; exists {
+		return nil, fmt.Errorf("%w: api cache already exists for api %s", ErrAlreadyExists, apiID)
+	}
+
+	cache.APIID = apiID
+	if cache.Status == "" {
+		cache.Status = "AVAILABLE"
+	}
+
+	b.apiCaches[apiID] = cache
+
+	cp := *cache
+
+	return &cp, nil
+}
+
+// CreateFunction creates an AppSync pipeline function.
+func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, error) {
+	b.mu.Lock("CreateFunction")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if b.functions[apiID] == nil {
+		b.functions[apiID] = make(map[string]*Function)
+	}
+
+	funcID := randomAPIID()
+	funcARN := arn.Build("appsync", b.region, b.accountID,
+		fmt.Sprintf("apis/%s/functions/%s", apiID, funcID))
+
+	f.APIID = apiID
+	f.FunctionID = funcID
+	f.FunctionARN = funcARN
+
+	b.functions[apiID][funcID] = f
+
+	cp := *f
+
+	return &cp, nil
+}
+
+// CreateType creates a GraphQL type for an API.
+func (b *InMemoryBackend) CreateType(apiID, definition string, format TypeDefinitionFormat) (*APIType, error) {
+	b.mu.Lock("CreateType")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if b.types[apiID] == nil {
+		b.types[apiID] = make(map[string]*APIType)
+	}
+
+	// Extract type name from definition (assumes SDL format: "type TypeName { ... }").
+	name := extractTypeName(definition)
+	if name == "" {
+		name = randomAPIID()
+	}
+
+	typeARN := arn.Build("appsync", b.region, b.accountID,
+		fmt.Sprintf("apis/%s/types/%s", apiID, name))
+
+	t := &APIType{
+		ARN:        typeARN,
+		Name:       name,
+		Definition: definition,
+		Format:     format,
+		APIID:      apiID,
+	}
+
+	b.types[apiID][name] = t
+
+	cp := *t
+
+	return &cp, nil
+}
+
+// extractTypeName extracts the type name from a SDL type definition.
+func extractTypeName(definition string) string {
+	definition = strings.TrimSpace(definition)
+	for _, prefix := range []string{"type ", "input ", "enum ", "interface ", "union ", "scalar "} {
+		if after, ok := strings.CutPrefix(definition, prefix); ok {
+			rest := after
+			// Take the first word (the type name).
+			end := strings.IndexAny(rest, " \t\n\r{")
+			if end > 0 {
+				return rest[:end]
+			}
+
+			return rest
+		}
+	}
+
+	return ""
+}
+
+// CreateDomainName creates a custom domain name.
+func (b *InMemoryBackend) CreateDomainName(
+	domainName, certificateARN, description string,
+	tagMap map[string]string,
+) (*DomainName, error) {
+	b.mu.Lock("CreateDomainName")
+	defer b.mu.Unlock()
+
+	if _, exists := b.domainNames[domainName]; exists {
+		return nil, fmt.Errorf("%w: domain name %s already exists", ErrAlreadyExists, domainName)
+	}
+
+	domainNameARN := arn.Build("appsync", b.region, b.accountID, "domainnames/"+domainName)
+
+	dn := &DomainName{
+		DomainName:     domainName,
+		CertificateARN: certificateARN,
+		Description:    description,
+		Tags:           tagMap,
+		AppsyncDomain:  domainName + ".appsync-api." + b.region + ".amazonaws.com",
+		HostedZoneID:   "Z2FDTNDATAQYW2",
+		DomainNameARN:  domainNameARN,
+	}
+
+	b.domainNames[domainName] = dn
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// AssociateAPI associates an API with a custom domain name.
+func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociation, error) {
+	b.mu.Lock("AssociateAPI")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
+	}
+
+	assoc := &APIAssociation{
+		DomainName:        domainName,
+		APIID:             apiID,
+		AssociationStatus: "SUCCESS",
+	}
+
+	b.apiAssociations[domainName] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// CreateAPI creates a new Event API.
+func (b *InMemoryBackend) CreateAPI(name string, tagMap map[string]string) (*API, error) {
+	b.mu.Lock("CreateAPI")
+	defer b.mu.Unlock()
+
+	apiID := randomAPIID()
+	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
+
+	api := &API{
+		APIID:   apiID,
+		ARN:     apiARN,
+		Name:    name,
+		Tags:    tagMap,
+		DNSHTTP: fmt.Sprintf("%s.appsync-api.%s.amazonaws.com", apiID, b.region),
+	}
+
+	b.eventAPIs[apiID] = api
+
+	cp := *api
+
+	return &cp, nil
+}
+
+// CreateChannelNamespace creates a channel namespace for an Event API.
+func (b *InMemoryBackend) CreateChannelNamespace(
+	apiID, name string,
+	tagMap map[string]string,
+) (*ChannelNamespace, error) {
+	b.mu.Lock("CreateChannelNamespace")
+	defer b.mu.Unlock()
+
+	if _, ok := b.eventAPIs[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if b.channelNamespaces[apiID] == nil {
+		b.channelNamespaces[apiID] = make(map[string]*ChannelNamespace)
+	}
+
+	if _, exists := b.channelNamespaces[apiID][name]; exists {
+		return nil, fmt.Errorf("%w: channel namespace %s already exists", ErrAlreadyExists, name)
+	}
+
+	nsARN := arn.Build("appsync", b.region, b.accountID,
+		fmt.Sprintf("apis/%s/channelNamespaces/%s", apiID, name))
+
+	ns := &ChannelNamespace{
+		APIID:               apiID,
+		Name:                name,
+		Tags:                tagMap,
+		ChannelNamespaceARN: nsARN,
+	}
+
+	b.channelNamespaces[apiID][name] = ns
+
+	cp := *ns
+
+	return &cp, nil
+}
+
+// AssociateMergedGraphqlAPI creates an association from a source API to a merged API.
+func (b *InMemoryBackend) AssociateMergedGraphqlAPI(
+	sourceAPIIdentifier, mergedAPIIdentifier, description string,
+) (*SourceAPIAssociation, error) {
+	b.mu.Lock("AssociateMergedGraphqlAPI")
+	defer b.mu.Unlock()
+
+	assocID := randomAPIID()
+	assocARN := arn.Build("appsync", b.region, b.accountID,
+		fmt.Sprintf("sourceApis/%s/mergedApiAssociations/%s", sourceAPIIdentifier, assocID))
+
+	assoc := &SourceAPIAssociation{
+		AssociationID:     assocID,
+		AssociationARN:    assocARN,
+		SourceAPIID:       sourceAPIIdentifier,
+		MergedAPIID:       mergedAPIIdentifier,
+		Description:       description,
+		AssociationStatus: "MERGE_SCHEDULED",
+	}
+
+	b.sourceAssocs[assocID] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// AssociateSourceGraphqlAPI creates an association from a merged API to a source API.
+func (b *InMemoryBackend) AssociateSourceGraphqlAPI(
+	mergedAPIIdentifier, sourceAPIIdentifier, description string,
+) (*SourceAPIAssociation, error) {
+	b.mu.Lock("AssociateSourceGraphqlAPI")
+	defer b.mu.Unlock()
+
+	assocID := randomAPIID()
+	assocARN := arn.Build("appsync", b.region, b.accountID,
+		fmt.Sprintf("mergedApis/%s/sourceApiAssociations/%s", mergedAPIIdentifier, assocID))
+
+	assoc := &SourceAPIAssociation{
+		AssociationID:     assocID,
+		AssociationARN:    assocARN,
+		SourceAPIID:       sourceAPIIdentifier,
+		MergedAPIID:       mergedAPIIdentifier,
+		Description:       description,
+		AssociationStatus: "MERGE_SCHEDULED",
+	}
+
+	b.sourceAssocs[assocID] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
 }
