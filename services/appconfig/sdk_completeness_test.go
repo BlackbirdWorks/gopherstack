@@ -17,20 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := appconfig.NewInMemoryBackend("000000000000", "us-east-1")
 	h := appconfig.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &appconfigsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateExtension",
-		"CreateExtensionAssociation",
-		"DeleteExtension",
-		"DeleteExtensionAssociation",
-		"GetAccountSettings",
-		"GetConfiguration",
-		"GetExtension",
-		"GetExtensionAssociation",
-		"ListExtensionAssociations",
-		"ListExtensions",
-		"UpdateAccountSettings",
-		"UpdateExtension",
-		"UpdateExtensionAssociation",
-		"ValidateConfiguration",
-	})
+	sdkcheck.CheckCompleteness(t, &appconfigsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

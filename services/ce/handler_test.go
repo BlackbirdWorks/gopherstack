@@ -682,3 +682,448 @@ func TestCEHandler_UpdateCostCategoryDefinition_DeepCopy(t *testing.T) {
 		})
 	}
 }
+
+// Improvement 1: Test GetAnomalySubscriptions (handler was at 0% coverage).
+func TestHandler_GetAnomalySubscriptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		filterARNs     []string
+		wantLen        int
+		wantStatusCode int
+	}{
+		{
+			name:           "returns_all_when_no_filter",
+			filterARNs:     nil,
+			wantLen:        2,
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "returns_empty_for_missing_arns",
+			filterARNs:     []string{"arn:aws:ce::000:sub/does-not-exist"},
+			wantLen:        0,
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create two subscriptions to query.
+			for _, name := range []string{"Sub-A", "Sub-B"} {
+				rec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+					"AnomalySubscription": map[string]any{
+						"SubscriptionName": name,
+						"Frequency":        "DAILY",
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			body := map[string]any{}
+			if tt.filterARNs != nil {
+				body["SubscriptionArnList"] = tt.filterARNs
+			}
+
+			rec := doRequest(t, h, "GetAnomalySubscriptions", body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				AnomalySubscriptions []map[string]any `json:"AnomalySubscriptions"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.AnomalySubscriptions, tt.wantLen)
+		})
+	}
+}
+
+// Improvement 2: Test UpdateAnomalySubscription (handler + backend were at 0% coverage).
+func TestHandler_UpdateAnomalySubscription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		updateBody     map[string]any
+		name           string
+		wantFrequency  string
+		wantStatusCode int
+	}{
+		{
+			name: "updates_frequency",
+			updateBody: map[string]any{
+				"Frequency": "WEEKLY",
+			},
+			wantStatusCode: http.StatusOK,
+			wantFrequency:  "WEEKLY",
+		},
+		{
+			name: "missing_subscription_arn_returns_400",
+			updateBody: map[string]any{
+				"Frequency": "WEEKLY",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "not_found_returns_404",
+			updateBody: map[string]any{
+				"SubscriptionArn": "arn:aws:ce::000:sub/not-found",
+				"Frequency":       "WEEKLY",
+			},
+			wantStatusCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.wantFrequency != "" {
+				// Create a subscription first.
+				createRec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+					"AnomalySubscription": map[string]any{
+						"SubscriptionName": "UpdateMe",
+						"Frequency":        "DAILY",
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+				tt.updateBody["SubscriptionArn"] = createOut["SubscriptionArn"]
+			}
+
+			rec := doRequest(t, h, "UpdateAnomalySubscription", tt.updateBody)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			if tt.wantFrequency != "" {
+				var out map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.NotEmpty(t, out["SubscriptionArn"])
+			}
+		})
+	}
+}
+
+// Improvement 3: Test tag operations on anomaly monitors.
+func TestHandler_TagOperations_AnomalyMonitor(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a monitor to tag.
+	createRec := doRequest(t, h, "CreateAnomalyMonitor", map[string]any{
+		"AnomalyMonitor": map[string]any{
+			"MonitorName": "MonitorToTag",
+			"MonitorType": "DIMENSIONAL",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	monitorARN := createOut["MonitorArn"].(string)
+
+	// Tag.
+	tagRec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn":  monitorARN,
+		"ResourceTags": []map[string]string{{"Key": "Team", "Value": "platform"}},
+	})
+	assert.Equal(t, http.StatusOK, tagRec.Code)
+
+	// List tags — expect "Team=platform".
+	listRec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": monitorARN,
+	})
+	assert.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	tags, _ := listOut["ResourceTags"].([]any)
+
+	var found bool
+
+	for _, tagAny := range tags {
+		tag, _ := tagAny.(map[string]any)
+		if tag["Key"] == "Team" && tag["Value"] == "platform" {
+			found = true
+		}
+	}
+
+	assert.True(t, found, "expected Team=platform tag on monitor")
+
+	// Untag.
+	untagRec := doRequest(t, h, "UntagResource", map[string]any{
+		"ResourceArn":     monitorARN,
+		"ResourceTagKeys": []string{"Team"},
+	})
+	assert.Equal(t, http.StatusOK, untagRec.Code)
+}
+
+// Improvement 4: Test tag operations on anomaly subscriptions.
+func TestHandler_TagOperations_AnomalySubscription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create subscription to tag.
+	createRec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+		"AnomalySubscription": map[string]any{
+			"SubscriptionName": "SubToTag",
+			"Frequency":        "DAILY",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	subARN := createOut["SubscriptionArn"].(string)
+
+	// Tag.
+	tagRec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn":  subARN,
+		"ResourceTags": []map[string]string{{"Key": "Owner", "Value": "alice"}},
+	})
+	assert.Equal(t, http.StatusOK, tagRec.Code)
+
+	// List tags.
+	listRec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": subARN,
+	})
+	assert.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	tags, _ := listOut["ResourceTags"].([]any)
+	assert.NotEmpty(t, tags)
+
+	// Untag.
+	untagRec := doRequest(t, h, "UntagResource", map[string]any{
+		"ResourceArn":     subARN,
+		"ResourceTagKeys": []string{"Owner"},
+	})
+	assert.Equal(t, http.StatusOK, untagRec.Code)
+}
+
+// Improvement 5: Test tag operations error paths — missing ARN returns 400.
+func TestHandler_TagOperations_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "ListTagsForResource_missing_arn",
+			action: "ListTagsForResource",
+			body:   map[string]any{},
+		},
+		{
+			name:   "TagResource_missing_arn",
+			action: "TagResource",
+			body:   map[string]any{"ResourceTags": []map[string]string{{"Key": "k", "Value": "v"}}},
+		},
+		{
+			name:   "UntagResource_missing_arn",
+			action: "UntagResource",
+			body:   map[string]any{"ResourceTagKeys": []string{"k"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// Improvement 6: Test tag operations error paths — not-found ARN returns 404.
+func TestHandler_TagOperations_NotFound(t *testing.T) {
+	t.Parallel()
+
+	const notFoundARN = "arn:aws:ce::000000000000:costcategory/does-not-exist"
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "ListTagsForResource_not_found",
+			action: "ListTagsForResource",
+			body:   map[string]any{"ResourceArn": notFoundARN},
+		},
+		{
+			name:   "TagResource_not_found",
+			action: "TagResource",
+			body: map[string]any{
+				"ResourceArn":  notFoundARN,
+				"ResourceTags": []map[string]string{{"Key": "k", "Value": "v"}},
+			},
+		},
+		{
+			name:   "UntagResource_not_found",
+			action: "UntagResource",
+			body: map[string]any{
+				"ResourceArn":     notFoundARN,
+				"ResourceTagKeys": []string{"k"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// Improvement 7: Test delete operations error paths — not-found returns 404.
+func TestHandler_DeleteOperations_NotFound(t *testing.T) {
+	t.Parallel()
+
+	const notFoundARN = "arn:aws:ce::000000000000:does-not-exist"
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "DeleteCostCategoryDefinition_not_found",
+			action: "DeleteCostCategoryDefinition",
+			body:   map[string]any{"CostCategoryArn": notFoundARN},
+		},
+		{
+			name:   "DeleteAnomalyMonitor_not_found",
+			action: "DeleteAnomalyMonitor",
+			body:   map[string]any{"MonitorArn": notFoundARN},
+		},
+		{
+			name:   "DeleteAnomalySubscription_not_found",
+			action: "DeleteAnomalySubscription",
+			body:   map[string]any{"SubscriptionArn": notFoundARN},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// Improvement 8: Test ExtractOperation and ExtractResource.
+func TestHandler_ExtractOperationAndResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		target        string
+		wantOperation string
+	}{
+		{
+			name:          "extracts_known_operation",
+			target:        "AWSInsightsIndexService.CreateCostCategoryDefinition",
+			wantOperation: "CreateCostCategoryDefinition",
+		},
+		{
+			name:          "extracts_anomaly_monitor_op",
+			target:        "AWSInsightsIndexService.GetAnomalyMonitors",
+			wantOperation: "GetAnomalyMonitors",
+		},
+		{
+			name:          "empty_target_returns_empty",
+			target:        "",
+			wantOperation: "",
+		},
+		{
+			name:          "non_ce_target_returns_full_string",
+			target:        "OtherService.SomeOp",
+			wantOperation: "OtherService.SomeOp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantOperation, h.ExtractOperation(c))
+			assert.Empty(t, h.ExtractResource(c))
+		})
+	}
+}
+
+// Improvement 9: Test ChaosServiceName, ChaosOperations, ChaosRegions, Region.
+func TestHandler_ChaosAndRegion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	assert.Equal(t, "ce", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+	assert.Equal(t, "us-east-1", h.Backend.Region())
+}
+
+// Improvement 10: Test UpdateAnomalyMonitor not-found path and validate
+// that UpdateCostCategoryDefinition returns 404 when ARN is missing.
+func TestHandler_UpdateOperations_NotFound(t *testing.T) {
+	t.Parallel()
+
+	const notFoundARN = "arn:aws:ce::000000000000:does-not-exist"
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "UpdateAnomalyMonitor_not_found",
+			action: "UpdateAnomalyMonitor",
+			body:   map[string]any{"MonitorArn": notFoundARN, "MonitorName": "x"},
+		},
+		{
+			name:   "UpdateCostCategoryDefinition_not_found",
+			action: "UpdateCostCategoryDefinition",
+			body: map[string]any{
+				"CostCategoryArn": notFoundARN,
+				"RuleVersion":     "CostCategoryExpression.v1",
+				"Rules":           []map[string]any{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}

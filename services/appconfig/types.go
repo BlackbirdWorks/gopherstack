@@ -21,6 +21,14 @@ var (
 	ErrDeploymentStrategyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrDeploymentNotFound is returned when the requested deployment does not exist.
 	ErrDeploymentNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrExtensionNotFound is returned when the requested extension does not exist.
+	ErrExtensionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrExtensionAssociationNotFound is returned when the requested extension association does not exist.
+	ErrExtensionAssociationNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrExtensionAlreadyExists is returned when an extension with the same name already exists.
+	ErrExtensionAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrBadRequest is returned when a required field is missing or invalid.
+	ErrBadRequest = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 // Application represents an AppConfig application.
@@ -89,4 +97,50 @@ type Deployment struct {
 	ConfigurationVersion   string    `json:"ConfigurationVersion"`
 	State                  string    `json:"State"`
 	DeploymentNumber       int32     `json:"DeploymentNumber"`
+}
+
+// ExtensionAction represents a single action in an AppConfig extension.
+type ExtensionAction struct {
+	Name        string `json:"Name,omitempty"`
+	Description string `json:"Description,omitempty"`
+	RoleArn     string `json:"RoleArn,omitempty"`
+	URI         string `json:"Uri,omitempty"`
+}
+
+// ExtensionParameter describes a parameter accepted by an extension.
+type ExtensionParameter struct {
+	Description string `json:"Description,omitempty"`
+	Required    bool   `json:"Required,omitempty"`
+}
+
+// Extension represents an AppConfig extension.
+type Extension struct {
+	Actions       map[string][]ExtensionAction  `json:"Actions,omitempty"`
+	Parameters    map[string]ExtensionParameter `json:"Parameters,omitempty"`
+	Arn           string                        `json:"Arn"`
+	Description   string                        `json:"Description,omitempty"`
+	ID            string                        `json:"Id"`
+	Name          string                        `json:"Name"`
+	VersionNumber int32                         `json:"VersionNumber"`
+}
+
+// ExtensionAssociation represents an association between an extension and an AppConfig resource.
+type ExtensionAssociation struct {
+	Parameters             map[string]string `json:"Parameters,omitempty"`
+	Arn                    string            `json:"Arn"`
+	ExtensionArn           string            `json:"ExtensionArn"`
+	ID                     string            `json:"Id"`
+	ResourceArn            string            `json:"ResourceArn"`
+	ExtensionVersionNumber int32             `json:"ExtensionVersionNumber"`
+}
+
+// DeletionProtectionSettings represents the deletion protection configuration for an account.
+type DeletionProtectionSettings struct {
+	Enabled                   *bool  `json:"Enabled,omitempty"`
+	ProtectionPeriodInMinutes *int32 `json:"ProtectionPeriodInMinutes,omitempty"`
+}
+
+// AccountSettings holds account-level AppConfig settings.
+type AccountSettings struct {
+	DeletionProtection *DeletionProtectionSettings `json:"DeletionProtection,omitempty"`
 }
