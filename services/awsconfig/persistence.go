@@ -5,8 +5,14 @@ import (
 )
 
 type backendSnapshot struct {
-	Recorders map[string]*ConfigurationRecorder `json:"recorders"`
-	Channels  map[string]*DeliveryChannel       `json:"channels"`
+	Recorders           map[string]*ConfigurationRecorder       `json:"recorders"`
+	Channels            map[string]*DeliveryChannel             `json:"channels"`
+	AggregationAuths    map[string]*AggregationAuthorization    `json:"aggregationAuths,omitempty"`
+	ConfigRules         map[string]*ConfigRule                  `json:"configRules,omitempty"`
+	Aggregators         map[string]*ConfigurationAggregator     `json:"aggregators,omitempty"`
+	ConformancePacks    map[string]*ConformancePack             `json:"conformancePacks,omitempty"`
+	OrgConfigRules      map[string]*OrganizationConfigRule      `json:"orgConfigRules,omitempty"`
+	OrgConformancePacks map[string]*OrganizationConformancePack `json:"orgConformancePacks,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,8 +22,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Recorders: b.recorders,
-		Channels:  b.channels,
+		Recorders:           b.recorders,
+		Channels:            b.channels,
+		AggregationAuths:    b.aggregationAuths,
+		ConfigRules:         b.configRules,
+		Aggregators:         b.aggregators,
+		ConformancePacks:    b.conformancePacks,
+		OrgConfigRules:      b.orgConfigRules,
+		OrgConformancePacks: b.orgConformancePacks,
 	}
 
 	data, err := json.Marshal(snap)
@@ -48,8 +60,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Channels = make(map[string]*DeliveryChannel)
 	}
 
+	if snap.AggregationAuths == nil {
+		snap.AggregationAuths = make(map[string]*AggregationAuthorization)
+	}
+
+	if snap.ConfigRules == nil {
+		snap.ConfigRules = make(map[string]*ConfigRule)
+	}
+
+	if snap.Aggregators == nil {
+		snap.Aggregators = make(map[string]*ConfigurationAggregator)
+	}
+
+	if snap.ConformancePacks == nil {
+		snap.ConformancePacks = make(map[string]*ConformancePack)
+	}
+
+	if snap.OrgConfigRules == nil {
+		snap.OrgConfigRules = make(map[string]*OrganizationConfigRule)
+	}
+
+	if snap.OrgConformancePacks == nil {
+		snap.OrgConformancePacks = make(map[string]*OrganizationConformancePack)
+	}
+
 	b.recorders = snap.Recorders
 	b.channels = snap.Channels
+	b.aggregationAuths = snap.AggregationAuths
+	b.configRules = snap.ConfigRules
+	b.aggregators = snap.Aggregators
+	b.conformancePacks = snap.ConformancePacks
+	b.orgConfigRules = snap.OrgConfigRules
+	b.orgConformancePacks = snap.OrgConformancePacks
 
 	return nil
 }
