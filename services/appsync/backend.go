@@ -73,7 +73,7 @@ type StorageBackend interface {
 		variables map[string]any,
 	) (map[string]any, error)
 	// New Event API operations.
-	CreateAPI(name string, tagMap map[string]string) (*API, error)
+	CreateAPI(name, ownerContact string, tagMap map[string]string) (*API, error)
 	CreateChannelNamespace(apiID, name string, tagMap map[string]string) (*ChannelNamespace, error)
 	// API key operations.
 	CreateAPIKey(apiID, description string, expires int64) (*APIKey, error)
@@ -161,7 +161,8 @@ const apiKeyIDPrefix = "da2-"
 const defaultAPIKeyExpiryDays = 365
 
 // maxAPIKeysPerAPI is the AWS-enforced limit of API keys per GraphQL API.
-const maxAPIKeysPerAPI = 2
+// AWS default quota is 50 API keys per GraphQL API.
+const maxAPIKeysPerAPI = 50
 
 // defaultFunctionVersion is the default AppSync function runtime version.
 const defaultFunctionVersion = "2018-05-29"
@@ -483,6 +484,10 @@ func (b *InMemoryBackend) ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error)
 		out = append(out, &cp)
 	}
 
+	slices.SortFunc(out, func(a, b *GraphqlAPI) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out, nil
 }
 
@@ -686,6 +691,10 @@ func (b *InMemoryBackend) ListDataSources(apiID string) ([]*DataSource, error) {
 		out = append(out, &cp)
 	}
 
+	slices.SortFunc(out, func(a, b *DataSource) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out, nil
 }
 
@@ -803,6 +812,10 @@ func (b *InMemoryBackend) ListResolvers(apiID, typeName string) ([]*Resolver, er
 			out = append(out, &cp)
 		}
 	}
+
+	slices.SortFunc(out, func(a, b *Resolver) int {
+		return strings.Compare(a.FieldName, b.FieldName)
+	})
 
 	return out, nil
 }
@@ -959,8 +972,19 @@ func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, 
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
+	if f.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
 	if b.functions[apiID] == nil {
 		b.functions[apiID] = make(map[string]*Function)
+	}
+
+	// Enforce name uniqueness across all functions in the API.
+	for _, existing := range b.functions[apiID] {
+		if existing.Name == f.Name {
+			return nil, fmt.Errorf("%w: function with name %s already exists", ErrAlreadyExists, f.Name)
+		}
 	}
 
 	funcID := randomAPIID()
@@ -1125,7 +1149,7 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 }
 
 // CreateAPI creates a new Event API.
-func (b *InMemoryBackend) CreateAPI(name string, tagMap map[string]string) (*API, error) {
+func (b *InMemoryBackend) CreateAPI(name, ownerContact string, tagMap map[string]string) (*API, error) {
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
@@ -1133,11 +1157,12 @@ func (b *InMemoryBackend) CreateAPI(name string, tagMap map[string]string) (*API
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
 
 	api := &API{
-		APIID:   apiID,
-		ARN:     apiARN,
-		Name:    name,
-		Tags:    tagMap,
-		DNSHTTP: fmt.Sprintf("%s.appsync-api.%s.amazonaws.com", apiID, b.region),
+		APIID:        apiID,
+		ARN:          apiARN,
+		Name:         name,
+		Tags:         tagMap,
+		OwnerContact: ownerContact,
+		DNSHTTP:      fmt.Sprintf("%s.appsync-api.%s.amazonaws.com", apiID, b.region),
 	}
 
 	b.eventAPIs[apiID] = api
@@ -1242,7 +1267,7 @@ func (b *InMemoryBackend) AssociateSourceGraphqlAPI(
 	return &cp, nil
 }
 
-// ListAPIKeys returns all API keys for a GraphQL API.
+// ListAPIKeys returns all non-expired API keys for a GraphQL API.
 func (b *InMemoryBackend) ListAPIKeys(apiID string) ([]*APIKey, error) {
 	b.mu.RLock("ListApiKeys")
 	defer b.mu.RUnlock()
@@ -1251,13 +1276,23 @@ func (b *InMemoryBackend) ListAPIKeys(apiID string) ([]*APIKey, error) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
+	now := time.Now().Unix()
 	keys := b.apiKeys[apiID]
 	out := make([]*APIKey, 0, len(keys))
 
 	for _, k := range keys {
+		// Skip expired keys — AWS does not return expired keys in ListApiKeys.
+		if k.Expires > 0 && k.Expires <= now {
+			continue
+		}
+
 		cp := *k
 		out = append(out, &cp)
 	}
+
+	slices.SortFunc(out, func(a, b *APIKey) int {
+		return strings.Compare(a.ID, b.ID)
+	})
 
 	return out, nil
 }
@@ -1355,6 +1390,10 @@ func (b *InMemoryBackend) ListFunctions(apiID string) ([]*Function, error) {
 		out = append(out, &cp)
 	}
 
+	slices.SortFunc(out, func(a, b *Function) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out, nil
 }
 
@@ -1410,6 +1449,10 @@ func (b *InMemoryBackend) ListTypes(apiID string) ([]*APIType, error) {
 		out = append(out, &cp)
 	}
 
+	slices.SortFunc(out, func(a, b *APIType) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out, nil
 }
 
@@ -1454,6 +1497,10 @@ func (b *InMemoryBackend) ListDomainNames() ([]*DomainName, error) {
 		cp := *dn
 		out = append(out, &cp)
 	}
+
+	slices.SortFunc(out, func(a, b *DomainName) int {
+		return strings.Compare(a.DomainName, b.DomainName)
+	})
 
 	return out, nil
 }
@@ -1527,6 +1574,10 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 		existing.DynamoDBConfig = ds.DynamoDBConfig
 	}
 
+	if ds.HTTPConfig != nil {
+		existing.HTTPConfig = ds.HTTPConfig
+	}
+
 	cp := *existing
 
 	return &cp, nil
@@ -1560,6 +1611,10 @@ func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*
 
 	if r.Kind != "" {
 		existing.Kind = r.Kind
+	}
+
+	if len(r.PipelineConfig) > 0 {
+		existing.PipelineConfig = r.PipelineConfig
 	}
 
 	cp := *existing
@@ -1706,8 +1761,8 @@ func (b *InMemoryBackend) UpdateAPICache(apiID string, cache *APICache) (*APICac
 
 // FlushAPICache flushes the cache for a GraphQL API.
 func (b *InMemoryBackend) FlushAPICache(apiID string) error {
-	b.mu.RLock("FlushApiCache")
-	defer b.mu.RUnlock()
+	b.mu.Lock("FlushApiCache")
+	defer b.mu.Unlock()
 
 	if _, ok := b.apis[apiID]; !ok {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
@@ -1848,6 +1903,10 @@ func (b *InMemoryBackend) ListAPIs() ([]*API, error) {
 		out = append(out, &cp)
 	}
 
+	slices.SortFunc(out, func(a, b *API) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out, nil
 }
 
@@ -1921,6 +1980,10 @@ func (b *InMemoryBackend) ListChannelNamespaces(apiID string) ([]*ChannelNamespa
 		out = append(out, &cp)
 	}
 
+	slices.SortFunc(out, func(a, b *ChannelNamespace) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out, nil
 }
 
@@ -1991,6 +2054,10 @@ func (b *InMemoryBackend) ListSourceAPIAssociations(mergedAPIID string) ([]*Sour
 		}
 	}
 
+	slices.SortFunc(out, func(a, b *SourceAPIAssociation) int {
+		return strings.Compare(a.AssociationID, b.AssociationID)
+	})
+
 	return out, nil
 }
 
@@ -2041,6 +2108,12 @@ func (b *InMemoryBackend) ListResolversByFunction(apiID, functionID string) ([]*
 			out = append(out, &cp)
 		}
 	}
+
+	slices.SortFunc(out, func(a, b *Resolver) int {
+		key := func(r *Resolver) string { return r.TypeName + "." + r.FieldName }
+
+		return strings.Compare(key(a), key(b))
+	})
 
 	return out, nil
 }

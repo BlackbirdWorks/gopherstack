@@ -1281,10 +1281,6 @@ func (h *Handler) createFunction(ctx context.Context, c *echo.Context, apiID str
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	if f.Name == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
-	}
-
 	if f.DataSourceName == "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "dataSourceName is required"))
 	}
@@ -1670,7 +1666,7 @@ func (h *Handler) createAPI(ctx context.Context, c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	api, createErr := h.Backend.CreateAPI(input.Name, input.Tags)
+	api, createErr := h.Backend.CreateAPI(input.Name, input.OwnerContact, input.Tags)
 	if createErr != nil {
 		return h.handleError(ctx, c, "CreateApi", createErr)
 	}
@@ -1805,6 +1801,9 @@ func (h *Handler) deleteFunction(ctx context.Context, c *echo.Context, apiID, fu
 
 // getType handles GET /v1/apis/{apiId}/types/{typeName}.
 func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName string) error {
+	// AWS SDK sends format as a query parameter (SDL or JSON). Pass through.
+	_ = c.Request().URL.Query().Get("format")
+
 	t, err := h.Backend.GetType(apiID, typeName)
 	if err != nil {
 		return h.handleError(ctx, c, "GetType", err)
@@ -1815,6 +1814,10 @@ func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName 
 
 // listTypes handles GET /v1/apis/{apiId}/types.
 func (h *Handler) listTypes(ctx context.Context, c *echo.Context, apiID string) error {
+	// AWS SDK sends format as a query parameter (SDL or JSON). Accept but we
+	// return whatever format is stored on each type.
+	_ = c.Request().URL.Query().Get("format")
+
 	types, err := h.Backend.ListTypes(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListTypes", err)

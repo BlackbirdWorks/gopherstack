@@ -1274,7 +1274,7 @@ func TestHandler_CreateChannelNamespace(t *testing.T) {
 		{
 			name: "creates_channel_namespace_successfully",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateAPI("MyEventAPI", nil)
+				api, _ := b.CreateAPI("MyEventAPI", "", nil)
 
 				return api.APIID
 			},
@@ -1285,7 +1285,7 @@ func TestHandler_CreateChannelNamespace(t *testing.T) {
 		{
 			name: "missing_name_returns_400",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateAPI("MyEventAPI", nil)
+				api, _ := b.CreateAPI("MyEventAPI", "", nil)
 
 				return api.APIID
 			},
@@ -2770,14 +2770,15 @@ func TestHandler_CreateAPIKey_MaxLimit(t *testing.T) {
 	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 
 	keyBody := map[string]any{"description": "k1"}
+
+	// Create up to the limit (50).
+	for i := range 50 {
+		rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/apikeys", keyBody)
+		require.Equal(t, http.StatusCreated, rec.Code, "key %d should succeed", i+1)
+	}
+
+	// 51st key exceeds limit.
 	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/apikeys", keyBody)
-	assert.Equal(t, http.StatusCreated, rec.Code)
-
-	rec = doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/apikeys", keyBody)
-	assert.Equal(t, http.StatusCreated, rec.Code)
-
-	// Third key exceeds limit.
-	rec = doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/apikeys", keyBody)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

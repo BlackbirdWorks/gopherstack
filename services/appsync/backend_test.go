@@ -2,6 +2,7 @@ package appsync_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -2158,7 +2159,7 @@ func TestInMemoryBackend_EventAPI_CRUD(t *testing.T) {
 	b := newTestBackend()
 
 	// Create.
-	api, err := b.CreateAPI("MyEventAPI", map[string]string{"env": "test"})
+	api, err := b.CreateAPI("MyEventAPI", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, api.APIID)
 
@@ -2191,7 +2192,7 @@ func TestInMemoryBackend_DeleteAPI_CascadesChannelNamespaces(t *testing.T) {
 
 	b := newTestBackend()
 
-	api, err := b.CreateAPI("MyEventAPI", nil)
+	api, err := b.CreateAPI("MyEventAPI", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
@@ -2202,7 +2203,7 @@ func TestInMemoryBackend_DeleteAPI_CascadesChannelNamespaces(t *testing.T) {
 	require.NoError(t, err)
 
 	// Recreate the API - should have no namespaces.
-	api2, err := b.CreateAPI("NewAPI", nil)
+	api2, err := b.CreateAPI("NewAPI", "", nil)
 	require.NoError(t, err)
 	assert.NotEqual(t, api.APIID, api2.APIID)
 }
@@ -2390,7 +2391,7 @@ func TestInMemoryBackend_ChannelNamespace_CRUD(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateAPI("EventAPI", nil)
+			api, err := b.CreateAPI("EventAPI", "", nil)
 			require.NoError(t, err)
 
 			_, err = b.CreateChannelNamespace(api.APIID, tt.nsName, nil)
@@ -2417,7 +2418,7 @@ func TestInMemoryBackend_GetChannelNamespace_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateAPI("EventAPI", nil)
+	api, err := b.CreateAPI("EventAPI", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.GetChannelNamespace(api.APIID, "nonexistent")
@@ -2428,7 +2429,7 @@ func TestInMemoryBackend_ListChannelNamespaces(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateAPI("EventAPI", nil)
+	api, err := b.CreateAPI("EventAPI", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
@@ -2449,7 +2450,7 @@ func TestInMemoryBackend_UpdateChannelNamespace(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateAPI("EventAPI", nil)
+	api, err := b.CreateAPI("EventAPI", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
@@ -2469,7 +2470,7 @@ func TestInMemoryBackend_DeleteChannelNamespace(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateAPI("EventAPI", nil)
+	api, err := b.CreateAPI("EventAPI", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil)
@@ -2487,7 +2488,7 @@ func TestInMemoryBackend_UpdateAPI(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateAPI("EventAPI", nil)
+	api, err := b.CreateAPI("EventAPI", "", nil)
 	require.NoError(t, err)
 
 	updated, err := b.UpdateAPI(api.APIID, "UpdatedName", "ops@example.com")
@@ -2632,7 +2633,7 @@ func TestInMemoryBackend_ChannelNamespace_HasTimestamps(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateAPI("EventAPI", nil)
+	api, err := b.CreateAPI("EventAPI", "", nil)
 	require.NoError(t, err)
 
 	ns, err := b.CreateChannelNamespace(api.APIID, "ns1", map[string]string{"env": "test"})
@@ -2836,14 +2837,14 @@ func TestInMemoryBackend_CreateAPIKey_MaxKeysLimit(t *testing.T) {
 	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAPIKey(api.APIID, "key1", 0)
-	require.NoError(t, err)
+	// Create up to the limit (50).
+	for i := range 50 {
+		_, err = b.CreateAPIKey(api.APIID, fmt.Sprintf("key%d", i+1), 0)
+		require.NoError(t, err, "key %d should succeed", i+1)
+	}
 
-	_, err = b.CreateAPIKey(api.APIID, "key2", 0)
-	require.NoError(t, err)
-
-	// Third key should fail.
-	_, err = b.CreateAPIKey(api.APIID, "key3", 0)
+	// 51st key should fail.
+	_, err = b.CreateAPIKey(api.APIID, "key51", 0)
 	require.Error(t, err)
 }
 
@@ -3021,4 +3022,166 @@ func TestInMemoryBackend_CreateResolver_Validation(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// ---- Refinement 6 tests ----
+
+func TestInMemoryBackend_CreateAPI_OwnerContact(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("TestEventAPI", "owner@example.com", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "owner@example.com", api.OwnerContact)
+
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "owner@example.com", got.OwnerContact)
+}
+
+func TestInMemoryBackend_CreateFunction_NameUniqueness(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "ds", Type: "NONE"})
+	require.NoError(t, err)
+
+	_, err = b.CreateFunction(api.APIID, &appsync.Function{Name: "MyFunc", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	// Second function with same name should fail.
+	_, err = b.CreateFunction(api.APIID, &appsync.Function{Name: "MyFunc", DataSourceName: "ds"})
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_CreateFunction_NameRequired(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateFunction(api.APIID, &appsync.Function{DataSourceName: "ds"})
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_UpdateDataSource_HTTPConfig(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name:       "httpDs",
+		Type:       "HTTP",
+		HTTPConfig: &appsync.HTTPDataSourceConfig{Endpoint: "https://old.example.com"},
+	})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateDataSource(api.APIID, "httpDs", &appsync.DataSource{
+		HTTPConfig: &appsync.HTTPDataSourceConfig{Endpoint: "https://new.example.com"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.HTTPConfig)
+	assert.Equal(t, "https://new.example.com", updated.HTTPConfig.Endpoint)
+}
+
+func TestInMemoryBackend_UpdateResolver_PipelineConfig(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "ds", Type: "NONE"})
+	require.NoError(t, err)
+
+	fn1, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	fn2, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn2", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "getItem",
+		Kind:           "PIPELINE",
+		PipelineConfig: []string{fn1.FunctionID},
+	})
+	require.NoError(t, err)
+
+	// Update PipelineConfig with both functions.
+	updated, err := b.UpdateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "getItem",
+		PipelineConfig: []string{fn1.FunctionID, fn2.FunctionID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{fn1.FunctionID, fn2.FunctionID}, updated.PipelineConfig)
+}
+
+func TestInMemoryBackend_ListAPIKeys_FilterExpired(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	// Create a key that expired in the past.
+	pastExpiry := time.Now().Add(-24 * time.Hour).Unix()
+	_, err = b.CreateAPIKey(api.APIID, "expired", pastExpiry)
+	require.NoError(t, err)
+
+	// Create a valid key.
+	_, err = b.CreateAPIKey(api.APIID, "valid", 0)
+	require.NoError(t, err)
+
+	keys, err := b.ListAPIKeys(api.APIID)
+	require.NoError(t, err)
+	// Only the non-expired key should be returned.
+	assert.Len(t, keys, 1)
+	assert.Equal(t, "valid", keys[0].Description)
+}
+
+func TestInMemoryBackend_ListFunctions_Sorted(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "ds", Type: "NONE"})
+	require.NoError(t, err)
+
+	for _, name := range []string{"ZFunc", "AFunc", "MFunc"} {
+		_, err = b.CreateFunction(api.APIID, &appsync.Function{Name: name, DataSourceName: "ds"})
+		require.NoError(t, err)
+	}
+
+	fns, err := b.ListFunctions(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, fns, 3)
+	assert.Equal(t, "AFunc", fns[0].Name)
+	assert.Equal(t, "MFunc", fns[1].Name)
+	assert.Equal(t, "ZFunc", fns[2].Name)
+}
+
+func TestInMemoryBackend_ListGraphqlAPIs_Sorted(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	for _, name := range []string{"Zebra", "Alpha", "Mango"} {
+		_, err := b.CreateGraphqlAPI(name, appsync.AuthTypeAPIKey, false, "", nil)
+		require.NoError(t, err)
+	}
+
+	apis, err := b.ListGraphqlAPIs("")
+	require.NoError(t, err)
+	require.Len(t, apis, 3)
+	assert.Equal(t, "Alpha", apis[0].Name)
+	assert.Equal(t, "Mango", apis[1].Name)
+	assert.Equal(t, "Zebra", apis[2].Name)
 }
