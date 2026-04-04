@@ -70,6 +70,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.targetARNIndex[t.ARN] = key
 	}
 
+	b.policyNameIndex = make(map[string]string, len(b.scalingPolicies))
+
+	for _, p := range b.scalingPolicies {
+		b.policyNameIndex[policyNameKey(p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName)] = p.ARN
+	}
+
+	b.actionNameIndex = make(map[string]string, len(b.scheduledActions))
+
+	for _, a := range b.scheduledActions {
+		b.actionNameIndex[actionNameKey(a.ServiceNamespace, a.ResourceID, a.ScalableDimension, a.ScheduledActionName)] = a.ARN
+	}
+
 	return nil
 }
 
