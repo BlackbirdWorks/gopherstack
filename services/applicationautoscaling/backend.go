@@ -595,7 +595,7 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 
 	// Build hourly data points in [startTime, endTime).
 	start := startTime.Truncate(time.Hour)
-	hourCount := int(endTime.Sub(start)/time.Hour) + 1
+	hourCount := int(endTime.Sub(start) / time.Hour)
 
 	timestamps := make([]time.Time, 0, hourCount)
 

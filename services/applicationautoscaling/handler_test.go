@@ -1259,11 +1259,11 @@ func TestHandler_DescribeScalableTargets_HasTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	var registerResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &registerResp))
 
 	doRequest(t, h, "TagResource", map[string]any{
-		"ResourceARN": createResp["ScalableTargetARN"],
+		"ResourceARN": registerResp["ScalableTargetARN"],
 		"Tags":        map[string]string{"env": "prod"},
 	})
 

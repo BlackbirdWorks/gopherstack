@@ -145,6 +145,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, ErrNotFound):
+		// json.Marshal of a string-only struct cannot fail.
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ObjectNotFoundException",
 			Message: err.Error(),
