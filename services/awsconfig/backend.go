@@ -2,19 +2,43 @@ package awsconfig
 
 import (
 	"fmt"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+)
+
+const (
+	recorderStatusActive  = "ACTIVE"
+	recorderStatusPending = "PENDING"
 )
 
 var (
-	// ErrNotFound is returned when a resource is not found.
+	// ErrNotFound is returned when a configuration recorder is not found.
 	ErrNotFound = awserr.New("NoSuchConfigurationRecorder", awserr.ErrNotFound)
+	// ErrNoSuchDeliveryChannel is returned when a delivery channel is not found.
+	ErrNoSuchDeliveryChannel = awserr.New("NoSuchDeliveryChannelException", awserr.ErrNotFound)
+	// ErrNoSuchConfigRule is returned when a config rule is not found.
+	ErrNoSuchConfigRule = awserr.New("NoSuchConfigRuleException", awserr.ErrNotFound)
+	// ErrNoSuchAggregator is returned when a configuration aggregator is not found.
+	ErrNoSuchAggregator = awserr.New("NoSuchConfigurationAggregatorException", awserr.ErrNotFound)
+	// ErrNoSuchConformancePack is returned when a conformance pack is not found.
+	ErrNoSuchConformancePack = awserr.New("NoSuchConformancePackException", awserr.ErrNotFound)
+	// ErrNoSuchOrganizationConfigRule is returned when an organization config rule is not found.
+	ErrNoSuchOrganizationConfigRule = awserr.New("NoSuchOrganizationConfigRuleException", awserr.ErrNotFound)
+	// ErrNoSuchOrganizationConformancePack is returned when an org conformance pack is not found.
+	ErrNoSuchOrganizationConformancePack = awserr.New(
+		"OrganizationConformancePackNotFoundException",
+		awserr.ErrNotFound,
+	)
+	// ErrNoSuchAggregationAuthorization is returned when an aggregation authorization is not found.
+	ErrNoSuchAggregationAuthorization = awserr.New("NoSuchAggregationAuthorizationException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
 	// ErrNoDeliveryChannel is returned when starting a recorder with no delivery channel configured.
 	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
+	// ErrValidation is returned when a required field is missing or invalid.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.
@@ -40,6 +64,9 @@ type AggregationAuthorization struct {
 // ConfigRule represents an AWS Config config rule.
 type ConfigRule struct {
 	ConfigRuleName string `json:"configRuleName"`
+	ConfigRuleArn  string `json:"configRuleArn,omitempty"`
+	ConfigRuleID   string `json:"configRuleId,omitempty"`
+	Description    string `json:"description,omitempty"`
 }
 
 // ConfigurationAggregator represents an AWS Config configuration aggregator.
@@ -60,6 +87,32 @@ type OrganizationConfigRule struct {
 // OrganizationConformancePack represents an AWS Config organization conformance pack.
 type OrganizationConformancePack struct {
 	OrganizationConformancePackName string `json:"organizationConformancePackName"`
+}
+
+// ConfigurationRecorderStatus represents the recording status of a recorder.
+type ConfigurationRecorderStatus struct {
+	Name      string `json:"name"`
+	Recording bool   `json:"recording"`
+}
+
+// BaseConfigurationItem is a lightweight configuration snapshot for a single resource.
+type BaseConfigurationItem struct {
+	ResourceType string `json:"resourceType,omitempty"`
+	ResourceID   string `json:"resourceId,omitempty"`
+}
+
+// AggregateResourceIdentifier identifies a resource in an aggregator.
+type AggregateResourceIdentifier struct {
+	SourceAccountID string `json:"SourceAccountId,omitempty"`
+	SourceRegion    string `json:"SourceRegion,omitempty"`
+	ResourceID      string `json:"ResourceId,omitempty"`
+	ResourceType    string `json:"ResourceType,omitempty"`
+}
+
+// ResourceKey identifies a resource by type and ID.
+type ResourceKey struct {
+	ResourceType string `json:"resourceType,omitempty"`
+	ResourceID   string `json:"resourceId,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
@@ -91,30 +144,72 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // PutConfigurationRecorder creates or updates a configuration recorder.
+// When updating an existing recorder, the Status is preserved and only RoleARN is updated.
+// A new recorder starts in PENDING state.
 func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigurationRecorder name is required", ErrValidation)
+	}
+
+	if roleARN == "" {
+		return fmt.Errorf("%w: ConfigurationRecorder roleARN is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutConfigurationRecorder")
 	defer b.mu.Unlock()
 
-	b.recorders[name] = &ConfigurationRecorder{Name: name, RoleARN: roleARN, Status: "PENDING"}
+	if existing, ok := b.recorders[name]; ok {
+		existing.RoleARN = roleARN
+
+		return nil
+	}
+
+	b.recorders[name] = &ConfigurationRecorder{Name: name, RoleARN: roleARN, Status: recorderStatusPending}
 
 	return nil
 }
 
-// DescribeConfigurationRecorders returns all configuration recorders.
-func (b *InMemoryBackend) DescribeConfigurationRecorders() []ConfigurationRecorder {
+// DescribeConfigurationRecorders returns configuration recorders filtered by the
+// provided name list.  An empty/nil names list returns all recorders sorted by name.
+func (b *InMemoryBackend) DescribeConfigurationRecorders(names []string) []ConfigurationRecorder {
 	b.mu.RLock("DescribeConfigurationRecorders")
 	defer b.mu.RUnlock()
 
 	out := make([]ConfigurationRecorder, 0, len(b.recorders))
-	for _, r := range b.recorders {
-		out = append(out, *r)
+
+	if len(names) == 0 {
+		for _, r := range b.recorders {
+			out = append(out, *r)
+		}
+	} else {
+		for _, n := range names {
+			if r, ok := b.recorders[n]; ok {
+				out = append(out, *r)
+			}
+		}
 	}
+
+	slices.SortFunc(out, func(a, b ConfigurationRecorder) int {
+		if a.Name < b.Name {
+			return -1
+		}
+
+		if a.Name > b.Name {
+			return 1
+		}
+
+		return 0
+	})
 
 	return out
 }
 
 // StartConfigurationRecorder starts a configuration recorder.
 func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigurationRecorderName is required", ErrValidation)
+	}
+
 	b.mu.Lock("StartConfigurationRecorder")
 	defer b.mu.Unlock()
 
@@ -127,13 +222,40 @@ func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
 		return fmt.Errorf("%w: no delivery channel configured", ErrNoDeliveryChannel)
 	}
 
-	r.Status = "ACTIVE"
+	r.Status = recorderStatusActive
+
+	return nil
+}
+
+// StopConfigurationRecorder stops an active configuration recorder.
+func (b *InMemoryBackend) StopConfigurationRecorder(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigurationRecorderName is required", ErrValidation)
+	}
+
+	b.mu.Lock("StopConfigurationRecorder")
+	defer b.mu.Unlock()
+
+	r, ok := b.recorders[name]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotFound, name)
+	}
+
+	r.Status = recorderStatusPending
 
 	return nil
 }
 
 // PutDeliveryChannel creates or updates a delivery channel.
 func (b *InMemoryBackend) PutDeliveryChannel(name, s3Bucket, snsArn string) error {
+	if name == "" {
+		return fmt.Errorf("%w: DeliveryChannel name is required", ErrValidation)
+	}
+
+	if s3Bucket == "" {
+		return fmt.Errorf("%w: DeliveryChannel s3BucketName is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutDeliveryChannel")
 	defer b.mu.Unlock()
 
@@ -142,26 +264,52 @@ func (b *InMemoryBackend) PutDeliveryChannel(name, s3Bucket, snsArn string) erro
 	return nil
 }
 
-// DescribeDeliveryChannels returns all delivery channels.
-func (b *InMemoryBackend) DescribeDeliveryChannels() []DeliveryChannel {
+// DescribeDeliveryChannels returns delivery channels filtered by the provided name list.
+// An empty/nil names list returns all channels sorted by name.
+func (b *InMemoryBackend) DescribeDeliveryChannels(names []string) []DeliveryChannel {
 	b.mu.RLock("DescribeDeliveryChannels")
 	defer b.mu.RUnlock()
 
 	out := make([]DeliveryChannel, 0, len(b.channels))
-	for _, c := range b.channels {
-		out = append(out, *c)
+
+	if len(names) == 0 {
+		for _, c := range b.channels {
+			out = append(out, *c)
+		}
+	} else {
+		for _, n := range names {
+			if c, ok := b.channels[n]; ok {
+				out = append(out, *c)
+			}
+		}
 	}
+
+	slices.SortFunc(out, func(a, b DeliveryChannel) int {
+		if a.Name < b.Name {
+			return -1
+		}
+
+		if a.Name > b.Name {
+			return 1
+		}
+
+		return 0
+	})
 
 	return out
 }
 
 // DeleteDeliveryChannel removes a delivery channel by name.
 func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: DeliveryChannelName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteDeliveryChannel")
 	defer b.mu.Unlock()
 
 	if _, ok := b.channels[name]; !ok {
-		return fmt.Errorf("%w: delivery channel %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNoSuchDeliveryChannel, name)
 	}
 
 	delete(b.channels, name)
@@ -171,11 +319,15 @@ func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
 
 // DeleteConfigurationRecorder removes a configuration recorder by name.
 func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigurationRecorderName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteConfigurationRecorder")
 	defer b.mu.Unlock()
 
 	if _, ok := b.recorders[name]; !ok {
-		return fmt.Errorf("%w: configuration recorder %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
 	delete(b.recorders, name)
@@ -183,24 +335,44 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 	return nil
 }
 
-// ConfigurationRecorderStatus represents the recording status of a recorder.
-type ConfigurationRecorderStatus struct {
-	Name      string `json:"name"`
-	Recording bool   `json:"recording"`
-}
-
-// DescribeConfigurationRecorderStatus returns the recording status of all recorders.
-func (b *InMemoryBackend) DescribeConfigurationRecorderStatus() []ConfigurationRecorderStatus {
+// DescribeConfigurationRecorderStatus returns recording status for recorders filtered
+// by the provided name list.  An empty/nil list returns status for all recorders,
+// sorted by name.
+func (b *InMemoryBackend) DescribeConfigurationRecorderStatus(names []string) []ConfigurationRecorderStatus {
 	b.mu.RLock("DescribeConfigurationRecorderStatus")
 	defer b.mu.RUnlock()
 
 	out := make([]ConfigurationRecorderStatus, 0, len(b.recorders))
-	for _, r := range b.recorders {
-		out = append(out, ConfigurationRecorderStatus{
-			Name:      r.Name,
-			Recording: r.Status == "ACTIVE",
-		})
+
+	if len(names) == 0 {
+		for _, r := range b.recorders {
+			out = append(out, ConfigurationRecorderStatus{
+				Name:      r.Name,
+				Recording: r.Status == recorderStatusActive,
+			})
+		}
+	} else {
+		for _, n := range names {
+			if r, ok := b.recorders[n]; ok {
+				out = append(out, ConfigurationRecorderStatus{
+					Name:      r.Name,
+					Recording: r.Status == recorderStatusActive,
+				})
+			}
+		}
 	}
+
+	slices.SortFunc(out, func(a, b ConfigurationRecorderStatus) int {
+		if a.Name < b.Name {
+			return -1
+		}
+
+		if a.Name > b.Name {
+			return 1
+		}
+
+		return 0
+	})
 
 	return out
 }
@@ -238,8 +410,50 @@ func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string) 
 	return nil
 }
 
+// DescribeAggregationAuthorizations returns all aggregation authorizations sorted by
+// account ID then region.
+func (b *InMemoryBackend) DescribeAggregationAuthorizations() []AggregationAuthorization {
+	b.mu.RLock("DescribeAggregationAuthorizations")
+	defer b.mu.RUnlock()
+
+	out := make([]AggregationAuthorization, 0, len(b.aggregationAuths))
+	for _, a := range b.aggregationAuths {
+		out = append(out, *a)
+	}
+
+	slices.SortFunc(out, func(a, b AggregationAuthorization) int {
+		if a.AuthorizedAccountID != b.AuthorizedAccountID {
+			if a.AuthorizedAccountID < b.AuthorizedAccountID {
+				return -1
+			}
+
+			return 1
+		}
+
+		if a.AuthorizedAwsRegion < b.AuthorizedAwsRegion {
+			return -1
+		}
+
+		if a.AuthorizedAwsRegion > b.AuthorizedAwsRegion {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out
+}
+
 // DeleteAggregationAuthorization deletes an aggregation authorization by account ID and region.
 func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region string) error {
+	if accountID == "" {
+		return fmt.Errorf("%w: AuthorizedAccountId is required", ErrValidation)
+	}
+
+	if region == "" {
+		return fmt.Errorf("%w: AuthorizedAwsRegion is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteAggregationAuthorization")
 	defer b.mu.Unlock()
 
@@ -247,7 +461,7 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 	if _, ok := b.aggregationAuths[key]; !ok {
 		return fmt.Errorf(
 			"%w: aggregation authorization for account %s region %s not found",
-			ErrNotFound,
+			ErrNoSuchAggregationAuthorization,
 			accountID,
 			region,
 		)
@@ -260,6 +474,10 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 
 // PutConfigRule creates or updates a config rule.
 func (b *InMemoryBackend) PutConfigRule(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigRuleName is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutConfigRule")
 	defer b.mu.Unlock()
 
@@ -268,13 +486,51 @@ func (b *InMemoryBackend) PutConfigRule(name string) error {
 	return nil
 }
 
+// DescribeConfigRules returns config rules optionally filtered by name list, sorted by name.
+func (b *InMemoryBackend) DescribeConfigRules(names []string) []ConfigRule {
+	b.mu.RLock("DescribeConfigRules")
+	defer b.mu.RUnlock()
+
+	out := make([]ConfigRule, 0, len(b.configRules))
+
+	if len(names) == 0 {
+		for _, r := range b.configRules {
+			out = append(out, *r)
+		}
+	} else {
+		for _, n := range names {
+			if r, ok := b.configRules[n]; ok {
+				out = append(out, *r)
+			}
+		}
+	}
+
+	slices.SortFunc(out, func(a, b ConfigRule) int {
+		if a.ConfigRuleName < b.ConfigRuleName {
+			return -1
+		}
+
+		if a.ConfigRuleName > b.ConfigRuleName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out
+}
+
 // DeleteConfigRule deletes a config rule by name.
 func (b *InMemoryBackend) DeleteConfigRule(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigRuleName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteConfigRule")
 	defer b.mu.Unlock()
 
 	if _, ok := b.configRules[name]; !ok {
-		return fmt.Errorf("%w: config rule %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNoSuchConfigRule, name)
 	}
 
 	delete(b.configRules, name)
@@ -284,6 +540,10 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 
 // PutConfigurationAggregator creates or updates a configuration aggregator.
 func (b *InMemoryBackend) PutConfigurationAggregator(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigurationAggregatorName is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutConfigurationAggregator")
 	defer b.mu.Unlock()
 
@@ -294,11 +554,15 @@ func (b *InMemoryBackend) PutConfigurationAggregator(name string) error {
 
 // DeleteConfigurationAggregator deletes a configuration aggregator by name.
 func (b *InMemoryBackend) DeleteConfigurationAggregator(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConfigurationAggregatorName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteConfigurationAggregator")
 	defer b.mu.Unlock()
 
 	if _, ok := b.aggregators[name]; !ok {
-		return fmt.Errorf("%w: configuration aggregator %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNoSuchAggregator, name)
 	}
 
 	delete(b.aggregators, name)
@@ -308,6 +572,10 @@ func (b *InMemoryBackend) DeleteConfigurationAggregator(name string) error {
 
 // PutConformancePack creates or updates a conformance pack.
 func (b *InMemoryBackend) PutConformancePack(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConformancePackName is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutConformancePack")
 	defer b.mu.Unlock()
 
@@ -318,11 +586,15 @@ func (b *InMemoryBackend) PutConformancePack(name string) error {
 
 // DeleteConformancePack deletes a conformance pack by name.
 func (b *InMemoryBackend) DeleteConformancePack(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ConformancePackName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteConformancePack")
 	defer b.mu.Unlock()
 
 	if _, ok := b.conformancePacks[name]; !ok {
-		return fmt.Errorf("%w: conformance pack %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNoSuchConformancePack, name)
 	}
 
 	delete(b.conformancePacks, name)
@@ -331,13 +603,17 @@ func (b *InMemoryBackend) DeleteConformancePack(name string) error {
 }
 
 // DeleteEvaluationResults clears evaluation results for a config rule.
-// In this stub implementation the operation always succeeds.
+// In this stub implementation the operation always succeeds (idempotent).
 func (b *InMemoryBackend) DeleteEvaluationResults(_ string) error {
 	return nil
 }
 
 // PutOrganizationConfigRule creates or updates an organization config rule.
 func (b *InMemoryBackend) PutOrganizationConfigRule(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: OrganizationConfigRuleName is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutOrganizationConfigRule")
 	defer b.mu.Unlock()
 
@@ -348,11 +624,15 @@ func (b *InMemoryBackend) PutOrganizationConfigRule(name string) error {
 
 // DeleteOrganizationConfigRule deletes an organization config rule by name.
 func (b *InMemoryBackend) DeleteOrganizationConfigRule(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: OrganizationConfigRuleName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteOrganizationConfigRule")
 	defer b.mu.Unlock()
 
 	if _, ok := b.orgConfigRules[name]; !ok {
-		return fmt.Errorf("%w: organization config rule %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNoSuchOrganizationConfigRule, name)
 	}
 
 	delete(b.orgConfigRules, name)
@@ -362,6 +642,10 @@ func (b *InMemoryBackend) DeleteOrganizationConfigRule(name string) error {
 
 // PutOrganizationConformancePack creates or updates an organization conformance pack.
 func (b *InMemoryBackend) PutOrganizationConformancePack(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: OrganizationConformancePackName is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutOrganizationConformancePack")
 	defer b.mu.Unlock()
 
@@ -372,11 +656,15 @@ func (b *InMemoryBackend) PutOrganizationConformancePack(name string) error {
 
 // DeleteOrganizationConformancePack deletes an organization conformance pack by name.
 func (b *InMemoryBackend) DeleteOrganizationConformancePack(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: OrganizationConformancePackName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteOrganizationConformancePack")
 	defer b.mu.Unlock()
 
 	if _, ok := b.orgConformancePacks[name]; !ok {
-		return fmt.Errorf("%w: organization conformance pack %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s", ErrNoSuchOrganizationConformancePack, name)
 	}
 
 	delete(b.orgConformancePacks, name)
@@ -384,51 +672,30 @@ func (b *InMemoryBackend) DeleteOrganizationConformancePack(name string) error {
 	return nil
 }
 
-// AssociateResourceTypes associates resource types with a configuration recorder by ARN.
-// In this stub, the operation always returns an empty ConfigurationRecorder response.
+// AssociateResourceTypes associates resource types with a configuration recorder identified
+// by its ARN. The ARN is matched first by exact name, then falls back to a synthetic stub.
+// Returns the updated recorder.
 func (b *InMemoryBackend) AssociateResourceTypes(
 	recorderARN string,
 	_ []string,
 ) (*ConfigurationRecorder, error) {
+	if recorderARN == "" {
+		return nil, fmt.Errorf("%w: ConfigurationRecorderArn is required", ErrValidation)
+	}
+
 	b.mu.RLock("AssociateResourceTypes")
 	defer b.mu.RUnlock()
 
-	// Look up the recorder by ARN among all stored recorders.
-	for _, r := range b.recorders {
-		if r.RoleARN == recorderARN || r.Name == recorderARN {
-			return &ConfigurationRecorder{
-				Name:    r.Name,
-				RoleARN: r.RoleARN,
-				Status:  r.Status,
-			}, nil
-		}
+	// Match by exact recorder name first (most common for LocalStack compatibility).
+	if r, ok := b.recorders[recorderARN]; ok {
+		return &ConfigurationRecorder{Name: r.Name, RoleARN: r.RoleARN, Status: r.Status}, nil
 	}
 
-	// Return a stub recorder referencing the requested ARN.
+	// Fall back to a synthetic recorder so callers don't error on a missing recorder.
 	return &ConfigurationRecorder{
-		Name:    recorderARN,
-		RoleARN: recorderARN,
+		Name:   recorderARN,
+		Status: recorderStatusPending,
 	}, nil
-}
-
-// BaseConfigurationItem is a lightweight configuration snapshot for a single resource.
-type BaseConfigurationItem struct {
-	ResourceType string `json:"resourceType,omitempty"`
-	ResourceID   string `json:"resourceId,omitempty"`
-}
-
-// AggregateResourceIdentifier identifies a resource in an aggregator.
-type AggregateResourceIdentifier struct {
-	SourceAccountID string `json:"SourceAccountId,omitempty"`
-	SourceRegion    string `json:"SourceRegion,omitempty"`
-	ResourceID      string `json:"ResourceId,omitempty"`
-	ResourceType    string `json:"ResourceType,omitempty"`
-}
-
-// ResourceKey identifies a resource by type and ID.
-type ResourceKey struct {
-	ResourceType string `json:"resourceType,omitempty"`
-	ResourceID   string `json:"resourceId,omitempty"`
 }
 
 // BatchGetAggregateResourceConfig returns configuration items for aggregate resources.
@@ -437,6 +704,10 @@ func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
 	_ string,
 	identifiers []AggregateResourceIdentifier,
 ) ([]BaseConfigurationItem, []AggregateResourceIdentifier) {
+	if len(identifiers) == 0 {
+		return []BaseConfigurationItem{}, []AggregateResourceIdentifier{}
+	}
+
 	return []BaseConfigurationItem{}, identifiers
 }
 
@@ -445,5 +716,9 @@ func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
 func (b *InMemoryBackend) BatchGetResourceConfig(
 	keys []ResourceKey,
 ) ([]BaseConfigurationItem, []ResourceKey) {
+	if len(keys) == 0 {
+		return []BaseConfigurationItem{}, []ResourceKey{}
+	}
+
 	return []BaseConfigurationItem{}, keys
 }

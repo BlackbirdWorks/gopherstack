@@ -34,7 +34,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *awsconfig.InMemoryBackend, id string) {
 				t.Helper()
 
-				recorders := b.DescribeConfigurationRecorders()
+				recorders := b.DescribeConfigurationRecorders(nil)
 				require.NotEmpty(t, recorders)
 				assert.Equal(t, id, recorders[0].Name)
 			},
@@ -45,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *awsconfig.InMemoryBackend, _ string) {
 				t.Helper()
 
-				recorders := b.DescribeConfigurationRecorders()
+				recorders := b.DescribeConfigurationRecorders(nil)
 				assert.Empty(t, recorders)
 			},
 		},
@@ -93,7 +93,7 @@ func TestAWSConfigHandler_Persistence(t *testing.T) {
 	freshH := awsconfig.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	recorders := fresh.DescribeConfigurationRecorders()
+	recorders := fresh.DescribeConfigurationRecorders(nil)
 	assert.Len(t, recorders, 1)
 }
 
@@ -113,14 +113,14 @@ func TestAWSConfigBackend_DeleteOperations(t *testing.T) {
 	err = b.DeleteDeliveryChannel("test-channel")
 	require.NoError(t, err)
 
-	channels := b.DescribeDeliveryChannels()
+	channels := b.DescribeDeliveryChannels(nil)
 	assert.Empty(t, channels)
 
 	// Delete configuration recorder
 	err = b.DeleteConfigurationRecorder("test-recorder")
 	require.NoError(t, err)
 
-	recorders := b.DescribeConfigurationRecorders()
+	recorders := b.DescribeConfigurationRecorders(nil)
 	assert.Empty(t, recorders)
 }
 
@@ -188,4 +188,47 @@ func TestAWSConfigHandler_DeleteOperations(t *testing.T) {
 	err = h.Handler()(c2)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+	require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::000:role/r"))
+	require.NoError(t, b.PutDeliveryChannel("chan", "bucket", ""))
+	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
+	require.NoError(t, b.PutConfigRule("rule-x"))
+	require.NoError(t, b.PutConfigurationAggregator("agg-1"))
+	require.NoError(t, b.PutConformancePack("pack-1"))
+	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
+	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := awsconfig.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(snap))
+
+	// Verify all maps were restored
+	recorders := fresh.DescribeConfigurationRecorders(nil)
+	require.Len(t, recorders, 1)
+	assert.Equal(t, "rec", recorders[0].Name)
+
+	channels := fresh.DescribeDeliveryChannels(nil)
+	require.Len(t, channels, 1)
+	assert.Equal(t, "chan", channels[0].Name)
+
+	auths := fresh.DescribeAggregationAuthorizations()
+	require.Len(t, auths, 1)
+	assert.Equal(t, "123456789012", auths[0].AuthorizedAccountID)
+
+	rules := fresh.DescribeConfigRules(nil)
+	require.Len(t, rules, 1)
+	assert.Equal(t, "rule-x", rules[0].ConfigRuleName)
+
+	// Verify the other maps by attempting deletes (they would fail if not restored)
+	require.NoError(t, fresh.DeleteConfigurationAggregator("agg-1"))
+	require.NoError(t, fresh.DeleteConformancePack("pack-1"))
+	require.NoError(t, fresh.DeleteOrganizationConfigRule("org-rule-1"))
+	require.NoError(t, fresh.DeleteOrganizationConformancePack("org-pack-1"))
 }

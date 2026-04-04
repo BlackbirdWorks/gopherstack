@@ -1022,3 +1022,467 @@ func TestAWSConfigHandler_DeleteOrganizationConformancePack(t *testing.T) {
 		})
 	}
 }
+
+func TestAWSConfigHandler_StopConfigurationRecorder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000:role/r"))
+				require.NoError(t, h.Backend.PutDeliveryChannel("default", "my-bucket", ""))
+				require.NoError(t, h.Backend.StartConfigurationRecorder("default"))
+			},
+			body:     map[string]any{"ConfigurationRecorderName": "default"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"ConfigurationRecorderName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "empty_name_returns_400",
+			body:     map[string]any{"ConfigurationRecorderName": ""},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "StopConfigurationRecorder", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_PutConfigurationRecorder_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "empty_name_returns_400",
+			body: map[string]any{
+				"ConfigurationRecorder": map[string]any{"name": "", "roleARN": "arn:aws:iam::000:role/r"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_role_arn_returns_400",
+			body: map[string]any{
+				"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": ""},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "PutConfigurationRecorder", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_PutDeliveryChannel_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "empty_name_returns_400",
+			body: map[string]any{
+				"DeliveryChannel": map[string]any{"name": "", "s3BucketName": "my-bucket"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_bucket_returns_400",
+			body: map[string]any{
+				"DeliveryChannel": map[string]any{"name": "default", "s3BucketName": ""},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "PutDeliveryChannel", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DescribeConfigurationRecorders_NameFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body      any
+		name      string
+		wantCode  int
+		wantCount int
+	}{
+		{
+			name:      "no_filter_returns_all",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantCount: 2,
+		},
+		{
+			name:      "filter_one_recorder",
+			body:      map[string]any{"ConfigurationRecorderNames": []string{"rec-a"}},
+			wantCode:  http.StatusOK,
+			wantCount: 1,
+		},
+		{
+			name:      "filter_nonexistent",
+			body:      map[string]any{"ConfigurationRecorderNames": []string{"no-such"}},
+			wantCode:  http.StatusOK,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			require.NoError(t, h.Backend.PutConfigurationRecorder("rec-a", "arn:aws:iam::123:role/r"))
+			require.NoError(t, h.Backend.PutConfigurationRecorder("rec-b", "arn:aws:iam::123:role/r"))
+
+			rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorders", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var out map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			var recorders []any
+			require.NoError(t, json.Unmarshal(out["ConfigurationRecorders"], &recorders))
+			assert.Len(t, recorders, tt.wantCount)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DescribeDeliveryChannels_NameFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body      any
+		name      string
+		wantCode  int
+		wantCount int
+	}{
+		{
+			name:      "no_filter_returns_all",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantCount: 2,
+		},
+		{
+			name:      "filter_one_channel",
+			body:      map[string]any{"DeliveryChannelNames": []string{"ch-a"}},
+			wantCode:  http.StatusOK,
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			require.NoError(t, h.Backend.PutDeliveryChannel("ch-a", "bucket-a", ""))
+			require.NoError(t, h.Backend.PutDeliveryChannel("ch-b", "bucket-b", ""))
+
+			rec := doAWSConfigRequest(t, h, "DescribeDeliveryChannels", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var out map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			var channels []any
+			require.NoError(t, json.Unmarshal(out["DeliveryChannels"], &channels))
+			assert.Len(t, channels, tt.wantCount)
+		})
+	}
+}
+
+func TestAWSConfigHandler_DescribeConfigRules_BackedByStorage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(t *testing.T, h *awsconfig.Handler)
+		body      any
+		name      string
+		wantCode  int
+		wantCount int
+	}{
+		{
+			name:      "empty_returns_no_rules",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantCount: 0,
+		},
+		{
+			name: "returns_stored_rules",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigRule("rule-x"))
+				require.NoError(t, h.Backend.PutConfigRule("rule-y"))
+			},
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantCount: 2,
+		},
+		{
+			name: "filter_by_name",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigRule("rule-1"))
+				require.NoError(t, h.Backend.PutConfigRule("rule-2"))
+			},
+			body:      map[string]any{"ConfigRuleNames": []string{"rule-1"}},
+			wantCode:  http.StatusOK,
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DescribeConfigRules", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var out map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			var rules []any
+			require.NoError(t, json.Unmarshal(out["ConfigRules"], &rules))
+			assert.Len(t, rules, tt.wantCount)
+		})
+	}
+}
+
+func TestAWSConfigHandler_ErrorTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		operation    string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name:         "delete_delivery_channel_not_found_type",
+			operation:    "DeleteDeliveryChannel",
+			body:         map[string]any{"DeliveryChannelName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchDeliveryChannelException",
+		},
+		{
+			name:         "delete_config_rule_not_found_type",
+			operation:    "DeleteConfigRule",
+			body:         map[string]any{"ConfigRuleName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchConfigRuleException",
+		},
+		{
+			name:         "delete_aggregator_not_found_type",
+			operation:    "DeleteConfigurationAggregator",
+			body:         map[string]any{"ConfigurationAggregatorName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchConfigurationAggregatorException",
+		},
+		{
+			name:         "delete_conformance_pack_not_found_type",
+			operation:    "DeleteConformancePack",
+			body:         map[string]any{"ConformancePackName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchConformancePackException",
+		},
+		{
+			name:         "delete_org_config_rule_not_found_type",
+			operation:    "DeleteOrganizationConfigRule",
+			body:         map[string]any{"OrganizationConfigRuleName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchOrganizationConfigRuleException",
+		},
+		{
+			name:         "delete_org_conformance_pack_not_found_type",
+			operation:    "DeleteOrganizationConformancePack",
+			body:         map[string]any{"OrganizationConformancePackName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "OrganizationConformancePackNotFoundException",
+		},
+		{
+			name:         "delete_agg_auth_not_found_type",
+			operation:    "DeleteAggregationAuthorization",
+			body:         map[string]any{"AuthorizedAccountId": "123456789012", "AuthorizedAwsRegion": "us-east-1"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchAggregationAuthorizationException",
+		},
+		{
+			name:         "start_recorder_no_delivery_channel_400",
+			operation:    "StartConfigurationRecorder",
+			body:         map[string]any{"ConfigurationRecorderName": "default"},
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.operation == "StartConfigurationRecorder" {
+				require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000:role/r"))
+			}
+
+			rec := doAWSConfigRequest(t, h, tt.operation, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAWSConfigHandler_ExtractResource_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         string
+		operation    string
+		name         string
+		wantResource string
+	}{
+		{
+			name:         "DeleteConfigRule",
+			operation:    "DeleteConfigRule",
+			body:         `{"ConfigRuleName":"my-rule"}`,
+			wantResource: "my-rule",
+		},
+		{
+			name:         "DeleteConfigurationAggregator",
+			operation:    "DeleteConfigurationAggregator",
+			body:         `{"ConfigurationAggregatorName":"my-agg"}`,
+			wantResource: "my-agg",
+		},
+		{
+			name:         "DeleteConformancePack",
+			operation:    "DeleteConformancePack",
+			body:         `{"ConformancePackName":"my-pack"}`,
+			wantResource: "my-pack",
+		},
+		{
+			name:         "DeleteOrganizationConfigRule",
+			operation:    "DeleteOrganizationConfigRule",
+			body:         `{"OrganizationConfigRuleName":"org-rule"}`,
+			wantResource: "org-rule",
+		},
+		{
+			name:         "DeleteOrganizationConformancePack",
+			operation:    "DeleteOrganizationConformancePack",
+			body:         `{"OrganizationConformancePackName":"org-pack"}`,
+			wantResource: "org-pack",
+		},
+		{
+			name:         "AssociateResourceTypes",
+			operation:    "AssociateResourceTypes",
+			body:         `{"ConfigurationRecorderArn":"arn:aws:config:us-east-1:000:config-recorder/default"}`,
+			wantResource: "arn:aws:config:us-east-1:000:config-recorder/default",
+		},
+		{
+			name:         "StopConfigurationRecorder",
+			operation:    "StopConfigurationRecorder",
+			body:         `{"ConfigurationRecorderName":"my-recorder"}`,
+			wantResource: "my-recorder",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("X-Amz-Target", "StarlingDoveService."+tt.operation)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantResource, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestAWSConfigHandler_AssociateResourceTypes_EmptyARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	rec := doAWSConfigRequest(t, h, "AssociateResourceTypes", map[string]any{
+		"ConfigurationRecorderArn": "",
+		"ResourceTypes":            []string{"AWS::EC2::Instance"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
+func TestAWSConfigHandler_PutConfigRule_ValidationAndDescribe(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "empty_name_returns_400",
+			body:     map[string]any{"ConfigRuleName": ""},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			// Call PutConfigRule directly via backend (handler not wired for PutConfigRule in HTTP yet)
+			err := h.Backend.PutConfigRule(tt.body.(map[string]any)["ConfigRuleName"].(string))
+			require.Error(t, err)
+			assert.ErrorIs(t, err, awsconfig.ErrValidation)
+		})
+	}
+}

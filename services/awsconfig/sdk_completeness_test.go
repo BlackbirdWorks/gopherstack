@@ -92,7 +92,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"StartConfigRulesEvaluation",
 		"StartRemediationExecution",
 		"StartResourceEvaluation",
-		"StopConfigurationRecorder",
 		"TagResource",
 		"UntagResource",
 	})
