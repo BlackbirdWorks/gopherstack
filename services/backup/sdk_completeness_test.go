@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
 	h := backup.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &backupsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateBackupVaultMpaApprovalTeam",
-		"CancelLegalHold",
-		"CreateBackupSelection",
-		"CreateFramework",
-		"CreateLegalHold",
-		"CreateLogicallyAirGappedBackupVault",
-		"CreateReportPlan",
-		"CreateRestoreAccessBackupVault",
-		"CreateRestoreTestingPlan",
-		"CreateRestoreTestingSelection",
 		"CreateTieringConfiguration",
 		"DeleteBackupSelection",
 		"DeleteBackupVaultAccessPolicy",
@@ -102,7 +92,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"StartRestoreJob",
 		"StartScanJob",
 		"StopBackupJob",
-		"UntagResource",
 		"UpdateFramework",
 		"UpdateGlobalSettings",
 		"UpdateRecoveryPointIndexSettings",
