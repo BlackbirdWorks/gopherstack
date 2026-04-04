@@ -108,7 +108,7 @@ type InMemoryBackend struct {
 	scalableTargets  map[string]*ScalableTarget
 	scalingPolicies  map[string]*ScalingPolicy
 	scheduledActions map[string]*ScheduledAction
-	targetARNIndex   map[string]string // ARN → scalableTargetKey
+	targetARNIndex   map[string]string // ARN → scalableTargetKey (secondary index for O(1) lookup)
 	policyNameIndex  map[string]string // policyNameKey → policyARN (secondary index for O(1) lookup)
 	actionNameIndex  map[string]string // actionNameKey → actionARN (secondary index for O(1) lookup)
 	mu               *lockmetrics.RWMutex
@@ -555,8 +555,8 @@ type DescribeScalingPoliciesFilter struct {
 	MaxResults int32
 }
 
-// buildStringSet converts a string slice into a lookup set.
-// Returns nil when the slice is empty.
+// buildStringSet converts ss into an O(1) membership-test set. The returned set
+// is nil when ss is empty, which callers can use as a "no filter" sentinel.
 func buildStringSet(ss []string) map[string]bool {
 	if len(ss) == 0 {
 		return nil
@@ -570,7 +570,10 @@ func buildStringSet(ss []string) map[string]bool {
 	return out
 }
 
-// policyMatchesFilter reports whether p should be included given filter f and its pre-built lookup sets.
+// policyMatchesFilter reports whether p satisfies filter f.
+// nameSet and arnSet are pre-built O(1) lookup sets derived from f.PolicyNames
+// and f.PolicyARNs respectively; they are passed in to avoid rebuilding them
+// inside the inner loop. A nil set means "no filter on that dimension".
 func policyMatchesFilter(p *ScalingPolicy, f DescribeScalingPoliciesFilter, nameSet, arnSet map[string]bool) bool {
 	if f.ServiceNamespace != "" && p.ServiceNamespace != f.ServiceNamespace {
 		return false
@@ -953,9 +956,11 @@ func (b *InMemoryBackend) Reset() {
 	b.actionNameIndex = make(map[string]string)
 }
 
-// Purge removes all resources from the backend without acquiring the lock.
-// It is only safe to call in single-threaded contexts (e.g., test setup/teardown).
+// Purge removes all resources from the backend. It is safe to call concurrently.
 func (b *InMemoryBackend) Purge() {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
 	b.scalableTargets = make(map[string]*ScalableTarget)
 	b.scalingPolicies = make(map[string]*ScalingPolicy)
 	b.scheduledActions = make(map[string]*ScheduledAction)

@@ -139,33 +139,25 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// marshalError serialises a JSONErrorResponse into bytes.
+// Marshaling a struct with only string fields cannot fail; error is intentionally ignored.
+func marshalError(errType, message string) []byte {
+	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+
+	return payload
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		// Marshaling a simple struct with only string fields cannot fail; error is intentionally ignored.
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ObjectNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusNotFound, payload)
+		return c.JSONBlob(http.StatusNotFound, marshalError("ObjectNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusConflict, payload)
+		return c.JSONBlob(http.StatusConflict, marshalError("ValidationException", err.Error()))
 	case errors.Is(err, ErrValidation):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
