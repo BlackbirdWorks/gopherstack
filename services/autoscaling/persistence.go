@@ -5,9 +5,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups               map[string]*AutoScalingGroup    `json:"groups"`
-	LaunchConfigurations map[string]*LaunchConfiguration `json:"launchConfigurations"`
-	Activities           map[string][]ScalingActivity    `json:"activities"`
+	Groups               map[string]*AutoScalingGroup           `json:"groups"`
+	LaunchConfigurations map[string]*LaunchConfiguration        `json:"launchConfigurations"`
+	Activities           map[string][]ScalingActivity           `json:"activities"`
+	ScheduledActions     map[string]map[string]*ScheduledAction `json:"scheduledActions"`
+	InstanceRefreshes    map[string][]*InstanceRefresh          `json:"instanceRefreshes"`
+	LifecycleHooks       map[string]map[string]*LifecycleHook   `json:"lifecycleHooks"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,6 +22,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Groups:               b.groups,
 		LaunchConfigurations: b.launchConfigurations,
 		Activities:           b.activities,
+		ScheduledActions:     b.scheduledActions,
+		InstanceRefreshes:    b.instanceRefreshes,
+		LifecycleHooks:       b.lifecycleHooks,
 	}
 
 	data, err := json.Marshal(snap)
@@ -56,6 +62,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.activities = snap.Activities
 	} else {
 		b.activities = make(map[string][]ScalingActivity)
+	}
+
+	if snap.ScheduledActions != nil {
+		b.scheduledActions = snap.ScheduledActions
+	} else {
+		b.scheduledActions = make(map[string]map[string]*ScheduledAction)
+	}
+
+	if snap.InstanceRefreshes != nil {
+		b.instanceRefreshes = snap.InstanceRefreshes
+	} else {
+		b.instanceRefreshes = make(map[string][]*InstanceRefresh)
+	}
+
+	if snap.LifecycleHooks != nil {
+		b.lifecycleHooks = snap.LifecycleHooks
+	} else {
+		b.lifecycleHooks = make(map[string]map[string]*LifecycleHook)
 	}
 
 	return nil

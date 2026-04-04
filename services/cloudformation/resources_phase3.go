@@ -419,7 +419,8 @@ func (rc *ResourceCreator) deleteAutoScalingGroup(name string) error {
 		return nil
 	}
 
-	return rc.backends.Autoscaling.Backend.DeleteAutoScalingGroup(name)
+	// ForceDelete=true matches CloudFormation's behaviour: it always force-deletes the group.
+	return rc.backends.Autoscaling.Backend.DeleteAutoScalingGroup(name, true)
 }
 
 func (rc *ResourceCreator) createLaunchConfiguration(

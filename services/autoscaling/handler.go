@@ -25,12 +25,47 @@ const (
 
 // Handler is the Echo HTTP handler for Autoscaling operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend       StorageBackend
+	dispatchTable map[string]func(url.Values) (any, error)
 }
 
 // NewHandler creates a new Autoscaling handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.dispatchTable = h.buildDispatchTable()
+
+	return h
+}
+
+func (h *Handler) buildDispatchTable() map[string]func(url.Values) (any, error) {
+	return map[string]func(url.Values) (any, error){
+		"CreateAutoScalingGroup":              h.handleCreateAutoScalingGroup,
+		"DescribeAutoScalingGroups":           h.handleDescribeAutoScalingGroups,
+		"UpdateAutoScalingGroup":              h.handleUpdateAutoScalingGroup,
+		"DeleteAutoScalingGroup":              h.handleDeleteAutoScalingGroup,
+		"CreateLaunchConfiguration":           h.handleCreateLaunchConfiguration,
+		"DescribeLaunchConfigurations":        h.handleDescribeLaunchConfigurations,
+		"DeleteLaunchConfiguration":           h.handleDeleteLaunchConfiguration,
+		"DescribeScalingActivities":           h.handleDescribeScalingActivities,
+		"AttachInstances":                     h.handleAttachInstances,
+		"AttachLoadBalancerTargetGroups":      h.handleAttachLoadBalancerTargetGroups,
+		"AttachLoadBalancers":                 h.handleAttachLoadBalancers,
+		"AttachTrafficSources":                h.handleAttachTrafficSources,
+		"BatchDeleteScheduledAction":          h.handleBatchDeleteScheduledAction,
+		"BatchPutScheduledUpdateGroupAction":  h.handleBatchPutScheduledUpdateGroupAction,
+		"CancelInstanceRefresh":               h.handleCancelInstanceRefresh,
+		"CompleteLifecycleAction":             h.handleCompleteLifecycleAction,
+		"CreateOrUpdateTags":                  h.handleCreateOrUpdateTags,
+		"DeleteLifecycleHook":                 h.handleDeleteLifecycleHook,
+		"SetDesiredCapacity":                  h.handleSetDesiredCapacity,
+		"TerminateInstanceInAutoScalingGroup": h.handleTerminateInstanceInAutoScalingGroup,
+		"PutLifecycleHook":                    h.handlePutLifecycleHook,
+		"DescribeLifecycleHooks":              h.handleDescribeLifecycleHooks,
+		"DescribeScheduledActions":            h.handleDescribeScheduledActions,
+		"DeleteTags":                          h.handleDeleteTags,
+		"DescribeTags":                        h.handleDescribeTags,
+		"DescribeAutoScalingInstances":        h.handleDescribeAutoScalingInstances,
+	}
 }
 
 // Name returns the service name.
@@ -47,6 +82,24 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeLaunchConfigurations",
 		"DeleteLaunchConfiguration",
 		"DescribeScalingActivities",
+		"AttachInstances",
+		"AttachLoadBalancerTargetGroups",
+		"AttachLoadBalancers",
+		"AttachTrafficSources",
+		"BatchDeleteScheduledAction",
+		"BatchPutScheduledUpdateGroupAction",
+		"CancelInstanceRefresh",
+		"CompleteLifecycleAction",
+		"CreateOrUpdateTags",
+		"DeleteLifecycleHook",
+		"SetDesiredCapacity",
+		"TerminateInstanceInAutoScalingGroup",
+		"PutLifecycleHook",
+		"DescribeLifecycleHooks",
+		"DescribeScheduledActions",
+		"DeleteTags",
+		"DescribeTags",
+		"DescribeAutoScalingInstances",
 	}
 }
 
@@ -152,26 +205,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the Autoscaling action to the appropriate handler.
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	switch action {
-	case "CreateAutoScalingGroup":
-		return h.handleCreateAutoScalingGroup(vals)
-	case "DescribeAutoScalingGroups":
-		return h.handleDescribeAutoScalingGroups(vals)
-	case "UpdateAutoScalingGroup":
-		return h.handleUpdateAutoScalingGroup(vals)
-	case "DeleteAutoScalingGroup":
-		return h.handleDeleteAutoScalingGroup(vals)
-	case "CreateLaunchConfiguration":
-		return h.handleCreateLaunchConfiguration(vals)
-	case "DescribeLaunchConfigurations":
-		return h.handleDescribeLaunchConfigurations(vals)
-	case "DeleteLaunchConfiguration":
-		return h.handleDeleteLaunchConfiguration(vals)
-	case "DescribeScalingActivities":
-		return h.handleDescribeScalingActivities(vals)
-	default:
+	fn, ok := h.dispatchTable[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 	}
+
+	return fn(vals)
 }
 
 func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
@@ -335,8 +374,9 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 
 func (h *Handler) handleDeleteAutoScalingGroup(vals url.Values) (any, error) {
 	name := vals.Get("AutoScalingGroupName")
+	forceDelete := vals.Get("ForceDelete") == "true"
 
-	if err := h.Backend.DeleteAutoScalingGroup(name); err != nil {
+	if err := h.Backend.DeleteAutoScalingGroup(name, forceDelete); err != nil {
 		return nil, err
 	}
 
@@ -437,6 +477,361 @@ func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) 
 	}, nil
 }
 
+func (h *Handler) handleAttachInstances(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	instanceIDs := parseMembers(vals, "InstanceIds.member")
+
+	if err := h.Backend.AttachInstances(groupName, instanceIDs); err != nil {
+		return nil, err
+	}
+
+	return &attachInstancesResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-attach-instances"},
+	}, nil
+}
+
+func (h *Handler) handleAttachLoadBalancerTargetGroups(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	targetGroupARNs := parseMembers(vals, "TargetGroupARNs.member")
+
+	if err := h.Backend.AttachLoadBalancerTargetGroups(groupName, targetGroupARNs); err != nil {
+		return nil, err
+	}
+
+	return &attachLoadBalancerTargetGroupsResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-attach-tgs"},
+	}, nil
+}
+
+func (h *Handler) handleAttachLoadBalancers(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	lbNames := parseMembers(vals, "LoadBalancerNames.member")
+
+	if err := h.Backend.AttachLoadBalancers(groupName, lbNames); err != nil {
+		return nil, err
+	}
+
+	return &attachLoadBalancersResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-attach-lbs"},
+	}, nil
+}
+
+func (h *Handler) handleAttachTrafficSources(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	tss := parseTrafficSources(vals)
+
+	if err := h.Backend.AttachTrafficSources(groupName, tss); err != nil {
+		return nil, err
+	}
+
+	return &attachTrafficSourcesResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-attach-traffic-sources"},
+	}, nil
+}
+
+func (h *Handler) handleBatchDeleteScheduledAction(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	actionNames := parseMembers(vals, "ScheduledActionNames.member")
+
+	failed, err := h.Backend.BatchDeleteScheduledAction(groupName, actionNames)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlFailedScheduledAction, 0, len(failed))
+	for _, f := range failed {
+		members = append(members, xmlFailedScheduledAction(f))
+	}
+
+	return &batchDeleteScheduledActionResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: batchDeleteScheduledActionResult{
+			FailedScheduledActions: xmlFailedScheduledActionList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-batch-delete-scheduled"},
+	}, nil
+}
+
+func (h *Handler) handleBatchPutScheduledUpdateGroupAction(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	actions := parseBatchScheduledActions(vals)
+
+	failed, err := h.Backend.BatchPutScheduledUpdateGroupAction(groupName, actions)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlFailedScheduledAction, 0, len(failed))
+	for _, f := range failed {
+		members = append(members, xmlFailedScheduledAction(f))
+	}
+
+	return &batchPutScheduledUpdateGroupActionResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: batchPutScheduledUpdateGroupActionResult{
+			FailedScheduledUpdateGroupActions: xmlFailedScheduledActionList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-batch-put-scheduled"},
+	}, nil
+}
+
+func (h *Handler) handleCancelInstanceRefresh(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	refreshID, err := h.Backend.CancelInstanceRefresh(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cancelInstanceRefreshResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: cancelInstanceRefreshResult{
+			InstanceRefreshID: refreshID,
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-cancel-refresh"},
+	}, nil
+}
+
+func (h *Handler) handleCompleteLifecycleAction(vals url.Values) (any, error) {
+	input := CompleteLifecycleActionInput{
+		AutoScalingGroupName:  vals.Get("AutoScalingGroupName"),
+		LifecycleHookName:     vals.Get("LifecycleHookName"),
+		LifecycleActionToken:  vals.Get("LifecycleActionToken"),
+		InstanceID:            vals.Get("InstanceId"),
+		LifecycleActionResult: vals.Get("LifecycleActionResult"),
+	}
+
+	if err := h.Backend.CompleteLifecycleAction(input); err != nil {
+		return nil, err
+	}
+
+	return &completeLifecycleActionResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-complete-lifecycle"},
+	}, nil
+}
+
+func (h *Handler) handleCreateOrUpdateTags(vals url.Values) (any, error) {
+	tags := parseResourceTags(vals, "Tags.member")
+
+	if err := h.Backend.CreateOrUpdateTags(tags); err != nil {
+		return nil, err
+	}
+
+	return &createOrUpdateTagsResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-create-or-update-tags"},
+	}, nil
+}
+
+func (h *Handler) handleDeleteLifecycleHook(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	hookName := vals.Get("LifecycleHookName")
+
+	if err := h.Backend.DeleteLifecycleHook(groupName, hookName); err != nil {
+		return nil, err
+	}
+
+	return &deleteLifecycleHookResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-delete-lifecycle-hook"},
+	}, nil
+}
+
+func (h *Handler) handleSetDesiredCapacity(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	desired, parseErr := parseIntVal(vals.Get("DesiredCapacity"))
+	if parseErr != nil {
+		return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.SetDesiredCapacity(groupName, desired); err != nil {
+		return nil, err
+	}
+
+	return &setDesiredCapacityResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-set-desired-capacity"},
+	}, nil
+}
+
+func (h *Handler) handleTerminateInstanceInAutoScalingGroup(vals url.Values) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	decrement := vals.Get("ShouldDecrementDesiredCapacity") == "true"
+
+	activity, err := h.Backend.TerminateInstanceInAutoScalingGroup(instanceID, decrement)
+	if err != nil {
+		return nil, err
+	}
+
+	return &terminateInstanceInAutoScalingGroupResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: terminateInstanceResult{
+			Activity: toXMLScalingActivity(activity),
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-terminate-instance"},
+	}, nil
+}
+
+func (h *Handler) handlePutLifecycleHook(vals url.Values) (any, error) {
+	hook := LifecycleHook{
+		LifecycleHookName:     vals.Get("LifecycleHookName"),
+		AutoScalingGroupName:  vals.Get("AutoScalingGroupName"),
+		LifecycleTransition:   vals.Get("LifecycleTransition"),
+		DefaultResult:         vals.Get("DefaultResult"),
+		NotificationTargetARN: vals.Get("NotificationTargetARN"),
+		RoleARN:               vals.Get("RoleARN"),
+	}
+
+	if v := vals.Get("HeartbeatTimeout"); v != "" {
+		n, err := parseIntVal(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid HeartbeatTimeout", ErrInvalidParameter)
+		}
+
+		hook.HeartbeatTimeout = n
+	}
+
+	if err := h.Backend.PutLifecycleHook(hook); err != nil {
+		return nil, err
+	}
+
+	return &putLifecycleHookResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-put-lifecycle-hook"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLifecycleHooks(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	hookNames := parseMembers(vals, "LifecycleHookNames.member")
+
+	hooks, err := h.Backend.DescribeLifecycleHooks(groupName, hookNames)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlLifecycleHook, 0, len(hooks))
+	for _, hook := range hooks {
+		members = append(members, xmlLifecycleHook(hook))
+	}
+
+	return &describeLifecycleHooksResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeLifecycleHooksResult{
+			LifecycleHooks: xmlLifecycleHookList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-lifecycle-hooks"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	actionNames := parseMembers(vals, "ScheduledActionNames.member")
+
+	actions, err := h.Backend.DescribeScheduledActions(groupName, actionNames)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlScheduledAction, 0, len(actions))
+	for _, action := range actions {
+		members = append(members, xmlScheduledAction{
+			ScheduledActionName:  action.ScheduledActionName,
+			AutoScalingGroupName: action.AutoScalingGroupName,
+			Recurrence:           action.Recurrence,
+			TimeZone:             action.TimeZone,
+			DesiredCapacity:      action.DesiredCapacity,
+			MinSize:              action.MinSize,
+			MaxSize:              action.MaxSize,
+		})
+	}
+
+	return &describeScheduledActionsResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeScheduledActionsResult{
+			ScheduledUpdateGroupActions: xmlScheduledActionList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-scheduled-actions"},
+	}, nil
+}
+
+func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
+	tags := parseResourceTags(vals, "Tags.member")
+
+	if err := h.Backend.DeleteTags(tags); err != nil {
+		return nil, err
+	}
+
+	return &deleteTagsResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-delete-tags"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
+	filters := parseTagFilters(vals)
+
+	tags, err := h.Backend.DescribeTags(filters)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlResourceTag, 0, len(tags))
+	for _, tag := range tags {
+		members = append(members, xmlResourceTag{
+			ResourceID:   tag.ResourceID,
+			ResourceType: tag.ResourceType,
+			Key:          tag.Key,
+			Value:        tag.Value,
+		})
+	}
+
+	return &describeTagsResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeTagsResult{
+			Tags: xmlResourceTagList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-tags"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeAutoScalingInstances(vals url.Values) (any, error) {
+	instanceIDs := parseMembers(vals, "InstanceIds.member")
+
+	instances, err := h.Backend.DescribeAutoScalingInstances(instanceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlInstanceDetails, 0, len(instances))
+	for _, inst := range instances {
+		members = append(members, xmlInstanceDetails{
+			InstanceID:              inst.InstanceID,
+			AutoScalingGroupName:    inst.AutoScalingGroupName,
+			AvailabilityZone:        inst.AvailabilityZone,
+			LifecycleState:          inst.LifecycleState,
+			HealthStatus:            inst.HealthStatus,
+			LaunchConfigurationName: inst.LaunchConfigurationName,
+			InstanceType:            inst.InstanceType,
+			ProtectedFromScaleIn:    inst.ProtectedFromScaleIn,
+		})
+	}
+
+	return &describeAutoScalingInstancesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeAutoScalingInstancesResult{
+			AutoScalingInstances: xmlInstanceDetailsList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-instances"},
+	}, nil
+}
+
 // handleOpError translates an operation error into an HTTP response.
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	statusCode := http.StatusBadRequest
@@ -464,6 +859,10 @@ func autoscalingErrorCode(opErr error) string {
 		{ErrLaunchConfigurationAlreadyExists, "AlreadyExists"},
 		{ErrInvalidParameter, "ValidationError"},
 		{ErrUnknownAction, "InvalidAction"},
+		{ErrActiveInstanceRefreshNotFound, "ActiveInstanceRefreshNotFound"},
+		{ErrLifecycleHookNotFound, "ValidationError"},
+		{ErrScalingActivityInProgress, "ScalingActivityInProgress"},
+		{ErrInstanceNotFound, "ValidationError"},
 	}
 
 	for _, m := range mappings {
@@ -808,6 +1207,343 @@ type describeScalingActivitiesResponse struct {
 	Xmlns            string                          `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata             `xml:"ResponseMetadata"`
 	Result           describeScalingActivitiesResult `xml:"DescribeScalingActivitiesResult"`
+}
+
+// parseTrafficSources parses TrafficSources from form values using the standard AWS pattern.
+func parseTrafficSources(vals url.Values) []TrafficSource {
+	result := make([]TrafficSource, 0)
+
+	for i := 1; ; i++ {
+		idKey := fmt.Sprintf("TrafficSources.member.%d.Identifier", i)
+		typeKey := fmt.Sprintf("TrafficSources.member.%d.Type", i)
+		id := vals.Get(idKey)
+
+		if id == "" {
+			break
+		}
+
+		result = append(result, TrafficSource{
+			Identifier: id,
+			Type:       vals.Get(typeKey),
+		})
+	}
+
+	return result
+}
+
+// parseResourceTags parses resource-scoped tags from form values.
+func parseResourceTags(vals url.Values, prefix string) []ResourceTag {
+	result := make([]ResourceTag, 0)
+
+	for i := 1; ; i++ {
+		keyParam := fmt.Sprintf("%s.%d.Key", prefix, i)
+		k := vals.Get(keyParam)
+
+		if k == "" {
+			break
+		}
+
+		result = append(result, ResourceTag{
+			ResourceID:   vals.Get(fmt.Sprintf("%s.%d.ResourceId", prefix, i)),
+			ResourceType: vals.Get(fmt.Sprintf("%s.%d.ResourceType", prefix, i)),
+			Key:          k,
+			Value:        vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i)),
+		})
+	}
+
+	return result
+}
+
+// parseBatchScheduledActions parses ScheduledUpdateGroupAction entries from form values.
+func parseBatchScheduledActions(vals url.Values) []ScheduledUpdateGroupAction {
+	result := make([]ScheduledUpdateGroupAction, 0)
+
+	prefix := "ScheduledUpdateGroupActions.member"
+
+	for i := 1; ; i++ {
+		nameKey := fmt.Sprintf("%s.%d.ScheduledActionName", prefix, i)
+		name := vals.Get(nameKey)
+
+		if name == "" {
+			break
+		}
+
+		action := ScheduledUpdateGroupAction{
+			ScheduledActionName: name,
+			Recurrence:          vals.Get(fmt.Sprintf("%s.%d.Recurrence", prefix, i)),
+			TimeZone:            vals.Get(fmt.Sprintf("%s.%d.TimeZone", prefix, i)),
+		}
+
+		if v := vals.Get(fmt.Sprintf("%s.%d.DesiredCapacity", prefix, i)); v != "" {
+			if n, err := parseIntVal(v); err == nil {
+				action.DesiredCapacity = &n
+			}
+		}
+
+		if v := vals.Get(fmt.Sprintf("%s.%d.MinSize", prefix, i)); v != "" {
+			if n, err := parseIntVal(v); err == nil {
+				action.MinSize = &n
+			}
+		}
+
+		if v := vals.Get(fmt.Sprintf("%s.%d.MaxSize", prefix, i)); v != "" {
+			if n, err := parseIntVal(v); err == nil {
+				action.MaxSize = &n
+			}
+		}
+
+		result = append(result, action)
+	}
+
+	return result
+}
+
+// --- new XML response types ---
+
+type attachInstancesResponse struct {
+	XMLName          xml.Name            `xml:"AttachInstancesResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type attachLoadBalancerTargetGroupsResponse struct {
+	XMLName          xml.Name            `xml:"AttachLoadBalancerTargetGroupsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type attachLoadBalancersResponse struct {
+	XMLName          xml.Name            `xml:"AttachLoadBalancersResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type attachTrafficSourcesResponse struct {
+	XMLName          xml.Name            `xml:"AttachTrafficSourcesResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type xmlFailedScheduledAction struct {
+	ScheduledActionName string `xml:"ScheduledActionName"`
+	ErrorCode           string `xml:"ErrorCode"`
+	ErrorMessage        string `xml:"ErrorMessage"`
+}
+
+type xmlFailedScheduledActionList struct {
+	Members []xmlFailedScheduledAction `xml:"member"`
+}
+
+type batchDeleteScheduledActionResult struct {
+	FailedScheduledActions xmlFailedScheduledActionList `xml:"FailedScheduledActions"`
+}
+
+type batchDeleteScheduledActionResponse struct {
+	XMLName          xml.Name                         `xml:"BatchDeleteScheduledActionResponse"`
+	Xmlns            string                           `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata              `xml:"ResponseMetadata"`
+	Result           batchDeleteScheduledActionResult `xml:"BatchDeleteScheduledActionResult"`
+}
+
+type batchPutScheduledUpdateGroupActionResult struct {
+	FailedScheduledUpdateGroupActions xmlFailedScheduledActionList `xml:"FailedScheduledUpdateGroupActions"`
+}
+
+type batchPutScheduledUpdateGroupActionResponse struct {
+	XMLName          xml.Name                                 `xml:"BatchPutScheduledUpdateGroupActionResponse"`
+	Xmlns            string                                   `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                      `xml:"ResponseMetadata"`
+	Result           batchPutScheduledUpdateGroupActionResult `xml:"BatchPutScheduledUpdateGroupActionResult"`
+}
+
+type cancelInstanceRefreshResult struct {
+	InstanceRefreshID string `xml:"InstanceRefreshId"`
+}
+
+type cancelInstanceRefreshResponse struct {
+	XMLName          xml.Name                    `xml:"CancelInstanceRefreshResponse"`
+	Xmlns            string                      `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata         `xml:"ResponseMetadata"`
+	Result           cancelInstanceRefreshResult `xml:"CancelInstanceRefreshResult"`
+}
+
+type completeLifecycleActionResponse struct {
+	XMLName          xml.Name            `xml:"CompleteLifecycleActionResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type createOrUpdateTagsResponse struct {
+	XMLName          xml.Name            `xml:"CreateOrUpdateTagsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type deleteLifecycleHookResponse struct {
+	XMLName          xml.Name            `xml:"DeleteLifecycleHookResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type setDesiredCapacityResponse struct {
+	XMLName          xml.Name            `xml:"SetDesiredCapacityResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type terminateInstanceResult struct {
+	Activity xmlScalingActivity `xml:"Activity"`
+}
+
+type terminateInstanceInAutoScalingGroupResponse struct {
+	XMLName          xml.Name                `xml:"TerminateInstanceInAutoScalingGroupResponse"`
+	Xmlns            string                  `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           terminateInstanceResult `xml:"TerminateInstanceInAutoScalingGroupResult"`
+}
+
+type putLifecycleHookResponse struct {
+	XMLName          xml.Name            `xml:"PutLifecycleHookResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type xmlLifecycleHook struct {
+	LifecycleHookName     string `xml:"LifecycleHookName"`
+	AutoScalingGroupName  string `xml:"AutoScalingGroupName"`
+	LifecycleTransition   string `xml:"LifecycleTransition,omitempty"`
+	DefaultResult         string `xml:"DefaultResult,omitempty"`
+	NotificationTargetARN string `xml:"NotificationTargetARN,omitempty"`
+	RoleARN               string `xml:"RoleARN,omitempty"`
+	HeartbeatTimeout      int32  `xml:"HeartbeatTimeout,omitempty"`
+}
+
+type xmlLifecycleHookList struct {
+	Members []xmlLifecycleHook `xml:"member"`
+}
+
+type describeLifecycleHooksResult struct {
+	LifecycleHooks xmlLifecycleHookList `xml:"LifecycleHooks"`
+}
+
+type describeLifecycleHooksResponse struct {
+	XMLName          xml.Name                     `xml:"DescribeLifecycleHooksResponse"`
+	Xmlns            string                       `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata          `xml:"ResponseMetadata"`
+	Result           describeLifecycleHooksResult `xml:"DescribeLifecycleHooksResult"`
+}
+
+type xmlScheduledAction struct {
+	DesiredCapacity      *int32 `xml:"DesiredCapacity,omitempty"`
+	MinSize              *int32 `xml:"MinSize,omitempty"`
+	MaxSize              *int32 `xml:"MaxSize,omitempty"`
+	ScheduledActionName  string `xml:"ScheduledActionName"`
+	AutoScalingGroupName string `xml:"AutoScalingGroupName,omitempty"`
+	Recurrence           string `xml:"Recurrence,omitempty"`
+	TimeZone             string `xml:"TimeZone,omitempty"`
+}
+
+type xmlScheduledActionList struct {
+	Members []xmlScheduledAction `xml:"member"`
+}
+
+type describeScheduledActionsResult struct {
+	NextToken                   string                 `xml:"NextToken,omitempty"`
+	ScheduledUpdateGroupActions xmlScheduledActionList `xml:"ScheduledUpdateGroupActions"`
+}
+
+type describeScheduledActionsResponse struct {
+	XMLName          xml.Name                       `xml:"DescribeScheduledActionsResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
+	Result           describeScheduledActionsResult `xml:"DescribeScheduledActionsResult"`
+}
+
+type deleteTagsResponse struct {
+	XMLName          xml.Name            `xml:"DeleteTagsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type xmlResourceTag struct {
+	ResourceID   string `xml:"ResourceId"`
+	ResourceType string `xml:"ResourceType"`
+	Key          string `xml:"Key"`
+	Value        string `xml:"Value,omitempty"`
+}
+
+type xmlResourceTagList struct {
+	Members []xmlResourceTag `xml:"member"`
+}
+
+type describeTagsResult struct {
+	NextToken string             `xml:"NextToken,omitempty"`
+	Tags      xmlResourceTagList `xml:"Tags"`
+}
+
+type describeTagsResponse struct {
+	XMLName          xml.Name            `xml:"DescribeTagsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           describeTagsResult  `xml:"DescribeTagsResult"`
+}
+
+type xmlInstanceDetails struct {
+	InstanceID              string `xml:"InstanceId"`
+	AutoScalingGroupName    string `xml:"AutoScalingGroupName"`
+	AvailabilityZone        string `xml:"AvailabilityZone"`
+	LifecycleState          string `xml:"LifecycleState"`
+	HealthStatus            string `xml:"HealthStatus"`
+	LaunchConfigurationName string `xml:"LaunchConfigurationName,omitempty"`
+	InstanceType            string `xml:"InstanceType,omitempty"`
+	ProtectedFromScaleIn    bool   `xml:"ProtectedFromScaleIn"`
+}
+
+type xmlInstanceDetailsList struct {
+	Members []xmlInstanceDetails `xml:"member"`
+}
+
+type describeAutoScalingInstancesResult struct {
+	NextToken            string                 `xml:"NextToken,omitempty"`
+	AutoScalingInstances xmlInstanceDetailsList `xml:"AutoScalingInstances"`
+}
+
+type describeAutoScalingInstancesResponse struct {
+	XMLName          xml.Name                           `xml:"DescribeAutoScalingInstancesResponse"`
+	Xmlns            string                             `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                `xml:"ResponseMetadata"`
+	Result           describeAutoScalingInstancesResult `xml:"DescribeAutoScalingInstancesResult"`
+}
+
+// parseTagFilters parses Filters from form values used in DescribeTags.
+func parseTagFilters(vals url.Values) []TagFilter {
+	var filters []TagFilter
+
+	for i := 1; ; i++ {
+		nameKey := fmt.Sprintf("Filters.member.%d.Name", i)
+		name := vals.Get(nameKey)
+
+		if name == "" {
+			break
+		}
+
+		var values []string
+
+		for j := 1; ; j++ {
+			valKey := fmt.Sprintf("Filters.member.%d.Values.member.%d", i, j)
+			v := vals.Get(valKey)
+
+			if v == "" {
+				break
+			}
+
+			values = append(values, v)
+		}
+
+		filters = append(filters, TagFilter{Name: name, Values: values})
+	}
+
+	return filters
 }
 
 // Purge implements service.Purgeable by removing all Auto Scaling resources older than cutoff.
