@@ -22,13 +22,17 @@ var ErrUnknownOperation = errors.New("InvalidRequestException")
 
 // Handler is the Echo HTTP service handler for Athena operations.
 type Handler struct {
-	Backend StorageBackend
-	janitor *Janitor
+	Backend  StorageBackend
+	janitor  *Janitor
+	dispatch map[string]athenaActionFn
 }
 
 // NewHandler creates a new Athena handler with the given storage backend.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.dispatch = h.buildDispatchTable()
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -87,6 +91,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchGetPreparedStatement",
 		"CreatePreparedStatement",
 		"DeletePreparedStatement",
+		"GetPreparedStatement",
+		"ListPreparedStatements",
 		"CancelCapacityReservation",
 		"CreateCapacityReservation",
 		"DeleteCapacityReservation",
@@ -161,7 +167,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			c, logger.Load(c.Request().Context()),
 			"Athena", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			h.doDispatch,
 			h.handleError,
 		)
 	}
@@ -293,6 +299,15 @@ type deletePreparedStatementInput struct {
 	WorkGroup     string `json:"WorkGroup"`
 }
 
+type getPreparedStatementInput struct {
+	StatementName string `json:"StatementName"`
+	WorkGroup     string `json:"WorkGroup"`
+}
+
+type listPreparedStatementsInput struct {
+	WorkGroup string `json:"WorkGroup"`
+}
+
 type cancelCapacityReservationInput struct {
 	Name string `json:"Name"`
 }
@@ -331,7 +346,7 @@ type athenaActionFn func([]byte) (any, error)
 
 const errTypeInvalidRequest = "InvalidRequestException"
 
-func (h *Handler) dispatchTable() map[string]athenaActionFn {
+func (h *Handler) buildDispatchTable() map[string]athenaActionFn {
 	ops := h.workGroupOps()
 	maps.Copy(ops, h.namedQueryOps())
 	maps.Copy(ops, h.dataCatalogOps())
@@ -665,6 +680,32 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 
 			return struct{}{}, h.Backend.DeletePreparedStatement(input.StatementName, input.WorkGroup)
 		},
+		"GetPreparedStatement": func(b []byte) (any, error) {
+			var input getPreparedStatementInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			ps, err := h.Backend.GetPreparedStatement(input.StatementName, input.WorkGroup)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"PreparedStatement": ps}, nil
+		},
+		"ListPreparedStatements": func(b []byte) (any, error) {
+			var input listPreparedStatementsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			stmts, err := h.Backend.ListPreparedStatements(input.WorkGroup)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"PreparedStatements": stmts}, nil
+		},
 	}
 }
 
@@ -754,9 +795,9 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 	}
 }
 
-// dispatch routes the operation to the appropriate handler.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+// doDispatch routes the operation to the appropriate handler.
+func (h *Handler) doDispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatch[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
@@ -784,6 +825,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	case errors.Is(reqErr, ErrAlreadyExists):
 		errorType = errTypeInvalidRequest
 	case errors.Is(reqErr, ErrProtected):
+		errorType = errTypeInvalidRequest
+	case errors.Is(reqErr, ErrValidation):
 		errorType = errTypeInvalidRequest
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = errTypeInvalidRequest

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -22,6 +23,11 @@ const (
 	millisToSeconds  = 1000.0
 
 	presignedURLBase = "https://athena.us-east-1.amazonaws.com/notebooks/presigned/"
+
+	stateSucceeded  = "SUCCEEDED"
+	stateFailed     = "FAILED"
+	stateCancelled  = "CANCELLED"
+	stateCancelling = "CANCELLING"
 )
 
 var (
@@ -31,7 +37,19 @@ var (
 	ErrAlreadyExists = errors.New("InvalidRequestException")
 	// ErrProtected is returned when an operation is not allowed on a protected resource.
 	ErrProtected = errors.New("InvalidRequestException")
+	// ErrValidation is returned when input fails validation.
+	ErrValidation = errors.New("InvalidRequestException")
 )
+
+// validDataCatalogTypes is the set of accepted DataCatalog type values.
+func isValidDataCatalogType(t string) bool {
+	switch t {
+	case "LAMBDA", "GLUE", "HIVE", "FEDERATED":
+		return true
+	default:
+		return false
+	}
+}
 
 // EncryptionConfiguration holds encryption settings for query results.
 type EncryptionConfiguration struct {
@@ -226,6 +244,8 @@ type StorageBackend interface {
 	) ([]PreparedStatement, []UnprocessedPreparedStatementName)
 	CreatePreparedStatement(name, description, workGroup, queryStatement string) error
 	DeletePreparedStatement(name, workGroup string) error
+	GetPreparedStatement(name, workGroup string) (*PreparedStatement, error)
+	ListPreparedStatements(workGroup string) ([]PreparedStatement, error)
 
 	// Capacity Reservations
 	CancelCapacityReservation(name string) error
@@ -249,6 +269,7 @@ type InMemoryBackend struct {
 	preparedStatements   map[string]*PreparedStatement // key: "workGroup/name"
 	capacityReservations map[string]*CapacityReservation
 	notebooks            map[string]*Notebook // key: notebookID
+	notebookNames        map[string]struct{}  // key: "workGroup/name", for uniqueness
 	mu                   *lockmetrics.RWMutex
 }
 
@@ -263,6 +284,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		preparedStatements:   make(map[string]*PreparedStatement),
 		capacityReservations: make(map[string]*CapacityReservation),
 		notebooks:            make(map[string]*Notebook),
+		notebookNames:        make(map[string]struct{}),
 		mu:                   lockmetrics.New("athena"),
 	}
 
@@ -304,6 +326,10 @@ func (b *InMemoryBackend) CreateWorkGroup(
 	cfg WorkGroupConfiguration,
 	tags map[string]string,
 ) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateWorkGroup")
 	defer b.mu.Unlock()
 
@@ -414,6 +440,15 @@ func (b *InMemoryBackend) DeleteWorkGroup(name string) error {
 func (b *InMemoryBackend) CreateNamedQuery(
 	name, description, database, queryString, workGroup string,
 ) (string, error) {
+	switch {
+	case name == "":
+		return "", fmt.Errorf("%w: Name is required", ErrValidation)
+	case database == "":
+		return "", fmt.Errorf("%w: Database is required", ErrValidation)
+	case queryString == "":
+		return "", fmt.Errorf("%w: QueryString is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateNamedQuery")
 	defer b.mu.Unlock()
 
@@ -503,6 +538,21 @@ func (b *InMemoryBackend) CreateDataCatalog(
 	name, catalogType, description string,
 	params, tags map[string]string,
 ) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("%w: Name is required", ErrValidation)
+	case catalogType == "":
+		return fmt.Errorf("%w: Type is required", ErrValidation)
+	}
+
+	if !isValidDataCatalogType(catalogType) {
+		return fmt.Errorf(
+			"%w: Type %q is invalid; must be one of LAMBDA, GLUE, HIVE, FEDERATED",
+			ErrValidation,
+			catalogType,
+		)
+	}
+
 	b.mu.Lock("CreateDataCatalog")
 	defer b.mu.Unlock()
 
@@ -621,7 +671,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 		QueryExecutionContext: ctx,
 		WorkGroup:             workGroup,
 		Status: QueryExecutionStatus{
-			State:              "SUCCEEDED",
+			State:              stateSucceeded,
 			SubmissionDateTime: now,
 			CompletionDateTime: now,
 		},
@@ -666,6 +716,16 @@ func (b *InMemoryBackend) ListQueryExecutions(workGroup string) ([]string, error
 	return ids, nil
 }
 
+// isTerminalState reports whether a query execution state is terminal (cannot be stopped).
+func isTerminalState(state string) bool {
+	switch state {
+	case stateSucceeded, stateFailed, stateCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // StopQueryExecution marks a query execution as cancelled.
 func (b *InMemoryBackend) StopQueryExecution(id string) error {
 	b.mu.Lock("StopQueryExecution")
@@ -676,7 +736,11 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 		return fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
 	}
 
-	qe.Status.State = "CANCELLED"
+	if isTerminalState(qe.Status.State) {
+		return fmt.Errorf("%w: query execution %q is already in terminal state %q", ErrValidation, id, qe.Status.State)
+	}
+
+	qe.Status.State = stateCancelled
 
 	return nil
 }
@@ -766,6 +830,15 @@ func preparedStatementKey(workGroup, name string) string {
 
 // CreatePreparedStatement creates a new prepared statement in a workgroup.
 func (b *InMemoryBackend) CreatePreparedStatement(name, description, workGroup, queryStatement string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("%w: StatementName is required", ErrValidation)
+	case workGroup == "":
+		return fmt.Errorf("%w: WorkGroup is required", ErrValidation)
+	case queryStatement == "":
+		return fmt.Errorf("%w: QueryStatement is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreatePreparedStatement")
 	defer b.mu.Unlock()
 
@@ -784,6 +857,43 @@ func (b *InMemoryBackend) CreatePreparedStatement(name, description, workGroup, 
 	}
 
 	return nil
+}
+
+// GetPreparedStatement retrieves a prepared statement by name and workgroup.
+func (b *InMemoryBackend) GetPreparedStatement(name, workGroup string) (*PreparedStatement, error) {
+	b.mu.RLock("GetPreparedStatement")
+	defer b.mu.RUnlock()
+
+	key := preparedStatementKey(workGroup, name)
+	ps, ok := b.preparedStatements[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrNotFound, name, workGroup)
+	}
+
+	cp := *ps
+
+	return &cp, nil
+}
+
+// ListPreparedStatements returns all prepared statements in a workgroup, sorted by name.
+func (b *InMemoryBackend) ListPreparedStatements(workGroup string) ([]PreparedStatement, error) {
+	b.mu.RLock("ListPreparedStatements")
+	defer b.mu.RUnlock()
+
+	result := make([]PreparedStatement, 0)
+
+	for key, ps := range b.preparedStatements {
+		prefix := workGroup + "/"
+		if strings.HasPrefix(key, prefix) {
+			result = append(result, *ps)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StatementName < result[j].StatementName
+	})
+
+	return result, nil
 }
 
 // BatchGetPreparedStatement retrieves multiple prepared statements by name within a workgroup.
@@ -832,6 +942,13 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 
 // CreateCapacityReservation creates a new capacity reservation.
 func (b *InMemoryBackend) CreateCapacityReservation(name string, targetDPUs int32, tags map[string]string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("%w: Name is required", ErrValidation)
+	case targetDPUs <= 0:
+		return fmt.Errorf("%w: TargetDpus must be greater than 0", ErrValidation)
+	}
+
 	b.mu.Lock("CreateCapacityReservation")
 	defer b.mu.Unlock()
 
@@ -862,18 +979,29 @@ func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
 
-	cr.Status = "CANCELLING"
+	cr.Status = stateCancelling
 
 	return nil
 }
 
 // DeleteCapacityReservation removes a capacity reservation.
+// The reservation must have been cancelled first (status CANCELLING or CANCELLED).
 func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 	b.mu.Lock("DeleteCapacityReservation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityReservations[name]; !ok {
+	cr, ok := b.capacityReservations[name]
+	if !ok {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
+	}
+
+	if cr.Status != stateCancelling && cr.Status != stateCancelled {
+		return fmt.Errorf(
+			"%w: capacity reservation %q must be cancelled before deletion (current status: %s)",
+			ErrValidation,
+			name,
+			cr.Status,
+		)
 	}
 
 	delete(b.capacityReservations, name)
@@ -885,8 +1013,20 @@ func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 
 // CreateNotebook creates a new Athena notebook and returns its ID.
 func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string]string) (string, error) {
+	switch {
+	case workGroup == "":
+		return "", fmt.Errorf("%w: WorkGroup is required", ErrValidation)
+	case name == "":
+		return "", fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateNotebook")
 	defer b.mu.Unlock()
+
+	nameKey := workGroup + "/" + name
+	if _, exists := b.notebookNames[nameKey]; exists {
+		return "", fmt.Errorf("%w: notebook %q already exists in workgroup %q", ErrAlreadyExists, name, workGroup)
+	}
 
 	id := randomID()
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
@@ -899,6 +1039,7 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 		LastModifiedTime: now,
 		Content:          "",
 	}
+	b.notebookNames[nameKey] = struct{}{}
 
 	if len(tags) > 0 {
 		notebookARN := fmt.Sprintf("arn:aws:athena:%s:%s:notebook/%s", arnRegion, arnAccount, id)
@@ -918,10 +1059,13 @@ func (b *InMemoryBackend) DeleteNotebook(notebookID string) error {
 	b.mu.Lock("DeleteNotebook")
 	defer b.mu.Unlock()
 
-	if _, ok := b.notebooks[notebookID]; !ok {
+	nb, ok := b.notebooks[notebookID]
+	if !ok {
 		return fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
+	nameKey := nb.WorkGroup + "/" + nb.Name
+	delete(b.notebookNames, nameKey)
 	delete(b.notebooks, notebookID)
 
 	return nil
