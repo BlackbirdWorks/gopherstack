@@ -229,6 +229,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 }
 
 // mergeTags merges src into dst enforcing the per-resource tag limit.
+// dst must be non-nil; callers are responsible for initialising it before the call.
 // Returns an error if the merge would exceed the limit.
 func mergeTags(dst map[string]string, src map[string]string) error {
 	if len(src) == 0 {
@@ -335,13 +336,18 @@ type DescribeScalableTargetsFilter struct {
 
 // applyMaxResults returns at most maxResults elements from list.
 // When maxResults is 0 or negative the full list is returned.
+// maxResults is capped at maxDescribeResults before truncation.
 func applyMaxResults[T any](list []T, maxResults int32) []T {
-	if maxResults <= 0 || int(maxResults) >= len(list) {
+	if maxResults <= 0 {
 		return list
 	}
 
 	if maxResults > maxDescribeResults {
 		maxResults = maxDescribeResults
+	}
+
+	if int(maxResults) >= len(list) {
+		return list
 	}
 
 	return list[:maxResults]
@@ -853,7 +859,10 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 		start = start.Add(time.Hour)
 	}
 
-	timestamps := make([]time.Time, 0)
+	// Preallocate with the exact known capacity to avoid slice growth.
+	numPoints := max(0, int(endTime.Sub(start)/time.Hour))
+
+	timestamps := make([]time.Time, 0, numPoints)
 
 	for t := start; t.Before(endTime); t = t.Add(time.Hour) {
 		timestamps = append(timestamps, t)
