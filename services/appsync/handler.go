@@ -1801,9 +1801,8 @@ func (h *Handler) deleteFunction(ctx context.Context, c *echo.Context, apiID, fu
 
 // getType handles GET /v1/apis/{apiId}/types/{typeName}.
 func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName string) error {
-	// AWS SDK sends format as a query parameter (SDL or JSON). Pass through.
-	_ = c.Request().URL.Query().Get("format")
-
+	// The format query parameter (SDL or JSON) is accepted for AWS SDK compatibility.
+	// The definition is returned in the format it was stored in.
 	t, err := h.Backend.GetType(apiID, typeName)
 	if err != nil {
 		return h.handleError(ctx, c, "GetType", err)
@@ -1814,10 +1813,8 @@ func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName 
 
 // listTypes handles GET /v1/apis/{apiId}/types.
 func (h *Handler) listTypes(ctx context.Context, c *echo.Context, apiID string) error {
-	// AWS SDK sends format as a query parameter (SDL or JSON). Accept but we
-	// return whatever format is stored on each type.
-	_ = c.Request().URL.Query().Get("format")
-
+	// The format query parameter (SDL or JSON) is accepted for AWS SDK compatibility.
+	// Each type is returned in the format it was stored in.
 	types, err := h.Backend.ListTypes(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListTypes", err)
