@@ -1003,6 +1003,7 @@ func TestHandler_CreatePreparedStatement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler)
 		name       string
 		body       string
 		wantStatus int
@@ -1014,7 +1015,11 @@ func TestHandler_CreatePreparedStatement(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "duplicate",
+			name: "duplicate",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`)
+			},
 			body:       `{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`,
 			wantStatus: http.StatusBadRequest,
 			wantErr:    true,
@@ -1026,10 +1031,8 @@ func TestHandler_CreatePreparedStatement(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.name == "duplicate" {
-				_ = doRequest(t, h, "CreatePreparedStatement",
-					`{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT ?"}`)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doRequest(t, h, "CreatePreparedStatement", tt.body)
@@ -1048,13 +1051,21 @@ func TestHandler_BatchGetPreparedStatement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup           func(*athena.Handler)
 		name            string
+		body            string
 		wantStatus      int
 		wantFound       int
 		wantUnprocessed int
 	}{
 		{
-			name:            "found_and_unprocessed",
+			name: "found_and_unprocessed",
+			setup: func(h *athena.Handler) {
+				createRec := doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"s1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+			},
+			body:            `{"WorkGroup":"primary","StatementNames":["s1","missing"]}`,
 			wantStatus:      http.StatusOK,
 			wantFound:       1,
 			wantUnprocessed: 1,
@@ -1066,13 +1077,11 @@ func TestHandler_BatchGetPreparedStatement(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 
-			createRec := doRequest(t, h, "CreatePreparedStatement",
-				`{"StatementName":"s1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
-			require.Equal(t, http.StatusOK, createRec.Code)
-
-			rec := doRequest(t, h, "BatchGetPreparedStatement",
-				`{"WorkGroup":"primary","StatementNames":["s1","missing"]}`)
+			rec := doRequest(t, h, "BatchGetPreparedStatement", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -1089,15 +1098,23 @@ func TestHandler_DeletePreparedStatement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler)
 		name       string
+		body       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreatePreparedStatement",
+					`{"StatementName":"del-stmt","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+			},
+			body:       `{"StatementName":"del-stmt","WorkGroup":"primary"}`,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "not_found",
+			body:       `{"StatementName":"no-such-stmt","WorkGroup":"primary"}`,
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -1107,19 +1124,12 @@ func TestHandler_DeletePreparedStatement(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.name == "success" {
-				_ = doRequest(t, h, "CreatePreparedStatement",
-					`{"StatementName":"del-stmt","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
-
-				rec := doRequest(t, h, "DeletePreparedStatement",
-					`{"StatementName":"del-stmt","WorkGroup":"primary"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			} else {
-				rec := doRequest(t, h, "DeletePreparedStatement",
-					`{"StatementName":"no-such-stmt","WorkGroup":"primary"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
+
+			rec := doRequest(t, h, "DeletePreparedStatement", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
@@ -1130,6 +1140,7 @@ func TestHandler_CreateCapacityReservation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler)
 		name       string
 		body       string
 		wantStatus int
@@ -1141,7 +1152,10 @@ func TestHandler_CreateCapacityReservation(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "duplicate",
+			name: "duplicate",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"res1","TargetDpus":24}`)
+			},
 			body:       `{"Name":"res1","TargetDpus":24}`,
 			wantStatus: http.StatusBadRequest,
 			wantErr:    true,
@@ -1153,9 +1167,8 @@ func TestHandler_CreateCapacityReservation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.name == "duplicate" {
-				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"res1","TargetDpus":24}`)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doRequest(t, h, "CreateCapacityReservation", tt.body)
@@ -1174,15 +1187,22 @@ func TestHandler_CancelCapacityReservation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler)
 		name       string
+		body       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cancel-res","TargetDpus":24}`)
+			},
+			body:       `{"Name":"cancel-res"}`,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "not_found",
+			body:       `{"Name":"no-such-res"}`,
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -1192,16 +1212,12 @@ func TestHandler_CancelCapacityReservation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.name == "success" {
-				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cancel-res","TargetDpus":24}`)
-
-				rec := doRequest(t, h, "CancelCapacityReservation", `{"Name":"cancel-res"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			} else {
-				rec := doRequest(t, h, "CancelCapacityReservation", `{"Name":"no-such-res"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
+
+			rec := doRequest(t, h, "CancelCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
@@ -1210,15 +1226,22 @@ func TestHandler_DeleteCapacityReservation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler)
 		name       string
+		body       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *athena.Handler) {
+				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"del-res","TargetDpus":24}`)
+			},
+			body:       `{"Name":"del-res"}`,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "not_found",
+			body:       `{"Name":"no-such-res"}`,
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -1228,16 +1251,12 @@ func TestHandler_DeleteCapacityReservation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.name == "success" {
-				_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"del-res","TargetDpus":24}`)
-
-				rec := doRequest(t, h, "DeleteCapacityReservation", `{"Name":"del-res"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			} else {
-				rec := doRequest(t, h, "DeleteCapacityReservation", `{"Name":"no-such-res"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
+
+			rec := doRequest(t, h, "DeleteCapacityReservation", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
@@ -1283,6 +1302,7 @@ func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		body       string
 		sessionID  string
 		wantStatus int
 		wantURL    bool
@@ -1290,6 +1310,7 @@ func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
 		{
 			name:       "success",
 			sessionID:  "sess-abc123",
+			body:       `{"SessionId":"sess-abc123"}`,
 			wantStatus: http.StatusOK,
 			wantURL:    true,
 		},
@@ -1300,8 +1321,7 @@ func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, "CreatePresignedNotebookUrl",
-				`{"SessionId":"`+tt.sessionID+`"}`)
+			rec := doRequest(t, h, "CreatePresignedNotebookUrl", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantURL {
@@ -1317,15 +1337,28 @@ func TestHandler_DeleteNotebook(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *athena.Handler) string {
+				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"del-nb"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				return cr["NotebookId"]
+			},
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "not_found",
+			name: "not_found",
+			setup: func(_ *athena.Handler) string {
+				return "nonexistent"
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -1335,20 +1368,10 @@ func TestHandler_DeleteNotebook(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			notebookID := tt.setup(h)
 
-			if tt.name == "success" {
-				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"del-nb"}`)
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var cr map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
-
-				rec := doRequest(t, h, "DeleteNotebook", `{"NotebookId":"`+cr["NotebookId"]+`"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			} else {
-				rec := doRequest(t, h, "DeleteNotebook", `{"NotebookId":"nonexistent"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-			}
+			rec := doRequest(t, h, "DeleteNotebook", `{"NotebookId":"`+notebookID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
@@ -1357,17 +1380,30 @@ func TestHandler_ExportNotebook(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*athena.Handler) string
 		name       string
+		wantName   string
 		wantStatus int
-		wantMeta   bool
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *athena.Handler) string {
+				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"exp-nb"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				return cr["NotebookId"]
+			},
 			wantStatus: http.StatusOK,
-			wantMeta:   true,
+			wantName:   "exp-nb",
 		},
 		{
-			name:       "not_found",
+			name: "not_found",
+			setup: func(_ *athena.Handler) string {
+				return "nonexistent"
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -1377,25 +1413,17 @@ func TestHandler_ExportNotebook(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			notebookID := tt.setup(h)
 
-			if tt.wantMeta {
-				createRec := doRequest(t, h, "CreateNotebook", `{"WorkGroup":"primary","Name":"exp-nb"}`)
-				require.Equal(t, http.StatusOK, createRec.Code)
+			rec := doRequest(t, h, "ExportNotebook", `{"NotebookId":"`+notebookID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 
-				var cr map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
-
-				rec := doRequest(t, h, "ExportNotebook", `{"NotebookId":"`+cr["NotebookId"]+`"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-
+			if tt.wantName != "" {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				meta, _ := resp["NotebookMetadata"].(map[string]any)
 				require.NotNil(t, meta, "NotebookMetadata should be present")
-				assert.Equal(t, "exp-nb", meta["Name"])
-			} else {
-				rec := doRequest(t, h, "ExportNotebook", `{"NotebookId":"nonexistent"}`)
-				assert.Equal(t, tt.wantStatus, rec.Code)
+				assert.Equal(t, tt.wantName, meta["Name"])
 			}
 		})
 	}
