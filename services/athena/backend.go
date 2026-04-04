@@ -826,6 +826,16 @@ func preparedStatementKey(workGroup, name string) string {
 	return workGroup + "/" + name
 }
 
+// notebookNameKey returns the composite key for notebook name uniqueness.
+func notebookNameKey(workGroup, name string) string {
+	return workGroup + "/" + name
+}
+
+// canDeleteCapacityReservation reports whether a capacity reservation status allows deletion.
+func canDeleteCapacityReservation(status string) bool {
+	return status == stateCancelling || status == stateCancelled
+}
+
 // --- Prepared Statements ---
 
 // CreatePreparedStatement creates a new prepared statement in a workgroup.
@@ -995,7 +1005,7 @@ func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
 
-	if cr.Status != stateCancelling && cr.Status != stateCancelled {
+	if !canDeleteCapacityReservation(cr.Status) {
 		return fmt.Errorf(
 			"%w: capacity reservation %q must be cancelled before deletion (current status: %s)",
 			ErrValidation,
@@ -1023,7 +1033,7 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 	b.mu.Lock("CreateNotebook")
 	defer b.mu.Unlock()
 
-	nameKey := workGroup + "/" + name
+	nameKey := notebookNameKey(workGroup, name)
 	if _, exists := b.notebookNames[nameKey]; exists {
 		return "", fmt.Errorf("%w: notebook %q already exists in workgroup %q", ErrAlreadyExists, name, workGroup)
 	}
@@ -1064,7 +1074,7 @@ func (b *InMemoryBackend) DeleteNotebook(notebookID string) error {
 		return fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
-	nameKey := nb.WorkGroup + "/" + nb.Name
+	nameKey := notebookNameKey(nb.WorkGroup, nb.Name)
 	delete(b.notebookNames, nameKey)
 	delete(b.notebooks, notebookID)
 

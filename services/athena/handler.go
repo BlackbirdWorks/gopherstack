@@ -22,8 +22,9 @@ var ErrUnknownOperation = errors.New("InvalidRequestException")
 
 // Handler is the Echo HTTP service handler for Athena operations.
 type Handler struct {
-	Backend  StorageBackend
-	janitor  *Janitor
+	Backend StorageBackend
+	janitor *Janitor
+	// dispatch is the pre-built immutable dispatch table, set once in NewHandler.
 	dispatch map[string]athenaActionFn
 }
 
