@@ -101,6 +101,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeBackupJob",
 		"ListBackupJobs",
 		"TagResource",
+		"UntagResource",
 		"ListTags",
 	}
 }
@@ -292,6 +293,8 @@ func parseTagsRoute(method, resourceArn string) backupRoute {
 		return backupRoute{operation: "TagResource", resource: resourceArn}
 	case http.MethodGet:
 		return backupRoute{operation: "ListTags", resource: resourceArn}
+	case http.MethodDelete:
+		return backupRoute{operation: "UntagResource", resource: resourceArn}
 	}
 
 	return backupRoute{operation: "Unknown"}
@@ -451,6 +454,8 @@ func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) erro
 		return h.handleListBackupJobs(c)
 	case "TagResource":
 		return h.handleTagResource(c, route.resource, body)
+	case "UntagResource":
+		return h.handleUntagResource(c, route.resource, body)
 	case "ListTags":
 		return h.handleListTags(c, route.resource)
 	default:
@@ -515,7 +520,7 @@ func epochSeconds(ts interface{ Unix() int64 }) float64 {
 type createBackupVaultBody struct {
 	BackupVaultTags  map[string]string `json:"BackupVaultTags"`
 	EncryptionKeyArn string            `json:"EncryptionKeyArn"`
-	CreatorRequestID string            `json:"CreatorRequestID"`
+	CreatorRequestID string            `json:"CreatorRequestId"`
 }
 
 func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []byte) error {
@@ -556,6 +561,11 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 	}
 	if v.EncryptionKeyArn != "" {
 		resp["EncryptionKeyArn"] = v.EncryptionKeyArn
+	}
+	if v.Tags != nil {
+		if t := v.Tags.Clone(); len(t) > 0 {
+			resp["Tags"] = t
+		}
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -673,7 +683,7 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"BackupPlanArn": p.BackupPlanArn,
 		"BackupPlanId":  p.BackupPlanID,
 		"VersionId":     p.VersionID,
@@ -682,7 +692,14 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 			"BackupPlanName": p.BackupPlanName,
 			"Rules":          rulesToJSON(p.Rules),
 		},
-	})
+	}
+	if p.Tags != nil {
+		if t := p.Tags.Clone(); len(t) > 0 {
+			resp["Tags"] = t
+		}
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListBackupPlans(c *echo.Context) error {
@@ -740,7 +757,7 @@ func (h *Handler) handleDeleteBackupPlan(c *echo.Context, id string) error {
 		"BackupPlanArn": p.BackupPlanArn,
 		"BackupPlanId":  p.BackupPlanID,
 		"VersionId":     p.VersionID,
-		"DeletionDate":  epochSeconds(p.CreationTime),
+		"DeletionDate":  epochSeconds(time.Now()),
 	})
 }
 
@@ -859,6 +876,29 @@ func (h *Handler) handleListTags(c *echo.Context, resourceArn string) error {
 	})
 }
 
+type untagResourceBody struct {
+	TagKeyList []string `json:"TagKeyList"`
+}
+
+func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, body []byte) error {
+	if resourceArn == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "ResourceArn is required"))
+	}
+
+	var in untagResourceBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
+	if err := h.Backend.UntagResource(resourceArn, in.TagKeyList); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
 // --- New operation handlers ---
 
 type associateMpaApprovalTeamBody struct {
@@ -899,7 +939,7 @@ func (h *Handler) handleCancelLegalHold(c *echo.Context, legalHoldID string) err
 
 type createBackupSelectionBody struct {
 	BackupSelection  backupSelectionDoc `json:"BackupSelection"`
-	CreatorRequestID string             `json:"CreatorRequestID,omitempty"`
+	CreatorRequestID string             `json:"CreatorRequestId,omitempty"`
 }
 
 type backupSelectionDoc struct {
@@ -993,7 +1033,7 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 
 type createLogicallyAirGappedBody struct {
 	BackupVaultTags  map[string]string `json:"BackupVaultTags,omitempty"`
-	CreatorRequestID string            `json:"CreatorRequestID,omitempty"`
+	CreatorRequestID string            `json:"CreatorRequestId,omitempty"`
 	MaxRetentionDays int64             `json:"MaxRetentionDays"`
 	MinRetentionDays int64             `json:"MinRetentionDays"`
 }
@@ -1057,7 +1097,7 @@ type createRestoreAccessVaultBody struct {
 	SourceBackupVaultArn string            `json:"SourceBackupVaultArn"`
 	BackupVaultName      string            `json:"BackupVaultName,omitempty"`
 	BackupVaultTags      map[string]string `json:"BackupVaultTags,omitempty"`
-	CreatorRequestID     string            `json:"CreatorRequestID,omitempty"`
+	CreatorRequestID     string            `json:"CreatorRequestId,omitempty"`
 	RequesterComment     string            `json:"RequesterComment,omitempty"`
 }
 
@@ -1093,7 +1133,7 @@ type restoreTestingPlanDoc struct {
 
 type createRestoreTestingPlanBody struct {
 	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
-	CreatorRequestID   string                `json:"CreatorRequestID,omitempty"`
+	CreatorRequestID   string                `json:"CreatorRequestId,omitempty"`
 }
 
 func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) error {
@@ -1128,7 +1168,7 @@ type restoreTestingSelectionDoc struct {
 
 type createRestoreTestingSelectionBody struct {
 	RestoreTestingSelection restoreTestingSelectionDoc `json:"RestoreTestingSelection"`
-	CreatorRequestID        string                     `json:"CreatorRequestID,omitempty"`
+	CreatorRequestID        string                     `json:"CreatorRequestId,omitempty"`
 }
 
 func (h *Handler) handleCreateRestoreTestingSelection(c *echo.Context, planName string, body []byte) error {

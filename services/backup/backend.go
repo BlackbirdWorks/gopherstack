@@ -2,6 +2,8 @@ package backup
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +18,9 @@ var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+
+	// vaultNameRe matches valid vault names: 2–50 alphanumeric-or-hyphen chars.
+	vaultNameRe = regexp.MustCompile(`^[a-zA-Z0-9\-]{2,50}$`)
 )
 
 // Vault represents an AWS Backup vault.
@@ -87,10 +92,11 @@ type Selection struct {
 
 // Framework represents an AWS Backup audit framework.
 type Framework struct {
-	CreationTime         time.Time `json:"creationTime"`
-	FrameworkName        string    `json:"frameworkName"`
-	FrameworkArn         string    `json:"frameworkArn"`
-	FrameworkDescription string    `json:"frameworkDescription,omitempty"`
+	CreationTime         time.Time  `json:"creationTime"`
+	Tags                 *tags.Tags `json:"tags,omitempty"`
+	FrameworkName        string     `json:"frameworkName"`
+	FrameworkArn         string     `json:"frameworkArn"`
+	FrameworkDescription string     `json:"frameworkDescription,omitempty"`
 }
 
 // LegalHold represents an AWS Backup legal hold.
@@ -105,10 +111,11 @@ type LegalHold struct {
 
 // ReportPlan represents an AWS Backup report plan.
 type ReportPlan struct {
-	CreationTime          time.Time `json:"creationTime"`
-	ReportPlanName        string    `json:"reportPlanName"`
-	ReportPlanArn         string    `json:"reportPlanArn"`
-	ReportPlanDescription string    `json:"reportPlanDescription,omitempty"`
+	CreationTime          time.Time  `json:"creationTime"`
+	Tags                  *tags.Tags `json:"tags,omitempty"`
+	ReportPlanName        string     `json:"reportPlanName"`
+	ReportPlanArn         string     `json:"reportPlanArn"`
+	ReportPlanDescription string     `json:"reportPlanDescription,omitempty"`
 }
 
 // RestoreAccessVault represents an AWS Backup restore access backup vault.
@@ -153,6 +160,8 @@ type InMemoryBackend struct {
 	vaultARNIndex            map[string]string                              // ARN → vault name
 	planARNIndex             map[string]string                              // ARN → plan name
 	planIDIndex              map[string]string                              // plan ID → plan name
+	frameworkARNIndex        map[string]string                              // ARN → framework name
+	reportPlanARNIndex       map[string]string                              // ARN → report plan name
 	mu                       *lockmetrics.RWMutex
 	accountID                string
 	region                   string
@@ -175,6 +184,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		vaultARNIndex:            make(map[string]string),
 		planARNIndex:             make(map[string]string),
 		planIDIndex:              make(map[string]string),
+		frameworkARNIndex:        make(map[string]string),
+		reportPlanARNIndex:       make(map[string]string),
 		accountID:                accountID,
 		region:                   region,
 		mu:                       lockmetrics.New("backup"),
@@ -184,6 +195,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// isValidVaultName reports whether name is an acceptable AWS Backup vault name:
+// 2–50 alphanumeric or hyphen characters.
+func isValidVaultName(name string) bool {
+	return vaultNameRe.MatchString(name)
+}
+
 // CreateBackupVault creates a new backup vault.
 func (b *InMemoryBackend) CreateBackupVault(
 	name, encryptionKeyArn, creatorRequestID string,
@@ -191,6 +208,10 @@ func (b *InMemoryBackend) CreateBackupVault(
 ) (*Vault, error) {
 	b.mu.Lock("CreateBackupVault")
 	defer b.mu.Unlock()
+
+	if !isValidVaultName(name) {
+		return nil, fmt.Errorf("%w: BackupVaultName must be 2-50 alphanumeric or hyphen characters", ErrValidation)
+	}
 
 	if _, ok := b.vaults[name]; ok {
 		return nil, fmt.Errorf("%w: vault %s already exists", ErrAlreadyExists, name)
@@ -232,7 +253,7 @@ func (b *InMemoryBackend) DescribeBackupVault(name string) (*Vault, error) {
 	return &cp, nil
 }
 
-// ListBackupVaults returns all backup vaults.
+// ListBackupVaults returns all backup vaults sorted by name.
 func (b *InMemoryBackend) ListBackupVaults() []*Vault {
 	b.mu.RLock("ListBackupVaults")
 	defer b.mu.RUnlock()
@@ -242,6 +263,17 @@ func (b *InMemoryBackend) ListBackupVaults() []*Vault {
 		cp := *v
 		list = append(list, &cp)
 	}
+
+	slices.SortFunc(list, func(a, b *Vault) int {
+		if a.BackupVaultName < b.BackupVaultName {
+			return -1
+		}
+		if a.BackupVaultName > b.BackupVaultName {
+			return 1
+		}
+
+		return 0
+	})
 
 	return list
 }
@@ -325,7 +357,7 @@ func (b *InMemoryBackend) GetBackupPlan(idOrName string) (*Plan, error) {
 	return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, idOrName)
 }
 
-// ListBackupPlans returns all backup plans.
+// ListBackupPlans returns all backup plans sorted by name.
 func (b *InMemoryBackend) ListBackupPlans() []*Plan {
 	b.mu.RLock("ListBackupPlans")
 	defer b.mu.RUnlock()
@@ -337,6 +369,17 @@ func (b *InMemoryBackend) ListBackupPlans() []*Plan {
 		copy(cp.Rules, p.Rules)
 		list = append(list, &cp)
 	}
+
+	slices.SortFunc(list, func(a, b *Plan) int {
+		if a.BackupPlanName < b.BackupPlanName {
+			return -1
+		}
+		if a.BackupPlanName > b.BackupPlanName {
+			return 1
+		}
+
+		return 0
+	})
 
 	return list
 }
@@ -396,6 +439,14 @@ func (b *InMemoryBackend) StartBackupJob(vaultName, resourceArn, iamRoleArn, res
 	b.mu.Lock("StartBackupJob")
 	defer b.mu.Unlock()
 
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	if iamRoleArn == "" {
+		return nil, fmt.Errorf("%w: IamRoleArn is required", ErrValidation)
+	}
+
 	if _, ok := b.vaults[vaultName]; !ok {
 		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
 	}
@@ -435,6 +486,7 @@ func (b *InMemoryBackend) DescribeBackupJob(jobID string) (*Job, error) {
 }
 
 // ListBackupJobs returns all backup jobs, optionally filtered by vault name.
+// Results are sorted by creation time (newest first).
 func (b *InMemoryBackend) ListBackupJobs(vaultName string) []*Job {
 	b.mu.RLock("ListBackupJobs")
 	defer b.mu.RUnlock()
@@ -448,10 +500,23 @@ func (b *InMemoryBackend) ListBackupJobs(vaultName string) []*Job {
 		list = append(list, &cp)
 	}
 
+	slices.SortFunc(list, func(a, b *Job) int {
+		// Newest first.
+		if a.CreationTime.After(b.CreationTime) {
+			return -1
+		}
+		if a.CreationTime.Before(b.CreationTime) {
+			return 1
+		}
+
+		return 0
+	})
+
 	return list
 }
 
 // TagResource adds tags to a resource by ARN.
+// Supported resource types: backup vaults, backup plans, frameworks, report plans.
 func (b *InMemoryBackend) TagResource(resourceArn string, kv map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
@@ -468,10 +533,23 @@ func (b *InMemoryBackend) TagResource(resourceArn string, kv map[string]string) 
 		return nil
 	}
 
+	if name, ok := b.frameworkARNIndex[resourceArn]; ok {
+		b.frameworks[name].Tags.Merge(kv)
+
+		return nil
+	}
+
+	if name, ok := b.reportPlanARNIndex[resourceArn]; ok {
+		b.reportPlans[name].Tags.Merge(kv)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 }
 
 // ListTags returns tags for a resource by ARN.
+// Supported resource types: backup vaults, backup plans, frameworks, report plans.
 func (b *InMemoryBackend) ListTags(resourceArn string) (map[string]string, error) {
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
@@ -484,7 +562,48 @@ func (b *InMemoryBackend) ListTags(resourceArn string) (map[string]string, error
 		return b.plans[name].Tags.Clone(), nil
 	}
 
+	if name, ok := b.frameworkARNIndex[resourceArn]; ok {
+		return b.frameworks[name].Tags.Clone(), nil
+	}
+
+	if name, ok := b.reportPlanARNIndex[resourceArn]; ok {
+		return b.reportPlans[name].Tags.Clone(), nil
+	}
+
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+}
+
+// UntagResource removes the given tag keys from a resource identified by ARN.
+// Supported resource types: backup vaults, backup plans, frameworks, report plans.
+func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if name, ok := b.vaultARNIndex[resourceArn]; ok {
+		b.vaults[name].Tags.DeleteKeys(tagKeys)
+
+		return nil
+	}
+
+	if name, ok := b.planARNIndex[resourceArn]; ok {
+		b.plans[name].Tags.DeleteKeys(tagKeys)
+
+		return nil
+	}
+
+	if name, ok := b.frameworkARNIndex[resourceArn]; ok {
+		b.frameworks[name].Tags.DeleteKeys(tagKeys)
+
+		return nil
+	}
+
+	if name, ok := b.reportPlanARNIndex[resourceArn]; ok {
+		b.reportPlans[name].Tags.DeleteKeys(tagKeys)
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 }
 
 // AssociateBackupVaultMpaApprovalTeam associates an MPA approval team with a backup vault.
@@ -523,6 +642,10 @@ func (b *InMemoryBackend) CancelLegalHold(legalHoldID string) error {
 func (b *InMemoryBackend) CreateBackupSelection(planID, selectionName, iamRoleArn string) (*Selection, error) {
 	b.mu.Lock("CreateBackupSelection")
 	defer b.mu.Unlock()
+
+	if selectionName == "" {
+		return nil, fmt.Errorf("%w: SelectionName is required", ErrValidation)
+	}
 
 	// Resolve planID: accept either a plan ID (from planIDIndex) or a plan name.
 	if _, found := b.planIDIndex[planID]; !found {
@@ -563,13 +686,16 @@ func (b *InMemoryBackend) CreateFramework(name, description string) (*Framework,
 	}
 
 	frameworkARN := arn.Build("backup", b.region, b.accountID, "framework:"+name)
+	t := tags.New("backup.framework." + name + ".tags")
 	f := &Framework{
 		FrameworkName:        name,
 		FrameworkArn:         frameworkARN,
 		FrameworkDescription: description,
 		CreationTime:         time.Now().UTC(),
+		Tags:                 t,
 	}
 	b.frameworks[name] = f
+	b.frameworkARNIndex[frameworkARN] = name
 	cp := *f
 
 	return &cp, nil
@@ -604,6 +730,18 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 ) (*Vault, error) {
 	b.mu.Lock("CreateLogicallyAirGappedBackupVault")
 	defer b.mu.Unlock()
+
+	if !isValidVaultName(name) {
+		return nil, fmt.Errorf("%w: BackupVaultName must be 2-50 alphanumeric or hyphen characters", ErrValidation)
+	}
+
+	if minRetentionDays <= 0 {
+		return nil, fmt.Errorf("%w: MinRetentionDays must be greater than 0", ErrValidation)
+	}
+
+	if maxRetentionDays < minRetentionDays {
+		return nil, fmt.Errorf("%w: MaxRetentionDays must be >= MinRetentionDays", ErrValidation)
+	}
 
 	if _, ok := b.vaults[name]; ok {
 		return nil, fmt.Errorf("%w: vault %s already exists", ErrAlreadyExists, name)
@@ -642,13 +780,16 @@ func (b *InMemoryBackend) CreateReportPlan(name, description string) (*ReportPla
 	}
 
 	planARN := arn.Build("backup", b.region, b.accountID, "report-plan:"+name)
+	t := tags.New("backup.report-plan." + name + ".tags")
 	rp := &ReportPlan{
 		ReportPlanName:        name,
 		ReportPlanArn:         planARN,
 		ReportPlanDescription: description,
 		CreationTime:          time.Now().UTC(),
+		Tags:                  t,
 	}
 	b.reportPlans[name] = rp
+	b.reportPlanARNIndex[planARN] = name
 	cp := *rp
 
 	return &cp, nil
@@ -735,4 +876,52 @@ func (b *InMemoryBackend) CreateRestoreTestingSelection(
 	cp := *sel
 
 	return &cp, nil
+}
+
+// Reset clears all state, returning the backend to a clean initial state.
+// Tags resources are properly closed before discarding.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, v := range b.vaults {
+		if v.Tags != nil {
+			v.Tags.Close()
+		}
+	}
+
+	for _, p := range b.plans {
+		if p.Tags != nil {
+			p.Tags.Close()
+		}
+	}
+
+	for _, f := range b.frameworks {
+		if f.Tags != nil {
+			f.Tags.Close()
+		}
+	}
+
+	for _, rp := range b.reportPlans {
+		if rp.Tags != nil {
+			rp.Tags.Close()
+		}
+	}
+
+	b.vaults = make(map[string]*Vault)
+	b.plans = make(map[string]*Plan)
+	b.jobs = make(map[string]*Job)
+	b.selections = make(map[string]map[string]*Selection)
+	b.frameworks = make(map[string]*Framework)
+	b.legalHolds = make(map[string]*LegalHold)
+	b.reportPlans = make(map[string]*ReportPlan)
+	b.restoreAccessVaults = make(map[string]*RestoreAccessVault)
+	b.restoreTestingPlans = make(map[string]*RestoreTestingPlan)
+	b.restoreTestingSelections = make(map[string]map[string]*RestoreTestingSelection)
+	b.mpaApprovals = make(map[string]string)
+	b.vaultARNIndex = make(map[string]string)
+	b.planARNIndex = make(map[string]string)
+	b.planIDIndex = make(map[string]string)
+	b.frameworkARNIndex = make(map[string]string)
+	b.reportPlanARNIndex = make(map[string]string)
 }

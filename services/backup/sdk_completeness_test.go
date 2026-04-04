@@ -92,7 +92,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"StartRestoreJob",
 		"StartScanJob",
 		"StopBackupJob",
-		"UntagResource",
 		"UpdateFramework",
 		"UpdateGlobalSettings",
 		"UpdateRecoveryPointIndexSettings",

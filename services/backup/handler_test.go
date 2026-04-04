@@ -299,8 +299,16 @@ func TestBackupJobCRUD(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				doREST(t, h, http.MethodPut, "/backup-vaults/vault1", nil)
-				doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{"BackupVaultName": "vault1"})
-				doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{"BackupVaultName": "vault1"})
+				doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{
+					"BackupVaultName": "vault1",
+					"ResourceArn":     "arn:aws:ec2:us-east-1:123456789012:instance/i-111",
+					"IamRoleArn":      "arn:aws:iam::123456789012:role/role",
+				})
+				doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{
+					"BackupVaultName": "vault1",
+					"ResourceArn":     "arn:aws:ec2:us-east-1:123456789012:instance/i-222",
+					"IamRoleArn":      "arn:aws:iam::123456789012:role/role",
+				})
 				rec := doREST(t, h, http.MethodGet, "/backup-jobs", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 				resp := parseResp(t, rec)
@@ -313,7 +321,11 @@ func TestBackupJobCRUD(t *testing.T) {
 			name: "start_job_vault_not_found",
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
-				rec := doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{"BackupVaultName": "missing"})
+				rec := doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{
+					"BackupVaultName": "missing",
+					"ResourceArn":     "arn:aws:ec2:us-east-1:123456789012:instance/i-abc",
+					"IamRoleArn":      "arn:aws:iam::123456789012:role/role",
+				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
@@ -1346,4 +1358,503 @@ func TestCreateRestoreTestingSelection(t *testing.T) {
 			tt.ops(t, h)
 		})
 	}
+}
+
+// TestBackupVaultValidation covers vault name validation.
+func TestBackupVaultValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		vaultName  string
+		wantStatus int
+	}{
+		{
+			name:       "valid_name",
+			vaultName:  "my-vault",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "too_short",
+			vaultName:  "a",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_chars",
+			vaultName:  "my_vault_under",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "exactly_2_chars",
+			vaultName:  "ab",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestBackupHandler()
+			rec := doREST(t, h, http.MethodPut, "/backup-vaults/"+tt.vaultName, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestAirGappedVaultValidation covers retention-day validation.
+func TestAirGappedVaultValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "valid",
+			body: map[string]any{
+				"MinRetentionDays": 1,
+				"MaxRetentionDays": 30,
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "min_zero",
+			body: map[string]any{
+				"MinRetentionDays": 0,
+				"MaxRetentionDays": 30,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "max_less_than_min",
+			body: map[string]any{
+				"MinRetentionDays": 10,
+				"MaxRetentionDays": 5,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestBackupHandler()
+			rec := doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/air-vault", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestStartBackupJobValidation covers required-field validation.
+func TestStartBackupJobValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "missing_resource_arn",
+			body: map[string]any{
+				"BackupVaultName": "vault",
+				"IamRoleArn":      "arn:aws:iam::123456789012:role/r",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_iam_role_arn",
+			body: map[string]any{
+				"BackupVaultName": "vault",
+				"ResourceArn":     "arn:aws:ec2:us-east-1:123456789012:instance/i-1",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestBackupHandler()
+			rec := doREST(t, h, http.MethodPut, "/backup-jobs", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestBackupSelectionValidation covers SelectionName required check.
+func TestBackupSelectionValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestBackupHandler()
+	rec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+		"BackupPlan": map[string]any{"BackupPlanName": "plan"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	planResp := parseResp(t, rec)
+	planID := planResp["BackupPlanId"].(string)
+
+	rec2 := doREST(t, h, http.MethodPut, "/backup/plans/"+planID+"/selections", map[string]any{
+		"BackupSelection": map[string]any{},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+// TestUntagResource exercises UntagResource via the REST handler.
+func TestUntagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *backup.Handler)
+		name string
+	}{
+		{
+			name: "untag_vault",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/my-vault", map[string]any{
+					"BackupVaultTags": map[string]string{"env": "test", "team": "platform"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				vaultARN := parseResp(t, rec)["BackupVaultArn"].(string)
+
+				// Remove one tag.
+				delRec := doREST(t, h, http.MethodDelete, "/tags/"+vaultARN, map[string]any{
+					"TagKeyList": []string{"env"},
+				})
+				require.Equal(t, http.StatusOK, delRec.Code)
+
+				// Verify tag was removed.
+				listRec := doREST(t, h, http.MethodGet, "/tags/"+vaultARN, nil)
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tags := parseResp(t, listRec)["Tags"].(map[string]any)
+				assert.NotContains(t, tags, "env")
+				assert.Contains(t, tags, "team")
+			},
+		},
+		{
+			name: "untag_framework",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{
+					"FrameworkName": "fw",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				fwARN := parseResp(t, rec)["FrameworkArn"].(string)
+
+				// Tag and then untag.
+				doREST(t, h, http.MethodPost, "/tags/"+fwARN, map[string]any{
+					"Tags": map[string]string{"k": "v"},
+				})
+				delRec := doREST(t, h, http.MethodDelete, "/tags/"+fwARN, map[string]any{
+					"TagKeyList": []string{"k"},
+				})
+				assert.Equal(t, http.StatusOK, delRec.Code)
+			},
+		},
+		{
+			name: "untag_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				const missingARN = "/tags/arn:aws:backup:us-east-1:000000000000:backup-vault:missing"
+				rec := doREST(t, h, http.MethodDelete, missingARN, map[string]any{
+					"TagKeyList": []string{"k"},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestTagsInVaultResponse checks that DescribeBackupVault includes Tags.
+func TestTagsInVaultResponse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestBackupHandler()
+	doREST(t, h, http.MethodPut, "/backup-vaults/tagged-vault", map[string]any{
+		"BackupVaultTags": map[string]string{"env": "prod"},
+	})
+
+	rec := doREST(t, h, http.MethodGet, "/backup-vaults/tagged-vault", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	tags, ok := resp["Tags"].(map[string]any)
+	require.True(t, ok, "Tags field missing from DescribeBackupVault response")
+	assert.Equal(t, "prod", tags["env"])
+}
+
+// TestTagsInPlanResponse checks that GetBackupPlan includes Tags.
+func TestTagsInPlanResponse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestBackupHandler()
+	doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+		"BackupPlan":     map[string]any{"BackupPlanName": "tagged-plan"},
+		"BackupPlanTags": map[string]string{"env": "staging"},
+	})
+
+	// List plans to get the plan ID.
+	listRec := doREST(t, h, http.MethodGet, "/backup/plans", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	listResp := parseResp(t, listRec)
+	plans := listResp["BackupPlansList"].([]any)
+	require.Len(t, plans, 1)
+	planID := plans[0].(map[string]any)["BackupPlanId"].(string)
+
+	rec := doREST(t, h, http.MethodGet, "/backup/plans/"+planID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	tags, ok := resp["Tags"].(map[string]any)
+	require.True(t, ok, "Tags field missing from GetBackupPlan response")
+	assert.Equal(t, "staging", tags["env"])
+}
+
+// TestTagResourceForFrameworkAndReportPlan checks tagging on frameworks and report plans.
+func TestTagResourceForFrameworkAndReportPlan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create func(h *backup.Handler) string
+		name   string
+	}{
+		{
+			name: "framework",
+			create: func(h *backup.Handler) string {
+				rec := doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{
+					"FrameworkName": "fw-tag-test",
+				})
+
+				return parseResp(t, rec)["FrameworkArn"].(string)
+			},
+		},
+		{
+			name: "report_plan",
+			create: func(h *backup.Handler) string {
+				rec := doREST(t, h, http.MethodPost, "/audit/report-plans", map[string]any{
+					"ReportPlanName": "rp-tag-test",
+				})
+
+				return parseResp(t, rec)["ReportPlanArn"].(string)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			arn := tt.create(h)
+
+			// Tag resource.
+			tagRec := doREST(t, h, http.MethodPost, "/tags/"+arn, map[string]any{
+				"Tags": map[string]string{"foo": "bar"},
+			})
+			assert.Equal(t, http.StatusOK, tagRec.Code)
+
+			// List tags.
+			listRec := doREST(t, h, http.MethodGet, "/tags/"+arn, nil)
+			require.Equal(t, http.StatusOK, listRec.Code)
+			tags := parseResp(t, listRec)["Tags"].(map[string]any)
+			assert.Equal(t, "bar", tags["foo"])
+		})
+	}
+}
+
+// TestSortedListings verifies that List* operations return results in deterministic order.
+func TestSortedListings(t *testing.T) {
+	t.Parallel()
+
+	t.Run("vaults_sorted_by_name", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		for _, name := range []string{"zoo-vault", "alpha-vault", "mid-vault"} {
+			doREST(t, h, http.MethodPut, "/backup-vaults/"+name, nil)
+		}
+		rec := doREST(t, h, http.MethodGet, "/backup-vaults", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResp(t, rec)
+		vaults := resp["BackupVaultList"].([]any)
+		require.Len(t, vaults, 3)
+		names := []string{
+			vaults[0].(map[string]any)["BackupVaultName"].(string),
+			vaults[1].(map[string]any)["BackupVaultName"].(string),
+			vaults[2].(map[string]any)["BackupVaultName"].(string),
+		}
+		assert.Equal(t, []string{"alpha-vault", "mid-vault", "zoo-vault"}, names)
+	})
+
+	t.Run("plans_sorted_by_name", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		for _, name := range []string{"z-plan", "a-plan", "m-plan"} {
+			doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+				"BackupPlan": map[string]any{"BackupPlanName": name},
+			})
+		}
+		rec := doREST(t, h, http.MethodGet, "/backup/plans", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResp(t, rec)
+		plans := resp["BackupPlansList"].([]any)
+		require.Len(t, plans, 3)
+		names := []string{
+			plans[0].(map[string]any)["BackupPlanName"].(string),
+			plans[1].(map[string]any)["BackupPlanName"].(string),
+			plans[2].(map[string]any)["BackupPlanName"].(string),
+		}
+		assert.Equal(t, []string{"a-plan", "m-plan", "z-plan"}, names)
+	})
+}
+
+// TestPersistenceRoundTrip exercises Snapshot/Restore with all new resource types.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	original := backup.NewInMemoryBackend("123456789012", "us-east-1")
+
+	// Populate original with all new resource types.
+	_, err := original.CreateBackupVault("persist-vault", "", "", nil)
+	require.NoError(t, err)
+
+	_, err = original.CreateFramework("persist-fw", "test framework")
+	require.NoError(t, err)
+
+	_, err = original.CreateLegalHold("hold title", "hold description")
+	require.NoError(t, err)
+
+	_, err = original.CreateReportPlan("persist-rp", "test report")
+	require.NoError(t, err)
+
+	_, err = original.CreateRestoreTestingPlan("persist-rtp", "cron(0 12 * * ? *)")
+	require.NoError(t, err)
+
+	_, err = original.CreateRestoreTestingSelection("persist-rtp", "persist-sel", "EC2")
+	require.NoError(t, err)
+
+	_, err = original.CreateLogicallyAirGappedBackupVault("persist-air", "", 1, 30, nil)
+	require.NoError(t, err)
+
+	err = original.AssociateBackupVaultMpaApprovalTeam("persist-vault", "arn:aws:mpa::123456789012:team/t")
+	require.NoError(t, err)
+
+	// Create a plan and selection.
+	plan, err := original.CreateBackupPlan("persist-plan", nil, nil)
+	require.NoError(t, err)
+
+	_, err = original.CreateBackupSelection(plan.BackupPlanID, "selection-1", "arn:aws:iam::123456789012:role/r")
+	require.NoError(t, err)
+
+	// Create a restore access vault.
+	_, err = original.CreateRestoreAccessBackupVault(
+		"arn:aws:backup:us-east-1:123456789012:backup-vault:src",
+		"persist-rav",
+		"",
+		nil,
+	)
+	require.NoError(t, err)
+
+	snap := original.Snapshot()
+	require.NotEmpty(t, snap)
+
+	// Restore into a fresh backend.
+	restored := backup.NewInMemoryBackend("", "")
+	require.NoError(t, restored.Restore(snap))
+
+	// Verify vaults.
+	vault, err := restored.DescribeBackupVault("persist-vault")
+	require.NoError(t, err)
+	assert.Equal(t, "persist-vault", vault.BackupVaultName)
+
+	// Verify frameworks.
+	fw, err := restored.CreateFramework("persist-fw-2", "")
+	require.NoError(t, err)
+	assert.NotEmpty(t, fw.FrameworkArn)
+	// Original framework should still conflict.
+	_, err = restored.CreateFramework("persist-fw", "")
+	require.ErrorIs(t, err, backup.ErrAlreadyExists)
+
+	// Verify legal holds are restored.
+	_, err = restored.CreateLegalHold("new title", "desc")
+	require.NoError(t, err)
+
+	// Verify report plans.
+	_, err = restored.CreateReportPlan("persist-rp", "dup")
+	require.ErrorIs(t, err, backup.ErrAlreadyExists)
+
+	// Verify restore testing plans and selections.
+	_, err = restored.CreateRestoreTestingPlan("persist-rtp", "")
+	require.ErrorIs(t, err, backup.ErrAlreadyExists)
+
+	_, err = restored.CreateRestoreTestingSelection("persist-rtp", "persist-sel", "EC2")
+	require.ErrorIs(t, err, backup.ErrAlreadyExists)
+
+	// Verify plan selection.
+	_, err = restored.GetBackupPlan(plan.BackupPlanID)
+	require.NoError(t, err)
+}
+
+// TestDeleteBackupPlanDeletionDate verifies that DeletionDate is current time, not creation time.
+func TestDeleteBackupPlanDeletionDate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestBackupHandler()
+	createRec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+		"BackupPlan": map[string]any{"BackupPlanName": "del-plan"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createResp := parseResp(t, createRec)
+	planID := createResp["BackupPlanId"].(string)
+	creationDate := createResp["CreationDate"].(float64)
+
+	delRec := doREST(t, h, http.MethodDelete, "/backup/plans/"+planID, nil)
+	require.Equal(t, http.StatusOK, delRec.Code)
+	delResp := parseResp(t, delRec)
+	deletionDate := delResp["DeletionDate"].(float64)
+
+	// DeletionDate must be >= CreationDate.
+	assert.GreaterOrEqual(t, deletionDate, creationDate)
+}
+
+// TestBackendReset verifies Reset clears all state.
+func TestBackendReset(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := backup.NewInMemoryBackend("123456789012", "us-east-1").CreateFramework("fw", "")
+	require.NoError(t, err)
+
+	// Populate the backend.
+	_, err = backend.CreateBackupVault("my-vault", "", "", nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateFramework("fw", "")
+	require.NoError(t, err)
+
+	_, err = backend.CreateReportPlan("rp", "")
+	require.NoError(t, err)
+
+	handler := backup.NewHandler(backend)
+	handler.Reset()
+
+	// After reset, vault should not exist.
+	vaults := backend.ListBackupVaults()
+	assert.Empty(t, vaults)
+
+	// Framework can be recreated.
+	_, err = backend.CreateFramework("fw", "")
+	assert.NoError(t, err)
 }
