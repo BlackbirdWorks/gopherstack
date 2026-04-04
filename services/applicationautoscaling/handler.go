@@ -389,14 +389,23 @@ type describeScalingPoliciesInput struct {
 }
 
 type scalingPolicySummary struct {
-	CreationTime      *float64 `json:"CreationTime,omitempty"`
-	LastModifiedTime  *float64 `json:"LastModifiedTime,omitempty"`
-	ServiceNamespace  string   `json:"ServiceNamespace"`
-	ResourceID        string   `json:"ResourceId"`
-	ScalableDimension string   `json:"ScalableDimension"`
-	PolicyName        string   `json:"PolicyName"`
-	PolicyType        string   `json:"PolicyType"`
-	PolicyARN         string   `json:"PolicyARN"`
+	TargetTrackingScalingPolicyConfiguration map[string]any `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
+	StepScalingPolicyConfiguration           map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
+	CreationTime                             *float64       `json:"CreationTime,omitempty"`
+	LastModifiedTime                         *float64       `json:"LastModifiedTime,omitempty"`
+	ServiceNamespace                         string         `json:"ServiceNamespace"`
+	ResourceID                               string         `json:"ResourceId"`
+	ScalableDimension                        string         `json:"ScalableDimension"`
+	PolicyName                               string         `json:"PolicyName"`
+	PolicyType                               string         `json:"PolicyType"`
+	PolicyARN                                string         `json:"PolicyARN"`
+	Alarms                                   []alarmSummary `json:"Alarms,omitempty"`
+}
+
+// alarmSummary mirrors the CloudWatch alarm reference returned by AWS in policy descriptions.
+type alarmSummary struct {
+	AlarmARN  string `json:"AlarmARN"`
+	AlarmName string `json:"AlarmName"`
 }
 
 type describeScalingPoliciesOutput struct {
@@ -418,14 +427,16 @@ func (h *Handler) handleDescribeScalingPolicies(
 	items := make([]scalingPolicySummary, 0, len(policies))
 	for _, p := range policies {
 		items = append(items, scalingPolicySummary{
-			ServiceNamespace:  p.ServiceNamespace,
-			ResourceID:        p.ResourceID,
-			ScalableDimension: p.ScalableDimension,
-			PolicyName:        p.PolicyName,
-			PolicyType:        p.PolicyType,
-			PolicyARN:         p.ARN,
-			CreationTime:      epochSecondsPtr(p.CreationTime),
-			LastModifiedTime:  epochSecondsPtr(p.LastModifiedTime),
+			ServiceNamespace:                         p.ServiceNamespace,
+			ResourceID:                               p.ResourceID,
+			ScalableDimension:                        p.ScalableDimension,
+			PolicyName:                               p.PolicyName,
+			PolicyType:                               p.PolicyType,
+			PolicyARN:                                p.ARN,
+			CreationTime:                             epochSecondsPtr(p.CreationTime),
+			LastModifiedTime:                         epochSecondsPtr(p.LastModifiedTime),
+			TargetTrackingScalingPolicyConfiguration: p.TargetTrackingConfig,
+			StepScalingPolicyConfiguration:           p.StepScalingConfig,
 		})
 	}
 
@@ -433,9 +444,11 @@ func (h *Handler) handleDescribeScalingPolicies(
 }
 
 type describeScalingActivitiesInput struct {
-	ServiceNamespace  string `json:"ServiceNamespace"`
-	ResourceID        string `json:"ResourceId,omitempty"`
-	ScalableDimension string `json:"ScalableDimension,omitempty"`
+	ServiceNamespace           string `json:"ServiceNamespace"`
+	ResourceID                 string `json:"ResourceId,omitempty"`
+	ScalableDimension          string `json:"ScalableDimension,omitempty"`
+	MaxResults                 int32  `json:"MaxResults,omitempty"`
+	IncludeNotScaledActivities bool   `json:"IncludeNotScaledActivities,omitempty"`
 }
 
 type describeScalingActivitiesOutput struct {
@@ -446,6 +459,8 @@ func (h *Handler) handleDescribeScalingActivities(
 	_ context.Context,
 	_ *describeScalingActivitiesInput,
 ) (*describeScalingActivitiesOutput, error) {
+	// The in-memory backend does not generate synthetic scaling activities.
+	// Return an empty but non-nil slice so AWS SDK clients receive `[]` not `null`.
 	return &describeScalingActivitiesOutput{ScalingActivities: []any{}}, nil
 }
 

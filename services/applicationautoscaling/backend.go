@@ -296,6 +296,9 @@ func (b *InMemoryBackend) updateExistingTarget(
 }
 
 // DeregisterScalableTarget removes a scalable target.
+// DeregisterScalableTarget removes a scalable target and cascades the deletion
+// to all scaling policies and scheduled actions that belong to the same
+// resource (AWS behaviour).
 func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID, scalableDimension string) error {
 	if serviceNamespace == "" {
 		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
@@ -321,6 +324,30 @@ func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID,
 
 	delete(b.targetARNIndex, t.ARN)
 	delete(b.scalableTargets, key)
+
+	// Cascade: remove all scaling policies that belong to this target.
+	for pARN, p := range b.scalingPolicies {
+		if p.ServiceNamespace == serviceNamespace && p.ResourceID == resourceID &&
+			p.ScalableDimension == scalableDimension {
+			delete(b.scalingPolicies, pARN)
+			delete(
+				b.policyNameIndex,
+				policyNameKey(p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName),
+			)
+		}
+	}
+
+	// Cascade: remove all scheduled actions that belong to this target.
+	for aARN, a := range b.scheduledActions {
+		if a.ServiceNamespace == serviceNamespace && a.ResourceID == resourceID &&
+			a.ScalableDimension == scalableDimension {
+			delete(b.scheduledActions, aARN)
+			delete(
+				b.actionNameIndex,
+				actionNameKey(a.ServiceNamespace, a.ResourceID, a.ScalableDimension, a.ScheduledActionName),
+			)
+		}
+	}
 
 	return nil
 }
@@ -419,9 +446,9 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
-	if policyType == "" {
-		policyType = "TargetTrackingScaling"
-	} else if !isValidPolicyType(policyType) {
+	// Validate PolicyType if provided; do not default yet — defaulting only
+	// applies when creating a brand-new policy (see below).
+	if policyType != "" && !isValidPolicyType(policyType) {
 		return nil, fmt.Errorf(
 			"%w: invalid PolicyType %q; must be one of StepScaling, TargetTrackingScaling, PredictiveScaling",
 			ErrValidation,
@@ -437,11 +464,21 @@ func (b *InMemoryBackend) PutScalingPolicy(
 
 	if existingARN, ok := b.policyNameIndex[key]; ok {
 		p := b.scalingPolicies[existingARN]
+		// Only update PolicyType when the caller explicitly provided one.
+		if policyType != "" {
+			p.PolicyType = policyType
+		}
+
 		p.TargetTrackingConfig = maps.Clone(targetTrackingConfig)
 		p.StepScalingConfig = maps.Clone(stepScalingConfig)
 		p.LastModifiedTime = now
 
 		return cloneScalingPolicy(p), nil
+	}
+
+	// Default PolicyType to TargetTrackingScaling for new policies only.
+	if policyType == "" {
+		policyType = "TargetTrackingScaling"
 	}
 
 	policyARN := arn.Build("autoscaling", b.region, b.accountID,
@@ -596,6 +633,10 @@ func (b *InMemoryBackend) PutScheduledAction(
 
 	if scheduledActionName == "" {
 		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrValidation)
+	}
+
+	if schedule == "" {
+		return nil, fmt.Errorf("%w: Schedule is required", ErrValidation)
 	}
 
 	b.mu.Lock("PutScheduledAction")
@@ -842,10 +883,20 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 	defer b.mu.RUnlock()
 
 	key := policyNameKey(serviceNamespace, resourceID, scalableDimension, policyName)
-	if _, ok := b.policyNameIndex[key]; !ok {
+
+	policyARN, ok := b.policyNameIndex[key]
+	if !ok {
 		return nil, nil, time.Time{}, fmt.Errorf(
 			"%w: scaling policy %s not found for %s/%s/%s",
 			ErrNotFound, policyName, serviceNamespace, resourceID, scalableDimension,
+		)
+	}
+
+	p := b.scalingPolicies[policyARN]
+	if p.PolicyType != "PredictiveScaling" {
+		return nil, nil, time.Time{}, fmt.Errorf(
+			"%w: GetPredictiveScalingForecast is only supported for PredictiveScaling policies; policy %s has type %s",
+			ErrValidation, policyName, p.PolicyType,
 		)
 	}
 

@@ -2166,3 +2166,352 @@ func TestHandler_Backend_Purge(t *testing.T) {
 	targets := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
 	assert.Empty(t, targets, "Purge should clear all scalable targets")
 }
+
+func TestHandler_ChaosAndRegion(t *testing.T) {
+	t.Parallel()
+
+	b := applicationautoscaling.NewInMemoryBackend("123456789012", "us-east-1")
+	h := applicationautoscaling.NewHandler(b)
+
+	tests := []struct {
+		want any
+		fn   func() any
+		name string
+	}{
+		{
+			name: "ChaosServiceName",
+			fn:   func() any { return h.ChaosServiceName() },
+			want: "applicationautoscaling",
+		},
+		{
+			name: "ChaosOperations",
+			fn:   func() any { return len(h.ChaosOperations()) > 0 },
+			want: true,
+		},
+		{
+			name: "ChaosRegions",
+			fn:   func() any { return h.ChaosRegions() },
+			want: []string{"us-east-1"},
+		},
+		{
+			name: "Region",
+			fn:   func() any { return b.Region() },
+			want: "us-east-1",
+		},
+		{
+			name: "ExtractResource",
+			fn:   func() any { return h.ExtractResource(nil) },
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.fn())
+		})
+	}
+}
+
+func TestHandler_DeregisterScalableTarget_CascadeDelete(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Register a scalable target
+	doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+	})
+
+	// Add a policy
+	doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "my-policy",
+		"PolicyType":        "TargetTrackingScaling",
+	})
+
+	// Add a scheduled action
+	doRequest(t, h, "PutScheduledAction", map[string]any{
+		"ServiceNamespace":    "ecs",
+		"ResourceId":          "service/default/my-svc",
+		"ScalableDimension":   "ecs:service:DesiredCount",
+		"ScheduledActionName": "my-action",
+		"Schedule":            "rate(1 hour)",
+	})
+
+	// Deregister the target
+	rec := doRequest(t, h, "DeregisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "deregister should succeed")
+
+	// Verify the target is gone
+	targetsRec := doRequest(t, h, "DescribeScalableTargets", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	var targetsResp map[string]any
+	require.NoError(t, json.Unmarshal(targetsRec.Body.Bytes(), &targetsResp))
+	targets, _ := targetsResp["ScalableTargets"].([]any)
+	assert.Empty(t, targets, "scalable targets should be empty after deregister")
+
+	// Verify cascade: policies should also be gone
+	policiesRec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	var policiesResp map[string]any
+	require.NoError(t, json.Unmarshal(policiesRec.Body.Bytes(), &policiesResp))
+	policies, _ := policiesResp["ScalingPolicies"].([]any)
+	assert.Empty(t, policies, "scaling policies should be cascade-deleted")
+
+	// Verify cascade: scheduled actions should also be gone
+	actionsRec := doRequest(t, h, "DescribeScheduledActions", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	var actionsResp map[string]any
+	require.NoError(t, json.Unmarshal(actionsRec.Body.Bytes(), &actionsResp))
+	actions, _ := actionsResp["ScheduledActions"].([]any)
+	assert.Empty(t, actions, "scheduled actions should be cascade-deleted")
+}
+
+func TestHandler_PutScalingPolicy_PreservesTypeOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create policy with StepScaling type
+	doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "step-policy",
+		"PolicyType":        "StepScaling",
+	})
+
+	// Update policy without specifying PolicyType - should keep StepScaling
+	doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "step-policy",
+	})
+
+	rec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	policies, _ := resp["ScalingPolicies"].([]any)
+	require.Len(t, policies, 1)
+	policy := policies[0].(map[string]any)
+	assert.Equal(t, "StepScaling", policy["PolicyType"], "PolicyType should be preserved on update")
+}
+
+func TestHandler_DescribeScalingPolicies_IncludesConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a TargetTracking policy with config
+	doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "my-policy",
+		"PolicyType":        "TargetTrackingScaling",
+		"TargetTrackingScalingPolicyConfiguration": map[string]any{
+			"TargetValue": 70.0,
+		},
+	})
+
+	rec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	policies, _ := resp["ScalingPolicies"].([]any)
+	require.Len(t, policies, 1)
+	policy := policies[0].(map[string]any)
+	ttConfig, ok := policy["TargetTrackingScalingPolicyConfiguration"].(map[string]any)
+	require.True(t, ok, "expected TargetTrackingScalingPolicyConfiguration in response")
+	assert.InDelta(t, 70.0, ttConfig["TargetValue"], 0.001)
+}
+
+func TestHandler_GetPredictiveScalingForecast_WrongPolicyType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a TargetTracking policy (not PredictiveScaling)
+	doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "tt-policy",
+		"PolicyType":        "TargetTrackingScaling",
+	})
+
+	rec := doRequest(t, h, "GetPredictiveScalingForecast", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "tt-policy",
+		"StartTime":         "2024-01-01T00:00:00Z",
+		"EndTime":           "2024-01-02T00:00:00Z",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 for non-PredictiveScaling policy")
+}
+
+func TestHandler_PutScheduledAction_MissingSchedule(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "PutScheduledAction", map[string]any{
+		"ServiceNamespace":    "ecs",
+		"ResourceId":          "service/default/my-svc",
+		"ScalableDimension":   "ecs:service:DesiredCount",
+		"ScheduledActionName": "my-action",
+		// Schedule intentionally omitted
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 when Schedule is missing")
+}
+
+func TestHandler_DescribeScalingActivities_WithInput(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace":           "ecs",
+		"ResourceId":                 "service/default/my-svc",
+		"ScalableDimension":          "ecs:service:DesiredCount",
+		"MaxResults":                 int32(10),
+		"IncludeNotScaledActivities": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	acts, ok := resp["ScalingActivities"].([]any)
+	require.True(t, ok, "ScalingActivities should be an array")
+	assert.Empty(t, acts, "expected empty array not null")
+}
+
+func TestHandler_RegisterScalableTarget_UpdateSuspendedState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create target without SuspendedState
+	doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+	})
+
+	// Update with SuspendedState
+	doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(2),
+		"MaxCapacity":       int32(10),
+		"SuspendedState": map[string]any{
+			"DynamicScalingInSuspended": true,
+		},
+	})
+
+	rec := doRequest(t, h, "DescribeScalableTargets", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	targets, _ := resp["ScalableTargets"].([]any)
+	require.Len(t, targets, 1)
+
+	ss, ok := targets[0].(map[string]any)["SuspendedState"].(map[string]any)
+	require.True(t, ok, "expected SuspendedState after update")
+	assert.Equal(t, true, ss["DynamicScalingInSuspended"])
+	// Also verify capacity was updated
+	assert.InDelta(t, float64(2), targets[0].(map[string]any)["MinCapacity"], 0.001)
+}
+
+func TestHandler_RegisterScalableTarget_UpdateTagsMergeLimit(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Register with 45 tags
+	initial := make(map[string]string, 45)
+	for i := range 45 {
+		initial[fmt.Sprintf("k%d", i)] = "v"
+	}
+
+	doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+		"Tags":              initial,
+	})
+
+	// Upsert with 10 new tags - total would be 55, exceeds limit
+	extra := make(map[string]string, 10)
+	for i := range 10 {
+		extra[fmt.Sprintf("new-%d", i)] = "v"
+	}
+
+	rec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+		"Tags":              extra,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 when tag limit exceeded on upsert")
+}
+
+func TestHandler_ApplyMaxResults_CapAt100(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Register 110 scalable targets
+	for i := range 110 {
+		doRequest(t, h, "RegisterScalableTarget", map[string]any{
+			"ServiceNamespace":  "ecs",
+			"ResourceId":        fmt.Sprintf("service/default/svc-%d", i),
+			"ScalableDimension": "ecs:service:DesiredCount",
+			"MinCapacity":       int32(1),
+			"MaxCapacity":       int32(5),
+		})
+	}
+
+	// Request MaxResults=200 (over cap)
+	rec := doRequest(t, h, "DescribeScalableTargets", map[string]any{
+		"ServiceNamespace": "ecs",
+		"MaxResults":       int32(200),
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	targets, _ := resp["ScalableTargets"].([]any)
+	assert.Len(t, targets, 100, "MaxResults=200 should be capped at 100")
+}
