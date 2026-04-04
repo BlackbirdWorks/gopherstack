@@ -46,6 +46,7 @@ type DynamoDBBackend interface {
 type StorageBackend interface {
 	CreateGraphqlAPI(name string, authType AuthenticationType, tagMap map[string]string) (*GraphqlAPI, error)
 	GetGraphqlAPI(apiID string) (*GraphqlAPI, error)
+	UpdateGraphqlAPI(apiID, name string, authType AuthenticationType) (*GraphqlAPI, error)
 	ListGraphqlAPIs() ([]*GraphqlAPI, error)
 	DeleteGraphqlAPI(apiID string) error
 	StartSchemaCreation(apiID, sdl string) (*Schema, error)
@@ -69,15 +70,29 @@ type StorageBackend interface {
 	CreateChannelNamespace(apiID, name string, tagMap map[string]string) (*ChannelNamespace, error)
 	// API key operations.
 	CreateAPIKey(apiID, description string, expires int64) (*APIKey, error)
+	ListAPIKeys(apiID string) ([]*APIKey, error)
+	DeleteAPIKey(apiID, keyID string) error
 	// API cache operations.
 	CreateAPICache(apiID string, cache *APICache) (*APICache, error)
+	GetAPICache(apiID string) (*APICache, error)
+	DeleteAPICache(apiID string) error
 	// Function operations.
 	CreateFunction(apiID string, f *Function) (*Function, error)
+	GetFunction(apiID, functionID string) (*Function, error)
+	ListFunctions(apiID string) ([]*Function, error)
+	DeleteFunction(apiID, functionID string) error
 	// Type operations.
 	CreateType(apiID, definition string, format TypeDefinitionFormat) (*APIType, error)
+	GetType(apiID, typeName string) (*APIType, error)
+	ListTypes(apiID string) ([]*APIType, error)
+	DeleteType(apiID, typeName string) error
 	// Domain name operations.
 	CreateDomainName(domainName, certificateARN, description string, tagMap map[string]string) (*DomainName, error)
+	GetDomainName(domainName string) (*DomainName, error)
+	ListDomainNames() ([]*DomainName, error)
+	DeleteDomainName(domainName string) error
 	AssociateAPI(domainName, apiID string) (*APIAssociation, error)
+	GetAPIAssociation(domainName string) (*APIAssociation, error)
 	// Merged/source API association operations.
 	AssociateMergedGraphqlAPI(
 		sourceAPIIdentifier, mergedAPIIdentifier, description string,
@@ -316,6 +331,33 @@ func (b *InMemoryBackend) GetGraphqlAPI(apiID string) (*GraphqlAPI, error) {
 	api, ok := b.apis[apiID]
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	cp := *api
+
+	return &cp, nil
+}
+
+// UpdateGraphqlAPI updates an existing GraphQL API's name and/or authentication type.
+func (b *InMemoryBackend) UpdateGraphqlAPI(apiID, name string, authType AuthenticationType) (*GraphqlAPI, error) {
+	b.mu.Lock("UpdateGraphqlApi")
+	defer b.mu.Unlock()
+
+	api, ok := b.apis[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if authType != "" && !isValidAuthType(authType) {
+		return nil, fmt.Errorf("%w: invalid authenticationType %q", ErrValidation, authType)
+	}
+
+	if name != "" {
+		api.Name = name
+	}
+
+	if authType != "" {
+		api.AuthenticationType = authType
 	}
 
 	cp := *api
@@ -1040,6 +1082,259 @@ func (b *InMemoryBackend) AssociateSourceGraphqlAPI(
 	}
 
 	b.sourceAssocs[assocID] = assoc
+
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// ListAPIKeys returns all API keys for a GraphQL API.
+func (b *InMemoryBackend) ListAPIKeys(apiID string) ([]*APIKey, error) {
+	b.mu.RLock("ListApiKeys")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	keys := b.apiKeys[apiID]
+	out := make([]*APIKey, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *k
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// DeleteAPIKey deletes an API key from a GraphQL API.
+func (b *InMemoryBackend) DeleteAPIKey(apiID, keyID string) error {
+	b.mu.Lock("DeleteApiKey")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	keys := b.apiKeys[apiID]
+	if keys == nil || keys[keyID] == nil {
+		return fmt.Errorf("%w: api key %s not found", ErrNotFound, keyID)
+	}
+
+	delete(keys, keyID)
+
+	return nil
+}
+
+// GetAPICache returns the cache configuration for a GraphQL API.
+func (b *InMemoryBackend) GetAPICache(apiID string) (*APICache, error) {
+	b.mu.RLock("GetApiCache")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	cache, ok := b.apiCaches[apiID]
+	if !ok {
+		return nil, fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
+	}
+
+	cp := *cache
+
+	return &cp, nil
+}
+
+// DeleteAPICache deletes the cache configuration for a GraphQL API.
+func (b *InMemoryBackend) DeleteAPICache(apiID string) error {
+	b.mu.Lock("DeleteApiCache")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if _, ok := b.apiCaches[apiID]; !ok {
+		return fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
+	}
+
+	delete(b.apiCaches, apiID)
+
+	return nil
+}
+
+// GetFunction returns a pipeline function by ID.
+func (b *InMemoryBackend) GetFunction(apiID, functionID string) (*Function, error) {
+	b.mu.RLock("GetFunction")
+	defer b.mu.RUnlock()
+
+	fns := b.functions[apiID]
+	if fns == nil {
+		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	fn, ok := fns[functionID]
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	cp := *fn
+
+	return &cp, nil
+}
+
+// ListFunctions returns all pipeline functions for a GraphQL API.
+func (b *InMemoryBackend) ListFunctions(apiID string) ([]*Function, error) {
+	b.mu.RLock("ListFunctions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	fns := b.functions[apiID]
+	out := make([]*Function, 0, len(fns))
+
+	for _, fn := range fns {
+		cp := *fn
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// DeleteFunction deletes a pipeline function.
+func (b *InMemoryBackend) DeleteFunction(apiID, functionID string) error {
+	b.mu.Lock("DeleteFunction")
+	defer b.mu.Unlock()
+
+	fns := b.functions[apiID]
+	if fns == nil || fns[functionID] == nil {
+		return fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	delete(fns, functionID)
+
+	return nil
+}
+
+// GetType returns a GraphQL type by name.
+func (b *InMemoryBackend) GetType(apiID, typeName string) (*APIType, error) {
+	b.mu.RLock("GetType")
+	defer b.mu.RUnlock()
+
+	types := b.types[apiID]
+	if types == nil {
+		return nil, fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
+	}
+
+	t, ok := types[typeName]
+	if !ok {
+		return nil, fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
+	}
+
+	cp := *t
+
+	return &cp, nil
+}
+
+// ListTypes returns all GraphQL types for an API.
+func (b *InMemoryBackend) ListTypes(apiID string) ([]*APIType, error) {
+	b.mu.RLock("ListTypes")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	types := b.types[apiID]
+	out := make([]*APIType, 0, len(types))
+
+	for _, t := range types {
+		cp := *t
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// DeleteType deletes a GraphQL type.
+func (b *InMemoryBackend) DeleteType(apiID, typeName string) error {
+	b.mu.Lock("DeleteType")
+	defer b.mu.Unlock()
+
+	types := b.types[apiID]
+	if types == nil || types[typeName] == nil {
+		return fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
+	}
+
+	delete(types, typeName)
+
+	return nil
+}
+
+// GetDomainName returns a custom domain name configuration.
+func (b *InMemoryBackend) GetDomainName(domainName string) (*DomainName, error) {
+	b.mu.RLock("GetDomainName")
+	defer b.mu.RUnlock()
+
+	dn, ok := b.domainNames[domainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
+	}
+
+	cp := *dn
+
+	return &cp, nil
+}
+
+// ListDomainNames returns all custom domain name configurations.
+func (b *InMemoryBackend) ListDomainNames() ([]*DomainName, error) {
+	b.mu.RLock("ListDomainNames")
+	defer b.mu.RUnlock()
+
+	out := make([]*DomainName, 0, len(b.domainNames))
+
+	for _, dn := range b.domainNames {
+		cp := *dn
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// DeleteDomainName deletes a custom domain name configuration and its API association.
+func (b *InMemoryBackend) DeleteDomainName(domainName string) error {
+	b.mu.Lock("DeleteDomainName")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
+	}
+
+	delete(b.domainNames, domainName)
+	delete(b.apiAssociations, domainName)
+
+	return nil
+}
+
+// GetAPIAssociation returns the API association for a domain name.
+func (b *InMemoryBackend) GetAPIAssociation(domainName string) (*APIAssociation, error) {
+	b.mu.RLock("GetApiAssociation")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
+	}
+
+	assoc, ok := b.apiAssociations[domainName]
+	if !ok {
+		return &APIAssociation{
+			DomainName:        domainName,
+			AssociationStatus: "NOT_FOUND",
+		}, nil
+	}
 
 	cp := *assoc
 

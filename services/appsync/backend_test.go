@@ -1514,8 +1514,7 @@ func TestInMemoryBackend_CreateType_DuplicateDetection(t *testing.T) {
 
 	// Creating the same type again should fail.
 	_, err = b.CreateType(api.APIID, def, appsync.TypeFormatSDL)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, awserr.ErrAlreadyExists)
+	require.ErrorIs(t, err, awserr.ErrAlreadyExists)
 }
 
 func TestInMemoryBackend_AssociateAPI_UpdatesDomainName(t *testing.T) {
@@ -1613,4 +1612,281 @@ func TestInMemoryBackend_CreateDomainName_Validation(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// ---- Refinement 2: new backend operation tests ----
+
+func TestInMemoryBackend_UpdateGraphqlAPI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		newName  string
+		authType appsync.AuthenticationType
+		wantErr  bool
+	}{
+		{name: "update_name", newName: "NewName", authType: ""},
+		{name: "update_auth_type", newName: "", authType: appsync.AuthTypeIAM},
+		{name: "update_both", newName: "Updated", authType: appsync.AuthTypeCognito},
+		{name: "invalid_auth_type", newName: "", authType: "INVALID", wantErr: true},
+		{name: "no_change", newName: "", authType: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("OriginalName", appsync.AuthTypeAPIKey, nil)
+			require.NoError(t, err)
+
+			updated, err := b.UpdateGraphqlAPI(api.APIID, tt.newName, tt.authType)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.newName != "" {
+				assert.Equal(t, tt.newName, updated.Name)
+			} else {
+				assert.Equal(t, "OriginalName", updated.Name)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_ListAndDeleteAPIKeys(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	key1, err := b.CreateAPIKey(api.APIID, "k1", 0)
+	require.NoError(t, err)
+	_, err = b.CreateAPIKey(api.APIID, "k2", 0)
+	require.NoError(t, err)
+
+	// List returns 2 keys.
+	keys, err := b.ListAPIKeys(api.APIID)
+	require.NoError(t, err)
+	assert.Len(t, keys, 2)
+
+	// Delete one.
+	err = b.DeleteAPIKey(api.APIID, key1.ID)
+	require.NoError(t, err)
+
+	// List returns 1 key.
+	keys, err = b.ListAPIKeys(api.APIID)
+	require.NoError(t, err)
+	assert.Len(t, keys, 1)
+
+	// Delete non-existent returns error.
+	err = b.DeleteAPIKey(api.APIID, "nonexistent")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_GetAndDeleteAPICache(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	cache := &appsync.APICache{TTL: 60, Type: "SMALL", APICachingBehavior: "FULL_REQUEST_CACHING"}
+	_, err = b.CreateAPICache(api.APIID, cache)
+	require.NoError(t, err)
+
+	// Get returns the cache.
+	got, err := b.GetAPICache(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "SMALL", got.Type)
+
+	// Delete the cache.
+	err = b.DeleteAPICache(api.APIID)
+	require.NoError(t, err)
+
+	// Get after delete returns error.
+	_, err = b.GetAPICache(api.APIID)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_FunctionCRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	// Get by ID.
+	got, err := b.GetFunction(api.APIID, fn.FunctionID)
+	require.NoError(t, err)
+	assert.Equal(t, "fn1", got.Name)
+
+	// List returns 1.
+	fns, err := b.ListFunctions(api.APIID)
+	require.NoError(t, err)
+	assert.Len(t, fns, 1)
+
+	// Delete.
+	err = b.DeleteFunction(api.APIID, fn.FunctionID)
+	require.NoError(t, err)
+
+	// List returns 0.
+	fns, err = b.ListFunctions(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, fns)
+}
+
+func TestInMemoryBackend_TypeCRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	// Get by name.
+	got, err := b.GetType(api.APIID, "MyType")
+	require.NoError(t, err)
+	assert.Equal(t, "MyType", got.Name)
+
+	// List returns 1.
+	types, err := b.ListTypes(api.APIID)
+	require.NoError(t, err)
+	assert.Len(t, types, 1)
+
+	// Delete.
+	err = b.DeleteType(api.APIID, "MyType")
+	require.NoError(t, err)
+
+	// Get after delete returns error.
+	_, err = b.GetType(api.APIID, "MyType")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestInMemoryBackend_DomainNameCRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	// Create.
+	_, err := b.CreateDomainName("api.example.com", certARN, "desc", nil)
+	require.NoError(t, err)
+
+	// Get.
+	dn, err := b.GetDomainName("api.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "api.example.com", dn.DomainName)
+
+	// List.
+	dns, err := b.ListDomainNames()
+	require.NoError(t, err)
+	assert.Len(t, dns, 1)
+
+	// Delete.
+	err = b.DeleteDomainName("api.example.com")
+	require.NoError(t, err)
+
+	// Get after delete returns error.
+	_, err = b.GetDomainName("api.example.com")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+
+	// List returns 0.
+	dns, err = b.ListDomainNames()
+	require.NoError(t, err)
+	assert.Empty(t, dns)
+}
+
+func TestInMemoryBackend_GetAPIAssociation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(*appsync.InMemoryBackend)
+		domainName string
+		wantStatus string
+		wantErr    bool
+	}{
+		{
+			name:       "no_association_returns_not_found_status",
+			domainName: "api.example.com",
+			setup: func(b *appsync.InMemoryBackend) {
+				_, _ = b.CreateDomainName("api.example.com",
+					"arn:aws:acm:us-east-1:000000000000:certificate/abc", "", nil)
+			},
+			wantStatus: "NOT_FOUND",
+		},
+		{
+			name: "with_association_returns_success_status",
+			setup: func(b *appsync.InMemoryBackend) {
+				_, _ = b.CreateDomainName("api.example.com",
+					"arn:aws:acm:us-east-1:000000000000:certificate/abc", "", nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+				_, _ = b.AssociateAPI("api.example.com", api.APIID)
+			},
+			domainName: "api.example.com",
+			wantStatus: "SUCCESS",
+		},
+		{
+			name:       "domain_not_found_returns_error",
+			domainName: "missing.example.com",
+			setup:      func(_ *appsync.InMemoryBackend) {},
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			tt.setup(b)
+
+			assoc, err := b.GetAPIAssociation(tt.domainName)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, assoc.AssociationStatus)
+		})
+	}
+}
+
+func TestInMemoryBackend_DeleteDomainName_CascadesAssociation(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	_, err := b.CreateDomainName("api.example.com", certARN, "", nil)
+	require.NoError(t, err)
+
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.AssociateAPI("api.example.com", api.APIID)
+	require.NoError(t, err)
+
+	// Delete domain name.
+	err = b.DeleteDomainName("api.example.com")
+	require.NoError(t, err)
+
+	// Get association after domain name deleted returns error.
+	_, err = b.GetAPIAssociation("api.example.com")
+	require.ErrorIs(t, err, awserr.ErrNotFound)
 }

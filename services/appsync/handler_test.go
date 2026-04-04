@@ -746,9 +746,9 @@ func TestHandler_Types_ShortPath(t *testing.T) {
 	h, b := newTestHandler()
 	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
 
-	// Path with only /v1/apis/{id}/types should return 404.
+	// GET /v1/apis/{id}/types now returns list of types (200 OK).
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/types", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestHandler_UnknownSubpath(t *testing.T) {
@@ -774,10 +774,10 @@ func TestHandler_DataSources_MethodNotAllowed(t *testing.T) {
 func TestHandler_API_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	h, _ := newTestHandler()
 
-	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID, nil)
+	// CONNECT is not allowed on the /v1/apis path.
+	rec := doRequest(t, h, http.MethodConnect, "/v1/apis", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
@@ -1418,31 +1418,31 @@ func TestHandler_MethodNotAllowed_NewOps(t *testing.T) {
 	}{
 		{
 			name:       "apikeys_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodDelete, // DELETE at collection level (no keyId) → 405
 			path:       "/v1/apis/abc/apikeys",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
 			name:       "apicaches_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodPatch, // PATCH → 405
 			path:       "/v1/apis/abc/ApiCaches",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
 			name:       "functions_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodDelete, // DELETE at collection level → 405
 			path:       "/v1/apis/abc/functions",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
 			name:       "domainnames_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodDelete, // DELETE at /v1/domainnames (no name) → 405
 			path:       "/v1/domainnames",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
 			name:       "apiassociation_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodDelete, // DELETE /apiassociation → 405 (DisassociateApi not implemented)
 			path:       "/v1/domainnames/api.example.com/apiassociation",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
@@ -1632,4 +1632,296 @@ func TestHandler_CreateAPIKey_Da2Prefix(t *testing.T) {
 	keyID := apiKey["id"].(string)
 	require.GreaterOrEqual(t, len(keyID), 4, "key ID must be at least 4 characters")
 	assert.Equal(t, "da2-", keyID[:4])
+}
+
+// ---- Refinement 2: new operation tests ----
+
+func TestHandler_UpdateGraphqlAPI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantName   string
+		wantStatus int
+	}{
+		{
+			name:       "updates_name",
+			body:       map[string]any{"name": "UpdatedAPI"},
+			wantStatus: http.StatusOK,
+			wantName:   "UpdatedAPI",
+		},
+		{
+			name:       "updates_auth_type",
+			body:       map[string]any{"authenticationType": "AWS_IAM"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_auth_type_rejected",
+			body:       map[string]any{"authenticationType": "INVALID"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+api.APIID, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantName != "" && tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				gqlAPI := resp["graphqlApi"].(map[string]any)
+				assert.Equal(t, tt.wantName, gqlAPI["name"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListApiKeys(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPIKey(api.APIID, "key1", 0)
+	require.NoError(t, err)
+	_, err = b.CreateAPIKey(api.APIID, "key2", 0)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/apikeys", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	keys := resp["apiKeys"].([]any)
+	assert.Len(t, keys, 2)
+}
+
+func TestHandler_DeleteApiKey(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	key, err := b.CreateAPIKey(api.APIID, "test", 0)
+	require.NoError(t, err)
+
+	// Delete the key.
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/apikeys/"+key.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Second delete returns 404.
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/apikeys/"+key.ID, nil)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+func TestHandler_GetApiCache(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
+		TTL:                60,
+		Type:               "SMALL",
+		APICachingBehavior: "FULL_REQUEST_CACHING",
+	})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/ApiCaches", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.NotNil(t, resp["apiCache"])
+}
+
+func TestHandler_DeleteApiCache(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
+		TTL:                60,
+		Type:               "SMALL",
+		APICachingBehavior: "FULL_REQUEST_CACHING",
+	})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/ApiCaches", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Second delete returns 404.
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/ApiCaches", nil)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+func TestHandler_ListFunctions(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/functions", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	fns := resp["functions"].([]any)
+	assert.Len(t, fns, 1)
+}
+
+func TestHandler_GetFunction(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/functions/"+fn.FunctionID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.NotNil(t, resp["functionConfiguration"])
+}
+
+func TestHandler_DeleteFunction(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/functions/"+fn.FunctionID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Second delete returns 404.
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/functions/"+fn.FunctionID, nil)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+func TestHandler_ListTypes(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/types", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	types := resp["types"].([]any)
+	assert.Len(t, types, 1)
+}
+
+func TestHandler_GetType(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/types/MyType", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.NotNil(t, resp["type"])
+}
+
+func TestHandler_DeleteType(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/types/MyType", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Second delete returns 404.
+	rec2 := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/types/MyType", nil)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+func TestHandler_DomainNameCRUD(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	// Create.
+	createBody := map[string]any{"domainName": "api.example.com", "certificateArn": certARN}
+	rec := doRequest(t, h, http.MethodPost, "/v1/domainnames", createBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// List.
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/domainnames", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	dns := listResp["domainNameConfigs"].([]any)
+	assert.Len(t, dns, 1)
+
+	// Get.
+	rec3 := doRequest(t, h, http.MethodGet, "/v1/domainnames/api.example.com", nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	// Delete.
+	rec4 := doRequest(t, h, http.MethodDelete, "/v1/domainnames/api.example.com", nil)
+	assert.Equal(t, http.StatusNoContent, rec4.Code)
+
+	// After delete, get returns 404.
+	rec5 := doRequest(t, h, http.MethodGet, "/v1/domainnames/api.example.com", nil)
+	assert.Equal(t, http.StatusNotFound, rec5.Code)
+}
+
+func TestHandler_GetApiAssociation(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	certARN := "arn:aws:acm:us-east-1:000000000000:certificate/abc"
+
+	// Create domain name.
+	createBody := map[string]any{"domainName": "api.example.com", "certificateArn": certARN}
+	doRequest(t, h, http.MethodPost, "/v1/domainnames", createBody)
+
+	// Get association (no API associated yet).
+	rec := doRequest(t, h, http.MethodGet, "/v1/domainnames/api.example.com/apiassociation", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
