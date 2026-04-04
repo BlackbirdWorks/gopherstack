@@ -23,18 +23,28 @@ func TestApplicationAutoScaling_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				assert.Empty(t, b.DescribeScalableTargets(""))
+				assert.Empty(t, b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{}))
 			},
 		},
 		{
 			name: "scalable_target_preserved_with_arn_index",
 			setup: func(b *applicationautoscaling.InMemoryBackend) {
-				_, _ = b.RegisterScalableTarget("ecs", "service/my-cluster/my-svc", "ecs:service:DesiredCount", 1, 10)
+				_, _ = b.RegisterScalableTarget(
+					"ecs",
+					"service/my-cluster/my-svc",
+					"ecs:service:DesiredCount",
+					1,
+					10,
+					nil,
+					"",
+				)
 			},
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				targets := b.DescribeScalableTargets("ecs")
+				targets := b.DescribeScalableTargets(
+					applicationautoscaling.DescribeScalableTargetsFilter{ServiceNamespace: "ecs"},
+				)
 				require.Len(t, targets, 1)
 				// Verify ARN index is rebuilt — tag ops should work
 				err := b.TagResource(targets[0].ARN, map[string]string{"team": "platform"})

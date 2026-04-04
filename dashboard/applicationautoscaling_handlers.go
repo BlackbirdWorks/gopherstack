@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 )
 
 // applicationautoscalingView is the view model for a single Application Auto Scaling scalable target.
@@ -60,7 +62,9 @@ client = boto3.client('application-autoscaling', endpoint_url='http://localhost:
 		return nil
 	}
 
-	targets := h.ApplicationAutoscalingOps.Backend.DescribeScalableTargets("")
+	targets := h.ApplicationAutoscalingOps.Backend.DescribeScalableTargets(
+		applicationautoscaling.DescribeScalableTargetsFilter{},
+	)
 	views := make([]applicationautoscalingView, 0, len(targets))
 
 	for _, t := range targets {
@@ -133,7 +137,7 @@ func (h *DashboardHandler) applicationautoscalingCreate(c *echo.Context) error {
 	}
 
 	_, err = h.ApplicationAutoscalingOps.Backend.RegisterScalableTarget(
-		namespace, resourceID, scalableDimension, int32(minVal), int32(maxVal),
+		namespace, resourceID, scalableDimension, int32(minVal), int32(maxVal), nil, "",
 	)
 	if err != nil {
 		h.Logger.Error("failed to register scalable target", "resource_id", resourceID, "error", err)

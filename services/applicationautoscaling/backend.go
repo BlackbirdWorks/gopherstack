@@ -36,13 +36,29 @@ func isValidPolicyType(t string) bool {
 // GetPredictiveScalingForecast, matching the real AWS constraint of 14 days.
 const maxForecastWindow = 14 * 24 * time.Hour
 
+// SuspendedState represents the suspension configuration for a scalable target.
+// Each field independently suspends a category of scaling activity.
+type SuspendedState struct {
+	DynamicScalingInSuspended  bool `json:"dynamicScalingInSuspended"`
+	DynamicScalingOutSuspended bool `json:"dynamicScalingOutSuspended"`
+	ScheduledScalingSuspended  bool `json:"scheduledScalingSuspended"`
+}
+
+// ScalableTargetAction holds the capacity bounds for a scheduled action.
+type ScalableTargetAction struct {
+	MinCapacity *int32 `json:"minCapacity,omitempty"`
+	MaxCapacity *int32 `json:"maxCapacity,omitempty"`
+}
+
 // ScalableTarget represents a registered Application Auto Scaling scalable target.
 type ScalableTarget struct {
 	CreationTime      time.Time         `json:"creationTime"`
 	LastModifiedTime  time.Time         `json:"lastModifiedTime"`
+	SuspendedState    *SuspendedState   `json:"suspendedState,omitempty"`
 	Tags              map[string]string `json:"tags,omitempty"`
 	ResourceID        string            `json:"resourceId"`
 	ARN               string            `json:"arn"`
+	RoleARN           string            `json:"roleArn,omitempty"`
 	ScalableDimension string            `json:"scalableDimension"`
 	ServiceNamespace  string            `json:"serviceNamespace"`
 	AccountID         string            `json:"accountID"`
@@ -67,14 +83,15 @@ type ScalingPolicy struct {
 
 // ScheduledAction represents an Application Auto Scaling scheduled action.
 type ScheduledAction struct {
-	CreationTime        time.Time `json:"creationTime"`
-	LastModifiedTime    time.Time `json:"lastModifiedTime"`
-	ScheduledActionName string    `json:"scheduledActionName"`
-	ResourceID          string    `json:"resourceId"`
-	ARN                 string    `json:"arn"`
-	Schedule            string    `json:"schedule"`
-	ScalableDimension   string    `json:"scalableDimension"`
-	ServiceNamespace    string    `json:"serviceNamespace"`
+	CreationTime         time.Time             `json:"creationTime"`
+	LastModifiedTime     time.Time             `json:"lastModifiedTime"`
+	ScalableTargetAction *ScalableTargetAction `json:"scalableTargetAction,omitempty"`
+	ScheduledActionName  string                `json:"scheduledActionName"`
+	ResourceID           string                `json:"resourceId"`
+	ARN                  string                `json:"arn"`
+	Schedule             string                `json:"schedule"`
+	ScalableDimension    string                `json:"scalableDimension"`
+	ServiceNamespace     string                `json:"serviceNamespace"`
 }
 
 // InMemoryBackend stores Application Auto Scaling state in memory.
@@ -127,6 +144,8 @@ func actionNameKey(serviceNamespace, resourceID, scalableDimension, scheduledAct
 func (b *InMemoryBackend) RegisterScalableTarget(
 	serviceNamespace, resourceID, scalableDimension string,
 	minCapacity, maxCapacity int32,
+	tags map[string]string,
+	roleARN string,
 ) (*ScalableTarget, error) {
 	if serviceNamespace == "" {
 		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
@@ -161,28 +180,49 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		existing.MinCapacity = minCapacity
 		existing.MaxCapacity = maxCapacity
 		existing.LastModifiedTime = now
+		if roleARN != "" {
+			existing.RoleARN = roleARN
+		}
+
+		if len(tags) > 0 {
+			if existing.Tags == nil {
+				existing.Tags = make(map[string]string)
+			}
+
+			maps.Copy(existing.Tags, tags)
+		}
+
 		cp := *existing
 		cp.Tags = maps.Clone(existing.Tags)
 
 		return &cp, nil
 	}
 
-	targetARN := arn.Build("application-autoscaling", b.region, b.accountID, "scalable-target/"+uuid.NewString())
 	t := &ScalableTarget{
 		ServiceNamespace:  serviceNamespace,
 		ResourceID:        resourceID,
 		ScalableDimension: scalableDimension,
 		MinCapacity:       minCapacity,
 		MaxCapacity:       maxCapacity,
-		ARN:               targetARN,
-		AccountID:         b.accountID,
-		Region:            b.region,
-		Tags:              make(map[string]string),
-		CreationTime:      now,
-		LastModifiedTime:  now,
+		ARN: arn.Build(
+			"application-autoscaling",
+			b.region,
+			b.accountID,
+			"scalable-target/"+uuid.NewString(),
+		),
+		RoleARN:          roleARN,
+		AccountID:        b.accountID,
+		Region:           b.region,
+		Tags:             maps.Clone(tags),
+		CreationTime:     now,
+		LastModifiedTime: now,
 	}
+	if t.Tags == nil {
+		t.Tags = make(map[string]string)
+	}
+
 	b.scalableTargets[key] = t
-	b.targetARNIndex[targetARN] = key
+	b.targetARNIndex[t.ARN] = key
 	cp := *t
 	cp.Tags = maps.Clone(t.Tags)
 
@@ -191,6 +231,18 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 
 // DeregisterScalableTarget removes a scalable target.
 func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID, scalableDimension string) error {
+	if serviceNamespace == "" {
+		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	}
+
+	if resourceID == "" {
+		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+
+	if scalableDimension == "" {
+		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeregisterScalableTarget")
 	defer b.mu.Unlock()
 
@@ -207,16 +259,40 @@ func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID,
 	return nil
 }
 
-// DescribeScalableTargets lists scalable targets, optionally filtered by service namespace.
-func (b *InMemoryBackend) DescribeScalableTargets(serviceNamespace string) []*ScalableTarget {
+// DescribeScalableTargetsFilter carries optional filters for DescribeScalableTargets.
+type DescribeScalableTargetsFilter struct {
+	ServiceNamespace  string
+	ScalableDimension string
+	ResourceIDs       []string
+}
+
+// DescribeScalableTargets lists scalable targets, optionally filtered.
+func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) []*ScalableTarget {
 	b.mu.RLock("DescribeScalableTargets")
 	defer b.mu.RUnlock()
 
+	var idSet map[string]bool
+	if len(f.ResourceIDs) > 0 {
+		idSet = make(map[string]bool, len(f.ResourceIDs))
+		for _, id := range f.ResourceIDs {
+			idSet[id] = true
+		}
+	}
+
 	list := make([]*ScalableTarget, 0, len(b.scalableTargets))
 	for _, t := range b.scalableTargets {
-		if serviceNamespace != "" && t.ServiceNamespace != serviceNamespace {
+		if f.ServiceNamespace != "" && t.ServiceNamespace != f.ServiceNamespace {
 			continue
 		}
+
+		if idSet != nil && !idSet[t.ResourceID] {
+			continue
+		}
+
+		if f.ScalableDimension != "" && t.ScalableDimension != f.ScalableDimension {
+			continue
+		}
+
 		cp := *t
 		cp.Tags = maps.Clone(t.Tags)
 
@@ -256,7 +332,9 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
-	if policyType != "" && !isValidPolicyType(policyType) {
+	if policyType == "" {
+		policyType = "TargetTrackingScaling"
+	} else if !isValidPolicyType(policyType) {
 		return nil, fmt.Errorf(
 			"%w: invalid PolicyType %q; must be one of StepScaling, TargetTrackingScaling, PredictiveScaling",
 			ErrValidation,
@@ -305,6 +383,22 @@ func (b *InMemoryBackend) PutScalingPolicy(
 func (b *InMemoryBackend) DeleteScalingPolicy(
 	serviceNamespace, resourceID, scalableDimension, policyName string,
 ) error {
+	if serviceNamespace == "" {
+		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	}
+
+	if resourceID == "" {
+		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+
+	if scalableDimension == "" {
+		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+	}
+
+	if policyName == "" {
+		return fmt.Errorf("%w: PolicyName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteScalingPolicy")
 	defer b.mu.Unlock()
 
@@ -373,6 +467,7 @@ func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilte
 // PutScheduledAction upserts a scheduled action.
 func (b *InMemoryBackend) PutScheduledAction(
 	serviceNamespace, resourceID, scalableDimension, scheduledActionName, schedule string,
+	scalableTargetAction *ScalableTargetAction,
 ) (*ScheduledAction, error) {
 	if serviceNamespace == "" {
 		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
@@ -400,6 +495,10 @@ func (b *InMemoryBackend) PutScheduledAction(
 		a := b.scheduledActions[existingARN]
 		a.Schedule = schedule
 		a.LastModifiedTime = now
+		if scalableTargetAction != nil {
+			a.ScalableTargetAction = scalableTargetAction
+		}
+
 		cp := *a
 
 		return &cp, nil
@@ -409,14 +508,15 @@ func (b *InMemoryBackend) PutScheduledAction(
 		fmt.Sprintf("scheduledAction:%s:resource/%s/%s/scheduledActionName/%s",
 			uuid.NewString(), serviceNamespace, resourceID, scheduledActionName))
 	a := &ScheduledAction{
-		ServiceNamespace:    serviceNamespace,
-		ResourceID:          resourceID,
-		ScalableDimension:   scalableDimension,
-		ScheduledActionName: scheduledActionName,
-		Schedule:            schedule,
-		ARN:                 actionARN,
-		CreationTime:        now,
-		LastModifiedTime:    now,
+		ServiceNamespace:     serviceNamespace,
+		ResourceID:           resourceID,
+		ScalableDimension:    scalableDimension,
+		ScheduledActionName:  scheduledActionName,
+		Schedule:             schedule,
+		ScalableTargetAction: scalableTargetAction,
+		ARN:                  actionARN,
+		CreationTime:         now,
+		LastModifiedTime:     now,
 	}
 	b.scheduledActions[actionARN] = a
 	b.actionNameIndex[key] = actionARN
@@ -429,6 +529,22 @@ func (b *InMemoryBackend) PutScheduledAction(
 func (b *InMemoryBackend) DeleteScheduledAction(
 	serviceNamespace, resourceID, scalableDimension, scheduledActionName string,
 ) error {
+	if serviceNamespace == "" {
+		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	}
+
+	if resourceID == "" {
+		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+
+	if scalableDimension == "" {
+		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+	}
+
+	if scheduledActionName == "" {
+		return fmt.Errorf("%w: ScheduledActionName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteScheduledAction")
 	defer b.mu.Unlock()
 
@@ -497,6 +613,10 @@ func (b *InMemoryBackend) DescribeScheduledActions(f DescribeScheduledActionsFil
 
 // TagResource adds or updates tags on a scalable target identified by its ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
+	if resourceARN == "" {
+		return fmt.Errorf("%w: ResourceARN is required", ErrValidation)
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -535,6 +655,10 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 // UntagResource removes tags from a scalable target identified by its ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	if resourceARN == "" {
+		return fmt.Errorf("%w: ResourceARN is required", ErrValidation)
+	}
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
@@ -594,10 +718,14 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 	}
 
 	// Build hourly data points in [startTime, endTime).
+	// Start from the first complete hour boundary >= startTime to avoid
+	// emitting timestamps that precede the requested window.
 	start := startTime.Truncate(time.Hour)
-	hourCount := int(endTime.Sub(start) / time.Hour)
+	if start.Before(startTime) {
+		start = start.Add(time.Hour)
+	}
 
-	timestamps := make([]time.Time, 0, hourCount)
+	timestamps := make([]time.Time, 0)
 
 	for t := start; t.Before(endTime); t = t.Add(time.Hour) {
 		timestamps = append(timestamps, t)
