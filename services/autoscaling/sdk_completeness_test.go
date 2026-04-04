@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := autoscaling.NewInMemoryBackend()
 	h := autoscaling.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &autoscalingsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AttachInstances",
-		"AttachLoadBalancerTargetGroups",
-		"AttachLoadBalancers",
-		"AttachTrafficSources",
-		"BatchDeleteScheduledAction",
-		"BatchPutScheduledUpdateGroupAction",
-		"CancelInstanceRefresh",
-		"CompleteLifecycleAction",
-		"CreateOrUpdateTags",
-		"DeleteLifecycleHook",
 		"DeleteNotificationConfiguration",
 		"DeletePolicy",
 		"DeleteScheduledAction",

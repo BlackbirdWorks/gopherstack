@@ -375,3 +375,645 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 		assert.Equal(t, "persist-lc", lcs[0].LaunchConfigurationName)
 	})
 }
+
+func TestInMemoryBackend_AttachInstances(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		name    string
+		group   string
+		ids     []string
+		wantErr bool
+		wantLen int
+	}{
+		{
+			name: "attach_new_instances",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "g1",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			group:   "g1",
+			ids:     []string{"i-aaa", "i-bbb"},
+			wantLen: 2,
+		},
+		{
+			name:    "group_not_found",
+			group:   "no-such",
+			ids:     []string{"i-aaa"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.AttachInstances(tt.group, tt.ids)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			require.NoError(t, err)
+			assert.Len(t, groups[0].Instances, tt.wantLen)
+		})
+	}
+}
+
+func TestInMemoryBackend_AttachLoadBalancerTargetGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(b *autoscaling.InMemoryBackend)
+		name        string
+		group       string
+		arns        []string
+		wantErr     bool
+		wantARNsLen int
+	}{
+		{
+			name: "attach_new_tgs",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "tg-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			group:       "tg-g",
+			arns:        []string{"arn:aws:tg/one", "arn:aws:tg/two"},
+			wantARNsLen: 2,
+		},
+		{
+			name:    "group_not_found",
+			group:   "no-such",
+			arns:    []string{"arn:aws:tg/one"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.AttachLoadBalancerTargetGroups(tt.group, tt.arns)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			require.NoError(t, err)
+			assert.Len(t, groups[0].TargetGroupARNs, tt.wantARNsLen)
+		})
+	}
+}
+
+func TestInMemoryBackend_AttachLoadBalancers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		name    string
+		group   string
+		lbNames []string
+		wantErr bool
+		wantLen int
+	}{
+		{
+			name: "attach_new_lbs",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lb-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			group:   "lb-g",
+			lbNames: []string{"elb-1", "elb-2"},
+			wantLen: 2,
+		},
+		{
+			name:    "group_not_found",
+			group:   "no-such",
+			lbNames: []string{"elb-1"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.AttachLoadBalancers(tt.group, tt.lbNames)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			require.NoError(t, err)
+			assert.Len(t, groups[0].LoadBalancerNames, tt.wantLen)
+		})
+	}
+}
+
+func TestInMemoryBackend_AttachTrafficSources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		name    string
+		group   string
+		tss     []autoscaling.TrafficSource
+		wantErr bool
+		wantLen int
+	}{
+		{
+			name: "attach_traffic_sources",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "ts-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			group: "ts-g",
+			tss: []autoscaling.TrafficSource{
+				{Identifier: "arn:aws:vpc-lattice:us-east-1:123:tg/abc", Type: "vpc-lattice"},
+			},
+			wantLen: 1,
+		},
+		{
+			name:    "group_not_found",
+			group:   "no-such",
+			tss:     []autoscaling.TrafficSource{{Identifier: "x", Type: "y"}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.AttachTrafficSources(tt.group, tt.tss)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
+			require.NoError(t, err)
+			assert.Len(t, groups[0].TrafficSources, tt.wantLen)
+		})
+	}
+}
+
+func TestInMemoryBackend_BatchScheduledActions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "put_then_delete",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sa-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				desired := int32(3)
+				failed, err := b.BatchPutScheduledUpdateGroupAction("sa-g", []autoscaling.ScheduledUpdateGroupAction{
+					{ScheduledActionName: "scale-up", DesiredCapacity: &desired},
+				})
+				require.NoError(t, err)
+				assert.Empty(t, failed)
+
+				failedDel, err := b.BatchDeleteScheduledAction("sa-g", []string{"scale-up"})
+				require.NoError(t, err)
+				assert.Empty(t, failedDel)
+			},
+		},
+		{
+			name: "delete_nonexistent_action_reports_failure",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sa-empty",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				failed, err := b.BatchDeleteScheduledAction("sa-empty", []string{"ghost"})
+				require.NoError(t, err)
+				require.Len(t, failed, 1)
+				assert.Equal(t, "ghost", failed[0].ScheduledActionName)
+			},
+		},
+		{
+			name: "put_missing_name_reports_failure",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sa-badname",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				failed, err := b.BatchPutScheduledUpdateGroupAction("sa-badname",
+					[]autoscaling.ScheduledUpdateGroupAction{{ScheduledActionName: ""}})
+				require.NoError(t, err)
+				require.Len(t, failed, 1)
+			},
+		},
+		{
+			name: "put_group_not_found",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.BatchPutScheduledUpdateGroupAction("no-such", nil)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "delete_group_not_found",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.BatchDeleteScheduledAction("no-such", []string{"a"})
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			if tt.run != nil {
+				tt.run(t, b)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_CancelInstanceRefresh(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		name    string
+		group   string
+		wantID  string
+		wantErr bool
+	}{
+		{
+			name: "cancel_active_refresh",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "refresh-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+				_ = b.AddInstanceRefresh(autoscaling.InstanceRefresh{
+					InstanceRefreshID:    "irs-abc",
+					AutoScalingGroupName: "refresh-g",
+					Status:               "InProgress",
+				})
+			},
+			group:  "refresh-g",
+			wantID: "irs-abc",
+		},
+		{
+			name: "no_active_refresh",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "no-refresh-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			group:   "no-refresh-g",
+			wantErr: true,
+		},
+		{
+			name:    "group_not_found",
+			group:   "no-such",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			id, err := b.CancelInstanceRefresh(tt.group)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantID, id)
+		})
+	}
+}
+
+func TestInMemoryBackend_CompleteLifecycleAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		name    string
+		input   autoscaling.CompleteLifecycleActionInput
+		wantErr bool
+	}{
+		{
+			name: "complete_success",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lca-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			input: autoscaling.CompleteLifecycleActionInput{
+				AutoScalingGroupName:  "lca-g",
+				LifecycleHookName:     "my-hook",
+				LifecycleActionToken:  "token-abc",
+				LifecycleActionResult: "CONTINUE",
+			},
+		},
+		{
+			name: "group_not_found",
+			input: autoscaling.CompleteLifecycleActionInput{
+				AutoScalingGroupName:  "no-such",
+				LifecycleHookName:     "my-hook",
+				LifecycleActionResult: "CONTINUE",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing_hook_name",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lca-nohook",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			input: autoscaling.CompleteLifecycleActionInput{
+				AutoScalingGroupName:  "lca-nohook",
+				LifecycleActionResult: "CONTINUE",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing_result",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lca-noresult",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			input: autoscaling.CompleteLifecycleActionInput{
+				AutoScalingGroupName: "lca-noresult",
+				LifecycleHookName:    "my-hook",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.CompleteLifecycleAction(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateOrUpdateTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		wantTag autoscaling.Tag
+		name    string
+		tags    []autoscaling.ResourceTag
+		wantErr bool
+	}{
+		{
+			name: "create_tag",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "tag-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			tags: []autoscaling.ResourceTag{
+				{ResourceID: "tag-g", ResourceType: "auto-scaling-group", Key: "env", Value: "prod"},
+			},
+			wantTag: autoscaling.Tag{Key: "env", Value: "prod"},
+		},
+		{
+			name: "update_existing_tag",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "upd-tag-g",
+					MinSize:              0,
+					MaxSize:              5,
+					Tags:                 []autoscaling.Tag{{Key: "env", Value: "dev"}},
+				})
+			},
+			tags: []autoscaling.ResourceTag{
+				{ResourceID: "upd-tag-g", ResourceType: "auto-scaling-group", Key: "env", Value: "prod"},
+			},
+			wantTag: autoscaling.Tag{Key: "env", Value: "prod"},
+		},
+		{
+			name: "group_not_found",
+			tags: []autoscaling.ResourceTag{
+				{ResourceID: "no-such", ResourceType: "auto-scaling-group", Key: "k", Value: "v"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.CreateOrUpdateTags(tt.tags)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.wantTag.Key != "" {
+				groups, gErr := b.DescribeAutoScalingGroups([]string{tt.tags[0].ResourceID})
+				require.NoError(t, gErr)
+				found := false
+				for _, tag := range groups[0].Tags {
+					if tag.Key == tt.wantTag.Key {
+						assert.Equal(t, tt.wantTag.Value, tag.Value)
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "expected tag %q not found", tt.wantTag.Key)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_DeleteLifecycleHook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(b *autoscaling.InMemoryBackend)
+		name     string
+		group    string
+		hookName string
+		wantErr  bool
+	}{
+		{
+			name: "delete_existing_hook",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "hook-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+				_ = b.AddLifecycleHook(autoscaling.LifecycleHook{
+					LifecycleHookName:    "launch-hook",
+					AutoScalingGroupName: "hook-g",
+				})
+			},
+			group:    "hook-g",
+			hookName: "launch-hook",
+		},
+		{
+			name: "delete_nonexistent_hook",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "no-hook-g",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+			},
+			group:    "no-hook-g",
+			hookName: "ghost",
+			wantErr:  true,
+		},
+		{
+			name:     "group_not_found",
+			group:    "no-such",
+			hookName: "my-hook",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.DeleteLifecycleHook(tt.group, tt.hookName)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

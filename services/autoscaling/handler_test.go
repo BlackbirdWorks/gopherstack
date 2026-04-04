@@ -910,3 +910,568 @@ func TestAutoscalingHandler_CreateWithTags(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoscalingHandler_AttachInstances(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "attach_instances_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=attach-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=AttachInstances&Version=2011-01-01" +
+				"&AutoScalingGroupName=attach-asg" +
+				"&InstanceIds.member.1=i-abc123&InstanceIds.member.2=i-def456",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "attach_instances_group_not_found",
+			body:       "Action=AttachInstances&Version=2011-01-01&AutoScalingGroupName=no-such&InstanceIds.member.1=i-abc",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_AttachLoadBalancerTargetGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "attach_tgs_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=tg-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=AttachLoadBalancerTargetGroups&Version=2011-01-01" +
+				"&AutoScalingGroupName=tg-asg" +
+				"&TargetGroupARNs.member.1=arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/tg/abc",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "attach_tgs_group_not_found",
+			body: "Action=AttachLoadBalancerTargetGroups&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such" +
+				"&TargetGroupARNs.member.1=arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/tg/abc",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_AttachLoadBalancers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "attach_lbs_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=lb-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=AttachLoadBalancers&Version=2011-01-01" +
+				"&AutoScalingGroupName=lb-asg" +
+				"&LoadBalancerNames.member.1=my-elb",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "attach_lbs_group_not_found",
+			body: "Action=AttachLoadBalancers&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such&LoadBalancerNames.member.1=elb",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_AttachTrafficSources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "attach_traffic_sources_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=ts-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=AttachTrafficSources&Version=2011-01-01" +
+				"&AutoScalingGroupName=ts-asg" +
+				"&TrafficSources.member.1.Identifier=arn:aws:vpc-lattice:us-east-1:123:targetgroup/tg-abc" +
+				"&TrafficSources.member.1.Type=vpc-lattice",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "attach_traffic_sources_group_not_found",
+			body: "Action=AttachTrafficSources&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such" +
+				"&TrafficSources.member.1.Identifier=arn:abc&TrafficSources.member.1.Type=vpc-lattice",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_BatchDeleteScheduledAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "batch_delete_existing_action",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=sched-asg&MinSize=0&MaxSize=5")
+				postAutoscalingForm(t, h,
+					"Action=BatchPutScheduledUpdateGroupAction&Version=2011-01-01"+
+						"&AutoScalingGroupName=sched-asg"+
+						"&ScheduledUpdateGroupActions.member.1.ScheduledActionName=action-1"+
+						"&ScheduledUpdateGroupActions.member.1.DesiredCapacity=3")
+			},
+			body: "Action=BatchDeleteScheduledAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=sched-asg" +
+				"&ScheduledActionNames.member.1=action-1",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "batch_delete_nonexistent_action_returns_failures",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=sched-fail-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=BatchDeleteScheduledAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=sched-fail-asg" +
+				"&ScheduledActionNames.member.1=no-such-action",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "batch_delete_group_not_found",
+			body: "Action=BatchDeleteScheduledAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such&ScheduledActionNames.member.1=a",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_BatchPutScheduledUpdateGroupAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "batch_put_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=put-sched-asg&MinSize=0&MaxSize=10")
+			},
+			body: "Action=BatchPutScheduledUpdateGroupAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=put-sched-asg" +
+				"&ScheduledUpdateGroupActions.member.1.ScheduledActionName=scale-up" +
+				"&ScheduledUpdateGroupActions.member.1.DesiredCapacity=5" +
+				"&ScheduledUpdateGroupActions.member.1.Recurrence=0 9 * * *",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "batch_put_group_not_found",
+			body: "Action=BatchPutScheduledUpdateGroupAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such" +
+				"&ScheduledUpdateGroupActions.member.1.ScheduledActionName=a",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_CancelInstanceRefresh(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler, b *autoscaling.InMemoryBackend)
+		body       string
+		wantStatus int
+		wantIDSet  bool
+	}{
+		{
+			name: "cancel_active_refresh",
+			setup: func(t *testing.T, _ *autoscaling.Handler, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "refresh-asg",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+				require.NoError(t, err)
+
+				err = b.AddInstanceRefresh(autoscaling.InstanceRefresh{
+					InstanceRefreshID:    "irs-12345",
+					AutoScalingGroupName: "refresh-asg",
+					Status:               "InProgress",
+				})
+				require.NoError(t, err)
+			},
+			body:       "Action=CancelInstanceRefresh&Version=2011-01-01&AutoScalingGroupName=refresh-asg",
+			wantStatus: http.StatusOK,
+			wantIDSet:  true,
+		},
+		{
+			name: "cancel_no_active_refresh",
+			setup: func(t *testing.T, h *autoscaling.Handler, _ *autoscaling.InMemoryBackend) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=no-refresh-asg&MinSize=0&MaxSize=5")
+			},
+			body:       "Action=CancelInstanceRefresh&Version=2011-01-01&AutoScalingGroupName=no-refresh-asg",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "cancel_refresh_group_not_found",
+			body:       "Action=CancelInstanceRefresh&Version=2011-01-01&AutoScalingGroupName=no-such",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			h := autoscaling.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantIDSet {
+				assert.Contains(t, rec.Body.String(), "irs-12345")
+			}
+		})
+	}
+}
+
+func TestAutoscalingHandler_CompleteLifecycleAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "complete_lifecycle_action_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=lc-action-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=lc-action-asg" +
+				"&LifecycleHookName=my-hook" +
+				"&LifecycleActionToken=abc123" +
+				"&LifecycleActionResult=CONTINUE",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "complete_lifecycle_group_not_found",
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such&LifecycleHookName=h&LifecycleActionResult=CONTINUE",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "complete_lifecycle_missing_hook_name",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=miss-hook-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=miss-hook-asg&LifecycleActionResult=CONTINUE",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "complete_lifecycle_missing_result",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=miss-result-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=miss-result-asg&LifecycleHookName=my-hook",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_CreateOrUpdateTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "create_or_update_tags_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=tag-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CreateOrUpdateTags&Version=2011-01-01" +
+				"&Tags.member.1.ResourceId=tag-asg" +
+				"&Tags.member.1.ResourceType=auto-scaling-group" +
+				"&Tags.member.1.Key=env" +
+				"&Tags.member.1.Value=production",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "create_or_update_tags_group_not_found",
+			body: "Action=CreateOrUpdateTags&Version=2011-01-01" +
+				"&Tags.member.1.ResourceId=no-such" +
+				"&Tags.member.1.ResourceType=auto-scaling-group" +
+				"&Tags.member.1.Key=env&Tags.member.1.Value=test",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "create_or_update_tags_unknown_resource_type_ignored",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=tag-asg2&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CreateOrUpdateTags&Version=2011-01-01" +
+				"&Tags.member.1.ResourceId=tag-asg2" +
+				"&Tags.member.1.ResourceType=other-type" +
+				"&Tags.member.1.Key=env&Tags.member.1.Value=test",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestAutoscalingHandler_DeleteLifecycleHook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler, b *autoscaling.InMemoryBackend)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "delete_existing_hook",
+			setup: func(t *testing.T, _ *autoscaling.Handler, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "hook-asg",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+				require.NoError(t, err)
+
+				err = b.AddLifecycleHook(autoscaling.LifecycleHook{
+					LifecycleHookName:    "my-hook",
+					AutoScalingGroupName: "hook-asg",
+					LifecycleTransition:  "autoscaling:EC2_INSTANCE_LAUNCHING",
+					DefaultResult:        "CONTINUE",
+				})
+				require.NoError(t, err)
+			},
+			body:       "Action=DeleteLifecycleHook&Version=2011-01-01&AutoScalingGroupName=hook-asg&LifecycleHookName=my-hook",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "delete_nonexistent_hook",
+			setup: func(t *testing.T, h *autoscaling.Handler, _ *autoscaling.InMemoryBackend) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=no-hook-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=DeleteLifecycleHook&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-hook-asg&LifecycleHookName=ghost-hook",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_hook_group_not_found",
+			body:       "Action=DeleteLifecycleHook&Version=2011-01-01&AutoScalingGroupName=no-such&LifecycleHookName=my-hook",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			h := autoscaling.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
