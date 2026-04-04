@@ -828,3 +828,522 @@ func TestBackupErrorPaths(t *testing.T) {
 		})
 	}
 }
+
+// TestAssociateBackupVaultMpaApprovalTeam exercises the MPA approval team association operation.
+func TestAssociateBackupVaultMpaApprovalTeam(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/my-vault", nil)
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/my-vault/mpaApprovalTeam", map[string]any{
+					"MpaApprovalTeamArn": "arn:aws:mpa:us-east-1:123456789012:approval-team/my-team",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "vault_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/missing/mpaApprovalTeam", map[string]any{
+					"MpaApprovalTeamArn": "arn:aws:mpa:us-east-1:123:approval-team/t",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "missing_arn",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/vault-x", nil)
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/vault-x/mpaApprovalTeam", map[string]any{
+					"MpaApprovalTeamArn": "",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCancelLegalHold exercises creating and cancelling legal holds.
+func TestCancelLegalHold(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "create_and_cancel",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				createRec := doREST(t, h, http.MethodPost, "/legal-holds", map[string]any{
+					"Title":       "litigation hold",
+					"Description": "hold for lawsuit XYZ",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				resp := parseResp(t, createRec)
+				legalHoldID, ok := resp["LegalHoldId"].(string)
+				require.True(t, ok)
+				assert.NotEmpty(t, legalHoldID)
+				assert.Equal(t, "ACTIVE", resp["Status"])
+
+				cancelRec := doREST(t, h, http.MethodDelete, "/legal-holds/"+legalHoldID, nil)
+				assert.Equal(t, http.StatusOK, cancelRec.Code)
+			},
+		},
+		{
+			name: "cancel_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodDelete, "/legal-holds/nonexistent-id", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_title",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/legal-holds", map[string]any{
+					"Description": "some description",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_description",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/legal-holds", map[string]any{
+					"Title": "some title",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateBackupSelection exercises the backup selection creation operation.
+func TestCreateBackupSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				createPlanRec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "my-plan", "Rules": []any{}},
+				})
+				require.Equal(t, http.StatusOK, createPlanRec.Code)
+				planResp := parseResp(t, createPlanRec)
+				planID, ok := planResp["BackupPlanId"].(string)
+				require.True(t, ok)
+
+				selRec := doREST(t, h, http.MethodPut, "/backup/plans/"+planID+"/selections", map[string]any{
+					"BackupSelection": map[string]any{
+						"SelectionName": "my-selection",
+						"IamRoleArn":    "arn:aws:iam::123456789012:role/backup-role",
+					},
+				})
+				require.Equal(t, http.StatusOK, selRec.Code)
+				selResp := parseResp(t, selRec)
+				assert.Equal(t, planID, selResp["BackupPlanId"])
+				assert.NotEmpty(t, selResp["SelectionId"])
+			},
+		},
+		{
+			name: "plan_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup/plans/nonexistent/selections", map[string]any{
+					"BackupSelection": map[string]any{"SelectionName": "sel"},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateFramework exercises the audit framework creation operation.
+func TestCreateFramework(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{
+					"FrameworkName":        "my-framework",
+					"FrameworkDescription": "A test framework",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "my-framework", resp["FrameworkName"])
+				assert.NotEmpty(t, resp["FrameworkArn"])
+			},
+		},
+		{
+			name: "duplicate_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{
+					"FrameworkName": "dup-framework",
+				})
+				rec := doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{
+					"FrameworkName": "dup-framework",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateLogicallyAirGappedBackupVault exercises the logically air-gapped vault creation.
+func TestCreateLogicallyAirGappedBackupVault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/lag-vault", map[string]any{
+					"MinRetentionDays": 7,
+					"MaxRetentionDays": 365,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "lag-vault", resp["BackupVaultName"])
+				assert.NotEmpty(t, resp["BackupVaultArn"])
+				assert.Equal(t, "CREATING", resp["VaultState"])
+			},
+		},
+		{
+			name: "duplicate_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/dup-lag", map[string]any{
+					"MinRetentionDays": 7,
+					"MaxRetentionDays": 30,
+				})
+				rec := doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/dup-lag", map[string]any{
+					"MinRetentionDays": 7,
+					"MaxRetentionDays": 30,
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateReportPlan exercises the report plan creation operation.
+func TestCreateReportPlan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/audit/report-plans", map[string]any{
+					"ReportPlanName":        "my-report-plan",
+					"ReportPlanDescription": "Daily backup report",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "my-report-plan", resp["ReportPlanName"])
+				assert.NotEmpty(t, resp["ReportPlanArn"])
+				assert.NotNil(t, resp["CreationTime"])
+			},
+		},
+		{
+			name: "duplicate_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPost, "/audit/report-plans", map[string]any{
+					"ReportPlanName": "dup-report",
+				})
+				rec := doREST(t, h, http.MethodPost, "/audit/report-plans", map[string]any{
+					"ReportPlanName": "dup-report",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/audit/report-plans", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateRestoreAccessBackupVault exercises the restore access vault creation.
+func TestCreateRestoreAccessBackupVault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/restore-access-backup-vaults", map[string]any{
+					"SourceBackupVaultArn": "arn:aws:backup:us-east-1:123456789012:backup-vault:source-vault",
+					"BackupVaultName":      "restore-access-vault",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "restore-access-vault", resp["RestoreAccessBackupVaultName"])
+				assert.NotEmpty(t, resp["RestoreAccessBackupVaultArn"])
+				assert.Equal(t, "CREATING", resp["VaultState"])
+			},
+		},
+		{
+			name: "missing_source_arn",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/restore-access-backup-vaults", map[string]any{
+					"BackupVaultName": "some-vault",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateRestoreTestingPlan exercises the restore testing plan creation.
+func TestCreateRestoreTestingPlan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{
+						"RestoreTestingPlanName": "my-test-plan",
+						"ScheduleExpression":     "cron(0 1 ? * * *)",
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "my-test-plan", resp["RestoreTestingPlanName"])
+				assert.NotEmpty(t, resp["RestoreTestingPlanArn"])
+				assert.NotNil(t, resp["CreationTime"])
+			},
+		},
+		{
+			name: "duplicate_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "dup-plan"},
+				})
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "dup-plan"},
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_plan_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCreateRestoreTestingSelection exercises restore testing selection creation.
+func TestCreateRestoreTestingSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "my-plan"},
+				})
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/my-plan/selections", map[string]any{
+					"RestoreTestingSelection": map[string]any{
+						"RestoreTestingSelectionName": "my-selection",
+						"ProtectedResourceType":       "EC2",
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "my-plan", resp["RestoreTestingPlanName"])
+				assert.Equal(t, "my-selection", resp["RestoreTestingSelectionName"])
+				assert.NotEmpty(t, resp["RestoreTestingPlanArn"])
+			},
+		},
+		{
+			name: "plan_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/missing-plan/selections", map[string]any{
+					"RestoreTestingSelection": map[string]any{
+						"RestoreTestingSelectionName": "sel",
+					},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "duplicate_selection",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "plan-b"},
+				})
+				selBody := map[string]any{
+					"RestoreTestingSelection": map[string]any{"RestoreTestingSelectionName": "sel-b"},
+				}
+				doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-b/selections", selBody)
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-b/selections", selBody)
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_selection_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "plan-c"},
+				})
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-c/selections", map[string]any{
+					"RestoreTestingSelection": map[string]any{},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
+}

@@ -15,6 +15,7 @@ import (
 var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
+	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // Vault represents an AWS Backup vault.
@@ -73,31 +74,108 @@ type Job struct {
 	Region          string     `json:"region"`
 }
 
+// Selection represents an AWS Backup selection (resources assigned to a plan).
+type Selection struct {
+	CreationTime  time.Time `json:"creationTime"`
+	SelectionName string    `json:"selectionName"`
+	SelectionID   string    `json:"selectionId"`
+	BackupPlanID  string    `json:"backupPlanId"`
+	IAMRoleArn    string    `json:"iamRoleArn,omitempty"`
+}
+
+// Framework represents an AWS Backup audit framework.
+type Framework struct {
+	CreationTime         time.Time `json:"creationTime"`
+	FrameworkName        string    `json:"frameworkName"`
+	FrameworkArn         string    `json:"frameworkArn"`
+	FrameworkDescription string    `json:"frameworkDescription,omitempty"`
+}
+
+// LegalHold represents an AWS Backup legal hold.
+type LegalHold struct {
+	CreationDate time.Time `json:"creationDate"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	LegalHoldID  string    `json:"legalHoldId"`
+	LegalHoldArn string    `json:"legalHoldArn"`
+	Status       string    `json:"status"`
+}
+
+// ReportPlan represents an AWS Backup report plan.
+type ReportPlan struct {
+	CreationTime          time.Time `json:"creationTime"`
+	ReportPlanName        string    `json:"reportPlanName"`
+	ReportPlanArn         string    `json:"reportPlanArn"`
+	ReportPlanDescription string    `json:"reportPlanDescription,omitempty"`
+}
+
+// RestoreAccessVault represents an AWS Backup restore access backup vault.
+type RestoreAccessVault struct {
+	CreationDate                 time.Time `json:"creationDate"`
+	RestoreAccessBackupVaultName string    `json:"restoreAccessBackupVaultName"`
+	RestoreAccessBackupVaultArn  string    `json:"restoreAccessBackupVaultArn"`
+	SourceBackupVaultArn         string    `json:"sourceBackupVaultArn"`
+	VaultState                   string    `json:"vaultState"`
+}
+
+// RestoreTestingPlan represents an AWS Backup restore testing plan.
+type RestoreTestingPlan struct {
+	CreationTime           time.Time `json:"creationTime"`
+	RestoreTestingPlanName string    `json:"restoreTestingPlanName"`
+	RestoreTestingPlanArn  string    `json:"restoreTestingPlanArn"`
+	ScheduleExpression     string    `json:"scheduleExpression,omitempty"`
+}
+
+// RestoreTestingSelection represents a selection within a restore testing plan.
+type RestoreTestingSelection struct {
+	CreationTime                time.Time `json:"creationTime"`
+	RestoreTestingPlanName      string    `json:"restoreTestingPlanName"`
+	RestoreTestingSelectionName string    `json:"restoreTestingSelectionName"`
+	RestoreTestingPlanArn       string    `json:"restoreTestingPlanArn"`
+	ProtectedResourceType       string    `json:"protectedResourceType,omitempty"`
+}
+
 // InMemoryBackend is the in-memory store for AWS Backup resources.
 type InMemoryBackend struct {
-	vaults        map[string]*Vault
-	plans         map[string]*Plan
-	jobs          map[string]*Job
-	vaultARNIndex map[string]string // ARN → vault name
-	planARNIndex  map[string]string // ARN → plan name
-	planIDIndex   map[string]string // plan ID → plan name
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+	vaults                   map[string]*Vault
+	plans                    map[string]*Plan
+	jobs                     map[string]*Job
+	selections               map[string]map[string]*Selection               // planID → selectionID → selection
+	frameworks               map[string]*Framework                          // frameworkName → framework
+	legalHolds               map[string]*LegalHold                          // legalHoldID → legalHold
+	reportPlans              map[string]*ReportPlan                         // reportPlanName → reportPlan
+	restoreAccessVaults      map[string]*RestoreAccessVault                 // vaultName → vault
+	restoreTestingPlans      map[string]*RestoreTestingPlan                 // planName → plan
+	restoreTestingSelections map[string]map[string]*RestoreTestingSelection // planName → selectionName → selection
+	mpaApprovals             map[string]string                              // vaultName → mpaApprovalTeamArn
+	vaultARNIndex            map[string]string                              // ARN → vault name
+	planARNIndex             map[string]string                              // ARN → plan name
+	planIDIndex              map[string]string                              // plan ID → plan name
+	mu                       *lockmetrics.RWMutex
+	accountID                string
+	region                   string
 }
 
 // NewInMemoryBackend creates a new in-memory Backup backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		vaults:        make(map[string]*Vault),
-		plans:         make(map[string]*Plan),
-		jobs:          make(map[string]*Job),
-		vaultARNIndex: make(map[string]string),
-		planARNIndex:  make(map[string]string),
-		planIDIndex:   make(map[string]string),
-		accountID:     accountID,
-		region:        region,
-		mu:            lockmetrics.New("backup"),
+		vaults:                   make(map[string]*Vault),
+		plans:                    make(map[string]*Plan),
+		jobs:                     make(map[string]*Job),
+		selections:               make(map[string]map[string]*Selection),
+		frameworks:               make(map[string]*Framework),
+		legalHolds:               make(map[string]*LegalHold),
+		reportPlans:              make(map[string]*ReportPlan),
+		restoreAccessVaults:      make(map[string]*RestoreAccessVault),
+		restoreTestingPlans:      make(map[string]*RestoreTestingPlan),
+		restoreTestingSelections: make(map[string]map[string]*RestoreTestingSelection),
+		mpaApprovals:             make(map[string]string),
+		vaultARNIndex:            make(map[string]string),
+		planARNIndex:             make(map[string]string),
+		planIDIndex:              make(map[string]string),
+		accountID:                accountID,
+		region:                   region,
+		mu:                       lockmetrics.New("backup"),
 	}
 }
 
@@ -405,4 +483,256 @@ func (b *InMemoryBackend) ListTags(resourceArn string) (map[string]string, error
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+}
+
+// AssociateBackupVaultMpaApprovalTeam associates an MPA approval team with a backup vault.
+func (b *InMemoryBackend) AssociateBackupVaultMpaApprovalTeam(vaultName, mpaApprovalTeamArn string) error {
+	b.mu.Lock("AssociateBackupVaultMpaApprovalTeam")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	if mpaApprovalTeamArn == "" {
+		return fmt.Errorf("%w: MpaApprovalTeamArn is required", ErrValidation)
+	}
+
+	b.mpaApprovals[vaultName] = mpaApprovalTeamArn
+
+	return nil
+}
+
+// CancelLegalHold cancels (deletes) a legal hold by ID.
+func (b *InMemoryBackend) CancelLegalHold(legalHoldID string) error {
+	b.mu.Lock("CancelLegalHold")
+	defer b.mu.Unlock()
+
+	if _, ok := b.legalHolds[legalHoldID]; !ok {
+		return fmt.Errorf("%w: legal hold %s not found", ErrNotFound, legalHoldID)
+	}
+
+	delete(b.legalHolds, legalHoldID)
+
+	return nil
+}
+
+// CreateBackupSelection creates a backup selection for a plan.
+func (b *InMemoryBackend) CreateBackupSelection(planID, selectionName, iamRoleArn string) (*Selection, error) {
+	b.mu.Lock("CreateBackupSelection")
+	defer b.mu.Unlock()
+
+	// Resolve plan by ID.
+	planName, found := b.planIDIndex[planID]
+	if !found {
+		// Try name as fallback.
+		if _, exists := b.plans[planID]; !exists {
+			return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
+		}
+
+		planName = planID
+
+		// Get the real ID.
+		planID = b.plans[planName].BackupPlanID
+	}
+
+	if b.selections[planID] == nil {
+		b.selections[planID] = make(map[string]*Selection)
+	}
+
+	selectionID := uuid.NewString()
+	sel := &Selection{
+		SelectionID:   selectionID,
+		SelectionName: selectionName,
+		BackupPlanID:  planID,
+		IAMRoleArn:    iamRoleArn,
+		CreationTime:  time.Now().UTC(),
+	}
+	b.selections[planID][selectionID] = sel
+	_ = planName
+	cp := *sel
+
+	return &cp, nil
+}
+
+// CreateFramework creates an audit framework.
+func (b *InMemoryBackend) CreateFramework(name, description string) (*Framework, error) {
+	b.mu.Lock("CreateFramework")
+	defer b.mu.Unlock()
+
+	if _, ok := b.frameworks[name]; ok {
+		return nil, fmt.Errorf("%w: framework %s already exists", ErrAlreadyExists, name)
+	}
+
+	frameworkARN := arn.Build("backup", b.region, b.accountID, "framework:"+name)
+	f := &Framework{
+		FrameworkName:        name,
+		FrameworkArn:         frameworkARN,
+		FrameworkDescription: description,
+		CreationTime:         time.Now().UTC(),
+	}
+	b.frameworks[name] = f
+	cp := *f
+
+	return &cp, nil
+}
+
+// CreateLegalHold creates a legal hold.
+func (b *InMemoryBackend) CreateLegalHold(title, description string) (*LegalHold, error) {
+	b.mu.Lock("CreateLegalHold")
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	lhARN := arn.Build("backup", b.region, b.accountID, "legal-hold:"+id)
+	lh := &LegalHold{
+		LegalHoldID:  id,
+		LegalHoldArn: lhARN,
+		Title:        title,
+		Description:  description,
+		Status:       "ACTIVE",
+		CreationDate: time.Now().UTC(),
+	}
+	b.legalHolds[id] = lh
+	cp := *lh
+
+	return &cp, nil
+}
+
+// CreateLogicallyAirGappedBackupVault creates a logically air-gapped backup vault.
+func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
+	name, creatorRequestID string,
+	_ /* minRetentionDays */, _ /* maxRetentionDays */ int64,
+	kv map[string]string,
+) (*Vault, error) {
+	b.mu.Lock("CreateLogicallyAirGappedBackupVault")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[name]; ok {
+		return nil, fmt.Errorf("%w: vault %s already exists", ErrAlreadyExists, name)
+	}
+
+	vaultARN := arn.Build("backup", b.region, b.accountID, "backup-vault:"+name)
+	t := tags.New("backup.vault." + name + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+	v := &Vault{
+		BackupVaultName:  name,
+		BackupVaultArn:   vaultARN,
+		CreatorRequestID: creatorRequestID,
+		AccountID:        b.accountID,
+		Region:           b.region,
+		CreationTime:     time.Now().UTC(),
+		Tags:             t,
+	}
+	b.vaults[name] = v
+	b.vaultARNIndex[vaultARN] = name
+	cp := *v
+
+	return &cp, nil
+}
+
+// CreateReportPlan creates a report plan.
+func (b *InMemoryBackend) CreateReportPlan(name, description string) (*ReportPlan, error) {
+	b.mu.Lock("CreateReportPlan")
+	defer b.mu.Unlock()
+
+	if _, ok := b.reportPlans[name]; ok {
+		return nil, fmt.Errorf("%w: report plan %s already exists", ErrAlreadyExists, name)
+	}
+
+	planARN := arn.Build("backup", b.region, b.accountID, "report-plan:"+name)
+	rp := &ReportPlan{
+		ReportPlanName:        name,
+		ReportPlanArn:         planARN,
+		ReportPlanDescription: description,
+		CreationTime:          time.Now().UTC(),
+	}
+	b.reportPlans[name] = rp
+	cp := *rp
+
+	return &cp, nil
+}
+
+// CreateRestoreAccessBackupVault creates a restore access backup vault.
+func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
+	sourceVaultArn, vaultName string,
+	_ /* creatorRequestID */ string,
+	_ /* kv */ map[string]string,
+) (*RestoreAccessVault, error) {
+	b.mu.Lock("CreateRestoreAccessBackupVault")
+	defer b.mu.Unlock()
+
+	if vaultName == "" {
+		vaultName = uuid.NewString()
+	}
+
+	if _, ok := b.restoreAccessVaults[vaultName]; ok {
+		return nil, fmt.Errorf("%w: restore access vault %s already exists", ErrAlreadyExists, vaultName)
+	}
+
+	vaultARN := arn.Build("backup", b.region, b.accountID, "restore-access-backup-vault:"+vaultName)
+	rav := &RestoreAccessVault{
+		RestoreAccessBackupVaultName: vaultName,
+		RestoreAccessBackupVaultArn:  vaultARN,
+		SourceBackupVaultArn:         sourceVaultArn,
+		VaultState:                   "CREATING",
+		CreationDate:                 time.Now().UTC(),
+	}
+	b.restoreAccessVaults[vaultName] = rav
+	cp := *rav
+
+	return &cp, nil
+}
+
+// CreateRestoreTestingPlan creates a restore testing plan.
+func (b *InMemoryBackend) CreateRestoreTestingPlan(name, scheduleExpression string) (*RestoreTestingPlan, error) {
+	b.mu.Lock("CreateRestoreTestingPlan")
+	defer b.mu.Unlock()
+
+	if _, ok := b.restoreTestingPlans[name]; ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s already exists", ErrAlreadyExists, name)
+	}
+
+	planARN := arn.Build("backup", b.region, b.accountID, "restore-testing-plan:"+name)
+	rtp := &RestoreTestingPlan{
+		RestoreTestingPlanName: name,
+		RestoreTestingPlanArn:  planARN,
+		ScheduleExpression:     scheduleExpression,
+		CreationTime:           time.Now().UTC(),
+	}
+	b.restoreTestingPlans[name] = rtp
+	b.restoreTestingSelections[name] = make(map[string]*RestoreTestingSelection)
+	cp := *rtp
+
+	return &cp, nil
+}
+
+// CreateRestoreTestingSelection creates a selection within a restore testing plan.
+func (b *InMemoryBackend) CreateRestoreTestingSelection(
+	planName, selectionName, protectedResourceType string,
+) (*RestoreTestingSelection, error) {
+	b.mu.Lock("CreateRestoreTestingSelection")
+	defer b.mu.Unlock()
+
+	rtp, found := b.restoreTestingPlans[planName]
+	if !found {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	if _, exists := b.restoreTestingSelections[planName][selectionName]; exists {
+		return nil, fmt.Errorf("%w: restore testing selection %s already exists", ErrAlreadyExists, selectionName)
+	}
+
+	sel := &RestoreTestingSelection{
+		RestoreTestingPlanName:      planName,
+		RestoreTestingSelectionName: selectionName,
+		RestoreTestingPlanArn:       rtp.RestoreTestingPlanArn,
+		ProtectedResourceType:       protectedResourceType,
+		CreationTime:                time.Now().UTC(),
+	}
+	b.restoreTestingSelections[planName][selectionName] = sel
+	cp := *sel
+
+	return &cp, nil
 }
