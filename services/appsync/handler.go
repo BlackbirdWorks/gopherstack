@@ -228,7 +228,7 @@ func parseOperationV2APIs(method string, segs []string) string {
 			return "CreateApi"
 		}
 
-		return "ListApis"
+		return "ListAPIs"
 	case pathSegsAPISubresource:
 		// /v2/apis/{apiId}/{resource}
 		if segs[3] == pathSegChannelNamespaces && method == http.MethodPost {
@@ -1080,15 +1080,15 @@ type associateAPIInput struct {
 func (h *Handler) doSourceAPIAssociation(
 	ctx context.Context,
 	c *echo.Context,
-	primaryID, secondaryID, requiredField, opName string,
-	backendFn func(primaryID, secondaryID, description string) (*SourceAPIAssociation, error),
+	primaryAPIID, secondaryAPIID, requiredField, opName string,
+	backendFn func(firstID, secondID, description string) (*SourceAPIAssociation, error),
 	input associateAPIInput,
 ) error {
-	if secondaryID == "" {
+	if secondaryAPIID == "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", requiredField+" is required"))
 	}
 
-	assoc, createErr := backendFn(primaryID, secondaryID, input.Description)
+	assoc, createErr := backendFn(primaryAPIID, secondaryAPIID, input.Description)
 	if createErr != nil {
 		return h.handleError(ctx, c, opName, createErr)
 	}

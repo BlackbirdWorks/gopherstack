@@ -125,13 +125,13 @@ type APIKey struct {
 
 // APICache represents an AppSync API cache configuration.
 type APICache struct {
-	APIID             string `json:"apiId"`
-	Type              string `json:"type"`
-	Status            string `json:"status"`
-	APIIDType         string `json:"apiCachingBehavior"`
-	TTL               int64  `json:"ttl"`
-	TransitEncryption bool   `json:"transitEncryptionEnabled,omitempty"`
-	AtRestEncryption  bool   `json:"atRestEncryptionEnabled,omitempty"`
+	APIID              string `json:"apiId"`
+	Type               string `json:"type"`
+	Status             string `json:"status"`
+	APICachingBehavior string `json:"apiCachingBehavior"`
+	TTL                int64  `json:"ttl"`
+	TransitEncryption  bool   `json:"transitEncryptionEnabled,omitempty"`
+	AtRestEncryption   bool   `json:"atRestEncryptionEnabled,omitempty"`
 }
 
 // Function represents an AppSync pipeline function.
