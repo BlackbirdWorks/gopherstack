@@ -32,6 +32,8 @@ type Vault struct {
 	AccountID              string     `json:"accountId"`
 	Region                 string     `json:"region"`
 	NumberOfRecoveryPoints int64      `json:"numberOfRecoveryPoints"`
+	MinRetentionDays       int64      `json:"minRetentionDays,omitempty"`
+	MaxRetentionDays       int64      `json:"maxRetentionDays,omitempty"`
 }
 
 // Rule represents a single rule in a backup plan.
@@ -522,18 +524,15 @@ func (b *InMemoryBackend) CreateBackupSelection(planID, selectionName, iamRoleAr
 	b.mu.Lock("CreateBackupSelection")
 	defer b.mu.Unlock()
 
-	// Resolve plan by ID.
-	planName, found := b.planIDIndex[planID]
-	if !found {
-		// Try name as fallback.
-		if _, exists := b.plans[planID]; !exists {
+	// Resolve planID: accept either a plan ID (from planIDIndex) or a plan name.
+	if _, found := b.planIDIndex[planID]; !found {
+		// planID is not a known ID — try it as a plan name.
+		p, exists := b.plans[planID]
+		if !exists {
 			return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
 		}
-
-		planName = planID
-
-		// Get the real ID.
-		planID = b.plans[planName].BackupPlanID
+		// Switch planID to the canonical UUID stored on the plan.
+		planID = p.BackupPlanID
 	}
 
 	if b.selections[planID] == nil {
@@ -549,7 +548,6 @@ func (b *InMemoryBackend) CreateBackupSelection(planID, selectionName, iamRoleAr
 		CreationTime:  time.Now().UTC(),
 	}
 	b.selections[planID][selectionID] = sel
-	_ = planName
 	cp := *sel
 
 	return &cp, nil
@@ -601,7 +599,7 @@ func (b *InMemoryBackend) CreateLegalHold(title, description string) (*LegalHold
 // CreateLogicallyAirGappedBackupVault creates a logically air-gapped backup vault.
 func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 	name, creatorRequestID string,
-	_ /* minRetentionDays */, _ /* maxRetentionDays */ int64,
+	minRetentionDays, maxRetentionDays int64,
 	kv map[string]string,
 ) (*Vault, error) {
 	b.mu.Lock("CreateLogicallyAirGappedBackupVault")
@@ -623,6 +621,8 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 		AccountID:        b.accountID,
 		Region:           b.region,
 		CreationTime:     time.Now().UTC(),
+		MinRetentionDays: minRetentionDays,
+		MaxRetentionDays: maxRetentionDays,
 		Tags:             t,
 	}
 	b.vaults[name] = v
