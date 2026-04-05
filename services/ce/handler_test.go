@@ -1127,3 +1127,1058 @@ func TestHandler_UpdateOperations_NotFound(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_GetAnomalies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "returns_empty_with_no_anomalies",
+			body:           map[string]any{},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "filter_by_monitor_arn",
+			body: map[string]any{
+				"MonitorArn": "arn:aws:ce::000000000000:anomalymonitor/test",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "with_date_interval",
+			body: map[string]any{
+				"DateInterval": map[string]string{
+					"StartDate": "2024-01-01",
+					"EndDate":   "2024-02-01",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetAnomalies", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Anomalies []any `json:"Anomalies"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out.Anomalies)
+		})
+	}
+}
+
+func TestHandler_GetApproximateUsageRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty",
+			body: map[string]any{
+				"ApproximationDimension": "SERVICE",
+				"Granularity":            "MONTHLY",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetApproximateUsageRecords", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Services     map[string]any `json:"Services"`
+				TotalRecords string         `json:"TotalRecords"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Equal(t, "0", out.TotalRecords)
+		})
+	}
+}
+
+func TestHandler_GetCommitmentPurchaseAnalysis(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "returns_stub",
+			body:           map[string]any{"AnalysisId": "analysis-123"},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCommitmentPurchaseAnalysis", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetCostAndUsageComparisons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_comparisons",
+			body: map[string]any{
+				"BaseTimePeriod":       map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
+				"Granularity":          "MONTHLY",
+				"Metrics":              []string{"BlendedCost"},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCostAndUsageComparisons", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				CostAndUsages []any `json:"CostAndUsages"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.CostAndUsages)
+		})
+	}
+}
+
+func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_results",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCostAndUsageWithResources", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				ResultsByTime []any `json:"ResultsByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.ResultsByTime)
+		})
+	}
+}
+
+func TestHandler_GetCostCategories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup             func(*testing.T, *ce.Handler)
+		name              string
+		costCategoryName  string
+		wantValuesContain string
+		wantLen           int
+	}{
+		{
+			name:    "returns_empty_when_no_categories",
+			wantLen: 0,
+		},
+		{
+			name:             "returns_values_for_existing_category",
+			costCategoryName: "Env",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Env",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Production"}},
+				})
+			},
+			wantValuesContain: "Production",
+			wantLen:           1,
+		},
+		{
+			name: "returns_all_values_when_no_filter",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Env",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Production"}},
+				})
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Team",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Platform"}},
+				})
+			},
+			wantLen: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{
+				"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+			}
+			if tt.costCategoryName != "" {
+				body["CostCategoryName"] = tt.costCategoryName
+			}
+
+			rec := doRequest(t, h, "GetCostCategories", body)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				CostCategoryValues []string `json:"CostCategoryValues"`
+				ReturnSize         int      `json:"ReturnSize"`
+				TotalSize          int      `json:"TotalSize"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.CostCategoryValues, tt.wantLen)
+			assert.Equal(t, tt.wantLen, out.ReturnSize)
+			assert.Equal(t, tt.wantLen, out.TotalSize)
+
+			if tt.wantValuesContain != "" {
+				assert.Contains(t, out.CostCategoryValues, tt.wantValuesContain)
+			}
+		})
+	}
+}
+
+func TestHandler_GetCostComparisonDrivers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_drivers",
+			body: map[string]any{
+				"BaselineTimePeriod":   map[string]string{"Start": "2023-01-01", "End": "2024-01-01"},
+				"ComparisonTimePeriod": map[string]string{"Start": "2024-01-01", "End": "2025-01-01"},
+				"Metric":               "BlendedCost",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCostComparisonDrivers", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				CostComparisonDrivers []any `json:"CostComparisonDrivers"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.CostComparisonDrivers)
+		})
+	}
+}
+
+func TestHandler_GetReservationCoverage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_coverage",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetReservationCoverage", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				CoveragesByTime []any `json:"CoveragesByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.CoveragesByTime)
+		})
+	}
+}
+
+func TestHandler_GetReservationPurchaseRecommendation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_recommendations",
+			body: map[string]any{
+				"Service":              "Amazon Elastic Compute Cloud - Compute",
+				"LookbackPeriodInDays": "SIXTY_DAYS",
+				"TermInYears":          "ONE_YEAR",
+				"PaymentOption":        "NO_UPFRONT",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetReservationPurchaseRecommendation", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Recommendations []any `json:"Recommendations"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.Recommendations)
+		})
+	}
+}
+
+func TestHandler_GetReservationUtilization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_utilization",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetReservationUtilization", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				UtilizationsByTime []any `json:"UtilizationsByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.UtilizationsByTime)
+		})
+	}
+}
+
+func TestHandler_Provider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "init_with_nil_ctx",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &ce.Provider{}
+			assert.Equal(t, "Ce", p.Name())
+
+			reg, err := p.Init(nil)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, reg)
+			}
+		})
+	}
+}
+
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a monitor and category.
+	rec := doRequest(t, h, "CreateAnomalyMonitor", map[string]any{
+		"AnomalyMonitor": map[string]any{
+			"MonitorName": "ResetMe",
+			"MonitorType": "DIMENSIONAL",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+		"Name":        "ResetCat",
+		"RuleVersion": "CostCategoryExpression.v1",
+		"Rules":       []map[string]any{{"Value": "Dev"}},
+	})
+
+	h.Reset()
+
+	listRec := doRequest(t, h, "ListCostCategoryDefinitions", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	refs, _ := listOut["CostCategoryReferences"].([]any)
+	assert.Empty(t, refs)
+}
+
+func TestHandler_MonitorTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "valid_dimensional_type",
+			body: map[string]any{
+				"AnomalyMonitor": map[string]any{
+					"MonitorName": "DimMonitor",
+					"MonitorType": "DIMENSIONAL",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "valid_custom_type",
+			body: map[string]any{
+				"AnomalyMonitor": map[string]any{
+					"MonitorName": "CustomMonitor",
+					"MonitorType": "CUSTOM",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "invalid_monitor_type_returns_400",
+			body: map[string]any{
+				"AnomalyMonitor": map[string]any{
+					"MonitorName": "BadMonitor",
+					"MonitorType": "INVALID_TYPE",
+				},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateAnomalyMonitor", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_FrequencyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "valid_daily_frequency",
+			body: map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "DailySub",
+					"Frequency":        "DAILY",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "valid_immediate_frequency",
+			body: map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "ImmediateSub",
+					"Frequency":        "IMMEDIATE",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "valid_weekly_frequency",
+			body: map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "WeeklySub",
+					"Frequency":        "WEEKLY",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "invalid_frequency_returns_400",
+			body: map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "BadSub",
+					"Frequency":        "YEARLY",
+				},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateAnomalySubscription", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetAnomalySubscriptions_MonitorArnFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		monitorFilter  string
+		wantLen        int
+		wantStatusCode int
+	}{
+		{
+			name:           "filter_by_monitor_arn_matches",
+			monitorFilter:  "PLACEHOLDER",
+			wantLen:        1,
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "filter_by_nonexistent_monitor_arn",
+			monitorFilter:  "arn:aws:ce::000:anomalymonitor/does-not-exist",
+			wantLen:        0,
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "no_monitor_filter_returns_all",
+			monitorFilter:  "",
+			wantLen:        2,
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create a monitor to attach subscriptions to.
+			monRec := doRequest(t, h, "CreateAnomalyMonitor", map[string]any{
+				"AnomalyMonitor": map[string]any{
+					"MonitorName": "FilterMon",
+					"MonitorType": "DIMENSIONAL",
+				},
+			})
+			require.Equal(t, http.StatusOK, monRec.Code)
+
+			var monOut map[string]any
+			require.NoError(t, json.NewDecoder(monRec.Body).Decode(&monOut))
+			monARN := monOut["MonitorArn"].(string)
+
+			// Create subscription attached to monitor.
+			doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "AttachedSub",
+					"Frequency":        "DAILY",
+					"MonitorArnList":   []string{monARN},
+				},
+			})
+
+			// Create subscription NOT attached to monitor.
+			doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "UnattachedSub",
+					"Frequency":        "WEEKLY",
+				},
+			})
+
+			monitorFilter := tt.monitorFilter
+			if monitorFilter == "PLACEHOLDER" {
+				monitorFilter = monARN
+			}
+
+			body := map[string]any{}
+			if monitorFilter != "" {
+				body["MonitorArn"] = monitorFilter
+			}
+
+			rec := doRequest(t, h, "GetAnomalySubscriptions", body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				AnomalySubscriptions []map[string]any `json:"AnomalySubscriptions"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.AnomalySubscriptions, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_GetAnomalies_Filters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup          func(*testing.T, *ce.Handler) (monARN string)
+		body           map[string]any
+		name           string
+		wantLen        int
+		wantStatusCode int
+	}{
+		{
+			name: "returns_all_when_no_filter",
+			setup: func(t *testing.T, h *ce.Handler) string {
+				t.Helper()
+				h.Backend.AddAnomaly(ce.Anomaly{AnomalyID: "a1", MonitorARN: "m1", FeedbackType: "YES"})
+				h.Backend.AddAnomaly(ce.Anomaly{AnomalyID: "a2", MonitorARN: "m2", FeedbackType: "NO"})
+
+				return ""
+			},
+			body:           map[string]any{},
+			wantLen:        2,
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "filter_by_monitor_arn",
+			setup: func(t *testing.T, h *ce.Handler) string {
+				t.Helper()
+				h.Backend.AddAnomaly(ce.Anomaly{AnomalyID: "a3", MonitorARN: "m3", FeedbackType: "YES"})
+				h.Backend.AddAnomaly(ce.Anomaly{AnomalyID: "a4", MonitorARN: "m4", FeedbackType: "YES"})
+
+				return "m3"
+			},
+			body:           map[string]any{},
+			wantLen:        1,
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "filter_by_feedback",
+			setup: func(t *testing.T, h *ce.Handler) string {
+				t.Helper()
+				h.Backend.AddAnomaly(ce.Anomaly{AnomalyID: "a5", MonitorARN: "m5", FeedbackType: "YES"})
+				h.Backend.AddAnomaly(ce.Anomaly{AnomalyID: "a6", MonitorARN: "m5", FeedbackType: "NO"})
+
+				return ""
+			},
+			body:           map[string]any{"Feedback": "YES"},
+			wantLen:        1,
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			monARN := tt.setup(t, h)
+
+			body := tt.body
+			if monARN != "" {
+				body["MonitorArn"] = monARN
+			}
+
+			rec := doRequest(t, h, "GetAnomalies", body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Anomalies []map[string]any `json:"Anomalies"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.Anomalies, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_DuplicateCostCategory(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"Name":        "DupCat",
+		"RuleVersion": "CostCategoryExpression.v1",
+		"Rules":       []map[string]any{{"Value": "Prod"}},
+	}
+
+	rec1 := doRequest(t, h, "CreateCostCategoryDefinition", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doRequest(t, h, "CreateCostCategoryDefinition", body)
+	assert.Equal(t, http.StatusConflict, rec2.Code)
+}
+
+func TestHandler_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(*testing.T, *ce.Handler)
+		verify func(*testing.T, *ce.Handler)
+		name   string
+	}{
+		{
+			name: "list_cost_categories_sorted_by_name",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+
+				for _, name := range []string{"Zebra", "Alpha", "Mango"} {
+					doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+						"Name":        name,
+						"RuleVersion": "CostCategoryExpression.v1",
+						"Rules":       []map[string]any{{"Value": name}},
+					})
+				}
+			},
+			verify: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, "ListCostCategoryDefinitions", map[string]any{})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					CostCategoryReferences []struct {
+						Name string `json:"Name"`
+					} `json:"CostCategoryReferences"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.Len(t, out.CostCategoryReferences, 3)
+				assert.Equal(t, "Alpha", out.CostCategoryReferences[0].Name)
+				assert.Equal(t, "Mango", out.CostCategoryReferences[1].Name)
+				assert.Equal(t, "Zebra", out.CostCategoryReferences[2].Name)
+			},
+		},
+		{
+			name: "get_cost_categories_values_sorted",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "SortCat",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules": []map[string]any{
+						{"Value": "Zulu"},
+						{"Value": "Alpha"},
+						{"Value": "Mike"},
+					},
+				})
+			},
+			verify: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, "GetCostCategories", map[string]any{
+					"CostCategoryName": "SortCat",
+					"TimePeriod":       map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					CostCategoryValues []string `json:"CostCategoryValues"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.Len(t, out.CostCategoryValues, 3)
+				assert.Equal(t, []string{"Alpha", "Mike", "Zulu"}, out.CostCategoryValues)
+			},
+		},
+		{
+			name: "list_tags_for_resource_sorted_by_key",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "TagSortCat",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "x"}},
+					"ResourceTags": []map[string]string{
+						{"Key": "Zebra", "Value": "z"},
+						{"Key": "Alpha", "Value": "a"},
+						{"Key": "Mike", "Value": "m"},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			verify: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+
+				cats := h.Backend.ListCostCategoryDefinitions()
+				require.Len(t, cats, 1)
+
+				rec := doRequest(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": cats[0].ARN,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					ResourceTags []struct {
+						Key string `json:"Key"`
+					} `json:"ResourceTags"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.Len(t, out.ResourceTags, 3)
+				assert.Equal(t, "Alpha", out.ResourceTags[0].Key)
+				assert.Equal(t, "Mike", out.ResourceTags[1].Key)
+				assert.Equal(t, "Zebra", out.ResourceTags[2].Key)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setup(t, h)
+			tt.verify(t, h)
+		})
+	}
+}
+
+func TestHandler_InternalServerError(t *testing.T) {
+	t.Parallel()
+
+	// Use an unknown action that gets past the supported operations list to hit
+	// the 500 default branch - we verify the handler returns 400 (not 500) for
+	// unknown action because errUnknownAction maps to 400.
+	h := newTestHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSInsightsIndexService.NotARealOp")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListTagsForResource_EmptyTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create cost category without tags.
+	rec := doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+		"Name":        "NoTagsCat",
+		"RuleVersion": "CostCategoryExpression.v1",
+		"Rules":       []map[string]any{{"Value": "Test"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+	arn := createOut["CostCategoryArn"].(string)
+
+	listRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var out struct {
+		ResourceTags []map[string]string `json:"ResourceTags"`
+	}
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+	// Must be an empty array, not nil/absent.
+	assert.NotNil(t, out.ResourceTags)
+	assert.Empty(t, out.ResourceTags)
+}
+
+func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		updateBody     map[string]any
+		name           string
+		wantFrequency  string
+		wantSubName    string
+		wantStatusCode int
+	}{
+		{
+			name: "update_only_frequency",
+			updateBody: map[string]any{
+				"Frequency": "WEEKLY",
+			},
+			wantStatusCode: http.StatusOK,
+			wantFrequency:  "WEEKLY",
+			wantSubName:    "OriginalName",
+		},
+		{
+			name: "update_only_subscription_name",
+			updateBody: map[string]any{
+				"SubscriptionName": "UpdatedName",
+			},
+			wantStatusCode: http.StatusOK,
+			wantFrequency:  "DAILY",
+			wantSubName:    "UpdatedName",
+		},
+		{
+			name: "update_threshold",
+			updateBody: map[string]any{
+				"Threshold": 100.0,
+			},
+			wantStatusCode: http.StatusOK,
+			wantFrequency:  "DAILY",
+			wantSubName:    "OriginalName",
+		},
+		{
+			name: "update_monitor_arn_list",
+			updateBody: map[string]any{
+				"MonitorArnList": []string{"arn:aws:ce::000:anomalymonitor/test"},
+			},
+			wantStatusCode: http.StatusOK,
+			wantFrequency:  "DAILY",
+			wantSubName:    "OriginalName",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "OriginalName",
+					"Frequency":        "DAILY",
+				},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut map[string]any
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			subARN := createOut["SubscriptionArn"].(string)
+
+			tt.updateBody["SubscriptionArn"] = subARN
+
+			rec := doRequest(t, h, "UpdateAnomalySubscription", tt.updateBody)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			// Verify via GetAnomalySubscriptions.
+			getRec := doRequest(t, h, "GetAnomalySubscriptions", map[string]any{
+				"SubscriptionArnList": []string{subARN},
+			})
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var getOut struct {
+				AnomalySubscriptions []struct {
+					SubscriptionName string  `json:"SubscriptionName"`
+					Frequency        string  `json:"Frequency"`
+					Threshold        float64 `json:"Threshold"`
+				} `json:"AnomalySubscriptions"`
+			}
+			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			require.Len(t, getOut.AnomalySubscriptions, 1)
+			assert.Equal(t, tt.wantFrequency, getOut.AnomalySubscriptions[0].Frequency)
+			assert.Equal(t, tt.wantSubName, getOut.AnomalySubscriptions[0].SubscriptionName)
+		})
+	}
+}
+
+func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	h.Backend.AddAnomaly(ce.Anomaly{
+		AnomalyID:    "snap-anomaly-1",
+		MonitorARN:   "arn:aws:ce::000:anomalymonitor/test",
+		FeedbackType: "YES",
+	})
+
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	require.NoError(t, fresh.Restore(snap))
+
+	rec := doRequest(t, fresh, "GetAnomalies", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Anomalies []map[string]any `json:"Anomalies"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.Len(t, out.Anomalies, 1)
+	assert.Equal(t, "snap-anomaly-1", out.Anomalies[0]["AnomalyId"])
+}

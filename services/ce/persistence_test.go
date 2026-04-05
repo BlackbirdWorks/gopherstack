@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
 				t.Helper()
 
-				subs := b.GetAnomalySubscriptions([]string{id})
+				subs := b.GetAnomalySubscriptions([]string{id}, "")
 				require.Len(t, subs, 1)
 				assert.Equal(t, "MySub", subs[0].SubscriptionName)
 				assert.Equal(t, "DAILY", subs[0].Frequency)
@@ -98,7 +98,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				assert.Empty(t, b.ListCostCategoryDefinitions())
 				assert.Empty(t, b.GetAnomalyMonitors(nil))
-				assert.Empty(t, b.GetAnomalySubscriptions(nil))
+				assert.Empty(t, b.GetAnomalySubscriptions(nil, ""))
 			},
 		},
 	}

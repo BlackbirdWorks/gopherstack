@@ -6,6 +6,7 @@ type backendSnapshot struct {
 	CostCategories       map[string]*CostCategory        `json:"costCategories"`
 	AnomalyMonitors      map[string]*AnomalyMonitor      `json:"anomalyMonitors"`
 	AnomalySubscriptions map[string]*AnomalySubscription `json:"anomalySubscriptions"`
+	Anomalies            map[string]*Anomaly             `json:"anomalies"`
 	AccountID            string                          `json:"accountID"`
 	Region               string                          `json:"region"`
 }
@@ -19,6 +20,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		CostCategories:       b.costCategories,
 		AnomalyMonitors:      b.anomalyMonitors,
 		AnomalySubscriptions: b.anomalySubscriptions,
+		Anomalies:            b.anomalies,
 		AccountID:            b.accountID,
 		Region:               b.region,
 	}
@@ -54,9 +56,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.AnomalySubscriptions = make(map[string]*AnomalySubscription)
 	}
 
+	if snap.Anomalies == nil {
+		snap.Anomalies = make(map[string]*Anomaly)
+	}
+
 	b.costCategories = snap.CostCategories
 	b.anomalyMonitors = snap.AnomalyMonitors
 	b.anomalySubscriptions = snap.AnomalySubscriptions
+	b.anomalies = snap.Anomalies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

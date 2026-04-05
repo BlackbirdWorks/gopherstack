@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -26,12 +27,16 @@ var (
 // Handler is the Echo HTTP handler for Cost Explorer (Ce) operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Cost Explorer handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // Name returns the service name.
@@ -61,6 +66,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"GetAnomalies",
+		"GetApproximateUsageRecords",
+		"GetCommitmentPurchaseAnalysis",
+		"GetCostAndUsageComparisons",
+		"GetCostAndUsageWithResources",
+		"GetCostCategories",
+		"GetCostComparisonDrivers",
+		"GetReservationCoverage",
+		"GetReservationPurchaseRecommendation",
+		"GetReservationUtilization",
 	}
 }
 
@@ -108,34 +123,44 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateCostCategoryDefinition":   service.WrapOp(h.handleCreateCostCategoryDefinition),
-		"DeleteCostCategoryDefinition":   service.WrapOp(h.handleDeleteCostCategoryDefinition),
-		"DescribeCostCategoryDefinition": service.WrapOp(h.handleDescribeCostCategoryDefinition),
-		"ListCostCategoryDefinitions":    service.WrapOp(h.handleListCostCategoryDefinitions),
-		"UpdateCostCategoryDefinition":   service.WrapOp(h.handleUpdateCostCategoryDefinition),
-		"CreateAnomalyMonitor":           service.WrapOp(h.handleCreateAnomalyMonitor),
-		"DeleteAnomalyMonitor":           service.WrapOp(h.handleDeleteAnomalyMonitor),
-		"GetAnomalyMonitors":             service.WrapOp(h.handleGetAnomalyMonitors),
-		"UpdateAnomalyMonitor":           service.WrapOp(h.handleUpdateAnomalyMonitor),
-		"CreateAnomalySubscription":      service.WrapOp(h.handleCreateAnomalySubscription),
-		"DeleteAnomalySubscription":      service.WrapOp(h.handleDeleteAnomalySubscription),
-		"GetAnomalySubscriptions":        service.WrapOp(h.handleGetAnomalySubscriptions),
-		"UpdateAnomalySubscription":      service.WrapOp(h.handleUpdateAnomalySubscription),
-		"GetCostAndUsage":                service.WrapOp(h.handleGetCostAndUsage),
-		"GetCostForecast":                service.WrapOp(h.handleGetCostForecast),
-		"GetUsageForecast":               service.WrapOp(h.handleGetUsageForecast),
-		"GetDimensionValues":             service.WrapOp(h.handleGetDimensionValues),
-		"GetTags":                        service.WrapOp(h.handleGetTags),
-		"ListTagsForResource":            service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                    service.WrapOp(h.handleTagResource),
-		"UntagResource":                  service.WrapOp(h.handleUntagResource),
+		"CreateCostCategoryDefinition":         service.WrapOp(h.handleCreateCostCategoryDefinition),
+		"DeleteCostCategoryDefinition":         service.WrapOp(h.handleDeleteCostCategoryDefinition),
+		"DescribeCostCategoryDefinition":       service.WrapOp(h.handleDescribeCostCategoryDefinition),
+		"ListCostCategoryDefinitions":          service.WrapOp(h.handleListCostCategoryDefinitions),
+		"UpdateCostCategoryDefinition":         service.WrapOp(h.handleUpdateCostCategoryDefinition),
+		"CreateAnomalyMonitor":                 service.WrapOp(h.handleCreateAnomalyMonitor),
+		"DeleteAnomalyMonitor":                 service.WrapOp(h.handleDeleteAnomalyMonitor),
+		"GetAnomalyMonitors":                   service.WrapOp(h.handleGetAnomalyMonitors),
+		"UpdateAnomalyMonitor":                 service.WrapOp(h.handleUpdateAnomalyMonitor),
+		"CreateAnomalySubscription":            service.WrapOp(h.handleCreateAnomalySubscription),
+		"DeleteAnomalySubscription":            service.WrapOp(h.handleDeleteAnomalySubscription),
+		"GetAnomalySubscriptions":              service.WrapOp(h.handleGetAnomalySubscriptions),
+		"UpdateAnomalySubscription":            service.WrapOp(h.handleUpdateAnomalySubscription),
+		"GetCostAndUsage":                      service.WrapOp(h.handleGetCostAndUsage),
+		"GetCostForecast":                      service.WrapOp(h.handleGetCostForecast),
+		"GetUsageForecast":                     service.WrapOp(h.handleGetUsageForecast),
+		"GetDimensionValues":                   service.WrapOp(h.handleGetDimensionValues),
+		"GetTags":                              service.WrapOp(h.handleGetTags),
+		"ListTagsForResource":                  service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                          service.WrapOp(h.handleTagResource),
+		"UntagResource":                        service.WrapOp(h.handleUntagResource),
+		"GetAnomalies":                         service.WrapOp(h.handleGetAnomalies),
+		"GetApproximateUsageRecords":           service.WrapOp(h.handleGetApproximateUsageRecords),
+		"GetCommitmentPurchaseAnalysis":        service.WrapOp(h.handleGetCommitmentPurchaseAnalysis),
+		"GetCostAndUsageComparisons":           service.WrapOp(h.handleGetCostAndUsageComparisons),
+		"GetCostAndUsageWithResources":         service.WrapOp(h.handleGetCostAndUsageWithResources),
+		"GetCostCategories":                    service.WrapOp(h.handleGetCostCategories),
+		"GetCostComparisonDrivers":             service.WrapOp(h.handleGetCostComparisonDrivers),
+		"GetReservationCoverage":               service.WrapOp(h.handleGetReservationCoverage),
+		"GetReservationPurchaseRecommendation": service.WrapOp(h.handleGetReservationPurchaseRecommendation),
+		"GetReservationUtilization":            service.WrapOp(h.handleGetReservationUtilization),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -167,6 +192,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidParameterException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
@@ -200,16 +232,17 @@ func resourceTagsToMap(tags []resourceTag) map[string]string {
 }
 
 // mapToResourceTags converts a map[string]string to an array of resourceTag for API responses.
+// Tags are sorted by Key for deterministic output.
 func mapToResourceTags(m map[string]string) []resourceTag {
-	if len(m) == 0 {
-		return nil
-	}
-
 	tags := make([]resourceTag, 0, len(m))
 
 	for k, v := range m {
 		tags = append(tags, resourceTag{Key: k, Value: v})
 	}
+
+	sort.Slice(tags, func(i, j int) bool {
+		return tags[i].Key < tags[j].Key
+	})
 
 	return tags
 }
@@ -325,9 +358,9 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 		return nil, err
 	}
 
-	rules := make([]costCategoryRule, 0, len(cat.Rules))
-	for _, r := range cat.Rules {
-		rules = append(rules, costCategoryRule(r))
+	rules := make([]costCategoryRule, len(cat.Rules))
+	for i, r := range cat.Rules {
+		rules[i] = costCategoryRule(r)
 	}
 
 	return &describeCostCategoryDefinitionOutput{
@@ -644,7 +677,7 @@ func (h *Handler) handleGetAnomalySubscriptions(
 	_ context.Context,
 	in *getAnomalySubscriptionsInput,
 ) (*getAnomalySubscriptionsOutput, error) {
-	subs := h.Backend.GetAnomalySubscriptions(in.SubscriptionArnList)
+	subs := h.Backend.GetAnomalySubscriptions(in.SubscriptionArnList, in.MonitorArn)
 	items := make([]anomalySubscriptionSummary, 0, len(subs))
 	for _, sub := range subs {
 		subscribers := make([]subscriberInput, 0, len(sub.Subscribers))
@@ -887,5 +920,277 @@ func (h *Handler) handleGetUsageForecast(
 	return &getUsageForecastOutput{
 		Total:                 &forecastResult{MeanValue: "0"},
 		ForecastResultsByTime: []any{},
+	}, nil
+}
+
+// --- GetAnomalies ---
+
+type anomalyDateInterval struct {
+	StartDate string `json:"StartDate"`
+	EndDate   string `json:"EndDate"`
+}
+
+type getAnomaliesInput struct {
+	DateInterval  anomalyDateInterval `json:"DateInterval"`
+	MonitorArn    string              `json:"MonitorArn"`
+	Feedback      string              `json:"Feedback"`
+	TotalImpact   map[string]any      `json:"TotalImpact"`
+	NextPageToken string              `json:"NextPageToken"`
+	MaxResults    int                 `json:"MaxResults"`
+}
+
+type anomalySummary struct {
+	AnomalyID        string  `json:"AnomalyId"`
+	AnomalyStartDate string  `json:"AnomalyStartDate"`
+	AnomalyEndDate   string  `json:"AnomalyEndDate"`
+	DimensionValue   string  `json:"DimensionValue"`
+	MonitorArn       string  `json:"MonitorArn"`
+	SubscriptionArn  string  `json:"SubscriptionArn,omitempty"`
+	Feedback         string  `json:"Feedback,omitempty"`
+	AnomalyScore     float64 `json:"AnomalyScore"`
+	Impact           float64 `json:"Impact"`
+}
+
+type getAnomaliesOutput struct {
+	NextPageToken string           `json:"NextPageToken,omitempty"`
+	Anomalies     []anomalySummary `json:"Anomalies"`
+}
+
+func (h *Handler) handleGetAnomalies(
+	_ context.Context,
+	in *getAnomaliesInput,
+) (*getAnomaliesOutput, error) {
+	anomalies := h.Backend.GetAnomalies(in.MonitorArn, in.Feedback)
+	items := make([]anomalySummary, 0, len(anomalies))
+
+	for _, a := range anomalies {
+		items = append(items, anomalySummary{
+			AnomalyID:        a.AnomalyID,
+			AnomalyStartDate: a.AnomalyStartDate,
+			AnomalyEndDate:   a.AnomalyEndDate,
+			DimensionValue:   a.DimensionValue,
+			MonitorArn:       a.MonitorARN,
+			SubscriptionArn:  a.SubscriptionARN,
+			AnomalyScore:     a.AnomalyScore,
+			Impact:           a.TotalImpact,
+			Feedback:         a.FeedbackType,
+		})
+	}
+
+	return &getAnomaliesOutput{Anomalies: items}, nil
+}
+
+// --- GetApproximateUsageRecords stub ---
+
+type getApproximateUsageRecordsInput struct {
+	ApproximationDimension string   `json:"ApproximationDimension"`
+	Granularity            string   `json:"Granularity"`
+	Services               []string `json:"Services"`
+}
+
+type getApproximateUsageRecordsOutput struct {
+	LookbackPeriod map[string]string `json:"LookbackPeriod,omitempty"`
+	Services       map[string]string `json:"Services"`
+	TotalRecords   string            `json:"TotalRecords"`
+}
+
+func (h *Handler) handleGetApproximateUsageRecords(
+	_ context.Context,
+	_ *getApproximateUsageRecordsInput,
+) (*getApproximateUsageRecordsOutput, error) {
+	return &getApproximateUsageRecordsOutput{
+		Services:     map[string]string{},
+		TotalRecords: "0",
+	}, nil
+}
+
+// --- GetCommitmentPurchaseAnalysis stub ---
+
+type getCommitmentPurchaseAnalysisInput struct {
+	AnalysisID string `json:"AnalysisId"`
+}
+
+type getCommitmentPurchaseAnalysisOutput struct {
+	EstimatedSavings any    `json:"EstimatedSavings,omitempty"`
+	AnalysisID       string `json:"AnalysisId,omitempty"`
+	AnalysisStatus   string `json:"AnalysisStatus,omitempty"`
+}
+
+func (h *Handler) handleGetCommitmentPurchaseAnalysis(
+	_ context.Context,
+	_ *getCommitmentPurchaseAnalysisInput,
+) (*getCommitmentPurchaseAnalysisOutput, error) {
+	return &getCommitmentPurchaseAnalysisOutput{}, nil
+}
+
+// --- GetCostAndUsageComparisons stub ---
+
+type getCostAndUsageComparisonsInput struct {
+	BaseTimePeriod       map[string]string `json:"BaseTimePeriod"`
+	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
+	Granularity          string            `json:"Granularity"`
+	Metrics              []string          `json:"Metrics"`
+}
+
+type getCostAndUsageComparisonsOutput struct {
+	NextPageToken     string `json:"NextPageToken,omitempty"`
+	CostAndUsages     []any  `json:"CostAndUsages"`
+	TotalCostAndUsage []any  `json:"TotalCostAndUsage"`
+}
+
+func (h *Handler) handleGetCostAndUsageComparisons(
+	_ context.Context,
+	_ *getCostAndUsageComparisonsInput,
+) (*getCostAndUsageComparisonsOutput, error) {
+	return &getCostAndUsageComparisonsOutput{
+		CostAndUsages:     []any{},
+		TotalCostAndUsage: []any{},
+	}, nil
+}
+
+// --- GetCostAndUsageWithResources stub ---
+
+type getCostAndUsageWithResourcesInput struct {
+	Filter      any               `json:"Filter"`
+	TimePeriod  map[string]string `json:"TimePeriod"`
+	Granularity string            `json:"Granularity"`
+	Metrics     []string          `json:"Metrics"`
+}
+
+type getCostAndUsageWithResourcesOutput struct {
+	NextPageToken            string `json:"NextPageToken,omitempty"`
+	ResultsByTime            []any  `json:"ResultsByTime"`
+	DimensionValueAttributes []any  `json:"DimensionValueAttributes"`
+}
+
+func (h *Handler) handleGetCostAndUsageWithResources(
+	_ context.Context,
+	_ *getCostAndUsageWithResourcesInput,
+) (*getCostAndUsageWithResourcesOutput, error) {
+	return &getCostAndUsageWithResourcesOutput{
+		ResultsByTime:            []any{},
+		DimensionValueAttributes: []any{},
+	}, nil
+}
+
+// --- GetCostCategories ---
+
+type getCostCategoriesInput struct {
+	TimePeriod       map[string]string `json:"TimePeriod"`
+	CostCategoryName string            `json:"CostCategoryName"`
+	SearchString     string            `json:"SearchString"`
+	NextPageToken    string            `json:"NextPageToken"`
+	MaxResults       int               `json:"MaxResults"`
+}
+
+type getCostCategoriesOutput struct {
+	NextPageToken      string   `json:"NextPageToken,omitempty"`
+	CostCategoryValues []string `json:"CostCategoryValues"`
+	ReturnSize         int      `json:"ReturnSize"`
+	TotalSize          int      `json:"TotalSize"`
+}
+
+func (h *Handler) handleGetCostCategories(
+	_ context.Context,
+	in *getCostCategoriesInput,
+) (*getCostCategoriesOutput, error) {
+	values := h.Backend.GetCostCategories(in.CostCategoryName)
+
+	return &getCostCategoriesOutput{
+		CostCategoryValues: values,
+		ReturnSize:         len(values),
+		TotalSize:          len(values),
+	}, nil
+}
+
+// --- GetCostComparisonDrivers stub ---
+
+type getCostComparisonDriversInput struct {
+	BaselineTimePeriod   map[string]string `json:"BaselineTimePeriod"`
+	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
+	Metric               string            `json:"Metric"`
+}
+
+type getCostComparisonDriversOutput struct {
+	NextPageToken         string `json:"NextPageToken,omitempty"`
+	CostComparisonDrivers []any  `json:"CostComparisonDrivers"`
+}
+
+func (h *Handler) handleGetCostComparisonDrivers(
+	_ context.Context,
+	_ *getCostComparisonDriversInput,
+) (*getCostComparisonDriversOutput, error) {
+	return &getCostComparisonDriversOutput{
+		CostComparisonDrivers: []any{},
+	}, nil
+}
+
+// --- GetReservationCoverage stub ---
+
+type getReservationCoverageInput struct {
+	TimePeriod  map[string]string `json:"TimePeriod"`
+	Granularity string            `json:"Granularity"`
+}
+
+type getReservationCoverageOutput struct {
+	Total           any    `json:"Total,omitempty"`
+	NextPageToken   string `json:"NextPageToken,omitempty"`
+	CoveragesByTime []any  `json:"CoveragesByTime"`
+}
+
+func (h *Handler) handleGetReservationCoverage(
+	_ context.Context,
+	_ *getReservationCoverageInput,
+) (*getReservationCoverageOutput, error) {
+	return &getReservationCoverageOutput{
+		CoveragesByTime: []any{},
+	}, nil
+}
+
+// --- GetReservationPurchaseRecommendation stub ---
+
+type getReservationPurchaseRecommendationInput struct {
+	Service              string `json:"Service"`
+	AccountScope         string `json:"AccountScope"`
+	LookbackPeriodInDays string `json:"LookbackPeriodInDays"`
+	TermInYears          string `json:"TermInYears"`
+	PaymentOption        string `json:"PaymentOption"`
+	NextPageToken        string `json:"NextPageToken"`
+}
+
+type getReservationPurchaseRecommendationOutput struct {
+	NextPageToken   string `json:"NextPageToken,omitempty"`
+	Metadata        any    `json:"Metadata,omitempty"`
+	Recommendations []any  `json:"Recommendations"`
+}
+
+func (h *Handler) handleGetReservationPurchaseRecommendation(
+	_ context.Context,
+	_ *getReservationPurchaseRecommendationInput,
+) (*getReservationPurchaseRecommendationOutput, error) {
+	return &getReservationPurchaseRecommendationOutput{
+		Recommendations: []any{},
+	}, nil
+}
+
+// --- GetReservationUtilization stub ---
+
+type getReservationUtilizationInput struct {
+	TimePeriod  map[string]string `json:"TimePeriod"`
+	Granularity string            `json:"Granularity"`
+}
+
+type getReservationUtilizationOutput struct {
+	Total              any    `json:"Total,omitempty"`
+	NextPageToken      string `json:"NextPageToken,omitempty"`
+	UtilizationsByTime []any  `json:"UtilizationsByTime"`
+}
+
+func (h *Handler) handleGetReservationUtilization(
+	_ context.Context,
+	_ *getReservationUtilizationInput,
+) (*getReservationUtilizationOutput, error) {
+	return &getReservationUtilizationOutput{
+		UtilizationsByTime: []any{},
 	}, nil
 }
