@@ -1556,5 +1556,9 @@ type mockProviderConfig struct {
 }
 
 func (m *mockProviderConfig) GetGlobalConfig() *config.GlobalConfig {
-	return config.NewGlobalConfig(m.accountID, m.region, 0, 0, false, 0)
+	const noLatency = 0
+	const noJanitorTimeout = 0
+	const noAutoPurgeTTL = 0
+
+	return config.NewGlobalConfig(m.accountID, m.region, noLatency, noJanitorTimeout, false, noAutoPurgeTTL)
 }

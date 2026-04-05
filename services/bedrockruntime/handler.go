@@ -411,14 +411,14 @@ func (h *Handler) handleApplyGuardrail(
 
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
 type startAsyncInvokeInput struct {
+	Tags             map[string]string `json:"tags"`
 	OutputDataConfig struct {
 		S3OutputDataConfig struct {
 			S3URI string `json:"s3Uri"`
 		} `json:"s3OutputDataConfig"`
 	} `json:"outputDataConfig"`
-	Tags               map[string]string `json:"tags"`
-	ModelID            string            `json:"modelId"`
-	ClientRequestToken string            `json:"clientRequestToken"`
+	ModelID            string `json:"modelId"`
+	ClientRequestToken string `json:"clientRequestToken"`
 }
 
 // handleStartAsyncInvoke handles POST /async-invoke.

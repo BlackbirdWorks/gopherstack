@@ -165,7 +165,7 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	}
 
 	if s3URI == "" {
-		return nil, fmt.Errorf("%w: outputDataConfig.s3OutputDataConfig.s3Uri is required", ErrValidation)
+		return nil, fmt.Errorf("%w: s3Uri is required", ErrValidation)
 	}
 
 	b.mu.Lock("StartAsyncInvoke")
