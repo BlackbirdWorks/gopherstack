@@ -3,6 +3,7 @@ package batch
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ var (
 	ErrNotFound = awserr.New("ClientException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ClientException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when a request contains invalid parameters.
+	ErrValidation = awserr.New("ClientException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -31,6 +34,11 @@ const (
 	jobStatusRunning   = "RUNNING"
 	jobStatusSucceeded = "SUCCEEDED"
 	jobStatusFailed    = "FAILED"
+
+	stateEnabled = "ENABLED"
+
+	resourceTypeReplenishable    = "REPLENISHABLE"
+	resourceTypeNonReplenishable = "NON_REPLENISHABLE"
 )
 
 // ComputeEnvironment represents a Batch compute environment.
@@ -86,32 +94,86 @@ type Job struct {
 	CreatedAt     int64             `json:"createdAt"`
 }
 
+// ConsumableResource represents a Batch consumable resource.
+type ConsumableResource struct {
+	Tags                   map[string]string `json:"tags,omitempty"`
+	ConsumableResourceName string            `json:"consumableResourceName"`
+	ConsumableResourceArn  string            `json:"consumableResourceArn"`
+	ResourceType           string            `json:"resourceType,omitempty"`
+	CreatedAt              int64             `json:"createdAt"`
+	TotalQuantity          int64             `json:"totalQuantity"`
+	AvailableQuantity      int64             `json:"availableQuantity"`
+	InUseQuantity          int64             `json:"inUseQuantity"`
+}
+
+// SchedulingPolicy represents a Batch scheduling policy.
+type SchedulingPolicy struct {
+	Tags map[string]string `json:"tags,omitempty"`
+	Arn  string            `json:"arn"`
+	Name string            `json:"name"`
+}
+
+// ServiceEnvironment represents a Batch service environment.
+type ServiceEnvironment struct {
+	Tags                   map[string]string `json:"tags,omitempty"`
+	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
+	ServiceEnvironmentArn  string            `json:"serviceEnvironmentArn"`
+	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
+	State                  string            `json:"state"`
+	Status                 string            `json:"status"`
+}
+
 // InMemoryBackend stores AWS Batch state in memory.
 type InMemoryBackend struct {
-	computeEnvironments map[string]*ComputeEnvironment
-	jobQueues           map[string]*JobQueue
-	jobDefinitions      map[string]*JobDefinition
-	jobs                map[string]*Job     // job ID → Job
-	jobsByQueue         map[string][]string // queue ARN/name → []jobID
-	jobDefRevisions     map[string]int32
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	computeEnvironments    map[string]*ComputeEnvironment
+	jobQueues              map[string]*JobQueue
+	jobDefinitions         map[string]*JobDefinition
+	jobs                   map[string]*Job     // job ID → Job
+	jobsByQueue            map[string][]string // queue ARN/name → []jobID
+	jobDefRevisions        map[string]int32
+	consumableResources    map[string]*ConsumableResource
+	schedulingPolicies     map[string]*SchedulingPolicy // ARN → SchedulingPolicy
+	serviceEnvironments    map[string]*ServiceEnvironment
+	schedulingPolicyByName map[string]string // name → ARN
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		computeEnvironments: make(map[string]*ComputeEnvironment),
-		jobQueues:           make(map[string]*JobQueue),
-		jobDefinitions:      make(map[string]*JobDefinition),
-		jobs:                make(map[string]*Job),
-		jobsByQueue:         make(map[string][]string),
-		jobDefRevisions:     make(map[string]int32),
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("batch"),
+		computeEnvironments:    make(map[string]*ComputeEnvironment),
+		jobQueues:              make(map[string]*JobQueue),
+		jobDefinitions:         make(map[string]*JobDefinition),
+		jobs:                   make(map[string]*Job),
+		jobsByQueue:            make(map[string][]string),
+		jobDefRevisions:        make(map[string]int32),
+		consumableResources:    make(map[string]*ConsumableResource),
+		schedulingPolicies:     make(map[string]*SchedulingPolicy),
+		serviceEnvironments:    make(map[string]*ServiceEnvironment),
+		schedulingPolicyByName: make(map[string]string),
+		accountID:              accountID,
+		region:                 region,
+		mu:                     lockmetrics.New("batch"),
 	}
+}
+
+// Reset clears all state from the backend.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.computeEnvironments = make(map[string]*ComputeEnvironment)
+	b.jobQueues = make(map[string]*JobQueue)
+	b.jobDefinitions = make(map[string]*JobDefinition)
+	b.jobs = make(map[string]*Job)
+	b.jobsByQueue = make(map[string][]string)
+	b.jobDefRevisions = make(map[string]int32)
+	b.consumableResources = make(map[string]*ConsumableResource)
+	b.schedulingPolicies = make(map[string]*SchedulingPolicy)
+	b.serviceEnvironments = make(map[string]*ServiceEnvironment)
+	b.schedulingPolicyByName = make(map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -191,6 +253,10 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(names []string) []*Compute
 			cp := *ce
 			list = append(list, &cp)
 		}
+
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].ComputeEnvironmentName < list[j].ComputeEnvironmentName
+		})
 
 		return list
 	}
@@ -290,6 +356,10 @@ func (b *InMemoryBackend) DescribeJobQueues(names []string) []*JobQueue {
 			cp := *jq
 			list = append(list, &cp)
 		}
+
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].JobQueueName < list[j].JobQueueName
+		})
 
 		return list
 	}
@@ -534,6 +604,24 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 		}
 	}
 
+	for _, cr := range b.consumableResources {
+		if cr.ConsumableResourceArn == resourceARN {
+			return cr.Tags, true
+		}
+	}
+
+	for _, sp := range b.schedulingPolicies {
+		if sp.Arn == resourceARN {
+			return sp.Tags, true
+		}
+	}
+
+	for _, se := range b.serviceEnvironments {
+		if se.ServiceEnvironmentArn == resourceARN {
+			return se.Tags, true
+		}
+	}
+
 	return nil, false
 }
 
@@ -565,6 +653,30 @@ func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
 	for _, j := range b.jobs {
 		if j.JobARN == resourceARN {
 			j.Tags = make(map[string]string)
+
+			return
+		}
+	}
+
+	for _, cr := range b.consumableResources {
+		if cr.ConsumableResourceArn == resourceARN {
+			cr.Tags = make(map[string]string)
+
+			return
+		}
+	}
+
+	for _, sp := range b.schedulingPolicies {
+		if sp.Arn == resourceARN {
+			sp.Tags = make(map[string]string)
+
+			return
+		}
+	}
+
+	for _, se := range b.serviceEnvironments {
+		if se.ServiceEnvironmentArn == resourceARN {
+			se.Tags = make(map[string]string)
 
 			return
 		}
@@ -695,4 +807,380 @@ func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
 	j.StoppedAt = &now
 
 	return nil
+}
+
+// CreateConsumableResource creates a new consumable resource.
+func (b *InMemoryBackend) CreateConsumableResource(
+	name, resourceType string,
+	totalQuantity int64,
+	tags map[string]string,
+) (*ConsumableResource, error) {
+	b.mu.Lock("CreateConsumableResource")
+	defer b.mu.Unlock()
+
+	if _, ok := b.consumableResources[name]; ok {
+		return nil, fmt.Errorf("%w: consumable resource %s already exists", ErrAlreadyExists, name)
+	}
+
+	if resourceType == "" {
+		resourceType = resourceTypeReplenishable
+	}
+
+	if resourceType != resourceTypeReplenishable && resourceType != resourceTypeNonReplenishable {
+		return nil, fmt.Errorf("%w: invalid resource type %s", ErrValidation, resourceType)
+	}
+
+	crARN := arn.Build("batch", b.region, b.accountID, "consumable-resource/"+name)
+
+	cr := &ConsumableResource{
+		ConsumableResourceName: name,
+		ConsumableResourceArn:  crARN,
+		ResourceType:           resourceType,
+		TotalQuantity:          totalQuantity,
+		AvailableQuantity:      totalQuantity,
+		InUseQuantity:          0,
+		CreatedAt:              time.Now().UnixMilli(),
+		Tags:                   maps.Clone(tags),
+	}
+	b.consumableResources[name] = cr
+	cp := *cr
+
+	return &cp, nil
+}
+
+// DeleteConsumableResource removes a consumable resource by name or ARN.
+func (b *InMemoryBackend) DeleteConsumableResource(nameOrARN string) error {
+	b.mu.Lock("DeleteConsumableResource")
+	defer b.mu.Unlock()
+
+	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	if !ok {
+		return fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
+	}
+
+	delete(b.consumableResources, cr.ConsumableResourceName)
+
+	return nil
+}
+
+// DescribeConsumableResource returns details for a consumable resource identified by name or ARN.
+func (b *InMemoryBackend) DescribeConsumableResource(nameOrARN string) (*ConsumableResource, error) {
+	b.mu.RLock("DescribeConsumableResource")
+	defer b.mu.RUnlock()
+
+	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
+	}
+
+	cp := *cr
+	cp.Tags = maps.Clone(cr.Tags)
+
+	return &cp, nil
+}
+
+// lookupConsumableResourceByNameOrARN returns a consumable resource by name or ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(nameOrARN string) (*ConsumableResource, bool) {
+	if cr, ok := b.consumableResources[nameOrARN]; ok {
+		return cr, true
+	}
+
+	for _, cr := range b.consumableResources {
+		if cr.ConsumableResourceArn == nameOrARN {
+			return cr, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateSchedulingPolicy creates a new scheduling policy.
+func (b *InMemoryBackend) CreateSchedulingPolicy(name string, tags map[string]string) (*SchedulingPolicy, error) {
+	b.mu.Lock("CreateSchedulingPolicy")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if _, ok := b.schedulingPolicyByName[name]; ok {
+		return nil, fmt.Errorf("%w: scheduling policy %s already exists", ErrAlreadyExists, name)
+	}
+
+	policyARN := arn.Build("batch", b.region, b.accountID, "scheduling-policy/"+name)
+
+	sp := &SchedulingPolicy{
+		Arn:  policyARN,
+		Name: name,
+		Tags: maps.Clone(tags),
+	}
+	b.schedulingPolicies[policyARN] = sp
+	b.schedulingPolicyByName[name] = policyARN
+	cp := *sp
+
+	return &cp, nil
+}
+
+// DeleteSchedulingPolicy removes a scheduling policy by ARN.
+func (b *InMemoryBackend) DeleteSchedulingPolicy(policyARN string) error {
+	b.mu.Lock("DeleteSchedulingPolicy")
+	defer b.mu.Unlock()
+
+	sp, ok := b.schedulingPolicies[policyARN]
+	if !ok {
+		return fmt.Errorf("%w: scheduling policy %s not found", ErrNotFound, policyARN)
+	}
+
+	delete(b.schedulingPolicyByName, sp.Name)
+	delete(b.schedulingPolicies, policyARN)
+
+	return nil
+}
+
+// CreateServiceEnvironment creates a new service environment.
+func (b *InMemoryBackend) CreateServiceEnvironment(
+	name, envType, state string,
+	tags map[string]string,
+) (*ServiceEnvironment, error) {
+	b.mu.Lock("CreateServiceEnvironment")
+	defer b.mu.Unlock()
+
+	if _, ok := b.serviceEnvironments[name]; ok {
+		return nil, fmt.Errorf("%w: service environment %s already exists", ErrAlreadyExists, name)
+	}
+
+	seARN := arn.Build("batch", b.region, b.accountID, "service-environment/"+name)
+
+	if state == "" {
+		state = stateEnabled
+	}
+
+	se := &ServiceEnvironment{
+		ServiceEnvironmentName: name,
+		ServiceEnvironmentArn:  seARN,
+		ServiceEnvironmentType: envType,
+		State:                  state,
+		Status:                 "VALID",
+		Tags:                   maps.Clone(tags),
+	}
+	b.serviceEnvironments[name] = se
+	cp := *se
+
+	return &cp, nil
+}
+
+// DeleteServiceEnvironment removes a service environment by name or ARN.
+func (b *InMemoryBackend) DeleteServiceEnvironment(nameOrARN string) error {
+	b.mu.Lock("DeleteServiceEnvironment")
+	defer b.mu.Unlock()
+
+	se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN)
+	if !ok {
+		return fmt.Errorf("%w: service environment %s not found", ErrNotFound, nameOrARN)
+	}
+
+	delete(b.serviceEnvironments, se.ServiceEnvironmentName)
+
+	return nil
+}
+
+// lookupServiceEnvironmentByNameOrARN returns a service environment by name or ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupServiceEnvironmentByNameOrARN(nameOrARN string) (*ServiceEnvironment, bool) {
+	if se, ok := b.serviceEnvironments[nameOrARN]; ok {
+		return se, true
+	}
+
+	for _, se := range b.serviceEnvironments {
+		if se.ServiceEnvironmentArn == nameOrARN {
+			return se, true
+		}
+	}
+
+	return nil, false
+}
+
+// UpdateConsumableResource updates the quantity of a consumable resource.
+func (b *InMemoryBackend) UpdateConsumableResource(
+	nameOrARN, operation string,
+	quantity int64,
+) (*ConsumableResource, error) {
+	b.mu.Lock("UpdateConsumableResource")
+	defer b.mu.Unlock()
+
+	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
+	}
+
+	if quantity < 0 {
+		return nil, fmt.Errorf("%w: quantity must be non-negative", ErrValidation)
+	}
+
+	if operation == "" {
+		operation = "SET"
+	}
+
+	switch operation {
+	case "SET":
+		cr.TotalQuantity = quantity
+		cr.AvailableQuantity = quantity
+	case "ADD":
+		cr.TotalQuantity += quantity
+		cr.AvailableQuantity += quantity
+	case "REMOVE":
+		if quantity > cr.TotalQuantity {
+			return nil, fmt.Errorf(
+				"%w: cannot remove %d from total quantity %d",
+				ErrValidation,
+				quantity,
+				cr.TotalQuantity,
+			)
+		}
+
+		cr.TotalQuantity -= quantity
+		cr.AvailableQuantity -= quantity
+	default:
+		return nil, fmt.Errorf("%w: unsupported operation %s", ErrValidation, operation)
+	}
+
+	cp := *cr
+	cp.Tags = maps.Clone(cr.Tags)
+
+	return &cp, nil
+}
+
+// ListConsumableResources returns all consumable resources sorted by name.
+func (b *InMemoryBackend) ListConsumableResources() []*ConsumableResource {
+	b.mu.RLock("ListConsumableResources")
+	defer b.mu.RUnlock()
+
+	list := make([]*ConsumableResource, 0, len(b.consumableResources))
+
+	for _, cr := range b.consumableResources {
+		cp := *cr
+		cp.Tags = maps.Clone(cr.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ConsumableResourceName < list[j].ConsumableResourceName
+	})
+
+	return list
+}
+
+// ListSchedulingPolicies returns all scheduling policies sorted by ARN.
+func (b *InMemoryBackend) ListSchedulingPolicies() []*SchedulingPolicy {
+	b.mu.RLock("ListSchedulingPolicies")
+	defer b.mu.RUnlock()
+
+	list := make([]*SchedulingPolicy, 0, len(b.schedulingPolicies))
+
+	for _, sp := range b.schedulingPolicies {
+		cp := *sp
+		cp.Tags = maps.Clone(sp.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Arn < list[j].Arn })
+
+	return list
+}
+
+// DescribeSchedulingPolicies returns scheduling policies, optionally filtered by ARNs.
+func (b *InMemoryBackend) DescribeSchedulingPolicies(arns []string) []*SchedulingPolicy {
+	b.mu.RLock("DescribeSchedulingPolicies")
+	defer b.mu.RUnlock()
+
+	if len(arns) == 0 {
+		list := make([]*SchedulingPolicy, 0, len(b.schedulingPolicies))
+		for _, sp := range b.schedulingPolicies {
+			cp := *sp
+			cp.Tags = maps.Clone(sp.Tags)
+			list = append(list, &cp)
+		}
+
+		sort.Slice(list, func(i, j int) bool { return list[i].Arn < list[j].Arn })
+
+		return list
+	}
+
+	list := make([]*SchedulingPolicy, 0, len(arns))
+
+	for _, a := range arns {
+		if sp, ok := b.schedulingPolicies[a]; ok {
+			cp := *sp
+			cp.Tags = maps.Clone(sp.Tags)
+			list = append(list, &cp)
+		}
+	}
+
+	return list
+}
+
+// DescribeServiceEnvironments returns service environments, optionally filtered by names/ARNs.
+func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*ServiceEnvironment {
+	b.mu.RLock("DescribeServiceEnvironments")
+	defer b.mu.RUnlock()
+
+	if len(names) == 0 {
+		list := make([]*ServiceEnvironment, 0, len(b.serviceEnvironments))
+		for _, se := range b.serviceEnvironments {
+			cp := *se
+			cp.Tags = maps.Clone(se.Tags)
+			list = append(list, &cp)
+		}
+
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].ServiceEnvironmentName < list[j].ServiceEnvironmentName
+		})
+
+		return list
+	}
+
+	list := make([]*ServiceEnvironment, 0, len(names))
+
+	for _, nameOrARN := range names {
+		if se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN); ok {
+			cp := *se
+			cp.Tags = maps.Clone(se.Tags)
+			list = append(list, &cp)
+		}
+	}
+
+	return list
+}
+
+// UpdateSchedulingPolicy performs a no-op update on the scheduling policy (verifies existence).
+func (b *InMemoryBackend) UpdateSchedulingPolicy(policyARN string) error {
+	b.mu.Lock("UpdateSchedulingPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.schedulingPolicies[policyARN]; !ok {
+		return fmt.Errorf("%w: scheduling policy %s not found", ErrNotFound, policyARN)
+	}
+
+	return nil
+}
+
+// UpdateServiceEnvironment updates the state of a service environment.
+func (b *InMemoryBackend) UpdateServiceEnvironment(nameOrARN, state string) (*ServiceEnvironment, error) {
+	b.mu.Lock("UpdateServiceEnvironment")
+	defer b.mu.Unlock()
+
+	se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: service environment %s not found", ErrNotFound, nameOrARN)
+	}
+
+	if state != "" {
+		se.State = state
+	}
+
+	cp := *se
+	cp.Tags = maps.Clone(se.Tags)
+
+	return &cp, nil
 }
