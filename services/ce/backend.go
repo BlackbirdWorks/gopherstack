@@ -2,8 +2,11 @@
 package ce
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,7 +20,29 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource with the same name already exists.
 	ErrAlreadyExists = awserr.New("ServiceQuotaExceededException", awserr.ErrConflict)
+	// ErrValidation is returned when input parameters fail validation.
+	ErrValidation = errors.New("InvalidParameterException")
 )
+
+// isValidMonitorType reports whether t is a valid AnomalyMonitor MonitorType.
+func isValidMonitorType(t string) bool {
+	switch t {
+	case "DIMENSIONAL", "CUSTOM":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidFrequency reports whether f is a valid AnomalySubscription Frequency.
+func isValidFrequency(f string) bool {
+	switch f {
+	case "DAILY", "IMMEDIATE", "WEEKLY":
+		return true
+	default:
+		return false
+	}
+}
 
 // CostCategory represents an in-memory AWS Cost Explorer cost category.
 type CostCategory struct {
@@ -214,7 +239,7 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	return &out, nil
 }
 
-// ListCostCategoryDefinitions returns all cost categories.
+// ListCostCategoryDefinitions returns all cost categories sorted by name.
 func (b *InMemoryBackend) ListCostCategoryDefinitions() []*CostCategory {
 	b.mu.RLock("ListCostCategoryDefinitions")
 	defer b.mu.RUnlock()
@@ -224,6 +249,10 @@ func (b *InMemoryBackend) ListCostCategoryDefinitions() []*CostCategory {
 		out := *cat
 		result = append(result, &out)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
 
 	return result
 }
@@ -367,6 +396,12 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	b.mu.Lock("CreateAnomalyMonitor")
 	defer b.mu.Unlock()
 
+	if monitorType != "" {
+		if !isValidMonitorType(monitorType) {
+			return nil, fmt.Errorf("%w: MonitorType must be one of DIMENSIONAL, CUSTOM", ErrValidation)
+		}
+	}
+
 	tagsCopy := make(map[string]string, len(resourceTags))
 	maps.Copy(tagsCopy, resourceTags)
 
@@ -400,33 +435,38 @@ func (b *InMemoryBackend) DeleteAnomalyMonitor(monARN string) error {
 	return nil
 }
 
-// GetAnomalyMonitors returns anomaly monitors, optionally filtered by ARNs.
+// GetAnomalyMonitors returns anomaly monitors, optionally filtered by ARNs, sorted by MonitorARN.
 func (b *InMemoryBackend) GetAnomalyMonitors(monitorARNList []string) []*AnomalyMonitor {
 	b.mu.RLock("GetAnomalyMonitors")
 	defer b.mu.RUnlock()
 
+	var result []*AnomalyMonitor
+
 	if len(monitorARNList) == 0 {
-		result := make([]*AnomalyMonitor, 0, len(b.anomalyMonitors))
+		result = make([]*AnomalyMonitor, 0, len(b.anomalyMonitors))
 		for _, mon := range b.anomalyMonitors {
 			out := *mon
 			result = append(result, &out)
 		}
+	} else {
+		set := make(map[string]struct{}, len(monitorARNList))
+		for _, a := range monitorARNList {
+			set[a] = struct{}{}
+		}
 
-		return result
-	}
+		result = make([]*AnomalyMonitor, 0, len(monitorARNList))
 
-	set := make(map[string]struct{}, len(monitorARNList))
-	for _, a := range monitorARNList {
-		set[a] = struct{}{}
-	}
-
-	result := make([]*AnomalyMonitor, 0, len(monitorARNList))
-	for _, mon := range b.anomalyMonitors {
-		if _, ok := set[mon.MonitorARN]; ok {
-			out := *mon
-			result = append(result, &out)
+		for _, mon := range b.anomalyMonitors {
+			if _, ok := set[mon.MonitorARN]; ok {
+				out := *mon
+				result = append(result, &out)
+			}
 		}
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].MonitorARN < result[j].MonitorARN
+	})
 
 	return result
 }
@@ -458,6 +498,12 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 ) (*AnomalySubscription, error) {
 	b.mu.Lock("CreateAnomalySubscription")
 	defer b.mu.Unlock()
+
+	if frequency != "" {
+		if !isValidFrequency(frequency) {
+			return nil, fmt.Errorf("%w: Frequency must be one of DAILY, IMMEDIATE, WEEKLY", ErrValidation)
+		}
+	}
 
 	tagsCopy := make(map[string]string, len(resourceTags))
 	maps.Copy(tagsCopy, resourceTags)
@@ -500,35 +546,60 @@ func (b *InMemoryBackend) DeleteAnomalySubscription(subARN string) error {
 	return nil
 }
 
-// GetAnomalySubscriptions returns anomaly subscriptions, optionally filtered by ARNs.
-func (b *InMemoryBackend) GetAnomalySubscriptions(subscriptionARNList []string) []*AnomalySubscription {
+// GetAnomalySubscriptions returns anomaly subscriptions, optionally filtered by ARNs or monitor ARN,
+// sorted by SubscriptionARN.
+func (b *InMemoryBackend) GetAnomalySubscriptions(
+	subscriptionARNList []string,
+	monitorARN string,
+) []*AnomalySubscription {
 	b.mu.RLock("GetAnomalySubscriptions")
 	defer b.mu.RUnlock()
 
+	var result []*AnomalySubscription
+
 	if len(subscriptionARNList) == 0 {
-		result := make([]*AnomalySubscription, 0, len(b.anomalySubscriptions))
+		result = make([]*AnomalySubscription, 0, len(b.anomalySubscriptions))
+
 		for _, sub := range b.anomalySubscriptions {
+			if monitorARN != "" && !containsString(sub.MonitorARNList, monitorARN) {
+				continue
+			}
+
 			out := *sub
 			result = append(result, &out)
 		}
+	} else {
+		set := make(map[string]struct{}, len(subscriptionARNList))
+		for _, a := range subscriptionARNList {
+			set[a] = struct{}{}
+		}
 
-		return result
-	}
+		result = make([]*AnomalySubscription, 0, len(subscriptionARNList))
 
-	set := make(map[string]struct{}, len(subscriptionARNList))
-	for _, a := range subscriptionARNList {
-		set[a] = struct{}{}
-	}
+		for _, sub := range b.anomalySubscriptions {
+			if _, ok := set[sub.SubscriptionARN]; !ok {
+				continue
+			}
 
-	result := make([]*AnomalySubscription, 0, len(subscriptionARNList))
-	for _, sub := range b.anomalySubscriptions {
-		if _, ok := set[sub.SubscriptionARN]; ok {
+			if monitorARN != "" && !containsString(sub.MonitorARNList, monitorARN) {
+				continue
+			}
+
 			out := *sub
 			result = append(result, &out)
 		}
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].SubscriptionARN < result[j].SubscriptionARN
+	})
 
 	return result
+}
+
+// containsString reports whether s appears in slice.
+func containsString(slice []string, s string) bool {
+	return slices.Contains(slice, s)
 }
 
 // UpdateAnomalySubscription updates a CE anomaly subscription.
@@ -575,8 +646,9 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	return &out, nil
 }
 
-// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN.
-func (b *InMemoryBackend) GetAnomalies(monitorARN string) []*Anomaly {
+// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN and feedback type,
+// sorted by AnomalyID.
+func (b *InMemoryBackend) GetAnomalies(monitorARN, feedback string) []*Anomaly {
 	b.mu.RLock("GetAnomalies")
 	defer b.mu.RUnlock()
 
@@ -587,15 +659,40 @@ func (b *InMemoryBackend) GetAnomalies(monitorARN string) []*Anomaly {
 			continue
 		}
 
+		if feedback != "" && a.FeedbackType != feedback {
+			continue
+		}
+
 		out := *a
 		result = append(result, &out)
 	}
 
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].AnomalyID < result[j].AnomalyID
+	})
+
 	return result
 }
 
+// AddAnomaly inserts an anomaly into the backend. It is intended for testing.
+func (b *InMemoryBackend) AddAnomaly(a Anomaly) {
+	b.mu.Lock("AddAnomaly")
+	defer b.mu.Unlock()
+
+	if a.AnomalyID == "" {
+		a.AnomalyID = uuid.NewString()
+	}
+
+	if a.CreationDate.IsZero() {
+		a.CreationDate = time.Now().UTC()
+	}
+
+	cp := a
+	b.anomalies[a.AnomalyID] = &cp
+}
+
 // GetCostCategories returns the distinct cost category values stored in the
-// backend, optionally filtered by cost category name.
+// backend, optionally filtered by cost category name. Values are sorted alphabetically.
 func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
 	b.mu.RLock("GetCostCategories")
 	defer b.mu.RUnlock()
@@ -615,6 +712,8 @@ func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
 			}
 		}
 	}
+
+	sort.Strings(values)
 
 	return values
 }

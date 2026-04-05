@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -26,12 +27,16 @@ var (
 // Handler is the Echo HTTP handler for Cost Explorer (Ce) operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Cost Explorer handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // Name returns the service name.
@@ -118,7 +123,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateCostCategoryDefinition":         service.WrapOp(h.handleCreateCostCategoryDefinition),
 		"DeleteCostCategoryDefinition":         service.WrapOp(h.handleDeleteCostCategoryDefinition),
@@ -155,7 +160,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -187,6 +192,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidParameterException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
@@ -220,16 +232,17 @@ func resourceTagsToMap(tags []resourceTag) map[string]string {
 }
 
 // mapToResourceTags converts a map[string]string to an array of resourceTag for API responses.
+// Tags are sorted by Key for deterministic output.
 func mapToResourceTags(m map[string]string) []resourceTag {
-	if len(m) == 0 {
-		return nil
-	}
-
 	tags := make([]resourceTag, 0, len(m))
 
 	for k, v := range m {
 		tags = append(tags, resourceTag{Key: k, Value: v})
 	}
+
+	sort.Slice(tags, func(i, j int) bool {
+		return tags[i].Key < tags[j].Key
+	})
 
 	return tags
 }
@@ -345,9 +358,9 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 		return nil, err
 	}
 
-	rules := make([]costCategoryRule, 0, len(cat.Rules))
-	for _, r := range cat.Rules {
-		rules = append(rules, costCategoryRule(r))
+	rules := make([]costCategoryRule, len(cat.Rules))
+	for i, r := range cat.Rules {
+		rules[i] = costCategoryRule(r)
 	}
 
 	return &describeCostCategoryDefinitionOutput{
@@ -664,7 +677,7 @@ func (h *Handler) handleGetAnomalySubscriptions(
 	_ context.Context,
 	in *getAnomalySubscriptionsInput,
 ) (*getAnomalySubscriptionsOutput, error) {
-	subs := h.Backend.GetAnomalySubscriptions(in.SubscriptionArnList)
+	subs := h.Backend.GetAnomalySubscriptions(in.SubscriptionArnList, in.MonitorArn)
 	items := make([]anomalySubscriptionSummary, 0, len(subs))
 	for _, sub := range subs {
 		subscribers := make([]subscriberInput, 0, len(sub.Subscribers))
@@ -947,7 +960,7 @@ func (h *Handler) handleGetAnomalies(
 	_ context.Context,
 	in *getAnomaliesInput,
 ) (*getAnomaliesOutput, error) {
-	anomalies := h.Backend.GetAnomalies(in.MonitorArn)
+	anomalies := h.Backend.GetAnomalies(in.MonitorArn, in.Feedback)
 	items := make([]anomalySummary, 0, len(anomalies))
 
 	for _, a := range anomalies {
