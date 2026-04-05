@@ -23,15 +23,15 @@ var errUnknownAction = errors.New("unknown action")
 
 // Handler is the Echo HTTP handler for CloudControl API operations.
 type Handler struct {
-	Backend *InMemoryBackend
-	ops     map[string]service.JSONOpFunc
+	Backend       *InMemoryBackend
+	dispatchTable map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new CloudControl handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	h := &Handler{Backend: backend}
-	h.ops = h.buildOps()
+	h.dispatchTable = h.buildDispatchTable()
 
 	return h
 }
@@ -101,7 +101,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CancelResourceRequest":    service.WrapOp(h.handleCancelResourceRequest),
 		"CreateResource":           service.WrapOp(h.handleCreateResource),
@@ -115,7 +115,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.ops[action]
+	fn, ok := h.dispatchTable[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}

@@ -496,8 +496,11 @@ func isValidTypeName(typeName string) bool {
 	}
 
 	parts := strings.SplitN(typeName, "::", typeNameSplitLimit)
+	if len(parts) != typeNamePartCount {
+		return false
+	}
 
-	return len(parts) == typeNamePartCount && parts[0] != "" && parts[1] != "" && parts[2] != ""
+	return !slices.Contains(parts, "")
 }
 
 // resourceKey returns the map key for a given typeName and identifier.
