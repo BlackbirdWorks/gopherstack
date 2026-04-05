@@ -5,10 +5,16 @@ import (
 )
 
 type backendSnapshot struct {
-	Domains      map[string]*Domain     `json:"domains"`
-	Repositories map[string]*Repository `json:"repositories"`
-	AccountID    string                 `json:"accountID"`
-	Region       string                 `json:"region"`
+	Domains             map[string]*Domain                      `json:"domains"`
+	Repositories        map[string]*Repository                  `json:"repositories"`
+	PackageGroups       map[string]*PackageGroup                `json:"packageGroups"`
+	Packages            map[string]*Package                     `json:"packages"`
+	PackageVersions     map[string]*PackageVersion              `json:"packageVersions"`
+	ExternalConnections map[string][]ExternalConnection         `json:"externalConnections"`
+	RepositoryPolicies  map[string]*RepositoryPermissionsPolicy `json:"repositoryPolicies"`
+	DomainPolicies      map[string]*DomainPermissionsPolicy     `json:"domainPolicies"`
+	AccountID           string                                  `json:"accountID"`
+	Region              string                                  `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -18,10 +24,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Domains:      b.domains,
-		Repositories: b.repositories,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Domains:             b.domains,
+		Repositories:        b.repositories,
+		PackageGroups:       b.packageGroups,
+		Packages:            b.packages,
+		PackageVersions:     b.packageVersions,
+		ExternalConnections: b.externalConnections,
+		RepositoryPolicies:  b.repositoryPolicies,
+		DomainPolicies:      b.domainPolicies,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -50,9 +62,33 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Repositories == nil {
 		snap.Repositories = make(map[string]*Repository)
 	}
+	if snap.PackageGroups == nil {
+		snap.PackageGroups = make(map[string]*PackageGroup)
+	}
+	if snap.Packages == nil {
+		snap.Packages = make(map[string]*Package)
+	}
+	if snap.PackageVersions == nil {
+		snap.PackageVersions = make(map[string]*PackageVersion)
+	}
+	if snap.ExternalConnections == nil {
+		snap.ExternalConnections = make(map[string][]ExternalConnection)
+	}
+	if snap.RepositoryPolicies == nil {
+		snap.RepositoryPolicies = make(map[string]*RepositoryPermissionsPolicy)
+	}
+	if snap.DomainPolicies == nil {
+		snap.DomainPolicies = make(map[string]*DomainPermissionsPolicy)
+	}
 
 	b.domains = snap.Domains
 	b.repositories = snap.Repositories
+	b.packageGroups = snap.PackageGroups
+	b.packages = snap.Packages
+	b.packageVersions = snap.PackageVersions
+	b.externalConnections = snap.ExternalConnections
+	b.repositoryPolicies = snap.RepositoryPolicies
+	b.domainPolicies = snap.DomainPolicies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
