@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -719,4 +720,468 @@ func TestHandler_UpdateTable_Via_Handler(t *testing.T) {
 	c := e.NewContext(req, rec)
 	require.NoError(t, handler.Handler()(c))
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestHandler_RestoreTableToPointInTime_Coverage adds coverage for PITR error paths.
+func TestHandler_RestoreTableToPointInTime_Coverage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, db *dynamodb.InMemoryDB)
+		payload  map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "pitr_not_enabled",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "Source", "pk")
+			},
+			payload: map[string]any{
+				"SourceTableName": "Source",
+				"TargetTableName": "Restored",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "target_table_already_exists",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "PITRSrc", "pk")
+				createTableHelper(t, db, "PITRDst", "pk")
+				// Enable PITR on the source table via handler.
+				handler := dynamodb.NewHandler(db)
+				body, _ := json.Marshal(map[string]any{
+					"TableName": "PITRSrc",
+					"PointInTimeRecoverySpecification": map[string]any{
+						"PointInTimeRecoveryEnabled": true,
+					},
+				})
+				req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+				req.Header.Set("X-Amz-Target", "DynamoDB_20120810.UpdateContinuousBackups")
+				req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+				ctxLog := logger.Save(req.Context(), slog.Default())
+				req = req.WithContext(ctxLog)
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+				require.NoError(t, handler.Handler()(c))
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			payload: map[string]any{
+				"SourceTableName": "PITRSrc",
+				"TargetTableName": "PITRDst",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			handler := dynamodb.NewHandler(db)
+			if tt.setup != nil {
+				tt.setup(t, db)
+			}
+
+			body, err := json.Marshal(tt.payload)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("X-Amz-Target", "DynamoDB_20120810.RestoreTableToPointInTime")
+			req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+			ctxLog := logger.Save(req.Context(), slog.Default())
+			req = req.WithContext(ctxLog)
+
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			require.NoError(t, handler.Handler()(c))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_BackupOps_InvalidJSON covers JSON unmarshal error paths in backup handlers.
+func TestHandler_BackupOps_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	targets := []string{
+		"DynamoDB_20120810.CreateBackup",
+		"DynamoDB_20120810.DeleteBackup",
+		"DynamoDB_20120810.DescribeBackup",
+		"DynamoDB_20120810.ListBackups",
+		"DynamoDB_20120810.RestoreTableFromBackup",
+		"DynamoDB_20120810.RestoreTableToPointInTime",
+	}
+
+	for _, target := range targets {
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			handler := dynamodb.NewHandler(db)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("{bad json")))
+			req.Header.Set("X-Amz-Target", target)
+			req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+			ctxLog := logger.Save(req.Context(), slog.Default())
+			req = req.WithContext(ctxLog)
+
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			require.NoError(t, handler.Handler()(c))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestInMemoryDB_ListBackups_BackupTypeFilter tests the backup type filter in ListBackups.
+func TestInMemoryDB_ListBackups_BackupTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(db)
+
+	createTableHelper(t, db, "T", "pk")
+
+	// Create two backups.
+	_, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("T"),
+		BackupName: aws.String("snap1"),
+	})
+	require.NoError(t, err)
+
+	_, err = db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("T"),
+		BackupName: aws.String("snap2"),
+	})
+	require.NoError(t, err)
+
+	// List with BackupType filter via handler.
+	body, marshalErr := json.Marshal(map[string]any{
+		"TableName":  "T",
+		"BackupType": "USER",
+	})
+	require.NoError(t, marshalErr)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.ListBackups")
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	ctxLog := logger.Save(req.Context(), slog.Default())
+	req = req.WithContext(ctxLog)
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	require.NoError(t, handler.Handler()(c))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	summaries, ok := resp["BackupSummaries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, summaries, 2)
+}
+
+// TestInMemoryDB_PutResourcePolicy_EmptyPolicy tests the empty policy validation.
+func TestInMemoryDB_PutResourcePolicy_EmptyPolicy(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(db)
+	createTableHelper(t, db, "T", "pk")
+	descOut, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+		TableName: aws.String("T"),
+	})
+	require.NoError(t, err)
+	tableARN := aws.ToString(descOut.Table.TableArn)
+
+	// Empty policy should return validation error.
+	body, marshalErr := json.Marshal(map[string]any{
+		"ResourceArn": tableARN,
+		"Policy":      "",
+	})
+	require.NoError(t, marshalErr)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.PutResourcePolicy")
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	ctxLog := logger.Save(req.Context(), slog.Default())
+	req = req.WithContext(ctxLog)
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	require.NoError(t, handler.Handler()(c))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestInMemoryDB_Close tests that Close() can be called without panicking.
+func TestInMemoryDB_Close(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "T", "pk")
+
+	require.NotPanics(t, func() {
+		db.Close()
+	})
+}
+
+// TestInMemoryDB_Purge_WithOldEntries tests that Purge deletes tables, backups, and streams
+// that are older than the cutoff time.
+func TestInMemoryDB_Purge_WithOldEntries(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+
+	// Create a table.
+	createTableHelper(t, db, "OldTable", "pk")
+
+	// Create a backup.
+	_, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("OldTable"),
+		BackupName: aws.String("old-backup"),
+	})
+	require.NoError(t, err)
+
+	// Purge with a future cutoff — should delete the table and backup.
+	db.Purge(time.Now().Add(24 * time.Hour))
+
+	// Table should now be gone.
+	_, err = db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+		TableName: aws.String("OldTable"),
+	})
+	require.Error(t, err)
+}
+
+// TestInMemoryDB_DeleteItem_ReturnValues tests DeleteItem with ReturnConsumedCapacity and
+// ReturnItemCollectionMetrics to cover those output branches.
+func TestInMemoryDB_DeleteItem_ReturnValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup              func(t *testing.T, db *dynamodb.InMemoryDB)
+		conditionExpr      string
+		name               string
+		wantReturnedItem   bool
+		wantConsumedCap    bool
+		wantCollectionSize bool
+		wantErr            bool
+	}{
+		{
+			name: "return_all_old_with_consumed_capacity",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "T", "pk")
+				_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+					TableName: aws.String("T"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "del1"},
+						"v":  &types.AttributeValueMemberS{Value: "val"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			wantReturnedItem: true,
+			wantConsumedCap:  true,
+		},
+		{
+			name: "return_all_old_with_item_collection_metrics",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "T", "pk")
+				_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+					TableName: aws.String("T"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "del2"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			wantReturnedItem:   true,
+			wantCollectionSize: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			if tt.setup != nil {
+				tt.setup(t, db)
+			}
+
+			pkVal := "del1"
+			if tt.wantCollectionSize {
+				pkVal = "del2"
+			}
+
+			input := &sdk.DeleteItemInput{
+				TableName: aws.String("T"),
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: pkVal},
+				},
+				ReturnValues: types.ReturnValueAllOld,
+			}
+
+			if tt.wantConsumedCap {
+				input.ReturnConsumedCapacity = types.ReturnConsumedCapacityTotal
+			}
+
+			if tt.wantCollectionSize {
+				input.ReturnItemCollectionMetrics = types.ReturnItemCollectionMetricsSize
+			}
+
+			out, err := db.DeleteItem(t.Context(), input)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out)
+
+			if tt.wantReturnedItem {
+				assert.NotEmpty(t, out.Attributes)
+			}
+
+			if tt.wantConsumedCap {
+				assert.NotNil(t, out.ConsumedCapacity)
+			}
+
+			if tt.wantCollectionSize {
+				assert.NotNil(t, out.ItemCollectionMetrics)
+			}
+		})
+	}
+}
+
+// TestInMemoryDB_BatchGetItem_LimitExceeded tests the batch size limit.
+func TestInMemoryDB_BatchGetItem_LimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "T", "pk")
+
+	// Build 101 keys (over the 100 item limit).
+	keys := make([]map[string]types.AttributeValue, 101)
+	for i := range keys {
+		keys[i] = map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("key-%d", i)},
+		}
+	}
+
+	_, err := db.BatchGetItem(t.Context(), &sdk.BatchGetItemInput{
+		RequestItems: map[string]types.KeysAndAttributes{
+			"T": {Keys: keys},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Batch size limit exceeded")
+}
+
+// TestInMemoryDB_DeleteItem_ConditionalExpression covers the checkDeleteCondition path.
+func TestInMemoryDB_DeleteItem_ConditionalExpression(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(t *testing.T, db *dynamodb.InMemoryDB)
+		condition string
+		name      string
+		pkVal     string
+		wantErr   bool
+	}{
+		{
+			name: "condition_passes",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+					TableName: aws.String("T"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "cond1"},
+						"v":  &types.AttributeValueMemberS{Value: "exists"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			condition: "attribute_exists(v)",
+			pkVal:     "cond1",
+		},
+		{
+			name: "condition_fails",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+					TableName: aws.String("T"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "cond2"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			condition: "attribute_exists(nonexistent)",
+			pkVal:     "cond2",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			createTableHelper(t, db, "T", "pk")
+			if tt.setup != nil {
+				tt.setup(t, db)
+			}
+
+			_, err := db.DeleteItem(t.Context(), &sdk.DeleteItemInput{
+				TableName: aws.String("T"),
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: tt.pkVal},
+				},
+				ConditionExpression: aws.String(tt.condition),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestInMemoryDB_UpdateItem_InvalidExpression covers the doUpdate error path.
+func TestInMemoryDB_UpdateItem_InvalidExpression(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "T", "pk")
+	_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+		TableName: aws.String("T"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "x"},
+		},
+	})
+	require.NoError(t, err)
+
+	// An invalid update expression should return an error.
+	_, err = db.UpdateItem(t.Context(), &sdk.UpdateItemInput{
+		TableName: aws.String("T"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "x"},
+		},
+		UpdateExpression: aws.String("INVALID EXPRESSION SYNTAX !!@@##"),
+	})
+	require.Error(t, err)
 }

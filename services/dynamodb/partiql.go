@@ -157,51 +157,75 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(ctx context.Context, body 
 		return nil, err
 	}
 
+	// Pre-allocate responses and sdkStmts; track which original indices have pending
+	// SDK responses so the final slice can be assembled in original order.
+	responses := make([]batchStatementResponse, len(req.Statements))
 	sdkStmts := make([]types.BatchStatementRequest, 0, len(req.Statements))
-	for _, s := range req.Statements {
+	// originalIdx maps sdkStmts position → req.Statements position.
+	originalIdx := make([]int, 0, len(req.Statements))
+
+	for i, s := range req.Statements {
 		sdkParams := make([]types.AttributeValue, 0, len(s.Parameters))
+
+		var convFailed bool
 
 		for _, p := range s.Parameters {
 			av, convErr := models.ToSDKAttributeValue(p)
 			if convErr != nil {
-				continue
+				convFailed = true
+
+				break
 			}
 
 			sdkParams = append(sdkParams, av)
+		}
+
+		if convFailed {
+			responses[i] = batchStatementResponse{
+				Error: &batchStatementError{
+					Code:    "ValidationError",
+					Message: "failed to convert one or more statement parameters",
+				},
+			}
+
+			continue
 		}
 
 		sdkStmts = append(sdkStmts, types.BatchStatementRequest{
 			Statement:  aws.String(s.Statement),
 			Parameters: sdkParams,
 		})
+		originalIdx = append(originalIdx, i)
 	}
 
-	out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
-		Statements: sdkStmts,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	responses := make([]batchStatementResponse, 0, len(out.Responses))
-	for _, resp := range out.Responses {
-		if resp.Error != nil {
-			responses = append(responses, batchStatementResponse{
-				Error: &batchStatementError{
-					Code:    string(resp.Error.Code),
-					Message: aws.ToString(resp.Error.Message),
-				},
-			})
-
-			continue
+	if len(sdkStmts) > 0 {
+		out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
+			Statements: sdkStmts,
+		})
+		if err != nil {
+			return nil, err
 		}
 
-		wireResp := batchStatementResponse{}
-		if resp.Item != nil {
-			wireResp.Item = models.FromSDKItem(resp.Item)
-		}
+		for j, resp := range out.Responses {
+			idx := originalIdx[j]
+			if resp.Error != nil {
+				responses[idx] = batchStatementResponse{
+					Error: &batchStatementError{
+						Code:    string(resp.Error.Code),
+						Message: aws.ToString(resp.Error.Message),
+					},
+				}
 
-		responses = append(responses, wireResp)
+				continue
+			}
+
+			wireResp := batchStatementResponse{}
+			if resp.Item != nil {
+				wireResp.Item = models.FromSDKItem(resp.Item)
+			}
+
+			responses[idx] = wireResp
+		}
 	}
 
 	return &batchExecuteStatementResponse{Responses: responses}, nil

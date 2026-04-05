@@ -166,10 +166,9 @@ func (db *InMemoryDB) BatchExecuteStatement(
 		params := make([]map[string]any, 0, len(stmt.Parameters))
 
 		for _, p := range stmt.Parameters {
-			if wireVal := models.FromSDKAttributeValue(p); wireVal != nil {
-				if wireMap, ok := wireVal.(map[string]any); ok {
-					params = append(params, wireMap)
-				}
+			// models.FromSDKAttributeValue always returns map[string]any or nil.
+			if wireMap, ok := models.FromSDKAttributeValue(p).(map[string]any); ok {
+				params = append(params, wireMap)
 			}
 		}
 
