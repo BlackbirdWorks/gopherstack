@@ -760,6 +760,151 @@ func TestHandler_EventTimeIsUnixNumber(t *testing.T) {
 	}
 }
 
+func TestHandler_ListResourceRequests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(*cloudcontrol.Handler)
+		body          map[string]any
+		name          string
+		wantOpInFirst string
+		wantCount     int
+		wantStatus    int
+	}{
+		{
+			name: "returns all requests when no filter",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"req-1"}`)
+				_, _ = h.Backend.CreateResource("AWS::S3::Bucket", `{"BucketName":"req-2"}`)
+			},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name:       "empty list when no requests",
+			setup:      func(_ *cloudcontrol.Handler) {},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "filter by operation CREATE",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-1"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-2"}`)
+				// Delete creates a DELETE request; two CREATE requests remain
+				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "filter-1")
+			},
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"Operations": []string{"CREATE"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name: "filter by operation status SUCCESS",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"status-1"}`)
+			},
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"OperationStatuses": []string{"SUCCESS"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "filter by status that does not match returns empty",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"no-match"}`)
+			},
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"OperationStatuses": []string{"IN_PROGRESS"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "filter by both operation and status",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"both-1"}`)
+				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "both-1")
+			},
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"Operations":        []string{"DELETE"},
+					"OperationStatuses": []string{"SUCCESS"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "ListResourceRequests", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
+				require.True(t, ok, "ResourceRequestStatusSummaries should be an array")
+				assert.Len(t, summaries, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestHandler_ListResourceRequests_ContainsExpectedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"fields-test"}`)
+
+	rec := doRequest(t, h, "ListResourceRequests", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
+	require.True(t, ok)
+	require.Len(t, summaries, 1)
+
+	summary, ok := summaries[0].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "CREATE", summary["Operation"])
+	assert.Equal(t, "SUCCESS", summary["OperationStatus"])
+	assert.Equal(t, "AWS::Logs::LogGroup", summary["TypeName"])
+	assert.NotEmpty(t, summary["RequestToken"])
+	_, isNumber := summary["EventTime"].(float64)
+	assert.True(t, isNumber, "EventTime must be a JSON number (Unix epoch)")
+}
+
+func TestHandler_GetSupportedOperations_IncludesListResourceRequests(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "ListResourceRequests")
+}
+
 func TestProvider_Name(t *testing.T) {
 	t.Parallel()
 

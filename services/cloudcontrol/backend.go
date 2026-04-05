@@ -3,6 +3,8 @@ package cloudcontrol
 
 import (
 	"encoding/json"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -257,6 +259,42 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 	b.requests[requestToken] = cancelled
 
 	return cancelled, nil
+}
+
+// ResourceRequestFilter holds optional filter criteria for ListResourceRequests.
+type ResourceRequestFilter struct {
+	Operations        []string
+	OperationStatuses []string
+}
+
+// ListResourceRequests returns all tracked resource requests, optionally filtered
+// by operation type and/or operation status. Results are sorted by RequestToken
+// for stable, deterministic output.
+func (b *InMemoryBackend) ListResourceRequests(filter *ResourceRequestFilter) []*ProgressEvent {
+	b.mu.RLock("ListResourceRequests")
+	defer b.mu.RUnlock()
+
+	out := make([]*ProgressEvent, 0, len(b.requests))
+
+	for _, event := range b.requests {
+		if filter != nil {
+			if len(filter.Operations) > 0 && !slices.Contains(filter.Operations, event.Operation) {
+				continue
+			}
+
+			if len(filter.OperationStatuses) > 0 && !slices.Contains(filter.OperationStatuses, event.OperationStatus) {
+				continue
+			}
+		}
+
+		out = append(out, event)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].RequestToken < out[j].RequestToken
+	})
+
+	return out
 }
 
 // resourceKey returns the map key for a given typeName and identifier.

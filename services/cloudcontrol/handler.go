@@ -41,13 +41,14 @@ func (h *Handler) Name() string { return "CloudControl" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CancelResourceRequest",
 		"CreateResource",
 		"DeleteResource",
 		"GetResource",
+		"GetResourceRequestStatus",
+		"ListResourceRequests",
 		"ListResources",
 		"UpdateResource",
-		"GetResourceRequestStatus",
-		"CancelResourceRequest",
 	}
 }
 
@@ -97,13 +98,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
+		"CancelResourceRequest":    service.WrapOp(h.handleCancelResourceRequest),
 		"CreateResource":           service.WrapOp(h.handleCreateResource),
 		"DeleteResource":           service.WrapOp(h.handleDeleteResource),
 		"GetResource":              service.WrapOp(h.handleGetResource),
+		"GetResourceRequestStatus": service.WrapOp(h.handleGetResourceRequestStatus),
+		"ListResourceRequests":     service.WrapOp(h.handleListResourceRequests),
 		"ListResources":            service.WrapOp(h.handleListResources),
 		"UpdateResource":           service.WrapOp(h.handleUpdateResource),
-		"GetResourceRequestStatus": service.WrapOp(h.handleGetResourceRequestStatus),
-		"CancelResourceRequest":    service.WrapOp(h.handleCancelResourceRequest),
 	}
 }
 
@@ -366,4 +368,41 @@ func (h *Handler) handleCancelResourceRequest(
 	}
 
 	return &cancelResourceRequestOutput{ProgressEvent: event}, nil
+}
+
+// --- ListResourceRequests ---
+
+type resourceRequestStatusFilter struct {
+	Operations        []string `json:"Operations"`
+	OperationStatuses []string `json:"OperationStatuses"`
+}
+
+type listResourceRequestsInput struct {
+	ResourceRequestStatusFilter *resourceRequestStatusFilter `json:"ResourceRequestStatusFilter"`
+	NextToken                   *string                      `json:"NextToken"`
+	MaxResults                  *int32                       `json:"MaxResults"`
+}
+
+type listResourceRequestsOutput struct {
+	NextToken                      *string          `json:"NextToken,omitempty"`
+	ResourceRequestStatusSummaries []*ProgressEvent `json:"ResourceRequestStatusSummaries"`
+}
+
+func (h *Handler) handleListResourceRequests(
+	_ context.Context,
+	in *listResourceRequestsInput,
+) (*listResourceRequestsOutput, error) {
+	var filter *ResourceRequestFilter
+	if in.ResourceRequestStatusFilter != nil {
+		filter = &ResourceRequestFilter{
+			Operations:        in.ResourceRequestStatusFilter.Operations,
+			OperationStatuses: in.ResourceRequestStatusFilter.OperationStatuses,
+		}
+	}
+
+	events := h.Backend.ListResourceRequests(filter)
+
+	return &listResourceRequestsOutput{
+		ResourceRequestStatusSummaries: events,
+	}, nil
 }

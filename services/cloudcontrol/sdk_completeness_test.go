@@ -17,7 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cloudcontrol.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &cloudcontrolsdk.Client{}, h.GetSupportedOperations(), []string{
-		"ListResourceRequests",
-	})
+	sdkcheck.CheckCompleteness(t, &cloudcontrolsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
