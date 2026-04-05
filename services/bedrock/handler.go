@@ -427,6 +427,7 @@ type guardrailDetailOutput struct {
 	Version                 string  `json:"version"`
 	BlockedInputMessaging   string  `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string  `json:"blockedOutputsMessaging"`
+	Tags                    []Tag   `json:"tags,omitempty"`
 }
 
 func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
@@ -444,6 +445,7 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 		Version:                 g.Version,
 		BlockedInputMessaging:   g.BlockedInputMessaging,
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
+		Tags:                    g.Tags,
 		CreatedAt:               isoTime{g.CreatedAt},
 		UpdatedAt:               isoTime{g.UpdatedAt},
 	})
@@ -466,8 +468,10 @@ type listGuardrailsOutput struct {
 }
 
 func (h *Handler) handleListGuardrails(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	guardrails, outToken := h.Backend.ListGuardrails(nextToken)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	guardrailIdentifier := q.Get("guardrailIdentifier")
+	guardrails, outToken := h.Backend.ListGuardrails(nextToken, guardrailIdentifier)
 	summaries := make([]guardrailSummaryOutput, 0, len(guardrails))
 
 	for _, g := range guardrails {
@@ -511,7 +515,13 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	g, opErr := h.Backend.UpdateGuardrail(id, in.Description, in.BlockedInputMessaging, in.BlockedOutputsMessaging)
+	g, opErr := h.Backend.UpdateGuardrail(
+		id,
+		in.Name,
+		in.Description,
+		in.BlockedInputMessaging,
+		in.BlockedOutputsMessaging,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -779,6 +789,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 
 type createEvaluationJobInput struct {
 	JobName string `json:"jobName"`
+	Tags    []Tag  `json:"tags,omitempty"`
 }
 
 type createEvaluationJobOutput struct {
@@ -791,7 +802,7 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	job, opErr := h.Backend.CreateEvaluationJob(in.JobName)
+	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -814,7 +825,10 @@ func (h *Handler) handleBatchDeleteEvaluationJob(c *echo.Context, body []byte) e
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	errs, deleted := h.Backend.BatchDeleteEvaluationJob(in.JobIdentifiers)
+	errs, deleted, opErr := h.Backend.BatchDeleteEvaluationJob(in.JobIdentifiers)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
 
 	return c.JSON(http.StatusOK, batchDeleteEvaluationJobOutput{Errors: errs, EvaluationJobs: deleted})
 }
@@ -824,6 +838,7 @@ func (h *Handler) handleBatchDeleteEvaluationJob(c *echo.Context, body []byte) e
 type createAutomatedReasoningPolicyInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Tags        []Tag  `json:"tags,omitempty"`
 }
 
 type createAutomatedReasoningPolicyOutput struct {
@@ -840,7 +855,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	policy, opErr := h.Backend.CreateAutomatedReasoningPolicy(in.Name, in.Description)
+	policy, opErr := h.Backend.CreateAutomatedReasoningPolicy(in.Name, in.Description, in.Tags)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -933,6 +948,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(c *echo.Context, p
 
 type createCustomModelInput struct {
 	ModelName string `json:"modelName"`
+	Tags      []Tag  `json:"tags,omitempty"`
 }
 
 type createCustomModelOutput struct {
@@ -945,7 +961,7 @@ func (h *Handler) handleCreateCustomModel(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	model, opErr := h.Backend.CreateCustomModel(in.ModelName)
+	model, opErr := h.Backend.CreateCustomModel(in.ModelName, in.Tags)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -958,6 +974,7 @@ func (h *Handler) handleCreateCustomModel(c *echo.Context, body []byte) error {
 type createCustomModelDeploymentInput struct {
 	ModelArn            string `json:"modelArn"`
 	ModelDeploymentName string `json:"modelDeploymentName"`
+	Tags                []Tag  `json:"tags,omitempty"`
 }
 
 type createCustomModelDeploymentOutput struct {
@@ -970,7 +987,7 @@ func (h *Handler) handleCreateCustomModelDeployment(c *echo.Context, body []byte
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	deployment, opErr := h.Backend.CreateCustomModelDeployment(in.ModelArn, in.ModelDeploymentName)
+	deployment, opErr := h.Backend.CreateCustomModelDeployment(in.ModelArn, in.ModelDeploymentName, in.Tags)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}

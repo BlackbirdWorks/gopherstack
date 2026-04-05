@@ -82,7 +82,7 @@ client = boto3.client('bedrock', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	guardrails, _ := h.BedrockOps.Backend.ListGuardrails("")
+	guardrails, _ := h.BedrockOps.Backend.ListGuardrails("", "")
 	gViews := make([]bedrockGuardrailView, 0, len(guardrails))
 
 	for _, g := range guardrails {

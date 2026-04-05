@@ -1159,7 +1159,7 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*bedrock.Handler) []string
+		setup      func(*testing.T, *bedrock.Handler) []string
 		name       string
 		wantStatus int
 		wantErrs   int
@@ -1167,11 +1167,11 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 	}{
 		{
 			name: "delete existing jobs",
-			setup: func(h *bedrock.Handler) []string {
-				job, err := h.Backend.CreateEvaluationJob("job-1")
-				if err != nil {
-					panic(err)
-				}
+			setup: func(t *testing.T, h *bedrock.Handler) []string {
+				t.Helper()
+
+				job, err := h.Backend.CreateEvaluationJob("job-1", nil)
+				require.NoError(t, err)
 
 				return []string{job.JobArn}
 			},
@@ -1181,7 +1181,7 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 		},
 		{
 			name: "delete non-existent job",
-			setup: func(_ *bedrock.Handler) []string {
+			setup: func(_ *testing.T, _ *bedrock.Handler) []string {
 				return []string{"arn:aws:bedrock:us-east-1:000000000000:evaluation-job/nonexistent"}
 			},
 			wantStatus: http.StatusOK,
@@ -1190,11 +1190,11 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 		},
 		{
 			name: "mixed existing and non-existent",
-			setup: func(h *bedrock.Handler) []string {
-				job, err := h.Backend.CreateEvaluationJob("job-mixed")
-				if err != nil {
-					panic(err)
-				}
+			setup: func(t *testing.T, h *bedrock.Handler) []string {
+				t.Helper()
+
+				job, err := h.Backend.CreateEvaluationJob("job-mixed", nil)
+				require.NoError(t, err)
 
 				return []string{
 					job.JobArn,
@@ -1212,7 +1212,7 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			jobARNs := tt.setup(h)
+			jobARNs := tt.setup(t, h)
 
 			rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs/batch-delete", map[string]any{
 				"jobIdentifiers": jobARNs,
@@ -1252,7 +1252,7 @@ func TestHandler_CreateAutomatedReasoningPolicy(t *testing.T) {
 			name: "duplicate name",
 			setup: func(t *testing.T, h *bedrock.Handler) {
 				t.Helper()
-				_, err := h.Backend.CreateAutomatedReasoningPolicy("dup-policy", "")
+				_, err := h.Backend.CreateAutomatedReasoningPolicy("dup-policy", "", nil)
 				require.NoError(t, err)
 			},
 			input:      map[string]any{"name": "dup-policy"},
@@ -1328,7 +1328,7 @@ func TestHandler_CancelAutomatedReasoningPolicyBuildWorkflow(t *testing.T) {
 			workflowID := tt.workflowID
 
 			if tt.setupPolicy {
-				policy, err := h.Backend.CreateAutomatedReasoningPolicy("test-cancel-policy", "")
+				policy, err := h.Backend.CreateAutomatedReasoningPolicy("test-cancel-policy", "", nil)
 				require.NoError(t, err)
 				policyARN = policy.PolicyArn
 			}
@@ -1376,7 +1376,7 @@ func TestHandler_CreateAutomatedReasoningPolicyTestCase(t *testing.T) {
 
 			policyARN := tt.policyARN
 			if tt.setupPolicy {
-				policy, err := h.Backend.CreateAutomatedReasoningPolicy("tc-policy", "")
+				policy, err := h.Backend.CreateAutomatedReasoningPolicy("tc-policy", "", nil)
 				require.NoError(t, err)
 				policyARN = policy.PolicyArn
 			}
@@ -1425,7 +1425,7 @@ func TestHandler_CreateAutomatedReasoningPolicyVersion(t *testing.T) {
 
 			policyARN := tt.policyARN
 			if tt.setupPolicy {
-				policy, err := h.Backend.CreateAutomatedReasoningPolicy("ver-policy", "")
+				policy, err := h.Backend.CreateAutomatedReasoningPolicy("ver-policy", "", nil)
 				require.NoError(t, err)
 				policyARN = policy.PolicyArn
 			}
@@ -1472,7 +1472,7 @@ func TestHandler_CreateCustomModel(t *testing.T) {
 			name: "duplicate name",
 			setup: func(t *testing.T, h *bedrock.Handler) {
 				t.Helper()
-				_, err := h.Backend.CreateCustomModel("dup-model")
+				_, err := h.Backend.CreateCustomModel("dup-model", nil)
 				require.NoError(t, err)
 			},
 			input:      map[string]any{"modelName": "dup-model"},
@@ -1533,7 +1533,7 @@ func TestHandler_CreateCustomModelDeployment(t *testing.T) {
 			name: "duplicate deployment name",
 			setup: func(t *testing.T, h *bedrock.Handler) {
 				t.Helper()
-				_, err := h.Backend.CreateCustomModelDeployment("some-arn", "dup-deploy")
+				_, err := h.Backend.CreateCustomModelDeployment("some-arn", "dup-deploy", nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -1615,7 +1615,7 @@ func TestHandler_CreateGuardrailVersion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*bedrock.Handler) string
+		setup      func(*testing.T, *bedrock.Handler) string
 		input      map[string]any
 		name       string
 		id         string
@@ -1624,11 +1624,11 @@ func TestHandler_CreateGuardrailVersion(t *testing.T) {
 	}{
 		{
 			name: "create version for existing guardrail",
-			setup: func(h *bedrock.Handler) string {
+			setup: func(t *testing.T, h *bedrock.Handler) string {
+				t.Helper()
+
 				g, err := h.Backend.CreateGuardrail("ver-guardrail", "desc", "", "", nil)
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				return g.GuardrailID
 			},
@@ -1652,7 +1652,7 @@ func TestHandler_CreateGuardrailVersion(t *testing.T) {
 
 			id := tt.id
 			if tt.setup != nil {
-				id = tt.setup(h)
+				id = tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/guardrails/"+id, tt.input)
@@ -1822,4 +1822,566 @@ func TestHandler_GetSupportedOperationsIncludes(t *testing.T) {
 	} {
 		assert.Contains(t, ops, op)
 	}
+}
+
+func TestHandler_BackendReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create resources.
+	_, err := h.Backend.CreateGuardrail("reset-guardrail", "", "", "", nil)
+	require.NoError(t, err)
+
+	_, err = h.Backend.CreateEvaluationJob("reset-job", nil)
+	require.NoError(t, err)
+
+	_, err = h.Backend.CreateAutomatedReasoningPolicy("reset-policy", "", nil)
+	require.NoError(t, err)
+
+	// Verify resources exist.
+	rec := doRequest(t, h, http.MethodGet, "/guardrails", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listOut map[string]any
+	mustUnmarshal(t, rec, &listOut)
+	assert.Len(t, listOut["guardrails"].([]any), 1)
+
+	// Reset.
+	h.Backend.Reset()
+
+	// Verify resources are gone.
+	rec2 := doRequest(t, h, http.MethodGet, "/guardrails", nil)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var listOut2 map[string]any
+	mustUnmarshal(t, rec2, &listOut2)
+	assert.Empty(t, listOut2["guardrails"].([]any))
+
+	// Verify foundation models still seeded after reset.
+	rec3 := doRequest(t, h, http.MethodGet, "/foundation-models", nil)
+	assert.Equal(t, http.StatusOK, rec3.Code)
+
+	var fmOut map[string]any
+	mustUnmarshal(t, rec3, &fmOut)
+	assert.NotEmpty(t, fmOut["modelSummaries"].([]any))
+}
+
+func TestHandler_Provider(t *testing.T) {
+	t.Parallel()
+
+	p := &bedrock.Provider{}
+	assert.Equal(t, "Bedrock", p.Name())
+
+	h, err := p.Init(&service.AppContext{})
+	require.NoError(t, err)
+	require.NotNil(t, h)
+}
+
+func TestHandler_CreateGuardrailNameRequired(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{"name": ""})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateGuardrailTagsReturned(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
+		"name": "tagged-guardrail",
+		"tags": []map[string]string{
+			{"key": "env", "value": "test"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	mustUnmarshal(t, rec, &createOut)
+	id := createOut["guardrailId"].(string)
+
+	// Tags should be present in GET response.
+	rec2 := doRequest(t, h, http.MethodGet, "/guardrails/"+id, nil)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var getOut map[string]any
+	mustUnmarshal(t, rec2, &getOut)
+	require.NotEmpty(t, getOut["tags"])
+	tags := getOut["tags"].([]any)
+	assert.Len(t, tags, 1)
+	tag := tags[0].(map[string]any)
+	assert.Equal(t, "env", tag["key"])
+	assert.Equal(t, "test", tag["value"])
+}
+
+func TestHandler_UpdateGuardrailNameChange(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{"name": "original-name"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	mustUnmarshal(t, rec, &createOut)
+	id := createOut["guardrailId"].(string)
+
+	// Rename the guardrail.
+	rec2 := doRequest(t, h, http.MethodPut, "/guardrails/"+id, map[string]any{
+		"name": "renamed-guardrail",
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	// Old name should be available again.
+	rec3 := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{"name": "original-name"})
+	assert.Equal(t, http.StatusOK, rec3.Code)
+
+	// New name should conflict if created again.
+	rec4 := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{"name": "renamed-guardrail"})
+	assert.Equal(t, http.StatusConflict, rec4.Code)
+}
+
+func TestHandler_ListGuardrailsFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	g, err := h.Backend.CreateGuardrail("filter-target", "", "", "", nil)
+	require.NoError(t, err)
+
+	_, err = h.Backend.CreateGuardrail("other-guardrail", "", "", "", nil)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		identifier string
+		wantCount  int
+	}{
+		{"filter by id", g.GuardrailID, 1},
+		{"filter by arn", g.GuardrailArn, 1},
+		{"filter by name", "filter-target", 1},
+		{"filter nonexistent", "does-not-exist", 0},
+		{"no filter", "", 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := "/guardrails"
+			if tt.identifier != "" {
+				path += "?guardrailIdentifier=" + url.QueryEscape(tt.identifier)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, path, nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			assert.Len(t, out["guardrails"].([]any), tt.wantCount)
+		})
+	}
+}
+
+func TestHandler_CreateProvisionedModelThroughputValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "missing name",
+			input: map[string]any{
+				"provisionedModelName": "",
+				"modelId":              "amazon.titan-text-express-v1",
+				"modelUnits":           1,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "zero model units",
+			input: map[string]any{
+				"provisionedModelName": "my-pmt",
+				"modelId":              "amazon.titan-text-express-v1",
+				"modelUnits":           0,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "negative model units",
+			input: map[string]any{
+				"provisionedModelName": "my-pmt",
+				"modelId":              "amazon.titan-text-express-v1",
+				"modelUnits":           -1,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/provisioned-model-throughput", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_BatchDeleteEvaluationJobEmptyList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs/batch-delete", map[string]any{
+		"jobIdentifiers": []string{},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateEvaluationJobNameUniqueness(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{"jobName": "unique-job"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{"jobName": "unique-job"})
+	assert.Equal(t, http.StatusConflict, rec2.Code)
+}
+
+func TestHandler_CancelWorkflowWrongPolicy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	policy1, err := h.Backend.CreateAutomatedReasoningPolicy("policy-1", "", nil)
+	require.NoError(t, err)
+
+	policy2, err := h.Backend.CreateAutomatedReasoningPolicy("policy-2", "", nil)
+	require.NoError(t, err)
+
+	wf := h.Backend.AddBuildWorkflowForTest(policy1.PolicyArn)
+
+	// Cancel using wrong policy ARN should return 404.
+	path := fmt.Sprintf("/automated-reasoning-policies/%s/build-workflows/%s/cancel",
+		url.PathEscape(policy2.PolicyArn), wf.BuildWorkflowID)
+	rec := doRequest(t, h, http.MethodPost, path, nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_TagsOnEvaluationJob(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a job with tags.
+	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
+		"jobName": "tagged-job",
+		"tags": []map[string]string{
+			{"key": "project", "value": "alpha"},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createOut map[string]any
+	mustUnmarshal(t, rec, &createOut)
+	jobARN := createOut["jobArn"].(string)
+
+	// List tags via ListTagsForResource.
+	rec2 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+		"resourceARN": jobARN,
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var tagsOut map[string]any
+	mustUnmarshal(t, rec2, &tagsOut)
+	tags := tagsOut["tags"].([]any)
+	assert.Len(t, tags, 1)
+	assert.Equal(t, "project", tags[0].(map[string]any)["key"])
+
+	// Add more tags.
+	rec3 := doRequest(t, h, http.MethodPost, "/tagResource", map[string]any{
+		"resourceARN": jobARN,
+		"tags": []map[string]string{
+			{"key": "env", "value": "prod"},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec3.Code)
+
+	// Verify new tag added.
+	rec4 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+		"resourceARN": jobARN,
+	})
+	assert.Equal(t, http.StatusOK, rec4.Code)
+
+	var tagsOut2 map[string]any
+	mustUnmarshal(t, rec4, &tagsOut2)
+	assert.Len(t, tagsOut2["tags"].([]any), 2)
+}
+
+func TestHandler_TagsOnAutomatedReasoningPolicy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{
+		"name": "tagged-policy",
+		"tags": []map[string]string{
+			{"key": "team", "value": "platform"},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	policyARN := out["policyArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+		"resourceARN": policyARN,
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var tagsOut map[string]any
+	mustUnmarshal(t, rec2, &tagsOut)
+	tags := tagsOut["tags"].([]any)
+	assert.Len(t, tags, 1)
+	assert.Equal(t, "team", tags[0].(map[string]any)["key"])
+}
+
+func TestHandler_TagsOnCustomModel(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/custom-models/create-custom-model", map[string]any{
+		"modelName": "tagged-model",
+		"tags": []map[string]string{
+			{"key": "version", "value": "1.0"},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	modelARN := out["modelArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+		"resourceARN": modelARN,
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var tagsOut map[string]any
+	mustUnmarshal(t, rec2, &tagsOut)
+	assert.Len(t, tagsOut["tags"].([]any), 1)
+}
+
+func TestHandler_TagsOnCustomModelDeployment(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/model-customization/custom-model-deployments", map[string]any{
+		"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/cm-0000001",
+		"modelDeploymentName": "tagged-deploy",
+		"tags": []map[string]string{
+			{"key": "stage", "value": "beta"},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	deployARN := out["customModelDeploymentArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+		"resourceARN": deployARN,
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var tagsOut map[string]any
+	mustUnmarshal(t, rec2, &tagsOut)
+	assert.Len(t, tagsOut["tags"].([]any), 1)
+}
+
+func TestHandler_UntagResource_AllTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(*bedrock.Handler) string
+		name   string
+		tagKey string
+	}{
+		{
+			name:   "untag evaluation job",
+			tagKey: "project",
+			setup: func(h *bedrock.Handler) string {
+				job, err := h.Backend.CreateEvaluationJob("untag-job",
+					[]bedrock.Tag{{Key: "project", Value: "x"}})
+				require.NoError(t, err)
+
+				return job.JobArn
+			},
+		},
+		{
+			name:   "untag automated reasoning policy",
+			tagKey: "team",
+			setup: func(h *bedrock.Handler) string {
+				p, err := h.Backend.CreateAutomatedReasoningPolicy("untag-policy", "",
+					[]bedrock.Tag{{Key: "team", Value: "x"}})
+				require.NoError(t, err)
+
+				return p.PolicyArn
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceARN := tt.setup(h)
+
+			rec := doRequest(t, h, http.MethodPost, "/untagResource", map[string]any{
+				"resourceARN": resourceARN,
+				"tagKeys":     []string{tt.tagKey},
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			rec2 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+				"resourceARN": resourceARN,
+			})
+			assert.Equal(t, http.StatusOK, rec2.Code)
+
+			var tagsOut map[string]any
+			mustUnmarshal(t, rec2, &tagsOut)
+			assert.Empty(t, tagsOut["tags"].([]any))
+		})
+	}
+}
+
+func TestHandler_TagsMergedSorted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	g, err := h.Backend.CreateGuardrail("sorted-tags-guardrail", "", "", "", nil)
+	require.NoError(t, err)
+
+	// Add tags in non-alphabetical order.
+	rec := doRequest(t, h, http.MethodPost, "/tagResource", map[string]any{
+		"resourceARN": g.GuardrailArn,
+		"tags": []map[string]string{
+			{"key": "z-last", "value": "3"},
+			{"key": "a-first", "value": "1"},
+			{"key": "m-middle", "value": "2"},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
+		"resourceARN": g.GuardrailArn,
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var tagsOut map[string]any
+	mustUnmarshal(t, rec2, &tagsOut)
+	tags := tagsOut["tags"].([]any)
+	require.Len(t, tags, 3)
+
+	// Verify sorted by key.
+	assert.Equal(t, "a-first", tags[0].(map[string]any)["key"])
+	assert.Equal(t, "m-middle", tags[1].(map[string]any)["key"])
+	assert.Equal(t, "z-last", tags[2].(map[string]any)["key"])
+}
+
+func TestHandler_PerPolicyVersionNumbering(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	p1, err := h.Backend.CreateAutomatedReasoningPolicy("policy-ver-1", "", nil)
+	require.NoError(t, err)
+
+	p2, err := h.Backend.CreateAutomatedReasoningPolicy("policy-ver-2", "", nil)
+	require.NoError(t, err)
+
+	// Create versions for each policy independently.
+	rec1 := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(p1.PolicyArn)+"/versions",
+		map[string]any{"lastUpdatedDefinitionHash": "hash1"})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	rec2 := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(p2.PolicyArn)+"/versions",
+		map[string]any{"lastUpdatedDefinitionHash": "hash2"})
+	require.Equal(t, http.StatusCreated, rec2.Code)
+
+	// Both should be version "1" (per-policy counter).
+	var v1Out map[string]any
+	mustUnmarshal(t, rec1, &v1Out)
+	assert.Equal(t, "1", v1Out["version"])
+
+	var v2Out map[string]any
+	mustUnmarshal(t, rec2, &v2Out)
+	assert.Equal(t, "1", v2Out["version"])
+
+	// Second version for p1 should be "2".
+	rec3 := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(p1.PolicyArn)+"/versions",
+		map[string]any{"lastUpdatedDefinitionHash": "hash3"})
+	require.Equal(t, http.StatusCreated, rec3.Code)
+
+	var v3Out map[string]any
+	mustUnmarshal(t, rec3, &v3Out)
+	assert.Equal(t, "2", v3Out["version"])
+}
+
+func TestHandler_CreateCustomModelDeploymentMissingModelARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/model-customization/custom-model-deployments", map[string]any{
+		"modelArn":            "",
+		"modelDeploymentName": "my-deploy",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GuardrailVersionPersisted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	g, err := h.Backend.CreateGuardrail("versioned-guardrail", "", "", "", nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPost, "/guardrails/"+g.GuardrailID, map[string]any{
+		"description": "first version",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var v1Out map[string]any
+	mustUnmarshal(t, rec, &v1Out)
+	version1 := v1Out["version"].(string)
+	assert.NotEmpty(t, version1)
+
+	// Create a second version.
+	rec2 := doRequest(t, h, http.MethodPost, "/guardrails/"+g.GuardrailID, map[string]any{
+		"description": "second version",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var v2Out map[string]any
+	mustUnmarshal(t, rec2, &v2Out)
+	version2 := v2Out["version"].(string)
+	assert.NotEmpty(t, version2)
+	assert.NotEqual(t, version1, version2)
 }

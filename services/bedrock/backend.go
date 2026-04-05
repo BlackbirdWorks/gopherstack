@@ -83,10 +83,12 @@ type FoundationModelSummary struct {
 
 // EvaluationJob represents a model evaluation job.
 type EvaluationJob struct {
-	CreationTime time.Time `json:"creationTime"`
-	JobArn       string    `json:"jobArn"`
-	JobName      string    `json:"jobName"`
-	Status       string    `json:"status"`
+	CreationTime     time.Time `json:"creationTime"`
+	LastModifiedTime time.Time `json:"lastModifiedTime"`
+	JobArn           string    `json:"jobArn"`
+	JobName          string    `json:"jobName"`
+	Status           string    `json:"status"`
+	Tags             []Tag     `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
@@ -97,6 +99,7 @@ type AutomatedReasoningPolicy struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Status      string    `json:"status"`
+	Tags        []Tag     `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
@@ -123,15 +126,21 @@ type AutomatedReasoningPolicyVersion struct {
 
 // CustomModel represents a custom model.
 type CustomModel struct {
-	ModelArn  string `json:"modelArn"`
-	ModelName string `json:"modelName"`
+	CreationTime time.Time `json:"creationTime"`
+	ModelArn     string    `json:"modelArn"`
+	ModelName    string    `json:"modelName"`
+	Tags         []Tag     `json:"tags,omitempty"`
 }
 
 // CustomModelDeployment represents a custom model deployment.
 type CustomModelDeployment struct {
-	CustomModelDeploymentArn string `json:"customModelDeploymentArn"`
-	ModelDeploymentName      string `json:"modelDeploymentName"`
-	ModelArn                 string `json:"modelArn"`
+	CreationTime             time.Time `json:"creationTime"`
+	LastModifiedTime         time.Time `json:"lastModifiedTime"`
+	CustomModelDeploymentArn string    `json:"customModelDeploymentArn"`
+	ModelDeploymentName      string    `json:"modelDeploymentName"`
+	ModelArn                 string    `json:"modelArn"`
+	Status                   string    `json:"status"`
+	Tags                     []Tag     `json:"tags,omitempty"`
 }
 
 // FoundationModelAgreement represents an agreement for foundation model access.
@@ -149,12 +158,14 @@ type GuardrailVersion struct {
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
 	guardrails                  map[string]*Guardrail
+	guardrailVersions           map[string]*GuardrailVersion // guardrailID+":"+version → version
 	provisionedModelThroughputs map[string]*ProvisionedModelThroughput
 	evaluationJobs              map[string]*EvaluationJob
 	automatedReasoningPolicies  map[string]*AutomatedReasoningPolicy
 	arpBuildWorkflows           map[string]*AutomatedReasoningPolicyBuildWorkflow // workflowID → workflow
 	arpTestCases                map[string]*AutomatedReasoningPolicyTestCase      // testCaseID → test case
-	arpVersions                 map[string]*AutomatedReasoningPolicyVersion       // policyArn+version → version
+	arpVersions                 map[string]*AutomatedReasoningPolicyVersion       // policyArn+":"+version → version
+	arpVersionCountByPolicy     map[string]int                                    // policyARN → per-policy version counter
 	customModels                map[string]*CustomModel                           // modelArn → model
 	customModelDeployments      map[string]*CustomModelDeployment                 // deploymentArn → deployment
 	foundationModelAgreements   map[string]*FoundationModelAgreement              // modelID → agreement
@@ -164,6 +175,7 @@ type InMemoryBackend struct {
 	arpByName                   map[string]string                                 // policy name → ARN
 	customModelsByName          map[string]string                                 // model name → ARN
 	customModelDeployByName     map[string]string                                 // deployment name → ARN
+	evaluationJobsByName        map[string]string                                 // job name → ARN
 	mu                          *lockmetrics.RWMutex
 	accountID                   string
 	region                      string
@@ -175,7 +187,6 @@ type InMemoryBackend struct {
 	arpCounter                  int
 	arpWorkflowCounter          int
 	arpTestCaseCounter          int
-	arpVersionCounter           int
 	customModelCounter          int
 	customModelDeployCounter    int
 }
@@ -184,12 +195,14 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		guardrails:                  make(map[string]*Guardrail),
+		guardrailVersions:           make(map[string]*GuardrailVersion),
 		provisionedModelThroughputs: make(map[string]*ProvisionedModelThroughput),
 		evaluationJobs:              make(map[string]*EvaluationJob),
 		automatedReasoningPolicies:  make(map[string]*AutomatedReasoningPolicy),
 		arpBuildWorkflows:           make(map[string]*AutomatedReasoningPolicyBuildWorkflow),
 		arpTestCases:                make(map[string]*AutomatedReasoningPolicyTestCase),
 		arpVersions:                 make(map[string]*AutomatedReasoningPolicyVersion),
+		arpVersionCountByPolicy:     make(map[string]int),
 		customModels:                make(map[string]*CustomModel),
 		customModelDeployments:      make(map[string]*CustomModelDeployment),
 		foundationModelAgreements:   make(map[string]*FoundationModelAgreement),
@@ -199,6 +212,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		arpByName:                   make(map[string]string),
 		customModelsByName:          make(map[string]string),
 		customModelDeployByName:     make(map[string]string),
+		evaluationJobsByName:        make(map[string]string),
 		accountID:                   accountID,
 		region:                      region,
 		mu:                          lockmetrics.New("bedrock"),
@@ -210,6 +224,42 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// Reset clears all state, returning the backend to its initial seeded state.
+// The accountID, region, and seeded foundation models are preserved.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.guardrails = make(map[string]*Guardrail)
+	b.guardrailVersions = make(map[string]*GuardrailVersion)
+	b.provisionedModelThroughputs = make(map[string]*ProvisionedModelThroughput)
+	b.evaluationJobs = make(map[string]*EvaluationJob)
+	b.automatedReasoningPolicies = make(map[string]*AutomatedReasoningPolicy)
+	b.arpBuildWorkflows = make(map[string]*AutomatedReasoningPolicyBuildWorkflow)
+	b.arpTestCases = make(map[string]*AutomatedReasoningPolicyTestCase)
+	b.arpVersions = make(map[string]*AutomatedReasoningPolicyVersion)
+	b.arpVersionCountByPolicy = make(map[string]int)
+	b.customModels = make(map[string]*CustomModel)
+	b.customModelDeployments = make(map[string]*CustomModelDeployment)
+	b.foundationModelAgreements = make(map[string]*FoundationModelAgreement)
+	b.guardrailsByName = make(map[string]string)
+	b.guardrailsByARN = make(map[string]string)
+	b.pmtsByName = make(map[string]string)
+	b.arpByName = make(map[string]string)
+	b.customModelsByName = make(map[string]string)
+	b.customModelDeployByName = make(map[string]string)
+	b.evaluationJobsByName = make(map[string]string)
+	b.guardrailCounter = 0
+	b.guardrailVersionCounter = 0
+	b.provisionedCounter = 0
+	b.evaluationJobCounter = 0
+	b.arpCounter = 0
+	b.arpWorkflowCounter = 0
+	b.arpTestCaseCounter = 0
+	b.customModelCounter = 0
+	b.customModelDeployCounter = 0
+}
 
 func (b *InMemoryBackend) seedFoundationModels() {
 	partition := "aws"
@@ -294,11 +344,12 @@ func (b *InMemoryBackend) newARPTestCaseID() string {
 	return fmt.Sprintf("tc-%07d", b.arpTestCaseCounter)
 }
 
-// newARPVersionNum generates a unique version number string.
-func (b *InMemoryBackend) newARPVersionNum() string {
-	b.arpVersionCounter++
+// newARPVersionNum generates a monotonically increasing version number for a policy.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) newARPVersionNum(policyARN string) string {
+	b.arpVersionCountByPolicy[policyARN]++
 
-	return strconv.Itoa(b.arpVersionCounter)
+	return strconv.Itoa(b.arpVersionCountByPolicy[policyARN])
 }
 
 // newCustomModelID generates a unique custom model ID.
@@ -322,6 +373,10 @@ func (b *InMemoryBackend) CreateGuardrail(
 ) (*Guardrail, error) {
 	b.mu.Lock("CreateGuardrail")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
 
 	if _, exists := b.guardrailsByName[name]; exists {
 		return nil, fmt.Errorf("%w: guardrail %s already exists", ErrAlreadyExists, name)
@@ -364,18 +419,28 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 	}
 
 	cp := *g
+	cp.Tags = copyTags(g.Tags)
 
 	return &cp, nil
 }
 
 // ListGuardrails returns guardrails with optional pagination.
-func (b *InMemoryBackend) ListGuardrails(nextToken string) ([]*GuardrailSummary, string) {
+// If guardrailIdentifier is non-empty, results are filtered to guardrails whose
+// ID, ARN, or name equals the identifier (case-sensitive).
+func (b *InMemoryBackend) ListGuardrails(nextToken, guardrailIdentifier string) ([]*GuardrailSummary, string) {
 	b.mu.RLock("ListGuardrails")
 	defer b.mu.RUnlock()
 
 	list := make([]*GuardrailSummary, 0, len(b.guardrails))
 
 	for _, g := range b.guardrails {
+		if guardrailIdentifier != "" &&
+			g.GuardrailID != guardrailIdentifier &&
+			g.GuardrailArn != guardrailIdentifier &&
+			g.Name != guardrailIdentifier {
+			continue
+		}
+
 		list = append(list, &GuardrailSummary{
 			GuardrailID: g.GuardrailID,
 			Arn:         g.GuardrailArn,
@@ -393,9 +458,9 @@ func (b *InMemoryBackend) ListGuardrails(nextToken string) ([]*GuardrailSummary,
 	return paginateBedrockSlice(list, nextToken)
 }
 
-// UpdateGuardrail updates a guardrail's description and messaging.
+// UpdateGuardrail updates a guardrail's name, description and messaging.
 func (b *InMemoryBackend) UpdateGuardrail(
-	idOrARN, description, blockedInput, blockedOutput string,
+	idOrARN, name, description, blockedInput, blockedOutput string,
 ) (*Guardrail, error) {
 	b.mu.Lock("UpdateGuardrail")
 	defer b.mu.Unlock()
@@ -403,6 +468,17 @@ func (b *InMemoryBackend) UpdateGuardrail(
 	g, ok := b.findGuardrailByIDOrARN(idOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
+	}
+
+	// Update name with index maintenance.
+	if name != "" && name != g.Name {
+		if _, exists := b.guardrailsByName[name]; exists {
+			return nil, fmt.Errorf("%w: guardrail name %s already in use", ErrAlreadyExists, name)
+		}
+
+		delete(b.guardrailsByName, g.Name)
+		b.guardrailsByName[name] = g.GuardrailID
+		g.Name = name
 	}
 
 	if description != "" {
@@ -419,6 +495,7 @@ func (b *InMemoryBackend) UpdateGuardrail(
 
 	g.UpdatedAt = time.Now().UTC()
 	cp := *g
+	cp.Tags = copyTags(g.Tags)
 
 	return &cp, nil
 }
@@ -490,6 +567,14 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 ) (*ProvisionedModelThroughput, error) {
 	b.mu.Lock("CreateProvisionedModelThroughput")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: provisionedModelName is required", ErrValidation)
+	}
+
+	if modelUnits <= 0 {
+		return nil, fmt.Errorf("%w: modelUnits must be greater than 0", ErrValidation)
+	}
 
 	if _, exists := b.pmtsByName[name]; exists {
 		return nil, fmt.Errorf("%w: provisioned model throughput %s already exists", ErrAlreadyExists, name)
@@ -612,6 +697,52 @@ func (b *InMemoryBackend) findPMTByIDOrARN(idOrARN string) (*ProvisionedModelThr
 	return nil, false
 }
 
+// copyTags returns a new slice with a deep copy of tags.
+func copyTags(src []Tag) []Tag {
+	if len(src) == 0 {
+		return nil
+	}
+
+	dst := make([]Tag, len(src))
+	copy(dst, src)
+
+	return dst
+}
+
+// mergeTags merges new tags into existing ones and returns a sorted result.
+// Existing tags with the same key are overwritten by the new values.
+func mergeTags(existing, newTags []Tag) []Tag {
+	tagMap := make(map[string]string, len(existing)+len(newTags))
+	for _, t := range existing {
+		tagMap[t.Key] = t.Value
+	}
+
+	for _, t := range newTags {
+		tagMap[t.Key] = t.Value
+	}
+
+	merged := make([]Tag, 0, len(tagMap))
+	for k, v := range tagMap {
+		merged = append(merged, Tag{Key: k, Value: v})
+	}
+
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Key < merged[j].Key })
+
+	return merged
+}
+
+// filterTags returns a new slice with the specified keys removed.
+func filterTags(existing []Tag, removeKeys map[string]bool) []Tag {
+	result := make([]Tag, 0, len(existing))
+	for _, t := range existing {
+		if !removeKeys[t.Key] {
+			result = append(result, t)
+		}
+	}
+
+	return result
+}
+
 // ListTagsForResource returns tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
@@ -622,10 +753,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	result := make([]Tag, len(tags))
-	copy(result, tags)
-
-	return result, nil
+	return copyTags(tags), nil
 }
 
 // TagResource adds or updates tags on a resource identified by ARN.
@@ -635,35 +763,37 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 
 	if id, ok := b.guardrailsByARN[resourceARN]; ok {
 		g := b.guardrails[id]
-		tagMap := make(map[string]string, len(g.Tags))
-		for _, t := range g.Tags {
-			tagMap[t.Key] = t.Value
-		}
-		for _, t := range tags {
-			tagMap[t.Key] = t.Value
-		}
-		merged := make([]Tag, 0, len(tagMap))
-		for k, v := range tagMap {
-			merged = append(merged, Tag{Key: k, Value: v})
-		}
-		g.Tags = merged
+		g.Tags = mergeTags(g.Tags, tags)
 
 		return nil
 	}
 
 	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
-		tagMap := make(map[string]string, len(pmt.Tags))
-		for _, t := range pmt.Tags {
-			tagMap[t.Key] = t.Value
-		}
-		for _, t := range tags {
-			tagMap[t.Key] = t.Value
-		}
-		merged := make([]Tag, 0, len(tagMap))
-		for k, v := range tagMap {
-			merged = append(merged, Tag{Key: k, Value: v})
-		}
-		pmt.Tags = merged
+		pmt.Tags = mergeTags(pmt.Tags, tags)
+
+		return nil
+	}
+
+	if job, ok := b.evaluationJobs[resourceARN]; ok {
+		job.Tags = mergeTags(job.Tags, tags)
+
+		return nil
+	}
+
+	if policy, ok := b.automatedReasoningPolicies[resourceARN]; ok {
+		policy.Tags = mergeTags(policy.Tags, tags)
+
+		return nil
+	}
+
+	if model, ok := b.customModels[resourceARN]; ok {
+		model.Tags = mergeTags(model.Tags, tags)
+
+		return nil
+	}
+
+	if deployment, ok := b.customModelDeployments[resourceARN]; ok {
+		deployment.Tags = mergeTags(deployment.Tags, tags)
 
 		return nil
 	}
@@ -683,25 +813,37 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	if id, ok := b.guardrailsByARN[resourceARN]; ok {
 		g := b.guardrails[id]
-		filtered := g.Tags[:0]
-		for _, t := range g.Tags {
-			if !removeSet[t.Key] {
-				filtered = append(filtered, t)
-			}
-		}
-		g.Tags = filtered
+		g.Tags = filterTags(g.Tags, removeSet)
 
 		return nil
 	}
 
 	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
-		filtered := pmt.Tags[:0]
-		for _, t := range pmt.Tags {
-			if !removeSet[t.Key] {
-				filtered = append(filtered, t)
-			}
-		}
-		pmt.Tags = filtered
+		pmt.Tags = filterTags(pmt.Tags, removeSet)
+
+		return nil
+	}
+
+	if job, ok := b.evaluationJobs[resourceARN]; ok {
+		job.Tags = filterTags(job.Tags, removeSet)
+
+		return nil
+	}
+
+	if policy, ok := b.automatedReasoningPolicies[resourceARN]; ok {
+		policy.Tags = filterTags(policy.Tags, removeSet)
+
+		return nil
+	}
+
+	if model, ok := b.customModels[resourceARN]; ok {
+		model.Tags = filterTags(model.Tags, removeSet)
+
+		return nil
+	}
+
+	if deployment, ok := b.customModelDeployments[resourceARN]; ok {
+		deployment.Tags = filterTags(deployment.Tags, removeSet)
 
 		return nil
 	}
@@ -709,22 +851,31 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
-// findTagsByARN returns a copy of the tags for a resource by ARN.
+// findTagsByARN returns the tags slice pointer for a resource by ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		g := b.guardrails[id]
-		result := make([]Tag, len(g.Tags))
-		copy(result, g.Tags)
-
-		return result, true
+		return b.guardrails[id].Tags, true
 	}
 
 	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
-		result := make([]Tag, len(pmt.Tags))
-		copy(result, pmt.Tags)
+		return pmt.Tags, true
+	}
 
-		return result, true
+	if job, ok := b.evaluationJobs[resourceARN]; ok {
+		return job.Tags, true
+	}
+
+	if policy, ok := b.automatedReasoningPolicies[resourceARN]; ok {
+		return policy.Tags, true
+	}
+
+	if model, ok := b.customModels[resourceARN]; ok {
+		return model.Tags, true
+	}
+
+	if deployment, ok := b.customModelDeployments[resourceARN]; ok {
+		return deployment.Tags, true
 	}
 
 	return nil, false
@@ -733,7 +884,7 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 // --- EvaluationJob methods ---
 
 // CreateEvaluationJob creates a new evaluation job.
-func (b *InMemoryBackend) CreateEvaluationJob(name string) (*EvaluationJob, error) {
+func (b *InMemoryBackend) CreateEvaluationJob(name string, tags []Tag) (*EvaluationJob, error) {
 	b.mu.Lock("CreateEvaluationJob")
 	defer b.mu.Unlock()
 
@@ -741,17 +892,26 @@ func (b *InMemoryBackend) CreateEvaluationJob(name string) (*EvaluationJob, erro
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
 	}
 
+	if _, exists := b.evaluationJobsByName[name]; exists {
+		return nil, fmt.Errorf("%w: evaluation job %s already exists", ErrAlreadyExists, name)
+	}
+
 	id := b.newEvaluationJobID()
 	jobARN := arn.Build("bedrock", b.region, b.accountID, "evaluation-job/"+id)
+	now := time.Now().UTC()
 
 	job := &EvaluationJob{
-		JobArn:       jobARN,
-		JobName:      name,
-		Status:       "InProgress",
-		CreationTime: time.Now().UTC(),
+		JobArn:           jobARN,
+		JobName:          name,
+		Status:           "InProgress",
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             copyTags(tags),
 	}
 	b.evaluationJobs[jobARN] = job
+	b.evaluationJobsByName[name] = jobARN
 	cp := *job
+	cp.Tags = copyTags(job.Tags)
 
 	return &cp, nil
 }
@@ -771,17 +931,22 @@ type BatchDeleteEvaluationJobItem struct {
 
 // BatchDeleteEvaluationJob deletes multiple evaluation jobs.
 func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
-	[]BatchDeleteEvaluationJobError, []BatchDeleteEvaluationJobItem,
+	[]BatchDeleteEvaluationJobError, []BatchDeleteEvaluationJobItem, error,
 ) {
 	b.mu.Lock("BatchDeleteEvaluationJob")
 	defer b.mu.Unlock()
+
+	if len(jobARNs) == 0 {
+		return nil, nil, fmt.Errorf("%w: jobIdentifiers must not be empty", ErrValidation)
+	}
 
 	var errs []BatchDeleteEvaluationJobError
 
 	var deleted []BatchDeleteEvaluationJobItem
 
 	for _, jobARN := range jobARNs {
-		if _, ok := b.evaluationJobs[jobARN]; !ok {
+		job, ok := b.evaluationJobs[jobARN]
+		if !ok {
 			errs = append(errs, BatchDeleteEvaluationJobError{
 				JobARN:  jobARN,
 				Code:    "ResourceNotFoundException",
@@ -791,6 +956,7 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 			continue
 		}
 
+		delete(b.evaluationJobsByName, job.JobName)
 		delete(b.evaluationJobs, jobARN)
 		deleted = append(deleted, BatchDeleteEvaluationJobItem{
 			JobARN: jobARN,
@@ -806,13 +972,16 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 		deleted = []BatchDeleteEvaluationJobItem{}
 	}
 
-	return errs, deleted
+	return errs, deleted, nil
 }
 
 // --- AutomatedReasoningPolicy methods ---
 
 // CreateAutomatedReasoningPolicy creates a new Automated Reasoning policy.
-func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(name, description string) (*AutomatedReasoningPolicy, error) {
+func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
+	name, description string,
+	tags []Tag,
+) (*AutomatedReasoningPolicy, error) {
 	b.mu.Lock("CreateAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
@@ -835,10 +1004,12 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(name, description strin
 		Status:      "ACTIVE",
 		CreatedAt:   now,
 		UpdatedAt:   now,
+		Tags:        copyTags(tags),
 	}
 	b.automatedReasoningPolicies[policyARN] = policy
 	b.arpByName[name] = policyARN
 	cp := *policy
+	cp.Tags = copyTags(policy.Tags)
 
 	return &cp, nil
 }
@@ -852,11 +1023,16 @@ func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(policyARN,
 		return fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
-	if _, ok := b.arpBuildWorkflows[workflowID]; !ok {
+	wf, ok := b.arpBuildWorkflows[workflowID]
+	if !ok {
 		return fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	b.arpBuildWorkflows[workflowID].Status = "Cancelled"
+	if wf.PolicyArn != policyARN {
+		return fmt.Errorf("%w: build workflow %s does not belong to policy %s", ErrNotFound, workflowID, policyARN)
+	}
+
+	wf.Status = "Cancelled"
 
 	return nil
 }
@@ -895,7 +1071,8 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
-	versionNum := b.newARPVersionNum()
+	// Use per-policy version counter for realistic monotonic versioning.
+	versionNum := b.newARPVersionNum(policyARN)
 	versionedARN := policyARN + "/version/" + versionNum
 
 	version := &AutomatedReasoningPolicyVersion{
@@ -915,7 +1092,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 // --- CustomModel methods ---
 
 // CreateCustomModel creates a new custom model.
-func (b *InMemoryBackend) CreateCustomModel(modelName string) (*CustomModel, error) {
+func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*CustomModel, error) {
 	b.mu.Lock("CreateCustomModel")
 	defer b.mu.Unlock()
 
@@ -931,12 +1108,15 @@ func (b *InMemoryBackend) CreateCustomModel(modelName string) (*CustomModel, err
 	modelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/"+id)
 
 	model := &CustomModel{
-		ModelArn:  modelARN,
-		ModelName: modelName,
+		ModelArn:     modelARN,
+		ModelName:    modelName,
+		CreationTime: time.Now().UTC(),
+		Tags:         copyTags(tags),
 	}
 	b.customModels[modelARN] = model
 	b.customModelsByName[modelName] = modelARN
 	cp := *model
+	cp.Tags = copyTags(model.Tags)
 
 	return &cp, nil
 }
@@ -944,9 +1124,16 @@ func (b *InMemoryBackend) CreateCustomModel(modelName string) (*CustomModel, err
 // --- CustomModelDeployment methods ---
 
 // CreateCustomModelDeployment creates a new deployment for a custom model.
-func (b *InMemoryBackend) CreateCustomModelDeployment(modelARN, deploymentName string) (*CustomModelDeployment, error) {
+func (b *InMemoryBackend) CreateCustomModelDeployment(
+	modelARN, deploymentName string,
+	tags []Tag,
+) (*CustomModelDeployment, error) {
 	b.mu.Lock("CreateCustomModelDeployment")
 	defer b.mu.Unlock()
+
+	if modelARN == "" {
+		return nil, fmt.Errorf("%w: modelArn is required", ErrValidation)
+	}
 
 	if deploymentName == "" {
 		return nil, fmt.Errorf("%w: modelDeploymentName is required", ErrValidation)
@@ -958,15 +1145,21 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(modelARN, deploymentName s
 
 	id := b.newCustomModelDeployID()
 	deploymentARN := arn.Build("bedrock", b.region, b.accountID, "custom-model-deployment/"+id)
+	now := time.Now().UTC()
 
 	deployment := &CustomModelDeployment{
 		CustomModelDeploymentArn: deploymentARN,
 		ModelDeploymentName:      deploymentName,
 		ModelArn:                 modelARN,
+		Status:                   "Creating",
+		CreationTime:             now,
+		LastModifiedTime:         now,
+		Tags:                     copyTags(tags),
 	}
 	b.customModelDeployments[deploymentARN] = deployment
 	b.customModelDeployByName[deploymentName] = deploymentARN
 	cp := *deployment
+	cp.Tags = copyTags(deployment.Tags)
 
 	return &cp, nil
 }
@@ -1012,6 +1205,10 @@ func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, description string) (*
 		Version:     versionNum,
 		Description: description,
 	}
+
+	// Persist the version so it can be retrieved later.
+	key := g.GuardrailID + ":" + versionNum
+	b.guardrailVersions[key] = gv
 
 	return gv, nil
 }
