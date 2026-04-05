@@ -1,9 +1,15 @@
 package cloudwatchlogs
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Provider.Init is called with a nil AppContext.
+var ErrNilAppContext = errors.New("AppContext is required")
 
 // ConfigProvider is a private interface to extract CloudWatch Logs configuration
 // from the abstract AppContext Config.
@@ -21,6 +27,10 @@ func (p *Provider) Name() string { return "CloudWatchLogs" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("%w", ErrNilAppContext)
+	}
+
 	var backend *InMemoryBackend
 
 	if cp, ok := ctx.Config.(config.Provider); ok {

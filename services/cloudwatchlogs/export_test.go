@@ -44,3 +44,23 @@ func (h *Handler) GetJanitorInterval() time.Duration {
 
 	return h.janitor.Interval
 }
+
+// AddExportTaskInternal exposes the backend seeding helper for testing.
+func AddExportTaskInternal(b *InMemoryBackend, task ExportTask) {
+	b.AddExportTaskInternal(task)
+}
+
+// AddImportTaskInternal exposes the backend seeding helper for testing.
+func AddImportTaskInternal(b *InMemoryBackend, task ImportTask) {
+	b.AddImportTaskInternal(task)
+}
+
+// AddDeliveryInternal exposes the backend seeding helper for testing.
+func AddDeliveryInternal(b *InMemoryBackend, delivery Delivery) {
+	b.AddDeliveryInternal(delivery)
+}
+
+// AddLogAnomalyDetectorInternal exposes the backend seeding helper for testing.
+func AddLogAnomalyDetectorInternal(b *InMemoryBackend, detector LogAnomalyDetector) {
+	b.AddLogAnomalyDetectorInternal(detector)
+}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -35,6 +36,35 @@ var (
 	ErrImportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrValidation                    = errors.New("InvalidParameterException")
 )
+
+// validEvaluationFrequencies contains the allowed values for the anomaly detector
+// evaluation frequency field, matching the AWS CloudWatch Logs API enum.
+func validEvaluationFrequencies() map[string]struct{} {
+	return map[string]struct{}{
+		"ONE_MIN":     {},
+		"FIVE_MIN":    {},
+		"TEN_MIN":     {},
+		"FIFTEEN_MIN": {},
+		"THIRTY_MIN":  {},
+		"ONE_HOUR":    {},
+	}
+}
+
+// validScheduledQueryStates contains the allowed values for the scheduled query state field.
+func validScheduledQueryStates() map[string]struct{} {
+	return map[string]struct{}{
+		"ENABLED":  {},
+		"DISABLED": {},
+	}
+}
+
+// validAccountPolicyTypes contains the allowed values for the account policy type field.
+func validAccountPolicyTypes() map[string]struct{} {
+	return map[string]struct{}{
+		"DATA_PROTECTION_POLICY":     {},
+		"SUBSCRIPTION_FILTER_POLICY": {},
+	}
+}
 
 const (
 	defaultDescribeLimit = 50
@@ -274,6 +304,10 @@ func (b *InMemoryBackend) streamARN(groupName, streamName string) string {
 
 // CreateLogGroup creates a new log group.
 func (b *InMemoryBackend) CreateLogGroup(name string) (*LogGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateLogGroup")
 	defer b.mu.Unlock()
 
@@ -347,6 +381,14 @@ func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int)
 
 // CreateLogStream creates a new log stream within a log group.
 func (b *InMemoryBackend) CreateLogStream(groupName, streamName string) (*LogStream, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+
+	if streamName == "" {
+		return nil, fmt.Errorf("%w: logStreamName is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateLogStream")
 	defer b.mu.Unlock()
 
@@ -621,6 +663,18 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 
 // PutSubscriptionFilter creates or updates a subscription filter for a log group.
 func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn string) error {
+	if groupName == "" {
+		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+
+	if filterName == "" {
+		return fmt.Errorf("%w: filterName is required", ErrValidation)
+	}
+
+	if destinationArn == "" {
+		return fmt.Errorf("%w: destinationArn is required", ErrValidation)
+	}
+
 	b.mu.Lock("PutSubscriptionFilter")
 	defer b.mu.Unlock()
 
@@ -1289,10 +1343,14 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // AssociateKmsKey associates a KMS key with a log group or query results resource.
-// At most one of logGroupName or resourceIdentifier should be non-empty.
+// Exactly one of logGroupName or resourceIdentifier must be non-empty.
 func (b *InMemoryBackend) AssociateKmsKey(logGroupName, resourceIdentifier, kmsKeyID string) error {
 	if kmsKeyID == "" {
 		return fmt.Errorf("%w: kmsKeyId is required", ErrValidation)
+	}
+
+	if logGroupName == "" && resourceIdentifier == "" {
+		return fmt.Errorf("%w: one of logGroupName or resourceIdentifier is required", ErrValidation)
 	}
 
 	b.mu.Lock("AssociateKmsKey")
@@ -1328,6 +1386,7 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 }
 
 // CancelExportTask cancels a pending or running export task.
+// Returns an error if the task is already in a terminal state.
 func (b *InMemoryBackend) CancelExportTask(taskID string) error {
 	if taskID == "" {
 		return fmt.Errorf("%w: taskId is required", ErrValidation)
@@ -1341,12 +1400,19 @@ func (b *InMemoryBackend) CancelExportTask(taskID string) error {
 		return fmt.Errorf("%w: export task %s not found", ErrExportTaskNotFound, taskID)
 	}
 
+	// AWS only allows cancellation of tasks in PENDING or RUNNING state.
+	if task.Status != "PENDING" && task.Status != "RUNNING" {
+		return fmt.Errorf("%w: export task %s is in terminal state %s and cannot be cancelled",
+			ErrValidation, taskID, task.Status)
+	}
+
 	task.Status = "CANCELLED"
 
 	return nil
 }
 
 // CancelImportTask cancels a running import task.
+// Returns an error if the task is not in the ACTIVE state.
 func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error) {
 	if importID == "" {
 		return nil, fmt.Errorf("%w: importId is required", ErrValidation)
@@ -1358,6 +1424,12 @@ func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error)
 	task, ok := b.importTasks[importID]
 	if !ok {
 		return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, importID)
+	}
+
+	// AWS only allows cancellation of ACTIVE tasks.
+	if task.Status != "ACTIVE" {
+		return nil, fmt.Errorf("%w: import task %s is in state %s and cannot be cancelled",
+			ErrValidation, importID, task.Status)
 	}
 
 	task.Status = "CANCELLED"
@@ -1390,7 +1462,7 @@ func (b *InMemoryBackend) CreateDelivery(
 		Arn:                    deliveryArn,
 		DeliverySourceName:     deliverySourceName,
 		DeliveryDestinationArn: deliveryDestinationArn,
-		Tags:                   tags,
+		Tags:                   maps.Clone(tags),
 		CreationTime:           now,
 	}
 
@@ -1400,6 +1472,7 @@ func (b *InMemoryBackend) CreateDelivery(
 	b.deliveries[id] = d
 
 	cp := *d
+	cp.Tags = maps.Clone(d.Tags)
 
 	return &cp, nil
 }
@@ -1416,6 +1489,10 @@ func (b *InMemoryBackend) CreateExportTask(
 
 	if destination == "" {
 		return "", fmt.Errorf("%w: destination is required", ErrValidation)
+	}
+
+	if from >= to {
+		return "", fmt.Errorf("%w: from (%d) must be less than to (%d)", ErrValidation, from, to)
 	}
 
 	taskID := uuid.New().String()
@@ -1485,13 +1562,19 @@ func (b *InMemoryBackend) CreateLogAnomalyDetector(
 		return "", fmt.Errorf("%w: logGroupArnList must not be empty", ErrValidation)
 	}
 
+	if evaluationFrequency != "" {
+		if _, ok := validEvaluationFrequencies()[evaluationFrequency]; !ok {
+			return "", fmt.Errorf("%w: invalid evaluationFrequency %q", ErrValidation, evaluationFrequency)
+		}
+	}
+
 	id := uuid.New().String()
 	detectorARN := arn.Build("logs", b.region, b.accountID, "log-anomaly-detector:"+id)
 
 	detector := &LogAnomalyDetector{
 		AnomalyDetectorArn:    detectorARN,
 		DetectorName:          detectorName,
-		LogGroupArnList:       logGroupArnList,
+		LogGroupArnList:       slices.Clone(logGroupArnList),
 		EvaluationFrequency:   evaluationFrequency,
 		FilterPattern:         filterPattern,
 		KmsKeyID:              kmsKeyID,
@@ -1518,6 +1601,12 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 	if queryString == "" {
 		return "", fmt.Errorf("%w: queryString is required", ErrValidation)
+	}
+
+	if state != "" {
+		if _, ok := validScheduledQueryStates()[state]; !ok {
+			return "", fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidation, state)
+		}
 	}
 
 	id := uuid.New().String()
@@ -1550,6 +1639,10 @@ func (b *InMemoryBackend) DeleteAccountPolicy(policyName, policyType string) err
 		return fmt.Errorf("%w: policyType is required", ErrValidation)
 	}
 
+	if _, ok := validAccountPolicyTypes()[policyType]; !ok {
+		return fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
+	}
+
 	b.mu.Lock("DeleteAccountPolicy")
 	defer b.mu.Unlock()
 
@@ -1557,4 +1650,46 @@ func (b *InMemoryBackend) DeleteAccountPolicy(policyName, policyType string) err
 	delete(b.accountPolicies, key)
 
 	return nil
+}
+
+// AddExportTaskInternal seeds an ExportTask directly into the store for testing.
+// It overwrites any existing task with the same ID.
+func (b *InMemoryBackend) AddExportTaskInternal(task ExportTask) {
+	b.mu.Lock("AddExportTaskInternal")
+	defer b.mu.Unlock()
+
+	t := task
+	b.exportTasks[task.TaskID] = &t
+}
+
+// AddImportTaskInternal seeds an ImportTask directly into the store for testing.
+// It overwrites any existing task with the same ID.
+func (b *InMemoryBackend) AddImportTaskInternal(task ImportTask) {
+	b.mu.Lock("AddImportTaskInternal")
+	defer b.mu.Unlock()
+
+	t := task
+	b.importTasks[task.ImportID] = &t
+}
+
+// AddDeliveryInternal seeds a Delivery directly into the store for testing.
+// It overwrites any existing delivery with the same ID.
+func (b *InMemoryBackend) AddDeliveryInternal(delivery Delivery) {
+	b.mu.Lock("AddDeliveryInternal")
+	defer b.mu.Unlock()
+
+	d := delivery
+	d.Tags = maps.Clone(delivery.Tags)
+	b.deliveries[delivery.ID] = &d
+}
+
+// AddLogAnomalyDetectorInternal seeds a LogAnomalyDetector directly into the store for testing.
+// It overwrites any existing detector with the same ARN.
+func (b *InMemoryBackend) AddLogAnomalyDetectorInternal(detector LogAnomalyDetector) {
+	b.mu.Lock("AddLogAnomalyDetectorInternal")
+	defer b.mu.Unlock()
+
+	d := detector
+	d.LogGroupArnList = slices.Clone(detector.LogGroupArnList)
+	b.logAnomalyDetectors[detector.AnomalyDetectorArn] = &d
 }

@@ -284,6 +284,7 @@ type deleteAccountPolicyOutput struct{}
 // Handler is the Echo HTTP service handler for CloudWatch Logs operations.
 type Handler struct {
 	Backend StorageBackend
+	ops     map[string]actionFn
 	janitor *Janitor
 	tags    map[string]*tags.Tags
 	tagsMu  *lockmetrics.RWMutex
@@ -291,11 +292,14 @@ type Handler struct {
 
 // NewHandler creates a new CloudWatch Logs handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		tags:    make(map[string]*tags.Tags),
 		tagsMu:  lockmetrics.New("cwl.tags"),
 	}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -702,7 +706,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.setTags(input.ResourceArn, input.Tags)
+			h.setTags(input.ResourceArn, maps.Clone(input.Tags))
 
 			return &tagResourceOutput{}, nil
 		},
@@ -1060,7 +1064,7 @@ func (h *Handler) newOperationsActions() map[string]actionFn {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]actionFn {
+func (h *Handler) buildOps() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.logGroupActions())
 	maps.Copy(table, h.logStreamActions())
@@ -1076,7 +1080,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 // dispatch routes the action to the correct handler function.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
 	}

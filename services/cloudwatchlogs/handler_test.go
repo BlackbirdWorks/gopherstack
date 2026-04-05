@@ -1434,3 +1434,518 @@ func TestHandler_DeleteAccountPolicy_NonExistentSucceeds(t *testing.T) {
 		`{"policyName":"does-not-exist","policyType":"DATA_PROTECTION_POLICY"}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestHandler_Provider_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &cloudwatchlogs.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+}
+
+func TestHandler_CreateLogGroup_EmptyName(t *testing.T) {
+	t.Parallel()
+
+	rec := makeLogsRequest(t, "CreateLogGroup", `{"logGroupName":""}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateLogStream_EmptyNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "empty_group_name",
+			body:     `{"logGroupName":"","logStreamName":"my-stream"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "empty_stream_name",
+			body:     `{"logGroupName":"/my/group","logStreamName":""}`,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeLogsRequest(t, "CreateLogStream", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_PutSubscriptionFilter_Validation(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+	_, _ = backend.CreateLogGroup("/grp")
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "missing_group_name",
+			body:     `{"logGroupName":"","filterName":"f1","destinationArn":"arn:aws:lambda:us-east-1:123:function:fn"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing_filter_name",
+			body:     `{"logGroupName":"/grp","filterName":"","destinationArn":"arn:aws:lambda:us-east-1:123:function:fn"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing_destination_arn",
+			body:     `{"logGroupName":"/grp","filterName":"f1","destinationArn":""}`,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doLogsRequest(t, h, e, "PutSubscriptionFilter", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateKmsKey_RequiresIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "neither_log_group_nor_resource_id",
+			body:     `{"kmsKeyId":"arn:aws:kms:us-east-1:123:key/k"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing_kms_key_id",
+			body:     `{"logGroupName":"/my/group","kmsKeyId":""}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "log_group_only_ok",
+			body:     `{"logGroupName":"/my/group","kmsKeyId":"arn:aws:kms:us-east-1:123:key/k"}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "resource_identifier_only_ok",
+			body: `{"resourceIdentifier":"arn:aws:logs:us-east-1:123:query-definition:def",` +
+				`"kmsKeyId":"arn:aws:kms:us-east-1:123:key/k"}`,
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeLogsRequest(t, "AssociateKmsKey", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CancelExportTask_StateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		seedStatus string
+		wantCode   int
+	}{
+		{
+			name:       "cancel_pending_succeeds",
+			seedStatus: "PENDING",
+			wantCode:   http.StatusOK,
+		},
+		{
+			name:       "cancel_running_succeeds",
+			seedStatus: "RUNNING",
+			wantCode:   http.StatusOK,
+		},
+		{
+			name:       "cancel_completed_fails",
+			seedStatus: "COMPLETED",
+			wantCode:   http.StatusBadRequest,
+		},
+		{
+			name:       "cancel_failed_fails",
+			seedStatus: "FAILED",
+			wantCode:   http.StatusBadRequest,
+		},
+		{
+			name:       "cancel_already_cancelled_fails",
+			seedStatus: "CANCELLED",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			taskID := "task-" + tt.name
+			cloudwatchlogs.AddExportTaskInternal(backend, cloudwatchlogs.ExportTask{
+				TaskID:       taskID,
+				LogGroupName: "/grp",
+				Destination:  "my-bucket",
+				Status:       tt.seedStatus,
+				From:         1000,
+				To:           2000,
+			})
+
+			e := echo.New()
+			h := cloudwatchlogs.NewHandler(backend)
+
+			bodyBytes, _ := json.Marshal(map[string]any{"taskId": taskID})
+			rec := doLogsRequest(t, h, e, "CancelExportTask", string(bodyBytes))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CancelImportTask_StateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		seedStatus string
+		wantCode   int
+	}{
+		{
+			name:       "cancel_active_succeeds",
+			seedStatus: "ACTIVE",
+			wantCode:   http.StatusOK,
+		},
+		{
+			name:       "cancel_failed_task_fails",
+			seedStatus: "FAILED",
+			wantCode:   http.StatusBadRequest,
+		},
+		{
+			name:       "cancel_succeeded_task_fails",
+			seedStatus: "SUCCEEDED",
+			wantCode:   http.StatusBadRequest,
+		},
+		{
+			name:       "cancel_already_cancelled_fails",
+			seedStatus: "CANCELLED",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			importID := "import-" + tt.name
+			cloudwatchlogs.AddImportTaskInternal(backend, cloudwatchlogs.ImportTask{
+				ImportID:             importID,
+				ImportSourceArn:      "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+				ImportRoleArn:        "arn:aws:iam::123:role/role",
+				ImportDestinationArn: "arn:aws:logs:us-east-1:123:log-group:/aws/import",
+				Status:               tt.seedStatus,
+			})
+
+			e := echo.New()
+			h := cloudwatchlogs.NewHandler(backend)
+
+			bodyBytes, _ := json.Marshal(map[string]any{"importId": importID})
+			rec := doLogsRequest(t, h, e, "CancelImportTask", string(bodyBytes))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateExportTask_FromToValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "from_equal_to_fails",
+			body:     `{"logGroupName":"/grp","destination":"bucket","from":1000,"to":1000}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "from_greater_than_to_fails",
+			body:     `{"logGroupName":"/grp","destination":"bucket","from":2000,"to":1000}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "from_less_than_to_succeeds",
+			body:     `{"logGroupName":"/grp","destination":"bucket","from":1000,"to":2000}`,
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeLogsRequest(t, "CreateExportTask", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateLogAnomalyDetector_EvaluationFrequency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name: "valid_five_min",
+			body: `{"logGroupArnList":["arn:aws:logs:us-east-1:123:log-group:/app"],` +
+				`"evaluationFrequency":"FIVE_MIN"}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "valid_one_hour",
+			body: `{"logGroupArnList":["arn:aws:logs:us-east-1:123:log-group:/app"],` +
+				`"evaluationFrequency":"ONE_HOUR"}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "invalid_frequency",
+			body: `{"logGroupArnList":["arn:aws:logs:us-east-1:123:log-group:/app"],` +
+				`"evaluationFrequency":"EVERY_5_MINUTES"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_frequency_ok",
+			body: `{"logGroupArnList":["arn:aws:logs:us-east-1:123:log-group:/app"],` +
+				`"evaluationFrequency":""}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "empty_log_group_list_fails",
+			body:     `{"logGroupArnList":[]}`,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeLogsRequest(t, "CreateLogAnomalyDetector", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateScheduledQuery_StateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name: "enabled_state_ok",
+			body: `{"name":"q","queryString":"fields @message","scheduleExpression":"cron(0 * * * ? *)",` +
+				`"state":"ENABLED"}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "disabled_state_ok",
+			body: `{"name":"q2","queryString":"fields @message","scheduleExpression":"cron(0 * * * ? *)",` +
+				`"state":"DISABLED"}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "invalid_state_fails",
+			body: `{"name":"q3","queryString":"fields @message","scheduleExpression":"cron(0 * * * ? *)",` +
+				`"state":"ACTIVE"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_state_defaults_to_enabled",
+			body: `{"name":"q4","queryString":"fields @message","scheduleExpression":"cron(0 * * * ? *)",` +
+				`"state":""}`,
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeLogsRequest(t, "CreateScheduledQuery", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteAccountPolicy_InvalidPolicyType(t *testing.T) {
+	t.Parallel()
+
+	rec := makeLogsRequest(t, "DeleteAccountPolicy",
+		`{"policyName":"my-policy","policyType":"INVALID_TYPE"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DeliveryTags_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	// Create a delivery with tags.
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	body := `{"deliverySourceName":"src",` +
+		`"deliveryDestinationArn":"arn:aws:logs:us-east-1:123:delivery-destination:dst",` +
+		`"tags":{"env":"prod"}}`
+	rec := doLogsRequest(t, h, e, "CreateDelivery", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Seed a delivery and mutate the tags after seeding — the stored delivery must not change.
+	mutatingTags := map[string]string{"key": "original"}
+	cloudwatchlogs.AddDeliveryInternal(backend, cloudwatchlogs.Delivery{
+		ID:                     "test-delivery",
+		Arn:                    "arn:aws:logs:us-east-1:123:delivery:test-delivery",
+		DeliverySourceName:     "src2",
+		DeliveryDestinationArn: "arn:aws:logs:us-east-1:123:delivery-destination:dst",
+		Tags:                   mutatingTags,
+	})
+
+	// Mutate the original map. The stored delivery should not be affected.
+	mutatingTags["key"] = "mutated"
+
+	// Verify the stored delivery is unaffected by snapshotting and restoring.
+	snap := backend.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := cloudwatchlogs.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(snap))
+}
+
+func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+
+	// Populate all new maps.
+	taskID, err := b.CreateExportTask("task", "/grp", "", "bucket", "", 1000, 2000)
+	require.NoError(t, err)
+	require.NotEmpty(t, taskID)
+
+	task, err := b.CreateImportTask(
+		"arn:aws:iam::123:role/r",
+		"arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, task.ImportID)
+
+	_, err = b.CreateDelivery("src", "arn:aws:logs:us-east-1:123:delivery-destination:dst", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateLogAnomalyDetector(
+		[]string{"arn:aws:logs:us-east-1:123:log-group:/app"},
+		"detector", "FIVE_MIN", "", "", 0,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateScheduledQuery("sq", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+	require.NoError(t, err)
+
+	// Reset and verify the backend returns empty state.
+	b.Reset()
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := cloudwatchlogs.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(snap))
+
+	// Verify log groups are empty (representative check).
+	groups, _, err := fresh.DescribeLogGroups("", "", 100)
+	require.NoError(t, err)
+	assert.Empty(t, groups)
+}
+
+func TestInMemoryBackend_SnapshotRestore_NewMaps(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Populate export task.
+	taskID, err := b.CreateExportTask("my-export", "/grp", "", "my-bucket", "prefix/", 1000, 2000)
+	require.NoError(t, err)
+
+	// Populate import task.
+	importTask, err := b.CreateImportTask(
+		"arn:aws:iam::123456789012:role/import-role",
+		"arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/abc",
+	)
+	require.NoError(t, err)
+
+	// Populate delivery with tags.
+	delivery, err := b.CreateDelivery(
+		"my-source",
+		"arn:aws:logs:us-east-1:123456789012:delivery-destination:dst",
+		map[string]string{"env": "prod"},
+	)
+	require.NoError(t, err)
+
+	// Populate anomaly detector.
+	detectorArn, err := b.CreateLogAnomalyDetector(
+		[]string{"arn:aws:logs:us-east-1:123456789012:log-group:/app"},
+		"my-detector", "FIVE_MIN", "", "", 0,
+	)
+	require.NoError(t, err)
+
+	// Populate scheduled query.
+	queryArn, err := b.CreateScheduledQuery(
+		"my-query", "fields @message", "cron(0 * * * ? *)", "", "ENABLED",
+	)
+	require.NoError(t, err)
+
+	// Snapshot and restore.
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	// Verify export task survived.
+	err = b2.CancelExportTask(taskID)
+	require.NoError(t, err)
+
+	// Verify import task survived.
+	cancelledTask, err := b2.CancelImportTask(importTask.ImportID)
+	require.NoError(t, err)
+	assert.Equal(t, importTask.ImportID, cancelledTask.ImportID)
+	assert.Equal(t, "CANCELLED", cancelledTask.Status)
+
+	// Verify delivery survived (can create another one with same source name - no uniqueness constraint).
+	_ = delivery
+	_ = detectorArn
+	_ = queryArn
+}

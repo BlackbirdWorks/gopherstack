@@ -742,10 +742,11 @@ func TestCloudWatchLogsBackend_PutSubscriptionFilter(t *testing.T) {
 			destinationArn: "arn:aws:lambda:us-east-1:123456789012:function:new",
 		},
 		{
-			name:       "group_not_found",
-			group:      "nonexistent",
-			filterName: "f",
-			wantErr:    cloudwatchlogs.ErrLogGroupNotFound,
+			name:           "group_not_found",
+			group:          "nonexistent",
+			filterName:     "f",
+			destinationArn: "arn:aws:lambda:us-east-1:123456789012:function:fn",
+			wantErr:        cloudwatchlogs.ErrLogGroupNotFound,
 		},
 		{
 			name: "limit_exceeded",
