@@ -1520,10 +1520,6 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		return "", fmt.Errorf("%w: queryString is required", ErrValidation)
 	}
 
-	if state == "" {
-		state = "ENABLED"
-	}
-
 	id := uuid.New().String()
 	queryARN := arn.Build("logs", b.region, b.accountID, "scheduled-query:"+id)
 

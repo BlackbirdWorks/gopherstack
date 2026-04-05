@@ -1069,17 +1069,8 @@ func TestHandler_NewOperations(t *testing.T) {
 		},
 		// CancelExportTask
 		{
-			name:   "CancelExportTask/OK",
-			action: "CancelExportTask",
-			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
-				t.Helper()
-				rec := doLogsRequest(t, h, e, "CreateExportTask",
-					`{"logGroupName":"grp","destination":"my-bucket","from":1000,"to":2000}`)
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				t.Logf("taskId=%v", out["taskId"])
-			},
+			name:     "CancelExportTask/EmptyTaskId",
+			action:   "CancelExportTask",
 			body:     map[string]any{"taskId": ""},
 			wantCode: http.StatusBadRequest,
 		},
