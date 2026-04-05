@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cloudfront.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &cloudfrontsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateAlias",
-		"AssociateDistributionTenantWebACL",
-		"AssociateDistributionWebACL",
-		"CopyDistribution",
-		"CreateAnycastIpList",
-		"CreateCachePolicy",
-		"CreateCloudFrontOriginAccessIdentity",
-		"CreateConnectionFunction",
-		"CreateConnectionGroup",
-		"CreateContinuousDeploymentPolicy",
 		"CreateDistributionTenant",
 		"CreateDistributionWithTags",
 		"CreateFieldLevelEncryptionConfig",
