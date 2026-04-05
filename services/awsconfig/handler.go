@@ -26,12 +26,16 @@ type configurationRecorderNameInput struct {
 
 // Handler is the Echo HTTP handler for AWS Config operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend       *InMemoryBackend
+	dispatchTable map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new AWS Config handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.dispatchTable = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -44,12 +48,23 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeConfigurationRecorders",
 		"DescribeConfigurationRecorderStatus",
 		"StartConfigurationRecorder",
+		"StopConfigurationRecorder",
 		"DeleteConfigurationRecorder",
 		"PutDeliveryChannel",
 		"DescribeDeliveryChannels",
 		"DeleteDeliveryChannel",
 		"DescribeConfigRules",
 		"GetComplianceDetailsByConfigRule",
+		"AssociateResourceTypes",
+		"BatchGetAggregateResourceConfig",
+		"BatchGetResourceConfig",
+		"DeleteAggregationAuthorization",
+		"DeleteConfigRule",
+		"DeleteConfigurationAggregator",
+		"DeleteConformancePack",
+		"DeleteEvaluationResults",
+		"DeleteOrganizationConfigRule",
+		"DeleteOrganizationConformancePack",
 	}
 }
 
@@ -93,14 +108,26 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	switch h.ExtractOperation(c) {
 	case "PutConfigurationRecorder":
 		return extractConfigRecorderName(body)
-	case "StartConfigurationRecorder":
+	case "StartConfigurationRecorder", "StopConfigurationRecorder", "DeleteConfigurationRecorder":
 		return extractTopLevelRecorderName(body)
-	case "DescribeConfigurationRecorders":
+	case "DescribeConfigurationRecorders", "DescribeConfigurationRecorderStatus":
 		return extractFirstRecorderName(body)
 	case "PutDeliveryChannel":
 		return extractDeliveryChannelName(body)
-	case "DescribeDeliveryChannels":
+	case "DescribeDeliveryChannels", "DeleteDeliveryChannel":
 		return extractFirstDeliveryChannelName(body)
+	case "DeleteConfigRule", "DescribeConfigRules", "GetComplianceDetailsByConfigRule", "DeleteEvaluationResults":
+		return extractNamedField(body, "ConfigRuleName")
+	case "DeleteConfigurationAggregator", "BatchGetAggregateResourceConfig":
+		return extractNamedField(body, "ConfigurationAggregatorName")
+	case "DeleteConformancePack":
+		return extractNamedField(body, "ConformancePackName")
+	case "DeleteOrganizationConfigRule":
+		return extractNamedField(body, "OrganizationConfigRuleName")
+	case "DeleteOrganizationConformancePack":
+		return extractNamedField(body, "OrganizationConformancePackName")
+	case "AssociateResourceTypes":
+		return extractNamedField(body, "ConfigurationRecorderArn")
 	default:
 		return extractTopLevelRecorderName(body)
 	}
@@ -179,6 +206,26 @@ func extractFirstDeliveryChannelName(body []byte) string {
 	return ""
 }
 
+// extractNamedField extracts a top-level string field by key from a JSON body.
+func extractNamedField(body []byte, key string) string {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return ""
+	}
+
+	raw, ok := m[key]
+	if !ok {
+		return ""
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+
+	return s
+}
+
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -192,23 +239,34 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"PutConfigurationRecorder":            service.WrapOp(h.handlePutConfigurationRecorder),
 		"DescribeConfigurationRecorders":      service.WrapOp(h.handleDescribeConfigurationRecorders),
 		"DescribeConfigurationRecorderStatus": service.WrapOp(h.handleDescribeConfigurationRecorderStatus),
 		"StartConfigurationRecorder":          service.WrapOp(h.handleStartConfigurationRecorder),
+		"StopConfigurationRecorder":           service.WrapOp(h.handleStopConfigurationRecorder),
 		"DeleteConfigurationRecorder":         service.WrapOp(h.handleDeleteConfigurationRecorder),
 		"PutDeliveryChannel":                  service.WrapOp(h.handlePutDeliveryChannel),
 		"DescribeDeliveryChannels":            service.WrapOp(h.handleDescribeDeliveryChannels),
 		"DeleteDeliveryChannel":               service.WrapOp(h.handleDeleteDeliveryChannel),
 		"DescribeConfigRules":                 service.WrapOp(h.handleDescribeConfigRules),
 		"GetComplianceDetailsByConfigRule":    service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
+		"AssociateResourceTypes":              service.WrapOp(h.handleAssociateResourceTypes),
+		"BatchGetAggregateResourceConfig":     service.WrapOp(h.handleBatchGetAggregateResourceConfig),
+		"BatchGetResourceConfig":              service.WrapOp(h.handleBatchGetResourceConfig),
+		"DeleteAggregationAuthorization":      service.WrapOp(h.handleDeleteAggregationAuthorization),
+		"DeleteConfigRule":                    service.WrapOp(h.handleDeleteConfigRule),
+		"DeleteConfigurationAggregator":       service.WrapOp(h.handleDeleteConfigurationAggregator),
+		"DeleteConformancePack":               service.WrapOp(h.handleDeleteConformancePack),
+		"DeleteEvaluationResults":             service.WrapOp(h.handleDeleteEvaluationResults),
+		"DeleteOrganizationConfigRule":        service.WrapOp(h.handleDeleteOrganizationConfigRule),
+		"DeleteOrganizationConformancePack":   service.WrapOp(h.handleDeleteOrganizationConformancePack),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.dispatchTable[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -221,14 +279,59 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// marshalError serialises a typed AWS error response into bytes.
+// Marshaling a struct with only string fields cannot fail; error is intentionally ignored.
+func marshalError(errType, message string) []byte {
+	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+
+	return payload
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	code := http.StatusBadRequest
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
 
-	if errors.Is(err, ErrNotFound) {
-		code = http.StatusNotFound
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConfigurationRecorder", err.Error()))
+	case errors.Is(err, ErrNoSuchDeliveryChannel):
+		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchDeliveryChannelException", err.Error()))
+	case errors.Is(err, ErrNoSuchConfigRule):
+		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConfigRuleException", err.Error()))
+	case errors.Is(err, ErrNoSuchAggregator):
+		return c.JSONBlob(
+			http.StatusNotFound,
+			marshalError("NoSuchConfigurationAggregatorException", err.Error()),
+		)
+	case errors.Is(err, ErrNoSuchConformancePack):
+		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConformancePackException", err.Error()))
+	case errors.Is(err, ErrNoSuchOrganizationConfigRule):
+		return c.JSONBlob(
+			http.StatusNotFound,
+			marshalError("NoSuchOrganizationConfigRuleException", err.Error()),
+		)
+	case errors.Is(err, ErrNoSuchOrganizationConformancePack):
+		return c.JSONBlob(
+			http.StatusNotFound,
+			marshalError("OrganizationConformancePackNotFoundException", err.Error()),
+		)
+	case errors.Is(err, ErrNoSuchAggregationAuthorization):
+		return c.JSONBlob(
+			http.StatusNotFound,
+			marshalError("NoSuchAggregationAuthorizationException", err.Error()),
+		)
+	case errors.Is(err, ErrAlreadyExists):
+		return c.JSONBlob(
+			http.StatusConflict,
+			marshalError("MaxNumberOfConfigurationRecordersExceededException", err.Error()),
+		)
+	case errors.Is(err, ErrValidation), errors.Is(err, ErrNoDeliveryChannel):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
-
-	return c.JSON(code, map[string]string{"message": err.Error()})
 }
 
 // configurationRecorderBody is the nested JSON body for a configuration recorder.
@@ -257,7 +360,9 @@ func (h *Handler) handlePutConfigurationRecorder(
 	return &putConfigurationRecorderOutput{}, nil
 }
 
-type describeConfigurationRecordersInput struct{}
+type describeConfigurationRecordersInput struct {
+	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames,omitempty"`
+}
 
 type describeConfigurationRecordersOutput struct {
 	ConfigurationRecorders []ConfigurationRecorder `json:"ConfigurationRecorders"`
@@ -265,9 +370,9 @@ type describeConfigurationRecordersOutput struct {
 
 func (h *Handler) handleDescribeConfigurationRecorders(
 	_ context.Context,
-	_ *describeConfigurationRecordersInput,
+	in *describeConfigurationRecordersInput,
 ) (*describeConfigurationRecordersOutput, error) {
-	recorders := h.Backend.DescribeConfigurationRecorders()
+	recorders := h.Backend.DescribeConfigurationRecorders(in.ConfigurationRecorderNames)
 
 	return &describeConfigurationRecordersOutput{ConfigurationRecorders: recorders}, nil
 }
@@ -283,6 +388,19 @@ func (h *Handler) handleStartConfigurationRecorder(
 	}
 
 	return &startConfigurationRecorderOutput{}, nil
+}
+
+type stopConfigurationRecorderOutput struct{}
+
+func (h *Handler) handleStopConfigurationRecorder(
+	_ context.Context,
+	in *configurationRecorderNameInput,
+) (*stopConfigurationRecorderOutput, error) {
+	if err := h.Backend.StopConfigurationRecorder(in.ConfigurationRecorderName); err != nil {
+		return nil, err
+	}
+
+	return &stopConfigurationRecorderOutput{}, nil
 }
 
 // deliveryChannelBody is the nested JSON body for a delivery channel.
@@ -313,7 +431,9 @@ func (h *Handler) handlePutDeliveryChannel(
 	return &putDeliveryChannelOutput{}, nil
 }
 
-type describeDeliveryChannelsInput struct{}
+type describeDeliveryChannelsInput struct {
+	DeliveryChannelNames []string `json:"DeliveryChannelNames,omitempty"`
+}
 
 type describeDeliveryChannelsOutput struct {
 	DeliveryChannels []DeliveryChannel `json:"DeliveryChannels"`
@@ -321,9 +441,9 @@ type describeDeliveryChannelsOutput struct {
 
 func (h *Handler) handleDescribeDeliveryChannels(
 	_ context.Context,
-	_ *describeDeliveryChannelsInput,
+	in *describeDeliveryChannelsInput,
 ) (*describeDeliveryChannelsOutput, error) {
-	channels := h.Backend.DescribeDeliveryChannels()
+	channels := h.Backend.DescribeDeliveryChannels(in.DeliveryChannelNames)
 
 	return &describeDeliveryChannelsOutput{DeliveryChannels: channels}, nil
 }
@@ -374,21 +494,14 @@ type describeConfigurationRecorderStatusOutput struct {
 
 func (h *Handler) handleDescribeConfigurationRecorderStatus(
 	_ context.Context,
-	_ *describeConfigurationRecorderStatusInput,
+	in *describeConfigurationRecorderStatusInput,
 ) (*describeConfigurationRecorderStatusOutput, error) {
-	statuses := h.Backend.DescribeConfigurationRecorderStatus()
+	statuses := h.Backend.DescribeConfigurationRecorderStatus(in.ConfigurationRecorderNames)
 
 	return &describeConfigurationRecorderStatusOutput{ConfigurationRecordersStatus: statuses}, nil
 }
 
-// --- Config Rules stubs ---
-
-type configRule struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
-	ConfigRuleArn  string `json:"ConfigRuleArn,omitempty"`
-	ConfigRuleID   string `json:"ConfigRuleId,omitempty"`
-	Description    string `json:"Description,omitempty"`
-}
+// --- Config Rules ---
 
 type describeConfigRulesInput struct {
 	NextToken       string   `json:"NextToken,omitempty"`
@@ -397,18 +510,16 @@ type describeConfigRulesInput struct {
 
 type describeConfigRulesOutput struct {
 	NextToken   string       `json:"NextToken,omitempty"`
-	ConfigRules []configRule `json:"ConfigRules"`
+	ConfigRules []ConfigRule `json:"ConfigRules"`
 }
 
-// handleDescribeConfigRules returns a stub empty config rules list.
-// Real AWS returns managed and custom config rules; the stub returns an empty list.
 func (h *Handler) handleDescribeConfigRules(
 	_ context.Context,
-	_ *describeConfigRulesInput,
+	in *describeConfigRulesInput,
 ) (*describeConfigRulesOutput, error) {
-	return &describeConfigRulesOutput{
-		ConfigRules: []configRule{},
-	}, nil
+	rules := h.Backend.DescribeConfigRules(in.ConfigRuleNames)
+
+	return &describeConfigRulesOutput{ConfigRules: rules}, nil
 }
 
 type getComplianceDetailsByConfigRuleInput struct {
@@ -428,8 +539,8 @@ type getComplianceDetailsByConfigRuleOutput struct {
 	EvaluationResults []evaluationResult `json:"EvaluationResults"`
 }
 
-// handleGetComplianceDetailsByConfigRule returns a stub empty compliance details list.
-// Real AWS returns evaluation results per resource; the stub returns an empty list.
+// handleGetComplianceDetailsByConfigRule returns an empty compliance details list.
+// Real AWS returns evaluation results per resource; this stub returns an empty list.
 func (h *Handler) handleGetComplianceDetailsByConfigRule(
 	_ context.Context,
 	_ *getComplianceDetailsByConfigRuleInput,
@@ -437,4 +548,211 @@ func (h *Handler) handleGetComplianceDetailsByConfigRule(
 	return &getComplianceDetailsByConfigRuleOutput{
 		EvaluationResults: []evaluationResult{},
 	}, nil
+}
+
+// --- AssociateResourceTypes ---
+
+type associateResourceTypesInput struct {
+	ConfigurationRecorderArn string   `json:"ConfigurationRecorderArn"`
+	ResourceTypes            []string `json:"ResourceTypes"`
+}
+
+type associateResourceTypesOutput struct {
+	ConfigurationRecorder *ConfigurationRecorder `json:"ConfigurationRecorder"`
+}
+
+func (h *Handler) handleAssociateResourceTypes(
+	_ context.Context,
+	in *associateResourceTypesInput,
+) (*associateResourceTypesOutput, error) {
+	recorder, err := h.Backend.AssociateResourceTypes(in.ConfigurationRecorderArn, in.ResourceTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateResourceTypesOutput{ConfigurationRecorder: recorder}, nil
+}
+
+// --- BatchGetAggregateResourceConfig ---
+
+type batchGetAggregateResourceConfigInput struct {
+	ConfigurationAggregatorName string                        `json:"ConfigurationAggregatorName"`
+	ResourceIdentifiers         []AggregateResourceIdentifier `json:"ResourceIdentifiers"`
+}
+
+type batchGetAggregateResourceConfigOutput struct {
+	BaseConfigurationItems         []BaseConfigurationItem       `json:"BaseConfigurationItems"`
+	UnprocessedResourceIdentifiers []AggregateResourceIdentifier `json:"UnprocessedResourceIdentifiers"`
+}
+
+func (h *Handler) handleBatchGetAggregateResourceConfig(
+	_ context.Context,
+	in *batchGetAggregateResourceConfigInput,
+) (*batchGetAggregateResourceConfigOutput, error) {
+	items, unprocessed := h.Backend.BatchGetAggregateResourceConfig(
+		in.ConfigurationAggregatorName,
+		in.ResourceIdentifiers,
+	)
+
+	return &batchGetAggregateResourceConfigOutput{
+		BaseConfigurationItems:         items,
+		UnprocessedResourceIdentifiers: unprocessed,
+	}, nil
+}
+
+// --- BatchGetResourceConfig ---
+
+type batchGetResourceConfigInput struct {
+	ResourceKeys []ResourceKey `json:"ResourceKeys"`
+}
+
+type batchGetResourceConfigOutput struct {
+	BaseConfigurationItems  []BaseConfigurationItem `json:"BaseConfigurationItems"`
+	UnprocessedResourceKeys []ResourceKey           `json:"UnprocessedResourceKeys"`
+}
+
+func (h *Handler) handleBatchGetResourceConfig(
+	_ context.Context,
+	in *batchGetResourceConfigInput,
+) (*batchGetResourceConfigOutput, error) {
+	items, unprocessed := h.Backend.BatchGetResourceConfig(in.ResourceKeys)
+
+	return &batchGetResourceConfigOutput{
+		BaseConfigurationItems:  items,
+		UnprocessedResourceKeys: unprocessed,
+	}, nil
+}
+
+// --- DeleteAggregationAuthorization ---
+
+type deleteAggregationAuthorizationInput struct {
+	AuthorizedAccountID string `json:"AuthorizedAccountId"`
+	AuthorizedAwsRegion string `json:"AuthorizedAwsRegion"`
+}
+
+type deleteAggregationAuthorizationOutput struct{}
+
+func (h *Handler) handleDeleteAggregationAuthorization(
+	_ context.Context,
+	in *deleteAggregationAuthorizationInput,
+) (*deleteAggregationAuthorizationOutput, error) {
+	if err := h.Backend.DeleteAggregationAuthorization(in.AuthorizedAccountID, in.AuthorizedAwsRegion); err != nil {
+		return nil, err
+	}
+
+	return &deleteAggregationAuthorizationOutput{}, nil
+}
+
+// --- DeleteConfigRule ---
+
+type deleteConfigRuleInput struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+}
+
+type deleteConfigRuleOutput struct{}
+
+func (h *Handler) handleDeleteConfigRule(
+	_ context.Context,
+	in *deleteConfigRuleInput,
+) (*deleteConfigRuleOutput, error) {
+	if err := h.Backend.DeleteConfigRule(in.ConfigRuleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigRuleOutput{}, nil
+}
+
+// --- DeleteConfigurationAggregator ---
+
+type deleteConfigurationAggregatorInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+}
+
+type deleteConfigurationAggregatorOutput struct{}
+
+func (h *Handler) handleDeleteConfigurationAggregator(
+	_ context.Context,
+	in *deleteConfigurationAggregatorInput,
+) (*deleteConfigurationAggregatorOutput, error) {
+	if err := h.Backend.DeleteConfigurationAggregator(in.ConfigurationAggregatorName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationAggregatorOutput{}, nil
+}
+
+// --- DeleteConformancePack ---
+
+type deleteConformancePackInput struct {
+	ConformancePackName string `json:"ConformancePackName"`
+}
+
+type deleteConformancePackOutput struct{}
+
+func (h *Handler) handleDeleteConformancePack(
+	_ context.Context,
+	in *deleteConformancePackInput,
+) (*deleteConformancePackOutput, error) {
+	if err := h.Backend.DeleteConformancePack(in.ConformancePackName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConformancePackOutput{}, nil
+}
+
+// --- DeleteEvaluationResults ---
+
+type deleteEvaluationResultsInput struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+}
+
+type deleteEvaluationResultsOutput struct{}
+
+func (h *Handler) handleDeleteEvaluationResults(
+	_ context.Context,
+	in *deleteEvaluationResultsInput,
+) (*deleteEvaluationResultsOutput, error) {
+	if err := h.Backend.DeleteEvaluationResults(in.ConfigRuleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteEvaluationResultsOutput{}, nil
+}
+
+// --- DeleteOrganizationConfigRule ---
+
+type deleteOrganizationConfigRuleInput struct {
+	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
+}
+
+type deleteOrganizationConfigRuleOutput struct{}
+
+func (h *Handler) handleDeleteOrganizationConfigRule(
+	_ context.Context,
+	in *deleteOrganizationConfigRuleInput,
+) (*deleteOrganizationConfigRuleOutput, error) {
+	if err := h.Backend.DeleteOrganizationConfigRule(in.OrganizationConfigRuleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteOrganizationConfigRuleOutput{}, nil
+}
+
+// --- DeleteOrganizationConformancePack ---
+
+type deleteOrganizationConformancePackInput struct {
+	OrganizationConformancePackName string `json:"OrganizationConformancePackName"`
+}
+
+type deleteOrganizationConformancePackOutput struct{}
+
+func (h *Handler) handleDeleteOrganizationConformancePack(
+	_ context.Context,
+	in *deleteOrganizationConformancePackInput,
+) (*deleteOrganizationConformancePackOutput, error) {
+	if err := h.Backend.DeleteOrganizationConformancePack(in.OrganizationConformancePackName); err != nil {
+		return nil, err
+	}
+
+	return &deleteOrganizationConformancePackOutput{}, nil
 }
