@@ -814,7 +814,7 @@ func (b *InMemoryBackend) BatchGetReportGroups(arns []string) ([]*ReportGroup, [
 		name, ok := b.reportGroupARNIndex[a]
 		if !ok {
 			// also try by name for convenience
-			if _, nameOK := b.reportGroups[a]; nameOK {
+			if _, foundByName := b.reportGroups[a]; foundByName {
 				name = a
 				ok = true
 			}
