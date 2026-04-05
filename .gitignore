@@ -21,3 +21,4 @@ test/e2e/failures/go.mod.bak
 *.png
 !dashboard/static/favicon.png
 *.tmp
+copilot_changes.patch
