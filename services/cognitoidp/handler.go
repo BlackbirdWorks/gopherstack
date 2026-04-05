@@ -244,6 +244,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrPasswordResetRequired, ErrPasswordResetRequired.Error()},
 	{ErrCodeMismatch, ErrCodeMismatch.Error()},
 	{ErrInvalidUserPoolConfig, ErrInvalidUserPoolConfig.Error()},
+	{ErrGroupNotFound, ErrGroupNotFound.Error()},
+	{ErrAlreadyExists, ErrAlreadyExists.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 
