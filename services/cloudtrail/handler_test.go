@@ -1142,3 +1142,364 @@ func TestCloudTrailProvider(t *testing.T) {
 		})
 	}
 }
+
+// TestCloudTrailChannel exercises CreateChannel and DeleteChannel.
+func TestCloudTrailChannel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "create_channel_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name":   "my-channel",
+					"Source": "custom-source",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.NotEmpty(t, resp["ChannelArn"])
+				assert.Equal(t, "my-channel", resp["Name"])
+				assert.Equal(t, "custom-source", resp["Source"])
+			},
+		},
+		{
+			name: "create_channel_missing_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Source": "custom-source",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "delete_channel_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name":   "del-channel",
+					"Source": "src",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				channelARN := createResp["ChannelArn"].(string)
+				rec := doCloudTrailOp(t, h, "DeleteChannel", map[string]any{
+					"Channel": channelARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "delete_channel_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeleteChannel", map[string]any{
+					"Channel": "channel-missing",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailDashboard exercises CreateDashboard and DeleteDashboard.
+func TestCloudTrailDashboard(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "create_dashboard_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "my-dashboard",
+					"Type": "CUSTOM",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.NotEmpty(t, resp["DashboardArn"])
+				assert.Equal(t, "my-dashboard", resp["Name"])
+				assert.Equal(t, "CREATING", resp["Status"])
+			},
+		},
+		{
+			name: "create_dashboard_missing_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Type": "CUSTOM",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "delete_dashboard_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "del-dashboard",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				dashboardARN := createResp["DashboardArn"].(string)
+				rec := doCloudTrailOp(t, h, "DeleteDashboard", map[string]any{
+					"DashboardId": dashboardARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "delete_dashboard_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeleteDashboard", map[string]any{
+					"DashboardId": "dashboard-missing",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailEventDataStore exercises CreateEventDataStore and DeleteEventDataStore.
+func TestCloudTrailEventDataStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "create_event_data_store_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name":                         "my-eds",
+					"MultiRegionEnabled":           true,
+					"OrganizationEnabled":          false,
+					"TerminationProtectionEnabled": true,
+					"RetentionPeriod":              90,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.NotEmpty(t, resp["EventDataStoreArn"])
+				assert.Equal(t, "my-eds", resp["Name"])
+				assert.Equal(t, "CREATED", resp["Status"])
+				assert.Equal(t, true, resp["MultiRegionEnabled"])
+				assert.Equal(t, true, resp["TerminationProtectionEnabled"])
+			},
+		},
+		{
+			name: "create_event_data_store_missing_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"RetentionPeriod": 90,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "delete_event_data_store_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "del-eds",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				edsARN := createResp["EventDataStoreArn"].(string)
+				rec := doCloudTrailOp(t, h, "DeleteEventDataStore", map[string]any{
+					"EventDataStore": edsARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "delete_event_data_store_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeleteEventDataStore", map[string]any{
+					"EventDataStore": "eds-missing",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailResourcePolicy exercises DeleteResourcePolicy.
+func TestCloudTrailResourcePolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "delete_resource_policy_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeleteResourcePolicy", map[string]any{
+					"ResourceArn": "arn:aws:cloudtrail:us-east-1:123456789012:trail/my-trail",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailDeregisterOrgDelegatedAdmin exercises DeregisterOrganizationDelegatedAdmin.
+func TestCloudTrailDeregisterOrgDelegatedAdmin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "deregister_success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeregisterOrganizationDelegatedAdmin", map[string]any{
+					"DelegatedAdminAccountId": "123456789012",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "deregister_missing_account_id",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeregisterOrganizationDelegatedAdmin", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailQuery exercises CancelQuery and DescribeQuery.
+func TestCloudTrailQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "cancel_query_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CancelQuery", map[string]any{
+					"QueryId": "query-missing",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "describe_query_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DescribeQuery", map[string]any{
+					"QueryId": "query-missing",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "cancel_and_describe_query",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				// Create a query via StartQuery in backend directly
+				q, err := h.Backend.StartQuery("SELECT eventName, eventSource FROM events LIMIT 10", "", "")
+				require.NoError(t, err)
+				require.NotEmpty(t, q.QueryID)
+
+				cancelRec := doCloudTrailOp(t, h, "CancelQuery", map[string]any{
+					"QueryId": q.QueryID,
+				})
+				assert.Equal(t, http.StatusOK, cancelRec.Code)
+				cancelResp := parseCloudTrailResp(t, cancelRec)
+				assert.Equal(t, "CANCELLED", cancelResp["QueryStatus"])
+
+				descRec := doCloudTrailOp(t, h, "DescribeQuery", map[string]any{
+					"QueryId": q.QueryID,
+				})
+				assert.Equal(t, http.StatusOK, descRec.Code)
+				descResp := parseCloudTrailResp(t, descRec)
+				assert.Equal(t, "CANCELLED", descResp["QueryStatus"])
+				assert.Equal(t, "SELECT eventName, eventSource FROM events LIMIT 10", descResp["QueryString"])
+			},
+		},
+		{
+			name: "cancel_already_cancelled_query",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				q, err := h.Backend.StartQuery("SELECT 1", "", "")
+				require.NoError(t, err)
+
+				// Cancel it once
+				_, err = h.Backend.CancelQuery(q.QueryID)
+				require.NoError(t, err)
+
+				// Try cancelling again - should fail with validation error
+				rec := doCloudTrailOp(t, h, "CancelQuery", map[string]any{
+					"QueryId": q.QueryID,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}

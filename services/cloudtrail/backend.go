@@ -15,7 +15,67 @@ var (
 	ErrNotFound = awserr.New("TrailNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("TrailAlreadyExistsException", awserr.ErrConflict)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 )
+
+// Channel represents a CloudTrail channel resource.
+type Channel struct {
+	Tags         *tags.Tags    `json:"tags,omitempty"`
+	ChannelID    string        `json:"channelId"`
+	ChannelARN   string        `json:"channelArn"`
+	Name         string        `json:"name"`
+	Source       string        `json:"source"`
+	Destinations []Destination `json:"destinations,omitempty"`
+}
+
+// Destination represents a channel destination.
+type Destination struct {
+	Type     string `json:"Type"`
+	Location string `json:"Location"`
+}
+
+// Dashboard represents a CloudTrail dashboard resource.
+type Dashboard struct {
+	Tags         *tags.Tags `json:"tags,omitempty"`
+	DashboardID  string     `json:"dashboardId"`
+	DashboardARN string     `json:"dashboardArn"`
+	Name         string     `json:"name"`
+	Type         string     `json:"type"`
+	Status       string     `json:"status"`
+}
+
+// EventDataStore represents a CloudTrail event data store resource.
+type EventDataStore struct {
+	Tags                 *tags.Tags `json:"tags,omitempty"`
+	CreatedTimestamp     time.Time  `json:"createdTimestamp"`
+	UpdatedTimestamp     time.Time  `json:"updatedTimestamp"`
+	EventDataStoreID     string     `json:"eventDataStoreId"`
+	EventDataStoreARN    string     `json:"eventDataStoreArn"`
+	Name                 string     `json:"name"`
+	Status               string     `json:"status"`
+	RetentionPeriod      int32      `json:"retentionPeriod"`
+	MultiRegionEnabled   bool       `json:"multiRegionEnabled"`
+	OrganizationEnabled  bool       `json:"organizationEnabled"`
+	TerminationProtected bool       `json:"terminationProtectionEnabled"`
+}
+
+// Query represents a CloudTrail query resource.
+type Query struct {
+	CreationTime      time.Time `json:"creationTime"`
+	QueryID           string    `json:"queryId"`
+	EventDataStoreARN string    `json:"eventDataStoreArn"`
+	QueryString       string    `json:"queryString"`
+	QueryStatus       string    `json:"queryStatus"`
+	DeliveryS3URI     string    `json:"deliveryS3Uri,omitempty"`
+	ErrorMessage      string    `json:"errorMessage,omitempty"`
+}
+
+// ResourcePolicy represents a resource-based policy attached to a CloudTrail resource.
+type ResourcePolicy struct {
+	ResourceARN    string `json:"resourceArn"`
+	ResourcePolicy string `json:"resourcePolicy"`
+}
 
 // DataResource represents a resource type for event selector data resources.
 type DataResource struct {
@@ -59,21 +119,35 @@ type Trail struct {
 
 // InMemoryBackend is the in-memory store for CloudTrail resources.
 type InMemoryBackend struct {
-	trails      map[string]*Trail
-	trailsByARN map[string]string
-	mu          *lockmetrics.RWMutex
-	accountID   string
-	region      string
+	trails           map[string]*Trail
+	trailsByARN      map[string]string
+	channels         map[string]*Channel
+	dashboards       map[string]*Dashboard
+	eventDataStores  map[string]*EventDataStore
+	queries          map[string]*Query
+	resourcePolicies map[string]*ResourcePolicy
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
+	channelCounter   int
+	dashboardCounter int
+	edsCounter       int
+	queryCounter     int
 }
 
 // NewInMemoryBackend creates a new in-memory CloudTrail backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		trails:      make(map[string]*Trail),
-		trailsByARN: make(map[string]string),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("cloudtrail"),
+		trails:           make(map[string]*Trail),
+		trailsByARN:      make(map[string]string),
+		channels:         make(map[string]*Channel),
+		dashboards:       make(map[string]*Dashboard),
+		eventDataStores:  make(map[string]*EventDataStore),
+		queries:          make(map[string]*Query),
+		resourcePolicies: make(map[string]*ResourcePolicy),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("cloudtrail"),
 	}
 }
 
@@ -423,4 +497,244 @@ func copyEventSelectors(in []EventSelector) []EventSelector {
 	}
 
 	return out
+}
+
+// CreateChannel creates a new CloudTrail channel.
+func (b *InMemoryBackend) CreateChannel(
+	name, source string,
+	destinations []Destination,
+	kv map[string]string,
+) (*Channel, error) {
+	b.mu.Lock("CreateChannel")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	b.channelCounter++
+	id := fmt.Sprintf("channel-%06d", b.channelCounter)
+	channelARN := arn.Build("cloudtrail", b.region, b.accountID, "channel/"+id)
+	t := tags.New("cloudtrail.channel." + id + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+	ch := &Channel{
+		ChannelID:    id,
+		ChannelARN:   channelARN,
+		Name:         name,
+		Source:       source,
+		Destinations: destinations,
+		Tags:         t,
+	}
+	b.channels[id] = ch
+
+	cp := *ch
+
+	return &cp, nil
+}
+
+// DeleteChannel deletes a channel by ID or ARN.
+func (b *InMemoryBackend) DeleteChannel(channelIDOrARN string) error {
+	b.mu.Lock("DeleteChannel")
+	defer b.mu.Unlock()
+
+	for id, ch := range b.channels {
+		if id == channelIDOrARN || ch.ChannelARN == channelIDOrARN {
+			ch.Tags.Close()
+			delete(b.channels, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelIDOrARN)
+}
+
+// CreateDashboard creates a new CloudTrail dashboard.
+func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]string) (*Dashboard, error) {
+	b.mu.Lock("CreateDashboard")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	b.dashboardCounter++
+	id := fmt.Sprintf("dashboard-%06d", b.dashboardCounter)
+	dashARN := arn.Build("cloudtrail", b.region, b.accountID, "dashboard/"+id)
+	t := tags.New("cloudtrail.dashboard." + id + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+	d := &Dashboard{
+		DashboardID:  id,
+		DashboardARN: dashARN,
+		Name:         name,
+		Type:         dashType,
+		Status:       "CREATING",
+		Tags:         t,
+	}
+	b.dashboards[id] = d
+
+	cp := *d
+
+	return &cp, nil
+}
+
+// DeleteDashboard deletes a dashboard by ID or ARN.
+func (b *InMemoryBackend) DeleteDashboard(dashboardIDOrARN string) error {
+	b.mu.Lock("DeleteDashboard")
+	defer b.mu.Unlock()
+
+	for id, d := range b.dashboards {
+		if id == dashboardIDOrARN || d.DashboardARN == dashboardIDOrARN {
+			d.Tags.Close()
+			delete(b.dashboards, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: dashboard %s not found", ErrNotFound, dashboardIDOrARN)
+}
+
+// CreateEventDataStore creates a new CloudTrail event data store.
+func (b *InMemoryBackend) CreateEventDataStore(
+	name string,
+	multiRegionEnabled, organizationEnabled, terminationProtected bool,
+	retentionPeriod int32,
+	kv map[string]string,
+) (*EventDataStore, error) {
+	b.mu.Lock("CreateEventDataStore")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	b.edsCounter++
+	id := fmt.Sprintf("eds-%06d", b.edsCounter)
+	edsARN := arn.Build("cloudtrail", b.region, b.accountID, "eventdatastore/"+id)
+	t := tags.New("cloudtrail.eds." + id + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+	now := time.Now().UTC()
+	eds := &EventDataStore{
+		EventDataStoreID:     id,
+		EventDataStoreARN:    edsARN,
+		Name:                 name,
+		Status:               "CREATED",
+		MultiRegionEnabled:   multiRegionEnabled,
+		OrganizationEnabled:  organizationEnabled,
+		TerminationProtected: terminationProtected,
+		RetentionPeriod:      retentionPeriod,
+		CreatedTimestamp:     now,
+		UpdatedTimestamp:     now,
+		Tags:                 t,
+	}
+	b.eventDataStores[id] = eds
+
+	cp := *eds
+
+	return &cp, nil
+}
+
+// DeleteEventDataStore deletes an event data store by ID or ARN.
+func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
+	b.mu.Lock("DeleteEventDataStore")
+	defer b.mu.Unlock()
+
+	for id, eds := range b.eventDataStores {
+		if id == edsIDOrARN || eds.EventDataStoreARN == edsIDOrARN {
+			eds.Tags.Close()
+			delete(b.eventDataStores, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: event data store %s not found", ErrNotFound, edsIDOrARN)
+}
+
+// DeleteResourcePolicy removes the resource-based policy from a CloudTrail resource.
+func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN string) error {
+	b.mu.Lock("DeleteResourcePolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourcePolicies[resourceARN]; !ok {
+		return fmt.Errorf("%w: resource policy for %s not found", ErrNotFound, resourceARN)
+	}
+	delete(b.resourcePolicies, resourceARN)
+
+	return nil
+}
+
+// DeregisterOrganizationDelegatedAdmin deregisters an organization delegated admin account.
+// This is a no-op in the in-memory backend (returns success).
+func (b *InMemoryBackend) DeregisterOrganizationDelegatedAdmin(delegatedAdminAccountID string) error {
+	if delegatedAdminAccountID == "" {
+		return fmt.Errorf("%w: DelegatedAdminAccountId is required", ErrValidation)
+	}
+
+	return nil
+}
+
+// StartQuery creates a new query against an event data store.
+func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI string) (*Query, error) {
+	b.mu.Lock("StartQuery")
+	defer b.mu.Unlock()
+
+	if queryString == "" {
+		return nil, fmt.Errorf("%w: QueryStatement is required", ErrValidation)
+	}
+
+	b.queryCounter++
+	qid := fmt.Sprintf("query-%06d", b.queryCounter)
+	q := &Query{
+		QueryID:           qid,
+		EventDataStoreARN: edsARN,
+		QueryString:       queryString,
+		QueryStatus:       "QUEUED",
+		DeliveryS3URI:     deliveryS3URI,
+		CreationTime:      time.Now().UTC(),
+	}
+	b.queries[qid] = q
+
+	cp := *q
+
+	return &cp, nil
+}
+
+// CancelQuery cancels a running query.
+func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
+	b.mu.Lock("CancelQuery")
+	defer b.mu.Unlock()
+
+	q, ok := b.queries[queryID]
+	if !ok {
+		return nil, fmt.Errorf("%w: query %s not found", ErrNotFound, queryID)
+	}
+	if q.QueryStatus == "FINISHED" || q.QueryStatus == "FAILED" || q.QueryStatus == "CANCELLED" {
+		return nil, fmt.Errorf("%w: query %s is already in terminal state %s", ErrValidation, queryID, q.QueryStatus)
+	}
+	q.QueryStatus = "CANCELLED"
+	cp := *q
+
+	return &cp, nil
+}
+
+// DescribeQuery returns details about a specific query.
+func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
+	b.mu.RLock("DescribeQuery")
+	defer b.mu.RUnlock()
+
+	q, ok := b.queries[queryID]
+	if !ok {
+		return nil, fmt.Errorf("%w: query %s not found", ErrNotFound, queryID)
+	}
+	cp := *q
+
+	return &cp, nil
 }
