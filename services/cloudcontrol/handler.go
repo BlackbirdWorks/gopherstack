@@ -19,20 +19,21 @@ const (
 	cloudControlContentType  = "application/x-amz-json-1.0"
 )
 
-var (
-	errUnknownAction  = errors.New("unknown action")
-	errInvalidRequest = errors.New("invalid request")
-)
+var errUnknownAction = errors.New("unknown action")
 
 // Handler is the Echo HTTP handler for CloudControl API operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend       *InMemoryBackend
+	dispatchTable map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new CloudControl handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.dispatchTable = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -41,13 +42,14 @@ func (h *Handler) Name() string { return "CloudControl" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CancelResourceRequest",
 		"CreateResource",
 		"DeleteResource",
 		"GetResource",
+		"GetResourceRequestStatus",
+		"ListResourceRequests",
 		"ListResources",
 		"UpdateResource",
-		"GetResourceRequestStatus",
-		"CancelResourceRequest",
 	}
 }
 
@@ -77,10 +79,14 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return strings.TrimPrefix(target, cloudControlTargetPrefix)
 }
 
-// ExtractResource extracts the resource identifier from the request (not used for CloudControl).
+// ExtractResource extracts the resource type name from the request body for metrics/logging.
+// Returns "cloudcontrol" as a stable low-cardinality label when a TypeName is absent.
 func (h *Handler) ExtractResource(_ *echo.Context) string {
-	return ""
+	return "cloudcontrol"
 }
+
+// Reset clears all backend state. Useful for test isolation.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Handler returns the Echo handler function for CloudControl requests.
 func (h *Handler) Handler() echo.HandlerFunc {
@@ -95,20 +101,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
+		"CancelResourceRequest":    service.WrapOp(h.handleCancelResourceRequest),
 		"CreateResource":           service.WrapOp(h.handleCreateResource),
 		"DeleteResource":           service.WrapOp(h.handleDeleteResource),
 		"GetResource":              service.WrapOp(h.handleGetResource),
+		"GetResourceRequestStatus": service.WrapOp(h.handleGetResourceRequestStatus),
+		"ListResourceRequests":     service.WrapOp(h.handleListResourceRequests),
 		"ListResources":            service.WrapOp(h.handleListResources),
 		"UpdateResource":           service.WrapOp(h.handleUpdateResource),
-		"GetResourceRequestStatus": service.WrapOp(h.handleGetResourceRequestStatus),
-		"CancelResourceRequest":    service.WrapOp(h.handleCancelResourceRequest),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.dispatchTable[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -121,28 +128,26 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// marshalError serialises a typed AWS error response into bytes.
+func marshalError(errType, message string) []byte {
+	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+
+	return payload
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusNotFound, payload)
+		return c.JSONBlob(http.StatusNotFound, marshalError("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "AlreadyExistsException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSONBlob(http.StatusConflict, marshalError("AlreadyExistsException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidRequestException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
@@ -153,6 +158,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 type createResourceInput struct {
 	TypeName     string `json:"TypeName"`
 	DesiredState string `json:"DesiredState"`
+	ClientToken  string `json:"ClientToken,omitempty"`
 }
 
 type createResourceOutput struct {
@@ -164,10 +170,10 @@ func (h *Handler) handleCreateResource(
 	in *createResourceInput,
 ) (*createResourceOutput, error) {
 	if in.TypeName == "" {
-		return nil, fmt.Errorf("%w: TypeName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: TypeName is required", ErrValidation)
 	}
 
-	event, err := h.Backend.CreateResource(in.TypeName, in.DesiredState)
+	event, err := h.Backend.CreateResource(in.TypeName, in.DesiredState, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -191,11 +197,11 @@ func (h *Handler) handleDeleteResource(
 	in *deleteResourceInput,
 ) (*deleteResourceOutput, error) {
 	if in.TypeName == "" {
-		return nil, fmt.Errorf("%w: TypeName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: TypeName is required", ErrValidation)
 	}
 
 	if in.Identifier == "" {
-		return nil, fmt.Errorf("%w: Identifier is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
 	event, err := h.Backend.DeleteResource(in.TypeName, in.Identifier)
@@ -228,11 +234,11 @@ func (h *Handler) handleGetResource(
 	in *getResourceInput,
 ) (*getResourceOutput, error) {
 	if in.TypeName == "" {
-		return nil, fmt.Errorf("%w: TypeName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: TypeName is required", ErrValidation)
 	}
 
 	if in.Identifier == "" {
-		return nil, fmt.Errorf("%w: Identifier is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
 	r, err := h.Backend.GetResource(in.TypeName, in.Identifier)
@@ -252,10 +258,13 @@ func (h *Handler) handleGetResource(
 // --- ListResources ---
 
 type listResourcesInput struct {
-	TypeName string `json:"TypeName"`
+	NextToken  *string `json:"NextToken,omitempty"`
+	MaxResults *int32  `json:"MaxResults,omitempty"`
+	TypeName   string  `json:"TypeName"`
 }
 
 type listResourcesOutput struct {
+	NextToken            *string                `json:"NextToken,omitempty"`
 	TypeName             string                 `json:"TypeName"`
 	ResourceDescriptions []*resourceDescription `json:"ResourceDescriptions"`
 }
@@ -265,10 +274,25 @@ func (h *Handler) handleListResources(
 	in *listResourcesInput,
 ) (*listResourcesOutput, error) {
 	if in.TypeName == "" {
-		return nil, fmt.Errorf("%w: TypeName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: TypeName is required", ErrValidation)
 	}
 
-	resources := h.Backend.ListResources(in.TypeName)
+	maxResults := 0
+	if in.MaxResults != nil {
+		maxResults = int(*in.MaxResults)
+	}
+
+	nextToken := ""
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	resources, outToken := h.Backend.ListResources(in.TypeName, maxResults, nextToken)
+	if resources == nil {
+		// TypeName did not pass validation — backend returned nil.
+		return nil, fmt.Errorf("%w: invalid TypeName %q", ErrValidation, in.TypeName)
+	}
+
 	descs := make([]*resourceDescription, 0, len(resources))
 
 	for _, r := range resources {
@@ -278,10 +302,16 @@ func (h *Handler) handleListResources(
 		})
 	}
 
-	return &listResourcesOutput{
+	out := &listResourcesOutput{
 		TypeName:             in.TypeName,
 		ResourceDescriptions: descs,
-	}, nil
+	}
+
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 // --- UpdateResource ---
@@ -301,11 +331,11 @@ func (h *Handler) handleUpdateResource(
 	in *updateResourceInput,
 ) (*updateResourceOutput, error) {
 	if in.TypeName == "" {
-		return nil, fmt.Errorf("%w: TypeName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: TypeName is required", ErrValidation)
 	}
 
 	if in.Identifier == "" {
-		return nil, fmt.Errorf("%w: Identifier is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
 	event, err := h.Backend.UpdateResource(in.TypeName, in.Identifier, in.PatchDocument)
@@ -331,7 +361,7 @@ func (h *Handler) handleGetResourceRequestStatus(
 	in *getResourceRequestStatusInput,
 ) (*getResourceRequestStatusOutput, error) {
 	if in.RequestToken == "" {
-		return nil, fmt.Errorf("%w: RequestToken is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: RequestToken is required", ErrValidation)
 	}
 
 	event, err := h.Backend.GetResourceRequestStatus(in.RequestToken)
@@ -357,7 +387,7 @@ func (h *Handler) handleCancelResourceRequest(
 	in *cancelResourceRequestInput,
 ) (*cancelResourceRequestOutput, error) {
 	if in.RequestToken == "" {
-		return nil, fmt.Errorf("%w: RequestToken is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: RequestToken is required", ErrValidation)
 	}
 
 	event, err := h.Backend.CancelResourceRequest(in.RequestToken)
@@ -366,4 +396,62 @@ func (h *Handler) handleCancelResourceRequest(
 	}
 
 	return &cancelResourceRequestOutput{ProgressEvent: event}, nil
+}
+
+// --- ListResourceRequests ---
+
+type resourceRequestStatusFilter struct {
+	TypeName          string   `json:"TypeName,omitempty"`
+	Operations        []string `json:"Operations"`
+	OperationStatuses []string `json:"OperationStatuses"`
+}
+
+type listResourceRequestsInput struct {
+	ResourceRequestStatusFilter *resourceRequestStatusFilter `json:"ResourceRequestStatusFilter"`
+	NextToken                   *string                      `json:"NextToken"`
+	MaxResults                  *int32                       `json:"MaxResults"`
+}
+
+type listResourceRequestsOutput struct {
+	NextToken                      *string          `json:"NextToken,omitempty"`
+	ResourceRequestStatusSummaries []*ProgressEvent `json:"ResourceRequestStatusSummaries"`
+}
+
+func (h *Handler) handleListResourceRequests(
+	_ context.Context,
+	in *listResourceRequestsInput,
+) (*listResourceRequestsOutput, error) {
+	var filter *ResourceRequestFilter
+	if in.ResourceRequestStatusFilter != nil {
+		filter = &ResourceRequestFilter{
+			Operations:        in.ResourceRequestStatusFilter.Operations,
+			OperationStatuses: in.ResourceRequestStatusFilter.OperationStatuses,
+			TypeName:          in.ResourceRequestStatusFilter.TypeName,
+		}
+	}
+
+	maxResults := 0
+	if in.MaxResults != nil {
+		maxResults = int(*in.MaxResults)
+	}
+
+	nextToken := ""
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	events, outToken, err := h.Backend.ListResourceRequests(filter, maxResults, nextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &listResourceRequestsOutput{
+		ResourceRequestStatusSummaries: events,
+	}
+
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
