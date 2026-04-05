@@ -5,6 +5,10 @@ import (
 	"fmt"
 )
 
+// ErrValidation is a sentinel used for validation-related errors so callers can
+// use [errors.Is] without parsing error message strings.
+var ErrValidation = errors.New("validation error")
+
 // Sentinel errors for path operations.
 var (
 	ErrUnclosedBracket = errors.New("unclosed bracket in path")
@@ -136,6 +140,15 @@ func NewTransactionInProgressException(msg string) *Error {
 func NewExpiredIteratorException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ExpiredIteratorException",
+		Message: msg,
+	}
+}
+
+// NewBackupInUseException returns an error indicating that a backup with the same name
+// already exists for the table, or the backup ARN is already in use.
+func NewBackupInUseException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#BackupInUseException",
 		Message: msg,
 	}
 }

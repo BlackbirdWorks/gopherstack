@@ -53,18 +53,19 @@ type InMemoryDB struct {
 
 // Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
 type Backup struct {
-	CreationDateTime     time.Time                    `json:"CreationDateTime"`
-	TableArn             string                       `json:"TableArn"`
-	TableID              string                       `json:"TableID"`
-	BackupArn            string                       `json:"BackupArn"`
-	BackupName           string                       `json:"BackupName"`
-	BackupStatus         string                       `json:"BackupStatus"`
-	BackupType           string                       `json:"BackupType"`
-	TableName            string                       `json:"TableName"`
-	Items                []map[string]any             `json:"Items"`
-	KeySchema            []models.KeySchemaElement    `json:"KeySchema"`
-	AttributeDefinitions []models.AttributeDefinition `json:"AttributeDefinitions"`
-	SizeBytes            int64                        `json:"SizeBytes"`
+	CreationDateTime      time.Time                               `json:"CreationDateTime"`
+	TableArn              string                                  `json:"TableArn"`
+	TableID               string                                  `json:"TableID"`
+	BackupArn             string                                  `json:"BackupArn"`
+	BackupName            string                                  `json:"BackupName"`
+	BackupStatus          string                                  `json:"BackupStatus"`
+	BackupType            string                                  `json:"BackupType"`
+	TableName             string                                  `json:"TableName"`
+	Items                 []map[string]any                        `json:"Items"`
+	KeySchema             []models.KeySchemaElement               `json:"KeySchema"`
+	AttributeDefinitions  []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	ProvisionedThroughput models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	SizeBytes             int64                                   `json:"SizeBytes"`
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.

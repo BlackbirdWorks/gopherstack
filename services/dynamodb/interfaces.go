@@ -132,4 +132,24 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.DescribeImportInput,
 	) (*dynamodb.DescribeImportOutput, error)
+
+	// Backup Operations
+	CreateBackup(
+		context.Context,
+		*dynamodb.CreateBackupInput,
+	) (*dynamodb.CreateBackupOutput, error)
+	DescribeBackup(
+		context.Context,
+		*dynamodb.DescribeBackupInput,
+	) (*dynamodb.DescribeBackupOutput, error)
+	DeleteBackup(
+		context.Context,
+		*dynamodb.DeleteBackupInput,
+	) (*dynamodb.DeleteBackupOutput, error)
+
+	// PartiQL Batch Operations
+	BatchExecuteStatement(
+		context.Context,
+		*dynamodb.BatchExecuteStatementInput,
+	) (*dynamodb.BatchExecuteStatementOutput, error)
 }
