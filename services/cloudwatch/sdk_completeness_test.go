@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := cloudwatch.NewInMemoryBackend()
 	h := cloudwatch.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &cloudwatchsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteAlarmMuteRule",
-		"DeleteAnomalyDetector",
-		"DeleteInsightRules",
-		"DeleteMetricStream",
-		"DescribeAlarmContributors",
-		"DescribeAnomalyDetectors",
-		"DescribeInsightRules",
-		"DisableInsightRules",
-		"EnableInsightRules",
-		"GetAlarmMuteRule",
 		"GetInsightRuleReport",
 		"GetMetricStream",
 		"GetMetricWidgetImage",

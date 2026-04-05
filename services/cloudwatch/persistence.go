@@ -5,12 +5,16 @@ import (
 )
 
 type backendSnapshot struct {
-	Metrics         map[string]map[string][]MetricDatum `json:"metrics"`
-	Alarms          map[string]*MetricAlarm             `json:"alarms"`
-	CompositeAlarms map[string]*CompositeAlarm          `json:"compositeAlarms"`
-	AlarmHistory    map[string][]AlarmHistoryItem       `json:"alarmHistory"`
-	AccountID       string                              `json:"accountID"`
-	Region          string                              `json:"region"`
+	Metrics          map[string]map[string][]MetricDatum `json:"metrics"`
+	Alarms           map[string]*MetricAlarm             `json:"alarms"`
+	CompositeAlarms  map[string]*CompositeAlarm          `json:"compositeAlarms"`
+	AlarmHistory     map[string][]AlarmHistoryItem       `json:"alarmHistory"`
+	AnomalyDetectors map[string]*AnomalyDetector         `json:"anomalyDetectors"`
+	InsightRules     map[string]*InsightRule             `json:"insightRules"`
+	MetricStreams    map[string]*MetricStream            `json:"metricStreams"`
+	AlarmMuteRules   map[string]*AlarmMuteRule           `json:"alarmMuteRules"`
+	AccountID        string                              `json:"accountID"`
+	Region           string                              `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -20,12 +24,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Metrics:         b.metrics,
-		Alarms:          b.alarms,
-		CompositeAlarms: b.compositeAlarms,
-		AlarmHistory:    b.alarmHistory,
-		AccountID:       b.accountID,
-		Region:          b.region,
+		Metrics:          b.metrics,
+		Alarms:           b.alarms,
+		CompositeAlarms:  b.compositeAlarms,
+		AlarmHistory:     b.alarmHistory,
+		AnomalyDetectors: b.anomalyDetectors,
+		InsightRules:     b.insightRules,
+		MetricStreams:    b.metricStreams,
+		AlarmMuteRules:   b.alarmMuteRules,
+		AccountID:        b.accountID,
+		Region:           b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -64,10 +72,30 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.AlarmHistory = make(map[string][]AlarmHistoryItem)
 	}
 
+	if snap.AnomalyDetectors == nil {
+		snap.AnomalyDetectors = make(map[string]*AnomalyDetector)
+	}
+
+	if snap.InsightRules == nil {
+		snap.InsightRules = make(map[string]*InsightRule)
+	}
+
+	if snap.MetricStreams == nil {
+		snap.MetricStreams = make(map[string]*MetricStream)
+	}
+
+	if snap.AlarmMuteRules == nil {
+		snap.AlarmMuteRules = make(map[string]*AlarmMuteRule)
+	}
+
 	b.metrics = snap.Metrics
 	b.alarms = snap.Alarms
 	b.compositeAlarms = snap.CompositeAlarms
 	b.alarmHistory = snap.AlarmHistory
+	b.anomalyDetectors = snap.AnomalyDetectors
+	b.insightRules = snap.InsightRules
+	b.metricStreams = snap.MetricStreams
+	b.alarmMuteRules = snap.AlarmMuteRules
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

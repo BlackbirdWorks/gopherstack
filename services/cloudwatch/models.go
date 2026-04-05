@@ -115,3 +115,53 @@ type DashboardEntry struct {
 	DashboardName string    `json:"DashboardName"`
 	Size          int64     `json:"Size"`
 }
+
+// AnomalyDetector represents a CloudWatch anomaly detector.
+type AnomalyDetector struct {
+	Namespace  string `json:"Namespace"`
+	MetricName string `json:"MetricName"`
+	Stat       string `json:"Stat"`
+	StateValue string `json:"StateValue"`
+}
+
+// InsightRule represents a CloudWatch Contributor Insights rule.
+type InsightRule struct {
+	Name        string `json:"Name"`
+	State       string `json:"State"`
+	Schema      string `json:"Schema"`
+	Definition  string `json:"Definition"`
+	ManagedRule bool   `json:"ManagedRule"`
+}
+
+// MetricStream represents a CloudWatch metric stream.
+type MetricStream struct {
+	CreationDate   time.Time `json:"CreationDate"`
+	LastUpdateDate time.Time `json:"LastUpdateDate"`
+	Name           string    `json:"Name"`
+	FirehoseArn    string    `json:"FirehoseArn"`
+	RoleArn        string    `json:"RoleArn"`
+	OutputFormat   string    `json:"OutputFormat"`
+	State          string    `json:"State"`
+	Arn            string    `json:"Arn"`
+}
+
+// AlarmMuteRule represents a CloudWatch alarm mute rule.
+type AlarmMuteRule struct {
+	CreationTime  time.Time `json:"CreationTime"`
+	MuteStartTime time.Time `json:"MuteStartTime"`
+	MuteName      string    `json:"MuteName"`
+	Description   string    `json:"Description,omitempty"`
+	MuteDuration  int32     `json:"MuteDuration"`
+}
+
+// AlarmContributor represents a single contributor returned by DescribeAlarmContributors.
+type AlarmContributor struct {
+	Keys []string `json:"Keys"`
+	Sum  float64  `json:"Sum"`
+}
+
+// InsightRuleFailure represents a failed rule in batch insight rule operations.
+type InsightRuleFailure struct {
+	RuleName    string `json:"RuleName"`
+	FailureCode string `json:"FailureCode"`
+}

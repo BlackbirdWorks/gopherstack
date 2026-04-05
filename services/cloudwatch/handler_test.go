@@ -697,3 +697,481 @@ func TestCloudWatchHandler_GetSupportedOperations_DashboardOps(t *testing.T) {
 	assert.Contains(t, ops, "ListDashboards")
 	assert.Contains(t, ops, "DeleteDashboards")
 }
+
+// newCWHandlerWithBackend creates a handler and returns it alongside the typed backend for seeding.
+func newCWHandlerWithBackend() (*cloudwatch.Handler, *cloudwatch.InMemoryBackend) {
+	backend := cloudwatch.NewInMemoryBackend()
+
+	return cloudwatch.NewHandler(backend), backend
+}
+
+func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler, b *cloudwatch.InMemoryBackend)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "GetAlarmMuteRule/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{
+					MuteName:    "my-mute-rule",
+					Description: "suppress noisy alerts",
+				})
+			},
+			body:         "Action=GetAlarmMuteRule&MuteName=my-mute-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetAlarmMuteRuleResponse", "my-mute-rule", "suppress noisy alerts"},
+		},
+		{
+			name:     "GetAlarmMuteRule/not found",
+			body:     "Action=GetAlarmMuteRule&MuteName=ghost-rule",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "GetAlarmMuteRule/missing name",
+			body:     "Action=GetAlarmMuteRule",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DeleteAlarmMuteRule/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "delete-me"})
+			},
+			body:         "Action=DeleteAlarmMuteRule&MuteName=delete-me",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteAlarmMuteRuleResponse"},
+		},
+		{
+			name:     "DeleteAlarmMuteRule/not found",
+			body:     "Action=DeleteAlarmMuteRule&MuteName=ghost-rule",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteAlarmMuteRule/missing name",
+			body:     "Action=DeleteAlarmMuteRule",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newCWHandlerWithBackend()
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_AnomalyDetector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler, b *cloudwatch.InMemoryBackend)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "DescribeAnomalyDetectors/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{
+					Namespace:  "AWS/EC2",
+					MetricName: "CPUUtilization",
+					Stat:       "Average",
+				})
+			},
+			body:         "Action=DescribeAnomalyDetectors&Namespace=AWS/EC2",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAnomalyDetectorsResponse", "CPUUtilization"},
+		},
+		{
+			name:         "DescribeAnomalyDetectors/empty",
+			body:         "Action=DescribeAnomalyDetectors",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAnomalyDetectorsResponse"},
+		},
+		{
+			name: "DescribeAnomalyDetectors/namespace filter",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{
+					Namespace:  "AWS/EC2",
+					MetricName: "CPUUtilization",
+					Stat:       "Average",
+				})
+				b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{
+					Namespace:  "AWS/RDS",
+					MetricName: "DatabaseConnections",
+					Stat:       "Sum",
+				})
+			},
+			body:            "Action=DescribeAnomalyDetectors&Namespace=AWS/EC2",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"CPUUtilization"},
+			wantNotContains: []string{"DatabaseConnections"},
+		},
+		{
+			name: "DeleteAnomalyDetector/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{
+					Namespace:  "NS",
+					MetricName: "Metric",
+					Stat:       "Sum",
+				})
+			},
+			body: "Action=DeleteAnomalyDetector" +
+				"&SingleMetricAnomalyDetector.Namespace=NS" +
+				"&SingleMetricAnomalyDetector.MetricName=Metric" +
+				"&SingleMetricAnomalyDetector.Stat=Sum",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteAnomalyDetectorResponse"},
+		},
+		{
+			name: "DeleteAnomalyDetector/not found",
+			body: "Action=DeleteAnomalyDetector" +
+				"&SingleMetricAnomalyDetector.Namespace=NS" +
+				"&SingleMetricAnomalyDetector.MetricName=Ghost" +
+				"&SingleMetricAnomalyDetector.Stat=Sum",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteAnomalyDetector/missing namespace",
+			body:     "Action=DeleteAnomalyDetector&SingleMetricAnomalyDetector.MetricName=M",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newCWHandlerWithBackend()
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_InsightRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler, b *cloudwatch.InMemoryBackend)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "DescribeInsightRules/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-alpha", State: "ENABLED"})
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-beta", State: "DISABLED"})
+			},
+			body:         "Action=DescribeInsightRules",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeInsightRulesResponse", "rule-alpha", "rule-beta"},
+		},
+		{
+			name:         "DescribeInsightRules/empty",
+			body:         "Action=DescribeInsightRules",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeInsightRulesResponse"},
+		},
+		{
+			name: "DeleteInsightRules/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "del-rule"})
+			},
+			body:         "Action=DeleteInsightRules&RuleNames.member.1=del-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteInsightRulesResponse"},
+		},
+		{
+			name:         "DeleteInsightRules/not found returns failure entry",
+			body:         "Action=DeleteInsightRules&RuleNames.member.1=ghost-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteInsightRulesResponse", "ResourceNotFoundException"},
+		},
+		{
+			name:     "DeleteInsightRules/missing rule names",
+			body:     "Action=DeleteInsightRules",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DisableInsightRules/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "enabled-rule", State: "ENABLED"})
+			},
+			body:         "Action=DisableInsightRules&RuleNames.member.1=enabled-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DisableInsightRulesResponse"},
+		},
+		{
+			name:         "DisableInsightRules/not found returns failure entry",
+			body:         "Action=DisableInsightRules&RuleNames.member.1=ghost-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DisableInsightRulesResponse", "ResourceNotFoundException"},
+		},
+		{
+			name:     "DisableInsightRules/missing rule names",
+			body:     "Action=DisableInsightRules",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "EnableInsightRules/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "disabled-rule", State: "DISABLED"})
+			},
+			body:         "Action=EnableInsightRules&RuleNames.member.1=disabled-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"EnableInsightRulesResponse"},
+		},
+		{
+			name:         "EnableInsightRules/not found returns failure entry",
+			body:         "Action=EnableInsightRules&RuleNames.member.1=ghost-rule",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"EnableInsightRulesResponse", "ResourceNotFoundException"},
+		},
+		{
+			name:     "EnableInsightRules/missing rule names",
+			body:     "Action=EnableInsightRules",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newCWHandlerWithBackend()
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_MetricStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler, b *cloudwatch.InMemoryBackend)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "DeleteMetricStream/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "my-stream"})
+			},
+			body:         "Action=DeleteMetricStream&Name=my-stream",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteMetricStreamResponse"},
+		},
+		{
+			name:     "DeleteMetricStream/not found",
+			body:     "Action=DeleteMetricStream&Name=ghost-stream",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteMetricStream/missing name",
+			body:     "Action=DeleteMetricStream",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newCWHandlerWithBackend()
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_DescribeAlarmContributors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "DescribeAlarmContributors/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=alarm-with-contrib&Namespace=NS&MetricName=M")
+			},
+			body:         "Action=DescribeAlarmContributors&AlarmName=alarm-with-contrib",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmContributorsResponse"},
+		},
+		{
+			name:     "DescribeAlarmContributors/alarm not found",
+			body:     "Action=DescribeAlarmContributors&AlarmName=ghost-alarm",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DescribeAlarmContributors/missing alarm name",
+			body:     "Action=DescribeAlarmContributors",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCWHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_InsightRulesStateLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h, b := newCWHandlerWithBackend()
+
+	// Seed an enabled insight rule.
+	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "lifecycle-rule", State: "ENABLED"})
+
+	// Describe: should see ENABLED.
+	rec := postForm(t, h, "Action=DescribeInsightRules")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ENABLED")
+	assert.Contains(t, rec.Body.String(), "lifecycle-rule")
+
+	// Disable it.
+	rec = postForm(t, h, "Action=DisableInsightRules&RuleNames.member.1=lifecycle-rule")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DisableInsightRulesResponse")
+
+	// Describe: should see DISABLED now.
+	rec = postForm(t, h, "Action=DescribeInsightRules")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DISABLED")
+
+	// Re-enable it.
+	rec = postForm(t, h, "Action=EnableInsightRules&RuleNames.member.1=lifecycle-rule")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "EnableInsightRulesResponse")
+
+	// Describe: should see ENABLED again.
+	rec = postForm(t, h, "Action=DescribeInsightRules")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ENABLED")
+
+	// Delete it.
+	rec = postForm(t, h, "Action=DeleteInsightRules&RuleNames.member.1=lifecycle-rule")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DeleteInsightRulesResponse")
+
+	// Describe: rule should be gone, no failures in describe.
+	rec = postForm(t, h, "Action=DescribeInsightRules")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "lifecycle-rule")
+}
+
+func TestCloudWatchHandler_NewOpsInSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+	ops := h.GetSupportedOperations()
+
+	require.Contains(t, ops, "DeleteAlarmMuteRule")
+	require.Contains(t, ops, "DeleteAnomalyDetector")
+	require.Contains(t, ops, "DeleteInsightRules")
+	require.Contains(t, ops, "DeleteMetricStream")
+	require.Contains(t, ops, "DescribeAlarmContributors")
+	require.Contains(t, ops, "DescribeAnomalyDetectors")
+	require.Contains(t, ops, "DescribeInsightRules")
+	require.Contains(t, ops, "DisableInsightRules")
+	require.Contains(t, ops, "EnableInsightRules")
+	require.Contains(t, ops, "GetAlarmMuteRule")
+}
