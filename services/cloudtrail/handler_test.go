@@ -1233,7 +1233,7 @@ func TestCloudTrailDashboard(t *testing.T) {
 				resp := parseCloudTrailResp(t, rec)
 				assert.NotEmpty(t, resp["DashboardArn"])
 				assert.Equal(t, "my-dashboard", resp["Name"])
-				assert.Equal(t, "CREATING", resp["Status"])
+				assert.Equal(t, "CREATED", resp["Status"])
 			},
 		},
 		{
@@ -1305,7 +1305,7 @@ func TestCloudTrailEventDataStore(t *testing.T) {
 				resp := parseCloudTrailResp(t, rec)
 				assert.NotEmpty(t, resp["EventDataStoreArn"])
 				assert.Equal(t, "my-eds", resp["Name"])
-				assert.Equal(t, "CREATED", resp["Status"])
+				assert.Equal(t, "ENABLED", resp["Status"])
 				assert.Equal(t, true, resp["MultiRegionEnabled"])
 				assert.Equal(t, true, resp["TerminationProtectionEnabled"])
 			},

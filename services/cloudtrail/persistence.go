@@ -98,6 +98,26 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.edsCounter = snap.EDSCounter
 	b.queryCounter = snap.QueryCounter
 
+	// Rebuild secondary indexes from restored state.
+	b.channelsByARN = make(map[string]string, len(b.channels))
+	b.channelsByName = make(map[string]string, len(b.channels))
+	for id, ch := range b.channels {
+		b.channelsByARN[ch.ChannelARN] = id
+		b.channelsByName[ch.Name] = id
+	}
+	b.dashboardsByARN = make(map[string]string, len(b.dashboards))
+	b.dashboardsByName = make(map[string]string, len(b.dashboards))
+	for id, d := range b.dashboards {
+		b.dashboardsByARN[d.DashboardARN] = id
+		b.dashboardsByName[d.Name] = id
+	}
+	b.edsByARN = make(map[string]string, len(b.eventDataStores))
+	b.edsByName = make(map[string]string, len(b.eventDataStores))
+	for id, eds := range b.eventDataStores {
+		b.edsByARN[eds.EventDataStoreARN] = id
+		b.edsByName[eds.Name] = id
+	}
+
 	return nil
 }
 

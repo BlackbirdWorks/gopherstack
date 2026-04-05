@@ -166,6 +166,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errResp("TrailNotFoundException", err.Error()))
+	case errors.Is(err, ErrChannelNotFound):
+		return c.JSON(http.StatusNotFound, errResp("ChannelNotFoundException", err.Error()))
+	case errors.Is(err, ErrDashboardNotFound):
+		return c.JSON(http.StatusNotFound, errResp("DashboardNotFoundException", err.Error()))
+	case errors.Is(err, ErrEventDataStoreNotFound):
+		return c.JSON(http.StatusNotFound, errResp("EventDataStoreNotFoundException", err.Error()))
+	case errors.Is(err, ErrQueryNotFound):
+		return c.JSON(http.StatusNotFound, errResp("InactiveQueryException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("TrailAlreadyExistsException", err.Error()))
 	case errors.Is(err, ErrValidation):
