@@ -61,21 +61,30 @@ func (h *Handler) Name() string { return "CodeBuild" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateProject",
-		"BatchGetProjects",
-		"UpdateProject",
-		"DeleteProject",
-		"ListProjects",
-		"StartBuild",
-		"BatchGetBuilds",
-		"StopBuild",
-		"RetryBuild",
 		"BatchDeleteBuilds",
+		"BatchGetBuildBatches",
+		"BatchGetBuilds",
+		"BatchGetCommandExecutions",
+		"BatchGetFleets",
+		"BatchGetProjects",
+		"BatchGetReportGroups",
+		"BatchGetReports",
+		"BatchGetSandboxes",
+		"CreateFleet",
+		"CreateProject",
+		"CreateReportGroup",
+		"CreateWebhook",
+		"DeleteProject",
 		"ListBuilds",
 		"ListBuildsForProject",
+		"ListProjects",
 		"ListTagsForResource",
+		"RetryBuild",
+		"StartBuild",
+		"StopBuild",
 		"TagResource",
 		"UntagResource",
+		"UpdateProject",
 	}
 }
 
@@ -125,21 +134,30 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateProject":        service.WrapOp(h.handleCreateProject),
-		"BatchGetProjects":     service.WrapOp(h.handleBatchGetProjects),
-		"UpdateProject":        service.WrapOp(h.handleUpdateProject),
-		"DeleteProject":        service.WrapOp(h.handleDeleteProject),
-		"ListProjects":         service.WrapOp(h.handleListProjects),
-		"StartBuild":           service.WrapOp(h.handleStartBuild),
-		"BatchGetBuilds":       service.WrapOp(h.handleBatchGetBuilds),
-		"StopBuild":            service.WrapOp(h.handleStopBuild),
-		"RetryBuild":           service.WrapOp(h.handleRetryBuild),
-		"BatchDeleteBuilds":    service.WrapOp(h.handleBatchDeleteBuilds),
-		"ListBuilds":           service.WrapOp(h.handleListBuilds),
-		"ListBuildsForProject": service.WrapOp(h.handleListBuildsForProject),
-		"ListTagsForResource":  service.WrapOp(h.handleListTagsForResource),
-		"TagResource":          service.WrapOp(h.handleTagResource),
-		"UntagResource":        service.WrapOp(h.handleUntagResource),
+		"BatchDeleteBuilds":         service.WrapOp(h.handleBatchDeleteBuilds),
+		"BatchGetBuildBatches":      service.WrapOp(h.handleBatchGetBuildBatches),
+		"BatchGetBuilds":            service.WrapOp(h.handleBatchGetBuilds),
+		"BatchGetCommandExecutions": service.WrapOp(h.handleBatchGetCommandExecutions),
+		"BatchGetFleets":            service.WrapOp(h.handleBatchGetFleets),
+		"BatchGetProjects":          service.WrapOp(h.handleBatchGetProjects),
+		"BatchGetReportGroups":      service.WrapOp(h.handleBatchGetReportGroups),
+		"BatchGetReports":           service.WrapOp(h.handleBatchGetReports),
+		"BatchGetSandboxes":         service.WrapOp(h.handleBatchGetSandboxes),
+		"CreateFleet":               service.WrapOp(h.handleCreateFleet),
+		"CreateProject":             service.WrapOp(h.handleCreateProject),
+		"CreateReportGroup":         service.WrapOp(h.handleCreateReportGroup),
+		"CreateWebhook":             service.WrapOp(h.handleCreateWebhook),
+		"DeleteProject":             service.WrapOp(h.handleDeleteProject),
+		"ListBuilds":                service.WrapOp(h.handleListBuilds),
+		"ListBuildsForProject":      service.WrapOp(h.handleListBuildsForProject),
+		"ListProjects":              service.WrapOp(h.handleListProjects),
+		"ListTagsForResource":       service.WrapOp(h.handleListTagsForResource),
+		"RetryBuild":                service.WrapOp(h.handleRetryBuild),
+		"StartBuild":                service.WrapOp(h.handleStartBuild),
+		"StopBuild":                 service.WrapOp(h.handleStopBuild),
+		"TagResource":               service.WrapOp(h.handleTagResource),
+		"UntagResource":             service.WrapOp(h.handleUntagResource),
+		"UpdateProject":             service.WrapOp(h.handleUpdateProject),
 	}
 }
 
@@ -528,4 +546,234 @@ func (h *Handler) handleUntagResource(
 	}
 
 	return &untagResourceOutput{}, nil
+}
+
+// --- Fleet operations ---
+
+type createFleetInput struct {
+	Tags            map[string]string `json:"tags"`
+	Name            string            `json:"name"`
+	ComputeType     string            `json:"computeType"`
+	EnvironmentType string            `json:"environmentType"`
+	BaseCapacity    int32             `json:"baseCapacity"`
+}
+
+type createFleetOutput struct {
+	Fleet *Fleet `json:"fleet"`
+}
+
+func (h *Handler) handleCreateFleet(
+	_ context.Context,
+	in *createFleetInput,
+) (*createFleetOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	f, err := h.Backend.CreateFleet(in.Name, in.BaseCapacity, in.ComputeType, in.EnvironmentType, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createFleetOutput{Fleet: f}, nil
+}
+
+type batchGetFleetsInput struct {
+	Names []string `json:"names"`
+}
+
+type batchGetFleetsOutput struct {
+	Fleets         []*Fleet `json:"fleets"`
+	FleetsNotFound []string `json:"fleetsNotFound"`
+}
+
+func (h *Handler) handleBatchGetFleets(
+	_ context.Context,
+	in *batchGetFleetsInput,
+) (*batchGetFleetsOutput, error) {
+	found, notFound := h.Backend.BatchGetFleets(in.Names)
+
+	return &batchGetFleetsOutput{
+		Fleets:         found,
+		FleetsNotFound: notFound,
+	}, nil
+}
+
+// --- ReportGroup operations ---
+
+type createReportGroupInput struct {
+	Tags         map[string]string  `json:"tags"`
+	ExportConfig ReportExportConfig `json:"exportConfig"`
+	Name         string             `json:"name"`
+	Type         string             `json:"type"`
+}
+
+type createReportGroupOutput struct {
+	ReportGroup *ReportGroup `json:"reportGroup"`
+}
+
+func (h *Handler) handleCreateReportGroup(
+	_ context.Context,
+	in *createReportGroupInput,
+) (*createReportGroupOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	if in.Type == "" {
+		return nil, fmt.Errorf("%w: type is required", errInvalidRequest)
+	}
+
+	rg, err := h.Backend.CreateReportGroup(in.Name, in.Type, in.ExportConfig, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createReportGroupOutput{ReportGroup: rg}, nil
+}
+
+type batchGetReportGroupsInput struct {
+	ReportGroupArns []string `json:"reportGroupArns"`
+}
+
+type batchGetReportGroupsOutput struct {
+	ReportGroups         []*ReportGroup `json:"reportGroups"`
+	ReportGroupsNotFound []string       `json:"reportGroupsNotFound"`
+}
+
+func (h *Handler) handleBatchGetReportGroups(
+	_ context.Context,
+	in *batchGetReportGroupsInput,
+) (*batchGetReportGroupsOutput, error) {
+	found, notFound := h.Backend.BatchGetReportGroups(in.ReportGroupArns)
+
+	return &batchGetReportGroupsOutput{
+		ReportGroups:         found,
+		ReportGroupsNotFound: notFound,
+	}, nil
+}
+
+// --- Report operations ---
+
+type batchGetReportsInput struct {
+	ReportArns []string `json:"reportArns"`
+}
+
+type batchGetReportsOutput struct {
+	Reports         []*Report `json:"reports"`
+	ReportsNotFound []string  `json:"reportsNotFound"`
+}
+
+func (h *Handler) handleBatchGetReports(
+	_ context.Context,
+	in *batchGetReportsInput,
+) (*batchGetReportsOutput, error) {
+	found, notFound := h.Backend.BatchGetReports(in.ReportArns)
+
+	return &batchGetReportsOutput{
+		Reports:         found,
+		ReportsNotFound: notFound,
+	}, nil
+}
+
+// --- BuildBatch operations ---
+
+type batchGetBuildBatchesInput struct {
+	IDs []string `json:"ids"`
+}
+
+type batchGetBuildBatchesOutput struct {
+	BuildBatches         []*BuildBatch `json:"buildBatches"`
+	BuildBatchesNotFound []string      `json:"buildBatchesNotFound"`
+}
+
+func (h *Handler) handleBatchGetBuildBatches(
+	_ context.Context,
+	in *batchGetBuildBatchesInput,
+) (*batchGetBuildBatchesOutput, error) {
+	found, notFound := h.Backend.BatchGetBuildBatches(in.IDs)
+
+	return &batchGetBuildBatchesOutput{
+		BuildBatches:         found,
+		BuildBatchesNotFound: notFound,
+	}, nil
+}
+
+// --- CommandExecution operations ---
+
+type batchGetCommandExecutionsInput struct {
+	SandboxID           string   `json:"sandboxId"`
+	CommandExecutionIDs []string `json:"commandExecutionIds"`
+}
+
+type batchGetCommandExecutionsOutput struct {
+	CommandExecutions         []*CommandExecution `json:"commandExecutions"`
+	CommandExecutionsNotFound []string            `json:"commandExecutionsNotFound"`
+}
+
+func (h *Handler) handleBatchGetCommandExecutions(
+	_ context.Context,
+	in *batchGetCommandExecutionsInput,
+) (*batchGetCommandExecutionsOutput, error) {
+	if in.SandboxID == "" {
+		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
+	}
+
+	found, notFound := h.Backend.BatchGetCommandExecutions(in.SandboxID, in.CommandExecutionIDs)
+
+	return &batchGetCommandExecutionsOutput{
+		CommandExecutions:         found,
+		CommandExecutionsNotFound: notFound,
+	}, nil
+}
+
+// --- Sandbox operations ---
+
+type batchGetSandboxesInput struct {
+	IDs []string `json:"ids"`
+}
+
+type batchGetSandboxesOutput struct {
+	Sandboxes         []*Sandbox `json:"sandboxes"`
+	SandboxesNotFound []string   `json:"sandboxesNotFound"`
+}
+
+func (h *Handler) handleBatchGetSandboxes(
+	_ context.Context,
+	in *batchGetSandboxesInput,
+) (*batchGetSandboxesOutput, error) {
+	found, notFound := h.Backend.BatchGetSandboxes(in.IDs)
+
+	return &batchGetSandboxesOutput{
+		Sandboxes:         found,
+		SandboxesNotFound: notFound,
+	}, nil
+}
+
+// --- Webhook operations ---
+
+type createWebhookInput struct {
+	ProjectName  string `json:"projectName"`
+	BranchFilter string `json:"branchFilter"`
+	BuildType    string `json:"buildType"`
+}
+
+type createWebhookOutput struct {
+	Webhook *Webhook `json:"webhook"`
+}
+
+func (h *Handler) handleCreateWebhook(
+	_ context.Context,
+	in *createWebhookInput,
+) (*createWebhookOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.CreateWebhook(in.ProjectName, in.BranchFilter, in.BuildType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createWebhookOutput{Webhook: w}, nil
 }

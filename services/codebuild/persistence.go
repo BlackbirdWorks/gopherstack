@@ -3,13 +3,82 @@ package codebuild
 import "encoding/json"
 
 type backendSnapshot struct {
-	Projects        map[string]*Project            `json:"projects"`
-	Builds          map[string]*Build              `json:"builds"`
-	BuildsByProject map[string]map[string]struct{} `json:"buildsByProject"`
-	ProjectARNIndex map[string]string              `json:"projectArnIndex"`
-	BuildARNIndex   map[string]string              `json:"buildArnIndex"`
-	AccountID       string                         `json:"accountID"`
-	Region          string                         `json:"region"`
+	Projects            map[string]*Project            `json:"projects"`
+	Builds              map[string]*Build              `json:"builds"`
+	BuildsByProject     map[string]map[string]struct{} `json:"buildsByProject"`
+	ProjectARNIndex     map[string]string              `json:"projectArnIndex"`
+	BuildARNIndex       map[string]string              `json:"buildArnIndex"`
+	Fleets              map[string]*Fleet              `json:"fleets"`
+	FleetARNIndex       map[string]string              `json:"fleetArnIndex"`
+	ReportGroups        map[string]*ReportGroup        `json:"reportGroups"`
+	ReportGroupARNIndex map[string]string              `json:"reportGroupArnIndex"`
+	Reports             map[string]*Report             `json:"reports"`
+	BuildBatches        map[string]*BuildBatch         `json:"buildBatches"`
+	CommandExecutions   map[string]*CommandExecution   `json:"commandExecutions"`
+	Sandboxes           map[string]*Sandbox            `json:"sandboxes"`
+	Webhooks            map[string]*Webhook            `json:"webhooks"`
+	AccountID           string                         `json:"accountID"`
+	Region              string                         `json:"region"`
+}
+
+// ensureNonNil replaces nil maps in the snapshot with empty initialized maps
+// so callers don't need to guard against nil after a Restore.
+func (s *backendSnapshot) ensureNonNil() {
+	if s.Projects == nil {
+		s.Projects = make(map[string]*Project)
+	}
+
+	if s.Builds == nil {
+		s.Builds = make(map[string]*Build)
+	}
+
+	if s.BuildsByProject == nil {
+		s.BuildsByProject = make(map[string]map[string]struct{})
+	}
+
+	if s.ProjectARNIndex == nil {
+		s.ProjectARNIndex = make(map[string]string)
+	}
+
+	if s.BuildARNIndex == nil {
+		s.BuildARNIndex = make(map[string]string)
+	}
+
+	if s.Fleets == nil {
+		s.Fleets = make(map[string]*Fleet)
+	}
+
+	if s.FleetARNIndex == nil {
+		s.FleetARNIndex = make(map[string]string)
+	}
+
+	if s.ReportGroups == nil {
+		s.ReportGroups = make(map[string]*ReportGroup)
+	}
+
+	if s.ReportGroupARNIndex == nil {
+		s.ReportGroupARNIndex = make(map[string]string)
+	}
+
+	if s.Reports == nil {
+		s.Reports = make(map[string]*Report)
+	}
+
+	if s.BuildBatches == nil {
+		s.BuildBatches = make(map[string]*BuildBatch)
+	}
+
+	if s.CommandExecutions == nil {
+		s.CommandExecutions = make(map[string]*CommandExecution)
+	}
+
+	if s.Sandboxes == nil {
+		s.Sandboxes = make(map[string]*Sandbox)
+	}
+
+	if s.Webhooks == nil {
+		s.Webhooks = make(map[string]*Webhook)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -18,13 +87,22 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Projects:        b.projects,
-		Builds:          b.builds,
-		BuildsByProject: b.buildsByProject,
-		ProjectARNIndex: b.projectARNIndex,
-		BuildARNIndex:   b.buildARNIndex,
-		AccountID:       b.accountID,
-		Region:          b.region,
+		Projects:            b.projects,
+		Builds:              b.builds,
+		BuildsByProject:     b.buildsByProject,
+		ProjectARNIndex:     b.projectARNIndex,
+		BuildARNIndex:       b.buildARNIndex,
+		Fleets:              b.fleets,
+		FleetARNIndex:       b.fleetARNIndex,
+		ReportGroups:        b.reportGroups,
+		ReportGroupARNIndex: b.reportGroupARNIndex,
+		Reports:             b.reports,
+		BuildBatches:        b.buildBatches,
+		CommandExecutions:   b.commandExecutions,
+		Sandboxes:           b.sandboxes,
+		Webhooks:            b.webhooks,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	data, _ := json.Marshal(snap)
@@ -40,34 +118,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.ensureNonNil()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Projects == nil {
-		snap.Projects = make(map[string]*Project)
-	}
-
-	if snap.Builds == nil {
-		snap.Builds = make(map[string]*Build)
-	}
-
-	if snap.BuildsByProject == nil {
-		snap.BuildsByProject = make(map[string]map[string]struct{})
-	}
-
-	if snap.ProjectARNIndex == nil {
-		snap.ProjectARNIndex = make(map[string]string)
-	}
-
-	if snap.BuildARNIndex == nil {
-		snap.BuildARNIndex = make(map[string]string)
-	}
 
 	b.projects = snap.Projects
 	b.builds = snap.Builds
 	b.buildsByProject = snap.BuildsByProject
 	b.projectARNIndex = snap.ProjectARNIndex
 	b.buildARNIndex = snap.BuildARNIndex
+	b.fleets = snap.Fleets
+	b.fleetARNIndex = snap.FleetARNIndex
+	b.reportGroups = snap.ReportGroups
+	b.reportGroupARNIndex = snap.ReportGroupARNIndex
+	b.reports = snap.Reports
+	b.buildBatches = snap.BuildBatches
+	b.commandExecutions = snap.CommandExecutions
+	b.sandboxes = snap.Sandboxes
+	b.webhooks = snap.Webhooks
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

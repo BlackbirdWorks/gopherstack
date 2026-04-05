@@ -18,15 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codebuild.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &codebuildsdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchGetBuildBatches",
-		"BatchGetCommandExecutions",
-		"BatchGetFleets",
-		"BatchGetReportGroups",
-		"BatchGetReports",
-		"BatchGetSandboxes",
-		"CreateFleet",
-		"CreateReportGroup",
-		"CreateWebhook",
 		"DeleteBuildBatch",
 		"DeleteFleet",
 		"DeleteReport",

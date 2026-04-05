@@ -66,29 +66,125 @@ type Build struct {
 	EndTime      float64           `json:"endTime,omitempty"`
 }
 
+// ReportExportConfig represents the export configuration for a CodeBuild report group.
+type ReportExportConfig struct {
+	ExportConfigType string `json:"exportConfigType,omitempty"`
+}
+
+// ReportGroup represents an in-memory AWS CodeBuild report group.
+type ReportGroup struct {
+	Tags         map[string]string  `json:"tags,omitempty"`
+	ExportConfig ReportExportConfig `json:"exportConfig"`
+	Arn          string             `json:"arn"`
+	Name         string             `json:"name"`
+	Type         string             `json:"type"`
+	Status       string             `json:"status"`
+	Created      float64            `json:"created,omitempty"`
+	LastModified float64            `json:"lastModified,omitempty"`
+}
+
+// Report represents an in-memory AWS CodeBuild report.
+type Report struct {
+	Arn            string  `json:"arn"`
+	ReportGroupArn string  `json:"reportGroupArn,omitempty"`
+	ExecutionID    string  `json:"executionId,omitempty"`
+	Type           string  `json:"type,omitempty"`
+	Status         string  `json:"status"`
+	Created        float64 `json:"created,omitempty"`
+	Expired        float64 `json:"expired,omitempty"`
+}
+
+// Fleet represents an in-memory AWS CodeBuild compute fleet.
+type Fleet struct {
+	Tags            map[string]string `json:"tags,omitempty"`
+	Arn             string            `json:"arn"`
+	Name            string            `json:"name"`
+	ComputeType     string            `json:"computeType,omitempty"`
+	EnvironmentType string            `json:"environmentType,omitempty"`
+	Status          string            `json:"status"`
+	BaseCapacity    int32             `json:"baseCapacity"`
+	Created         float64           `json:"created,omitempty"`
+	LastModified    float64           `json:"lastModified,omitempty"`
+}
+
+// BuildBatch represents an in-memory AWS CodeBuild build batch.
+type BuildBatch struct {
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	Arn              string            `json:"arn"`
+	ProjectName      string            `json:"projectName"`
+	BuildBatchStatus string            `json:"buildBatchStatus"`
+	StartTime        float64           `json:"startTime,omitempty"`
+}
+
+// CommandExecution represents an in-memory AWS CodeBuild command execution.
+type CommandExecution struct {
+	ID         string  `json:"id"`
+	SandboxID  string  `json:"sandboxId"`
+	SandboxArn string  `json:"sandboxArn,omitempty"`
+	Command    string  `json:"command,omitempty"`
+	Status     string  `json:"status"`
+	StartTime  float64 `json:"startTime,omitempty"`
+}
+
+// Sandbox represents an in-memory AWS CodeBuild sandbox.
+type Sandbox struct {
+	ID          string  `json:"id"`
+	Arn         string  `json:"arn"`
+	ProjectName string  `json:"projectName,omitempty"`
+	Status      string  `json:"status"`
+	StartTime   float64 `json:"startTime,omitempty"`
+}
+
+// Webhook represents an in-memory AWS CodeBuild webhook.
+type Webhook struct {
+	ProjectName  string `json:"projectName"`
+	URL          string `json:"url,omitempty"`
+	BranchFilter string `json:"branchFilter,omitempty"`
+	BuildType    string `json:"buildType,omitempty"`
+}
+
 // InMemoryBackend is a thread-safe in-memory store for CodeBuild resources.
 type InMemoryBackend struct {
-	projects        map[string]*Project
-	builds          map[string]*Build
-	buildsByProject map[string]map[string]struct{} // project name → set of build full IDs
-	projectARNIndex map[string]string              // ARN → project name
-	buildARNIndex   map[string]string              // ARN → build ID
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	projects            map[string]*Project
+	builds              map[string]*Build
+	buildsByProject     map[string]map[string]struct{} // project name → set of build full IDs
+	projectARNIndex     map[string]string              // ARN → project name
+	buildARNIndex       map[string]string              // ARN → build ID
+	fleets              map[string]*Fleet              // name → Fleet
+	fleetARNIndex       map[string]string              // ARN → name
+	reportGroups        map[string]*ReportGroup        // name → ReportGroup
+	reportGroupARNIndex map[string]string              // ARN → name
+	reports             map[string]*Report             // ARN → Report
+	buildBatches        map[string]*BuildBatch         // ID → BuildBatch
+	commandExecutions   map[string]*CommandExecution   // ID → CommandExecution
+	sandboxes           map[string]*Sandbox            // ID → Sandbox
+	webhooks            map[string]*Webhook            // projectName → Webhook
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		projects:        make(map[string]*Project),
-		builds:          make(map[string]*Build),
-		buildsByProject: make(map[string]map[string]struct{}),
-		projectARNIndex: make(map[string]string),
-		buildARNIndex:   make(map[string]string),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("codebuild"),
+		projects:            make(map[string]*Project),
+		builds:              make(map[string]*Build),
+		buildsByProject:     make(map[string]map[string]struct{}),
+		projectARNIndex:     make(map[string]string),
+		buildARNIndex:       make(map[string]string),
+		fleets:              make(map[string]*Fleet),
+		fleetARNIndex:       make(map[string]string),
+		reportGroups:        make(map[string]*ReportGroup),
+		reportGroupARNIndex: make(map[string]string),
+		reports:             make(map[string]*Report),
+		buildBatches:        make(map[string]*BuildBatch),
+		commandExecutions:   make(map[string]*CommandExecution),
+		sandboxes:           make(map[string]*Sandbox),
+		webhooks:            make(map[string]*Webhook),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("codebuild"),
 	}
 }
 
@@ -507,4 +603,292 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	}
 
 	return ErrNotFound
+}
+
+// --- Fleet operations ---
+
+func (b *InMemoryBackend) buildFleetARN(name string) string {
+	return arn.Build("codebuild", b.region, b.accountID, "fleet/"+name)
+}
+
+func (b *InMemoryBackend) buildReportGroupARN(name string) string {
+	return arn.Build("codebuild", b.region, b.accountID, "report-group/"+name)
+}
+
+func (b *InMemoryBackend) buildWebhookURL(projectName string) string {
+	return "https://codebuild." + b.region + ".amazonaws.com/webhooks/" + projectName
+}
+
+// CreateFleet creates a new compute fleet.
+func (b *InMemoryBackend) CreateFleet(
+	name string, baseCapacity int32, computeType, environmentType string, tags map[string]string,
+) (*Fleet, error) {
+	b.mu.Lock("CreateFleet")
+	defer b.mu.Unlock()
+
+	if _, exists := b.fleets[name]; exists {
+		return nil, ErrAlreadyExists
+	}
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	now := float64(time.Now().Unix())
+	f := &Fleet{
+		Arn:             b.buildFleetARN(name),
+		Name:            name,
+		BaseCapacity:    baseCapacity,
+		ComputeType:     computeType,
+		EnvironmentType: environmentType,
+		Status:          "ACTIVE",
+		Tags:            tagsCopy,
+		Created:         now,
+		LastModified:    now,
+	}
+	b.fleets[name] = f
+	b.fleetARNIndex[f.Arn] = name
+
+	out := *f
+
+	return &out, nil
+}
+
+// BatchGetFleets returns fleets by name or ARN. Missing names are returned separately.
+func (b *InMemoryBackend) BatchGetFleets(names []string) ([]*Fleet, []string) {
+	b.mu.RLock("BatchGetFleets")
+	defer b.mu.RUnlock()
+
+	found := make([]*Fleet, 0, len(names))
+	notFound := make([]string, 0)
+
+	for _, nameOrARN := range names {
+		name := nameOrARN
+		if n, ok := b.fleetARNIndex[nameOrARN]; ok {
+			name = n
+		}
+
+		if f, ok := b.fleets[name]; ok {
+			out := *f
+			found = append(found, &out)
+		} else {
+			notFound = append(notFound, nameOrARN)
+		}
+	}
+
+	return found, notFound
+}
+
+// --- ReportGroup operations ---
+
+// CreateReportGroup creates a new report group.
+func (b *InMemoryBackend) CreateReportGroup(
+	name, rtype string, exportConfig ReportExportConfig, tags map[string]string,
+) (*ReportGroup, error) {
+	b.mu.Lock("CreateReportGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.reportGroups[name]; exists {
+		return nil, ErrAlreadyExists
+	}
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	now := float64(time.Now().Unix())
+	rg := &ReportGroup{
+		Arn:          b.buildReportGroupARN(name),
+		Name:         name,
+		Type:         rtype,
+		Status:       "ACTIVE",
+		ExportConfig: exportConfig,
+		Tags:         tagsCopy,
+		Created:      now,
+		LastModified: now,
+	}
+	b.reportGroups[name] = rg
+	b.reportGroupARNIndex[rg.Arn] = name
+
+	out := *rg
+
+	return &out, nil
+}
+
+// BatchGetReportGroups returns report groups by ARN. Missing ARNs are returned separately.
+func (b *InMemoryBackend) BatchGetReportGroups(arns []string) ([]*ReportGroup, []string) {
+	b.mu.RLock("BatchGetReportGroups")
+	defer b.mu.RUnlock()
+
+	found := make([]*ReportGroup, 0, len(arns))
+	notFound := make([]string, 0)
+
+	for _, a := range arns {
+		name, ok := b.reportGroupARNIndex[a]
+		if !ok {
+			// also try by name for convenience
+			if _, nameOK := b.reportGroups[a]; nameOK {
+				name = a
+				ok = true
+			}
+		}
+
+		if ok {
+			rg := b.reportGroups[name]
+			out := *rg
+			found = append(found, &out)
+		} else {
+			notFound = append(notFound, a)
+		}
+	}
+
+	return found, notFound
+}
+
+// --- Report operations ---
+
+// AddReportInternal seeds a Report directly into the backend (test helper).
+func (b *InMemoryBackend) AddReportInternal(r *Report) {
+	b.mu.Lock("AddReportInternal")
+	defer b.mu.Unlock()
+
+	b.reports[r.Arn] = r
+}
+
+// BatchGetReports returns reports by ARN. Missing ARNs are returned separately.
+func (b *InMemoryBackend) BatchGetReports(arns []string) ([]*Report, []string) {
+	b.mu.RLock("BatchGetReports")
+	defer b.mu.RUnlock()
+
+	found := make([]*Report, 0, len(arns))
+	notFound := make([]string, 0)
+
+	for _, a := range arns {
+		if r, ok := b.reports[a]; ok {
+			out := *r
+			found = append(found, &out)
+		} else {
+			notFound = append(notFound, a)
+		}
+	}
+
+	return found, notFound
+}
+
+// --- BuildBatch operations ---
+
+// AddBuildBatchInternal seeds a BuildBatch directly into the backend (test helper).
+func (b *InMemoryBackend) AddBuildBatchInternal(bb *BuildBatch) {
+	b.mu.Lock("AddBuildBatchInternal")
+	defer b.mu.Unlock()
+
+	b.buildBatches[bb.ID] = bb
+}
+
+// BatchGetBuildBatches returns build batches by ID. Missing IDs are returned separately.
+func (b *InMemoryBackend) BatchGetBuildBatches(ids []string) ([]*BuildBatch, []string) {
+	b.mu.RLock("BatchGetBuildBatches")
+	defer b.mu.RUnlock()
+
+	found := make([]*BuildBatch, 0, len(ids))
+	notFound := make([]string, 0)
+
+	for _, id := range ids {
+		if bb, ok := b.buildBatches[id]; ok {
+			out := *bb
+			found = append(found, &out)
+		} else {
+			notFound = append(notFound, id)
+		}
+	}
+
+	return found, notFound
+}
+
+// --- CommandExecution operations ---
+
+// AddCommandExecutionInternal seeds a CommandExecution directly into the backend (test helper).
+func (b *InMemoryBackend) AddCommandExecutionInternal(ce *CommandExecution) {
+	b.mu.Lock("AddCommandExecutionInternal")
+	defer b.mu.Unlock()
+
+	b.commandExecutions[ce.ID] = ce
+}
+
+// BatchGetCommandExecutions returns command executions by ID within a sandbox.
+// Missing IDs are returned separately.
+func (b *InMemoryBackend) BatchGetCommandExecutions(sandboxID string, ids []string) ([]*CommandExecution, []string) {
+	b.mu.RLock("BatchGetCommandExecutions")
+	defer b.mu.RUnlock()
+
+	found := make([]*CommandExecution, 0, len(ids))
+	notFound := make([]string, 0)
+
+	for _, id := range ids {
+		ce, ok := b.commandExecutions[id]
+		if ok && ce.SandboxID == sandboxID {
+			out := *ce
+			found = append(found, &out)
+		} else {
+			notFound = append(notFound, id)
+		}
+	}
+
+	return found, notFound
+}
+
+// --- Sandbox operations ---
+
+// AddSandboxInternal seeds a Sandbox directly into the backend (test helper).
+func (b *InMemoryBackend) AddSandboxInternal(s *Sandbox) {
+	b.mu.Lock("AddSandboxInternal")
+	defer b.mu.Unlock()
+
+	b.sandboxes[s.ID] = s
+}
+
+// BatchGetSandboxes returns sandboxes by ID or ARN. Missing IDs are returned separately.
+func (b *InMemoryBackend) BatchGetSandboxes(ids []string) ([]*Sandbox, []string) {
+	b.mu.RLock("BatchGetSandboxes")
+	defer b.mu.RUnlock()
+
+	found := make([]*Sandbox, 0, len(ids))
+	notFound := make([]string, 0)
+
+	for _, id := range ids {
+		if s, ok := b.sandboxes[id]; ok {
+			out := *s
+			found = append(found, &out)
+		} else {
+			notFound = append(notFound, id)
+		}
+	}
+
+	return found, notFound
+}
+
+// --- Webhook operations ---
+
+// CreateWebhook creates a webhook for a CodeBuild project.
+func (b *InMemoryBackend) CreateWebhook(projectName, branchFilter, buildType string) (*Webhook, error) {
+	b.mu.Lock("CreateWebhook")
+	defer b.mu.Unlock()
+
+	if _, ok := b.projects[projectName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	if _, exists := b.webhooks[projectName]; exists {
+		return nil, ErrAlreadyExists
+	}
+
+	w := &Webhook{
+		ProjectName:  projectName,
+		URL:          b.buildWebhookURL(projectName),
+		BranchFilter: branchFilter,
+		BuildType:    buildType,
+	}
+	b.webhooks[projectName] = w
+
+	out := *w
+
+	return &out, nil
 }
