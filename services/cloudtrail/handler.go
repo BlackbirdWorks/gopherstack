@@ -133,9 +133,6 @@ func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error
 }
 
 func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
-	listTrails := func(c *echo.Context, _ []byte) error { return h.handleListTrails(c) }
-	lookupEvents := func(c *echo.Context, _ []byte) error { return h.handleLookupEvents(c) }
-
 	return map[string]func(*echo.Context, []byte) error{
 		"AddTags":                              h.handleAddTags,
 		"CancelQuery":                          h.handleCancelQuery,
@@ -155,8 +152,8 @@ func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
 		"GetTrail":                             h.handleGetTrail,
 		"GetTrailStatus":                       h.handleGetTrailStatus,
 		"ListTags":                             h.handleListTags,
-		"ListTrails":                           listTrails,
-		"LookupEvents":                         lookupEvents,
+		"ListTrails":                           h.handleListTrails,
+		"LookupEvents":                         h.handleLookupEvents,
 		"PutEventSelectors":                    h.handlePutEventSelectors,
 		"RemoveTags":                           h.handleRemoveTags,
 		"StartLogging":                         h.handleStartLogging,
@@ -538,7 +535,7 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 
 // --- ListTrails ---
 
-func (h *Handler) handleListTrails(c *echo.Context) error {
+func (h *Handler) handleListTrails(c *echo.Context, _ []byte) error {
 	trails := h.Backend.ListTrails()
 	items := make([]map[string]any, 0, len(trails))
 
@@ -556,7 +553,7 @@ func (h *Handler) handleListTrails(c *echo.Context) error {
 // --- LookupEvents ---
 
 // handleLookupEvents returns an empty list of CloudTrail events (stub).
-func (h *Handler) handleLookupEvents(c *echo.Context) error {
+func (h *Handler) handleLookupEvents(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, map[string]any{"Events": []any{}})
 }
 
