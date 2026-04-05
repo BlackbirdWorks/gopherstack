@@ -2,6 +2,7 @@ package codeartifact
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,6 +88,7 @@ type PackageVersion struct {
 	PackageName string    `json:"packageName"`
 	Version     string    `json:"version"`
 	Status      string    `json:"status"`
+	Revision    string    `json:"revision"`
 }
 
 // ExternalConnection represents a connection of a repository to an external package source.
@@ -103,6 +105,13 @@ type RepositoryPermissionsPolicy struct {
 	ResourceARN string `json:"resourceArn"`
 }
 
+// DomainPermissionsPolicy represents a permissions policy attached to a domain.
+type DomainPermissionsPolicy struct {
+	Document    string `json:"document"`
+	Revision    string `json:"revision"`
+	ResourceARN string `json:"resourceArn"`
+}
+
 // InMemoryBackend is the in-memory store for CodeArtifact resources.
 type InMemoryBackend struct {
 	domains             map[string]*Domain
@@ -112,6 +121,7 @@ type InMemoryBackend struct {
 	packageVersions     map[string]*PackageVersion              // key: domainName/repoName/format/namespace/name/version
 	externalConnections map[string][]ExternalConnection         // key: domainName/repoName
 	repositoryPolicies  map[string]*RepositoryPermissionsPolicy // key: domainName/repoName
+	domainPolicies      map[string]*DomainPermissionsPolicy     // key: domainName
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -127,6 +137,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		packageVersions:     make(map[string]*PackageVersion),
 		externalConnections: make(map[string][]ExternalConnection),
 		repositoryPolicies:  make(map[string]*RepositoryPermissionsPolicy),
+		domainPolicies:      make(map[string]*DomainPermissionsPolicy),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("codeartifact"),
@@ -181,7 +192,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	return &cp, nil
 }
 
-// ListDomains returns all domains.
+// ListDomains returns all domains sorted by name.
 func (b *InMemoryBackend) ListDomains() []*Domain {
 	b.mu.RLock("ListDomains")
 	defer b.mu.RUnlock()
@@ -191,11 +202,15 @@ func (b *InMemoryBackend) ListDomains() []*Domain {
 		cp := *d
 		list = append(list, &cp)
 	}
+	slices.SortFunc(list, func(a, b *Domain) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
 	return list
 }
 
-// DeleteDomain deletes a domain by name.
+// DeleteDomain deletes a domain by name, cascade-deleting all its repositories,
+// packages, package versions, external connections, policies, and Tags.
 func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
@@ -205,10 +220,59 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, name)
 	}
 	cp := *d
+
+	// Cascade: delete all repositories in this domain plus their dependents.
+	for key, r := range b.repositories {
+		if r.DomainName != name {
+			continue
+		}
+		prefix := key + "/"
+		for k := range b.packages {
+			if strings.HasPrefix(k, prefix) {
+				delete(b.packages, k)
+			}
+		}
+		for k := range b.packageVersions {
+			if strings.HasPrefix(k, prefix) {
+				delete(b.packageVersions, k)
+			}
+		}
+		delete(b.externalConnections, key)
+		delete(b.repositoryPolicies, key)
+		r.Tags.Close()
+		delete(b.repositories, key)
+	}
+
+	delete(b.domainPolicies, name)
 	delete(b.domains, name)
 	d.Tags.Close()
 
 	return &cp, nil
+}
+
+// Reset clears all stored resources, closing Tags on each domain, repository, and package group.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, d := range b.domains {
+		d.Tags.Close()
+	}
+	for _, r := range b.repositories {
+		r.Tags.Close()
+	}
+	for _, pg := range b.packageGroups {
+		pg.Tags.Close()
+	}
+
+	b.domains = make(map[string]*Domain)
+	b.repositories = make(map[string]*Repository)
+	b.packageGroups = make(map[string]*PackageGroup)
+	b.packages = make(map[string]*Package)
+	b.packageVersions = make(map[string]*PackageVersion)
+	b.externalConnections = make(map[string][]ExternalConnection)
+	b.repositoryPolicies = make(map[string]*RepositoryPermissionsPolicy)
+	b.domainPolicies = make(map[string]*DomainPermissionsPolicy)
 }
 
 // repoKey returns the map key for a repository.
@@ -269,10 +333,15 @@ func (b *InMemoryBackend) DescribeRepository(domainName, repoName string) (*Repo
 	return &cp, nil
 }
 
-// ListRepositoriesInDomain returns all repositories in a domain.
-func (b *InMemoryBackend) ListRepositoriesInDomain(domainName string) []*Repository {
+// ListRepositoriesInDomain returns all repositories in a domain, sorted by name.
+// Returns ErrNotFound if the domain does not exist.
+func (b *InMemoryBackend) ListRepositoriesInDomain(domainName string) ([]*Repository, error) {
 	b.mu.RLock("ListRepositoriesInDomain")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
 
 	list := make([]*Repository, 0)
 	for _, r := range b.repositories {
@@ -281,11 +350,14 @@ func (b *InMemoryBackend) ListRepositoriesInDomain(domainName string) []*Reposit
 			list = append(list, &cp)
 		}
 	}
+	slices.SortFunc(list, func(a, b *Repository) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
-	return list
+	return list, nil
 }
 
-// ListRepositories returns all repositories across all domains.
+// ListRepositories returns all repositories across all domains, sorted by name.
 func (b *InMemoryBackend) ListRepositories() []*Repository {
 	b.mu.RLock("ListRepositories")
 	defer b.mu.RUnlock()
@@ -295,11 +367,15 @@ func (b *InMemoryBackend) ListRepositories() []*Repository {
 		cp := *r
 		list = append(list, &cp)
 	}
+	slices.SortFunc(list, func(a, b *Repository) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
 	return list
 }
 
-// DeleteRepository deletes a repository by domain and name.
+// DeleteRepository deletes a repository by domain and name, cascade-deleting all
+// its packages, package versions, external connections, permissions policy, and Tags.
 func (b *InMemoryBackend) DeleteRepository(domainName, repoName string) (*Repository, error) {
 	b.mu.Lock("DeleteRepository")
 	defer b.mu.Unlock()
@@ -310,6 +386,20 @@ func (b *InMemoryBackend) DeleteRepository(domainName, repoName string) (*Reposi
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 	cp := *r
+
+	prefix := key + "/"
+	for k := range b.packages {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.packages, k)
+		}
+	}
+	for k := range b.packageVersions {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.packageVersions, k)
+		}
+	}
+	delete(b.externalConnections, key)
+	delete(b.repositoryPolicies, key)
 	delete(b.repositories, key)
 	r.Tags.Close()
 
@@ -579,6 +669,7 @@ func (b *InMemoryBackend) DescribePackageVersion(
 			Version:     version,
 			Status:      "Published",
 			PublishedAt: time.Now().UTC(),
+			Revision:    uuid.NewString()[:8],
 		}
 		b.packageVersions[vKey] = pv
 
@@ -680,6 +771,25 @@ func (b *InMemoryBackend) CopyPackageVersions(
 
 // --- External connection methods ---
 
+// externalConnectionFormat derives the package format from a connection name.
+func externalConnectionFormat(connectionName string) string {
+	switch connectionName {
+	case "public:npmjs":
+		return "npm"
+	case "public:pypi":
+		return "pypi"
+	case "public:maven-central", "public:maven-commonsware", "public:maven-googleandroid",
+		"public:maven-gradleplugins", "public:maven-apacheorg":
+		return "maven"
+	case "public:nuget-org":
+		return "nuget"
+	case "public:crates-io":
+		return "cargo"
+	default:
+		return "generic"
+	}
+}
+
 // AssociateExternalConnection associates an external connection with a repository.
 func (b *InMemoryBackend) AssociateExternalConnection(
 	domainName, repoName, connectionName string,
@@ -701,7 +811,7 @@ func (b *InMemoryBackend) AssociateExternalConnection(
 
 	b.externalConnections[key] = append(b.externalConnections[key], ExternalConnection{
 		ExternalConnectionName: connectionName,
-		PackageFormat:          "generic",
+		PackageFormat:          externalConnectionFormat(connectionName),
 		Status:                 "AVAILABLE",
 	})
 	cp := *r
@@ -776,4 +886,96 @@ func (b *InMemoryBackend) GetRepositoryPermissionsPolicy(
 	cp := *pol
 
 	return &cp, nil
+}
+
+// --- Domain permissions policy methods ---
+
+// GetDomainPermissionsPolicy retrieves the permissions policy for a domain.
+// Returns ErrNotFound if the domain does not exist or if no policy has been set.
+func (b *InMemoryBackend) GetDomainPermissionsPolicy(domainName string) (*DomainPermissionsPolicy, error) {
+	b.mu.RLock("GetDomainPermissionsPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	pol, ok := b.domainPolicies[domainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no permissions policy found for domain %s", ErrNotFound, domainName)
+	}
+	cp := *pol
+
+	return &cp, nil
+}
+
+// PutDomainPermissionsPolicy stores a permissions policy for a domain.
+func (b *InMemoryBackend) PutDomainPermissionsPolicy(domainName, document string) (*DomainPermissionsPolicy, error) {
+	b.mu.Lock("PutDomainPermissionsPolicy")
+	defer b.mu.Unlock()
+
+	d, ok := b.domains[domainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	pol := &DomainPermissionsPolicy{
+		Document:    document,
+		Revision:    uuid.NewString()[:8],
+		ResourceARN: d.ARN,
+	}
+	b.domainPolicies[domainName] = pol
+	cp := *pol
+
+	return &cp, nil
+}
+
+// DeleteDomainPermissionsPolicy removes the permissions policy from a domain.
+// Returns ErrNotFound if the domain does not exist or if no policy has been set.
+func (b *InMemoryBackend) DeleteDomainPermissionsPolicy(domainName string) (*DomainPermissionsPolicy, error) {
+	b.mu.Lock("DeleteDomainPermissionsPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	pol, ok := b.domainPolicies[domainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no permissions policy found for domain %s", ErrNotFound, domainName)
+	}
+	cp := *pol
+	delete(b.domainPolicies, domainName)
+
+	return &cp, nil
+}
+
+// --- Additional query methods ---
+
+// CountRepositoriesInDomain returns the number of repositories in a domain.
+func (b *InMemoryBackend) CountRepositoriesInDomain(domainName string) int {
+	b.mu.RLock("CountRepositoriesInDomain")
+	defer b.mu.RUnlock()
+
+	count := 0
+	for _, r := range b.repositories {
+		if r.DomainName == domainName {
+			count++
+		}
+	}
+
+	return count
+}
+
+// GetExternalConnections returns a copy of the external connections for a repository.
+func (b *InMemoryBackend) GetExternalConnections(domainName, repoName string) []ExternalConnection {
+	b.mu.RLock("GetExternalConnections")
+	defer b.mu.RUnlock()
+
+	key := repoKey(domainName, repoName)
+	conns := b.externalConnections[key]
+	result := make([]ExternalConnection, len(conns))
+	copy(result, conns)
+
+	return result
 }

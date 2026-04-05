@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,6 +64,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "CodeArtifact" }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported CodeArtifact operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -392,8 +396,8 @@ func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) er
 		"GetDomainPermissionsPolicy": func(c *echo.Context, _ []byte) error {
 			return h.handleGetDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"))
 		},
-		"PutDomainPermissionsPolicy": func(c *echo.Context, _ []byte) error {
-			return h.handlePutDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"))
+		"PutDomainPermissionsPolicy": func(c *echo.Context, body []byte) error {
+			return h.handlePutDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"), body)
 		},
 		"DeleteDomainPermissionsPolicy": func(c *echo.Context, _ []byte) error {
 			return h.handleDeleteDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"))
@@ -487,6 +491,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, errInvalidRequest):
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	default:
@@ -524,7 +530,7 @@ func tagsFromSlice(raw []map[string]any) map[string]string {
 	return out
 }
 
-func domainToMap(d *Domain) map[string]any {
+func domainToMap(d *Domain, repoCount int) map[string]any {
 	m := map[string]any{
 		"arn":             d.ARN,
 		"name":            d.Name,
@@ -532,13 +538,28 @@ func domainToMap(d *Domain) map[string]any {
 		"status":          d.Status,
 		"createdTime":     epochSeconds(d.CreatedTime),
 		"assetSizeBytes":  d.AssetSizeBytes,
-		"repositoryCount": 0,
+		"repositoryCount": repoCount,
 	}
 	if d.EncryptionKey != "" {
 		m["encryptionKey"] = d.EncryptionKey
 	}
 	if d.S3BucketARN != "" {
 		m["s3BucketArn"] = d.S3BucketARN
+	}
+
+	return m
+}
+
+func domainSummaryToMap(d *Domain) map[string]any {
+	m := map[string]any{
+		"arn":         d.ARN,
+		"name":        d.Name,
+		"owner":       d.Owner,
+		"status":      d.Status,
+		"createdTime": epochSeconds(d.CreatedTime),
+	}
+	if d.EncryptionKey != "" {
+		m["encryptionKey"] = d.EncryptionKey
 	}
 
 	return m
@@ -562,7 +583,7 @@ func (h *Handler) handleCreateDomain(c *echo.Context, name string, body []byte) 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"domain": domainToMap(d),
+		"domain": domainToMap(d, 0),
 	})
 }
 
@@ -576,8 +597,10 @@ func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
 		return h.handleError(c, err)
 	}
 
+	repoCount := h.Backend.CountRepositoriesInDomain(name)
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"domain": domainToMap(d),
+		"domain": domainToMap(d, repoCount),
 	})
 }
 
@@ -586,12 +609,7 @@ func (h *Handler) handleListDomains(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(domains))
 
 	for _, d := range domains {
-		items = append(items, map[string]any{
-			"arn":    d.ARN,
-			"name":   d.Name,
-			"owner":  d.Owner,
-			"status": d.Status,
-		})
+		items = append(items, domainSummaryToMap(d))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -604,13 +622,15 @@ func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain name is required"))
 	}
 
+	repoCount := h.Backend.CountRepositoriesInDomain(name)
+
 	d, err := h.Backend.DeleteDomain(name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"domain": domainToMap(d),
+		"domain": domainToMap(d, repoCount),
 	})
 }
 
@@ -621,7 +641,7 @@ type createRepositoryBody struct {
 	Tags        []map[string]any `json:"tags"`
 }
 
-func repoToMap(r *Repository) map[string]any {
+func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
 	m := map[string]any{
 		"arn":                  r.ARN,
 		"name":                 r.Name,
@@ -632,6 +652,16 @@ func repoToMap(r *Repository) map[string]any {
 	if r.Description != "" {
 		m["description"] = r.Description
 	}
+
+	extConns := make([]map[string]any, 0, len(connections))
+	for _, ec := range connections {
+		extConns = append(extConns, map[string]any{
+			"externalConnectionName": ec.ExternalConnectionName,
+			"packageFormat":          ec.PackageFormat,
+			"status":                 ec.Status,
+		})
+	}
+	m["externalConnections"] = extConns
 
 	return m
 }
@@ -657,7 +687,7 @@ func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r),
+		"repository": repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
 	})
 }
 
@@ -675,7 +705,7 @@ func (h *Handler) handleDescribeRepository(c *echo.Context, domainName, repoName
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r),
+		"repository": repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
 	})
 }
 
@@ -687,13 +717,15 @@ func (h *Handler) handleDeleteRepository(c *echo.Context, domainName, repoName s
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
+	conns := h.Backend.GetExternalConnections(domainName, repoName)
+
 	r, err := h.Backend.DeleteRepository(domainName, repoName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r),
+		"repository": repoToMap(r, conns),
 	})
 }
 
@@ -702,7 +734,11 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	repos := h.Backend.ListRepositoriesInDomain(domainName)
+	repos, err := h.Backend.ListRepositoriesInDomain(domainName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
 	items := make([]map[string]any, 0, len(repos))
 
 	for _, r := range repos {
@@ -804,6 +840,9 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	for k, v := range kv {
 		tagList = append(tagList, map[string]string{"key": k, "value": v})
 	}
+	slices.SortFunc(tagList, func(a, b map[string]string) int {
+		return strings.Compare(a["key"], b["key"])
+	})
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"tags": tagList,
@@ -845,41 +884,56 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, body 
 }
 
 // --- Permissions policy handlers ---
-// These are stub implementations that satisfy Terraform provider requirements.
 
 func (h *Handler) handleGetDomainPermissionsPolicy(c *echo.Context, domainName string) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	_, err := h.Backend.DescribeDomain(domainName)
+	pol, err := h.Backend.GetDomainPermissionsPolicy(domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	// Return empty policy - no policy has been set.
 	return c.JSON(http.StatusOK, map[string]any{
 		"policy": map[string]any{
-			"document": `{"Version":"2012-10-17","Statement":[]}`,
-			"revision": "1",
+			"document":    pol.Document,
+			"revision":    pol.Revision,
+			"resourceArn": pol.ResourceARN,
 		},
 	})
 }
 
-func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName string) error {
+type putDomainPermissionsPolicyBody struct {
+	PolicyDocument string `json:"policyDocument"`
+}
+
+func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName string, body []byte) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	_, err := h.Backend.DescribeDomain(domainName)
+	var in putDomainPermissionsPolicyBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
+	if in.PolicyDocument == "" {
+		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
+	}
+
+	pol, err := h.Backend.PutDomainPermissionsPolicy(domainName, in.PolicyDocument)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"policy": map[string]any{
-			"document": `{"Version":"2012-10-17","Statement":[]}`,
-			"revision": "1",
+			"document":    pol.Document,
+			"revision":    pol.Revision,
+			"resourceArn": pol.ResourceARN,
 		},
 	})
 }
@@ -889,15 +943,16 @@ func (h *Handler) handleDeleteDomainPermissionsPolicy(c *echo.Context, domainNam
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	_, err := h.Backend.DescribeDomain(domainName)
+	pol, err := h.Backend.DeleteDomainPermissionsPolicy(domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"policy": map[string]any{
-			"document": `{"Version":"2012-10-17","Statement":[]}`,
-			"revision": "1",
+			"document":    pol.Document,
+			"revision":    pol.Revision,
+			"resourceArn": pol.ResourceARN,
 		},
 	})
 }
@@ -999,6 +1054,7 @@ func packageToMap(pkg *Package) map[string]any {
 		"name":        pkg.Name,
 		"domainName":  pkg.DomainName,
 		"domainOwner": pkg.DomainOwner,
+		"repository":  pkg.Repository,
 	}
 	if pkg.Namespace != "" {
 		m["namespace"] = pkg.Namespace
@@ -1059,9 +1115,11 @@ func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, for
 
 func packageVersionToMap(pv *PackageVersion) map[string]any {
 	m := map[string]any{
-		"version": pv.Version,
-		"status":  pv.Status,
-		"format":  pv.Format,
+		"version":     pv.Version,
+		"status":      pv.Status,
+		"format":      pv.Format,
+		"publishedAt": epochSeconds(pv.PublishedAt),
+		"revision":    pv.Revision,
 	}
 	if pv.Namespace != "" {
 		m["namespace"] = pv.Namespace
@@ -1139,9 +1197,16 @@ func (h *Handler) handleDeletePackageVersions(
 		failedList = append(failedList, map[string]string{"version": v, "errorCode": code})
 	}
 
+	successList := make([]map[string]string, 0)
+	for _, v := range in.Versions {
+		if _, ok := failed[v]; !ok {
+			successList = append(successList, map[string]string{"version": v, "status": "Deleted"})
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"failedVersions":     failedList,
-		"successfulVersions": []map[string]string{},
+		"successfulVersions": successList,
 	})
 }
 
@@ -1187,9 +1252,16 @@ func (h *Handler) handleCopyPackageVersions(
 		failedList = append(failedList, map[string]string{"version": v, "errorCode": code})
 	}
 
+	successList := make([]map[string]string, 0)
+	for _, v := range in.Versions {
+		if _, ok := failed[v]; !ok {
+			successList = append(successList, map[string]string{"version": v, "status": "Copied"})
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"failedVersions":     failedList,
-		"successfulVersions": []map[string]string{},
+		"successfulVersions": successList,
 	})
 }
 
@@ -1215,7 +1287,7 @@ func (h *Handler) handleAssociateExternalConnection(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r),
+		"repository": repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
 	})
 }
 

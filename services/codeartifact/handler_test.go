@@ -505,19 +505,117 @@ func TestHandler_GetAuthorizationToken(t *testing.T) {
 func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain", nil)
+	tests := []struct {
+		body       any
+		setup      func(h *codeartifact.Handler)
+		wantCheck  func(t *testing.T, body []byte)
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "put_policy_returns_revision_and_arn",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain", nil)
+			},
+			method:     http.MethodPut,
+			path:       "/v1/domain/permissions/policy?domain=perm-domain",
+			body:       map[string]any{"policyDocument": `{"Version":"2012-10-17","Statement":[]}`},
+			wantStatus: http.StatusOK,
+			wantCheck: func(t *testing.T, b []byte) {
+				t.Helper()
 
-	getRec := doRequest(t, h, http.MethodGet, "/v1/domain/permissions/policy?domain=perm-domain", nil)
-	assert.Equal(t, http.StatusOK, getRec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(b, &resp))
+				pol, _ := resp["policy"].(map[string]any)
+				assert.NotEmpty(t, pol["revision"])
+				assert.NotEmpty(t, pol["resourceArn"])
+			},
+		},
+		{
+			name: "get_policy_after_put",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain2", nil)
+				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain2", map[string]any{
+					"policyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`,
+				})
+			},
+			method:     http.MethodGet,
+			path:       "/v1/domain/permissions/policy?domain=perm-domain2",
+			wantStatus: http.StatusOK,
+			wantCheck: func(t *testing.T, b []byte) {
+				t.Helper()
 
-	putRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain", map[string]any{
-		"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
-	})
-	assert.Equal(t, http.StatusOK, putRec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(b, &resp))
+				pol, _ := resp["policy"].(map[string]any)
+				assert.Contains(t, pol["document"], "Allow")
+			},
+		},
+		{
+			name: "delete_policy",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain3", nil)
+				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain3", map[string]any{
+					"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+				})
+			},
+			method:     http.MethodDelete,
+			path:       "/v1/domain/permissions/policy?domain=perm-domain3",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "get_after_delete_returns_404",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain4", nil)
+				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain4", map[string]any{
+					"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+				})
+				doRequest(t, h, http.MethodDelete, "/v1/domain/permissions/policy?domain=perm-domain4", nil)
+			},
+			method:     http.MethodGet,
+			path:       "/v1/domain/permissions/policy?domain=perm-domain4",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "get_on_nonexistent_domain_returns_404",
+			method:     http.MethodGet,
+			path:       "/v1/domain/permissions/policy?domain=no-such-domain",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "put_on_nonexistent_domain_returns_404",
+			method:     http.MethodPut,
+			path:       "/v1/domain/permissions/policy?domain=no-such-domain",
+			body:       map[string]any{"policyDocument": `{}`},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "missing_domain_param_returns_400",
+			method:     http.MethodGet,
+			path:       "/v1/domain/permissions/policy",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	delRec := doRequest(t, h, http.MethodDelete, "/v1/domain/permissions/policy?domain=perm-domain", nil)
-	assert.Equal(t, http.StatusOK, delRec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantCheck != nil {
+				tt.wantCheck(t, rec.Body.Bytes())
+			}
+		})
+	}
 }
 
 func TestHandler_Persistence(t *testing.T) {
@@ -1548,4 +1646,431 @@ func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
 	for _, op := range expectedOps {
 		assert.Contains(t, ops, op)
 	}
+}
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+
+	_, err := b.CreateDomain("reset-domain", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateRepository("reset-domain", "reset-repo", "", nil)
+	require.NoError(t, err)
+
+	b.Reset()
+
+	_, err = b.DescribeDomain("reset-domain")
+	require.Error(t, err)
+
+	_, err = b.DescribeRepository("reset-domain", "reset-repo")
+	require.Error(t, err)
+}
+
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=rst-domain", nil)
+
+	descRec := doRequest(t, h, http.MethodGet, "/v1/domain?domain=rst-domain", nil)
+	assert.Equal(t, http.StatusOK, descRec.Code)
+
+	h.Reset()
+
+	descRec2 := doRequest(t, h, http.MethodGet, "/v1/domain?domain=rst-domain", nil)
+	assert.Equal(t, http.StatusNotFound, descRec2.Code)
+}
+
+func TestProvider_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &codeartifact.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+}
+
+func TestHandler_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	t.Run("domains_sorted", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=sort-c", nil)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=sort-a", nil)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=sort-b", nil)
+
+		rec := doRequest(t, h, http.MethodPost, "/v1/domains", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		domains, _ := resp["domains"].([]any)
+		require.Len(t, domains, 3)
+
+		names := make([]string, 3)
+		for i, d := range domains {
+			dm, _ := d.(map[string]any)
+			names[i], _ = dm["name"].(string)
+		}
+		assert.Equal(t, []string{"sort-a", "sort-b", "sort-c"}, names)
+	})
+
+	t.Run("repos_in_domain_sorted", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=sort-dom", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=sort-dom&repository=repo-z", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=sort-dom&repository=repo-a", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=sort-dom&repository=repo-m", nil)
+
+		rec := doRequest(t, h, http.MethodPost, "/v1/domain/repositories?domain=sort-dom", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		repos, _ := resp["repositories"].([]any)
+		require.Len(t, repos, 3)
+
+		names := make([]string, 3)
+		for i, r := range repos {
+			rm, _ := r.(map[string]any)
+			names[i], _ = rm["name"].(string)
+		}
+		assert.Equal(t, []string{"repo-a", "repo-m", "repo-z"}, names)
+	})
+}
+
+func TestHandler_DeleteDomainCascade(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=cascade-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=cascade-domain&repository=repo1", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=cascade-domain&repository=repo2", nil)
+	doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version?domain=cascade-domain&repository=repo1&format=npm&package=pkg1&version=1.0.0",
+		nil,
+	)
+	doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version?domain=cascade-domain&repository=repo2&format=npm&package=pkg2&version=2.0.0",
+		nil,
+	)
+
+	delRec := doRequest(t, h, http.MethodDelete, "/v1/domain?domain=cascade-domain", nil)
+	assert.Equal(t, http.StatusOK, delRec.Code)
+
+	descRec1 := doRequest(t, h, http.MethodGet, "/v1/repository?domain=cascade-domain&repository=repo1", nil)
+	assert.Equal(t, http.StatusNotFound, descRec1.Code)
+
+	descRec2 := doRequest(t, h, http.MethodGet, "/v1/repository?domain=cascade-domain&repository=repo2", nil)
+	assert.Equal(t, http.StatusNotFound, descRec2.Code)
+}
+
+func TestHandler_DeleteRepositoryCascade(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=repcas-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=repcas-domain&repository=repcas-repo", nil)
+	doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version?domain=repcas-domain&repository=repcas-repo&format=npm&package=mypkg&version=1.0.0",
+		nil,
+	)
+
+	delRec := doRequest(t, h, http.MethodDelete, "/v1/repository?domain=repcas-domain&repository=repcas-repo", nil)
+	assert.Equal(t, http.StatusOK, delRec.Code)
+
+	// Re-create repo - packages/versions should be gone.
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=repcas-domain&repository=repcas-repo", nil)
+
+	// DeletePackage on a package that no longer exists returns 404.
+	delPkgRec := doRequest(
+		t, h, http.MethodDelete,
+		"/v1/package?domain=repcas-domain&repository=repcas-repo&format=npm&package=mypkg",
+		nil,
+	)
+	assert.Equal(t, http.StatusNotFound, delPkgRec.Code)
+}
+
+func TestHandler_ExternalConnectionFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		connectionName string
+		wantFormat     string
+	}{
+		{name: "npm", connectionName: "public:npmjs", wantFormat: "npm"},
+		{name: "pypi", connectionName: "public:pypi", wantFormat: "pypi"},
+		{name: "maven", connectionName: "public:maven-central", wantFormat: "maven"},
+		{name: "nuget", connectionName: "public:nuget-org", wantFormat: "nuget"},
+		{name: "cargo", connectionName: "public:crates-io", wantFormat: "cargo"},
+		{name: "generic", connectionName: "public:unknown", wantFormat: "generic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, http.MethodPost, "/v1/domain?domain=fmt-domain", nil)
+			doRequest(t, h, http.MethodPost, "/v1/repository?domain=fmt-domain&repository=fmt-repo", nil)
+
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/v1/repository/external-connection?domain=fmt-domain&repository=fmt-repo&externalConnection="+tt.connectionName,
+				nil,
+			)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			repo, _ := resp["repository"].(map[string]any)
+			conns, _ := repo["externalConnections"].([]any)
+			require.Len(t, conns, 1)
+			conn, _ := conns[0].(map[string]any)
+			assert.Equal(t, tt.wantFormat, conn["packageFormat"])
+		})
+	}
+}
+
+func TestHandler_PackageVersionRevision(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=rev-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=rev-domain&repository=rev-repo", nil)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version?domain=rev-domain&repository=rev-repo&format=npm&package=mypkg&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	pv, _ := resp["packageVersion"].(map[string]any)
+	assert.NotEmpty(t, pv["revision"])
+}
+
+func TestHandler_SuccessfulVersions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("delete_versions", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=sv-domain", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=sv-domain&repository=sv-repo", nil)
+		// Create version 1.0.0 via describe.
+		doRequest(
+			t, h, http.MethodGet,
+			"/v1/package/version?domain=sv-domain&repository=sv-repo&format=npm&package=mypkg&version=1.0.0",
+			nil,
+		)
+
+		rec := doRequest(
+			t, h, http.MethodPost,
+			"/v1/package/versions/delete?domain=sv-domain&repository=sv-repo&format=npm&package=mypkg",
+			map[string]any{"versions": []string{"1.0.0", "9.9.9"}},
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		successList, _ := resp["successfulVersions"].([]any)
+		require.Len(t, successList, 1)
+		sv, _ := successList[0].(map[string]any)
+		assert.Equal(t, "1.0.0", sv["version"])
+		assert.Equal(t, "Deleted", sv["status"])
+
+		failedList, _ := resp["failedVersions"].([]any)
+		require.Len(t, failedList, 1)
+	})
+
+	t.Run("copy_versions", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=cv-domain", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=cv-domain&repository=src-repo", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=cv-domain&repository=dst-repo", nil)
+		doRequest(
+			t, h, http.MethodGet,
+			"/v1/package/version?domain=cv-domain&repository=src-repo&format=npm&package=mypkg&version=1.0.0",
+			nil,
+		)
+
+		copyPath := "/v1/package/versions/copy" +
+			"?domain=cv-domain&sourceRepository=src-repo&destinationRepository=dst-repo" +
+			"&format=npm&package=mypkg"
+		rec := doRequest(
+			t,
+			h,
+			http.MethodPost,
+			copyPath,
+			map[string]any{"versions": []string{"1.0.0", "9.9.9"}},
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		successList, _ := resp["successfulVersions"].([]any)
+		require.Len(t, successList, 1)
+		sv, _ := successList[0].(map[string]any)
+		assert.Equal(t, "1.0.0", sv["version"])
+		assert.Equal(t, "Copied", sv["status"])
+	})
+}
+
+func TestHandler_SortedTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/domain?domain=tag-sort-domain", map[string]any{
+		"tags": []map[string]any{
+			{"key": "z-key", "value": "z"},
+			{"key": "a-key", "value": "a"},
+			{"key": "m-key", "value": "m"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	domainMap, _ := createResp["domain"].(map[string]any)
+	domainARN, _ := domainMap["arn"].(string)
+
+	listRec := doRequest(t, h, http.MethodPost, "/v1/tags?resourceArn="+domainARN, nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	tagList, _ := listResp["tags"].([]any)
+	require.Len(t, tagList, 3)
+
+	keys := make([]string, 3)
+	for i, entry := range tagList {
+		e, _ := entry.(map[string]any)
+		keys[i], _ = e["key"].(string)
+	}
+	assert.Equal(t, []string{"a-key", "m-key", "z-key"}, keys)
+}
+
+func TestHandler_RepositoryCount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=count-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=count-domain&repository=r1", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=count-domain&repository=r2", nil)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/domain?domain=count-domain", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	domainMap, _ := resp["domain"].(map[string]any)
+	count, _ := domainMap["repositoryCount"].(float64)
+	assert.InEpsilon(t, float64(2), count, 0)
+}
+
+func TestHandler_ListRepositoriesInDomain_DomainNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/domain/repositories?domain=nonexistent", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_PackageVersionMap(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pvmap-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pvmap-domain&repository=pvmap-repo", nil)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version?domain=pvmap-domain&repository=pvmap-repo&format=npm&package=mypkg&version=2.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	pv, _ := resp["packageVersion"].(map[string]any)
+
+	publishedAt, _ := pv["publishedAt"].(float64)
+	assert.Greater(t, publishedAt, float64(0))
+	assert.NotEmpty(t, pv["revision"])
+	assert.Equal(t, "npm", pv["format"])
+}
+
+func TestHandler_PackageMap(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pkgmap-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pkgmap-domain&repository=pkgmap-repo", nil)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package?domain=pkgmap-domain&repository=pkgmap-repo&format=npm&package=mypkg",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	pkg, _ := resp["package"].(map[string]any)
+	assert.Equal(t, "pkgmap-repo", pkg["repository"])
+}
+
+func TestHandler_ErrValidationMapsTo400(t *testing.T) {
+	t.Parallel()
+
+	t.Run("delete_domain_missing_name_returns_400", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodDelete, "/v1/domain", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("associate_duplicate_connection_returns_409", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/v1/domain?domain=dup-conn-domain", nil)
+		doRequest(t, h, http.MethodPost, "/v1/repository?domain=dup-conn-domain&repository=dup-conn-repo", nil)
+
+		doRequest(
+			t,
+			h,
+			http.MethodPost,
+			"/v1/repository/external-connection?domain=dup-conn-domain&repository=dup-conn-repo&externalConnection=public:npmjs",
+			nil,
+		)
+		rec := doRequest(
+			t,
+			h,
+			http.MethodPost,
+			"/v1/repository/external-connection?domain=dup-conn-domain&repository=dup-conn-repo&externalConnection=public:npmjs",
+			nil,
+		)
+		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
 }

@@ -12,6 +12,7 @@ type backendSnapshot struct {
 	PackageVersions     map[string]*PackageVersion              `json:"packageVersions"`
 	ExternalConnections map[string][]ExternalConnection         `json:"externalConnections"`
 	RepositoryPolicies  map[string]*RepositoryPermissionsPolicy `json:"repositoryPolicies"`
+	DomainPolicies      map[string]*DomainPermissionsPolicy     `json:"domainPolicies"`
 	AccountID           string                                  `json:"accountID"`
 	Region              string                                  `json:"region"`
 }
@@ -30,6 +31,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		PackageVersions:     b.packageVersions,
 		ExternalConnections: b.externalConnections,
 		RepositoryPolicies:  b.repositoryPolicies,
+		DomainPolicies:      b.domainPolicies,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -75,6 +77,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.RepositoryPolicies == nil {
 		snap.RepositoryPolicies = make(map[string]*RepositoryPermissionsPolicy)
 	}
+	if snap.DomainPolicies == nil {
+		snap.DomainPolicies = make(map[string]*DomainPermissionsPolicy)
+	}
 
 	b.domains = snap.Domains
 	b.repositories = snap.Repositories
@@ -83,6 +88,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.packageVersions = snap.PackageVersions
 	b.externalConnections = snap.ExternalConnections
 	b.repositoryPolicies = snap.RepositoryPolicies
+	b.domainPolicies = snap.DomainPolicies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
