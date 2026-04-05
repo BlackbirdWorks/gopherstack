@@ -11,6 +11,14 @@ type backendSnapshot struct {
 	Streams             map[string]map[string]*LogStream        `json:"streams"`
 	Events              map[string]map[string][]*OutputLogEvent `json:"events"`
 	SubscriptionFilters map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
+	ExportTasks         map[string]*ExportTask                  `json:"exportTasks,omitempty"`
+	ImportTasks         map[string]*ImportTask                  `json:"importTasks,omitempty"`
+	Deliveries          map[string]*Delivery                    `json:"deliveries,omitempty"`
+	LogAnomalyDetectors map[string]*LogAnomalyDetector          `json:"logAnomalyDetectors,omitempty"`
+	ScheduledQueries    map[string]*ScheduledQuery              `json:"scheduledQueries,omitempty"`
+	AccountPolicies     map[string]*AccountPolicy               `json:"accountPolicies,omitempty"`
+	KmsKeys             map[string]string                       `json:"kmsKeys,omitempty"`
+	S3TableIntegrations map[string]string                       `json:"s3TableIntegrations,omitempty"`
 	AccountID           string                                  `json:"accountID"`
 	Region              string                                  `json:"region"`
 }
@@ -26,6 +34,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Streams:             b.streams,
 		Events:              b.events,
 		SubscriptionFilters: b.subscriptionFilters,
+		ExportTasks:         b.exportTasks,
+		ImportTasks:         b.importTasks,
+		Deliveries:          b.deliveries,
+		LogAnomalyDetectors: b.logAnomalyDetectors,
+		ScheduledQueries:    b.scheduledQueries,
+		AccountPolicies:     b.accountPolicies,
+		KmsKeys:             b.kmsKeys,
+		S3TableIntegrations: b.s3TableIntegrations,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -66,10 +82,50 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.SubscriptionFilters = make(map[string][]*SubscriptionFilter)
 	}
 
+	if snap.ExportTasks == nil {
+		snap.ExportTasks = make(map[string]*ExportTask)
+	}
+
+	if snap.ImportTasks == nil {
+		snap.ImportTasks = make(map[string]*ImportTask)
+	}
+
+	if snap.Deliveries == nil {
+		snap.Deliveries = make(map[string]*Delivery)
+	}
+
+	if snap.LogAnomalyDetectors == nil {
+		snap.LogAnomalyDetectors = make(map[string]*LogAnomalyDetector)
+	}
+
+	if snap.ScheduledQueries == nil {
+		snap.ScheduledQueries = make(map[string]*ScheduledQuery)
+	}
+
+	if snap.AccountPolicies == nil {
+		snap.AccountPolicies = make(map[string]*AccountPolicy)
+	}
+
+	if snap.KmsKeys == nil {
+		snap.KmsKeys = make(map[string]string)
+	}
+
+	if snap.S3TableIntegrations == nil {
+		snap.S3TableIntegrations = make(map[string]string)
+	}
+
 	b.groups = snap.Groups
 	b.streams = snap.Streams
 	b.events = snap.Events
 	b.subscriptionFilters = snap.SubscriptionFilters
+	b.exportTasks = snap.ExportTasks
+	b.importTasks = snap.ImportTasks
+	b.deliveries = snap.Deliveries
+	b.logAnomalyDetectors = snap.LogAnomalyDetectors
+	b.scheduledQueries = snap.ScheduledQueries
+	b.accountPolicies = snap.AccountPolicies
+	b.kmsKeys = snap.KmsKeys
+	b.s3TableIntegrations = snap.S3TableIntegrations
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

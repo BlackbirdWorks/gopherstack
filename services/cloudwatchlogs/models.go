@@ -93,3 +93,66 @@ type QueryInfo struct {
 	Status       QueryStatus `json:"status"`
 	CreateTime   int64       `json:"createTime"`
 }
+
+// ExportTask represents a CloudWatch Logs export task.
+type ExportTask struct {
+	TaskName          string `json:"taskName,omitempty"`
+	TaskID            string `json:"taskId"`
+	LogGroupName      string `json:"logGroupName"`
+	Destination       string `json:"destination"`
+	DestinationPrefix string `json:"destinationPrefix,omitempty"`
+	Status            string `json:"status"`
+	From              int64  `json:"from"`
+	To                int64  `json:"to"`
+	CreationTime      int64  `json:"creationTime"`
+}
+
+// ImportTask represents a CloudWatch Logs import task (from CloudTrail Lake).
+type ImportTask struct {
+	ImportID             string `json:"importId"`
+	ImportSourceArn      string `json:"importSourceArn"`
+	ImportRoleArn        string `json:"importRoleArn"`
+	ImportDestinationArn string `json:"importDestinationArn"`
+	Status               string `json:"status"`
+	CreationTime         int64  `json:"creationTime"`
+	LastUpdatedTime      int64  `json:"lastUpdatedTime"`
+}
+
+// Delivery represents a CloudWatch Logs delivery configuration.
+type Delivery struct {
+	Tags                   map[string]string `json:"tags,omitempty"`
+	ID                     string            `json:"id"`
+	Arn                    string            `json:"arn"`
+	DeliverySourceName     string            `json:"deliverySourceName"`
+	DeliveryDestinationArn string            `json:"deliveryDestinationArn"`
+	CreationTime           int64             `json:"creationTime"`
+}
+
+// LogAnomalyDetector represents a CloudWatch Logs anomaly detector.
+type LogAnomalyDetector struct {
+	AnomalyDetectorArn    string   `json:"anomalyDetectorArn"`
+	DetectorName          string   `json:"detectorName,omitempty"`
+	EvaluationFrequency   string   `json:"evaluationFrequency,omitempty"`
+	FilterPattern         string   `json:"filterPattern,omitempty"`
+	KmsKeyID              string   `json:"kmsKeyId,omitempty"`
+	LogGroupArnList       []string `json:"logGroupArnList"`
+	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime,omitempty"`
+	CreationTimeStamp     int64    `json:"creationTimeStamp"`
+}
+
+// ScheduledQuery represents a CloudWatch Logs scheduled query.
+type ScheduledQuery struct {
+	Arn                string `json:"arn"`
+	Name               string `json:"name"`
+	QueryString        string `json:"queryString"`
+	ScheduleExpression string `json:"scheduleExpression,omitempty"`
+	State              string `json:"state"`
+	CreationTime       int64  `json:"creationTime"`
+}
+
+// AccountPolicy represents a CloudWatch Logs account-level policy.
+type AccountPolicy struct {
+	PolicyName     string `json:"policyName"`
+	PolicyType     string `json:"policyType"`
+	PolicyDocument string `json:"policyDocument,omitempty"`
+}
