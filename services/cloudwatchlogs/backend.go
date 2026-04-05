@@ -37,7 +37,7 @@ var (
 	ErrValidation                    = errors.New("InvalidParameterException")
 )
 
-// validEvaluationFrequencies contains the allowed values for the anomaly detector
+// validEvaluationFrequencies returns the allowed values for the anomaly detector
 // evaluation frequency field, matching the AWS CloudWatch Logs API enum.
 func validEvaluationFrequencies() map[string]struct{} {
 	return map[string]struct{}{
@@ -50,7 +50,7 @@ func validEvaluationFrequencies() map[string]struct{} {
 	}
 }
 
-// validScheduledQueryStates contains the allowed values for the scheduled query state field.
+// validScheduledQueryStates returns the allowed values for the scheduled query state field.
 func validScheduledQueryStates() map[string]struct{} {
 	return map[string]struct{}{
 		"ENABLED":  {},
@@ -58,7 +58,7 @@ func validScheduledQueryStates() map[string]struct{} {
 	}
 }
 
-// validAccountPolicyTypes contains the allowed values for the account policy type field.
+// validAccountPolicyTypes returns the allowed values for the account policy type field.
 func validAccountPolicyTypes() map[string]struct{} {
 	return map[string]struct{}{
 		"DATA_PROTECTION_POLICY":     {},
@@ -1607,6 +1607,8 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		if _, ok := validScheduledQueryStates()[state]; !ok {
 			return "", fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidation, state)
 		}
+	} else {
+		state = "ENABLED"
 	}
 
 	id := uuid.New().String()

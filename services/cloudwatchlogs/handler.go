@@ -1028,12 +1028,13 @@ func (h *Handler) handleCreateScheduledQuery(b []byte) (any, error) {
 		return nil, err
 	}
 
-	state := input.State
-	if state == "" {
-		state = "ENABLED"
+	// The backend defaults an empty state to "ENABLED"; reflect the effective value in the response.
+	effectiveState := input.State
+	if effectiveState == "" {
+		effectiveState = "ENABLED"
 	}
 
-	return &createScheduledQueryOutput{ScheduledQueryArn: queryArn, State: state}, nil
+	return &createScheduledQueryOutput{ScheduledQueryArn: queryArn, State: effectiveState}, nil
 }
 
 func (h *Handler) handleDeleteAccountPolicy(b []byte) (any, error) {
