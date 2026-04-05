@@ -23,6 +23,12 @@ const (
 	listTagsForResourcePath     = "/listTagsForResource"
 	tagResourcePath             = "/tagResource"
 	untagResourcePath           = "/untagResource"
+	evaluationJobsPrefix        = "/evaluation-jobs"
+	evaluationJobsBatchDelete   = "/evaluation-jobs/batch-delete"
+	automatedReasoningPrefix    = "/automated-reasoning-policies"
+	customModelsCreate          = "/custom-models/create-custom-model"
+	customModelDeploymentsPath  = "/model-customization/custom-model-deployments"
+	foundationModelAgreement    = "/create-foundation-model-agreement"
 )
 
 // isoTime is a [time.Time] that marshals as RFC3339.
@@ -51,21 +57,31 @@ func (h *Handler) Name() string { return "Bedrock" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"BatchDeleteEvaluationJob",
+		"CancelAutomatedReasoningPolicyBuildWorkflow",
+		"CreateAutomatedReasoningPolicy",
+		"CreateAutomatedReasoningPolicyTestCase",
+		"CreateAutomatedReasoningPolicyVersion",
+		"CreateCustomModel",
+		"CreateCustomModelDeployment",
+		"CreateEvaluationJob",
+		"CreateFoundationModelAgreement",
 		"CreateGuardrail",
-		"GetGuardrail",
-		"ListGuardrails",
-		"UpdateGuardrail",
-		"DeleteGuardrail",
-		"ListFoundationModels",
-		"GetFoundationModel",
+		"CreateGuardrailVersion",
 		"CreateProvisionedModelThroughput",
-		"GetProvisionedModelThroughput",
-		"ListProvisionedModelThroughputs",
-		"UpdateProvisionedModelThroughput",
+		"DeleteGuardrail",
 		"DeleteProvisionedModelThroughput",
+		"GetFoundationModel",
+		"GetGuardrail",
+		"GetProvisionedModelThroughput",
+		"ListFoundationModels",
+		"ListGuardrails",
+		"ListProvisionedModelThroughputs",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"UpdateGuardrail",
+		"UpdateProvisionedModelThroughput",
 	}
 }
 
@@ -86,6 +102,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(path, guardrailsPrefix) ||
 			strings.HasPrefix(path, foundationModelsPrefix) ||
 			strings.HasPrefix(path, provisionedModelThroughput) ||
+			strings.HasPrefix(path, evaluationJobsPrefix) ||
+			strings.HasPrefix(path, automatedReasoningPrefix) ||
+			path == customModelsCreate ||
+			path == customModelDeploymentsPath ||
+			path == foundationModelAgreement ||
 			path == listTagsForResourcePath ||
 			path == tagResourcePath ||
 			path == untagResourcePath
@@ -97,7 +118,7 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation returns the operation name from the request.
 //
-//nolint:cyclop // dispatch function enumerates all operations
+//nolint:cyclop,gocognit,gocyclo,funlen // dispatch function enumerates all operations
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
@@ -113,6 +134,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "UpdateGuardrail"
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodDelete:
 		return "DeleteGuardrail"
+	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
+		return "CreateGuardrailVersion"
 	case path == foundationModelsPrefix && method == http.MethodGet:
 		return "ListFoundationModels"
 	case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
@@ -133,9 +156,57 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "TagResource"
 	case path == untagResourcePath:
 		return "UntagResource"
+	case path == evaluationJobsBatchDelete && method == http.MethodPost:
+		return "BatchDeleteEvaluationJob"
+	case path == evaluationJobsPrefix && method == http.MethodPost:
+		return "CreateEvaluationJob"
+	case path == automatedReasoningPrefix && method == http.MethodPost:
+		return "CreateAutomatedReasoningPolicy"
+	case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
+		return "CancelAutomatedReasoningPolicyBuildWorkflow"
+	case isARPTestCasesPath(path) && method == http.MethodPost:
+		return "CreateAutomatedReasoningPolicyTestCase"
+	case isARPVersionsPath(path) && method == http.MethodPost:
+		return "CreateAutomatedReasoningPolicyVersion"
+	case path == customModelsCreate && method == http.MethodPost:
+		return "CreateCustomModel"
+	case path == customModelDeploymentsPath && method == http.MethodPost:
+		return "CreateCustomModelDeployment"
+	case path == foundationModelAgreement && method == http.MethodPost:
+		return "CreateFoundationModelAgreement"
 	default:
 		return "Unknown"
 	}
+}
+
+// isARPBuildWorkflowCancelPath matches /automated-reasoning-policies/{arn}/build-workflows/{id}/cancel.
+func isARPBuildWorkflowCancelPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	if !ok {
+		return false
+	}
+
+	return strings.Contains(rest, "/build-workflows/") && strings.HasSuffix(rest, "/cancel")
+}
+
+// isARPTestCasesPath matches /automated-reasoning-policies/{arn}/test-cases.
+func isARPTestCasesPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	if !ok {
+		return false
+	}
+
+	return strings.HasSuffix(rest, "/test-cases")
+}
+
+// isARPVersionsPath matches /automated-reasoning-policies/{arn}/versions.
+func isARPVersionsPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	if !ok {
+		return false
+	}
+
+	return strings.HasSuffix(rest, "/versions")
 }
 
 // ExtractResource extracts a resource identifier from the request path.
@@ -151,6 +222,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	if id, ok := strings.CutPrefix(path, provisionedModelThroughput+"/"); ok {
+		return id
+	}
+
+	if id, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/"); ok {
 		return id
 	}
 
@@ -199,6 +274,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				c,
 				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
 			)
+		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
+			return h.handleCreateGuardrailVersion(
+				c,
+				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
+				body,
+			)
 		case path == foundationModelsPrefix && method == http.MethodGet:
 			return h.handleListFoundationModels(c)
 		case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
@@ -232,6 +313,24 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleTagResource(c, body)
 		case path == untagResourcePath && method == http.MethodPost:
 			return h.handleUntagResource(c, body)
+		case path == evaluationJobsBatchDelete && method == http.MethodPost:
+			return h.handleBatchDeleteEvaluationJob(c, body)
+		case path == evaluationJobsPrefix && method == http.MethodPost:
+			return h.handleCreateEvaluationJob(c, body)
+		case path == automatedReasoningPrefix && method == http.MethodPost:
+			return h.handleCreateAutomatedReasoningPolicy(c, body)
+		case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
+			return h.handleCancelAutomatedReasoningPolicyBuildWorkflow(c, path)
+		case isARPTestCasesPath(path) && method == http.MethodPost:
+			return h.handleCreateAutomatedReasoningPolicyTestCase(c, path)
+		case isARPVersionsPath(path) && method == http.MethodPost:
+			return h.handleCreateAutomatedReasoningPolicyVersion(c, path, body)
+		case path == customModelsCreate && method == http.MethodPost:
+			return h.handleCreateCustomModel(c, body)
+		case path == customModelDeploymentsPath && method == http.MethodPost:
+			return h.handleCreateCustomModelDeployment(c, body)
+		case path == foundationModelAgreement && method == http.MethodPost:
+			return h.handleCreateFoundationModelAgreement(c, body)
 		default:
 			return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
 		}
@@ -244,6 +343,8 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
 	}
@@ -326,6 +427,7 @@ type guardrailDetailOutput struct {
 	Version                 string  `json:"version"`
 	BlockedInputMessaging   string  `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string  `json:"blockedOutputsMessaging"`
+	Tags                    []Tag   `json:"tags,omitempty"`
 }
 
 func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
@@ -343,6 +445,7 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 		Version:                 g.Version,
 		BlockedInputMessaging:   g.BlockedInputMessaging,
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
+		Tags:                    g.Tags,
 		CreatedAt:               isoTime{g.CreatedAt},
 		UpdatedAt:               isoTime{g.UpdatedAt},
 	})
@@ -365,8 +468,10 @@ type listGuardrailsOutput struct {
 }
 
 func (h *Handler) handleListGuardrails(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	guardrails, outToken := h.Backend.ListGuardrails(nextToken)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	guardrailIdentifier := q.Get("guardrailIdentifier")
+	guardrails, outToken := h.Backend.ListGuardrails(nextToken, guardrailIdentifier)
 	summaries := make([]guardrailSummaryOutput, 0, len(guardrails))
 
 	for _, g := range guardrails {
@@ -410,7 +515,13 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	g, opErr := h.Backend.UpdateGuardrail(id, in.Description, in.BlockedInputMessaging, in.BlockedOutputsMessaging)
+	g, opErr := h.Backend.UpdateGuardrail(
+		id,
+		in.Name,
+		in.Description,
+		in.BlockedInputMessaging,
+		in.BlockedOutputsMessaging,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -672,4 +783,270 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// --- EvaluationJob handlers ---
+
+type createEvaluationJobInput struct {
+	JobName string `json:"jobName"`
+	Tags    []Tag  `json:"tags,omitempty"`
+}
+
+type createEvaluationJobOutput struct {
+	JobArn string `json:"jobArn"`
+}
+
+func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error {
+	in, err := parseBody[createEvaluationJobInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createEvaluationJobOutput{JobArn: job.JobArn})
+}
+
+type batchDeleteEvaluationJobInput struct {
+	JobIdentifiers []string `json:"jobIdentifiers"`
+}
+
+type batchDeleteEvaluationJobOutput struct {
+	Errors         []BatchDeleteEvaluationJobError `json:"errors"`
+	EvaluationJobs []BatchDeleteEvaluationJobItem  `json:"evaluationJobs"`
+}
+
+func (h *Handler) handleBatchDeleteEvaluationJob(c *echo.Context, body []byte) error {
+	in, err := parseBody[batchDeleteEvaluationJobInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	errs, deleted, opErr := h.Backend.BatchDeleteEvaluationJob(in.JobIdentifiers)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusOK, batchDeleteEvaluationJobOutput{Errors: errs, EvaluationJobs: deleted})
+}
+
+// --- AutomatedReasoningPolicy handlers ---
+
+type createAutomatedReasoningPolicyInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Tags        []Tag  `json:"tags,omitempty"`
+}
+
+type createAutomatedReasoningPolicyOutput struct {
+	CreatedAt isoTime `json:"createdAt"`
+	UpdatedAt isoTime `json:"updatedAt"`
+	PolicyArn string  `json:"policyArn"`
+	Name      string  `json:"name"`
+	Status    string  `json:"status"`
+}
+
+func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []byte) error {
+	in, err := parseBody[createAutomatedReasoningPolicyInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	policy, opErr := h.Backend.CreateAutomatedReasoningPolicy(in.Name, in.Description, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createAutomatedReasoningPolicyOutput{
+		PolicyArn: policy.PolicyArn,
+		Name:      policy.Name,
+		Status:    policy.Status,
+		CreatedAt: isoTime{policy.CreatedAt},
+		UpdatedAt: isoTime{policy.UpdatedAt},
+	})
+}
+
+// handleCancelAutomatedReasoningPolicyBuildWorkflow cancels a build workflow.
+// Path: /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowId}/cancel.
+func (h *Handler) handleCancelAutomatedReasoningPolicyBuildWorkflow(c *echo.Context, path string) error {
+	policyARN, workflowID := extractARPBuildWorkflowIDs(path)
+
+	if opErr := h.Backend.CancelAutomatedReasoningPolicyBuildWorkflow(policyARN, workflowID); opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// extractARPBuildWorkflowIDs parses policyArn and workflowId from the cancel path.
+func extractARPBuildWorkflowIDs(path string) (string, string) {
+	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	// rest = {policyArn}/build-workflows/{buildWorkflowId}/cancel
+	beforeCancel := strings.TrimSuffix(rest, "/cancel")
+	idx := strings.LastIndex(beforeCancel, "/build-workflows/")
+
+	if idx < 0 {
+		return "", ""
+	}
+
+	policyARN := decodePath(beforeCancel[:idx])
+	workflowID := beforeCancel[idx+len("/build-workflows/"):]
+
+	return policyARN, workflowID
+}
+
+// handleCreateAutomatedReasoningPolicyTestCase creates a test case.
+// Path: /automated-reasoning-policies/{policyArn}/test-cases.
+func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, path string) error {
+	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	policyARN := decodePath(strings.TrimSuffix(rest, "/test-cases"))
+
+	tc, opErr := h.Backend.CreateAutomatedReasoningPolicyTestCase(policyARN)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]string{
+		"policyArn":  tc.PolicyArn,
+		"testCaseId": tc.TestCaseID,
+	})
+}
+
+type createAutomatedReasoningPolicyVersionInput struct {
+	LastUpdatedDefinitionHash string `json:"lastUpdatedDefinitionHash"`
+}
+
+// handleCreateAutomatedReasoningPolicyVersion creates a policy version.
+// Path: /automated-reasoning-policies/{policyArn}/versions.
+func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(c *echo.Context, path string, body []byte) error {
+	in, err := parseBody[createAutomatedReasoningPolicyVersionInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	policyARN := decodePath(strings.TrimSuffix(rest, "/versions"))
+
+	version, opErr := h.Backend.CreateAutomatedReasoningPolicyVersion(policyARN, in.LastUpdatedDefinitionHash)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{
+		"policyArn":      version.PolicyArn,
+		"name":           version.Name,
+		"definitionHash": version.DefinitionHash,
+		"version":        version.Version,
+		"createdAt":      isoTime{version.CreatedAt},
+	})
+}
+
+// --- CustomModel handlers ---
+
+type createCustomModelInput struct {
+	ModelName string `json:"modelName"`
+	Tags      []Tag  `json:"tags,omitempty"`
+}
+
+type createCustomModelOutput struct {
+	ModelArn string `json:"modelArn"`
+}
+
+func (h *Handler) handleCreateCustomModel(c *echo.Context, body []byte) error {
+	in, err := parseBody[createCustomModelInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	model, opErr := h.Backend.CreateCustomModel(in.ModelName, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createCustomModelOutput{ModelArn: model.ModelArn})
+}
+
+// --- CustomModelDeployment handlers ---
+
+type createCustomModelDeploymentInput struct {
+	ModelArn            string `json:"modelArn"`
+	ModelDeploymentName string `json:"modelDeploymentName"`
+	Tags                []Tag  `json:"tags,omitempty"`
+}
+
+type createCustomModelDeploymentOutput struct {
+	CustomModelDeploymentArn string `json:"customModelDeploymentArn"`
+}
+
+func (h *Handler) handleCreateCustomModelDeployment(c *echo.Context, body []byte) error {
+	in, err := parseBody[createCustomModelDeploymentInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	deployment, opErr := h.Backend.CreateCustomModelDeployment(in.ModelArn, in.ModelDeploymentName, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createCustomModelDeploymentOutput{
+		CustomModelDeploymentArn: deployment.CustomModelDeploymentArn,
+	})
+}
+
+// --- FoundationModelAgreement handlers ---
+
+type createFoundationModelAgreementInput struct {
+	ModelID    string `json:"modelId"`
+	OfferToken string `json:"offerToken"`
+}
+
+type createFoundationModelAgreementOutput struct {
+	ModelID string `json:"modelId"`
+}
+
+func (h *Handler) handleCreateFoundationModelAgreement(c *echo.Context, body []byte) error {
+	in, err := parseBody[createFoundationModelAgreementInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	agreement, opErr := h.Backend.CreateFoundationModelAgreement(in.ModelID)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusOK, createFoundationModelAgreementOutput{ModelID: agreement.ModelID})
+}
+
+// --- GuardrailVersion handlers ---
+
+type createGuardrailVersionInput struct {
+	Description        string `json:"description,omitempty"`
+	ClientRequestToken string `json:"clientRequestToken,omitempty"`
+}
+
+type createGuardrailVersionOutput struct {
+	GuardrailID string `json:"guardrailId"`
+	Version     string `json:"version"`
+}
+
+func (h *Handler) handleCreateGuardrailVersion(c *echo.Context, id string, body []byte) error {
+	in, err := parseBody[createGuardrailVersionInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	gv, opErr := h.Backend.CreateGuardrailVersion(id, in.Description)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusOK, createGuardrailVersionOutput{
+		GuardrailID: gv.GuardrailID,
+		Version:     gv.Version,
+	})
 }

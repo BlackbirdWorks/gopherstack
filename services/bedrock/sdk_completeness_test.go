@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &bedrocksdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchDeleteEvaluationJob",
-		"CancelAutomatedReasoningPolicyBuildWorkflow",
-		"CreateAutomatedReasoningPolicy",
-		"CreateAutomatedReasoningPolicyTestCase",
-		"CreateAutomatedReasoningPolicyVersion",
-		"CreateCustomModel",
-		"CreateCustomModelDeployment",
-		"CreateEvaluationJob",
-		"CreateFoundationModelAgreement",
-		"CreateGuardrailVersion",
 		"CreateInferenceProfile",
 		"CreateMarketplaceModelEndpoint",
 		"CreateModelCopyJob",
