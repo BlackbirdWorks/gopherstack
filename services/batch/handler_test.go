@@ -1790,3 +1790,710 @@ func TestHandler_ServiceEnvironment_DefaultState(t *testing.T) {
 	mustUnmarshal(t, rec, &out)
 	assert.Contains(t, out["serviceEnvironmentArn"], "default-state-senv")
 }
+
+// --- Reset tests ---
+
+func TestBatch_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create some state.
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "ce-reset",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createconsumableresource", map[string]any{
+		"consumableResourceName": "cr-reset",
+		"totalQuantity":          int64(10),
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Reset clears all state.
+	h.Backend.Reset()
+
+	rec = post(t, h, "/v1/describecomputeenvironments", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var ces map[string]any
+	mustUnmarshal(t, rec, &ces)
+	assert.Empty(t, ces["computeEnvironments"])
+
+	rec2 := post(t, h, "/v1/listconsumableresources", map[string]any{})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var list map[string]any
+	mustUnmarshal(t, rec2, &list)
+	assert.Empty(t, list["consumableResourceSummaryList"])
+}
+
+// --- Required field validation tests ---
+
+func TestBatch_RequiredFieldValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		path string
+	}{
+		{
+			name: "CreateConsumableResource_missing_name",
+			path: "/v1/createconsumableresource",
+			body: map[string]any{},
+		},
+		{
+			name: "DeleteConsumableResource_missing_resource",
+			path: "/v1/deleteconsumableresource",
+			body: map[string]any{},
+		},
+		{
+			name: "DescribeConsumableResource_missing_resource",
+			path: "/v1/describeconsumableresource",
+			body: map[string]any{},
+		},
+		{
+			name: "CreateSchedulingPolicy_missing_name",
+			path: "/v1/createschedulingpolicy",
+			body: map[string]any{},
+		},
+		{
+			name: "DeleteSchedulingPolicy_missing_arn",
+			path: "/v1/deleteschedulingpolicy",
+			body: map[string]any{},
+		},
+		{
+			name: "CreateServiceEnvironment_missing_name",
+			path: "/v1/createserviceenvironment",
+			body: map[string]any{"serviceEnvironmentType": "SAGEMAKER_TRAINING"},
+		},
+		{
+			name: "DeleteServiceEnvironment_missing_resource",
+			path: "/v1/deleteserviceenvironment",
+			body: map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := post(t, h, tt.path, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// --- UpdateConsumableResource tests ---
+
+func TestBatch_UpdateConsumableResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *batch.Handler) string
+		name       string
+		operation  string
+		resource   string
+		wantStatus int
+		quantity   int64
+	}{
+		{
+			name: "SET_operation",
+			setup: func(t *testing.T, h *batch.Handler) string {
+				t.Helper()
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": "cr-set",
+					"totalQuantity":          int64(5),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return "cr-set"
+			},
+			operation:  "SET",
+			quantity:   100,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "ADD_operation",
+			setup: func(t *testing.T, h *batch.Handler) string {
+				t.Helper()
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": "cr-add",
+					"totalQuantity":          int64(10),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return "cr-add"
+			},
+			operation:  "ADD",
+			quantity:   5,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "REMOVE_operation",
+			setup: func(t *testing.T, h *batch.Handler) string {
+				t.Helper()
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": "cr-remove",
+					"totalQuantity":          int64(10),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return "cr-remove"
+			},
+			operation:  "REMOVE",
+			quantity:   3,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			resource:   "nonexistent-cr",
+			operation:  "SET",
+			quantity:   10,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "negative_quantity",
+			setup: func(t *testing.T, h *batch.Handler) string {
+				t.Helper()
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": "cr-neg",
+					"totalQuantity":          int64(10),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return "cr-neg"
+			},
+			operation:  "SET",
+			quantity:   -1,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_resource_field",
+			resource:   "",
+			operation:  "SET",
+			quantity:   10,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resource := tt.resource
+			if tt.setup != nil {
+				resource = tt.setup(t, h)
+			}
+
+			rec := post(t, h, "/v1/updateconsumableresource", map[string]any{
+				"consumableResource": resource,
+				"operation":          tt.operation,
+				"quantity":           tt.quantity,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- ListConsumableResources tests ---
+
+func TestBatch_ListConsumableResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		resources []string
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			resources: nil,
+			wantCount: 0,
+		},
+		{
+			name:      "populated_sorted",
+			resources: []string{"zzz-resource", "aaa-resource", "mmm-resource"},
+			wantCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			for _, name := range tt.resources {
+				rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+					"consumableResourceName": name,
+					"totalQuantity":          int64(1),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := post(t, h, "/v1/listconsumableresources", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+
+			items, _ := out["consumableResourceSummaryList"].([]any)
+			assert.Len(t, items, tt.wantCount)
+
+			if tt.wantCount > 1 {
+				first := items[0].(map[string]any)["consumableResourceName"].(string)
+				last := items[tt.wantCount-1].(map[string]any)["consumableResourceName"].(string)
+				assert.Less(t, first, last, "list should be sorted by name")
+			}
+		})
+	}
+}
+
+// --- DescribeSchedulingPolicies tests ---
+
+func TestBatch_DescribeSchedulingPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		arns      []string
+		wantCount int
+	}{
+		{
+			name:      "all_policies",
+			arns:      nil,
+			wantCount: 2,
+		},
+		{
+			name:      "unknown_arn_omitted",
+			arns:      []string{"arn:aws:batch:us-east-1:000000000000:scheduling-policy/nonexistent"},
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for _, n := range []string{"policy-a", "policy-b"} {
+				rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{"name": n})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			body := map[string]any{}
+			if tt.arns != nil {
+				body["arns"] = tt.arns
+			}
+
+			rec := post(t, h, "/v1/describeschedulingpolicies", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+
+			items, _ := out["schedulingPolicies"].([]any)
+			assert.Len(t, items, tt.wantCount)
+		})
+	}
+}
+
+// --- ListSchedulingPolicies tests ---
+
+func TestBatch_ListSchedulingPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		policies  []string
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			policies:  nil,
+			wantCount: 0,
+		},
+		{
+			name:      "populated",
+			policies:  []string{"sp-one", "sp-two"},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			for _, n := range tt.policies {
+				rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{"name": n})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := post(t, h, "/v1/listschedulingpolicies", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+
+			items, _ := out["schedulingPolicies"].([]any)
+			assert.Len(t, items, tt.wantCount)
+		})
+	}
+}
+
+// --- UpdateSchedulingPolicy tests ---
+
+func TestBatch_UpdateSchedulingPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		arn        string
+		createName string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			createName: "up-policy",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			arn:        "arn:aws:batch:us-east-1:000000000000:scheduling-policy/nonexistent",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_arn",
+			arn:        "",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			policyARN := tt.arn
+
+			if tt.createName != "" {
+				rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{"name": tt.createName})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out map[string]string
+				mustUnmarshal(t, rec, &out)
+				policyARN = out["arn"]
+			}
+
+			rec := post(t, h, "/v1/updateschedulingpolicy", map[string]any{"arn": policyARN})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- DescribeServiceEnvironments tests ---
+
+func TestBatch_DescribeServiceEnvironments(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		filterNames []string
+		wantCount   int
+	}{
+		{
+			name:        "all_environments",
+			filterNames: nil,
+			wantCount:   2,
+		},
+		{
+			name:        "filtered_by_name",
+			filterNames: []string{"senv-first"},
+			wantCount:   1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			for _, n := range []string{"senv-first", "senv-second"} {
+				rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
+					"serviceEnvironmentName": n,
+					"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			body := map[string]any{}
+			if tt.filterNames != nil {
+				body["serviceEnvironments"] = tt.filterNames
+			}
+
+			rec := post(t, h, "/v1/describeserviceenvironments", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+
+			items, _ := out["serviceEnvironments"].([]any)
+			assert.Len(t, items, tt.wantCount)
+		})
+	}
+}
+
+// --- UpdateServiceEnvironment tests ---
+
+func TestBatch_UpdateServiceEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		envName    string
+		state      string
+		createEnv  bool
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			envName:    "senv-update",
+			state:      "DISABLED",
+			createEnv:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			envName:    "nonexistent-senv",
+			createEnv:  false,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_field",
+			envName:    "",
+			createEnv:  false,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.createEnv {
+				rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
+					"serviceEnvironmentName": tt.envName,
+					"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := post(t, h, "/v1/updateserviceenvironment", map[string]any{
+				"serviceEnvironment": tt.envName,
+				"state":              tt.state,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- TagsOnNewResourceTypes tests ---
+
+func TestBatch_TagsOnNewResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a consumable resource.
+	rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+		"consumableResourceName": "cr-tag-test",
+		"totalQuantity":          int64(5),
+		"tags":                   map[string]string{"initial": "value"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]string
+	mustUnmarshal(t, rec, &createOut)
+	crARN := createOut["consumableResourceArn"]
+	require.NotEmpty(t, crARN)
+
+	// Tag the resource.
+	e := echo.New()
+	tagPath := "/v1/tags/" + crARN
+	tagBody := map[string]any{"tags": map[string]string{"env": "prod"}}
+	tagBytes, err := json.Marshal(tagBody)
+	require.NoError(t, err)
+
+	tagReq := httptest.NewRequest(http.MethodPost, tagPath, bytes.NewReader(tagBytes))
+	tagReq.Header.Set("Content-Type", "application/json")
+	tagRec := httptest.NewRecorder()
+	tagC := e.NewContext(tagReq, tagRec)
+	require.NoError(t, h.Handler()(tagC))
+	assert.Equal(t, http.StatusOK, tagRec.Code)
+
+	// List tags.
+	listReq := httptest.NewRequest(http.MethodGet, tagPath, nil)
+	listRec := httptest.NewRecorder()
+	listC := e.NewContext(listReq, listRec)
+	require.NoError(t, h.Handler()(listC))
+	assert.Equal(t, http.StatusOK, listRec.Code)
+
+	var tagsOut map[string]map[string]string
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	assert.Equal(t, "prod", tagsOut["tags"]["env"])
+}
+
+// --- PersistenceWithNewResourceTypes tests ---
+
+func TestBatch_PersistenceWithNewResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create resources of each new type.
+	rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+		"consumableResourceName": "cr-persist",
+		"totalQuantity":          int64(42),
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createschedulingpolicy", map[string]any{
+		"name": "sp-persist",
+		"tags": map[string]string{"k": "v"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createserviceenvironment", map[string]any{
+		"serviceEnvironmentName": "senv-persist",
+		"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Snapshot and restore.
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	h2 := batch.NewHandler(batch.NewInMemoryBackend("000000000000", "us-east-1"))
+	require.NoError(t, h2.Restore(snap))
+
+	// Verify consumable resource is restored.
+	rec2 := post(t, h2, "/v1/describeconsumableresource", map[string]any{
+		"consumableResource": "cr-persist",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var crOut map[string]any
+	mustUnmarshal(t, rec2, &crOut)
+	assert.Equal(t, "cr-persist", crOut["consumableResourceName"])
+	assert.EqualValues(t, 42, crOut["totalQuantity"])
+
+	// Verify scheduling policy is restored via describe.
+	rec3 := post(t, h2, "/v1/describeschedulingpolicies", map[string]any{})
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var spList map[string]any
+	mustUnmarshal(t, rec3, &spList)
+	items := spList["schedulingPolicies"].([]any)
+	assert.Len(t, items, 1)
+
+	// Verify scheduling policy name index is rebuilt (dedup by name should work).
+	rec4 := post(t, h2, "/v1/createschedulingpolicy", map[string]any{"name": "sp-persist"})
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
+}
+
+// --- ResourceTypeValidation tests ---
+
+func TestBatch_ResourceTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		resourceType string
+		wantStatus   int
+	}{
+		{
+			name:         "valid_replenishable",
+			resourceType: "REPLENISHABLE",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "valid_non_replenishable",
+			resourceType: "NON_REPLENISHABLE",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "invalid_resource_type",
+			resourceType: "INVALID_TYPE",
+			wantStatus:   http.StatusBadRequest,
+		},
+		{
+			name:         "default_when_empty",
+			resourceType: "",
+			wantStatus:   http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+				"consumableResourceName": "cr-type-" + tt.name,
+				"totalQuantity":          int64(1),
+				"resourceType":           tt.resourceType,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- SchedulingPolicyNameIndex tests ---
+
+func TestBatch_SchedulingPolicyNameIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		policyName string
+		wantStatus int
+		createDupe bool
+	}{
+		{
+			name:       "unique_policy_created",
+			policyName: "unique-policy",
+			wantStatus: http.StatusOK,
+			createDupe: false,
+		},
+		{
+			name:       "duplicate_name_rejected",
+			policyName: "dupe-policy",
+			wantStatus: http.StatusBadRequest,
+			createDupe: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// First creation always succeeds.
+			rec := post(t, h, "/v1/createschedulingpolicy", map[string]any{"name": tt.policyName})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			if tt.createDupe {
+				rec = post(t, h, "/v1/createschedulingpolicy", map[string]any{"name": tt.policyName})
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
