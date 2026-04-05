@@ -121,6 +121,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// Reset clears the backend state (test helper).
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error {
 	if fn, ok := h.ops[operation]; ok {
 		return fn(c, body)
@@ -356,6 +361,10 @@ func (h *Handler) handleStartLogging(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
+	if in.Name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "Name is required"))
+	}
+
 	if err := h.Backend.StartLogging(in.Name); err != nil {
 		return h.handleError(c, err)
 	}
@@ -373,6 +382,10 @@ func (h *Handler) handleStopLogging(c *echo.Context, body []byte) error {
 	var in stopLoggingBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.Name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "Name is required"))
 	}
 
 	if err := h.Backend.StopLogging(in.Name); err != nil {
@@ -415,6 +428,10 @@ func (h *Handler) handlePutEventSelectors(c *echo.Context, body []byte) error {
 	var in putEventSelectorsBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.TrailName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "TrailName is required"))
 	}
 
 	t, err := h.Backend.PutEventSelectors(in.TrailName, in.EventSelectors)
@@ -792,6 +809,10 @@ func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
+	if in.QueryID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
+	}
+
 	q, err := h.Backend.CancelQuery(in.QueryID)
 	if err != nil {
 		return h.handleError(c, err)
@@ -814,6 +835,10 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 	var in describeQueryBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.QueryID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
 	}
 
 	q, err := h.Backend.DescribeQuery(in.QueryID)

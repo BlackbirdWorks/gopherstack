@@ -1,0 +1,522 @@
+From a7b0ef0c12241979e32893ad0c04110a38c31042 Mon Sep 17 00:00:00 2001
+From: "copilot-swe-agent[bot]" <198982749+Copilot@users.noreply.github.com>
+Date: Sun, 5 Apr 2026 15:06:05 +0000
+Subject: [PATCH] Improve cloudtrail backend: secondary indexes, error
+ sentinels, O(1) lookups, Reset(), sorted output
+
+- Add ErrChannelNotFound, ErrDashboardNotFound, ErrEventDataStoreNotFound, ErrQueryNotFound sentinels
+- Add channelsByARN/Name, dashboardsByARN/Name, edsByARN/Name secondary indexes for O(1) lookups
+- Add Reset() method that closes all Tags and re-initializes all maps/counters
+- Fix findTrailLocked to use trailsByARN index (O(1)) instead of O(n) loop
+- Sort DescribeTrails output by Name; sort ListTrails output by TrailARN
+- Fix EventDataStore status from 'CREATED' to 'ENABLED'
+- Fix Dashboard status from 'CREATING' to 'CREATED'
+- Add name uniqueness checks in CreateChannel, CreateDashboard, CreateEventDataStore
+- Rewrite Delete{Channel,Dashboard,EventDataStore} to use O(1) index lookups
+- Add findResourceTagsLocked helper for tag ops on any resource type
+- Update AddTags/RemoveTags/ListTags to use findResourceTagsLocked
+- Add queryID empty validation to CancelQuery and DescribeQuery
+- Update handler.handleError to map new error types to HTTP 404
+- Rebuild secondary indexes in Restore() from snapshot state
+- Update tests for new status values
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+Co-authored-by: agbishop <1376376+agbishop@users.noreply.github.com>
+---
+ services/cloudtrail/backend.go      | 217 ++++++++++++++++++++++------
+ services/cloudtrail/handler.go      |   8 +
+ services/cloudtrail/handler_test.go |   4 +-
+ services/cloudtrail/persistence.go  |  20 +++
+ 4 files changed, 203 insertions(+), 46 deletions(-)
+
+diff --git a/services/cloudtrail/backend.go b/services/cloudtrail/backend.go
+index d5ba1b7..3fc9c40 100644
+--- a/services/cloudtrail/backend.go
++++ b/services/cloudtrail/backend.go
+@@ -2,6 +2,7 @@ package cloudtrail
+ 
+ import (
+ 	"fmt"
++	"sort"
+ 	"time"
+ 
+ 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+@@ -17,6 +18,14 @@ var (
+ 	ErrAlreadyExists = awserr.New("TrailAlreadyExistsException", awserr.ErrConflict)
+ 	// ErrValidation is returned when input validation fails.
+ 	ErrValidation = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
++	// ErrChannelNotFound is returned when a channel is not found.
++	ErrChannelNotFound = awserr.New("ChannelNotFoundException", awserr.ErrNotFound)
++	// ErrDashboardNotFound is returned when a dashboard is not found.
++	ErrDashboardNotFound = awserr.New("DashboardNotFoundException", awserr.ErrNotFound)
++	// ErrEventDataStoreNotFound is returned when an event data store is not found.
++	ErrEventDataStoreNotFound = awserr.New("EventDataStoreNotFoundException", awserr.ErrNotFound)
++	// ErrQueryNotFound is returned when a query is not found.
++	ErrQueryNotFound = awserr.New("InactiveQueryException", awserr.ErrNotFound)
+ )
+ 
+ // Channel represents a CloudTrail channel resource.
+@@ -122,8 +131,14 @@ type InMemoryBackend struct {
+ 	trails           map[string]*Trail
+ 	trailsByARN      map[string]string
+ 	channels         map[string]*Channel
++	channelsByARN    map[string]string // ARN → channel ID
++	channelsByName   map[string]string // name → channel ID
+ 	dashboards       map[string]*Dashboard
++	dashboardsByARN  map[string]string // ARN → dashboard ID
++	dashboardsByName map[string]string // name → dashboard ID
+ 	eventDataStores  map[string]*EventDataStore
++	edsByARN         map[string]string // ARN → EDS ID
++	edsByName        map[string]string // name → EDS ID
+ 	queries          map[string]*Query
+ 	resourcePolicies map[string]*ResourcePolicy
+ 	mu               *lockmetrics.RWMutex
+@@ -141,8 +156,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+ 		trails:           make(map[string]*Trail),
+ 		trailsByARN:      make(map[string]string),
+ 		channels:         make(map[string]*Channel),
++		channelsByARN:    make(map[string]string),
++		channelsByName:   make(map[string]string),
+ 		dashboards:       make(map[string]*Dashboard),
++		dashboardsByARN:  make(map[string]string),
++		dashboardsByName: make(map[string]string),
+ 		eventDataStores:  make(map[string]*EventDataStore),
++		edsByARN:         make(map[string]string),
++		edsByName:        make(map[string]string),
+ 		queries:          make(map[string]*Query),
+ 		resourcePolicies: make(map[string]*ResourcePolicy),
+ 		accountID:        accountID,
+@@ -151,6 +172,43 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+ 	}
+ }
+ 
++// Reset clears all state in the backend.
++func (b *InMemoryBackend) Reset() {
++	b.mu.Lock("Reset")
++	defer b.mu.Unlock()
++
++	for _, t := range b.trails {
++		t.Tags.Close()
++	}
++	for _, ch := range b.channels {
++		ch.Tags.Close()
++	}
++	for _, d := range b.dashboards {
++		d.Tags.Close()
++	}
++	for _, eds := range b.eventDataStores {
++		eds.Tags.Close()
++	}
++
++	b.trails = make(map[string]*Trail)
++	b.trailsByARN = make(map[string]string)
++	b.channels = make(map[string]*Channel)
++	b.channelsByARN = make(map[string]string)
++	b.channelsByName = make(map[string]string)
++	b.dashboards = make(map[string]*Dashboard)
++	b.dashboardsByARN = make(map[string]string)
++	b.dashboardsByName = make(map[string]string)
++	b.eventDataStores = make(map[string]*EventDataStore)
++	b.edsByARN = make(map[string]string)
++	b.edsByName = make(map[string]string)
++	b.queries = make(map[string]*Query)
++	b.resourcePolicies = make(map[string]*ResourcePolicy)
++	b.channelCounter = 0
++	b.dashboardCounter = 0
++	b.edsCounter = 0
++	b.queryCounter = 0
++}
++
+ // Region returns the AWS region this backend is configured for.
+ func (b *InMemoryBackend) Region() string { return b.region }
+ 
+@@ -220,8 +278,8 @@ func (b *InMemoryBackend) findTrailLocked(nameOrARN string) (*Trail, error) {
+ 
+ 		return &cp, nil
+ 	}
+-	for _, t := range b.trails {
+-		if t.TrailARN == nameOrARN {
++	if name, ok := b.trailsByARN[nameOrARN]; ok {
++		if t, found := b.trails[name]; found {
+ 			cp := *t
+ 			cp.EventSelectors = copyEventSelectors(t.EventSelectors)
+ 
+@@ -245,6 +303,7 @@ func (b *InMemoryBackend) DescribeTrails(nameList []string) []*Trail {
+ 			cp.EventSelectors = copyEventSelectors(t.EventSelectors)
+ 			list = append(list, &cp)
+ 		}
++		sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+ 
+ 		return list
+ 	}
+@@ -412,50 +471,84 @@ func (b *InMemoryBackend) GetEventSelectors(nameOrARN string) (string, []EventSe
+ 	return t.TrailARN, copyEventSelectors(t.EventSelectors), nil
+ }
+ 
+-// AddTags adds tags to a trail resource by ARN.
++// AddTags adds tags to a resource by ARN or ID.
+ func (b *InMemoryBackend) AddTags(resourceID string, kv map[string]string) error {
+ 	b.mu.Lock("AddTags")
+ 	defer b.mu.Unlock()
+ 
+-	t := b.findByNameOrARNLocked(resourceID)
+-	if t == nil {
+-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
++	t, err := b.findResourceTagsLocked(resourceID)
++	if err != nil {
++		return err
+ 	}
+-	t.Tags.Merge(kv)
++	t.Merge(kv)
+ 
+ 	return nil
+ }
+ 
+-// RemoveTags removes tags from a trail resource by ARN.
++// RemoveTags removes tags from a resource by ARN or ID.
+ func (b *InMemoryBackend) RemoveTags(resourceID string, keys []string) error {
+ 	b.mu.Lock("RemoveTags")
+ 	defer b.mu.Unlock()
+ 
+-	t := b.findByNameOrARNLocked(resourceID)
+-	if t == nil {
+-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
++	t, err := b.findResourceTagsLocked(resourceID)
++	if err != nil {
++		return err
+ 	}
+-	t.Tags.DeleteKeys(keys)
++	t.DeleteKeys(keys)
+ 
+ 	return nil
+ }
+ 
+-// ListTags returns tags for the given resource ARNs.
++// ListTags returns tags for the given resource ARNs or IDs.
+ func (b *InMemoryBackend) ListTags(resourceIDs []string) map[string]map[string]string {
+ 	b.mu.RLock("ListTags")
+ 	defer b.mu.RUnlock()
+ 
+ 	result := make(map[string]map[string]string, len(resourceIDs))
+ 	for _, rid := range resourceIDs {
+-		t := b.findByNameOrARNLocked(rid)
+-		if t != nil {
+-			result[rid] = t.Tags.Clone()
++		t, err := b.findResourceTagsLocked(rid)
++		if err == nil {
++			result[rid] = t.Clone()
+ 		}
+ 	}
+ 
+ 	return result
+ }
+ 
++// findResourceTagsLocked returns the tags.Tags for any supported resource type.
++// It must be called with at least a read lock held.
++func (b *InMemoryBackend) findResourceTagsLocked(resourceID string) (*tags.Tags, error) {
++	if t := b.findByNameOrARNLocked(resourceID); t != nil {
++		return t.Tags, nil
++	}
++
++	id := resourceID
++	if mapped, ok := b.channelsByARN[resourceID]; ok {
++		id = mapped
++	}
++	if ch, ok := b.channels[id]; ok {
++		return ch.Tags, nil
++	}
++
++	id = resourceID
++	if mapped, ok := b.dashboardsByARN[resourceID]; ok {
++		id = mapped
++	}
++	if d, ok := b.dashboards[id]; ok {
++		return d.Tags, nil
++	}
++
++	id = resourceID
++	if mapped, ok := b.edsByARN[resourceID]; ok {
++		id = mapped
++	}
++	if eds, ok := b.eventDataStores[id]; ok {
++		return eds.Tags, nil
++	}
++
++	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
++}
++
+ // ListTrails returns all trails.
+ func (b *InMemoryBackend) ListTrails() []*Trail {
+ 	b.mu.RLock("ListTrails")
+@@ -467,6 +560,7 @@ func (b *InMemoryBackend) ListTrails() []*Trail {
+ 		cp.EventSelectors = copyEventSelectors(t.EventSelectors)
+ 		list = append(list, &cp)
+ 	}
++	sort.Slice(list, func(i, j int) bool { return list[i].TrailARN < list[j].TrailARN })
+ 
+ 	return list
+ }
+@@ -511,6 +605,9 @@ func (b *InMemoryBackend) CreateChannel(
+ 	if name == "" {
+ 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+ 	}
++	if _, exists := b.channelsByName[name]; exists {
++		return nil, fmt.Errorf("%w: channel %s already exists", ErrAlreadyExists, name)
++	}
+ 
+ 	b.channelCounter++
+ 	id := fmt.Sprintf("channel-%06d", b.channelCounter)
+@@ -528,6 +625,8 @@ func (b *InMemoryBackend) CreateChannel(
+ 		Tags:         t,
+ 	}
+ 	b.channels[id] = ch
++	b.channelsByARN[channelARN] = id
++	b.channelsByName[name] = id
+ 
+ 	cp := *ch
+ 
+@@ -539,16 +638,20 @@ func (b *InMemoryBackend) DeleteChannel(channelIDOrARN string) error {
+ 	b.mu.Lock("DeleteChannel")
+ 	defer b.mu.Unlock()
+ 
+-	for id, ch := range b.channels {
+-		if id == channelIDOrARN || ch.ChannelARN == channelIDOrARN {
+-			ch.Tags.Close()
+-			delete(b.channels, id)
+-
+-			return nil
+-		}
++	id := channelIDOrARN
++	if mapped, ok := b.channelsByARN[channelIDOrARN]; ok {
++		id = mapped
+ 	}
++	ch, ok := b.channels[id]
++	if !ok {
++		return fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
++	}
++	delete(b.channelsByARN, ch.ChannelARN)
++	delete(b.channelsByName, ch.Name)
++	ch.Tags.Close()
++	delete(b.channels, id)
+ 
+-	return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelIDOrARN)
++	return nil
+ }
+ 
+ // CreateDashboard creates a new CloudTrail dashboard.
+@@ -559,6 +662,9 @@ func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]s
+ 	if name == "" {
+ 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+ 	}
++	if _, exists := b.dashboardsByName[name]; exists {
++		return nil, fmt.Errorf("%w: dashboard %s already exists", ErrAlreadyExists, name)
++	}
+ 
+ 	b.dashboardCounter++
+ 	id := fmt.Sprintf("dashboard-%06d", b.dashboardCounter)
+@@ -572,10 +678,12 @@ func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]s
+ 		DashboardARN: dashARN,
+ 		Name:         name,
+ 		Type:         dashType,
+-		Status:       "CREATING",
++		Status:       "CREATED",
+ 		Tags:         t,
+ 	}
+ 	b.dashboards[id] = d
++	b.dashboardsByARN[dashARN] = id
++	b.dashboardsByName[name] = id
+ 
+ 	cp := *d
+ 
+@@ -587,16 +695,20 @@ func (b *InMemoryBackend) DeleteDashboard(dashboardIDOrARN string) error {
+ 	b.mu.Lock("DeleteDashboard")
+ 	defer b.mu.Unlock()
+ 
+-	for id, d := range b.dashboards {
+-		if id == dashboardIDOrARN || d.DashboardARN == dashboardIDOrARN {
+-			d.Tags.Close()
+-			delete(b.dashboards, id)
+-
+-			return nil
+-		}
++	id := dashboardIDOrARN
++	if mapped, ok := b.dashboardsByARN[dashboardIDOrARN]; ok {
++		id = mapped
+ 	}
++	d, ok := b.dashboards[id]
++	if !ok {
++		return fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashboardIDOrARN)
++	}
++	delete(b.dashboardsByARN, d.DashboardARN)
++	delete(b.dashboardsByName, d.Name)
++	d.Tags.Close()
++	delete(b.dashboards, id)
+ 
+-	return fmt.Errorf("%w: dashboard %s not found", ErrNotFound, dashboardIDOrARN)
++	return nil
+ }
+ 
+ // CreateEventDataStore creates a new CloudTrail event data store.
+@@ -612,6 +724,9 @@ func (b *InMemoryBackend) CreateEventDataStore(
+ 	if name == "" {
+ 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+ 	}
++	if _, exists := b.edsByName[name]; exists {
++		return nil, fmt.Errorf("%w: event data store %s already exists", ErrAlreadyExists, name)
++	}
+ 
+ 	b.edsCounter++
+ 	id := fmt.Sprintf("eds-%06d", b.edsCounter)
+@@ -625,7 +740,7 @@ func (b *InMemoryBackend) CreateEventDataStore(
+ 		EventDataStoreID:     id,
+ 		EventDataStoreARN:    edsARN,
+ 		Name:                 name,
+-		Status:               "CREATED",
++		Status:               "ENABLED",
+ 		MultiRegionEnabled:   multiRegionEnabled,
+ 		OrganizationEnabled:  organizationEnabled,
+ 		TerminationProtected: terminationProtected,
+@@ -635,6 +750,8 @@ func (b *InMemoryBackend) CreateEventDataStore(
+ 		Tags:                 t,
+ 	}
+ 	b.eventDataStores[id] = eds
++	b.edsByARN[edsARN] = id
++	b.edsByName[name] = id
+ 
+ 	cp := *eds
+ 
+@@ -646,16 +763,20 @@ func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
+ 	b.mu.Lock("DeleteEventDataStore")
+ 	defer b.mu.Unlock()
+ 
+-	for id, eds := range b.eventDataStores {
+-		if id == edsIDOrARN || eds.EventDataStoreARN == edsIDOrARN {
+-			eds.Tags.Close()
+-			delete(b.eventDataStores, id)
+-
+-			return nil
+-		}
++	id := edsIDOrARN
++	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
++		id = mapped
++	}
++	eds, ok := b.eventDataStores[id]
++	if !ok {
++		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+ 	}
++	delete(b.edsByARN, eds.EventDataStoreARN)
++	delete(b.edsByName, eds.Name)
++	eds.Tags.Close()
++	delete(b.eventDataStores, id)
+ 
+-	return fmt.Errorf("%w: event data store %s not found", ErrNotFound, edsIDOrARN)
++	return nil
+ }
+ 
+ // DeleteResourcePolicy removes the resource-based policy from a CloudTrail resource.
+@@ -712,9 +833,13 @@ func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
+ 	b.mu.Lock("CancelQuery")
+ 	defer b.mu.Unlock()
+ 
++	if queryID == "" {
++		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
++	}
++
+ 	q, ok := b.queries[queryID]
+ 	if !ok {
+-		return nil, fmt.Errorf("%w: query %s not found", ErrNotFound, queryID)
++		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+ 	}
+ 	if q.QueryStatus == "FINISHED" || q.QueryStatus == "FAILED" || q.QueryStatus == "CANCELLED" {
+ 		return nil, fmt.Errorf("%w: query %s is already in terminal state %s", ErrValidation, queryID, q.QueryStatus)
+@@ -730,9 +855,13 @@ func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
+ 	b.mu.RLock("DescribeQuery")
+ 	defer b.mu.RUnlock()
+ 
++	if queryID == "" {
++		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
++	}
++
+ 	q, ok := b.queries[queryID]
+ 	if !ok {
+-		return nil, fmt.Errorf("%w: query %s not found", ErrNotFound, queryID)
++		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+ 	}
+ 	cp := *q
+ 
+diff --git a/services/cloudtrail/handler.go b/services/cloudtrail/handler.go
+index 7fb2ce5..ee43e87 100644
+--- a/services/cloudtrail/handler.go
++++ b/services/cloudtrail/handler.go
+@@ -166,6 +166,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
+ 	switch {
+ 	case errors.Is(err, ErrNotFound):
+ 		return c.JSON(http.StatusNotFound, errResp("TrailNotFoundException", err.Error()))
++	case errors.Is(err, ErrChannelNotFound):
++		return c.JSON(http.StatusNotFound, errResp("ChannelNotFoundException", err.Error()))
++	case errors.Is(err, ErrDashboardNotFound):
++		return c.JSON(http.StatusNotFound, errResp("DashboardNotFoundException", err.Error()))
++	case errors.Is(err, ErrEventDataStoreNotFound):
++		return c.JSON(http.StatusNotFound, errResp("EventDataStoreNotFoundException", err.Error()))
++	case errors.Is(err, ErrQueryNotFound):
++		return c.JSON(http.StatusNotFound, errResp("InactiveQueryException", err.Error()))
+ 	case errors.Is(err, ErrAlreadyExists):
+ 		return c.JSON(http.StatusConflict, errResp("TrailAlreadyExistsException", err.Error()))
+ 	case errors.Is(err, ErrValidation):
+diff --git a/services/cloudtrail/handler_test.go b/services/cloudtrail/handler_test.go
+index 620501e..b9fc6ab 100644
+--- a/services/cloudtrail/handler_test.go
++++ b/services/cloudtrail/handler_test.go
+@@ -1233,7 +1233,7 @@ func TestCloudTrailDashboard(t *testing.T) {
+ 				resp := parseCloudTrailResp(t, rec)
+ 				assert.NotEmpty(t, resp["DashboardArn"])
+ 				assert.Equal(t, "my-dashboard", resp["Name"])
+-				assert.Equal(t, "CREATING", resp["Status"])
++				assert.Equal(t, "CREATED", resp["Status"])
+ 			},
+ 		},
+ 		{
+@@ -1305,7 +1305,7 @@ func TestCloudTrailEventDataStore(t *testing.T) {
+ 				resp := parseCloudTrailResp(t, rec)
+ 				assert.NotEmpty(t, resp["EventDataStoreArn"])
+ 				assert.Equal(t, "my-eds", resp["Name"])
+-				assert.Equal(t, "CREATED", resp["Status"])
++				assert.Equal(t, "ENABLED", resp["Status"])
+ 				assert.Equal(t, true, resp["MultiRegionEnabled"])
+ 				assert.Equal(t, true, resp["TerminationProtectionEnabled"])
+ 			},
+diff --git a/services/cloudtrail/persistence.go b/services/cloudtrail/persistence.go
+index aad9db4..a29a2b3 100644
+--- a/services/cloudtrail/persistence.go
++++ b/services/cloudtrail/persistence.go
+@@ -98,6 +98,26 @@ func (b *InMemoryBackend) Restore(data []byte) error {
+ 	b.edsCounter = snap.EDSCounter
+ 	b.queryCounter = snap.QueryCounter
+ 
++	// Rebuild secondary indexes from restored state.
++	b.channelsByARN = make(map[string]string, len(b.channels))
++	b.channelsByName = make(map[string]string, len(b.channels))
++	for id, ch := range b.channels {
++		b.channelsByARN[ch.ChannelARN] = id
++		b.channelsByName[ch.Name] = id
++	}
++	b.dashboardsByARN = make(map[string]string, len(b.dashboards))
++	b.dashboardsByName = make(map[string]string, len(b.dashboards))
++	for id, d := range b.dashboards {
++		b.dashboardsByARN[d.DashboardARN] = id
++		b.dashboardsByName[d.Name] = id
++	}
++	b.edsByARN = make(map[string]string, len(b.eventDataStores))
++	b.edsByName = make(map[string]string, len(b.eventDataStores))
++	for id, eds := range b.eventDataStores {
++		b.edsByARN[eds.EventDataStoreARN] = id
++		b.edsByName[eds.Name] = id
++	}
++
+ 	return nil
+ }
+ 
+-- 
+2.53.0
+

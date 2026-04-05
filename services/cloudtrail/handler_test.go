@@ -1503,3 +1503,462 @@ func TestCloudTrailQuery(t *testing.T) {
 		})
 	}
 }
+
+// TestRefinement1_Reset exercises Reset() on backend and handler.
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "reset_clears_trails",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name": "trail-a", "S3BucketName": "bucket",
+				})
+				h.Reset()
+				rec := doCloudTrailOp(t, h, "ListTrails", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				list, ok := resp["Trails"].([]any)
+				require.True(t, ok)
+				assert.Empty(t, list)
+			},
+		},
+		{
+			name: "reset_clears_channels",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name": "chan-a", "Source": "src",
+				})
+				h.Reset()
+				// after Reset, creating a channel with same name succeeds (uniqueness cleared)
+				rec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name": "chan-a", "Source": "src",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "reset_clears_event_data_stores",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "eds-a",
+				})
+				h.Reset()
+				// After reset, can create again with same name
+				rec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "eds-a",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestRefinement1_SortedOutput verifies deterministic sorted output.
+func TestRefinement1_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "list_trails_sorted_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				for _, n := range []string{"trail-z", "trail-a", "trail-m"} {
+					doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+						"Name": n, "S3BucketName": "bucket",
+					})
+				}
+				rec := doCloudTrailOp(t, h, "ListTrails", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				list, ok := resp["Trails"].([]any)
+				require.True(t, ok)
+				require.Len(t, list, 3)
+				// Verify sorted order by comparing ARNs (which contain the name)
+				firstName := list[0].(map[string]any)["Name"].(string)
+				secondName := list[1].(map[string]any)["Name"].(string)
+				thirdName := list[2].(map[string]any)["Name"].(string)
+				assert.Less(t, firstName, secondName)
+				assert.Less(t, secondName, thirdName)
+			},
+		},
+		{
+			name: "describe_trails_sorted_by_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				for _, n := range []string{"trail-z", "trail-a", "trail-m"} {
+					doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+						"Name": n, "S3BucketName": "bucket",
+					})
+				}
+				rec := doCloudTrailOp(t, h, "DescribeTrails", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				list, ok := resp["trailList"].([]any)
+				require.True(t, ok)
+				require.Len(t, list, 3)
+				names := []string{
+					list[0].(map[string]any)["Name"].(string),
+					list[1].(map[string]any)["Name"].(string),
+					list[2].(map[string]any)["Name"].(string),
+				}
+				assert.Equal(t, []string{"trail-a", "trail-m", "trail-z"}, names)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestRefinement1_NameUniqueness verifies duplicate-name detection for new resource types.
+func TestRefinement1_NameUniqueness(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "duplicate_channel_name_rejected",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec1 := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name": "dup-chan", "Source": "src",
+				})
+				assert.Equal(t, http.StatusOK, rec1.Code)
+				rec2 := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name": "dup-chan", "Source": "src",
+				})
+				assert.Equal(t, http.StatusConflict, rec2.Code)
+			},
+		},
+		{
+			name: "duplicate_dashboard_name_rejected",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec1 := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "dup-dash",
+				})
+				assert.Equal(t, http.StatusOK, rec1.Code)
+				rec2 := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "dup-dash",
+				})
+				assert.Equal(t, http.StatusConflict, rec2.Code)
+			},
+		},
+		{
+			name: "duplicate_event_data_store_name_rejected",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec1 := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "dup-eds",
+				})
+				assert.Equal(t, http.StatusOK, rec1.Code)
+				rec2 := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "dup-eds",
+				})
+				assert.Equal(t, http.StatusConflict, rec2.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestRefinement1_TagsOnAllResources exercises AddTags/RemoveTags/ListTags on channels, dashboards, event data stores.
+func TestRefinement1_TagsOnAllResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "tags_on_channel",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+					"Name": "tagged-chan", "Source": "src",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				chanARN := createResp["ChannelArn"].(string)
+
+				addRec := doCloudTrailOp(t, h, "AddTags", map[string]any{
+					"ResourceId": chanARN,
+					"TagsList":   []map[string]string{{"Key": "Env", "Value": "prod"}},
+				})
+				assert.Equal(t, http.StatusOK, addRec.Code)
+
+				listRec := doCloudTrailOp(t, h, "ListTags", map[string]any{
+					"ResourceIdList": []string{chanARN},
+				})
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				listResp := parseCloudTrailResp(t, listRec)
+				tagList := listResp["ResourceTagList"].([]any)
+				require.Len(t, tagList, 1)
+				item := tagList[0].(map[string]any)
+				assert.Equal(t, chanARN, item["ResourceId"])
+				assert.NotEmpty(t, item["TagsList"])
+			},
+		},
+		{
+			name: "tags_on_dashboard",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "tagged-dash",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				dashARN := createResp["DashboardArn"].(string)
+
+				addRec := doCloudTrailOp(t, h, "AddTags", map[string]any{
+					"ResourceId": dashARN,
+					"TagsList":   []map[string]string{{"Key": "Team", "Value": "platform"}},
+				})
+				assert.Equal(t, http.StatusOK, addRec.Code)
+
+				removeRec := doCloudTrailOp(t, h, "RemoveTags", map[string]any{
+					"ResourceId": dashARN,
+					"TagsList":   []map[string]string{{"Key": "Team"}},
+				})
+				assert.Equal(t, http.StatusOK, removeRec.Code)
+			},
+		},
+		{
+			name: "tags_on_event_data_store",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "tagged-eds",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				edsARN := createResp["EventDataStoreArn"].(string)
+
+				addRec := doCloudTrailOp(t, h, "AddTags", map[string]any{
+					"ResourceId": edsARN,
+					"TagsList":   []map[string]string{{"Key": "Cost", "Value": "team-a"}},
+				})
+				assert.Equal(t, http.StatusOK, addRec.Code)
+
+				listRec := doCloudTrailOp(t, h, "ListTags", map[string]any{
+					"ResourceIdList": []string{edsARN},
+				})
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				listResp := parseCloudTrailResp(t, listRec)
+				tagList := listResp["ResourceTagList"].([]any)
+				require.Len(t, tagList, 1)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestRefinement1_PersistenceRoundTrip verifies Snapshot/Restore persists all resource types.
+func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	// Create one of each resource type
+	doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+		"Name": "persist-trail", "S3BucketName": "bucket",
+	})
+	doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+		"Name": "persist-chan", "Source": "src",
+	})
+	doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+		"Name": "persist-dash",
+	})
+	doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+		"Name": "persist-eds",
+	})
+	q, err := h.Backend.StartQuery("SELECT eventName FROM events LIMIT 1", "", "")
+	require.NoError(t, err)
+
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	h2 := newTestCloudTrailHandler()
+	require.NoError(t, h2.Restore(snap))
+
+	// Verify trail restored
+	rec := doCloudTrailOp(t, h2, "GetTrail", map[string]any{"Name": "persist-trail"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify channel name uniqueness restored (creating dup should fail)
+	dupChanRec := doCloudTrailOp(t, h2, "CreateChannel", map[string]any{
+		"Name": "persist-chan", "Source": "src",
+	})
+	assert.Equal(t, http.StatusConflict, dupChanRec.Code)
+
+	// Verify dashboard name uniqueness restored
+	dupDashRec := doCloudTrailOp(t, h2, "CreateDashboard", map[string]any{
+		"Name": "persist-dash",
+	})
+	assert.Equal(t, http.StatusConflict, dupDashRec.Code)
+
+	// Verify EDS name uniqueness restored
+	dupEDSRec := doCloudTrailOp(t, h2, "CreateEventDataStore", map[string]any{
+		"Name": "persist-eds",
+	})
+	assert.Equal(t, http.StatusConflict, dupEDSRec.Code)
+
+	// Verify query restored
+	descRec := doCloudTrailOp(t, h2, "DescribeQuery", map[string]any{
+		"QueryId": q.QueryID,
+	})
+	assert.Equal(t, http.StatusOK, descRec.Code)
+}
+
+// TestRefinement1_Validation exercises required-field validation for newly validated ops.
+func TestRefinement1_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "start_logging_missing_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "StartLogging", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "stop_logging_missing_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "StopLogging", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "put_event_selectors_missing_trail_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "PutEventSelectors", map[string]any{
+					"EventSelectors": []any{},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "cancel_query_missing_query_id",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CancelQuery", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "describe_query_missing_query_id",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DescribeQuery", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "event_data_store_status_is_enabled",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+					"Name": "status-check-eds",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.Equal(t, "ENABLED", resp["Status"])
+			},
+		},
+		{
+			name: "dashboard_status_is_created",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "status-check-dash",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.Equal(t, "CREATED", resp["Status"])
+			},
+		},
+		{
+			name: "channel_not_found_gives_404",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeleteChannel", map[string]any{
+					"Channel": "nonexistent-channel",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "event_data_store_not_found_gives_404",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "DeleteEventDataStore", map[string]any{
+					"EventDataStore": "nonexistent-eds",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestRefinement1_ProviderInitNilCtx ensures Provider.Init is nil-safe.
+func TestRefinement1_ProviderInitNilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &cloudtrail.Provider{}
+	reg, err := p.Init(nil)
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+	assert.Equal(t, "CloudTrail", reg.Name())
+}
