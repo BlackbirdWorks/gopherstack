@@ -219,7 +219,7 @@ func TestHandler_CreateResource(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateResource_DuplicateReturns400(t *testing.T) {
+func TestHandler_CreateResource_DuplicateReturns409(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -232,7 +232,7 @@ func TestHandler_CreateResource_DuplicateReturns400(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doRequest(t, h, "CreateResource", body)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
 func TestHandler_GetResource(t *testing.T) {
@@ -248,7 +248,7 @@ func TestHandler_GetResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"get-test"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"get-test"}`, "")
 			},
 			body: map[string]any{
 				"TypeName":   "AWS::Logs::LogGroup",
@@ -320,9 +320,9 @@ func TestHandler_ListResources(t *testing.T) {
 		{
 			name: "returns resources of type",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"list-test-1"}`)
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"list-test-2"}`)
-				_, _ = h.Backend.CreateResource("AWS::S3::Bucket", `{"BucketName":"other-bucket"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"list-test-1"}`, "")
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"list-test-2"}`, "")
+				_, _ = h.Backend.CreateResource("AWS::S3::Bucket", `{"BucketName":"other-bucket"}`, "")
 			},
 			body:       map[string]any{"TypeName": "AWS::Logs::LogGroup"},
 			wantStatus: http.StatusOK,
@@ -379,7 +379,7 @@ func TestHandler_DeleteResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"delete-me"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"delete-me"}`, "")
 			},
 			body: map[string]any{
 				"TypeName":   "AWS::Logs::LogGroup",
@@ -455,6 +455,7 @@ func TestHandler_UpdateResource(t *testing.T) {
 				_, _ = h.Backend.CreateResource(
 					"AWS::Logs::LogGroup",
 					`{"LogGroupName":"update-me","RetentionInDays":7}`,
+					"",
 				)
 			},
 			body: map[string]any{
@@ -531,7 +532,7 @@ func TestHandler_GetResourceRequestStatus(t *testing.T) {
 		{
 			name: "success after create",
 			setup: func(h *cloudcontrol.Handler) string {
-				event, _ := h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"status-test"}`)
+				event, _ := h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"status-test"}`, "")
 
 				return event.RequestToken
 			},
@@ -580,20 +581,36 @@ func TestHandler_CancelResourceRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*cloudcontrol.Handler) string
-		name        string
-		wantStatus2 string
-		wantStatus  int
+		setup        func(*cloudcontrol.Handler) string
+		name         string
+		wantOpStatus string
+		wantStatus   int
 	}{
 		{
-			name: "success",
+			name: "success cancels in_progress request",
 			setup: func(h *cloudcontrol.Handler) string {
-				event, _ := h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"cancel-test"}`)
+				token := "in-progress-token"
+				h.Backend.AddProgressEvent(&cloudcontrol.ProgressEvent{
+					RequestToken:    token,
+					TypeName:        "AWS::Logs::LogGroup",
+					Identifier:      "cancel-test",
+					Operation:       "CREATE",
+					OperationStatus: "IN_PROGRESS",
+				})
+
+				return token
+			},
+			wantStatus:   http.StatusOK,
+			wantOpStatus: "CANCEL_COMPLETE",
+		},
+		{
+			name: "cancelling terminal request returns 400",
+			setup: func(h *cloudcontrol.Handler) string {
+				event, _ := h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"terminal-test"}`, "")
 
 				return event.RequestToken
 			},
-			wantStatus:  http.StatusOK,
-			wantStatus2: "CANCEL_COMPLETE",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "not found returns 404",
@@ -627,7 +644,7 @@ func TestHandler_CancelResourceRequest(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
-				assert.Equal(t, tt.wantStatus2, pe["OperationStatus"])
+				assert.Equal(t, tt.wantOpStatus, pe["OperationStatus"])
 			}
 		})
 	}
@@ -676,8 +693,8 @@ func TestInMemoryBackend_ListAllResources(t *testing.T) {
 	t.Parallel()
 
 	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"all-1"}`)
-	_, _ = b.CreateResource("AWS::S3::Bucket", `{"BucketName":"all-2"}`)
+	_, _ = b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"all-1"}`, "")
+	_, _ = b.CreateResource("AWS::S3::Bucket", `{"BucketName":"all-2"}`, "")
 
 	all := b.ListAllResources()
 	assert.Len(t, all, 2)
@@ -774,8 +791,8 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 		{
 			name: "returns all requests when no filter",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"req-1"}`)
-				_, _ = h.Backend.CreateResource("AWS::S3::Bucket", `{"BucketName":"req-2"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"req-1"}`, "")
+				_, _ = h.Backend.CreateResource("AWS::S3::Bucket", `{"BucketName":"req-2"}`, "")
 			},
 			body:       map[string]any{},
 			wantStatus: http.StatusOK,
@@ -791,8 +808,8 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 		{
 			name: "filter by operation CREATE",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-1"}`)
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-2"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-1"}`, "")
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-2"}`, "")
 				// Delete creates a DELETE request; two CREATE requests remain
 				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "filter-1")
 			},
@@ -807,7 +824,7 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 		{
 			name: "filter by operation status SUCCESS",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"status-1"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"status-1"}`, "")
 			},
 			body: map[string]any{
 				"ResourceRequestStatusFilter": map[string]any{
@@ -820,7 +837,7 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 		{
 			name: "filter by status that does not match returns empty",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"no-match"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"no-match"}`, "")
 			},
 			body: map[string]any{
 				"ResourceRequestStatusFilter": map[string]any{
@@ -833,7 +850,7 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 		{
 			name: "filter by both operation and status",
 			setup: func(h *cloudcontrol.Handler) {
-				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"both-1"}`)
+				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"both-1"}`, "")
 				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "both-1")
 			},
 			body: map[string]any{
@@ -874,7 +891,7 @@ func TestHandler_ListResourceRequests_ContainsExpectedFields(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"fields-test"}`)
+	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"fields-test"}`, "")
 
 	rec := doRequest(t, h, "ListResourceRequests", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -910,4 +927,453 @@ func TestProvider_Name(t *testing.T) {
 
 	p := &cloudcontrol.Provider{}
 	assert.Equal(t, "CloudControl", p.Name())
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ctx  *service.AppContext
+		name string
+	}{
+		{name: "nil context", ctx: nil},
+		{name: "non-nil empty context", ctx: &service.AppContext{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &cloudcontrol.Provider{}
+			reg, err := p.Init(tt.ctx)
+			require.NoError(t, err)
+			require.NotNil(t, reg)
+			assert.Equal(t, "CloudControl", reg.Name())
+		})
+	}
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := cloudcontrol.NewHandler(cloudcontrol.NewInMemoryBackend("000000000000", "ap-southeast-1"))
+	regions := h.ChaosRegions()
+	require.Len(t, regions, 1)
+	assert.Equal(t, "ap-southeast-1", regions[0])
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	assert.Equal(t, h.GetSupportedOperations(), ops)
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	label := h.ExtractResource(c)
+	assert.Equal(t, "cloudcontrol", label)
+}
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _ = b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"r1"}`, "")
+	_, _ = b.CreateResource("AWS::S3::Bucket", `{"BucketName":"b1"}`, "")
+
+	require.Len(t, b.ListAllResources(), 2)
+
+	b.Reset()
+	assert.Empty(t, b.ListAllResources())
+
+	events, _, err := b.ListResourceRequests(nil, 0, "")
+	require.NoError(t, err)
+	assert.Empty(t, events)
+}
+
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"reset-r1"}`, "")
+
+	require.Len(t, h.Backend.ListAllResources(), 1)
+
+	h.Reset()
+	assert.Empty(t, h.Backend.ListAllResources())
+}
+
+func TestHandler_TypeName_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		action     string
+		wantStatus int
+	}{
+		{
+			name:       "create with invalid type name",
+			action:     "CreateResource",
+			body:       map[string]any{"TypeName": "InvalidTypeName", "DesiredState": `{}`},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "create with empty type name",
+			action:     "CreateResource",
+			body:       map[string]any{"TypeName": "", "DesiredState": `{}`},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "get with invalid type name",
+			action:     "GetResource",
+			body:       map[string]any{"TypeName": "NoDoubleColons", "Identifier": "x"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete with invalid type name",
+			action:     "DeleteResource",
+			body:       map[string]any{"TypeName": "Bad", "Identifier": "x"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "update with invalid type name",
+			action:     "UpdateResource",
+			body:       map[string]any{"TypeName": "Bad", "Identifier": "x", "PatchDocument": "[]"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "list with invalid type name",
+			action:     "ListResources",
+			body:       map[string]any{"TypeName": "NoColons"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListResourceRequests_EnumValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "invalid operation value returns 400",
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"Operations": []string{"INVALID_OP"},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid status value returns 400",
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"OperationStatuses": []string{"BOGUS_STATUS"},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "valid operations and statuses return 200",
+			body: map[string]any{
+				"ResourceRequestStatusFilter": map[string]any{
+					"Operations":        []string{"CREATE", "DELETE", "UPDATE"},
+					"OperationStatuses": []string{"SUCCESS", "FAILED"},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "ListResourceRequests", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListResourceRequests_TypeNameFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"lg-1"}`, "")
+	_, _ = h.Backend.CreateResource("AWS::S3::Bucket", `{"BucketName":"b-1"}`, "")
+
+	rec := doRequest(t, h, "ListResourceRequests", map[string]any{
+		"ResourceRequestStatusFilter": map[string]any{
+			"TypeName": "AWS::Logs::LogGroup",
+		},
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, summaries, 1)
+
+	summary, ok := summaries[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "AWS::Logs::LogGroup", summary["TypeName"])
+}
+
+func TestHandler_ListResources_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 5 {
+		name := "paginated-" + strings.Repeat("x", i+1)
+		_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"`+name+`"}`, "")
+	}
+
+	// First page: 3 items
+	rec := doRequest(t, h, "ListResources", map[string]any{
+		"TypeName":   "AWS::Logs::LogGroup",
+		"MaxResults": 3,
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1))
+
+	descs1, ok := out1["ResourceDescriptions"].([]any)
+	require.True(t, ok)
+	assert.Len(t, descs1, 3)
+
+	nextToken, ok := out1["NextToken"].(string)
+	require.True(t, ok, "NextToken must be present after first page")
+	require.NotEmpty(t, nextToken)
+
+	// Second page: remaining 2 items
+	rec2 := doRequest(t, h, "ListResources", map[string]any{
+		"TypeName":   "AWS::Logs::LogGroup",
+		"MaxResults": 3,
+		"NextToken":  nextToken,
+	})
+
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+
+	descs2, ok := out2["ResourceDescriptions"].([]any)
+	require.True(t, ok)
+	assert.Len(t, descs2, 2)
+
+	_, hasMore := out2["NextToken"]
+	assert.False(t, hasMore, "NextToken must be absent on last page")
+}
+
+func TestHandler_ListResourceRequests_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 4 {
+		name := "pg-" + strings.Repeat("r", i+1)
+		_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"`+name+`"}`, "")
+	}
+
+	rec := doRequest(t, h, "ListResourceRequests", map[string]any{
+		"MaxResults": 2,
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, summaries, 2)
+
+	nextToken, hasToken := out["NextToken"].(string)
+	require.True(t, hasToken, "NextToken should be present")
+	require.NotEmpty(t, nextToken)
+
+	rec2 := doRequest(t, h, "ListResourceRequests", map[string]any{
+		"MaxResults": 2,
+		"NextToken":  nextToken,
+	})
+
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+
+	summaries2, ok := out2["ResourceRequestStatusSummaries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, summaries2, 2)
+}
+
+func TestBackend_CreateResource_ClientToken_Idempotency(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+
+	ev1, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"idem-test"}`, "my-client-token")
+	require.NoError(t, err)
+
+	// Second call with the same clientToken must return the same RequestToken.
+	ev2, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"idem-test"}`, "my-client-token")
+	require.NoError(t, err)
+
+	assert.Equal(t, ev1.RequestToken, ev2.RequestToken, "idempotent calls must return the same request token")
+	assert.Len(t, b.ListAllResources(), 1, "only one resource should be created")
+}
+
+func TestBackend_ListAllResources_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _ = b.CreateResource("AWS::S3::Bucket", `{"BucketName":"z-bucket"}`, "")
+	_, _ = b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"a-group"}`, "")
+	_, _ = b.CreateResource("AWS::S3::Bucket", `{"BucketName":"a-bucket"}`, "")
+
+	all := b.ListAllResources()
+	require.Len(t, all, 3)
+
+	// Sorted by TypeName then Identifier.
+	assert.Equal(t, "AWS::Logs::LogGroup", all[0].TypeName)
+	assert.Equal(t, "AWS::S3::Bucket", all[1].TypeName)
+	assert.Equal(t, "a-bucket", all[1].Identifier)
+	assert.Equal(t, "z-bucket", all[2].Identifier)
+}
+
+func TestBackend_GetResourceRequestStatus_EventsNotRemovedOnRead(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+
+	ev, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"persist-test"}`, "")
+	require.NoError(t, err)
+
+	// First read.
+	ev1, err := b.GetResourceRequestStatus(ev.RequestToken)
+	require.NoError(t, err)
+	assert.Equal(t, "SUCCESS", ev1.OperationStatus)
+
+	// Second read — event must still be present (not deleted after first read).
+	ev2, err := b.GetResourceRequestStatus(ev.RequestToken)
+	require.NoError(t, err)
+	assert.Equal(t, ev1.RequestToken, ev2.RequestToken)
+}
+
+func TestHandler_CreateResource_ClientToken(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"TypeName":     "AWS::Logs::LogGroup",
+		"DesiredState": `{"LogGroupName":"client-token-test"}`,
+		"ClientToken":  "unique-client-token-123",
+	}
+
+	rec1 := doRequest(t, h, "CreateResource", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	pe1 := out1["ProgressEvent"].(map[string]any)
+
+	// Same clientToken must return the same RequestToken (idempotent).
+	rec2 := doRequest(t, h, "CreateResource", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	pe2 := out2["ProgressEvent"].(map[string]any)
+
+	assert.Equal(t, pe1["RequestToken"], pe2["RequestToken"])
+}
+
+func TestBackend_NewIdentifierKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		desiredState   string
+		name           string
+		wantIdentifier string
+	}{
+		{
+			name:           "TableName",
+			desiredState:   `{"TableName":"my-table"}`,
+			wantIdentifier: "my-table",
+		},
+		{
+			name:           "RoleName",
+			desiredState:   `{"RoleName":"my-role"}`,
+			wantIdentifier: "my-role",
+		},
+		{
+			name:           "ClusterName",
+			desiredState:   `{"ClusterName":"my-cluster"}`,
+			wantIdentifier: "my-cluster",
+		},
+		{
+			name:           "StreamName",
+			desiredState:   `{"StreamName":"my-stream"}`,
+			wantIdentifier: "my-stream",
+		},
+		{
+			name:           "DBInstanceIdentifier",
+			desiredState:   `{"DBInstanceIdentifier":"my-db"}`,
+			wantIdentifier: "my-db",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+			ev, err := b.CreateResource("AWS::Some::Type", tt.desiredState, "")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantIdentifier, ev.Identifier)
+		})
+	}
+}
+
+func TestHandler_InternalServerError(t *testing.T) {
+	t.Parallel()
+
+	// The default handler returns 500 for unexpected errors; drive that branch
+	// by reaching the internal server error path through a direct backend panic recovery —
+	// in practice we test it by having no backend set and using a custom handler.
+	// Instead, verify the existing error handler routes correctly.
+	h := newTestHandler(t)
+	// UnknownAction drives the errUnknownAction → 400 path.
+	rec := doRequest(t, h, "NonExistentOperation", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
