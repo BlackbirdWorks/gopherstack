@@ -2,6 +2,7 @@ package codeartifact
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -538,7 +539,7 @@ func (b *InMemoryBackend) DeletePackage(domainName, repoName, format, namespace,
 	// Remove all associated package versions.
 	prefix := key + "/"
 	for k := range b.packageVersions {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+		if strings.HasPrefix(k, prefix) {
 			delete(b.packageVersions, k)
 		}
 	}
@@ -652,11 +653,14 @@ func (b *InMemoryBackend) CopyPackageVersions(
 			continue
 		}
 		dstKey := packageVersionKey(domainName, dstRepo, format, namespace, name, v)
-		if _, exists := b.packageVersions[dstKey]; !exists {
-			copied := *src
-			copied.Repository = dstRepo
-			b.packageVersions[dstKey] = &copied
+		if _, exists := b.packageVersions[dstKey]; exists {
+			failed[v] = "ALREADY_EXISTS"
+
+			continue
 		}
+		copied := *src
+		copied.Repository = dstRepo
+		b.packageVersions[dstKey] = &copied
 		// Ensure destination package record exists.
 		dstPkgKey := packageKey(domainName, dstRepo, format, namespace, name)
 		if _, exists := b.packages[dstPkgKey]; !exists {

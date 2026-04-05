@@ -1072,15 +1072,15 @@ func TestHandler_DeletePackage(t *testing.T) {
 	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["deletedPackage"])
 
-	// Package should no longer exist (next describe auto-recreates so just confirm we got 200).
-	descRec := doRequest(
+	// Confirm deletion: a second delete should return 404 since the package no longer exists.
+	delRec2 := doRequest(
 		t,
 		h,
 		http.MethodDelete,
 		"/v1/package?domain=del-pkg-domain&repository=del-pkg-repo&format=npm&package=lodash",
 		nil,
 	)
-	assert.Equal(t, http.StatusNotFound, descRec.Code)
+	assert.Equal(t, http.StatusNotFound, delRec2.Code)
 }
 
 func TestHandler_DescribePackageVersion(t *testing.T) {
