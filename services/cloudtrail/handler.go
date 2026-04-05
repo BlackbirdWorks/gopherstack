@@ -21,12 +21,16 @@ var errInvalidRequest = errors.New("invalid request")
 
 // Handler is the Echo HTTP handler for AWS CloudTrail operations (JSON-1.1 protocol).
 type Handler struct {
+	ops     map[string]func(*echo.Context, []byte) error
 	Backend *InMemoryBackend
 }
 
 // NewHandler creates a new CloudTrail handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // Name returns the service name.
@@ -35,21 +39,31 @@ func (h *Handler) Name() string { return "CloudTrail" }
 // GetSupportedOperations returns the list of supported CloudTrail operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CancelQuery",
+		"CreateChannel",
+		"CreateDashboard",
+		"CreateEventDataStore",
 		"CreateTrail",
-		"GetTrail",
-		"DescribeTrails",
-		"UpdateTrail",
+		"DeleteChannel",
+		"DeleteDashboard",
+		"DeleteEventDataStore",
+		"DeleteResourcePolicy",
 		"DeleteTrail",
-		"StartLogging",
-		"StopLogging",
-		"GetTrailStatus",
-		"PutEventSelectors",
+		"DeregisterOrganizationDelegatedAdmin",
+		"DescribeQuery",
+		"DescribeTrails",
 		"GetEventSelectors",
+		"GetTrail",
+		"GetTrailStatus",
 		"AddTags",
-		"RemoveTags",
 		"ListTags",
 		"ListTrails",
 		"LookupEvents",
+		"PutEventSelectors",
+		"RemoveTags",
+		"StartLogging",
+		"StopLogging",
+		"UpdateTrail",
 	}
 }
 
@@ -107,44 +121,49 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 15 operations is inherently wide
+// Reset clears the backend state (test helper).
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error {
-	switch operation {
-	case "CreateTrail":
-		return h.handleCreateTrail(c, body)
-	case "GetTrail":
-		return h.handleGetTrail(c, body)
-	case "DescribeTrails":
-		return h.handleDescribeTrails(c, body)
-	case "UpdateTrail":
-		return h.handleUpdateTrail(c, body)
-	case "DeleteTrail":
-		return h.handleDeleteTrail(c, body)
-	case "StartLogging":
-		return h.handleStartLogging(c, body)
-	case "StopLogging":
-		return h.handleStopLogging(c, body)
-	case "GetTrailStatus":
-		return h.handleGetTrailStatus(c, body)
-	case "PutEventSelectors":
-		return h.handlePutEventSelectors(c, body)
-	case "GetEventSelectors":
-		return h.handleGetEventSelectors(c, body)
-	case "AddTags":
-		return h.handleAddTags(c, body)
-	case "RemoveTags":
-		return h.handleRemoveTags(c, body)
-	case "ListTags":
-		return h.handleListTags(c, body)
-	case "ListTrails":
-		return h.handleListTrails(c)
-	case "LookupEvents":
-		return h.handleLookupEvents(c)
-	default:
-		return c.JSON(
-			http.StatusBadRequest,
-			errResp("InvalidParameterCombinationException", "unknown operation: "+operation),
-		)
+	if fn, ok := h.ops[operation]; ok {
+		return fn(c, body)
+	}
+
+	return c.JSON(
+		http.StatusBadRequest,
+		errResp("InvalidParameterCombinationException", "unknown operation: "+operation),
+	)
+}
+
+func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
+	return map[string]func(*echo.Context, []byte) error{
+		"AddTags":                              h.handleAddTags,
+		"CancelQuery":                          h.handleCancelQuery,
+		"CreateChannel":                        h.handleCreateChannel,
+		"CreateDashboard":                      h.handleCreateDashboard,
+		"CreateEventDataStore":                 h.handleCreateEventDataStore,
+		"CreateTrail":                          h.handleCreateTrail,
+		"DeleteChannel":                        h.handleDeleteChannel,
+		"DeleteDashboard":                      h.handleDeleteDashboard,
+		"DeleteEventDataStore":                 h.handleDeleteEventDataStore,
+		"DeleteResourcePolicy":                 h.handleDeleteResourcePolicy,
+		"DeleteTrail":                          h.handleDeleteTrail,
+		"DeregisterOrganizationDelegatedAdmin": h.handleDeregisterOrganizationDelegatedAdmin,
+		"DescribeQuery":                        h.handleDescribeQuery,
+		"DescribeTrails":                       h.handleDescribeTrails,
+		"GetEventSelectors":                    h.handleGetEventSelectors,
+		"GetTrail":                             h.handleGetTrail,
+		"GetTrailStatus":                       h.handleGetTrailStatus,
+		"ListTags":                             h.handleListTags,
+		"ListTrails":                           h.handleListTrails,
+		"LookupEvents":                         h.handleLookupEvents,
+		"PutEventSelectors":                    h.handlePutEventSelectors,
+		"RemoveTags":                           h.handleRemoveTags,
+		"StartLogging":                         h.handleStartLogging,
+		"StopLogging":                          h.handleStopLogging,
+		"UpdateTrail":                          h.handleUpdateTrail,
 	}
 }
 
@@ -152,8 +171,18 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errResp("TrailNotFoundException", err.Error()))
+	case errors.Is(err, ErrChannelNotFound):
+		return c.JSON(http.StatusNotFound, errResp("ChannelNotFoundException", err.Error()))
+	case errors.Is(err, ErrDashboardNotFound):
+		return c.JSON(http.StatusNotFound, errResp("DashboardNotFoundException", err.Error()))
+	case errors.Is(err, ErrEventDataStoreNotFound):
+		return c.JSON(http.StatusNotFound, errResp("EventDataStoreNotFoundException", err.Error()))
+	case errors.Is(err, ErrQueryNotFound):
+		return c.JSON(http.StatusNotFound, errResp("InactiveQueryException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("TrailAlreadyExistsException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 	case errors.Is(err, errInvalidRequest):
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", err.Error()))
 	default:
@@ -332,6 +361,10 @@ func (h *Handler) handleStartLogging(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
+	if in.Name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "Name is required"))
+	}
+
 	if err := h.Backend.StartLogging(in.Name); err != nil {
 		return h.handleError(c, err)
 	}
@@ -349,6 +382,10 @@ func (h *Handler) handleStopLogging(c *echo.Context, body []byte) error {
 	var in stopLoggingBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.Name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "Name is required"))
 	}
 
 	if err := h.Backend.StopLogging(in.Name); err != nil {
@@ -391,6 +428,10 @@ func (h *Handler) handlePutEventSelectors(c *echo.Context, body []byte) error {
 	var in putEventSelectorsBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.TrailName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "TrailName is required"))
 	}
 
 	t, err := h.Backend.PutEventSelectors(in.TrailName, in.EventSelectors)
@@ -519,7 +560,7 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 
 // --- ListTrails ---
 
-func (h *Handler) handleListTrails(c *echo.Context) error {
+func (h *Handler) handleListTrails(c *echo.Context, _ []byte) error {
 	trails := h.Backend.ListTrails()
 	items := make([]map[string]any, 0, len(trails))
 
@@ -537,8 +578,287 @@ func (h *Handler) handleListTrails(c *echo.Context) error {
 // --- LookupEvents ---
 
 // handleLookupEvents returns an empty list of CloudTrail events (stub).
-func (h *Handler) handleLookupEvents(c *echo.Context) error {
+func (h *Handler) handleLookupEvents(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, map[string]any{"Events": []any{}})
+}
+
+// --- CreateChannel ---
+
+type createChannelBody struct {
+	Name         string        `json:"Name"`
+	Source       string        `json:"Source"`
+	Destinations []Destination `json:"Destinations"`
+	Tags         []struct {
+		Key   string `json:"Key"`
+		Value string `json:"Value"`
+	} `json:"Tags"`
+}
+
+func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
+	var in createChannelBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	kv := make(map[string]string, len(in.Tags))
+	for _, tag := range in.Tags {
+		kv[tag.Key] = tag.Value
+	}
+
+	ch, err := h.Backend.CreateChannel(in.Name, in.Source, in.Destinations, kv)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"ChannelArn":   ch.ChannelARN,
+		"Name":         ch.Name,
+		"Source":       ch.Source,
+		"Destinations": ch.Destinations,
+	})
+}
+
+// --- DeleteChannel ---
+
+type deleteChannelBody struct {
+	Channel string `json:"Channel"`
+}
+
+func (h *Handler) handleDeleteChannel(c *echo.Context, body []byte) error {
+	var in deleteChannelBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.DeleteChannel(in.Channel); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- CreateDashboard ---
+
+type createDashboardBody struct {
+	Name string `json:"Name"`
+	Type string `json:"Type"`
+	Tags []struct {
+		Key   string `json:"Key"`
+		Value string `json:"Value"`
+	} `json:"Tags"`
+}
+
+func (h *Handler) handleCreateDashboard(c *echo.Context, body []byte) error {
+	var in createDashboardBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	kv := make(map[string]string, len(in.Tags))
+	for _, tag := range in.Tags {
+		kv[tag.Key] = tag.Value
+	}
+
+	d, err := h.Backend.CreateDashboard(in.Name, in.Type, kv)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"DashboardArn": d.DashboardARN,
+		"Name":         d.Name,
+		"Type":         d.Type,
+		"Status":       d.Status,
+	})
+}
+
+// --- DeleteDashboard ---
+
+type deleteDashboardBody struct {
+	DashboardID string `json:"DashboardId"`
+}
+
+func (h *Handler) handleDeleteDashboard(c *echo.Context, body []byte) error {
+	var in deleteDashboardBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.DeleteDashboard(in.DashboardID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- CreateEventDataStore ---
+
+type createEventDataStoreBody struct {
+	Name string `json:"Name"`
+	Tags []struct {
+		Key   string `json:"Key"`
+		Value string `json:"Value"`
+	} `json:"TagsList"`
+	RetentionPeriod              int32 `json:"RetentionPeriod"`
+	MultiRegionEnabled           bool  `json:"MultiRegionEnabled"`
+	OrganizationEnabled          bool  `json:"OrganizationEnabled"`
+	TerminationProtectionEnabled bool  `json:"TerminationProtectionEnabled"`
+}
+
+func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error {
+	var in createEventDataStoreBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	kv := make(map[string]string, len(in.Tags))
+	for _, tag := range in.Tags {
+		kv[tag.Key] = tag.Value
+	}
+
+	eds, err := h.Backend.CreateEventDataStore(
+		in.Name,
+		in.MultiRegionEnabled,
+		in.OrganizationEnabled,
+		in.TerminationProtectionEnabled,
+		in.RetentionPeriod,
+		kv,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"EventDataStoreArn":            eds.EventDataStoreARN,
+		"Name":                         eds.Name,
+		"Status":                       eds.Status,
+		"MultiRegionEnabled":           eds.MultiRegionEnabled,
+		"OrganizationEnabled":          eds.OrganizationEnabled,
+		"TerminationProtectionEnabled": eds.TerminationProtected,
+		"RetentionPeriod":              eds.RetentionPeriod,
+	})
+}
+
+// --- DeleteEventDataStore ---
+
+type deleteEventDataStoreBody struct {
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleDeleteEventDataStore(c *echo.Context, body []byte) error {
+	var in deleteEventDataStoreBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.DeleteEventDataStore(in.EventDataStore); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- DeleteResourcePolicy ---
+
+type deleteResourcePolicyBody struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleDeleteResourcePolicy(c *echo.Context, body []byte) error {
+	var in deleteResourcePolicyBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.DeleteResourcePolicy(in.ResourceArn); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- DeregisterOrganizationDelegatedAdmin ---
+
+type deregisterOrgDelegatedAdminBody struct {
+	DelegatedAdminAccountID string `json:"DelegatedAdminAccountId"`
+}
+
+func (h *Handler) handleDeregisterOrganizationDelegatedAdmin(c *echo.Context, body []byte) error {
+	var in deregisterOrgDelegatedAdminBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.DeregisterOrganizationDelegatedAdmin(in.DelegatedAdminAccountID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- CancelQuery ---
+
+type cancelQueryBody struct {
+	QueryID        string `json:"QueryId"`
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
+	var in cancelQueryBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.QueryID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
+	}
+
+	q, err := h.Backend.CancelQuery(in.QueryID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"QueryId":     q.QueryID,
+		"QueryStatus": q.QueryStatus,
+	})
+}
+
+// --- DescribeQuery ---
+
+type describeQueryBody struct {
+	QueryID        string `json:"QueryId"`
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
+	var in describeQueryBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.QueryID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
+	}
+
+	q, err := h.Backend.DescribeQuery(in.QueryID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	resp := map[string]any{
+		"QueryId":     q.QueryID,
+		"QueryString": q.QueryString,
+		"QueryStatus": q.QueryStatus,
+	}
+	if q.DeliveryS3URI != "" {
+		resp["DeliveryS3Uri"] = q.DeliveryS3URI
+	}
+	if q.ErrorMessage != "" {
+		resp["ErrorMessage"] = q.ErrorMessage
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // trailToMap converts a Trail to the JSON map used in API responses.

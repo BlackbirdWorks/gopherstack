@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cloudtrail.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &cloudtrailsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CancelQuery",
-		"CreateChannel",
-		"CreateDashboard",
-		"CreateEventDataStore",
-		"DeleteChannel",
-		"DeleteDashboard",
-		"DeleteEventDataStore",
-		"DeleteResourcePolicy",
-		"DeregisterOrganizationDelegatedAdmin",
-		"DescribeQuery",
 		"DisableFederation",
 		"EnableFederation",
 		"GenerateQuery",
