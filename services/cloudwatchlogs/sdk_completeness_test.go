@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := cloudwatchlogs.NewInMemoryBackend()
 	h := cloudwatchlogs.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &cloudwatchlogssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateKmsKey",
-		"AssociateSourceToS3TableIntegration",
-		"CancelExportTask",
-		"CancelImportTask",
-		"CreateDelivery",
-		"CreateExportTask",
-		"CreateImportTask",
-		"CreateLogAnomalyDetector",
-		"CreateScheduledQuery",
-		"DeleteAccountPolicy",
 		"DeleteDataProtectionPolicy",
 		"DeleteDelivery",
 		"DeleteDeliveryDestination",

@@ -1015,3 +1015,431 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
 	assert.Empty(t, listOut["tags"])
 }
+
+func TestHandler_NewOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
+		body     map[string]any
+		name     string
+		action   string
+		wantKey  string
+		wantVal  string
+		wantCode int
+	}{
+		// AssociateKmsKey
+		{
+			name:     "AssociateKmsKey/LogGroup",
+			action:   "AssociateKmsKey",
+			body:     map[string]any{"logGroupName": "/my/group", "kmsKeyId": "arn:aws:kms:us-east-1:123:key/abc"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "AssociateKmsKey/ResourceIdentifier",
+			action: "AssociateKmsKey",
+			body: map[string]any{
+				"resourceIdentifier": "arn:aws:logs:us-east-1:123:query-result:*",
+				"kmsKeyId":           "arn:aws:kms:us-east-1:123:key/abc",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "AssociateKmsKey/MissingKmsKeyId",
+			action:   "AssociateKmsKey",
+			body:     map[string]any{"logGroupName": "/my/group"},
+			wantCode: http.StatusBadRequest,
+		},
+		// AssociateSourceToS3TableIntegration
+		{
+			name:   "AssociateSourceToS3TableIntegration/OK",
+			action: "AssociateSourceToS3TableIntegration",
+			body: map[string]any{
+				"integrationArn": "arn:aws:s3tables:us-east-1:123:integration/my-int",
+				"dataSource":     map[string]any{"name": "source1", "type": "CloudWatchLogs"},
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "identifier",
+		},
+		{
+			name:     "AssociateSourceToS3TableIntegration/MissingArn",
+			action:   "AssociateSourceToS3TableIntegration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		// CancelExportTask
+		{
+			name:   "CancelExportTask/OK",
+			action: "CancelExportTask",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				rec := doLogsRequest(t, h, e, "CreateExportTask",
+					`{"logGroupName":"grp","destination":"my-bucket","from":1000,"to":2000}`)
+				require.Equal(t, http.StatusOK, rec.Code)
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				t.Logf("taskId=%v", out["taskId"])
+			},
+			body:     map[string]any{"taskId": ""},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CancelExportTask/NotFound",
+			action:   "CancelExportTask",
+			body:     map[string]any{"taskId": "nonexistent-task"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "CancelExportTask/MissingTaskId",
+			action:   "CancelExportTask",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		// CancelImportTask
+		{
+			name:     "CancelImportTask/NotFound",
+			action:   "CancelImportTask",
+			body:     map[string]any{"importId": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "CancelImportTask/MissingImportId",
+			action:   "CancelImportTask",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateDelivery
+		{
+			name:   "CreateDelivery/OK",
+			action: "CreateDelivery",
+			body: map[string]any{
+				"deliverySourceName":     "my-source",
+				"deliveryDestinationArn": "arn:aws:logs:us-east-1:123:delivery-destination:dst",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "delivery",
+		},
+		{
+			name:     "CreateDelivery/MissingSource",
+			action:   "CreateDelivery",
+			body:     map[string]any{"deliveryDestinationArn": "arn:aws:logs:us-east-1:123:delivery-destination:dst"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CreateDelivery/MissingDestination",
+			action:   "CreateDelivery",
+			body:     map[string]any{"deliverySourceName": "my-source"},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateExportTask
+		{
+			name:     "CreateExportTask/OK",
+			action:   "CreateExportTask",
+			body:     map[string]any{"logGroupName": "/my/group", "destination": "my-bucket", "from": 1000, "to": 2000},
+			wantCode: http.StatusOK,
+			wantKey:  "taskId",
+		},
+		{
+			name:     "CreateExportTask/MissingLogGroup",
+			action:   "CreateExportTask",
+			body:     map[string]any{"destination": "my-bucket", "from": 1000, "to": 2000},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CreateExportTask/MissingDestination",
+			action:   "CreateExportTask",
+			body:     map[string]any{"logGroupName": "/my/group", "from": 1000, "to": 2000},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateImportTask
+		{
+			name:   "CreateImportTask/OK",
+			action: "CreateImportTask",
+			body: map[string]any{
+				"importRoleArn":   "arn:aws:iam::123:role/my-role",
+				"importSourceArn": "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "importId",
+		},
+		{
+			name:     "CreateImportTask/MissingRoleArn",
+			action:   "CreateImportTask",
+			body:     map[string]any{"importSourceArn": "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CreateImportTask/MissingSourceArn",
+			action:   "CreateImportTask",
+			body:     map[string]any{"importRoleArn": "arn:aws:iam::123:role/my-role"},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateLogAnomalyDetector
+		{
+			name:     "CreateLogAnomalyDetector/OK",
+			action:   "CreateLogAnomalyDetector",
+			body:     map[string]any{"logGroupArnList": []string{"arn:aws:logs:us-east-1:123:log-group:/my/group"}},
+			wantCode: http.StatusOK,
+			wantKey:  "anomalyDetectorArn",
+		},
+		{
+			name:     "CreateLogAnomalyDetector/EmptyList",
+			action:   "CreateLogAnomalyDetector",
+			body:     map[string]any{"logGroupArnList": []string{}},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CreateLogAnomalyDetector/MissingList",
+			action:   "CreateLogAnomalyDetector",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateScheduledQuery
+		{
+			name:   "CreateScheduledQuery/OK",
+			action: "CreateScheduledQuery",
+			body: map[string]any{
+				"name":               "my-query",
+				"queryString":        "fields @timestamp | sort @timestamp desc",
+				"scheduleExpression": "cron(0 * * * ? *)",
+				"executionRoleArn":   "arn:aws:iam::123:role/role",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "scheduledQueryArn",
+		},
+		{
+			name:     "CreateScheduledQuery/DefaultStateEnabled",
+			action:   "CreateScheduledQuery",
+			body:     map[string]any{"name": "q2", "queryString": "fields @message"},
+			wantCode: http.StatusOK,
+			wantKey:  "state",
+			wantVal:  "ENABLED",
+		},
+		{
+			name:     "CreateScheduledQuery/MissingName",
+			action:   "CreateScheduledQuery",
+			body:     map[string]any{"queryString": "fields @message"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CreateScheduledQuery/MissingQueryString",
+			action:   "CreateScheduledQuery",
+			body:     map[string]any{"name": "my-query"},
+			wantCode: http.StatusBadRequest,
+		},
+		// DeleteAccountPolicy
+		{
+			name:     "DeleteAccountPolicy/OK",
+			action:   "DeleteAccountPolicy",
+			body:     map[string]any{"policyName": "my-policy", "policyType": "DATA_PROTECTION_POLICY"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "DeleteAccountPolicy/MissingPolicyName",
+			action:   "DeleteAccountPolicy",
+			body:     map[string]any{"policyType": "DATA_PROTECTION_POLICY"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteAccountPolicy/MissingPolicyType",
+			action:   "DeleteAccountPolicy",
+			body:     map[string]any{"policyName": "my-policy"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			h := cloudwatchlogs.NewHandler(backend)
+
+			if tt.setup != nil {
+				tt.setup(t, h, e)
+			}
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				if tt.wantVal != "" {
+					assert.Equal(t, tt.wantVal, out[tt.wantKey])
+				} else {
+					assert.NotEmpty(t, out[tt.wantKey], "expected non-empty %s", tt.wantKey)
+				}
+			}
+		})
+	}
+}
+
+func TestHandler_ExportTask_CancelRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	// Create an export task.
+	rec := doLogsRequest(t, h, e, "CreateExportTask",
+		`{"logGroupName":"/my/group","destination":"my-bucket","from":1000,"to":2000}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	taskID, ok := createOut["taskId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, taskID)
+
+	// Cancel the task.
+	bodyBytes, err := json.Marshal(map[string]any{"taskId": taskID})
+	require.NoError(t, err)
+	rec = doLogsRequest(t, h, e, "CancelExportTask", string(bodyBytes))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_ImportTask_CancelRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	// Create an import task.
+	createBody := `{"importRoleArn":"arn:aws:iam::123:role/my-role",` +
+		`"importSourceArn":"arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc"}`
+	rec := doLogsRequest(t, h, e, "CreateImportTask", createBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	importID, ok := createOut["importId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, importID)
+
+	importDestARN, ok := createOut["importDestinationArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, importDestARN)
+
+	// Cancel the task.
+	bodyBytes, err := json.Marshal(map[string]any{"importId": importID})
+	require.NoError(t, err)
+	rec = doLogsRequest(t, h, e, "CancelImportTask", string(bodyBytes))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var cancelOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cancelOut))
+	assert.Equal(t, importID, cancelOut["importId"])
+	assert.Equal(t, "CANCELLED", cancelOut["importStatus"])
+}
+
+func TestHandler_Delivery_CreateWithTags(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	deliveryBody := `{"deliverySourceName":"src",` +
+		`"deliveryDestinationArn":"arn:aws:logs:us-east-1:123:delivery-destination:dst",` +
+		`"tags":{"env":"prod"}}`
+	rec := doLogsRequest(t, h, e, "CreateDelivery", deliveryBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	delivery, ok := out["delivery"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, delivery["id"])
+	assert.NotEmpty(t, delivery["arn"])
+	assert.Equal(t, "src", delivery["deliverySourceName"])
+	tags, ok := delivery["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "prod", tags["env"])
+}
+
+func TestHandler_LogAnomalyDetector_Create(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	rec := doLogsRequest(
+		t,
+		h,
+		e,
+		"CreateLogAnomalyDetector",
+		`{"logGroupArnList":["arn:aws:logs:us-east-1:123:log-group:/app"],`+
+			`"detectorName":"my-detector","evaluationFrequency":"FIVE_MIN"}`,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	arn, ok := out["anomalyDetectorArn"].(string)
+	require.True(t, ok)
+	assert.Contains(t, arn, "log-anomaly-detector")
+}
+
+func TestHandler_ScheduledQuery_Create(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	rec := doLogsRequest(
+		t,
+		h,
+		e,
+		"CreateScheduledQuery",
+		`{"name":"my-sched","queryString":"fields @message | limit 100",`+
+			`"scheduleExpression":"cron(0 * * * ? *)","executionRoleArn":"arn:aws:iam::123:role/r","state":"DISABLED"}`,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	queryARN, ok := out["scheduledQueryArn"].(string)
+	require.True(t, ok)
+	assert.Contains(t, queryARN, "scheduled-query")
+	assert.Equal(t, "DISABLED", out["state"])
+}
+
+func TestHandler_AssociateKmsKey_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	const kmsKey = "arn:aws:kms:us-east-1:123:key/mykey"
+
+	// Associate once.
+	rec := doLogsRequest(t, h, e, "AssociateKmsKey",
+		`{"logGroupName":"/my/group","kmsKeyId":"`+kmsKey+`"}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Associate again (idempotent update).
+	rec = doLogsRequest(t, h, e, "AssociateKmsKey",
+		`{"logGroupName":"/my/group","kmsKeyId":"`+kmsKey+`"}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_DeleteAccountPolicy_NonExistentSucceeds(t *testing.T) {
+	t.Parallel()
+
+	// DeleteAccountPolicy is idempotent: deleting a non-existent policy
+	// should succeed (no error).
+	rec := makeLogsRequest(t, "DeleteAccountPolicy",
+		`{"policyName":"does-not-exist","policyType":"DATA_PROTECTION_POLICY"}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}

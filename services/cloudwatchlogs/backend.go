@@ -31,6 +31,9 @@ var (
 	ErrSubscriptionFilterNotFound    = errors.New("ResourceNotFoundException")
 	ErrSubscriptionFilterLimitExceed = errors.New("LimitExceededException")
 	ErrQueryNotFound                 = errors.New("ResourceNotFoundException")
+	ErrExportTaskNotFound            = errors.New("ResourceNotFoundException")
+	ErrImportTaskNotFound            = errors.New("ResourceNotFoundException")
+	ErrValidation                    = errors.New("InvalidParameterException")
 )
 
 const (
@@ -93,6 +96,34 @@ type StorageBackend interface {
 	GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error)
 	StopQuery(queryID string) error
 	DescribeQueries(logGroupName, statusFilter, nextToken string, maxResults int) ([]QueryInfo, string, error)
+
+	// AssociateKmsKey associates a KMS key with a log group or query results resource.
+	AssociateKmsKey(logGroupName, resourceIdentifier, kmsKeyID string) error
+	// AssociateSourceToS3TableIntegration associates a data source with an S3 table integration.
+	AssociateSourceToS3TableIntegration(integrationArn, dataSourceName, dataSourceType string) (string, error)
+	// CancelExportTask cancels a pending or running export task.
+	CancelExportTask(taskID string) error
+	// CancelImportTask cancels a running import task.
+	CancelImportTask(importID string) (*ImportTask, error)
+	// CreateDelivery creates a delivery between a delivery source and destination.
+	CreateDelivery(deliverySourceName, deliveryDestinationArn string, tags map[string]string) (*Delivery, error)
+	// CreateExportTask creates an asynchronous export task to S3.
+	CreateExportTask(
+		taskName, logGroupName, logStreamNamePrefix, destination, destinationPrefix string,
+		from, to int64,
+	) (string, error)
+	// CreateImportTask creates an import task from a CloudTrail Lake event data store.
+	CreateImportTask(importRoleArn, importSourceArn string) (*ImportTask, error)
+	// CreateLogAnomalyDetector creates an anomaly detector for one or more log groups.
+	CreateLogAnomalyDetector(
+		logGroupArnList []string,
+		detectorName, evaluationFrequency, filterPattern, kmsKeyID string,
+		anomalyVisibilityTime int64,
+	) (string, error)
+	// CreateScheduledQuery creates a scheduled CloudWatch Logs Insights query.
+	CreateScheduledQuery(name, queryString, scheduleExpression, executionRoleArn, state string) (string, error)
+	// DeleteAccountPolicy deletes a CloudWatch Logs account-level policy.
+	DeleteAccountPolicy(policyName, policyType string) error
 }
 
 // storedQuery holds the execution state of a single Logs Insights query.
@@ -114,6 +145,14 @@ type InMemoryBackend struct {
 	events              map[string]map[string][]*OutputLogEvent
 	subscriptionFilters map[string][]*SubscriptionFilter
 	queries             map[string]*storedQuery
+	exportTasks         map[string]*ExportTask
+	importTasks         map[string]*ImportTask
+	deliveries          map[string]*Delivery
+	logAnomalyDetectors map[string]*LogAnomalyDetector
+	scheduledQueries    map[string]*ScheduledQuery
+	accountPolicies     map[string]*AccountPolicy
+	kmsKeys             map[string]string
+	s3TableIntegrations map[string]string
 	cancel              context.CancelFunc
 	groups              map[string]*LogGroup
 	accountID           string
@@ -154,6 +193,14 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		events:              make(map[string]map[string][]*OutputLogEvent),
 		subscriptionFilters: make(map[string][]*SubscriptionFilter),
 		queries:             make(map[string]*storedQuery),
+		exportTasks:         make(map[string]*ExportTask),
+		importTasks:         make(map[string]*ImportTask),
+		deliveries:          make(map[string]*Delivery),
+		logAnomalyDetectors: make(map[string]*LogAnomalyDetector),
+		scheduledQueries:    make(map[string]*ScheduledQuery),
+		accountPolicies:     make(map[string]*AccountPolicy),
+		kmsKeys:             make(map[string]string),
+		s3TableIntegrations: make(map[string]string),
 		mu:                  lockmetrics.New("cloudwatchlogs"),
 		queryTTL:            defaultQueryTTL,
 		maxQueries:          defaultMaxQueries,
@@ -1231,4 +1278,287 @@ func (b *InMemoryBackend) Reset() {
 	b.subscriptionFilters = make(map[string][]*SubscriptionFilter)
 	b.queries = make(map[string]*storedQuery)
 	b.queriesOrder = nil
+	b.exportTasks = make(map[string]*ExportTask)
+	b.importTasks = make(map[string]*ImportTask)
+	b.deliveries = make(map[string]*Delivery)
+	b.logAnomalyDetectors = make(map[string]*LogAnomalyDetector)
+	b.scheduledQueries = make(map[string]*ScheduledQuery)
+	b.accountPolicies = make(map[string]*AccountPolicy)
+	b.kmsKeys = make(map[string]string)
+	b.s3TableIntegrations = make(map[string]string)
+}
+
+// AssociateKmsKey associates a KMS key with a log group or query results resource.
+// At most one of logGroupName or resourceIdentifier should be non-empty.
+func (b *InMemoryBackend) AssociateKmsKey(logGroupName, resourceIdentifier, kmsKeyID string) error {
+	if kmsKeyID == "" {
+		return fmt.Errorf("%w: kmsKeyId is required", ErrValidation)
+	}
+
+	b.mu.Lock("AssociateKmsKey")
+	defer b.mu.Unlock()
+
+	key := logGroupName
+	if key == "" {
+		key = resourceIdentifier
+	}
+
+	b.kmsKeys[key] = kmsKeyID
+
+	return nil
+}
+
+// AssociateSourceToS3TableIntegration associates a data source with an S3 table integration.
+// Returns a unique identifier for the association.
+func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
+	integrationArn, _, _ string,
+) (string, error) {
+	if integrationArn == "" {
+		return "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
+	}
+
+	id := uuid.New().String()
+
+	b.mu.Lock("AssociateSourceToS3TableIntegration")
+	defer b.mu.Unlock()
+
+	b.s3TableIntegrations[id] = integrationArn
+
+	return id, nil
+}
+
+// CancelExportTask cancels a pending or running export task.
+func (b *InMemoryBackend) CancelExportTask(taskID string) error {
+	if taskID == "" {
+		return fmt.Errorf("%w: taskId is required", ErrValidation)
+	}
+
+	b.mu.Lock("CancelExportTask")
+	defer b.mu.Unlock()
+
+	task, ok := b.exportTasks[taskID]
+	if !ok {
+		return fmt.Errorf("%w: export task %s not found", ErrExportTaskNotFound, taskID)
+	}
+
+	task.Status = "CANCELLED"
+
+	return nil
+}
+
+// CancelImportTask cancels a running import task.
+func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error) {
+	if importID == "" {
+		return nil, fmt.Errorf("%w: importId is required", ErrValidation)
+	}
+
+	b.mu.Lock("CancelImportTask")
+	defer b.mu.Unlock()
+
+	task, ok := b.importTasks[importID]
+	if !ok {
+		return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, importID)
+	}
+
+	task.Status = "CANCELLED"
+	task.LastUpdatedTime = time.Now().UnixMilli()
+
+	cp := *task
+
+	return &cp, nil
+}
+
+// CreateDelivery creates a delivery between a delivery source and destination.
+func (b *InMemoryBackend) CreateDelivery(
+	deliverySourceName, deliveryDestinationArn string,
+	tags map[string]string,
+) (*Delivery, error) {
+	if deliverySourceName == "" {
+		return nil, fmt.Errorf("%w: deliverySourceName is required", ErrValidation)
+	}
+
+	if deliveryDestinationArn == "" {
+		return nil, fmt.Errorf("%w: deliveryDestinationArn is required", ErrValidation)
+	}
+
+	id := uuid.New().String()
+	deliveryArn := arn.Build("logs", b.region, b.accountID, "delivery:"+id)
+	now := time.Now().UnixMilli()
+
+	d := &Delivery{
+		ID:                     id,
+		Arn:                    deliveryArn,
+		DeliverySourceName:     deliverySourceName,
+		DeliveryDestinationArn: deliveryDestinationArn,
+		Tags:                   tags,
+		CreationTime:           now,
+	}
+
+	b.mu.Lock("CreateDelivery")
+	defer b.mu.Unlock()
+
+	b.deliveries[id] = d
+
+	cp := *d
+
+	return &cp, nil
+}
+
+// CreateExportTask creates an export task to export log data to S3.
+// Returns the task ID.
+func (b *InMemoryBackend) CreateExportTask(
+	taskName, logGroupName, _, destination, destinationPrefix string,
+	from, to int64,
+) (string, error) {
+	if logGroupName == "" {
+		return "", fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+
+	if destination == "" {
+		return "", fmt.Errorf("%w: destination is required", ErrValidation)
+	}
+
+	taskID := uuid.New().String()
+
+	task := &ExportTask{
+		TaskID:            taskID,
+		TaskName:          taskName,
+		LogGroupName:      logGroupName,
+		Destination:       destination,
+		DestinationPrefix: destinationPrefix,
+		From:              from,
+		To:                to,
+		Status:            "PENDING",
+		CreationTime:      time.Now().UnixMilli(),
+	}
+
+	b.mu.Lock("CreateExportTask")
+	defer b.mu.Unlock()
+
+	b.exportTasks[taskID] = task
+
+	return taskID, nil
+}
+
+// CreateImportTask creates an import task from a CloudTrail Lake event data store.
+func (b *InMemoryBackend) CreateImportTask(importRoleArn, importSourceArn string) (*ImportTask, error) {
+	if importRoleArn == "" {
+		return nil, fmt.Errorf("%w: importRoleArn is required", ErrValidation)
+	}
+
+	if importSourceArn == "" {
+		return nil, fmt.Errorf("%w: importSourceArn is required", ErrValidation)
+	}
+
+	importID := uuid.New().String()
+	now := time.Now().UnixMilli()
+	destARN := arn.Build("logs", b.region, b.accountID, "log-group:/aws/cloudtrail/"+importID)
+
+	task := &ImportTask{
+		ImportID:             importID,
+		ImportSourceArn:      importSourceArn,
+		ImportRoleArn:        importRoleArn,
+		ImportDestinationArn: destARN,
+		Status:               "ACTIVE",
+		CreationTime:         now,
+		LastUpdatedTime:      now,
+	}
+
+	b.mu.Lock("CreateImportTask")
+	defer b.mu.Unlock()
+
+	b.importTasks[importID] = task
+
+	cp := *task
+
+	return &cp, nil
+}
+
+// CreateLogAnomalyDetector creates an anomaly detector for one or more log groups.
+// Returns the ARN of the created detector.
+func (b *InMemoryBackend) CreateLogAnomalyDetector(
+	logGroupArnList []string,
+	detectorName, evaluationFrequency, filterPattern, kmsKeyID string,
+	anomalyVisibilityTime int64,
+) (string, error) {
+	if len(logGroupArnList) == 0 {
+		return "", fmt.Errorf("%w: logGroupArnList must not be empty", ErrValidation)
+	}
+
+	id := uuid.New().String()
+	detectorARN := arn.Build("logs", b.region, b.accountID, "log-anomaly-detector:"+id)
+
+	detector := &LogAnomalyDetector{
+		AnomalyDetectorArn:    detectorARN,
+		DetectorName:          detectorName,
+		LogGroupArnList:       logGroupArnList,
+		EvaluationFrequency:   evaluationFrequency,
+		FilterPattern:         filterPattern,
+		KmsKeyID:              kmsKeyID,
+		AnomalyVisibilityTime: anomalyVisibilityTime,
+		CreationTimeStamp:     time.Now().UnixMilli(),
+	}
+
+	b.mu.Lock("CreateLogAnomalyDetector")
+	defer b.mu.Unlock()
+
+	b.logAnomalyDetectors[detectorARN] = detector
+
+	return detectorARN, nil
+}
+
+// CreateScheduledQuery creates a scheduled CloudWatch Logs Insights query.
+// Returns the ARN of the created scheduled query.
+func (b *InMemoryBackend) CreateScheduledQuery(
+	name, queryString, scheduleExpression, _, state string,
+) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if queryString == "" {
+		return "", fmt.Errorf("%w: queryString is required", ErrValidation)
+	}
+
+	if state == "" {
+		state = "ENABLED"
+	}
+
+	id := uuid.New().String()
+	queryARN := arn.Build("logs", b.region, b.accountID, "scheduled-query:"+id)
+
+	sq := &ScheduledQuery{
+		Arn:                queryARN,
+		Name:               name,
+		QueryString:        queryString,
+		ScheduleExpression: scheduleExpression,
+		State:              state,
+		CreationTime:       time.Now().UnixMilli(),
+	}
+
+	b.mu.Lock("CreateScheduledQuery")
+	defer b.mu.Unlock()
+
+	b.scheduledQueries[queryARN] = sq
+
+	return queryARN, nil
+}
+
+// DeleteAccountPolicy deletes a CloudWatch Logs account-level policy.
+func (b *InMemoryBackend) DeleteAccountPolicy(policyName, policyType string) error {
+	if policyName == "" {
+		return fmt.Errorf("%w: policyName is required", ErrValidation)
+	}
+
+	if policyType == "" {
+		return fmt.Errorf("%w: policyType is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteAccountPolicy")
+	defer b.mu.Unlock()
+
+	key := policyName + ":" + policyType
+	delete(b.accountPolicies, key)
+
+	return nil
 }

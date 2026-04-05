@@ -179,6 +179,108 @@ type describeQueriesOutput struct {
 	Queries   []QueryInfo `json:"queries"`
 }
 
+type associateKmsKeyInput struct {
+	LogGroupName       string `json:"logGroupName"`
+	ResourceIdentifier string `json:"resourceIdentifier"`
+	KmsKeyID           string `json:"kmsKeyId"`
+}
+
+type associateKmsKeyOutput struct{}
+
+type associateSourceToS3TableIntegrationInput struct {
+	DataSource     map[string]any `json:"dataSource"`
+	IntegrationArn string         `json:"integrationArn"`
+}
+
+type associateSourceToS3TableIntegrationOutput struct {
+	Identifier string `json:"identifier,omitempty"`
+}
+
+type cancelExportTaskInput struct {
+	TaskID string `json:"taskId"`
+}
+
+type cancelExportTaskOutput struct{}
+
+type cancelImportTaskInput struct {
+	ImportID string `json:"importId"`
+}
+
+type cancelImportTaskOutput struct {
+	CreationTime    *int64 `json:"creationTime,omitempty"`
+	LastUpdatedTime *int64 `json:"lastUpdatedTime,omitempty"`
+	ImportID        string `json:"importId,omitempty"`
+	ImportStatus    string `json:"importStatus,omitempty"`
+}
+
+type createDeliveryInput struct {
+	Tags                   map[string]string `json:"tags"`
+	DeliverySourceName     string            `json:"deliverySourceName"`
+	DeliveryDestinationArn string            `json:"deliveryDestinationArn"`
+}
+
+type createDeliveryOutput struct {
+	Delivery *Delivery `json:"delivery,omitempty"`
+}
+
+type createExportTaskInput struct {
+	TaskName            string `json:"taskName"`
+	LogGroupName        string `json:"logGroupName"`
+	LogStreamNamePrefix string `json:"logStreamNamePrefix"`
+	Destination         string `json:"destination"`
+	DestinationPrefix   string `json:"destinationPrefix"`
+	From                int64  `json:"from"`
+	To                  int64  `json:"to"`
+}
+
+type createExportTaskOutput struct {
+	TaskID string `json:"taskId,omitempty"`
+}
+
+type createImportTaskInput struct {
+	ImportRoleArn   string `json:"importRoleArn"`
+	ImportSourceArn string `json:"importSourceArn"`
+}
+
+type createImportTaskOutput struct {
+	CreationTime         *int64 `json:"creationTime,omitempty"`
+	ImportID             string `json:"importId,omitempty"`
+	ImportDestinationArn string `json:"importDestinationArn,omitempty"`
+}
+
+type createLogAnomalyDetectorInput struct {
+	DetectorName          string   `json:"detectorName"`
+	EvaluationFrequency   string   `json:"evaluationFrequency"`
+	FilterPattern         string   `json:"filterPattern"`
+	KmsKeyID              string   `json:"kmsKeyId"`
+	LogGroupArnList       []string `json:"logGroupArnList"`
+	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime"`
+}
+
+type createLogAnomalyDetectorOutput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn,omitempty"`
+}
+
+type createScheduledQueryInput struct {
+	Name               string `json:"name"`
+	QueryString        string `json:"queryString"`
+	ScheduleExpression string `json:"scheduleExpression"`
+	ExecutionRoleArn   string `json:"executionRoleArn"`
+	State              string `json:"state"`
+}
+
+type createScheduledQueryOutput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn,omitempty"`
+	State             string `json:"state,omitempty"`
+}
+
+type deleteAccountPolicyInput struct {
+	PolicyName string `json:"policyName"`
+	PolicyType string `json:"policyType"`
+}
+
+type deleteAccountPolicyOutput struct{}
+
 // Handler is the Echo HTTP service handler for CloudWatch Logs operations.
 type Handler struct {
 	Backend StorageBackend
@@ -281,6 +383,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetQueryResults",
 		"StopQuery",
 		"DescribeQueries",
+		"AssociateKmsKey",
+		"AssociateSourceToS3TableIntegration",
+		"CancelExportTask",
+		"CancelImportTask",
+		"CreateDelivery",
+		"CreateExportTask",
+		"CreateImportTask",
+		"CreateLogAnomalyDetector",
+		"CreateScheduledQuery",
+		"DeleteAccountPolicy",
 	}
 }
 
@@ -766,6 +878,188 @@ func (h *Handler) insightsActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) handleAssociateKmsKey(b []byte) (any, error) {
+	var input associateKmsKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.AssociateKmsKey(input.LogGroupName, input.ResourceIdentifier, input.KmsKeyID); err != nil {
+		return nil, err
+	}
+
+	return &associateKmsKeyOutput{}, nil
+}
+
+func (h *Handler) handleAssociateSourceToS3TableIntegration(b []byte) (any, error) {
+	var input associateSourceToS3TableIntegrationInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	var dataSourceName, dataSourceType string
+	if input.DataSource != nil {
+		if v, ok := input.DataSource["name"].(string); ok {
+			dataSourceName = v
+		}
+		if v, ok := input.DataSource["type"].(string); ok {
+			dataSourceType = v
+		}
+	}
+
+	id, err := h.Backend.AssociateSourceToS3TableIntegration(input.IntegrationArn, dataSourceName, dataSourceType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateSourceToS3TableIntegrationOutput{Identifier: id}, nil
+}
+
+func (h *Handler) handleCancelExportTask(b []byte) (any, error) {
+	var input cancelExportTaskInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.CancelExportTask(input.TaskID); err != nil {
+		return nil, err
+	}
+
+	return &cancelExportTaskOutput{}, nil
+}
+
+func (h *Handler) handleCancelImportTask(b []byte) (any, error) {
+	var input cancelImportTaskInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	task, err := h.Backend.CancelImportTask(input.ImportID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cancelImportTaskOutput{
+		ImportID:        task.ImportID,
+		ImportStatus:    task.Status,
+		CreationTime:    &task.CreationTime,
+		LastUpdatedTime: &task.LastUpdatedTime,
+	}, nil
+}
+
+func (h *Handler) handleCreateDelivery(b []byte) (any, error) {
+	var input createDeliveryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	delivery, err := h.Backend.CreateDelivery(input.DeliverySourceName, input.DeliveryDestinationArn, input.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDeliveryOutput{Delivery: delivery}, nil
+}
+
+func (h *Handler) handleCreateExportTask(b []byte) (any, error) {
+	var input createExportTaskInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	taskID, err := h.Backend.CreateExportTask(
+		input.TaskName, input.LogGroupName, input.LogStreamNamePrefix,
+		input.Destination, input.DestinationPrefix, input.From, input.To,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createExportTaskOutput{TaskID: taskID}, nil
+}
+
+func (h *Handler) handleCreateImportTask(b []byte) (any, error) {
+	var input createImportTaskInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	task, err := h.Backend.CreateImportTask(input.ImportRoleArn, input.ImportSourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createImportTaskOutput{
+		ImportID:             task.ImportID,
+		ImportDestinationArn: task.ImportDestinationArn,
+		CreationTime:         &task.CreationTime,
+	}, nil
+}
+
+func (h *Handler) handleCreateLogAnomalyDetector(b []byte) (any, error) {
+	var input createLogAnomalyDetectorInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	detectorArn, err := h.Backend.CreateLogAnomalyDetector(
+		input.LogGroupArnList, input.DetectorName, input.EvaluationFrequency,
+		input.FilterPattern, input.KmsKeyID, input.AnomalyVisibilityTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLogAnomalyDetectorOutput{AnomalyDetectorArn: detectorArn}, nil
+}
+
+func (h *Handler) handleCreateScheduledQuery(b []byte) (any, error) {
+	var input createScheduledQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	queryArn, err := h.Backend.CreateScheduledQuery(
+		input.Name, input.QueryString, input.ScheduleExpression, input.ExecutionRoleArn, input.State,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	state := input.State
+	if state == "" {
+		state = "ENABLED"
+	}
+
+	return &createScheduledQueryOutput{ScheduledQueryArn: queryArn, State: state}, nil
+}
+
+func (h *Handler) handleDeleteAccountPolicy(b []byte) (any, error) {
+	var input deleteAccountPolicyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteAccountPolicy(input.PolicyName, input.PolicyType); err != nil {
+		return nil, err
+	}
+
+	return &deleteAccountPolicyOutput{}, nil
+}
+
+func (h *Handler) newOperationsActions() map[string]actionFn {
+	return map[string]actionFn{
+		"AssociateKmsKey":                     h.handleAssociateKmsKey,
+		"AssociateSourceToS3TableIntegration": h.handleAssociateSourceToS3TableIntegration,
+		"CancelExportTask":                    h.handleCancelExportTask,
+		"CancelImportTask":                    h.handleCancelImportTask,
+		"CreateDelivery":                      h.handleCreateDelivery,
+		"CreateExportTask":                    h.handleCreateExportTask,
+		"CreateImportTask":                    h.handleCreateImportTask,
+		"CreateLogAnomalyDetector":            h.handleCreateLogAnomalyDetector,
+		"CreateScheduledQuery":                h.handleCreateScheduledQuery,
+		"DeleteAccountPolicy":                 h.handleDeleteAccountPolicy,
+	}
+}
+
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.logGroupActions())
@@ -775,6 +1069,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.retentionActions())
 	maps.Copy(table, h.subscriptionFilterActions())
 	maps.Copy(table, h.insightsActions())
+	maps.Copy(table, h.newOperationsActions())
 
 	return table
 }
@@ -804,7 +1099,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	switch {
 	case errors.Is(reqErr, ErrLogGroupNotFound), errors.Is(reqErr, ErrLogStreamNotFound),
-		errors.Is(reqErr, ErrSubscriptionFilterNotFound), errors.Is(reqErr, ErrQueryNotFound):
+		errors.Is(reqErr, ErrSubscriptionFilterNotFound), errors.Is(reqErr, ErrQueryNotFound),
+		errors.Is(reqErr, ErrExportTaskNotFound), errors.Is(reqErr, ErrImportTaskNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist):
@@ -812,6 +1108,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrSubscriptionFilterLimitExceed):
 		errType = "LimitExceededException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(reqErr, ErrValidation):
+		errType = "InvalidParameterException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		errType = "UnknownOperationException"
