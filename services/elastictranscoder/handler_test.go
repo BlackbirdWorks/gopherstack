@@ -690,3 +690,233 @@ func TestElasticTranscoder_ChaosRegions(t *testing.T) {
 	require.Len(t, regions, 1)
 	assert.Equal(t, testRegion, regions[0])
 }
+
+func TestElasticTranscoder_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	require.NotEmpty(t, ops)
+	assert.Contains(t, ops, "CreatePipeline")
+}
+
+func TestElasticTranscoder_Tags_CRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(t *testing.T, h *elastictranscoder.Handler) string
+		name    string
+		wantAdd int
+	}{
+		{
+			name: "add_list_remove_tags_on_pipeline",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) string {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+					"Name": "tagged-pipeline", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var out struct {
+					Pipeline struct {
+						Arn string `json:"Arn"`
+					} `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+				return out.Pipeline.Arn
+			},
+			wantAdd: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			arn := tt.setup(t, h)
+
+			addPath := "/2012-09-25/tags/" + arn
+			rec := doRequest(t, h, http.MethodPost, addPath, map[string]any{
+				"Tags": []map[string]string{{"Key": "env", "Value": "test"}},
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, http.MethodGet, addPath, nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "env")
+
+			rec = doRequest(t, h, http.MethodDelete, addPath, map[string]any{
+				"TagKeys": []string{"env"},
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, http.MethodGet, addPath, nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+func TestElasticTranscoder_Tags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	arn := "arn:aws:elastictranscoder:us-east-1:123456789012:pipeline/nonexistent"
+
+	tests := []struct {
+		name   string
+		method string
+	}{
+		{name: "get_tags_not_found", method: http.MethodGet},
+		{name: "add_tags_not_found", method: http.MethodPost},
+		{name: "remove_tags_not_found", method: http.MethodDelete},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := "/2012-09-25/tags/" + arn
+			var body any
+			switch tt.method {
+			case http.MethodPost:
+				body = map[string]any{"Tags": []map[string]string{{"Key": "k", "Value": "v"}}}
+			case http.MethodDelete:
+				body = map[string]any{"TagKeys": []string{"k"}}
+			}
+			rec := doRequest(t, h, tt.method, path, body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestElasticTranscoder_Persistence(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+		"Name": "persist-pipeline", "InputBucket": "in", "OutputBucket": "out", "Role": "role",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPost, "/2012-09-25/presets", map[string]any{
+		"Name": "persist-preset", "Container": "mp4",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(snap))
+
+	rec = doRequest(t, h2, http.MethodGet, "/2012-09-25/pipelines", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "persist-pipeline")
+
+	rec = doRequest(t, h2, http.MethodGet, "/2012-09-25/presets", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "persist-preset")
+}
+
+func TestElasticTranscoder_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "pipeline_id", path: "/2012-09-25/pipelines/abc123", want: "abc123"},
+		{name: "preset_id", path: "/2012-09-25/presets/preset456", want: "preset456"},
+		{name: "job_id", path: "/2012-09-25/jobs/job789", want: "job789"},
+		{name: "tagging_arn", path: "/2012-09-25/tags/arn:aws:ets:::pipeline/p", want: "arn:aws:ets:::pipeline/p"},
+		{name: "collection", path: "/2012-09-25/pipelines", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			got := h.ExtractResource(c)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestElasticTranscoder_Provider(t *testing.T) {
+	t.Parallel()
+
+	p := &elastictranscoder.Provider{}
+	assert.Equal(t, "ElasticTranscoder", p.Name())
+}
+
+func TestElasticTranscoder_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "bad_json_create_pipeline",
+			method:     http.MethodPost,
+			path:       "/2012-09-25/pipelines",
+			body:       "not-json",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_required_fields_pipeline",
+			method:     http.MethodPost,
+			path:       "/2012-09-25/pipelines",
+			body:       map[string]any{"Name": ""},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "bad_json_add_tags",
+			method:     http.MethodPost,
+			path:       "/2012-09-25/tags/arn:aws:ets:::pipeline/p",
+			body:       "not-json",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "bad_json_remove_tags",
+			method:     http.MethodDelete,
+			path:       "/2012-09-25/tags/arn:aws:ets:::pipeline/p",
+			body:       "not-json",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			var bodyBytes []byte
+			if s, ok := tt.body.(string); ok {
+				bodyBytes = []byte(s)
+			} else {
+				var err error
+				bodyBytes, err = json.Marshal(tt.body)
+				require.NoError(t, err)
+			}
+			req := httptest.NewRequest(tt.method, tt.path, bytes.NewReader(bodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
