@@ -143,6 +143,7 @@ type FoundationModelAgreement struct {
 type GuardrailVersion struct {
 	GuardrailID string `json:"guardrailId"`
 	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
 }
 
 // InMemoryBackend stores Amazon Bedrock state in memory.
@@ -168,6 +169,7 @@ type InMemoryBackend struct {
 	region                      string
 	foundationModels            []*FoundationModelSummary
 	guardrailCounter            int
+	guardrailVersionCounter     int
 	provisionedCounter          int
 	evaluationJobCounter        int
 	arpCounter                  int
@@ -992,7 +994,7 @@ func (b *InMemoryBackend) CreateFoundationModelAgreement(modelID string) (*Found
 // --- GuardrailVersion methods ---
 
 // CreateGuardrailVersion creates a new numbered version snapshot of a guardrail.
-func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, _ string) (*GuardrailVersion, error) {
+func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, description string) (*GuardrailVersion, error) {
 	b.mu.Lock("CreateGuardrailVersion")
 	defer b.mu.Unlock()
 
@@ -1001,13 +1003,14 @@ func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, _ string) (*GuardrailV
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
-	// Guardrail versions are monotonically incremented integers stored as strings.
-	b.guardrailCounter++
-	versionNum := strconv.Itoa(b.guardrailCounter)
+	// Guardrail versions use a dedicated counter to avoid collisions with guardrail IDs.
+	b.guardrailVersionCounter++
+	versionNum := strconv.Itoa(b.guardrailVersionCounter)
 
 	gv := &GuardrailVersion{
 		GuardrailID: g.GuardrailID,
 		Version:     versionNum,
+		Description: description,
 	}
 
 	return gv, nil

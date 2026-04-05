@@ -128,14 +128,14 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "CreateGuardrail"
 	case path == guardrailsPrefix && method == http.MethodGet:
 		return "ListGuardrails"
-	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
-		return "CreateGuardrailVersion"
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodGet:
 		return "GetGuardrail"
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPut:
 		return "UpdateGuardrail"
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodDelete:
 		return "DeleteGuardrail"
+	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
+		return "CreateGuardrailVersion"
 	case path == foundationModelsPrefix && method == http.MethodGet:
 		return "ListFoundationModels"
 	case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
@@ -258,12 +258,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleCreateGuardrail(c, body)
 		case path == guardrailsPrefix && method == http.MethodGet:
 			return h.handleListGuardrails(c)
-		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
-			return h.handleCreateGuardrailVersion(
-				c,
-				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
-				body,
-			)
 		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodGet:
 			return h.handleGetGuardrail(
 				c,
@@ -279,6 +273,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleDeleteGuardrail(
 				c,
 				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
+			)
+		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
+			return h.handleCreateGuardrailVersion(
+				c,
+				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
+				body,
 			)
 		case path == foundationModelsPrefix && method == http.MethodGet:
 			return h.handleListFoundationModels(c)
