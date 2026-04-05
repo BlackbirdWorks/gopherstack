@@ -1185,3 +1185,321 @@ func TestInMemoryDB_UpdateItem_InvalidExpression(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// ── New Refinement Tests ──────────────────────────────────────────────────────
+
+// TestInMemoryDB_DescribeBackup tests the DescribeBackup interface method.
+func TestInMemoryDB_DescribeBackup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, db *dynamodb.InMemoryDB) string
+		name       string
+		backupArn  string
+		errContain string
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) string {
+				t.Helper()
+				createTableHelper(t, db, "T", "pk")
+				out, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+					TableName:  aws.String("T"),
+					BackupName: aws.String("snap"),
+				})
+				require.NoError(t, err)
+
+				return aws.ToString(out.BackupDetails.BackupArn)
+			},
+		},
+		{
+			name:       "missing_backup_arn",
+			backupArn:  "",
+			wantErr:    true,
+			errContain: "BackupArn",
+		},
+		{
+			name:       "not_found",
+			backupArn:  "arn:aws:dynamodb:us-east-1:000000000000:table/T/backup/9999-abc",
+			wantErr:    true,
+			errContain: "not found",
+		},
+		{
+			name: "nil_input",
+			setup: func(t *testing.T, _ *dynamodb.InMemoryDB) string {
+				t.Helper()
+
+				return ""
+			},
+			backupArn:  "",
+			wantErr:    true,
+			errContain: "nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			backupArn := tt.backupArn
+
+			if tt.setup != nil && tt.name != "nil_input" {
+				backupArn = tt.setup(t, db)
+			}
+
+			if tt.name == "nil_input" {
+				_, err := db.DescribeBackup(t.Context(), nil)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "nil")
+
+				return
+			}
+
+			out, err := db.DescribeBackup(t.Context(), &sdk.DescribeBackupInput{
+				BackupArn: aws.String(backupArn),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContain != "" {
+					assert.Contains(t, err.Error(), tt.errContain)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out)
+			require.NotNil(t, out.BackupDescription)
+			assert.Equal(t, backupArn, aws.ToString(out.BackupDescription.BackupDetails.BackupArn))
+		})
+	}
+}
+
+// TestInMemoryDB_DescribeBackup_ViaHandler tests DescribeBackup through the HTTP handler.
+func TestInMemoryDB_DescribeBackup_ViaHandler(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
+
+	createTableHelper(t, db, "Books", "pk")
+
+	// Create a backup first.
+	out, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("Books"),
+		BackupName: aws.String("books-backup"),
+	})
+	require.NoError(t, err)
+
+	backupArn := aws.ToString(out.BackupDetails.BackupArn)
+	reqBody, _ := json.Marshal(map[string]string{"BackupArn": backupArn})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.DescribeBackup")
+	req = req.WithContext(logger.Save(t.Context(), slog.Default()))
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, serveEchoHandler(h.Handler(), rec, req))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var respBody map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+	assert.Contains(t, respBody, "BackupDescription")
+}
+
+// TestCreateBackup_DuplicateName verifies BackupInUseException on duplicate backup name.
+func TestCreateBackup_DuplicateName(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "T", "pk")
+
+	_, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("T"),
+		BackupName: aws.String("snap"),
+	})
+	require.NoError(t, err)
+
+	// Second backup with same name and table should fail.
+	_, err = db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("T"),
+		BackupName: aws.String("snap"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "BackupInUseException")
+}
+
+// TestCreateBackup_TableNotActive verifies that creating a backup on a non-ACTIVE table fails.
+// When createDelay is set, the table remains in CREATING state and getTable returns
+// ResourceNotFoundException (same behaviour as AWS when the table is not ready).
+func TestCreateBackup_TableNotActive(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+
+	// Create a table with a long delay so it stays in CREATING state.
+	db.SetCreateDelay(60 * time.Second)
+	createTableHelper(t, db, "Slow", "pk")
+
+	_, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("Slow"),
+		BackupName: aws.String("snap"),
+	})
+	// getTable returns ResourceNotFoundException for non-ACTIVE tables.
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ResourceNotFoundException")
+}
+
+// TestBatchExecuteStatement_MaxStatements verifies the 25-statement limit.
+func TestBatchExecuteStatement_MaxStatements(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "T", "pk")
+
+	stmts := make([]types.BatchStatementRequest, 26)
+	for i := range stmts {
+		stmt := fmt.Sprintf(`SELECT pk FROM "T" WHERE pk = 'k%d'`, i)
+		stmts[i] = types.BatchStatementRequest{Statement: aws.String(stmt)}
+	}
+
+	_, err := db.BatchExecuteStatement(t.Context(), &sdk.BatchExecuteStatementInput{
+		Statements: stmts,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "25")
+}
+
+// TestBatchExecuteStatement_NilInput verifies nil input handling.
+func TestBatchExecuteStatement_NilInput(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	_, err := db.BatchExecuteStatement(t.Context(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nil")
+}
+
+// TestCreateBackup_NilInput verifies nil input handling.
+func TestCreateBackup_NilInput(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	_, err := db.CreateBackup(t.Context(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nil")
+}
+
+// TestDeleteBackup_NilInput verifies nil input handling.
+func TestDeleteBackup_NilInput(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	_, err := db.DeleteBackup(t.Context(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nil")
+}
+
+// TestErrValidation_Sentinel verifies ErrValidation is defined.
+func TestErrValidation_Sentinel(t *testing.T) {
+	t.Parallel()
+
+	// Compile-time check that ErrValidation is exported.
+	_ = dynamodb.ErrValidation
+}
+
+// TestBatchExecuteStatement_ConsistentRead verifies the ConsistentRead flag is honoured.
+func TestBatchExecuteStatement_ConsistentRead(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "T", "pk")
+
+	// Insert an item so a SELECT can find it.
+	_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+		TableName: aws.String("T"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "cread"},
+		},
+	})
+	require.NoError(t, err)
+
+	// ConsistentRead=true should succeed; the in-memory backend always reads the latest state.
+	stmts := []types.BatchStatementRequest{
+		{
+			Statement:      aws.String(`SELECT pk FROM "T" WHERE pk = 'cread'`),
+			ConsistentRead: aws.Bool(true),
+		},
+	}
+	out, err := db.BatchExecuteStatement(t.Context(), &sdk.BatchExecuteStatementInput{
+		Statements: stmts,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Responses, 1)
+	assert.Nil(t, out.Responses[0].Error)
+}
+
+// TestExtractResource_BackupArn verifies that ExtractResource extracts the table name
+// from a BackupArn when TableName is absent.
+func TestExtractResource_BackupArn(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
+	e := echo.New()
+
+	body := `{"BackupArn":"arn:aws:dynamodb:us-east-1:123456789012:table/MyTable/backup/01701234567890-abc12345"}`
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	resource := h.ExtractResource(c)
+	assert.Equal(t, "MyTable", resource)
+}
+
+// TestDescribeBackup_ProvisionedThroughput verifies that the ProvisionedThroughput stored
+// at backup creation time is returned in the SourceTableDetails.
+func TestDescribeBackup_ProvisionedThroughput(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "PT", "pk")
+
+	out, err := db.CreateBackup(t.Context(), &sdk.CreateBackupInput{
+		TableName:  aws.String("PT"),
+		BackupName: aws.String("pt-backup"),
+	})
+	require.NoError(t, err)
+
+	backupArn := aws.ToString(out.BackupDetails.BackupArn)
+
+	descOut, err := db.DescribeBackup(t.Context(), &sdk.DescribeBackupInput{
+		BackupArn: aws.String(backupArn),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, descOut.BackupDescription)
+	require.NotNil(t, descOut.BackupDescription.SourceTableDetails)
+	require.NotNil(t, descOut.BackupDescription.SourceTableDetails.ProvisionedThroughput)
+	// Default throughput should be ≥ 1 RCU / WCU.
+	pt := descOut.BackupDescription.SourceTableDetails.ProvisionedThroughput
+	assert.GreaterOrEqual(t, aws.ToInt64(pt.ReadCapacityUnits), int64(1))
+	assert.GreaterOrEqual(t, aws.ToInt64(pt.WriteCapacityUnits), int64(1))
+}
+
+// TestBuildSDKBackupHelpers_NilSafety verifies nil guards on SDK conversion helpers.
+func TestBuildSDKBackupHelpers_NilSafety(t *testing.T) {
+	t.Parallel()
+
+	// These all return nil, not panic, when called with a nil Backup.
+	db := dynamodb.NewInMemoryDB()
+	out, err := db.DescribeBackup(t.Context(), &sdk.DescribeBackupInput{
+		BackupArn: aws.String("arn:aws:dynamodb:us-east-1:123:table/X/backup/0"),
+	})
+	require.Error(t, err)
+	assert.Nil(t, out)
+}

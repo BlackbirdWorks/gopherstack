@@ -329,12 +329,39 @@ func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
 	}
 
 	if tbl, exists := data["TableName"]; exists {
-		if tblStr, ok := tbl.(string); ok {
+		if tblStr, ok := tbl.(string); ok && tblStr != "" {
 			return tblStr
 		}
 	}
 
+	// Backup operations carry BackupArn instead of TableName.
+	if arnVal, exists := data["BackupArn"]; exists {
+		if arnStr, ok := arnVal.(string); ok && arnStr != "" {
+			return extractTableFromBackupARN(arnStr)
+		}
+	}
+
 	return ""
+}
+
+// extractTableFromBackupARN returns the table name embedded in a DynamoDB backup ARN.
+// ARN format: arn:aws:dynamodb:REGION:ACCOUNT:table/NAME/backup/SUFFIX
+// Returns the full ARN string unchanged if the expected structure is not found.
+func extractTableFromBackupARN(arnStr string) string {
+	// Resource component follows the last ':' in the ARN.
+	if idx := strings.LastIndex(arnStr, ":"); idx >= 0 {
+		resource := arnStr[idx+1:]
+		if strings.HasPrefix(resource, "table/") {
+			rest := resource[len("table/"):]
+			if tableName, _, found := strings.Cut(rest, "/"); found {
+				return tableName
+			}
+
+			return rest
+		}
+	}
+
+	return arnStr
 }
 
 func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []byte) (any, error) {

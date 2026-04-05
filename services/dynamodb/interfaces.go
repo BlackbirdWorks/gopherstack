@@ -138,6 +138,10 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.CreateBackupInput,
 	) (*dynamodb.CreateBackupOutput, error)
+	DescribeBackup(
+		context.Context,
+		*dynamodb.DescribeBackupInput,
+	) (*dynamodb.DescribeBackupOutput, error)
 	DeleteBackup(
 		context.Context,
 		*dynamodb.DeleteBackupInput,

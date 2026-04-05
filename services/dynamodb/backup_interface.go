@@ -12,12 +12,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
+// maxBatchExecuteStatements is the maximum number of PartiQL statements per
+// BatchExecuteStatement call, matching the AWS service limit.
+const maxBatchExecuteStatements = 25
+
 // CreateBackup creates a point-in-time backup of the named DynamoDB table.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 func (db *InMemoryDB) CreateBackup(
 	ctx context.Context,
 	input *sdkdynamodb.CreateBackupInput,
 ) (*sdkdynamodb.CreateBackupOutput, error) {
+	if input == nil {
+		return nil, NewValidationException("CreateBackupInput must not be nil")
+	}
+
 	tableName := aws.ToString(input.TableName)
 	backupName := aws.ToString(input.BackupName)
 
@@ -37,6 +45,7 @@ func (db *InMemoryDB) CreateBackup(
 	}
 
 	table.mu.RLock("CreateBackup")
+	tableStatus := table.Status
 	itemsCopy := deepCopyItems(table.Items)
 	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchema, table.KeySchema)
@@ -44,25 +53,49 @@ func (db *InMemoryDB) CreateBackup(
 	copy(attrDefs, table.AttributeDefinitions)
 	tableArn := table.TableArn
 	tableID := table.TableID
+	provThroughput := table.ProvisionedThroughput
 	table.mu.RUnlock()
+
+	// AWS only allows creating backups on ACTIVE tables.
+	if tableStatus != models.TableStatusActive {
+		return nil, NewValidationException(
+			fmt.Sprintf("table %q is not ACTIVE (status=%s); backups can only be created on ACTIVE tables",
+				tableName, tableStatus),
+		)
+	}
+
+	// Check for duplicate backup name scoped to this table; AWS returns BackupInUseException.
+	db.mu.RLock("CreateBackup.checkDuplicate")
+	for _, existing := range db.Backups {
+		if existing.TableName == tableName && existing.BackupName == backupName &&
+			existing.BackupStatus != models.BackupStatusDeleted {
+			db.mu.RUnlock()
+
+			return nil, NewBackupInUseException(
+				fmt.Sprintf("backup with name %q already exists for table %q", backupName, tableName),
+			)
+		}
+	}
+	db.mu.RUnlock()
 
 	now := time.Now()
 	bkpARN := backupARN(region, db.accountID, tableName, now)
 	sizeBytes := estimateTableSizeBytes(itemsCopy)
 
 	backup := &Backup{
-		BackupArn:            bkpARN,
-		BackupName:           backupName,
-		BackupStatus:         models.BackupStatusAvailable,
-		BackupType:           models.BackupTypeUser,
-		TableName:            tableName,
-		TableArn:             tableArn,
-		TableID:              tableID,
-		CreationDateTime:     now,
-		Items:                itemsCopy,
-		KeySchema:            keySchema,
-		AttributeDefinitions: attrDefs,
-		SizeBytes:            sizeBytes,
+		BackupArn:             bkpARN,
+		BackupName:            backupName,
+		BackupStatus:          models.BackupStatusAvailable,
+		BackupType:            models.BackupTypeUser,
+		TableName:             tableName,
+		TableArn:              tableArn,
+		TableID:               tableID,
+		CreationDateTime:      now,
+		Items:                 itemsCopy,
+		KeySchema:             keySchema,
+		AttributeDefinitions:  attrDefs,
+		ProvisionedThroughput: provThroughput,
+		SizeBytes:             sizeBytes,
 	}
 
 	db.mu.Lock("CreateBackup")
@@ -81,29 +114,64 @@ func (db *InMemoryDB) CreateBackup(
 	}, nil
 }
 
+// DescribeBackup returns the full description of a backup by ARN.
+// It satisfies the StorageBackend interface using official AWS SDK v2 types.
+func (db *InMemoryDB) DescribeBackup(
+	_ context.Context,
+	input *sdkdynamodb.DescribeBackupInput,
+) (*sdkdynamodb.DescribeBackupOutput, error) {
+	if input == nil {
+		return nil, NewValidationException("DescribeBackupInput must not be nil")
+	}
+
+	backupArn := aws.ToString(input.BackupArn)
+	if backupArn == "" {
+		return nil, NewValidationException("BackupArn is required")
+	}
+
+	db.mu.RLock("DescribeBackup")
+	backup, exists := db.Backups[backupArn]
+	var backupCopy Backup
+	if exists {
+		backupCopy = *backup
+	}
+	db.mu.RUnlock()
+
+	if !exists {
+		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", backupArn))
+	}
+
+	return &sdkdynamodb.DescribeBackupOutput{
+		BackupDescription: buildSDKBackupDescription(&backupCopy),
+	}, nil
+}
+
 // DeleteBackup removes an existing backup by ARN and returns its description.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 func (db *InMemoryDB) DeleteBackup(
 	_ context.Context,
 	input *sdkdynamodb.DeleteBackupInput,
 ) (*sdkdynamodb.DeleteBackupOutput, error) {
+	if input == nil {
+		return nil, NewValidationException("DeleteBackupInput must not be nil")
+	}
+
 	backupArn := aws.ToString(input.BackupArn)
 	if backupArn == "" {
 		return nil, NewValidationException("BackupArn is required")
 	}
 
 	db.mu.Lock("DeleteBackup")
+	defer db.mu.Unlock()
+
 	backup, exists := db.Backups[backupArn]
 	if !exists {
-		db.mu.Unlock()
-
 		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", backupArn))
 	}
 
 	backupCopy := *backup
 	backupCopy.BackupStatus = models.BackupStatusDeleted
 	delete(db.Backups, backupArn)
-	db.mu.Unlock()
 
 	return &sdkdynamodb.DeleteBackupOutput{
 		BackupDescription: buildSDKBackupDescription(&backupCopy),
@@ -111,7 +179,12 @@ func (db *InMemoryDB) DeleteBackup(
 }
 
 // buildSDKBackupDetails converts an internal Backup into SDK BackupDetails.
+// Returns nil if b is nil.
 func buildSDKBackupDetails(b *Backup) *sdktypes.BackupDetails {
+	if b == nil {
+		return nil
+	}
+
 	return &sdktypes.BackupDetails{
 		BackupArn:              aws.String(b.BackupArn),
 		BackupName:             aws.String(b.BackupName),
@@ -123,7 +196,12 @@ func buildSDKBackupDetails(b *Backup) *sdktypes.BackupDetails {
 }
 
 // buildSDKSourceTableDetails converts an internal Backup into SDK SourceTableDetails.
+// Returns nil if b is nil.
 func buildSDKSourceTableDetails(b *Backup) *sdktypes.SourceTableDetails {
+	if b == nil {
+		return nil
+	}
+
 	sdkKeys := make([]sdktypes.KeySchemaElement, 0, len(b.KeySchema))
 	for _, ks := range b.KeySchema {
 		sdkKeys = append(sdkKeys, sdktypes.KeySchemaElement{
@@ -132,21 +210,37 @@ func buildSDKSourceTableDetails(b *Backup) *sdktypes.SourceTableDetails {
 		})
 	}
 
+	// Use the actual provisioned throughput captured at backup creation time.
+	readCU := int64(b.ProvisionedThroughput.ReadCapacityUnits)
+	if readCU == 0 {
+		readCU = models.DefaultReadCapacity
+	}
+
+	writeCU := int64(b.ProvisionedThroughput.WriteCapacityUnits)
+	if writeCU == 0 {
+		writeCU = models.DefaultWriteCapacity
+	}
+
 	return &sdktypes.SourceTableDetails{
 		TableName: aws.String(b.TableName),
 		TableId:   aws.String(b.TableID),
 		TableArn:  aws.String(b.TableArn),
 		KeySchema: sdkKeys,
 		ProvisionedThroughput: &sdktypes.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(models.DefaultReadCapacity),
-			WriteCapacityUnits: aws.Int64(models.DefaultWriteCapacity),
+			ReadCapacityUnits:  aws.Int64(readCU),
+			WriteCapacityUnits: aws.Int64(writeCU),
 		},
 		TableCreationDateTime: aws.Time(b.CreationDateTime.UTC()),
 	}
 }
 
 // buildSDKBackupDescription converts an internal Backup into a full SDK BackupDescription.
+// Returns nil if b is nil.
 func buildSDKBackupDescription(b *Backup) *sdktypes.BackupDescription {
+	if b == nil {
+		return nil
+	}
+
 	return &sdktypes.BackupDescription{
 		BackupDetails:      buildSDKBackupDetails(b),
 		SourceTableDetails: buildSDKSourceTableDetails(b),
@@ -155,10 +249,25 @@ func buildSDKBackupDescription(b *Backup) *sdktypes.BackupDescription {
 
 // BatchExecuteStatement executes multiple PartiQL statements and returns their results.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
+//
+// AWS limit: at most maxBatchExecuteStatements statements per call.
+// The ConsistentRead flag on each statement is forwarded to the underlying
+// Query / Scan execution so strongly-consistent reads are honoured.
 func (db *InMemoryDB) BatchExecuteStatement(
 	ctx context.Context,
 	input *sdkdynamodb.BatchExecuteStatementInput,
 ) (*sdkdynamodb.BatchExecuteStatementOutput, error) {
+	if input == nil {
+		return nil, NewValidationException("BatchExecuteStatementInput must not be nil")
+	}
+
+	if len(input.Statements) > maxBatchExecuteStatements {
+		return nil, NewValidationException(
+			fmt.Sprintf("too many statements: %d exceeds the limit of %d",
+				len(input.Statements), maxBatchExecuteStatements),
+		)
+	}
+
 	runner := &partiQLRunner{backend: db}
 	responses := make([]sdktypes.BatchStatementResponse, 0, len(input.Statements))
 
@@ -173,8 +282,9 @@ func (db *InMemoryDB) BatchExecuteStatement(
 		}
 
 		req := executeStatementRequest{
-			Statement:  aws.ToString(stmt.Statement),
-			Parameters: params,
+			Statement:      aws.ToString(stmt.Statement),
+			Parameters:     params,
+			ConsistentRead: aws.ToBool(stmt.ConsistentRead),
 		}
 
 		result, err := runner.executeStatement(ctx, req)
@@ -191,6 +301,8 @@ func (db *InMemoryDB) BatchExecuteStatement(
 
 		resp := sdktypes.BatchStatementResponse{}
 		if len(result.Items) > 0 {
+			// BatchExecuteStatement returns at most one item per statement (AWS spec).
+			// INSERT/UPDATE/DELETE return no item; SELECT returns the first matching item.
 			sdkItem, convErr := models.ToSDKItem(result.Items[0])
 			if convErr == nil {
 				resp.Item = sdkItem

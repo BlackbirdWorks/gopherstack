@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -53,7 +54,7 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 	}, nil
 }
 
-func (h *DynamoDBHandler) describeBackup(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) describeBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.DescribeBackupInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -63,25 +64,17 @@ func (h *DynamoDBHandler) describeBackup(_ context.Context, body []byte) (any, e
 		return nil, NewValidationException("BackupArn is required")
 	}
 
-	db, ok := h.Backend.(*InMemoryDB)
-	if !ok {
-		return nil, NewInternalServerError("backup operations require in-memory backend")
+	out, err := h.Backend.DescribeBackup(ctx, &sdkdynamodb.DescribeBackupInput{
+		BackupArn: &req.BackupArn,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	db.mu.RLock("DescribeBackup")
-	backup, exists := db.Backups[req.BackupArn]
-	var backupCopy Backup
-	if exists {
-		backupCopy = *backup
-	}
-	db.mu.RUnlock()
-
-	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", req.BackupArn))
-	}
+	bd := out.BackupDescription
 
 	return &models.DescribeBackupOutput{
-		BackupDescription: buildBackupDescription(&backupCopy),
+		BackupDescription: buildBackupDescriptionFromSDK(bd),
 	}, nil
 }
 
@@ -395,23 +388,45 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 	}, nil
 }
 
-// buildBackupDescription constructs a BackupDescription from an internal Backup record.
-func buildBackupDescription(b *Backup) models.BackupDescription {
+// buildBackupDescriptionFromSDK converts an SDK BackupDescription (as returned by the
+// StorageBackend interface) into the wire-format models.BackupDescription.
+func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.BackupDescription {
+	if bd == nil {
+		return models.BackupDescription{}
+	}
+
+	var details models.BackupDetails
+	if bd.BackupDetails != nil {
+		details = models.BackupDetails{
+			BackupArn:              aws.ToString(bd.BackupDetails.BackupArn),
+			BackupName:             aws.ToString(bd.BackupDetails.BackupName),
+			BackupStatus:           string(bd.BackupDetails.BackupStatus),
+			BackupType:             string(bd.BackupDetails.BackupType),
+			BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Format(time.RFC3339),
+			BackupSizeBytes:        aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
+		}
+	}
+
+	var src models.SourceTableDetails
+	if bd.SourceTableDetails != nil {
+		src = models.SourceTableDetails{
+			TableName: aws.ToString(bd.SourceTableDetails.TableName),
+			TableArn:  aws.ToString(bd.SourceTableDetails.TableArn),
+			TableID:   aws.ToString(bd.SourceTableDetails.TableId),
+		}
+
+		// Preserve key schema from SDK representation.
+		for _, ks := range bd.SourceTableDetails.KeySchema {
+			src.KeySchema = append(src.KeySchema, models.KeySchemaElement{
+				AttributeName: aws.ToString(ks.AttributeName),
+				KeyType:       string(ks.KeyType),
+			})
+		}
+	}
+
 	return models.BackupDescription{
-		BackupDetails: models.BackupDetails{
-			BackupArn:              b.BackupArn,
-			BackupName:             b.BackupName,
-			BackupStatus:           b.BackupStatus,
-			BackupType:             b.BackupType,
-			BackupCreationDateTime: b.CreationDateTime.UTC().Format(time.RFC3339),
-			BackupSizeBytes:        b.SizeBytes,
-		},
-		SourceTableDetails: models.SourceTableDetails{
-			TableName: b.TableName,
-			TableArn:  b.TableArn,
-			TableID:   b.TableID,
-			KeySchema: b.KeySchema,
-		},
+		BackupDetails:      details,
+		SourceTableDetails: src,
 	}
 }
 

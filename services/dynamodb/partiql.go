@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -69,9 +71,10 @@ const minRegexMatch = 2
 
 // executeStatementRequest is the wire format for ExecuteStatement.
 type executeStatementRequest struct {
-	Statement  string           `json:"Statement"`
-	NextToken  string           `json:"NextToken,omitempty"`
-	Parameters []map[string]any `json:"Parameters,omitempty"`
+	Statement      string           `json:"Statement"`
+	NextToken      string           `json:"NextToken,omitempty"`
+	Parameters     []map[string]any `json:"Parameters,omitempty"`
+	ConsistentRead bool             `json:"ConsistentRead,omitempty"`
 }
 
 // executeStatementResponse is the wire response for ExecuteStatement.
@@ -253,7 +256,7 @@ func (r *partiQLRunner) executePartiQLSelect(
 	colList := partiqlExtractColumns(substituted)
 
 	// Try to use Query if the partition key is present in the WHERE clause.
-	out, queryErr := r.tryQueryOptimization(ctx, tableName, whereClause, filterExpr, eav, colList, limit)
+	out, queryErr := r.tryQueryOptimization(ctx, req, tableName, whereClause, filterExpr, eav, colList, limit)
 	if queryErr != nil && !errors.Is(queryErr, errScanFallback) {
 		return nil, queryErr
 	}
@@ -261,7 +264,13 @@ func (r *partiQLRunner) executePartiQLSelect(
 		return out, nil
 	}
 
-	return r.executeScanSelect(ctx, tableName, filterExpr, eav, colList, limit)
+	// Log at debug when falling back to Scan so callers can detect performance issues.
+	logger.Load(ctx).DebugContext(ctx, "PartiQL SELECT falling back to Scan",
+		slog.String("table", tableName),
+		slog.String("where", whereClause),
+	)
+
+	return r.executeScanSelect(ctx, req, tableName, filterExpr, eav, colList, limit)
 }
 
 // tryQueryOptimization attempts to convert the PartiQL SELECT into a Query operation
@@ -269,6 +278,7 @@ func (r *partiQLRunner) executePartiQLSelect(
 // or (result, nil) on success, or (nil, err) when a definitive error occurred.
 func (r *partiQLRunner) tryQueryOptimization(
 	ctx context.Context,
+	req executeStatementRequest,
 	tableName, whereClause, filterExpr string,
 	eav map[string]any,
 	colList string,
@@ -302,7 +312,9 @@ func (r *partiQLRunner) tryQueryOptimization(
 		return nil, errScanFallback // PK value not present
 	}
 
-	queryInput, err := r.buildQueryInput(tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit)
+	queryInput, err := r.buildQueryInput(
+		req, tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +328,9 @@ func (r *partiQLRunner) tryQueryOptimization(
 }
 
 // buildQueryInput constructs a QueryInput from the parsed PartiQL components.
+// ConsistentRead from the original statement request is forwarded.
 func (r *partiQLRunner) buildQueryInput(
+	req executeStatementRequest,
 	tableName, whereClause, filterExpr string,
 	eav map[string]any,
 	pkAttr, colList string,
@@ -334,6 +348,10 @@ func (r *partiQLRunner) buildQueryInput(
 		KeyConditionExpression:    aws.String(keyCond),
 	}
 
+	if req.ConsistentRead {
+		queryInput.ConsistentRead = aws.Bool(true)
+	}
+
 	if filterExpr != "" {
 		queryInput.FilterExpression = aws.String(filterExpr)
 	}
@@ -349,8 +367,10 @@ func (r *partiQLRunner) buildQueryInput(
 }
 
 // executeScanSelect runs a full Scan for a PartiQL SELECT that couldn't be optimized.
+// ConsistentRead from the original statement request is forwarded.
 func (r *partiQLRunner) executeScanSelect(
 	ctx context.Context,
+	req executeStatementRequest,
 	tableName, filterExpr string,
 	eav map[string]any,
 	colList string,
@@ -358,6 +378,10 @@ func (r *partiQLRunner) executeScanSelect(
 ) (*executeStatementResponse, error) {
 	scanInput := &dynamodb.ScanInput{
 		TableName: aws.String(tableName),
+	}
+
+	if req.ConsistentRead {
+		scanInput.ConsistentRead = aws.Bool(true)
 	}
 
 	if filterExpr != "" {

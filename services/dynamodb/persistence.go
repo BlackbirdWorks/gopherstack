@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -33,6 +34,11 @@ func (db *InMemoryDB) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		// Log the marshal failure so operators can detect data-loss scenarios.
+		slog.Default().Warn("DynamoDB: failed to serialise snapshot; state will not be persisted",
+			slog.String("error", err.Error()),
+		)
+
 		return nil
 	}
 
