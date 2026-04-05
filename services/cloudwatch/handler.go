@@ -93,6 +93,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDashboard",
 		"ListDashboards",
 		"DeleteDashboards",
+		"DeleteAlarmMuteRule",
+		"DeleteAnomalyDetector",
+		"DeleteInsightRules",
+		"DeleteMetricStream",
+		"DescribeAlarmContributors",
+		"DescribeAnomalyDetectors",
+		"DescribeInsightRules",
+		"DisableInsightRules",
+		"EnableInsightRules",
+		"GetAlarmMuteRule",
 	}
 }
 
@@ -222,6 +232,34 @@ func (h *Handler) dispatchFormAction(action string, form url.Values, c *echo.Con
 		return h.handleListDashboards(form, c)
 	case "DeleteDashboards":
 		return h.handleDeleteDashboards(form, c)
+	default:
+		return h.dispatchExtendedFormAction(action, form, c)
+	}
+}
+
+// dispatchExtendedFormAction routes extended CloudWatch actions added after the initial implementation.
+func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *echo.Context) error {
+	switch action {
+	case "DeleteAlarmMuteRule":
+		return h.handleDeleteAlarmMuteRule(form, c)
+	case "GetAlarmMuteRule":
+		return h.handleGetAlarmMuteRule(form, c)
+	case "DeleteAnomalyDetector":
+		return h.handleDeleteAnomalyDetector(form, c)
+	case "DescribeAnomalyDetectors":
+		return h.handleDescribeAnomalyDetectors(form, c)
+	case "DeleteInsightRules":
+		return h.handleDeleteInsightRules(form, c)
+	case "DescribeInsightRules":
+		return h.handleDescribeInsightRules(form, c)
+	case "DisableInsightRules":
+		return h.handleDisableInsightRules(form, c)
+	case "EnableInsightRules":
+		return h.handleEnableInsightRules(form, c)
+	case "DeleteMetricStream":
+		return h.handleDeleteMetricStream(form, c)
+	case "DescribeAlarmContributors":
+		return h.handleDescribeAlarmContributors(form, c)
 	default:
 		return h.dispatchAlarmFormAction(action, form, c)
 	}
@@ -1083,10 +1121,373 @@ func (h *Handler) handleDeleteDashboards(form url.Values, c *echo.Context) error
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
+// insightRuleFailureXML is the XML representation of a failed insight rule operation.
+type insightRuleFailureXML struct {
+	RuleName           string `xml:"RuleName"`
+	FailureCode        string `xml:"FailureCode"`
+	FailureDescription string `xml:"FailureDescription,omitempty"`
+}
+
+// insightRuleFailResult holds the failures portion of insight rule batch operation responses.
+type insightRuleFailResult struct {
+	Failures []insightRuleFailureXML `xml:"Failures>member"`
+}
+
+// buildInsightRuleFailResult converts backend failures into the XML result struct.
+func buildInsightRuleFailResult(failures []InsightRuleFailure) insightRuleFailResult {
+	if len(failures) == 0 {
+		return insightRuleFailResult{}
+	}
+
+	members := make([]insightRuleFailureXML, 0, len(failures))
+	for _, f := range failures {
+		members = append(members, insightRuleFailureXML(f))
+	}
+
+	return insightRuleFailResult{Failures: members}
+}
+
+// insightRuleXML is the XML representation of an InsightRule.
+type insightRuleXML struct {
+	CreatedAt   string `xml:"CreatedAt,omitempty"`
+	Name        string `xml:"Name"`
+	State       string `xml:"State"`
+	Schema      string `xml:"Schema,omitempty"`
+	Definition  string `xml:"Definition,omitempty"`
+	Arn         string `xml:"RuleArn,omitempty"`
+	ManagedRule bool   `xml:"ManagedRule"`
+}
+
+func (h *Handler) handleDeleteAlarmMuteRule(form url.Values, c *echo.Context) error {
+	muteName := form.Get("MuteName")
+	if muteName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	if err := h.Backend.DeleteAlarmMuteRule(muteName); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"DeleteAlarmMuteRuleResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleGetAlarmMuteRule(form url.Values, c *echo.Context) error {
+	muteName := form.Get("MuteName")
+	if muteName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	rule, err := h.Backend.GetAlarmMuteRule(muteName)
+	if err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type muteRuleXML struct {
+		MuteName      string   `xml:"MuteName"`
+		Description   string   `xml:"Description,omitempty"`
+		CreationTime  string   `xml:"CreationTime"`
+		MuteStartTime string   `xml:"MuteStartTime,omitempty"`
+		AlarmNames    []string `xml:"AlarmNames>member,omitempty"`
+		MuteDuration  int32    `xml:"MuteDuration,omitempty"`
+	}
+	type result struct {
+		MuteRule muteRuleXML `xml:"MuteRule"`
+	}
+	type response struct {
+		XMLName   xml.Name `xml:"GetAlarmMuteRuleResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"GetAlarmMuteRuleResult"`
+	}
+
+	mr := muteRuleXML{
+		MuteName:     rule.MuteName,
+		Description:  rule.Description,
+		AlarmNames:   rule.AlarmNames,
+		CreationTime: rule.CreationTime.UTC().Format(time.RFC3339),
+		MuteDuration: rule.MuteDuration,
+	}
+	if !rule.MuteStartTime.IsZero() {
+		mr.MuteStartTime = rule.MuteStartTime.UTC().Format(time.RFC3339)
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    result{MuteRule: mr},
+	})
+}
+
+func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) error {
+	namespace := form.Get("SingleMetricAnomalyDetector.Namespace")
+	if namespace == "" {
+		namespace = form.Get("Namespace")
+	}
+
+	metricName := form.Get("SingleMetricAnomalyDetector.MetricName")
+	if metricName == "" {
+		metricName = form.Get("MetricName")
+	}
+
+	stat := form.Get("SingleMetricAnomalyDetector.Stat")
+	if stat == "" {
+		stat = form.Get("Stat")
+	}
+
+	if namespace == "" || metricName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace and MetricName are required")
+	}
+
+	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"DeleteAnomalyDetectorResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleDescribeAnomalyDetectors(form url.Values, c *echo.Context) error {
+	namespace := form.Get("Namespace")
+	metricName := form.Get("MetricName")
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.DescribeAnomalyDetectors(namespace, metricName, nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type detectorXML struct {
+		Namespace  string `xml:"SingleMetricAnomalyDetector>Namespace"`
+		MetricName string `xml:"SingleMetricAnomalyDetector>MetricName"`
+		Stat       string `xml:"SingleMetricAnomalyDetector>Stat"`
+		StateValue string `xml:"StateValue"`
+	}
+	members := make([]detectorXML, 0, len(p.Data))
+	for _, d := range p.Data {
+		members = append(members, detectorXML(d))
+	}
+
+	type descResult struct {
+		NextToken        string        `xml:"NextToken,omitempty"`
+		AnomalyDetectors []detectorXML `xml:"AnomalyDetectors>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeAnomalyDetectorsResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeAnomalyDetectorsResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    descResult{AnomalyDetectors: members, NextToken: p.Next},
+	})
+}
+
+func (h *Handler) handleDeleteInsightRules(form url.Values, c *echo.Context) error {
+	ruleNames := parseMemberList(form, "RuleNames.")
+	if len(ruleNames) == 0 {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+	}
+
+	failures, err := h.Backend.DeleteInsightRules(ruleNames)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name              `xml:"DeleteInsightRulesResponse"`
+		Xmlns     string                `xml:"xmlns,attr"`
+		RequestID string                `xml:"ResponseMetadata>RequestId"`
+		Result    insightRuleFailResult `xml:"DeleteInsightRulesResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    buildInsightRuleFailResult(failures),
+	})
+}
+
+func (h *Handler) handleDescribeInsightRules(form url.Values, c *echo.Context) error {
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.DescribeInsightRules(nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	members := make([]insightRuleXML, 0, len(p.Data))
+	for _, r := range p.Data {
+		members = append(members, insightRuleXML{
+			Name:        r.Name,
+			State:       r.State,
+			Schema:      r.Schema,
+			Definition:  r.Definition,
+			ManagedRule: r.ManagedRule,
+			Arn:         r.Arn,
+			CreatedAt:   formatTimeOmitZero(r.CreatedAt),
+		})
+	}
+
+	type descResult struct {
+		NextToken    string           `xml:"NextToken,omitempty"`
+		InsightRules []insightRuleXML `xml:"InsightRules>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeInsightRulesResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeInsightRulesResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    descResult{InsightRules: members, NextToken: p.Next},
+	})
+}
+
+func (h *Handler) handleDisableInsightRules(form url.Values, c *echo.Context) error {
+	ruleNames := parseMemberList(form, "RuleNames.")
+	if len(ruleNames) == 0 {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+	}
+
+	failures, err := h.Backend.DisableInsightRules(ruleNames)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name              `xml:"DisableInsightRulesResponse"`
+		Xmlns     string                `xml:"xmlns,attr"`
+		RequestID string                `xml:"ResponseMetadata>RequestId"`
+		Result    insightRuleFailResult `xml:"DisableInsightRulesResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    buildInsightRuleFailResult(failures),
+	})
+}
+
+func (h *Handler) handleEnableInsightRules(form url.Values, c *echo.Context) error {
+	ruleNames := parseMemberList(form, "RuleNames.")
+	if len(ruleNames) == 0 {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+	}
+
+	failures, err := h.Backend.EnableInsightRules(ruleNames)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name              `xml:"EnableInsightRulesResponse"`
+		Xmlns     string                `xml:"xmlns,attr"`
+		RequestID string                `xml:"ResponseMetadata>RequestId"`
+		Result    insightRuleFailResult `xml:"EnableInsightRulesResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    buildInsightRuleFailResult(failures),
+	})
+}
+
+func (h *Handler) handleDeleteMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	if err := h.Backend.DeleteMetricStream(name); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"DeleteMetricStreamResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleDescribeAlarmContributors(form url.Values, c *echo.Context) error {
+	alarmName := form.Get("AlarmName")
+	if alarmName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+	}
+
+	nextToken := form.Get("NextToken")
+
+	p, err := h.Backend.DescribeAlarmContributors(alarmName, nextToken)
+	if err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type contributorXML struct {
+		Keys []string `xml:"Keys>member"`
+		Sum  float64  `xml:"Sum"`
+	}
+	members := make([]contributorXML, 0, len(p.Data))
+	for _, contrib := range p.Data {
+		members = append(members, contributorXML(contrib))
+	}
+
+	type descResult struct {
+		NextToken    string           `xml:"NextToken,omitempty"`
+		Contributors []contributorXML `xml:"Contributors>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeAlarmContributorsResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeAlarmContributorsResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    descResult{Contributors: members, NextToken: p.Next},
+	})
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	h.tagsMu.Lock("Reset")
+	h.tags = make(map[string]*tags.Tags)
+	h.tagsMu.Unlock()
+}
+
+// formatTimeOmitZero formats t as RFC3339 or returns "" for the zero value.
+func formatTimeOmitZero(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.UTC().Format(time.RFC3339)
 }

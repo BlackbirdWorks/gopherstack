@@ -33,17 +33,32 @@ var ErrDashboardNotFound = errors.New("ResourceNotFoundException")
 // ErrDashboardNameRequired is returned when a dashboard name is missing.
 var ErrDashboardNameRequired = errors.New("DashboardName is required")
 
+// ErrAlarmMuteRuleNotFound is returned when a requested alarm mute rule does not exist.
+var ErrAlarmMuteRuleNotFound = errors.New("ResourceNotFoundException")
+
+// ErrAnomalyDetectorNotFound is returned when a requested anomaly detector does not exist.
+var ErrAnomalyDetectorNotFound = errors.New("ResourceNotFoundException")
+
+// ErrMetricStreamNotFound is returned when a requested metric stream does not exist.
+var ErrMetricStreamNotFound = errors.New("ResourceNotFoundException")
+
+// ErrValidation is returned when a caller provides an invalid or missing parameter.
+var ErrValidation = errors.New("InvalidParameterValue")
+
 const (
-	cwDefaultListMetricsLimit       = 500
-	cwDefaultDescribeAlarmsLimit    = 100
-	cwDefaultAlarmHistoryLimit      = 100
-	cwDefaultDescribeForMetricLimit = 100
-	cwDefaultListDashboardsLimit    = 300
-	cwMaxMetricDataPoints           = 1000 // maximum data points retained per metric
-	cwMaxMetricNamesPerNamespace    = 500  // maximum unique metric names per namespace
-	cwMaxAlarmHistory               = 100  // maximum alarm history entries per alarm
-	cwMetricRetentionDays           = 15   // data points older than this are evicted
-	cwMaxCompositeEvalDepth         = 10   // maximum recursion depth for composite alarm evaluation
+	cwDefaultListMetricsLimit               = 500
+	cwDefaultDescribeAlarmsLimit            = 100
+	cwDefaultAlarmHistoryLimit              = 100
+	cwDefaultDescribeForMetricLimit         = 100
+	cwDefaultListDashboardsLimit            = 300
+	cwDefaultDescribeAnomalyDetectorLimit   = 100
+	cwDefaultDescribeInsightRulesLimit      = 100
+	cwDefaultDescribeAlarmContributorsLimit = 100
+	cwMaxMetricDataPoints                   = 1000 // maximum data points retained per metric
+	cwMaxMetricNamesPerNamespace            = 500  // maximum unique metric names per namespace
+	cwMaxAlarmHistory                       = 100  // maximum alarm history entries per alarm
+	cwMetricRetentionDays                   = 15   // data points older than this are evicted
+	cwMaxCompositeEvalDepth                 = 10   // maximum recursion depth for composite alarm evaluation
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -102,28 +117,45 @@ type StorageBackend interface {
 	GetDashboard(name string) (DashboardEntry, string, error)
 	ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error)
 	DeleteDashboards(names []string) error
+	DeleteAlarmMuteRule(muteName string) error
+	GetAlarmMuteRule(muteName string) (*AlarmMuteRule, error)
+	DeleteAnomalyDetector(namespace, metricName, stat string) error
+	DescribeAnomalyDetectors(
+		namespace, metricName, nextToken string,
+		maxResults int,
+	) (page.Page[AnomalyDetector], error)
+	DeleteInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
+	DescribeInsightRules(nextToken string, maxResults int) (page.Page[InsightRule], error)
+	DisableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
+	EnableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
+	DeleteMetricStream(name string) error
+	DescribeAlarmContributors(alarmName, nextToken string) (page.Page[AlarmContributor], error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 // metrics is a two-level map: namespace -> metricName -> []MetricDatum.
 type InMemoryBackend struct {
-	metrics         map[string]map[string][]MetricDatum
-	alarms          map[string]*MetricAlarm
-	compositeAlarms map[string]*CompositeAlarm
-	alarmHistory    map[string][]AlarmHistoryItem
-	dashboards      map[string]*dashboardRecord
-	snsPublisher    SNSPublisher
-	lambdaInvoker   LambdaInvoker
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	metrics          map[string]map[string][]MetricDatum
+	alarms           map[string]*MetricAlarm
+	compositeAlarms  map[string]*CompositeAlarm
+	alarmHistory     map[string][]AlarmHistoryItem
+	dashboards       map[string]*dashboardRecord
+	anomalyDetectors map[string]*AnomalyDetector
+	insightRules     map[string]*InsightRule
+	metricStreams    map[string]*MetricStream
+	alarmMuteRules   map[string]*AlarmMuteRule
+	snsPublisher     SNSPublisher
+	lambdaInvoker    LambdaInvoker
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 // dashboardRecord holds dashboard body and metadata.
 type dashboardRecord struct {
-	lastModified time.Time
-	name         string
-	body         string
+	LastModified time.Time `json:"LastModified"`
+	Name         string    `json:"Name"`
+	Body         string    `json:"Body"`
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -134,14 +166,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		accountID:       accountID,
-		region:          region,
-		metrics:         make(map[string]map[string][]MetricDatum),
-		alarms:          make(map[string]*MetricAlarm),
-		compositeAlarms: make(map[string]*CompositeAlarm),
-		alarmHistory:    make(map[string][]AlarmHistoryItem),
-		dashboards:      make(map[string]*dashboardRecord),
-		mu:              lockmetrics.New("cloudwatch"),
+		accountID:        accountID,
+		region:           region,
+		metrics:          make(map[string]map[string][]MetricDatum),
+		alarms:           make(map[string]*MetricAlarm),
+		compositeAlarms:  make(map[string]*CompositeAlarm),
+		alarmHistory:     make(map[string][]AlarmHistoryItem),
+		dashboards:       make(map[string]*dashboardRecord),
+		anomalyDetectors: make(map[string]*AnomalyDetector),
+		insightRules:     make(map[string]*InsightRule),
+		metricStreams:    make(map[string]*MetricStream),
+		alarmMuteRules:   make(map[string]*AlarmMuteRule),
+		mu:               lockmetrics.New("cloudwatch"),
 	}
 }
 
@@ -1070,9 +1106,9 @@ func (b *InMemoryBackend) PutDashboard(name, body string) error {
 	defer b.mu.Unlock()
 
 	b.dashboards[name] = &dashboardRecord{
-		name:         name,
-		body:         body,
-		lastModified: time.Now().UTC(),
+		Name:         name,
+		Body:         body,
+		LastModified: time.Now().UTC(),
 	}
 
 	return nil
@@ -1088,7 +1124,7 @@ func (b *InMemoryBackend) GetDashboard(name string) (DashboardEntry, string, err
 		return DashboardEntry{}, "", fmt.Errorf("%w: %s", ErrDashboardNotFound, name)
 	}
 
-	return b.toDashboardEntry(rec), rec.body, nil
+	return b.toDashboardEntry(rec), rec.Body, nil
 }
 
 // ListDashboards returns a page of dashboard entries optionally filtered by name prefix.
@@ -1099,7 +1135,7 @@ func (b *InMemoryBackend) ListDashboards(prefix, nextToken string) (page.Page[Da
 	var result []DashboardEntry
 
 	for _, rec := range b.dashboards {
-		if prefix != "" && !strings.HasPrefix(rec.name, prefix) {
+		if prefix != "" && !strings.HasPrefix(rec.Name, prefix) {
 			continue
 		}
 
@@ -1129,10 +1165,10 @@ func (b *InMemoryBackend) DeleteDashboards(names []string) error {
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) toDashboardEntry(rec *dashboardRecord) DashboardEntry {
 	return DashboardEntry{
-		DashboardName: rec.name,
-		DashboardArn:  arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+rec.name),
-		LastModified:  rec.lastModified,
-		Size:          int64(len(rec.body)),
+		DashboardName: rec.Name,
+		DashboardArn:  arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+rec.Name),
+		LastModified:  rec.LastModified,
+		Size:          int64(len(rec.Body)),
 	}
 }
 
@@ -1147,4 +1183,296 @@ func (b *InMemoryBackend) Reset() {
 	b.compositeAlarms = make(map[string]*CompositeAlarm)
 	b.alarmHistory = make(map[string][]AlarmHistoryItem)
 	b.dashboards = make(map[string]*dashboardRecord)
+	b.anomalyDetectors = make(map[string]*AnomalyDetector)
+	b.insightRules = make(map[string]*InsightRule)
+	b.metricStreams = make(map[string]*MetricStream)
+	b.alarmMuteRules = make(map[string]*AlarmMuteRule)
+}
+
+// anomalyDetectorKey returns a stable map key for an anomaly detector.
+func anomalyDetectorKey(namespace, metricName, stat string) string {
+	return namespace + "/" + metricName + "/" + stat
+}
+
+// DeleteAlarmMuteRule removes an alarm mute rule by name.
+// Returns ErrAlarmMuteRuleNotFound if the rule does not exist.
+func (b *InMemoryBackend) DeleteAlarmMuteRule(muteName string) error {
+	b.mu.Lock("DeleteAlarmMuteRule")
+	defer b.mu.Unlock()
+
+	if _, ok := b.alarmMuteRules[muteName]; !ok {
+		return fmt.Errorf("%w: %s", ErrAlarmMuteRuleNotFound, muteName)
+	}
+
+	delete(b.alarmMuteRules, muteName)
+
+	return nil
+}
+
+// GetAlarmMuteRule returns an alarm mute rule by name.
+// Returns ErrAlarmMuteRuleNotFound if the rule does not exist.
+func (b *InMemoryBackend) GetAlarmMuteRule(muteName string) (*AlarmMuteRule, error) {
+	b.mu.RLock("GetAlarmMuteRule")
+	defer b.mu.RUnlock()
+
+	rule, ok := b.alarmMuteRules[muteName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrAlarmMuteRuleNotFound, muteName)
+	}
+
+	cp := *rule
+
+	return &cp, nil
+}
+
+// PutAlarmMuteRuleInternal creates or updates an alarm mute rule (used for test seeding).
+func (b *InMemoryBackend) PutAlarmMuteRuleInternal(rule *AlarmMuteRule) {
+	b.mu.Lock("PutAlarmMuteRuleInternal")
+	defer b.mu.Unlock()
+
+	cp := *rule
+	if cp.CreationTime.IsZero() {
+		cp.CreationTime = time.Now().UTC()
+	}
+
+	b.alarmMuteRules[rule.MuteName] = &cp
+}
+
+// DeleteAnomalyDetector removes an anomaly detector.
+// Returns ErrAnomalyDetectorNotFound if the detector does not exist.
+func (b *InMemoryBackend) DeleteAnomalyDetector(namespace, metricName, stat string) error {
+	b.mu.Lock("DeleteAnomalyDetector")
+	defer b.mu.Unlock()
+
+	key := anomalyDetectorKey(namespace, metricName, stat)
+
+	if _, ok := b.anomalyDetectors[key]; !ok {
+		return fmt.Errorf("%w: %s/%s/%s", ErrAnomalyDetectorNotFound, namespace, metricName, stat)
+	}
+
+	delete(b.anomalyDetectors, key)
+
+	return nil
+}
+
+// PutAnomalyDetectorInternal creates or updates an anomaly detector (used for test seeding).
+func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) {
+	b.mu.Lock("PutAnomalyDetectorInternal")
+	defer b.mu.Unlock()
+
+	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat)
+	cp := *detector
+	if cp.StateValue == "" {
+		// TRAINED_INSUFFICIENT_DATA is the realistic initial state for a new detector.
+		cp.StateValue = "TRAINED_INSUFFICIENT_DATA"
+	}
+
+	b.anomalyDetectors[key] = &cp
+}
+
+// DescribeAnomalyDetectors returns a filtered, paginated list of anomaly detectors.
+func (b *InMemoryBackend) DescribeAnomalyDetectors(
+	namespace, metricName, nextToken string,
+	maxResults int,
+) (page.Page[AnomalyDetector], error) {
+	b.mu.RLock("DescribeAnomalyDetectors")
+	defer b.mu.RUnlock()
+
+	type entry struct {
+		key      string
+		detector AnomalyDetector
+	}
+
+	var entries []entry
+
+	for k, d := range b.anomalyDetectors {
+		if namespace != "" && d.Namespace != namespace {
+			continue
+		}
+
+		if metricName != "" && d.MetricName != metricName {
+			continue
+		}
+
+		entries = append(entries, entry{key: k, detector: *d})
+	}
+
+	// Sort by pre-computed key (namespace/metricName/stat) for deterministic output.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].key < entries[j].key
+	})
+
+	result := make([]AnomalyDetector, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, e.detector)
+	}
+
+	return page.New(result, nextToken, maxResults, cwDefaultDescribeAnomalyDetectorLimit), nil
+}
+
+// DeleteInsightRules removes insight rules by name. Non-existent rules are reported as failures.
+func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleFailure, error) {
+	b.mu.Lock("DeleteInsightRules")
+	defer b.mu.Unlock()
+
+	var failures []InsightRuleFailure
+
+	for _, name := range ruleNames {
+		if _, ok := b.insightRules[name]; !ok {
+			failures = append(failures, InsightRuleFailure{
+				RuleName:           name,
+				FailureCode:        "ResourceNotFoundException",
+				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
+			})
+
+			continue
+		}
+
+		delete(b.insightRules, name)
+	}
+
+	return failures, nil
+}
+
+// PutInsightRuleInternal creates or updates an insight rule (used for test seeding).
+func (b *InMemoryBackend) PutInsightRuleInternal(rule *InsightRule) {
+	b.mu.Lock("PutInsightRuleInternal")
+	defer b.mu.Unlock()
+
+	cp := *rule
+	if cp.State == "" {
+		cp.State = "ENABLED"
+	}
+
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now().UTC()
+	}
+
+	if cp.Arn == "" {
+		cp.Arn = arn.Build("cloudwatch", b.region, b.accountID, "insight-rule/"+rule.Name)
+	}
+
+	b.insightRules[rule.Name] = &cp
+}
+
+// DescribeInsightRules returns a paginated list of insight rules.
+func (b *InMemoryBackend) DescribeInsightRules(
+	nextToken string,
+	maxResults int,
+) (page.Page[InsightRule], error) {
+	b.mu.RLock("DescribeInsightRules")
+	defer b.mu.RUnlock()
+
+	result := make([]InsightRule, 0, len(b.insightRules))
+
+	for _, r := range b.insightRules {
+		result = append(result, *r)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return page.New(result, nextToken, maxResults, cwDefaultDescribeInsightRulesLimit), nil
+}
+
+// DisableInsightRules disables the specified insight rules. Non-existent rules are reported as failures.
+func (b *InMemoryBackend) DisableInsightRules(ruleNames []string) ([]InsightRuleFailure, error) {
+	b.mu.Lock("DisableInsightRules")
+	defer b.mu.Unlock()
+
+	var failures []InsightRuleFailure
+
+	for _, name := range ruleNames {
+		rule, ok := b.insightRules[name]
+		if !ok {
+			failures = append(failures, InsightRuleFailure{
+				RuleName:           name,
+				FailureCode:        "ResourceNotFoundException",
+				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
+			})
+
+			continue
+		}
+
+		rule.State = "DISABLED"
+	}
+
+	return failures, nil
+}
+
+// EnableInsightRules enables the specified insight rules. Non-existent rules are reported as failures.
+func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleFailure, error) {
+	b.mu.Lock("EnableInsightRules")
+	defer b.mu.Unlock()
+
+	var failures []InsightRuleFailure
+
+	for _, name := range ruleNames {
+		rule, ok := b.insightRules[name]
+		if !ok {
+			failures = append(failures, InsightRuleFailure{
+				RuleName:           name,
+				FailureCode:        "ResourceNotFoundException",
+				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
+			})
+
+			continue
+		}
+
+		rule.State = "ENABLED"
+	}
+
+	return failures, nil
+}
+
+// DeleteMetricStream removes a metric stream by name.
+// Returns ErrMetricStreamNotFound if the stream does not exist.
+func (b *InMemoryBackend) DeleteMetricStream(name string) error {
+	b.mu.Lock("DeleteMetricStream")
+	defer b.mu.Unlock()
+
+	if _, ok := b.metricStreams[name]; !ok {
+		return fmt.Errorf("%w: %s", ErrMetricStreamNotFound, name)
+	}
+
+	delete(b.metricStreams, name)
+
+	return nil
+}
+
+// PutMetricStreamInternal creates or updates a metric stream (used for test seeding).
+func (b *InMemoryBackend) PutMetricStreamInternal(stream *MetricStream) {
+	b.mu.Lock("PutMetricStreamInternal")
+	defer b.mu.Unlock()
+
+	cp := *stream
+	if cp.CreationDate.IsZero() {
+		cp.CreationDate = time.Now().UTC()
+	}
+
+	cp.LastUpdateDate = time.Now().UTC()
+
+	if cp.Arn == "" {
+		cp.Arn = arn.Build("cloudwatch", b.region, b.accountID, "metric-stream/"+stream.Name)
+	}
+
+	b.metricStreams[stream.Name] = &cp
+}
+
+// DescribeAlarmContributors returns a page of contributors for the specified alarm.
+// The in-memory implementation always returns an empty list since no real metric analysis is performed.
+func (b *InMemoryBackend) DescribeAlarmContributors(
+	alarmName, nextToken string,
+) (page.Page[AlarmContributor], error) {
+	b.mu.RLock("DescribeAlarmContributors")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.alarms[alarmName]; !ok {
+		if _, ok2 := b.compositeAlarms[alarmName]; !ok2 {
+			return page.Page[AlarmContributor]{}, fmt.Errorf("%w: %s", ErrAlarmNotFound, alarmName)
+		}
+	}
+
+	return page.New([]AlarmContributor{}, nextToken, 0, cwDefaultDescribeAlarmContributorsLimit), nil
 }
