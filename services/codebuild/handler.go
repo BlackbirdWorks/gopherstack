@@ -28,11 +28,20 @@ var (
 type Handler struct {
 	Backend *InMemoryBackend
 	janitor *Janitor
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new CodeBuild handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.dispatchTable()
+
+	return h
+}
+
+// Reset clears the handler state by delegating to the backend Reset.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -162,7 +171,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -188,6 +197,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrAlreadyExists):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidInputException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidInputException",
 			Message: err.Error(),

@@ -4,6 +4,7 @@ package codebuild
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,8 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource with the same name already exists.
 	ErrAlreadyExists = awserr.New("InvalidInputException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
 )
 
 // ProjectSource represents the source configuration for a CodeBuild project.
@@ -191,6 +194,27 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// Reset clears all state in the backend, resetting it to a pristine empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.projects = make(map[string]*Project)
+	b.builds = make(map[string]*Build)
+	b.buildsByProject = make(map[string]map[string]struct{})
+	b.projectARNIndex = make(map[string]string)
+	b.buildARNIndex = make(map[string]string)
+	b.fleets = make(map[string]*Fleet)
+	b.fleetARNIndex = make(map[string]string)
+	b.reportGroups = make(map[string]*ReportGroup)
+	b.reportGroupARNIndex = make(map[string]string)
+	b.reports = make(map[string]*Report)
+	b.buildBatches = make(map[string]*BuildBatch)
+	b.commandExecutions = make(map[string]*CommandExecution)
+	b.sandboxes = make(map[string]*Sandbox)
+	b.webhooks = make(map[string]*Webhook)
+}
+
 func (b *InMemoryBackend) buildProjectARN(name string) string {
 	return arn.Build("codebuild", b.region, b.accountID, "project/"+name)
 }
@@ -344,7 +368,7 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	return nil
 }
 
-// ListProjects returns all project names.
+// ListProjects returns all project names in sorted order.
 func (b *InMemoryBackend) ListProjects() []string {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
@@ -353,6 +377,8 @@ func (b *InMemoryBackend) ListProjects() []string {
 	for name := range b.projects {
 		names = append(names, name)
 	}
+
+	sort.Strings(names)
 
 	return names
 }
@@ -427,7 +453,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	return &out, nil
 }
 
-// ListBuilds returns all build IDs in the backend.
+// ListBuilds returns all build IDs in the backend in sorted order.
 func (b *InMemoryBackend) ListBuilds() []string {
 	b.mu.RLock("ListBuilds")
 	defer b.mu.RUnlock()
@@ -436,6 +462,8 @@ func (b *InMemoryBackend) ListBuilds() []string {
 	for id := range b.builds {
 		ids = append(ids, id)
 	}
+
+	sort.Strings(ids)
 
 	return ids
 }
@@ -506,7 +534,7 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 	return &out, nil
 }
 
-// ListBuildsForProject returns all build IDs for a given project.
+// ListBuildsForProject returns all build IDs for a given project in sorted order.
 func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, error) {
 	b.mu.RLock("ListBuildsForProject")
 	defer b.mu.RUnlock()
@@ -521,6 +549,8 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 	for id := range buildSet {
 		ids = append(ids, id)
 	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }
@@ -546,6 +576,22 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		return out, nil
 	}
 
+	if name, ok := b.fleetARNIndex[resourceARN]; ok {
+		f := b.fleets[name]
+		out := make(map[string]string, len(f.Tags))
+		maps.Copy(out, f.Tags)
+
+		return out, nil
+	}
+
+	if name, ok := b.reportGroupARNIndex[resourceARN]; ok {
+		rg := b.reportGroups[name]
+		out := make(map[string]string, len(rg.Tags))
+		maps.Copy(out, rg.Tags)
+
+		return out, nil
+	}
+
 	return nil, ErrNotFound
 }
 
@@ -554,13 +600,16 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
 	if name, ok := b.projectARNIndex[resourceARN]; ok {
 		p := b.projects[name]
 		if p.Tags == nil {
 			p.Tags = make(map[string]string)
 		}
 
-		maps.Copy(p.Tags, tags)
+		maps.Copy(p.Tags, tagsCopy)
 
 		return nil
 	}
@@ -571,7 +620,29 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 			build.Tags = make(map[string]string)
 		}
 
-		maps.Copy(build.Tags, tags)
+		maps.Copy(build.Tags, tagsCopy)
+
+		return nil
+	}
+
+	if name, ok := b.fleetARNIndex[resourceARN]; ok {
+		f := b.fleets[name]
+		if f.Tags == nil {
+			f.Tags = make(map[string]string)
+		}
+
+		maps.Copy(f.Tags, tagsCopy)
+
+		return nil
+	}
+
+	if name, ok := b.reportGroupARNIndex[resourceARN]; ok {
+		rg := b.reportGroups[name]
+		if rg.Tags == nil {
+			rg.Tags = make(map[string]string)
+		}
+
+		maps.Copy(rg.Tags, tagsCopy)
 
 		return nil
 	}
@@ -597,6 +668,24 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		build := b.builds[id]
 		for _, k := range tagKeys {
 			delete(build.Tags, k)
+		}
+
+		return nil
+	}
+
+	if name, ok := b.fleetARNIndex[resourceARN]; ok {
+		f := b.fleets[name]
+		for _, k := range tagKeys {
+			delete(f.Tags, k)
+		}
+
+		return nil
+	}
+
+	if name, ok := b.reportGroupARNIndex[resourceARN]; ok {
+		rg := b.reportGroups[name]
+		for _, k := range tagKeys {
+			delete(rg.Tags, k)
 		}
 
 		return nil
