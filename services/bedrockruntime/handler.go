@@ -3,6 +3,7 @@ package bedrockruntime
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"hash/crc32"
 	"math"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -19,6 +21,7 @@ import (
 const modelPathPrefix = "/model/"
 const guardrailPathPrefix = "/guardrail/"
 const asyncInvokePathPrefix = "/async-invoke"
+const asyncInvokeItemPathPrefix = asyncInvokePathPrefix + "/"
 
 // Event stream frame constants (AWS binary event stream protocol).
 const (
@@ -87,7 +90,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(path, modelPathPrefix) ||
 			strings.HasPrefix(path, guardrailPathPrefix) ||
 			path == asyncInvokePathPrefix ||
-			strings.HasPrefix(path, asyncInvokePathPrefix+"/")
+			strings.HasPrefix(path, asyncInvokeItemPathPrefix)
 	}
 }
 
@@ -100,6 +103,9 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource extracts the primary resource identifier from the request path.
+// For metrics/logging purposes, returns stable low-cardinality values:
+// model paths return the modelId, guardrail paths return the guardrailIdentifier,
+// and /async-invoke item paths return "async-invoke" (stable, not the ARN).
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 
@@ -114,13 +120,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		guardrailID, _, _ := strings.Cut(rest, "/")
 
 		return guardrailID
-	case strings.HasPrefix(path, asyncInvokePathPrefix+"/"):
-		arn, _ := strings.CutPrefix(path, asyncInvokePathPrefix+"/")
-
-		return arn
+	case strings.HasPrefix(path, asyncInvokeItemPathPrefix):
+		// Return stable label; the full ARN would be unique per invocation.
+		return "async-invoke"
 	default:
 		return ""
 	}
+}
+
+// Reset clears all backend state. Implements service.Resettable.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Handler returns the Echo handler function for Bedrock Runtime requests.
@@ -143,7 +153,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleModelPath(c, method, path, body)
 		case strings.HasPrefix(path, guardrailPathPrefix):
 			return h.handleGuardrailPath(c, method, path, body)
-		case path == asyncInvokePathPrefix || strings.HasPrefix(path, asyncInvokePathPrefix+"/"):
+		case path == asyncInvokePathPrefix || strings.HasPrefix(path, asyncInvokeItemPathPrefix):
 			return h.handleAsyncInvokePath(c, method, path, body)
 		default:
 			return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
@@ -202,7 +212,7 @@ func (h *Handler) handleAsyncInvokePath(c *echo.Context, method, path string, bo
 		return h.handleListAsyncInvokes(c)
 	case path == asyncInvokePathPrefix && method == http.MethodPost:
 		return h.handleStartAsyncInvoke(c, body)
-	case strings.HasPrefix(path, asyncInvokePathPrefix+"/") && method == http.MethodGet:
+	case strings.HasPrefix(path, asyncInvokeItemPathPrefix) && method == http.MethodGet:
 		return h.handleGetAsyncInvoke(c, path)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
@@ -365,6 +375,14 @@ func (h *Handler) handleApplyGuardrail(
 ) error {
 	guardrailID, guardrailVersion := extractGuardrailIDAndVersion(path)
 
+	if guardrailID == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "guardrailIdentifier is required"))
+	}
+
+	if guardrailVersion == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "guardrailVersion is required"))
+	}
+
 	resp := map[string]any{
 		"action":      "NONE",
 		"assessments": []map[string]any{},
@@ -391,31 +409,35 @@ func (h *Handler) handleApplyGuardrail(
 	return c.JSONBlob(http.StatusOK, out)
 }
 
+// startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
+type startAsyncInvokeInput struct {
+	OutputDataConfig struct {
+		S3OutputDataConfig struct {
+			S3URI string `json:"s3Uri"`
+		} `json:"s3OutputDataConfig"`
+	} `json:"outputDataConfig"`
+	Tags               map[string]string `json:"tags"`
+	ModelID            string            `json:"modelId"`
+	ClientRequestToken string            `json:"clientRequestToken"`
+}
+
 // handleStartAsyncInvoke handles POST /async-invoke.
 func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
-	var req struct {
-		ModelID          string `json:"modelId"`
-		OutputDataConfig struct {
-			S3OutputDataConfig struct {
-				S3URI string `json:"s3Uri"`
-			} `json:"s3OutputDataConfig"`
-		} `json:"outputDataConfig"`
-		ClientRequestToken string `json:"clientRequestToken"`
-	}
+	var req startAsyncInvokeInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	if req.ModelID == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "modelId is required"))
-	}
-
-	inv := h.Backend.StartAsyncInvoke(
+	inv, err := h.Backend.StartAsyncInvoke(
 		req.ModelID,
 		req.OutputDataConfig.S3OutputDataConfig.S3URI,
 		req.ClientRequestToken,
+		req.Tags,
 	)
+	if err != nil {
+		return handleError(c, err)
+	}
 
 	resp := map[string]any{
 		"invocationArn": inv.InvocationArn,
@@ -428,7 +450,7 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 
 // handleGetAsyncInvoke handles GET /async-invoke/{invocationArn}.
 func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
-	invocationArn, _ := strings.CutPrefix(path, asyncInvokePathPrefix+"/")
+	invocationArn, _ := strings.CutPrefix(path, asyncInvokeItemPathPrefix)
 	if invocationArn == "" {
 		return c.JSON(
 			http.StatusBadRequest,
@@ -436,12 +458,9 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 		)
 	}
 
-	inv, ok := h.Backend.GetAsyncInvoke(invocationArn)
-	if !ok {
-		return c.JSON(
-			http.StatusNotFound,
-			errorResponse("ResourceNotFoundException", "async invoke not found: "+invocationArn),
-		)
+	inv, err := h.Backend.GetAsyncInvoke(invocationArn)
+	if err != nil {
+		return handleError(c, err)
 	}
 
 	resp := map[string]any{
@@ -469,14 +488,20 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 		resp["failureMessage"] = *inv.FailureMessage
 	}
 
+	if len(inv.Tags) > 0 {
+		resp["tags"] = inv.Tags
+	}
+
 	c.Response().Header().Set("Content-Type", "application/json")
 
 	return c.JSON(http.StatusOK, resp)
 }
 
 // handleListAsyncInvokes handles GET /async-invoke.
+// Supports optional query parameter: statusEquals (InProgress|Completed|Failed).
 func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
-	invocations := h.Backend.ListAsyncInvokes()
+	statusFilter := c.QueryParam("statusEquals")
+	invocations := h.Backend.ListAsyncInvokes(ListAsyncInvokesFilter{StatusEquals: statusFilter})
 
 	summaries := make([]map[string]any, 0, len(invocations))
 
@@ -500,6 +525,14 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 
 		if inv.EndTime != nil {
 			summary["endTime"] = inv.EndTime.Format(time.RFC3339)
+		}
+
+		if inv.FailureMessage != nil {
+			summary["failureMessage"] = *inv.FailureMessage
+		}
+
+		if len(inv.Tags) > 0 {
+			summary["tags"] = inv.Tags
 		}
 
 		summaries = append(summaries, summary)
@@ -537,6 +570,42 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 			"prompt_token_count":     mockInputTokenCount,
 			"generation_token_count": mockOutputTokenCount,
 			"stop_reason":            "stop",
+		}
+	case strings.Contains(modelIDLower, "mistral") || strings.Contains(modelIDLower, "mixtral"):
+		return map[string]any{
+			"outputs": []map[string]any{
+				{"text": "This is a mock response from Gopherstack.", "stop_reason": "stop"},
+			},
+		}
+	case strings.Contains(modelIDLower, "command"):
+		return map[string]any{
+			"text":          "This is a mock response from Gopherstack.",
+			"stop_reason":   "COMPLETE",
+			"finish_reason": "COMPLETE",
+		}
+	case strings.Contains(modelIDLower, "j2") || strings.Contains(modelIDLower, "jurassic"):
+		return map[string]any{
+			"completions": []map[string]any{
+				{
+					"data":         map[string]any{"text": "This is a mock response from Gopherstack."},
+					"finishReason": map[string]any{"reason": "endoftext"},
+				},
+			},
+		}
+	case strings.Contains(modelIDLower, "nova"):
+		return map[string]any{
+			"output": map[string]any{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": []map[string]any{{"text": "This is a mock response from Gopherstack."}},
+				},
+			},
+			"stopReason": "end_turn",
+			"usage": map[string]any{
+				"inputTokens":  mockInputTokenCount,
+				"outputTokens": mockOutputTokenCount,
+				"totalTokens":  mockTotalTokenCount,
+			},
 		}
 	default:
 		return map[string]any{
@@ -677,7 +746,7 @@ func asyncOrGuardrailOperation(path, method string) string {
 		return "ListAsyncInvokes"
 	case path == asyncInvokePathPrefix && method == http.MethodPost:
 		return "StartAsyncInvoke"
-	case strings.HasPrefix(path, asyncInvokePathPrefix+"/") && method == http.MethodGet:
+	case strings.HasPrefix(path, asyncInvokeItemPathPrefix) && method == http.MethodGet:
 		return "GetAsyncInvoke"
 	default:
 		return ""
@@ -701,6 +770,18 @@ func extractGuardrailIDAndVersion(path string) (string, string) {
 
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// handleError writes a standardized error response, mapping sentinel errors to HTTP status codes.
+func handleError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+	case errors.Is(err, awserr.ErrNotFound):
+		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
+	default:
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+	}
 }
 
 // Purge implements service.Purgeable by removing all Bedrock Runtime invocation records older than cutoff.

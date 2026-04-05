@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 )
@@ -82,10 +84,16 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	ops := h.GetSupportedOperations()
 
 	for _, op := range []string{
-		"InvokeModel",
-		"InvokeModelWithResponseStream",
+		"ApplyGuardrail",
 		"Converse",
 		"ConverseStream",
+		"CountTokens",
+		"GetAsyncInvoke",
+		"InvokeModel",
+		"InvokeModelWithBidirectionalStream",
+		"InvokeModelWithResponseStream",
+		"ListAsyncInvokes",
+		"StartAsyncInvoke",
 	} {
 		assert.Contains(t, ops, op)
 	}
@@ -824,11 +832,17 @@ func TestBackend_AsyncInvoke_CRUD(t *testing.T) {
 	b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
 
 	// Initially empty.
-	invocations := b.ListAsyncInvokes()
+	invocations := b.ListAsyncInvokes(bedrockruntime.ListAsyncInvokesFilter{})
 	assert.Empty(t, invocations)
 
 	// Start an invocation.
-	inv := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/prefix/", "token-1")
+	inv, err := b.StartAsyncInvoke(
+		"anthropic.claude-v2",
+		"s3://bucket/prefix/",
+		"token-1",
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
 	require.NotNil(t, inv)
 	assert.NotEmpty(t, inv.InvocationArn)
 	assert.NotEmpty(t, inv.ModelArn)
@@ -837,21 +851,22 @@ func TestBackend_AsyncInvoke_CRUD(t *testing.T) {
 	assert.NotZero(t, inv.SubmitTime)
 	require.NotNil(t, inv.ClientRequestToken)
 	assert.Equal(t, "token-1", *inv.ClientRequestToken)
+	assert.Equal(t, map[string]string{"env": "test"}, inv.Tags)
 
 	// GetAsyncInvoke returns the invocation.
-	got, ok := b.GetAsyncInvoke(inv.InvocationArn)
-	require.True(t, ok)
+	got, err := b.GetAsyncInvoke(inv.InvocationArn)
+	require.NoError(t, err)
 	assert.Equal(t, inv.InvocationArn, got.InvocationArn)
 	assert.Equal(t, bedrockruntime.AsyncInvokeStatusInProgress, got.Status)
 
 	// ListAsyncInvokes returns it.
-	list := b.ListAsyncInvokes()
+	list := b.ListAsyncInvokes(bedrockruntime.ListAsyncInvokesFilter{})
 	require.Len(t, list, 1)
 	assert.Equal(t, inv.InvocationArn, list[0].InvocationArn)
 
-	// GetAsyncInvoke returns false for unknown ARN.
-	_, ok = b.GetAsyncInvoke("arn:aws:bedrock:us-east-1:123456789012:async-invoke/nonexistent")
-	assert.False(t, ok)
+	// GetAsyncInvoke returns error for unknown ARN.
+	_, err = b.GetAsyncInvoke("arn:aws:bedrock:us-east-1:123456789012:async-invoke/nonexistent")
+	require.Error(t, err)
 }
 
 func TestBackend_AsyncInvoke_MultipleInvocations(t *testing.T) {
@@ -859,14 +874,17 @@ func TestBackend_AsyncInvoke_MultipleInvocations(t *testing.T) {
 
 	b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
 
-	inv1 := b.StartAsyncInvoke("model-1", "s3://bucket/1/", "")
-	inv2 := b.StartAsyncInvoke("model-2", "s3://bucket/2/", "")
-	inv3 := b.StartAsyncInvoke("model-3", "s3://bucket/3/", "")
+	inv1, err := b.StartAsyncInvoke("model-1", "s3://bucket/1/", "", nil)
+	require.NoError(t, err)
+	inv2, err := b.StartAsyncInvoke("model-2", "s3://bucket/2/", "", nil)
+	require.NoError(t, err)
+	inv3, err := b.StartAsyncInvoke("model-3", "s3://bucket/3/", "", nil)
+	require.NoError(t, err)
 
 	assert.NotEqual(t, inv1.InvocationArn, inv2.InvocationArn)
 	assert.NotEqual(t, inv2.InvocationArn, inv3.InvocationArn)
 
-	list := b.ListAsyncInvokes()
+	list := b.ListAsyncInvokes(bedrockruntime.ListAsyncInvokesFilter{})
 	assert.Len(t, list, 3)
 }
 
@@ -875,7 +893,8 @@ func TestBackend_AsyncInvoke_NoClientToken(t *testing.T) {
 
 	b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
 
-	inv := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/prefix/", "")
+	inv, err := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/prefix/", "", nil)
+	require.NoError(t, err)
 	require.NotNil(t, inv)
 	assert.Nil(t, inv.ClientRequestToken)
 }
@@ -970,10 +989,12 @@ func TestHandler_ExtractResource_NewOps(t *testing.T) {
 			wantResource: "",
 		},
 		{
-			name:         "async invoke by arn",
+			// Item path must return stable label "async-invoke", not the full ARN,
+			// because ExtractResource is used as a low-cardinality telemetry label.
+			name:         "async invoke by arn returns stable label",
 			method:       http.MethodGet,
 			path:         "/async-invoke/arn:aws:bedrock:us-east-1:000000000000:async-invoke/1",
-			wantResource: "arn:aws:bedrock:us-east-1:000000000000:async-invoke/1",
+			wantResource: "async-invoke",
 		},
 	}
 
@@ -1029,4 +1050,511 @@ func TestHandler_RouteMatcher_NewOps(t *testing.T) {
 			assert.Equal(t, tt.match, matcher(c))
 		})
 	}
+}
+
+// --- Backend Reset ---
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
+
+	// Add some state.
+	b.RecordInvocation("InvokeModel", "model", `{"prompt":"hi"}`, `{}`)
+	_, err := b.StartAsyncInvoke("model", "s3://bucket/", "token-abc", nil)
+	require.NoError(t, err)
+
+	require.Len(t, b.ListInvocations(), 1)
+	require.Len(t, b.ListAsyncInvokes(bedrockruntime.ListAsyncInvokesFilter{}), 1)
+
+	// Reset clears all state.
+	b.Reset()
+
+	assert.Empty(t, b.ListInvocations())
+	assert.Empty(t, b.ListAsyncInvokes(bedrockruntime.ListAsyncInvokesFilter{}))
+
+	// After reset the idempotency index is also cleared:
+	// same token can be used again.
+	inv, err := b.StartAsyncInvoke("model", "s3://bucket/", "token-abc", nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, inv.InvocationArn)
+}
+
+// --- Handler Reset ---
+
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	h.Backend.RecordInvocation("InvokeModel", "model", `{}`, `{}`)
+	require.Len(t, h.Backend.ListInvocations(), 1)
+
+	h.Reset()
+
+	assert.Empty(t, h.Backend.ListInvocations())
+}
+
+// --- Chaos tests ---
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+
+	require.NotEmpty(t, ops)
+
+	for _, op := range h.GetSupportedOperations() {
+		assert.Contains(t, ops, op)
+	}
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	regions := h.ChaosRegions()
+
+	require.Len(t, regions, 1)
+	assert.Equal(t, "us-east-1", regions[0])
+}
+
+// --- Provider tests ---
+
+func TestProvider_Name(t *testing.T) {
+	t.Parallel()
+
+	p := &bedrockruntime.Provider{}
+	assert.Equal(t, "BedrockRuntime", p.Name())
+}
+
+func TestProvider_Init_NilContext(t *testing.T) {
+	t.Parallel()
+
+	p := &bedrockruntime.Provider{}
+	reg, err := p.Init(nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+}
+
+func TestProvider_Init_WithConfig(t *testing.T) {
+	t.Parallel()
+
+	p := &bedrockruntime.Provider{}
+	reg, err := p.Init(&service.AppContext{})
+
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+}
+
+// --- Idempotency test ---
+
+func TestBackend_StartAsyncInvoke_Idempotency(t *testing.T) {
+	t.Parallel()
+
+	b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
+
+	// First invocation with token.
+	first, err := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/", "my-token", nil)
+	require.NoError(t, err)
+
+	// Second call with same token should return the same ARN.
+	second, err := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/", "my-token", nil)
+	require.NoError(t, err)
+	assert.Equal(t, first.InvocationArn, second.InvocationArn)
+
+	// Only one invocation stored.
+	list := b.ListAsyncInvokes(bedrockruntime.ListAsyncInvokesFilter{})
+	assert.Len(t, list, 1)
+
+	// Different token creates a new invocation.
+	third, err := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/", "other-token", nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, first.InvocationArn, third.InvocationArn)
+
+	// Empty token always creates a new invocation.
+	a, err := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/", "", nil)
+	require.NoError(t, err)
+	aa, err := b.StartAsyncInvoke("anthropic.claude-v2", "s3://bucket/", "", nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, a.InvocationArn, aa.InvocationArn)
+}
+
+// --- StartAsyncInvoke validation tests ---
+
+func TestBackend_StartAsyncInvoke_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modelID string
+		s3URI   string
+		wantErr bool
+	}{
+		{
+			name:    "missing modelId returns error",
+			modelID: "",
+			s3URI:   "s3://bucket/",
+			wantErr: true,
+		},
+		{
+			name:    "missing s3Uri returns error",
+			modelID: "anthropic.claude-v2",
+			s3URI:   "",
+			wantErr: true,
+		},
+		{
+			name:    "valid params succeeds",
+			modelID: "anthropic.claude-v2",
+			s3URI:   "s3://bucket/",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
+			_, err := b.StartAsyncInvoke(tt.modelID, tt.s3URI, "", nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestHandler_StartAsyncInvoke_MissingS3URI(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
+		"modelId":    "anthropic.claude-v2",
+		"modelInput": map[string]any{"prompt": "Hello"},
+		// outputDataConfig present but s3Uri empty
+		"outputDataConfig": map[string]any{
+			"s3OutputDataConfig": map[string]any{
+				"s3Uri": "",
+			},
+		},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Contains(t, out, "__type")
+}
+
+// --- ListAsyncInvokes status filter test ---
+
+func TestHandler_ListAsyncInvokes_StatusFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		statusFilter string
+		wantCount    int
+	}{
+		{
+			name:         "no filter returns all",
+			statusFilter: "",
+			wantCount:    2,
+		},
+		{
+			name:         "filter InProgress returns matching",
+			statusFilter: bedrockruntime.AsyncInvokeStatusInProgress,
+			wantCount:    2,
+		},
+		{
+			name:         "filter Completed returns none",
+			statusFilter: bedrockruntime.AsyncInvokeStatusCompleted,
+			wantCount:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			startBody := func(i int) map[string]any {
+				return map[string]any{
+					"modelId": fmt.Sprintf("model-%d", i),
+					"outputDataConfig": map[string]any{
+						"s3OutputDataConfig": map[string]any{
+							"s3Uri": fmt.Sprintf("s3://bucket/%d/", i),
+						},
+					},
+				}
+			}
+
+			rec1 := doRequest(t, h, http.MethodPost, "/async-invoke", startBody(1))
+			require.Equal(t, http.StatusAccepted, rec1.Code)
+			rec2 := doRequest(t, h, http.MethodPost, "/async-invoke", startBody(2))
+			require.Equal(t, http.StatusAccepted, rec2.Code)
+
+			path := "/async-invoke"
+			if tt.statusFilter != "" {
+				path += "?statusEquals=" + tt.statusFilter
+			}
+
+			rec := doRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			summaries, ok := out["asyncInvokeSummaries"].([]any)
+			require.True(t, ok)
+			assert.Len(t, summaries, tt.wantCount)
+		})
+	}
+}
+
+// --- StartAsyncInvoke with tags ---
+
+func TestHandler_StartAsyncInvoke_WithTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
+		"modelId": "anthropic.claude-v2",
+		"outputDataConfig": map[string]any{
+			"s3OutputDataConfig": map[string]any{
+				"s3Uri": "s3://bucket/output/",
+			},
+		},
+		"tags": map[string]string{"env": "prod", "team": "ml"},
+	})
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	var startOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+	invocationArn := startOut["invocationArn"].(string)
+
+	getPath := "/async-invoke/" + url.PathEscape(invocationArn)
+	getRec := doRequest(t, h, http.MethodGet, getPath, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	assert.Contains(t, getOut, "tags")
+}
+
+// --- Purge handler test ---
+
+func TestHandler_Purge(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	h.Backend.RecordInvocation("InvokeModel", "model", `{}`, `{}`)
+
+	require.Len(t, h.Backend.ListInvocations(), 1)
+
+	// Purge with future cutoff removes all.
+	h.Purge(time.Now().Add(time.Hour))
+
+	assert.Empty(t, h.Backend.ListInvocations())
+}
+
+// --- ApplyGuardrail invalid path test ---
+
+func TestHandler_ApplyGuardrail_InvalidPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		code int
+	}{
+		{
+			name: "missing guardrailId returns 400",
+			path: "/guardrail//version/1/apply",
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "missing version returns 400",
+			path: "/guardrail/my-id/version//apply",
+			code: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, tt.path, map[string]any{"source": "INPUT"})
+			assert.Equal(t, tt.code, rec.Code)
+		})
+	}
+}
+
+// --- InvokeModel model family tests ---
+
+func TestHandler_InvokeModel_ModelFamilies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modelID string
+		wantKey string
+	}{
+		{
+			name:    "mistral model",
+			modelID: "mistral.mistral-7b-instruct-v0:2",
+			wantKey: "outputs",
+		},
+		{
+			name:    "command model",
+			modelID: "cohere.command-r-v1:0",
+			wantKey: "text",
+		},
+		{
+			name:    "nova model",
+			modelID: "amazon.nova-pro-v1:0",
+			wantKey: "output",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/model/"+tt.modelID+"/invoke",
+				map[string]any{"prompt": "Hello"})
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Contains(t, out, tt.wantKey)
+		})
+	}
+}
+
+// --- Guardrail unknown operation test ---
+
+func TestHandler_GuardrailPath_UnknownOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/guardrail/my-id/version/1/unknown", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// --- StartAsyncInvoke invalid JSON test ---
+
+func TestHandler_StartAsyncInvoke_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/async-invoke", bytes.NewReader([]byte("not-json")))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// --- GetAsyncInvoke full fields test ---
+
+func TestHandler_GetAsyncInvoke_FullFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Start with token and tags.
+	startRec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
+		"modelId":            "anthropic.claude-v2",
+		"clientRequestToken": "my-idempotency-token",
+		"outputDataConfig": map[string]any{
+			"s3OutputDataConfig": map[string]any{"s3Uri": "s3://bucket/output/"},
+		},
+		"tags": map[string]string{"env": "test"},
+	})
+	require.Equal(t, http.StatusAccepted, startRec.Code)
+
+	var startOut map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	invocationArn := startOut["invocationArn"].(string)
+
+	getPath := "/async-invoke/" + url.PathEscape(invocationArn)
+	rec := doRequest(t, h, http.MethodGet, getPath, nil)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Contains(t, out, "clientRequestToken")
+	assert.Equal(t, "my-idempotency-token", out["clientRequestToken"])
+	assert.Contains(t, out, "tags")
+}
+
+// --- ListAsyncInvokes with client request token in summary ---
+
+func TestHandler_ListAsyncInvokes_WithClientToken(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/async-invoke", map[string]any{
+		"modelId":            "anthropic.claude-v2",
+		"clientRequestToken": "summary-token",
+		"outputDataConfig": map[string]any{
+			"s3OutputDataConfig": map[string]any{"s3Uri": "s3://bucket/"},
+		},
+	})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	listRec := doRequest(t, h, http.MethodGet, "/async-invoke", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+
+	summaries, ok := out["asyncInvokeSummaries"].([]any)
+	require.True(t, ok)
+	require.Len(t, summaries, 1)
+
+	summary := summaries[0].(map[string]any)
+	assert.Equal(t, "summary-token", summary["clientRequestToken"])
+}
+
+// --- Provider Init with full config ---
+
+func TestProvider_Init_FullConfig(t *testing.T) {
+	t.Parallel()
+
+	p := &bedrockruntime.Provider{}
+	ctx := &service.AppContext{Config: &mockProviderConfig{accountID: "111122223333", region: "eu-west-1"}}
+	reg, err := p.Init(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+
+	h, ok := reg.(*bedrockruntime.Handler)
+	require.True(t, ok)
+	assert.Equal(t, "eu-west-1", h.Backend.Region())
+}
+
+// mockProviderConfig implements config.Provider for testing.
+type mockProviderConfig struct {
+	accountID string
+	region    string
+}
+
+func (m *mockProviderConfig) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig(m.accountID, m.region, 0, 0, false, 0)
 }
