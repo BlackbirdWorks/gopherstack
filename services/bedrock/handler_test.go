@@ -1113,3 +1113,713 @@ func TestHandler_ListProvisionedModelThroughputsPagination(t *testing.T) {
 	assert.Len(t, summaries2, 5)
 	assert.Empty(t, out2["nextToken"])
 }
+
+// --- New operation tests ---
+
+func TestHandler_CreateEvaluationJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+		wantJobArn bool
+	}{
+		{
+			name:       "valid job",
+			input:      map[string]any{"jobName": "my-eval-job"},
+			wantStatus: http.StatusCreated,
+			wantJobArn: true,
+		},
+		{
+			name:       "missing job name",
+			input:      map[string]any{"jobName": ""},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantJobArn {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["jobArn"])
+			}
+		})
+	}
+}
+
+func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*bedrock.Handler) []string
+		name       string
+		wantStatus int
+		wantErrs   int
+		wantJobs   int
+	}{
+		{
+			name: "delete existing jobs",
+			setup: func(h *bedrock.Handler) []string {
+				job, err := h.Backend.CreateEvaluationJob("job-1")
+				if err != nil {
+					panic(err)
+				}
+
+				return []string{job.JobArn}
+			},
+			wantStatus: http.StatusOK,
+			wantErrs:   0,
+			wantJobs:   1,
+		},
+		{
+			name: "delete non-existent job",
+			setup: func(_ *bedrock.Handler) []string {
+				return []string{"arn:aws:bedrock:us-east-1:000000000000:evaluation-job/nonexistent"}
+			},
+			wantStatus: http.StatusOK,
+			wantErrs:   1,
+			wantJobs:   0,
+		},
+		{
+			name: "mixed existing and non-existent",
+			setup: func(h *bedrock.Handler) []string {
+				job, err := h.Backend.CreateEvaluationJob("job-mixed")
+				if err != nil {
+					panic(err)
+				}
+
+				return []string{
+					job.JobArn,
+					"arn:aws:bedrock:us-east-1:000000000000:evaluation-job/nonexistent",
+				}
+			},
+			wantStatus: http.StatusOK,
+			wantErrs:   1,
+			wantJobs:   1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			jobARNs := tt.setup(h)
+
+			rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs/batch-delete", map[string]any{
+				"jobIdentifiers": jobARNs,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			assert.Len(t, out["errors"].([]any), tt.wantErrs)
+			assert.Len(t, out["evaluationJobs"].([]any), tt.wantJobs)
+		})
+	}
+}
+
+func TestHandler_CreateAutomatedReasoningPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *bedrock.Handler)
+		input      map[string]any
+		name       string
+		wantStatus int
+		wantFields bool
+	}{
+		{
+			name:       "valid policy",
+			input:      map[string]any{"name": "my-policy", "description": "test"},
+			wantStatus: http.StatusCreated,
+			wantFields: true,
+		},
+		{
+			name:       "missing name",
+			input:      map[string]any{"name": ""},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate name",
+			setup: func(t *testing.T, h *bedrock.Handler) {
+				t.Helper()
+				_, err := h.Backend.CreateAutomatedReasoningPolicy("dup-policy", "")
+				require.NoError(t, err)
+			},
+			input:      map[string]any{"name": "dup-policy"},
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantFields {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["policyArn"])
+				assert.Equal(t, "my-policy", out["name"])
+				assert.Equal(t, "ACTIVE", out["status"])
+			}
+		})
+	}
+}
+
+func TestHandler_CancelAutomatedReasoningPolicyBuildWorkflow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		policyARN   string
+		workflowID  string
+		setupPolicy bool
+		setupWF     bool
+		wantStatus  int
+	}{
+		{
+			name:        "cancel existing workflow",
+			setupPolicy: true,
+			setupWF:     true,
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "policy not found",
+			policyARN:   "arn:aws:bedrock:us-east-1:000000000000:automated-reasoning-policy/nonexistent",
+			workflowID:  "wf-001",
+			setupPolicy: false,
+			setupWF:     false,
+			wantStatus:  http.StatusNotFound,
+		},
+		{
+			name:        "workflow not found",
+			setupPolicy: true,
+			setupWF:     false,
+			workflowID:  "nonexistent-wf",
+			wantStatus:  http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			policyARN := tt.policyARN
+			workflowID := tt.workflowID
+
+			if tt.setupPolicy {
+				policy, err := h.Backend.CreateAutomatedReasoningPolicy("test-cancel-policy", "")
+				require.NoError(t, err)
+				policyARN = policy.PolicyArn
+			}
+
+			if tt.setupWF {
+				wf := h.Backend.AddBuildWorkflowForTest(policyARN)
+				workflowID = wf.BuildWorkflowID
+			}
+
+			path := fmt.Sprintf("/automated-reasoning-policies/%s/build-workflows/%s/cancel",
+				url.PathEscape(policyARN), workflowID)
+			rec := doRequest(t, h, http.MethodPost, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateAutomatedReasoningPolicyTestCase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		policyARN   string
+		setupPolicy bool
+		wantStatus  int
+	}{
+		{
+			name:        "valid test case",
+			setupPolicy: true,
+			wantStatus:  http.StatusCreated,
+		},
+		{
+			name:        "policy not found",
+			policyARN:   "arn:aws:bedrock:us-east-1:000000000000:automated-reasoning-policy/nonexistent",
+			setupPolicy: false,
+			wantStatus:  http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			policyARN := tt.policyARN
+			if tt.setupPolicy {
+				policy, err := h.Backend.CreateAutomatedReasoningPolicy("tc-policy", "")
+				require.NoError(t, err)
+				policyARN = policy.PolicyArn
+			}
+
+			path := fmt.Sprintf("/automated-reasoning-policies/%s/test-cases", url.PathEscape(policyARN))
+			rec := doRequest(t, h, http.MethodPost, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusCreated {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["testCaseId"])
+				assert.Equal(t, policyARN, out["policyArn"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateAutomatedReasoningPolicyVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		policyARN   string
+		setupPolicy bool
+		wantStatus  int
+	}{
+		{
+			name:        "valid version",
+			setupPolicy: true,
+			wantStatus:  http.StatusCreated,
+		},
+		{
+			name:        "policy not found",
+			policyARN:   "arn:aws:bedrock:us-east-1:000000000000:automated-reasoning-policy/nonexistent",
+			setupPolicy: false,
+			wantStatus:  http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			policyARN := tt.policyARN
+			if tt.setupPolicy {
+				policy, err := h.Backend.CreateAutomatedReasoningPolicy("ver-policy", "")
+				require.NoError(t, err)
+				policyARN = policy.PolicyArn
+			}
+
+			path := fmt.Sprintf("/automated-reasoning-policies/%s/versions", url.PathEscape(policyARN))
+			rec := doRequest(t, h, http.MethodPost, path, map[string]any{
+				"lastUpdatedDefinitionHash": "abc123hash",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusCreated {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["policyArn"])
+				assert.NotEmpty(t, out["version"])
+				assert.Equal(t, "abc123hash", out["definitionHash"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateCustomModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *bedrock.Handler)
+		input      map[string]any
+		name       string
+		wantStatus int
+		wantARN    bool
+	}{
+		{
+			name:       "valid custom model",
+			input:      map[string]any{"modelName": "my-custom-model"},
+			wantStatus: http.StatusCreated,
+			wantARN:    true,
+		},
+		{
+			name:       "missing model name",
+			input:      map[string]any{"modelName": ""},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate name",
+			setup: func(t *testing.T, h *bedrock.Handler) {
+				t.Helper()
+				_, err := h.Backend.CreateCustomModel("dup-model")
+				require.NoError(t, err)
+			},
+			input:      map[string]any{"modelName": "dup-model"},
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/custom-models/create-custom-model", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantARN {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["modelArn"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateCustomModelDeployment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *bedrock.Handler)
+		input      map[string]any
+		name       string
+		wantStatus int
+		wantARN    bool
+	}{
+		{
+			name: "valid deployment",
+			input: map[string]any{
+				"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/cm-0000001",
+				"modelDeploymentName": "my-deployment",
+			},
+			wantStatus: http.StatusCreated,
+			wantARN:    true,
+		},
+		{
+			name: "missing deployment name",
+			input: map[string]any{
+				"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/cm-0000001",
+				"modelDeploymentName": "",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate deployment name",
+			setup: func(t *testing.T, h *bedrock.Handler) {
+				t.Helper()
+				_, err := h.Backend.CreateCustomModelDeployment("some-arn", "dup-deploy")
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/cm-0000001",
+				"modelDeploymentName": "dup-deploy",
+			},
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/model-customization/custom-model-deployments", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantARN {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["customModelDeploymentArn"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateFoundationModelAgreement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+		wantModel  bool
+	}{
+		{
+			name: "valid agreement",
+			input: map[string]any{
+				"modelId":    "anthropic.claude-v2",
+				"offerToken": "token-abc123",
+			},
+			wantStatus: http.StatusOK,
+			wantModel:  true,
+		},
+		{
+			name: "missing model id",
+			input: map[string]any{
+				"modelId":    "",
+				"offerToken": "token",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/create-foundation-model-agreement", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantModel {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.Equal(t, "anthropic.claude-v2", out["modelId"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateGuardrailVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*bedrock.Handler) string
+		input      map[string]any
+		name       string
+		id         string
+		wantStatus int
+		wantFields bool
+	}{
+		{
+			name: "create version for existing guardrail",
+			setup: func(h *bedrock.Handler) string {
+				g, err := h.Backend.CreateGuardrail("ver-guardrail", "desc", "", "", nil)
+				if err != nil {
+					panic(err)
+				}
+
+				return g.GuardrailID
+			},
+			input:      map[string]any{"description": "v1 snapshot"},
+			wantStatus: http.StatusOK,
+			wantFields: true,
+		},
+		{
+			name:       "guardrail not found",
+			id:         "nonexistent",
+			input:      map[string]any{},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			id := tt.id
+			if tt.setup != nil {
+				id = tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/guardrails/"+id, tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantFields {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["guardrailId"])
+				assert.NotEmpty(t, out["version"])
+			}
+		})
+	}
+}
+
+func TestHandler_NewOperationsRouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"evaluation jobs", "/evaluation-jobs", true},
+		{"evaluation jobs batch-delete", "/evaluation-jobs/batch-delete", true},
+		{"automated reasoning policies", "/automated-reasoning-policies", true},
+		{"arp sub-path", "/automated-reasoning-policies/arn:aws:bedrock::/test-cases", true},
+		{"custom models create", "/custom-models/create-custom-model", true},
+		{"custom model deployments", "/model-customization/custom-model-deployments", true},
+		{"foundation model agreement", "/create-foundation-model-agreement", true},
+		{"unmatched", "/other-path", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}
+
+func TestHandler_NewOperationsExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{"CreateEvaluationJob", http.MethodPost, "/evaluation-jobs", "CreateEvaluationJob"},
+		{"BatchDeleteEvaluationJob", http.MethodPost, "/evaluation-jobs/batch-delete", "BatchDeleteEvaluationJob"},
+		{
+			"CreateAutomatedReasoningPolicy",
+			http.MethodPost,
+			"/automated-reasoning-policies",
+			"CreateAutomatedReasoningPolicy",
+		},
+		{
+			"CreateAutomatedReasoningPolicyTestCase",
+			http.MethodPost,
+			"/automated-reasoning-policies/arn/test-cases",
+			"CreateAutomatedReasoningPolicyTestCase",
+		},
+		{
+			"CreateAutomatedReasoningPolicyVersion",
+			http.MethodPost,
+			"/automated-reasoning-policies/arn/versions",
+			"CreateAutomatedReasoningPolicyVersion",
+		},
+		{
+			"CancelAutomatedReasoningPolicyBuildWorkflow",
+			http.MethodPost,
+			"/automated-reasoning-policies/arn/build-workflows/wf-001/cancel",
+			"CancelAutomatedReasoningPolicyBuildWorkflow",
+		},
+		{"CreateCustomModel", http.MethodPost, "/custom-models/create-custom-model", "CreateCustomModel"},
+		{
+			"CreateCustomModelDeployment",
+			http.MethodPost,
+			"/model-customization/custom-model-deployments",
+			"CreateCustomModelDeployment",
+		},
+		{
+			"CreateFoundationModelAgreement",
+			http.MethodPost,
+			"/create-foundation-model-agreement",
+			"CreateFoundationModelAgreement",
+		},
+		{"CreateGuardrailVersion", http.MethodPost, "/guardrails/my-guardrail-id", "CreateGuardrailVersion"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_NewOperationsBadJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	paths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/evaluation-jobs"},
+		{http.MethodPost, "/evaluation-jobs/batch-delete"},
+		{http.MethodPost, "/automated-reasoning-policies"},
+		{http.MethodPost, "/custom-models/create-custom-model"},
+		{http.MethodPost, "/model-customization/custom-model-deployments"},
+		{http.MethodPost, "/create-foundation-model-agreement"},
+		{http.MethodPost, "/guardrails/some-id"},
+	}
+
+	for _, p := range paths {
+		t.Run(p.method+" "+p.path, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(p.method, p.path, bytes.NewReader([]byte("bad json")))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetSupportedOperationsIncludes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, op := range []string{
+		"BatchDeleteEvaluationJob",
+		"CancelAutomatedReasoningPolicyBuildWorkflow",
+		"CreateAutomatedReasoningPolicy",
+		"CreateAutomatedReasoningPolicyTestCase",
+		"CreateAutomatedReasoningPolicyVersion",
+		"CreateCustomModel",
+		"CreateCustomModelDeployment",
+		"CreateEvaluationJob",
+		"CreateFoundationModelAgreement",
+		"CreateGuardrailVersion",
+	} {
+		assert.Contains(t, ops, op)
+	}
+}

@@ -18,6 +18,8 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when request validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // Tag represents a key-value tag on a Bedrock resource.
@@ -79,19 +81,101 @@ type FoundationModelSummary struct {
 	OutputModalities []string `json:"outputModalities,omitempty"`
 }
 
+// EvaluationJob represents a model evaluation job.
+type EvaluationJob struct {
+	CreationTime time.Time `json:"creationTime"`
+	JobArn       string    `json:"jobArn"`
+	JobName      string    `json:"jobName"`
+	Status       string    `json:"status"`
+}
+
+// AutomatedReasoningPolicy represents an Automated Reasoning policy.
+type AutomatedReasoningPolicy struct {
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	PolicyArn   string    `json:"policyArn"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Status      string    `json:"status"`
+}
+
+// AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
+type AutomatedReasoningPolicyBuildWorkflow struct {
+	BuildWorkflowID string `json:"buildWorkflowId"`
+	PolicyArn       string `json:"policyArn"`
+	Status          string `json:"status"`
+}
+
+// AutomatedReasoningPolicyTestCase represents a test case for a policy.
+type AutomatedReasoningPolicyTestCase struct {
+	TestCaseID string `json:"testCaseId"`
+	PolicyArn  string `json:"policyArn"`
+}
+
+// AutomatedReasoningPolicyVersion represents a version of a policy.
+type AutomatedReasoningPolicyVersion struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	PolicyArn      string    `json:"policyArn"`
+	Name           string    `json:"name"`
+	DefinitionHash string    `json:"definitionHash"`
+	Version        string    `json:"version"`
+}
+
+// CustomModel represents a custom model.
+type CustomModel struct {
+	ModelArn  string `json:"modelArn"`
+	ModelName string `json:"modelName"`
+}
+
+// CustomModelDeployment represents a custom model deployment.
+type CustomModelDeployment struct {
+	CustomModelDeploymentArn string `json:"customModelDeploymentArn"`
+	ModelDeploymentName      string `json:"modelDeploymentName"`
+	ModelArn                 string `json:"modelArn"`
+}
+
+// FoundationModelAgreement represents an agreement for foundation model access.
+type FoundationModelAgreement struct {
+	ModelID string `json:"modelId"`
+}
+
+// GuardrailVersion represents a specific version of a guardrail.
+type GuardrailVersion struct {
+	GuardrailID string `json:"guardrailId"`
+	Version     string `json:"version"`
+}
+
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
 	guardrails                  map[string]*Guardrail
 	provisionedModelThroughputs map[string]*ProvisionedModelThroughput
-	guardrailsByName            map[string]string // guardrail name → ID
-	guardrailsByARN             map[string]string // guardrail ARN → ID
-	pmtsByName                  map[string]string // PMT name → ARN (PMT map is keyed by ARN)
+	evaluationJobs              map[string]*EvaluationJob
+	automatedReasoningPolicies  map[string]*AutomatedReasoningPolicy
+	arpBuildWorkflows           map[string]*AutomatedReasoningPolicyBuildWorkflow // workflowID → workflow
+	arpTestCases                map[string]*AutomatedReasoningPolicyTestCase      // testCaseID → test case
+	arpVersions                 map[string]*AutomatedReasoningPolicyVersion       // policyArn+version → version
+	customModels                map[string]*CustomModel                           // modelArn → model
+	customModelDeployments      map[string]*CustomModelDeployment                 // deploymentArn → deployment
+	foundationModelAgreements   map[string]*FoundationModelAgreement              // modelID → agreement
+	guardrailsByName            map[string]string                                 // guardrail name → ID
+	guardrailsByARN             map[string]string                                 // guardrail ARN → ID
+	pmtsByName                  map[string]string                                 // PMT name → ARN
+	arpByName                   map[string]string                                 // policy name → ARN
+	customModelsByName          map[string]string                                 // model name → ARN
+	customModelDeployByName     map[string]string                                 // deployment name → ARN
 	mu                          *lockmetrics.RWMutex
 	accountID                   string
 	region                      string
 	foundationModels            []*FoundationModelSummary
 	guardrailCounter            int
 	provisionedCounter          int
+	evaluationJobCounter        int
+	arpCounter                  int
+	arpWorkflowCounter          int
+	arpTestCaseCounter          int
+	arpVersionCounter           int
+	customModelCounter          int
+	customModelDeployCounter    int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
@@ -99,9 +183,20 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		guardrails:                  make(map[string]*Guardrail),
 		provisionedModelThroughputs: make(map[string]*ProvisionedModelThroughput),
+		evaluationJobs:              make(map[string]*EvaluationJob),
+		automatedReasoningPolicies:  make(map[string]*AutomatedReasoningPolicy),
+		arpBuildWorkflows:           make(map[string]*AutomatedReasoningPolicyBuildWorkflow),
+		arpTestCases:                make(map[string]*AutomatedReasoningPolicyTestCase),
+		arpVersions:                 make(map[string]*AutomatedReasoningPolicyVersion),
+		customModels:                make(map[string]*CustomModel),
+		customModelDeployments:      make(map[string]*CustomModelDeployment),
+		foundationModelAgreements:   make(map[string]*FoundationModelAgreement),
 		guardrailsByName:            make(map[string]string),
 		guardrailsByARN:             make(map[string]string),
 		pmtsByName:                  make(map[string]string),
+		arpByName:                   make(map[string]string),
+		customModelsByName:          make(map[string]string),
+		customModelDeployByName:     make(map[string]string),
 		accountID:                   accountID,
 		region:                      region,
 		mu:                          lockmetrics.New("bedrock"),
@@ -174,6 +269,48 @@ func (b *InMemoryBackend) newProvisionedID() string {
 	b.provisionedCounter++
 
 	return fmt.Sprintf("pmt-%07d", b.provisionedCounter)
+}
+
+// newEvaluationJobID generates a unique evaluation job ID.
+func (b *InMemoryBackend) newEvaluationJobID() string {
+	b.evaluationJobCounter++
+
+	return fmt.Sprintf("eval-job-%07d", b.evaluationJobCounter)
+}
+
+// newARPID generates a unique automated reasoning policy ID.
+func (b *InMemoryBackend) newARPID() string {
+	b.arpCounter++
+
+	return fmt.Sprintf("arp-%07d", b.arpCounter)
+}
+
+// newARPTestCaseID generates a unique test case ID.
+func (b *InMemoryBackend) newARPTestCaseID() string {
+	b.arpTestCaseCounter++
+
+	return fmt.Sprintf("tc-%07d", b.arpTestCaseCounter)
+}
+
+// newARPVersionNum generates a unique version number string.
+func (b *InMemoryBackend) newARPVersionNum() string {
+	b.arpVersionCounter++
+
+	return strconv.Itoa(b.arpVersionCounter)
+}
+
+// newCustomModelID generates a unique custom model ID.
+func (b *InMemoryBackend) newCustomModelID() string {
+	b.customModelCounter++
+
+	return fmt.Sprintf("cm-%07d", b.customModelCounter)
+}
+
+// newCustomModelDeployID generates a unique custom model deployment ID.
+func (b *InMemoryBackend) newCustomModelDeployID() string {
+	b.customModelDeployCounter++
+
+	return fmt.Sprintf("cmd-%07d", b.customModelDeployCounter)
 }
 
 // CreateGuardrail creates a new guardrail.
@@ -589,6 +726,291 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 	}
 
 	return nil, false
+}
+
+// --- EvaluationJob methods ---
+
+// CreateEvaluationJob creates a new evaluation job.
+func (b *InMemoryBackend) CreateEvaluationJob(name string) (*EvaluationJob, error) {
+	b.mu.Lock("CreateEvaluationJob")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	}
+
+	id := b.newEvaluationJobID()
+	jobARN := arn.Build("bedrock", b.region, b.accountID, "evaluation-job/"+id)
+
+	job := &EvaluationJob{
+		JobArn:       jobARN,
+		JobName:      name,
+		Status:       "InProgress",
+		CreationTime: time.Now().UTC(),
+	}
+	b.evaluationJobs[jobARN] = job
+	cp := *job
+
+	return &cp, nil
+}
+
+// BatchDeleteEvaluationJobError describes a single job deletion failure.
+type BatchDeleteEvaluationJobError struct {
+	JobARN  string `json:"jobIdentifier"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// BatchDeleteEvaluationJobItem describes a successfully scheduled deletion.
+type BatchDeleteEvaluationJobItem struct {
+	JobARN string `json:"jobIdentifier"`
+	Status string `json:"jobStatus"`
+}
+
+// BatchDeleteEvaluationJob deletes multiple evaluation jobs.
+func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
+	[]BatchDeleteEvaluationJobError, []BatchDeleteEvaluationJobItem,
+) {
+	b.mu.Lock("BatchDeleteEvaluationJob")
+	defer b.mu.Unlock()
+
+	var errs []BatchDeleteEvaluationJobError
+
+	var deleted []BatchDeleteEvaluationJobItem
+
+	for _, jobARN := range jobARNs {
+		if _, ok := b.evaluationJobs[jobARN]; !ok {
+			errs = append(errs, BatchDeleteEvaluationJobError{
+				JobARN:  jobARN,
+				Code:    "ResourceNotFoundException",
+				Message: fmt.Sprintf("evaluation job %s not found", jobARN),
+			})
+
+			continue
+		}
+
+		delete(b.evaluationJobs, jobARN)
+		deleted = append(deleted, BatchDeleteEvaluationJobItem{
+			JobARN: jobARN,
+			Status: "Deleting",
+		})
+	}
+
+	if errs == nil {
+		errs = []BatchDeleteEvaluationJobError{}
+	}
+
+	if deleted == nil {
+		deleted = []BatchDeleteEvaluationJobItem{}
+	}
+
+	return errs, deleted
+}
+
+// --- AutomatedReasoningPolicy methods ---
+
+// CreateAutomatedReasoningPolicy creates a new Automated Reasoning policy.
+func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(name, description string) (*AutomatedReasoningPolicy, error) {
+	b.mu.Lock("CreateAutomatedReasoningPolicy")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if _, exists := b.arpByName[name]; exists {
+		return nil, fmt.Errorf("%w: automated reasoning policy %s already exists", ErrAlreadyExists, name)
+	}
+
+	id := b.newARPID()
+	policyARN := arn.Build("bedrock", b.region, b.accountID, "automated-reasoning-policy/"+id)
+	now := time.Now().UTC()
+
+	policy := &AutomatedReasoningPolicy{
+		PolicyArn:   policyARN,
+		Name:        name,
+		Description: description,
+		Status:      "ACTIVE",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	b.automatedReasoningPolicies[policyARN] = policy
+	b.arpByName[name] = policyARN
+	cp := *policy
+
+	return &cp, nil
+}
+
+// CancelAutomatedReasoningPolicyBuildWorkflow cancels a running build workflow.
+func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(policyARN, workflowID string) error {
+	b.mu.Lock("CancelAutomatedReasoningPolicyBuildWorkflow")
+	defer b.mu.Unlock()
+
+	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+		return fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+	}
+
+	if _, ok := b.arpBuildWorkflows[workflowID]; !ok {
+		return fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
+	}
+
+	b.arpBuildWorkflows[workflowID].Status = "Cancelled"
+
+	return nil
+}
+
+// CreateAutomatedReasoningPolicyTestCase creates a test case for an Automated Reasoning policy.
+func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
+	policyARN string,
+) (*AutomatedReasoningPolicyTestCase, error) {
+	b.mu.Lock("CreateAutomatedReasoningPolicyTestCase")
+	defer b.mu.Unlock()
+
+	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+	}
+
+	id := b.newARPTestCaseID()
+	tc := &AutomatedReasoningPolicyTestCase{
+		TestCaseID: id,
+		PolicyArn:  policyARN,
+	}
+	b.arpTestCases[id] = tc
+	cp := *tc
+
+	return &cp, nil
+}
+
+// CreateAutomatedReasoningPolicyVersion creates a new version of an Automated Reasoning policy.
+func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
+	policyARN, definitionHash string,
+) (*AutomatedReasoningPolicyVersion, error) {
+	b.mu.Lock("CreateAutomatedReasoningPolicyVersion")
+	defer b.mu.Unlock()
+
+	policy, ok := b.automatedReasoningPolicies[policyARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+	}
+
+	versionNum := b.newARPVersionNum()
+	versionedARN := policyARN + "/version/" + versionNum
+
+	version := &AutomatedReasoningPolicyVersion{
+		PolicyArn:      versionedARN,
+		Name:           policy.Name,
+		DefinitionHash: definitionHash,
+		Version:        versionNum,
+		CreatedAt:      time.Now().UTC(),
+	}
+	key := policyARN + ":" + versionNum
+	b.arpVersions[key] = version
+	cp := *version
+
+	return &cp, nil
+}
+
+// --- CustomModel methods ---
+
+// CreateCustomModel creates a new custom model.
+func (b *InMemoryBackend) CreateCustomModel(modelName string) (*CustomModel, error) {
+	b.mu.Lock("CreateCustomModel")
+	defer b.mu.Unlock()
+
+	if modelName == "" {
+		return nil, fmt.Errorf("%w: modelName is required", ErrValidation)
+	}
+
+	if _, exists := b.customModelsByName[modelName]; exists {
+		return nil, fmt.Errorf("%w: custom model %s already exists", ErrAlreadyExists, modelName)
+	}
+
+	id := b.newCustomModelID()
+	modelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/"+id)
+
+	model := &CustomModel{
+		ModelArn:  modelARN,
+		ModelName: modelName,
+	}
+	b.customModels[modelARN] = model
+	b.customModelsByName[modelName] = modelARN
+	cp := *model
+
+	return &cp, nil
+}
+
+// --- CustomModelDeployment methods ---
+
+// CreateCustomModelDeployment creates a new deployment for a custom model.
+func (b *InMemoryBackend) CreateCustomModelDeployment(modelARN, deploymentName string) (*CustomModelDeployment, error) {
+	b.mu.Lock("CreateCustomModelDeployment")
+	defer b.mu.Unlock()
+
+	if deploymentName == "" {
+		return nil, fmt.Errorf("%w: modelDeploymentName is required", ErrValidation)
+	}
+
+	if _, exists := b.customModelDeployByName[deploymentName]; exists {
+		return nil, fmt.Errorf("%w: custom model deployment %s already exists", ErrAlreadyExists, deploymentName)
+	}
+
+	id := b.newCustomModelDeployID()
+	deploymentARN := arn.Build("bedrock", b.region, b.accountID, "custom-model-deployment/"+id)
+
+	deployment := &CustomModelDeployment{
+		CustomModelDeploymentArn: deploymentARN,
+		ModelDeploymentName:      deploymentName,
+		ModelArn:                 modelARN,
+	}
+	b.customModelDeployments[deploymentARN] = deployment
+	b.customModelDeployByName[deploymentName] = deploymentARN
+	cp := *deployment
+
+	return &cp, nil
+}
+
+// --- FoundationModelAgreement methods ---
+
+// CreateFoundationModelAgreement creates a foundation model access agreement.
+func (b *InMemoryBackend) CreateFoundationModelAgreement(modelID string) (*FoundationModelAgreement, error) {
+	b.mu.Lock("CreateFoundationModelAgreement")
+	defer b.mu.Unlock()
+
+	if modelID == "" {
+		return nil, fmt.Errorf("%w: modelId is required", ErrValidation)
+	}
+
+	agreement := &FoundationModelAgreement{
+		ModelID: modelID,
+	}
+	b.foundationModelAgreements[modelID] = agreement
+	cp := *agreement
+
+	return &cp, nil
+}
+
+// --- GuardrailVersion methods ---
+
+// CreateGuardrailVersion creates a new numbered version snapshot of a guardrail.
+func (b *InMemoryBackend) CreateGuardrailVersion(idOrARN, _ string) (*GuardrailVersion, error) {
+	b.mu.Lock("CreateGuardrailVersion")
+	defer b.mu.Unlock()
+
+	g, ok := b.findGuardrailByIDOrARN(idOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
+	}
+
+	// Guardrail versions are monotonically incremented integers stored as strings.
+	b.guardrailCounter++
+	versionNum := strconv.Itoa(b.guardrailCounter)
+
+	gv := &GuardrailVersion{
+		GuardrailID: g.GuardrailID,
+		Version:     versionNum,
+	}
+
+	return gv, nil
 }
 
 // paginateBedrockSlice applies pagination to a slice using an integer-offset NextToken.
