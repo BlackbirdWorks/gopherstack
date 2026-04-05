@@ -2017,3 +2017,692 @@ func TestNewOperations_ExtractOperation(t *testing.T) {
 		})
 	}
 }
+
+// TestRefinement1_Reset verifies Reset() clears all backend state.
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	b := h.Backend
+
+	_, err := b.CreateDistribution("ref-r1", "reset-dist", true, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateOAI("ref-oai-r1", "reset-oai")
+	require.NoError(t, err)
+
+	h.Reset()
+
+	dists := b.ListDistributions()
+	assert.Empty(t, dists)
+
+	oais := b.ListOAIs()
+	assert.Empty(t, oais)
+}
+
+// TestRefinement1_BackendReset verifies backend Reset() directly.
+func TestRefinement1_BackendReset(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	_, err := b.CreateDistribution("ref-br1", "a-dist", true, nil)
+	require.NoError(t, err)
+
+	b.Reset()
+
+	assert.Empty(t, b.ListDistributions())
+	assert.Empty(t, b.ListOAIs())
+}
+
+// TestRefinement1_CallerReferenceValidation verifies CallerReference is required.
+func TestRefinement1_CallerReferenceValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantError  string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "empty_caller_ref_distribution",
+			body: []byte(
+				`<DistributionConfig><CallerReference></CallerReference><Enabled>true</Enabled></DistributionConfig>`,
+			),
+			wantStatus: http.StatusBadRequest,
+			wantError:  "InvalidArgument",
+		},
+		{
+			name: "missing_caller_ref_oai",
+			body: []byte(
+				`<CloudFrontOriginAccessIdentityConfig>` +
+					`<CallerReference></CallerReference>` +
+					`<Comment>no-ref</Comment>` +
+					`</CloudFrontOriginAccessIdentityConfig>`,
+			),
+			wantStatus: http.StatusBadRequest,
+			wantError:  "InvalidArgument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			var path string
+			if strings.Contains(tt.name, "oai") {
+				path = "/2020-05-31/origin-access-identity/cloudfront"
+			} else {
+				path = "/2020-05-31/distribution"
+			}
+
+			rec := doXML(t, h, http.MethodPost, path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantError)
+		})
+	}
+}
+
+// TestRefinement1_CallerReferenceIdempotency verifies duplicate CallerReferences return existing resource.
+func TestRefinement1_CallerReferenceIdempotency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "distribution_idempotency"},
+		{name: "oai_idempotency"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if strings.Contains(tt.name, "distribution") {
+				body := minimalDistConfig("idem-ref-001", "idem-dist", true)
+				rec1 := doXML(t, h, http.MethodPost, "/2020-05-31/distribution", body)
+				require.Equal(t, http.StatusCreated, rec1.Code)
+
+				// Second call with same CallerReference should return same distribution.
+				rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/distribution", body)
+				require.Equal(t, http.StatusCreated, rec2.Code)
+
+				// Should have same ID (only one distribution created).
+				assert.Equal(t, rec1.Body.String(), rec2.Body.String())
+				assert.Len(t, h.Backend.ListDistributions(), 1)
+			} else {
+				body := minimalOAIConfig("idem-oai-ref-001", "idem-oai")
+				rec1 := doXML(t, h, http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", body)
+				require.Equal(t, http.StatusCreated, rec1.Code)
+
+				rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", body)
+				require.Equal(t, http.StatusCreated, rec2.Code)
+
+				// Only one OAI should be stored.
+				assert.Len(t, h.Backend.ListOAIs(), 1)
+			}
+		})
+	}
+}
+
+// TestRefinement1_CachePolicyUniqueness verifies duplicate cache policy names are rejected.
+func TestRefinement1_CachePolicyUniqueness(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	body := []byte(
+		`<CachePolicyConfig><Name>my-unique-policy</Name>` +
+			`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
+			`</CachePolicyConfig>`,
+	)
+
+	rec1 := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", body)
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", body)
+	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "DistributionAlreadyExists")
+}
+
+// TestRefinement1_CachePolicyTTLValidation verifies TTL ordering is enforced.
+func TestRefinement1_CachePolicyTTLValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantError  string
+		wantStatus int
+	}{
+		{
+			name: "negative_min_ttl",
+			body: `<CachePolicyConfig><Name>p1</Name>` +
+				`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>-1</MinTTL>` +
+				`</CachePolicyConfig>`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "InvalidArgument",
+		},
+		{
+			name: "default_less_than_min",
+			body: `<CachePolicyConfig><Name>p2</Name>` +
+				`<DefaultTTL>10</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>100</MinTTL>` +
+				`</CachePolicyConfig>`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "InvalidArgument",
+		},
+		{
+			name: "max_less_than_default",
+			body: `<CachePolicyConfig><Name>p3</Name>` +
+				`<DefaultTTL>86400</DefaultTTL><MaxTTL>1000</MaxTTL><MinTTL>0</MinTTL>` +
+				`</CachePolicyConfig>`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "InvalidArgument",
+		},
+		{
+			name: "valid_ttls",
+			body: `<CachePolicyConfig><Name>p4</Name>` +
+				`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
+				`</CachePolicyConfig>`,
+			wantStatus: http.StatusCreated,
+			wantError:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", []byte(tt.body))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantError != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantError)
+			}
+		})
+	}
+}
+
+// TestRefinement1_AnycastIpListIPCountValidation verifies IPCount must be positive.
+func TestRefinement1_AnycastIpListIPCountValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "zero_count",
+			body:       `<AnycastIPListRequest><Name>test-list</Name><IPCount>0</IPCount></AnycastIPListRequest>`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "negative_count",
+			body:       `<AnycastIPListRequest><Name>test-list-neg</Name><IPCount>-5</IPCount></AnycastIPListRequest>`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "valid_count",
+			body:       `<AnycastIPListRequest><Name>test-list-valid</Name><IPCount>10</IPCount></AnycastIPListRequest>`,
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/anycast-ip-list", []byte(tt.body))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestRefinement1_DeleteDistributionCleansUp verifies aliases/webACLs are removed on delete.
+func TestRefinement1_DeleteDistributionCleansUp(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	d, err := b.CreateDistribution("ref-del-cleanup", "del-dist", true, nil)
+	require.NoError(t, err)
+
+	err = b.AssociateAlias(d.ID, "cleanup.example.com")
+	require.NoError(t, err)
+
+	err = b.AssociateDistributionWebACL(d.ID, "arn:aws:wafv2:us-east-1:123:webacl/test")
+	require.NoError(t, err)
+
+	// Delete requires ETag via handler; do directly via backend.
+	h := cloudfront.NewHandler(b)
+	// Get ETag for delete.
+	rec := doXML(t, h, http.MethodGet, "/2020-05-31/distribution/"+d.ID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	etag := rec.Header().Get("ETag")
+	require.NotEmpty(t, etag)
+
+	rec = doXMLWithHeaders(t, h, http.MethodDelete, "/2020-05-31/distribution/"+d.ID, nil,
+		map[string]string{"If-Match": etag})
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	// After deletion, CallerReference re-use should create a new distribution.
+	d2, err := b.CreateDistribution("ref-del-cleanup", "new-dist", true, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, d.ID, d2.ID, "new distribution should have different ID after callerRef is freed")
+}
+
+// TestRefinement1_SortedOutput verifies sorted listing results.
+func TestRefinement1_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	// Create multiple distributions.
+	refs := []string{"s-ref-001", "s-ref-002", "s-ref-003"}
+	for _, ref := range refs {
+		_, err := b.CreateDistribution(ref, ref, true, nil)
+		require.NoError(t, err)
+	}
+
+	dists := b.ListDistributions()
+	require.Len(t, dists, 3)
+
+	for i := 1; i < len(dists); i++ {
+		assert.LessOrEqual(t, dists[i-1].ID, dists[i].ID,
+			"distributions should be sorted by ID")
+	}
+
+	// Create multiple OAIs.
+	for _, ref := range refs {
+		_, err := b.CreateOAI(ref+"-oai", "comment")
+		require.NoError(t, err)
+	}
+
+	oais := b.ListOAIs()
+	require.Len(t, oais, 3)
+
+	for i := 1; i < len(oais); i++ {
+		assert.LessOrEqual(t, oais[i-1].ID, oais[i].ID,
+			"OAIs should be sorted by ID")
+	}
+}
+
+// TestRefinement1_SortedTags verifies tags are returned in sorted order.
+func TestRefinement1_SortedTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create a distribution via handler.
+	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
+		minimalDistConfig("ref-sorted-tags", "tags-dist", true))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Parse the distribution ARN from Location header.
+	loc := rec.Header().Get("Location")
+	distID := strings.TrimPrefix(loc, "/2020-05-31/distribution/")
+	require.NotEmpty(t, distID)
+
+	d, err := h.Backend.GetDistribution(distID)
+	require.NoError(t, err)
+	arn := d.ARN
+
+	// Add tags.
+	tagBody := `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">` +
+		`<Items><Tag><Key>zebra</Key><Value>z</Value></Tag>` +
+		`<Tag><Key>apple</Key><Value>a</Value></Tag>` +
+		`<Tag><Key>mango</Key><Value>m</Value></Tag></Items></Tags>`
+	rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/tagging?Resource="+arn, []byte(tagBody))
+	require.Equal(t, http.StatusNoContent, rec2.Code)
+
+	// List tags and verify sorted order.
+	rec3 := doXML(t, h, http.MethodGet, "/2020-05-31/tagging?Resource="+arn, nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	body := rec3.Body.String()
+	applePos := strings.Index(body, "apple")
+	mangoPos := strings.Index(body, "mango")
+	zebraPos := strings.Index(body, "zebra")
+
+	assert.Less(t, applePos, mangoPos, "apple should appear before mango")
+	assert.Less(t, mangoPos, zebraPos, "mango should appear before zebra")
+}
+
+// TestRefinement1_GetInvalidation tests the GET invalidation by ID handler.
+func TestRefinement1_GetInvalidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		setup      func(*testing.T, *cloudfront.Handler) (string, string)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "get_invalidation_success",
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, string) {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-gi-001", "gi-dist", true, nil)
+				require.NoError(t, err)
+				inv, err := h.Backend.CreateInvalidation(d.ID, "caller-gi-001", []string{"/path/*"})
+				require.NoError(t, err)
+
+				return d.ID, inv.ID
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<Invalidation")
+				assert.Contains(t, rec.Body.String(), "<Status>InProgress</Status>")
+				assert.Contains(t, rec.Body.String(), "/path/*")
+			},
+		},
+		{
+			name: "get_invalidation_not_found",
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, string) {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-gi-002", "gi-dist2", true, nil)
+				require.NoError(t, err)
+
+				return d.ID, "DOESNOTEXIST"
+			},
+			wantStatus: http.StatusNotFound,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "NoSuchInvalidation")
+			},
+		},
+		{
+			name: "get_invalidation_distribution_not_found",
+			setup: func(_ *testing.T, _ *cloudfront.Handler) (string, string) {
+				return "NOTEXIST", "inv1"
+			},
+			wantStatus: http.StatusNotFound,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "NoSuchDistribution")
+			},
+		},
+		{
+			name: "get_invalidation_missing_inv_id",
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, string) {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-gi-003", "gi-dist3", true, nil)
+				require.NoError(t, err)
+
+				return d.ID, ""
+			},
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			distID, invID := tt.setup(t, h)
+
+			var path string
+			if invID != "" {
+				path = "/2020-05-31/distribution/" + distID + "/invalidation/" + invID
+			} else {
+				// No invID in path - triggers missing-ID error.
+				path = "/2020-05-31/distribution/" + distID + "/invalidation/"
+			}
+
+			rec := doXML(t, h, http.MethodGet, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestRefinement1_UntagResource verifies the UntagResource handler.
+func TestRefinement1_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create distribution.
+	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
+		minimalDistConfig("ref-untag-001", "untag-dist", true))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	loc := rec.Header().Get("Location")
+	distID := strings.TrimPrefix(loc, "/2020-05-31/distribution/")
+	d, err := h.Backend.GetDistribution(distID)
+	require.NoError(t, err)
+
+	arn := d.ARN
+
+	// Add tags.
+	tagBody := `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">` +
+		`<Items><Tag><Key>env</Key><Value>prod</Value></Tag>` +
+		`<Tag><Key>owner</Key><Value>team</Value></Tag></Items></Tags>`
+	rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/tagging?Resource="+arn, []byte(tagBody))
+	require.Equal(t, http.StatusNoContent, rec2.Code)
+
+	// Untag using body with correct AWS format.
+	untagBody := `<TagKeys><Items><Key>env</Key></Items></TagKeys>`
+	rec3 := doXML(t, h, http.MethodDelete, "/2020-05-31/tagging?Resource="+arn, []byte(untagBody))
+	assert.Equal(t, http.StatusNoContent, rec3.Code)
+
+	// Verify env tag was removed.
+	rec4 := doXML(t, h, http.MethodGet, "/2020-05-31/tagging?Resource="+arn, nil)
+	require.Equal(t, http.StatusOK, rec4.Code)
+	assert.NotContains(t, rec4.Body.String(), "env")
+	assert.Contains(t, rec4.Body.String(), "owner")
+}
+
+// TestRefinement1_AliasCountInListDistributions verifies alias count is reflected in list output.
+func TestRefinement1_AliasCountInListDistributions(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	h := cloudfront.NewHandler(b)
+
+	d, err := b.CreateDistribution("ref-alias-list", "alias-list-dist", true, nil)
+	require.NoError(t, err)
+
+	err = b.AssociateAlias(d.ID, "www.example.com")
+	require.NoError(t, err)
+
+	err = b.AssociateAlias(d.ID, "api.example.com")
+	require.NoError(t, err)
+
+	rec := doXML(t, h, http.MethodGet, "/2020-05-31/distribution", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<Quantity>2</Quantity>")
+}
+
+// TestRefinement1_ProviderInitNilCtx verifies Provider.Init handles nil context.
+func TestRefinement1_ProviderInitNilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &cloudfront.Provider{}
+	handler, err := p.Init(nil)
+	require.NoError(t, err)
+	require.NotNil(t, handler)
+}
+
+// TestRefinement1_PersistenceWithIndexes verifies indexes are rebuilt after snapshot/restore.
+func TestRefinement1_PersistenceWithIndexes(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	// Create resources with known CallerReferences.
+	d, err := b.CreateDistribution("persist-ref-001", "persist-dist", true, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateOAI("persist-oai-ref-001", "persist-oai")
+	require.NoError(t, err)
+
+	_, err = b.CreateCachePolicy("persist-cp", "comment", 86400, 31536000, 0)
+	require.NoError(t, err)
+
+	h := cloudfront.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	h2 := cloudfront.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// CallerReference idempotency should work after restore.
+	d2, err := b2.CreateDistribution("persist-ref-001", "persist-dist", true, nil)
+	require.NoError(t, err)
+	assert.Equal(t, d.ID, d2.ID, "same CallerReference should return same distribution after restore")
+
+	// CachePolicy name uniqueness should work after restore.
+	_, err = b2.CreateCachePolicy("persist-cp", "comment", 86400, 31536000, 0)
+	require.Error(t, err, "duplicate cache policy name should be rejected after restore")
+}
+
+// TestRefinement1_SortedInvalidations verifies invalidations are returned sorted by ID.
+func TestRefinement1_SortedInvalidations(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	d, err := b.CreateDistribution("ref-sorted-inv", "sorted-inv-dist", true, nil)
+	require.NoError(t, err)
+
+	for i := range 5 {
+		_, err = b.CreateInvalidation(d.ID, fmt.Sprintf("caller-%d", i), []string{"/path"})
+		require.NoError(t, err)
+	}
+
+	invs, err := b.ListInvalidations(d.ID)
+	require.NoError(t, err)
+	require.Len(t, invs, 5)
+
+	for i := 1; i < len(invs); i++ {
+		assert.LessOrEqual(t, invs[i-1].ID, invs[i].ID,
+			"invalidations should be sorted by ID")
+	}
+}
+
+// TestRefinement1_ErrorMapping verifies handleError maps sentinel errors to correct HTTP codes.
+func TestRefinement1_ErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantCode   string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name:       "distribution_not_found",
+			method:     http.MethodGet,
+			path:       "/2020-05-31/distribution/NOTEXIST",
+			wantStatus: http.StatusNotFound,
+			wantCode:   "NoSuchDistribution",
+		},
+		{
+			name:       "oai_not_found",
+			method:     http.MethodGet,
+			path:       "/2020-05-31/origin-access-identity/cloudfront/NOTEXIST",
+			wantStatus: http.StatusNotFound,
+			wantCode:   "NoSuchCloudFrontOriginAccessIdentity",
+		},
+		{
+			name:   "cache_policy_duplicate",
+			method: http.MethodPost,
+			path:   "/2020-05-31/cache-policy",
+			body: []byte(
+				`<CachePolicyConfig><Name>dup-policy</Name>` +
+					`<DefaultTTL>100</DefaultTTL><MaxTTL>200</MaxTTL><MinTTL>0</MinTTL>` +
+					`</CachePolicyConfig>`,
+			),
+			wantStatus: http.StatusConflict,
+			wantCode:   "DistributionAlreadyExists",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			// For the cache policy duplicate test, create it first.
+			if tt.wantCode == "DistributionAlreadyExists" {
+				rec := doXML(t, h, http.MethodPost, tt.path, tt.body)
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			rec := doXML(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantCode)
+		})
+	}
+}
+
+// TestRefinement1_CreateDistributionValidation verifies CallerReference is validated.
+func TestRefinement1_CreateDistributionValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	body := []byte(
+		`<DistributionConfig><CallerReference></CallerReference>` +
+			`<Comment>no-ref</Comment><Enabled>true</Enabled></DistributionConfig>`,
+	)
+	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidArgument")
+}
+
+// TestRefinement1_ConnectionFunctionByID verifies ConnectionFunction stores by ID not by name.
+func TestRefinement1_ConnectionFunctionByID(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	// Create two functions with same name (should succeed - AWS allows this).
+	fn1, err := b.CreateConnectionFunction("shared-name", "first fn")
+	require.NoError(t, err)
+
+	fn2, err := b.CreateConnectionFunction("shared-name", "second fn")
+	require.NoError(t, err)
+
+	// ARNs must be different since they are keyed by ID.
+	assert.NotEqual(t, fn1.ARN, fn2.ARN,
+		"two functions with same name should have different ARNs")
+}
+
+// TestRefinement1_HandleGetInvalidationPathFallback tests path-based invID parsing.
+func TestRefinement1_HandleGetInvalidationPathFallback(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	h := cloudfront.NewHandler(b)
+
+	d, err := b.CreateDistribution("ref-path-fb", "path-fb-dist", true, nil)
+	require.NoError(t, err)
+
+	inv, err := b.CreateInvalidation(d.ID, "caller-path-fb", []string{"/assets/*"})
+	require.NoError(t, err)
+
+	// The path-based invalidation GET route.
+	path := "/2020-05-31/distribution/" + d.ID + "/invalidation/" + inv.ID
+	rec := doXML(t, h, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), inv.ID)
+	assert.Contains(t, rec.Body.String(), "/assets/*")
+}

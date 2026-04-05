@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +31,9 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "CloudFront" }
@@ -140,6 +144,13 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 			return "CreateInvalidation", id
 		case http.MethodGet:
 			return "ListInvalidations", id
+		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.Contains(suffix, "/invalidation/"):
+		// distribution/{distID}/invalidation/{invID}
+		inner := strings.TrimPrefix(suffix, "distribution/")
+		before, _, ok := strings.Cut(inner, "/invalidation/")
+		if ok && method == http.MethodGet {
+			return "GetInvalidation", before
 		}
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-alias"):
 		id := strings.TrimPrefix(suffix, "distribution/")
@@ -259,7 +270,7 @@ type tagsXML struct {
 }
 
 type untagBody struct {
-	Keys []string `xml:"TagKeys>Key"`
+	Keys []string `xml:"Items>Key"`
 }
 
 type distributionSummaryXML struct {
@@ -398,6 +409,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchConnectionGroup", err.Error()))
 	case errors.Is(err, ErrContinuousDeploymentPolicyNotFound):
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchContinuousDeploymentPolicy", err.Error()))
+	case errors.Is(err, ErrInvalidationNotFound):
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchInvalidation", err.Error()))
+	case errors.Is(err, ErrAlreadyExists):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:
@@ -507,6 +522,7 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 
 	summaries := make([]distributionSummaryXML, 0, len(dists))
 	for _, d := range dists {
+		aliases := h.Backend.ListAliases(d.ID)
 		s := distributionSummaryXML{
 			ID:         d.ID,
 			ARN:        d.ARN,
@@ -515,6 +531,7 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 			Comment:    d.Comment,
 			Enabled:    d.Enabled,
 		}
+		s.Aliases.Quantity = len(aliases)
 		s.ViewerCertificate.CloudFrontDefaultCertificate = true
 		s.Restrictions.GeoRestriction.RestrictionType = "none"
 		s.PriceClass = "PriceClass_All"
@@ -1008,9 +1025,17 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	// Sort tags by key for deterministic output.
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
 	items := make([]tagXML, 0, len(kv))
-	for k, v := range kv {
-		items = append(items, tagXML{Key: k, Value: v})
+	for _, k := range keys {
+		items = append(items, tagXML{Key: k, Value: kv[k]})
 	}
 
 	tags := tagsXML{XMLNS: cfNS, Items: items}
@@ -1059,7 +1084,7 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 
 	inv, backendErr := h.Backend.CreateInvalidation(distID, batch.CallerReference, batch.Paths.Items)
 	if backendErr != nil {
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchDistribution", backendErr.Error()))
+		return h.handleError(c, backendErr)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -1078,7 +1103,7 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error {
 	invs, err := h.Backend.ListInvalidations(distID)
 	if err != nil {
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchDistribution", err.Error()))
+		return h.handleError(c, err)
 	}
 
 	quantity := len(invs)
@@ -1109,16 +1134,15 @@ func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error 
 
 // handleGetInvalidation returns a specific CloudFront invalidation by ID.
 func (h *Handler) handleGetInvalidation(c *echo.Context, distID string) error {
-	invID := c.Request().PathValue("invID")
-	if invID == "" {
-		// Fall back to URL path parsing for older echo routing.
-		parts := strings.Split(c.Request().URL.Path, "/")
-		for i, p := range parts {
-			if p == "invalidation" && i+1 < len(parts) {
-				invID = parts[i+1]
+	// Extract invalidation ID from the URL path after /invalidation/.
+	path := c.Request().URL.Path
+	invID := ""
 
-				break
-			}
+	if _, after, ok := strings.Cut(path, "/invalidation/"); ok {
+		invID = after
+		// Trim any trailing slashes or sub-paths.
+		if slash := strings.Index(invID, "/"); slash >= 0 {
+			invID = invID[:slash]
 		}
 	}
 
@@ -1129,8 +1153,7 @@ func (h *Handler) handleGetInvalidation(c *echo.Context, distID string) error {
 
 	inv, err := h.Backend.GetInvalidation(distID, invID)
 	if err != nil {
-		return xmlResp(c, http.StatusNotFound,
-			cfErrorXML("NoSuchInvalidation", err.Error()))
+		return h.handleError(c, err)
 	}
 
 	var pathsSB strings.Builder

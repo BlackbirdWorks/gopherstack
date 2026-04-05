@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 )
 
 var (
-	// ErrNotFound is returned when a requested resource does not exist.
+	// ErrNotFound is returned when a requested distribution does not exist.
 	ErrNotFound = awserr.New("NoSuchDistribution", awserr.ErrNotFound)
 	// ErrOAINotFound is returned when a requested OAI does not exist.
 	ErrOAINotFound = awserr.New("NoSuchCloudFrontOriginAccessIdentity", awserr.ErrNotFound)
@@ -29,8 +30,12 @@ var (
 	ErrConnectionGroupNotFound = awserr.New("NoSuchConnectionGroup", awserr.ErrNotFound)
 	// ErrContinuousDeploymentPolicyNotFound is returned when a continuous deployment policy does not exist.
 	ErrContinuousDeploymentPolicyNotFound = awserr.New("NoSuchContinuousDeploymentPolicy", awserr.ErrNotFound)
+	// ErrInvalidationNotFound is returned when a requested invalidation does not exist.
+	ErrInvalidationNotFound = awserr.New("NoSuchInvalidation", awserr.ErrNotFound)
 	// ErrValidation is returned when request parameters fail validation.
 	ErrValidation = awserr.New("InvalidArgument", awserr.ErrInvalidParameter)
+	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
+	ErrAlreadyExists = awserr.New("DistributionAlreadyExists", awserr.ErrAlreadyExists)
 )
 
 const (
@@ -127,13 +132,16 @@ type ContinuousDeploymentPolicy struct {
 type InMemoryBackend struct {
 	distributions                map[string]*Distribution
 	distributionARNs             map[string]string          // ARN → distribution ID (O(1) tag lookups)
+	distributionCallerRefs       map[string]string          // CallerReference → distribution ID (idempotency)
 	distributionAliases          map[string][]string        // distribution ID → aliases
 	distributionWebACLs          map[string]string          // distribution ID → web ACL ID
 	distributionTenantWebACLs    map[string]string          // tenant ID → web ACL ID
 	invalidations                map[string][]*Invalidation // distribution ID → []Invalidation
 	oais                         map[string]*OriginAccessIdentity
+	oaiCallerRefs                map[string]string // CallerReference → OAI ID (idempotency)
 	anycastIPLists               map[string]*AnycastIPList
 	cachePolicies                map[string]*CachePolicy
+	cachePolicyByName            map[string]string // name → policy ID (uniqueness)
 	connectionFunctions          map[string]*ConnectionFunction
 	connectionGroups             map[string]*ConnectionGroup
 	continuousDeploymentPolicies map[string]*ContinuousDeploymentPolicy
@@ -147,13 +155,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		distributions:                make(map[string]*Distribution),
 		distributionARNs:             make(map[string]string),
+		distributionCallerRefs:       make(map[string]string),
 		distributionAliases:          make(map[string][]string),
 		distributionWebACLs:          make(map[string]string),
 		distributionTenantWebACLs:    make(map[string]string),
 		invalidations:                make(map[string][]*Invalidation),
 		oais:                         make(map[string]*OriginAccessIdentity),
+		oaiCallerRefs:                make(map[string]string),
 		anycastIPLists:               make(map[string]*AnycastIPList),
 		cachePolicies:                make(map[string]*CachePolicy),
+		cachePolicyByName:            make(map[string]string),
 		connectionFunctions:          make(map[string]*ConnectionFunction),
 		connectionGroups:             make(map[string]*ConnectionGroup),
 		continuousDeploymentPolicies: make(map[string]*ContinuousDeploymentPolicy),
@@ -161,6 +172,28 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:                    accountID,
 		region:                       region,
 	}
+}
+
+// Reset clears all stored state, returning the backend to a pristine empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.distributions = make(map[string]*Distribution)
+	b.distributionARNs = make(map[string]string)
+	b.distributionCallerRefs = make(map[string]string)
+	b.distributionAliases = make(map[string][]string)
+	b.distributionWebACLs = make(map[string]string)
+	b.distributionTenantWebACLs = make(map[string]string)
+	b.invalidations = make(map[string][]*Invalidation)
+	b.oais = make(map[string]*OriginAccessIdentity)
+	b.oaiCallerRefs = make(map[string]string)
+	b.anycastIPLists = make(map[string]*AnycastIPList)
+	b.cachePolicies = make(map[string]*CachePolicy)
+	b.cachePolicyByName = make(map[string]string)
+	b.connectionFunctions = make(map[string]*ConnectionFunction)
+	b.connectionGroups = make(map[string]*ConnectionGroup)
+	b.continuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -177,7 +210,19 @@ func (b *InMemoryBackend) oaiARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:origin-access-identity/cloudfront/%s", b.accountID, id)
 }
 
+// anycastIPListARN builds an ARN for an Anycast IP list.
+func (b *InMemoryBackend) anycastIPListARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:anycast-ip-list/%s", b.accountID, id)
+}
+
+// connectionGroupARN builds an ARN for a connection group.
+func (b *InMemoryBackend) connectionGroupARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-group/%s", b.accountID, id)
+}
+
 // CreateDistribution creates a new CloudFront distribution.
+// If a distribution with the same CallerReference already exists, it is returned
+// without creating a duplicate (idempotent).
 func (b *InMemoryBackend) CreateDistribution(
 	callerRef, comment string,
 	enabled bool,
@@ -185,6 +230,15 @@ func (b *InMemoryBackend) CreateDistribution(
 ) (*Distribution, error) {
 	b.mu.Lock("CreateDistribution")
 	defer b.mu.Unlock()
+
+	if callerRef == "" {
+		return nil, fmt.Errorf("%w: CallerReference must not be empty", ErrValidation)
+	}
+
+	// Idempotency: return existing distribution for the same CallerReference.
+	if existingID, ok := b.distributionCallerRefs[callerRef]; ok {
+		return b.copyDistribution(b.distributions[existingID]), nil
+	}
 
 	id := generateID()
 	d := &Distribution{
@@ -201,6 +255,7 @@ func (b *InMemoryBackend) CreateDistribution(
 	}
 	b.distributions[id] = d
 	b.distributionARNs[d.ARN] = id
+	b.distributionCallerRefs[callerRef] = id
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -242,23 +297,27 @@ func (b *InMemoryBackend) UpdateDistribution(
 	return cp, nil
 }
 
-// DeleteDistribution deletes a distribution by ID.
+// DeleteDistribution deletes a distribution by ID and cleans up related state.
 func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	b.mu.Lock("DeleteDistribution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributions[id]; !ok {
+	d, ok := b.distributions[id]
+	if !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
 	}
-	distributionARN := b.distributionARN(id)
-	delete(b.distributionARNs, distributionARN)
+
+	delete(b.distributionARNs, b.distributionARN(id))
+	delete(b.distributionCallerRefs, d.CallerReference)
 	delete(b.distributions, id)
 	delete(b.invalidations, id)
+	delete(b.distributionAliases, id)
+	delete(b.distributionWebACLs, id)
 
 	return nil
 }
 
-// ListDistributions returns all distributions.
+// ListDistributions returns all distributions sorted by ID.
 func (b *InMemoryBackend) ListDistributions() []*Distribution {
 	b.mu.RLock("ListDistributions")
 	defer b.mu.RUnlock()
@@ -268,13 +327,28 @@ func (b *InMemoryBackend) ListDistributions() []*Distribution {
 		list = append(list, b.copyDistribution(d))
 	}
 
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
 	return list
 }
 
 // CreateOAI creates a new Origin Access Identity.
+// If an OAI with the same CallerReference already exists, it is returned without
+// creating a duplicate (idempotent).
 func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIdentity, error) {
-	b.mu.Lock("CreateOAI")
+	b.mu.Lock("CreateCloudFrontOriginAccessIdentity")
 	defer b.mu.Unlock()
+
+	if callerRef == "" {
+		return nil, fmt.Errorf("%w: CallerReference must not be empty", ErrValidation)
+	}
+
+	// Idempotency: return existing OAI for the same CallerReference.
+	if existingID, ok := b.oaiCallerRefs[callerRef]; ok {
+		cp := *b.oais[existingID]
+
+		return &cp, nil
+	}
 
 	id := generateID()
 	oai := &OriginAccessIdentity{
@@ -286,6 +360,7 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 		Comment:           comment,
 	}
 	b.oais[id] = oai
+	b.oaiCallerRefs[callerRef] = id
 	cp := *oai
 
 	return &cp, nil
@@ -293,7 +368,7 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 
 // GetOAI returns an OAI by ID.
 func (b *InMemoryBackend) GetOAI(id string) (*OriginAccessIdentity, error) {
-	b.mu.RLock("GetOAI")
+	b.mu.RLock("GetCloudFrontOriginAccessIdentity")
 	defer b.mu.RUnlock()
 
 	oai, ok := b.oais[id]
@@ -307,20 +382,23 @@ func (b *InMemoryBackend) GetOAI(id string) (*OriginAccessIdentity, error) {
 
 // DeleteOAI deletes an OAI by ID.
 func (b *InMemoryBackend) DeleteOAI(id string) error {
-	b.mu.Lock("DeleteOAI")
+	b.mu.Lock("DeleteCloudFrontOriginAccessIdentity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.oais[id]; !ok {
+	oai, ok := b.oais[id]
+	if !ok {
 		return fmt.Errorf("%w: OAI %s not found", ErrOAINotFound, id)
 	}
+
+	delete(b.oaiCallerRefs, oai.CallerReference)
 	delete(b.oais, id)
 
 	return nil
 }
 
-// ListOAIs returns all OAIs.
+// ListOAIs returns all OAIs sorted by ID.
 func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
-	b.mu.RLock("ListOAIs")
+	b.mu.RLock("ListCloudFrontOriginAccessIdentities")
 	defer b.mu.RUnlock()
 
 	list := make([]*OriginAccessIdentity, 0, len(b.oais))
@@ -328,6 +406,8 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 		cp := *oai
 		list = append(list, &cp)
 	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 
 	return list
 }
@@ -413,7 +493,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 	return &cp, nil
 }
 
-// ListInvalidations returns all invalidations for a distribution.
+// ListInvalidations returns all invalidations for a distribution, sorted by ID.
 func (b *InMemoryBackend) ListInvalidations(distributionID string) ([]*Invalidation, error) {
 	b.mu.RLock("ListInvalidations")
 	defer b.mu.RUnlock()
@@ -430,6 +510,8 @@ func (b *InMemoryBackend) ListInvalidations(distributionID string) ([]*Invalidat
 		cp.Paths = append([]string(nil), inv.Paths...)
 		out = append(out, &cp)
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out, nil
 }
@@ -452,17 +534,23 @@ func (b *InMemoryBackend) GetInvalidation(distributionID, invalidationID string)
 		}
 	}
 
-	return nil, fmt.Errorf("%w: invalidation %s not found", ErrNotFound, invalidationID)
+	return nil, fmt.Errorf("%w: invalidation %s not found", ErrInvalidationNotFound, invalidationID)
 }
 
-// anycastIPListARN builds an ARN for an Anycast IP list.
-func (b *InMemoryBackend) anycastIPListARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:anycast-ip-list/%s", b.accountID, id)
-}
+// ListAliases returns the aliases for a distribution by ID.
+func (b *InMemoryBackend) ListAliases(distributionID string) []string {
+	b.mu.RLock("ListAliases")
+	defer b.mu.RUnlock()
 
-// connectionGroupARN builds an ARN for a connection group.
-func (b *InMemoryBackend) connectionGroupARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-group/%s", b.accountID, id)
+	aliases := b.distributionAliases[distributionID]
+	if len(aliases) == 0 {
+		return nil
+	}
+
+	cp := make([]string, len(aliases))
+	copy(cp, aliases)
+
+	return cp
 }
 
 // AssociateAlias associates a CNAME alias with the specified distribution.
@@ -555,11 +643,15 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 
 // CreateAnycastIPList creates a new Anycast IP list.
 func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*AnycastIPList, error) {
-	b.mu.Lock("CreateAnycastIPList")
+	b.mu.Lock("CreateAnycastIpList")
 	defer b.mu.Unlock()
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if ipCount <= 0 {
+		return nil, fmt.Errorf("%w: IpCount must be greater than 0", ErrValidation)
 	}
 
 	id := generateID()
@@ -577,6 +669,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*Anyc
 }
 
 // CreateCachePolicy creates a new cache policy.
+// Names must be unique. TTLs must satisfy: 0 ≤ MinTTL ≤ DefaultTTL ≤ MaxTTL.
 func (b *InMemoryBackend) CreateCachePolicy(
 	name, comment string,
 	defaultTTL, maxTTL, minTTL int64,
@@ -586,6 +679,22 @@ func (b *InMemoryBackend) CreateCachePolicy(
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if minTTL < 0 {
+		return nil, fmt.Errorf("%w: MinTTL must be >= 0", ErrValidation)
+	}
+
+	if defaultTTL < minTTL {
+		return nil, fmt.Errorf("%w: DefaultTTL must be >= MinTTL", ErrValidation)
+	}
+
+	if maxTTL < defaultTTL {
+		return nil, fmt.Errorf("%w: MaxTTL must be >= DefaultTTL", ErrValidation)
+	}
+
+	if _, exists := b.cachePolicyByName[name]; exists {
+		return nil, fmt.Errorf("%w: cache policy with name %q already exists", ErrAlreadyExists, name)
 	}
 
 	id := generateID()
@@ -598,6 +707,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		MinTTL:     minTTL,
 	}
 	b.cachePolicies[id] = policy
+	b.cachePolicyByName[name] = id
 	cp := *policy
 
 	return &cp, nil
@@ -612,13 +722,14 @@ func (b *InMemoryBackend) CreateConnectionFunction(name, comment string) (*Conne
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
 
-	arn := fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, name)
+	id := generateID()
+	arn := fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, id)
 	fn := &ConnectionFunction{
 		ARN:     arn,
 		Name:    name,
 		Comment: comment,
 	}
-	b.connectionFunctions[name] = fn
+	b.connectionFunctions[id] = fn
 	cp := *fn
 
 	return &cp, nil

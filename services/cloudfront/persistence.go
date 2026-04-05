@@ -1,6 +1,9 @@
 package cloudfront
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	Distributions                map[string]*Distribution               `json:"distributions"`
@@ -39,12 +42,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                       b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		// Log the marshal failure so operators can detect data-loss scenarios.
+		slog.Default().Warn("cloudfront: Snapshot marshal failure", "error", err)
+
+		return nil
+	}
 
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot and rebuilds the ARN index.
+// Restore loads backend state from a JSON snapshot and rebuilds derived indexes.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -55,6 +64,57 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	ensureNonNil(&snap)
+
+	// Rebuild the ARN-to-ID index.
+	arnIndex := make(map[string]string, len(snap.Distributions))
+	// Rebuild the CallerReference-to-ID index.
+	callerRefIndex := make(map[string]string, len(snap.Distributions))
+	for id, d := range snap.Distributions {
+		arnIndex[d.ARN] = id
+		if d.CallerReference != "" {
+			callerRefIndex[d.CallerReference] = id
+		}
+	}
+
+	// Rebuild OAI CallerReference index.
+	oaiCallerRefIndex := make(map[string]string, len(snap.OAIs))
+	for id, oai := range snap.OAIs {
+		if oai.CallerReference != "" {
+			oaiCallerRefIndex[oai.CallerReference] = id
+		}
+	}
+
+	// Rebuild cache policy by-name index.
+	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
+	for id, cp := range snap.CachePolicies {
+		cachePolicyByName[cp.Name] = id
+	}
+
+	b.distributions = snap.Distributions
+	b.oais = snap.OAIs
+	b.invalidations = snap.Invalidations
+	b.anycastIPLists = snap.AnycastIPLists
+	b.cachePolicies = snap.CachePolicies
+	b.connectionFunctions = snap.ConnectionFunctions
+	b.connectionGroups = snap.ConnectionGroups
+	b.continuousDeploymentPolicies = snap.ContinuousDeploymentPolicies
+	b.distributionAliases = snap.DistributionAliases
+	b.distributionWebACLs = snap.DistributionWebACLs
+	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
+	b.distributionARNs = arnIndex
+	b.distributionCallerRefs = callerRefIndex
+	b.oaiCallerRefs = oaiCallerRefIndex
+	b.cachePolicyByName = cachePolicyByName
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	return nil
+}
+
+// ensureNonNil initialises any nil maps in a snapshot to empty maps so that
+// the backend never holds nil map references.
+func ensureNonNil(snap *backendSnapshot) {
 	if snap.Distributions == nil {
 		snap.Distributions = make(map[string]*Distribution)
 	}
@@ -98,29 +158,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.DistributionTenantWebACLs == nil {
 		snap.DistributionTenantWebACLs = make(map[string]string)
 	}
-
-	// Rebuild the ARN-to-ID index after restore so O(1) tag operations remain correct.
-	arnIndex := make(map[string]string, len(snap.Distributions))
-	for id, d := range snap.Distributions {
-		arnIndex[d.ARN] = id
-	}
-
-	b.distributions = snap.Distributions
-	b.oais = snap.OAIs
-	b.invalidations = snap.Invalidations
-	b.anycastIPLists = snap.AnycastIPLists
-	b.cachePolicies = snap.CachePolicies
-	b.connectionFunctions = snap.ConnectionFunctions
-	b.connectionGroups = snap.ConnectionGroups
-	b.continuousDeploymentPolicies = snap.ContinuousDeploymentPolicies
-	b.distributionAliases = snap.DistributionAliases
-	b.distributionWebACLs = snap.DistributionWebACLs
-	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
-	b.distributionARNs = arnIndex
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
