@@ -1316,6 +1316,7 @@ func TestHandler_GetCostCategories(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup             func(*testing.T, *ce.Handler)
 		name              string
 		costCategoryName  string
 		wantValuesContain string
@@ -1326,13 +1327,34 @@ func TestHandler_GetCostCategories(t *testing.T) {
 			wantLen: 0,
 		},
 		{
-			name:              "returns_values_for_existing_category",
-			costCategoryName:  "Env",
+			name:             "returns_values_for_existing_category",
+			costCategoryName: "Env",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Env",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Production"}},
+				})
+			},
 			wantValuesContain: "Production",
 			wantLen:           1,
 		},
 		{
-			name:    "returns_all_values_when_no_filter",
+			name: "returns_all_values_when_no_filter",
+			setup: func(t *testing.T, h *ce.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Env",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Production"}},
+				})
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Team",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Platform"}},
+				})
+			},
 			wantLen: 2,
 		},
 	}
@@ -1343,22 +1365,8 @@ func TestHandler_GetCostCategories(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.wantLen > 0 {
-				// Create cost categories with rules.
-				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
-					"Name":        "Env",
-					"RuleVersion": "CostCategoryExpression.v1",
-					"Rules":       []map[string]any{{"Value": "Production"}},
-				})
-
-				if tt.costCategoryName == "" {
-					// Also create a second category for "all values" test.
-					doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
-						"Name":        "Team",
-						"RuleVersion": "CostCategoryExpression.v1",
-						"Rules":       []map[string]any{{"Value": "Platform"}},
-					})
-				}
+			if tt.setup != nil {
+				tt.setup(t, h)
 			}
 
 			body := map[string]any{

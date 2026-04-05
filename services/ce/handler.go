@@ -1137,12 +1137,12 @@ func (h *Handler) handleGetReservationCoverage(
 // --- GetReservationPurchaseRecommendation stub ---
 
 type getReservationPurchaseRecommendationInput struct {
-	Service        string `json:"Service"`
-	AccountScope   string `json:"AccountScope"`
-	LookbackPeriod string `json:"LookbackPeriodInDays"`
-	TermInYears    string `json:"TermInYears"`
-	PaymentOption  string `json:"PaymentOption"`
-	NextPageToken  string `json:"NextPageToken"`
+	Service              string `json:"Service"`
+	AccountScope         string `json:"AccountScope"`
+	LookbackPeriodInDays string `json:"LookbackPeriodInDays"`
+	TermInYears          string `json:"TermInYears"`
+	PaymentOption        string `json:"PaymentOption"`
+	NextPageToken        string `json:"NextPageToken"`
 }
 
 type getReservationPurchaseRecommendationOutput struct {
