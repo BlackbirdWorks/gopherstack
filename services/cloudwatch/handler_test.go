@@ -1175,3 +1175,184 @@ func TestCloudWatchHandler_NewOpsInSupportedOperations(t *testing.T) {
 	require.Contains(t, ops, "EnableInsightRules")
 	require.Contains(t, ops, "GetAlarmMuteRule")
 }
+
+func TestCloudWatchHandler_InsightRules_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	h, b := newCWHandlerWithBackend()
+
+	// Seed rules in reverse alphabetical order.
+	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-zz"})
+	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-aa"})
+	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-mm"})
+
+	rec := postForm(t, h, "Action=DescribeInsightRules")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+
+	// Verify alphabetical order by checking position of each rule name.
+	aaPos := strings.Index(body, "rule-aa")
+	mmPos := strings.Index(body, "rule-mm")
+	zzPos := strings.Index(body, "rule-zz")
+	require.Positive(t, aaPos)
+	require.Positive(t, mmPos)
+	require.Positive(t, zzPos)
+	assert.Less(t, aaPos, mmPos, "rule-aa should appear before rule-mm")
+	assert.Less(t, mmPos, zzPos, "rule-mm should appear before rule-zz")
+}
+
+func TestCloudWatchHandler_InsightRules_ArnInResponse(t *testing.T) {
+	t.Parallel()
+
+	h, b := newCWHandlerWithBackend()
+	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "arn-rule"})
+
+	rec := postForm(t, h, "Action=DescribeInsightRules")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "RuleArn")
+	assert.Contains(t, body, "insight-rule/arn-rule")
+}
+
+func TestCloudWatchHandler_InsightRules_FailureDescription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+	}{
+		{name: "Delete", action: "DeleteInsightRules"},
+		{name: "Disable", action: "DisableInsightRules"},
+		{name: "Enable", action: "EnableInsightRules"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCWHandler()
+			rec := postForm(t, h, "Action="+tt.action+"&RuleNames.member.1=nonexistent-rule")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			body := rec.Body.String()
+			assert.Contains(t, body, "ResourceNotFoundException")
+			assert.Contains(t, body, "FailureDescription")
+			assert.Contains(t, body, "nonexistent-rule")
+		})
+	}
+}
+
+func TestCloudWatchHandler_AnomalyDetector_MetricNameFilter(t *testing.T) {
+	t.Parallel()
+
+	h, b := newCWHandlerWithBackend()
+	b.PutAnomalyDetectorInternal(
+		&cloudwatch.AnomalyDetector{Namespace: "AWS/EC2", MetricName: "CPUUtilization", Stat: "Average"},
+	)
+	b.PutAnomalyDetectorInternal(
+		&cloudwatch.AnomalyDetector{Namespace: "AWS/EC2", MetricName: "NetworkIn", Stat: "Sum"},
+	)
+
+	rec := postForm(t, h, "Action=DescribeAnomalyDetectors&MetricName=CPUUtilization")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "CPUUtilization")
+	assert.NotContains(t, body, "NetworkIn")
+}
+
+func TestCloudWatchHandler_AnomalyDetector_DefaultState(t *testing.T) {
+	t.Parallel()
+
+	_, b := newCWHandlerWithBackend()
+	b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{Namespace: "NS", MetricName: "M", Stat: "Sum"})
+
+	p, err := b.DescribeAnomalyDetectors("NS", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, "TRAINED_INSUFFICIENT_DATA", p.Data[0].StateValue)
+}
+
+func TestCloudWatchHandler_AlarmMuteRule_AlarmNames(t *testing.T) {
+	t.Parallel()
+
+	h, b := newCWHandlerWithBackend()
+	b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{
+		MuteName:   "mute-with-alarms",
+		AlarmNames: []string{"alarm-1", "alarm-2", "alarm-3"},
+	})
+
+	rec := postForm(t, h, "Action=GetAlarmMuteRule&MuteName=mute-with-alarms")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "alarm-1")
+	assert.Contains(t, body, "alarm-2")
+	assert.Contains(t, body, "alarm-3")
+	assert.Contains(t, body, "AlarmNames")
+}
+
+func TestCloudWatchHandler_DescribeAlarmContributors_CompositeAlarm(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	// Create a child metric alarm and a composite alarm referencing it.
+	rec := postForm(t, h, "Action=PutMetricAlarm&AlarmName=child-for-contrib2&Namespace=NS&MetricName=M")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postForm(
+		t,
+		h,
+		`Action=PutCompositeAlarm&AlarmName=composite-for-contrib2&AlarmRule=ALARM("child-for-contrib2")`,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// DescribeAlarmContributors on the composite alarm should succeed.
+	rec = postForm(t, h, "Action=DescribeAlarmContributors&AlarmName=composite-for-contrib2")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DescribeAlarmContributorsResponse")
+}
+
+func TestCloudWatchRefinement1_ErrValidation(t *testing.T) {
+	t.Parallel()
+
+	// ErrValidation should be a distinct error from resource-not-found sentinels.
+	require.NotEqual(t, cloudwatch.ErrValidation, cloudwatch.ErrAlarmNotFound)
+	require.NotEqual(t, cloudwatch.ErrValidation, cloudwatch.ErrAlarmMuteRuleNotFound)
+	require.NotEqual(t, cloudwatch.ErrValidation, cloudwatch.ErrAnomalyDetectorNotFound)
+	require.NotEqual(t, cloudwatch.ErrValidation, cloudwatch.ErrMetricStreamNotFound)
+}
+
+func TestCloudWatchRefinement1_InsightRuleArnSetInPutInternal(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "arn-check-rule"})
+
+	p, err := b.DescribeInsightRules("", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 1)
+
+	assert.NotEmpty(t, p.Data[0].Arn, "Arn should be set by PutInsightRuleInternal")
+	assert.Contains(t, p.Data[0].Arn, "arn-check-rule")
+	assert.False(t, p.Data[0].CreatedAt.IsZero(), "CreatedAt should be set by PutInsightRuleInternal")
+}
+
+func TestCloudWatchRefinement1_DescribeAnomalyDetectors_SortedOutput(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{Namespace: "ZNS", MetricName: "M", Stat: "Sum"})
+	b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{Namespace: "ANS", MetricName: "M", Stat: "Sum"})
+	b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{Namespace: "MNS", MetricName: "M", Stat: "Sum"})
+
+	p, err := b.DescribeAnomalyDetectors("", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 3)
+	assert.Equal(t, "ANS", p.Data[0].Namespace)
+	assert.Equal(t, "MNS", p.Data[1].Namespace)
+	assert.Equal(t, "ZNS", p.Data[2].Namespace)
+}

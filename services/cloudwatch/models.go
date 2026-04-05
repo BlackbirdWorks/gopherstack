@@ -126,11 +126,13 @@ type AnomalyDetector struct {
 
 // InsightRule represents a CloudWatch Contributor Insights rule.
 type InsightRule struct {
-	Name        string `json:"Name"`
-	State       string `json:"State"`
-	Schema      string `json:"Schema"`
-	Definition  string `json:"Definition"`
-	ManagedRule bool   `json:"ManagedRule"`
+	CreatedAt   time.Time `json:"CreatedAt"`
+	Name        string    `json:"Name"`
+	State       string    `json:"State"`
+	Schema      string    `json:"Schema"`
+	Definition  string    `json:"Definition"`
+	Arn         string    `json:"RuleArn"`
+	ManagedRule bool      `json:"ManagedRule"`
 }
 
 // MetricStream represents a CloudWatch metric stream.
@@ -151,6 +153,7 @@ type AlarmMuteRule struct {
 	MuteStartTime time.Time `json:"MuteStartTime"`
 	MuteName      string    `json:"MuteName"`
 	Description   string    `json:"Description,omitempty"`
+	AlarmNames    []string  `json:"AlarmNames,omitempty"`
 	MuteDuration  int32     `json:"MuteDuration"`
 }
 
@@ -162,6 +165,7 @@ type AlarmContributor struct {
 
 // InsightRuleFailure represents a failed rule in batch insight rule operations.
 type InsightRuleFailure struct {
-	RuleName    string `json:"RuleName"`
-	FailureCode string `json:"FailureCode"`
+	RuleName           string `json:"RuleName"`
+	FailureCode        string `json:"FailureCode"`
+	FailureDescription string `json:"FailureDescription,omitempty"`
 }

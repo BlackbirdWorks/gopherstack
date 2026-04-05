@@ -1123,8 +1123,9 @@ func (h *Handler) handleDeleteDashboards(form url.Values, c *echo.Context) error
 
 // insightRuleFailureXML is the XML representation of a failed insight rule operation.
 type insightRuleFailureXML struct {
-	RuleName    string `xml:"RuleName"`
-	FailureCode string `xml:"FailureCode"`
+	RuleName           string `xml:"RuleName"`
+	FailureCode        string `xml:"FailureCode"`
+	FailureDescription string `xml:"FailureDescription,omitempty"`
 }
 
 // insightRuleFailResult holds the failures portion of insight rule batch operation responses.
@@ -1134,6 +1135,10 @@ type insightRuleFailResult struct {
 
 // buildInsightRuleFailResult converts backend failures into the XML result struct.
 func buildInsightRuleFailResult(failures []InsightRuleFailure) insightRuleFailResult {
+	if len(failures) == 0 {
+		return insightRuleFailResult{}
+	}
+
 	members := make([]insightRuleFailureXML, 0, len(failures))
 	for _, f := range failures {
 		members = append(members, insightRuleFailureXML(f))
@@ -1144,10 +1149,12 @@ func buildInsightRuleFailResult(failures []InsightRuleFailure) insightRuleFailRe
 
 // insightRuleXML is the XML representation of an InsightRule.
 type insightRuleXML struct {
+	CreatedAt   string `xml:"CreatedAt,omitempty"`
 	Name        string `xml:"Name"`
 	State       string `xml:"State"`
 	Schema      string `xml:"Schema,omitempty"`
 	Definition  string `xml:"Definition,omitempty"`
+	Arn         string `xml:"RuleArn,omitempty"`
 	ManagedRule bool   `xml:"ManagedRule"`
 }
 
@@ -1182,11 +1189,12 @@ func (h *Handler) handleGetAlarmMuteRule(form url.Values, c *echo.Context) error
 	}
 
 	type muteRuleXML struct {
-		MuteName      string `xml:"MuteName"`
-		Description   string `xml:"Description,omitempty"`
-		CreationTime  string `xml:"CreationTime"`
-		MuteStartTime string `xml:"MuteStartTime,omitempty"`
-		MuteDuration  int32  `xml:"MuteDuration,omitempty"`
+		MuteName      string   `xml:"MuteName"`
+		Description   string   `xml:"Description,omitempty"`
+		CreationTime  string   `xml:"CreationTime"`
+		MuteStartTime string   `xml:"MuteStartTime,omitempty"`
+		AlarmNames    []string `xml:"AlarmNames>member,omitempty"`
+		MuteDuration  int32    `xml:"MuteDuration,omitempty"`
 	}
 	type result struct {
 		MuteRule muteRuleXML `xml:"MuteRule"`
@@ -1201,6 +1209,7 @@ func (h *Handler) handleGetAlarmMuteRule(form url.Values, c *echo.Context) error
 	mr := muteRuleXML{
 		MuteName:     rule.MuteName,
 		Description:  rule.Description,
+		AlarmNames:   rule.AlarmNames,
 		CreationTime: rule.CreationTime.UTC().Format(time.RFC3339),
 		MuteDuration: rule.MuteDuration,
 	}
@@ -1324,7 +1333,15 @@ func (h *Handler) handleDescribeInsightRules(form url.Values, c *echo.Context) e
 
 	members := make([]insightRuleXML, 0, len(p.Data))
 	for _, r := range p.Data {
-		members = append(members, insightRuleXML(r))
+		members = append(members, insightRuleXML{
+			Name:        r.Name,
+			State:       r.State,
+			Schema:      r.Schema,
+			Definition:  r.Definition,
+			ManagedRule: r.ManagedRule,
+			Arn:         r.Arn,
+			CreatedAt:   formatTimeOmitZero(r.CreatedAt),
+		})
 	}
 
 	type descResult struct {
@@ -1460,4 +1477,17 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	h.tagsMu.Lock("Reset")
+	h.tags = make(map[string]*tags.Tags)
+	h.tagsMu.Unlock()
+}
+
+// formatTimeOmitZero formats t as RFC3339 or returns "" for the zero value.
+func formatTimeOmitZero(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.UTC().Format(time.RFC3339)
 }

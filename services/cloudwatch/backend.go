@@ -42,6 +42,9 @@ var ErrAnomalyDetectorNotFound = errors.New("ResourceNotFoundException")
 // ErrMetricStreamNotFound is returned when a requested metric stream does not exist.
 var ErrMetricStreamNotFound = errors.New("ResourceNotFoundException")
 
+// ErrValidation is returned when a caller provides an invalid or missing parameter.
+var ErrValidation = errors.New("InvalidParameterValue")
+
 const (
 	cwDefaultListMetricsLimit               = 500
 	cwDefaultDescribeAlarmsLimit            = 100
@@ -150,9 +153,9 @@ type InMemoryBackend struct {
 
 // dashboardRecord holds dashboard body and metadata.
 type dashboardRecord struct {
-	lastModified time.Time
-	name         string
-	body         string
+	LastModified time.Time `json:"LastModified"`
+	Name         string    `json:"Name"`
+	Body         string    `json:"Body"`
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -1103,9 +1106,9 @@ func (b *InMemoryBackend) PutDashboard(name, body string) error {
 	defer b.mu.Unlock()
 
 	b.dashboards[name] = &dashboardRecord{
-		name:         name,
-		body:         body,
-		lastModified: time.Now().UTC(),
+		Name:         name,
+		Body:         body,
+		LastModified: time.Now().UTC(),
 	}
 
 	return nil
@@ -1121,7 +1124,7 @@ func (b *InMemoryBackend) GetDashboard(name string) (DashboardEntry, string, err
 		return DashboardEntry{}, "", fmt.Errorf("%w: %s", ErrDashboardNotFound, name)
 	}
 
-	return b.toDashboardEntry(rec), rec.body, nil
+	return b.toDashboardEntry(rec), rec.Body, nil
 }
 
 // ListDashboards returns a page of dashboard entries optionally filtered by name prefix.
@@ -1132,7 +1135,7 @@ func (b *InMemoryBackend) ListDashboards(prefix, nextToken string) (page.Page[Da
 	var result []DashboardEntry
 
 	for _, rec := range b.dashboards {
-		if prefix != "" && !strings.HasPrefix(rec.name, prefix) {
+		if prefix != "" && !strings.HasPrefix(rec.Name, prefix) {
 			continue
 		}
 
@@ -1162,10 +1165,10 @@ func (b *InMemoryBackend) DeleteDashboards(names []string) error {
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) toDashboardEntry(rec *dashboardRecord) DashboardEntry {
 	return DashboardEntry{
-		DashboardName: rec.name,
-		DashboardArn:  arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+rec.name),
-		LastModified:  rec.lastModified,
-		Size:          int64(len(rec.body)),
+		DashboardName: rec.Name,
+		DashboardArn:  arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+rec.Name),
+		LastModified:  rec.LastModified,
+		Size:          int64(len(rec.Body)),
 	}
 }
 
@@ -1260,7 +1263,8 @@ func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) 
 	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat)
 	cp := *detector
 	if cp.StateValue == "" {
-		cp.StateValue = "TRAINED"
+		// TRAINED_INSUFFICIENT_DATA is the realistic initial state for a new detector.
+		cp.StateValue = "TRAINED_INSUFFICIENT_DATA"
 	}
 
 	b.anomalyDetectors[key] = &cp
@@ -1274,9 +1278,14 @@ func (b *InMemoryBackend) DescribeAnomalyDetectors(
 	b.mu.RLock("DescribeAnomalyDetectors")
 	defer b.mu.RUnlock()
 
-	var result []AnomalyDetector
+	type entry struct {
+		key      string
+		detector AnomalyDetector
+	}
 
-	for _, d := range b.anomalyDetectors {
+	var entries []entry
+
+	for k, d := range b.anomalyDetectors {
 		if namespace != "" && d.Namespace != namespace {
 			continue
 		}
@@ -1285,15 +1294,18 @@ func (b *InMemoryBackend) DescribeAnomalyDetectors(
 			continue
 		}
 
-		result = append(result, *d)
+		entries = append(entries, entry{key: k, detector: *d})
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		ki := anomalyDetectorKey(result[i].Namespace, result[i].MetricName, result[i].Stat)
-		kj := anomalyDetectorKey(result[j].Namespace, result[j].MetricName, result[j].Stat)
-
-		return ki < kj
+	// Sort by pre-computed key (namespace/metricName/stat) for deterministic output.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].key < entries[j].key
 	})
+
+	result := make([]AnomalyDetector, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, e.detector)
+	}
 
 	return page.New(result, nextToken, maxResults, cwDefaultDescribeAnomalyDetectorLimit), nil
 }
@@ -1308,8 +1320,9 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 	for _, name := range ruleNames {
 		if _, ok := b.insightRules[name]; !ok {
 			failures = append(failures, InsightRuleFailure{
-				RuleName:    name,
-				FailureCode: "ResourceNotFoundException",
+				RuleName:           name,
+				FailureCode:        "ResourceNotFoundException",
+				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
 			})
 
 			continue
@@ -1329,6 +1342,14 @@ func (b *InMemoryBackend) PutInsightRuleInternal(rule *InsightRule) {
 	cp := *rule
 	if cp.State == "" {
 		cp.State = "ENABLED"
+	}
+
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now().UTC()
+	}
+
+	if cp.Arn == "" {
+		cp.Arn = arn.Build("cloudwatch", b.region, b.accountID, "insight-rule/"+rule.Name)
 	}
 
 	b.insightRules[rule.Name] = &cp
@@ -1366,8 +1387,9 @@ func (b *InMemoryBackend) DisableInsightRules(ruleNames []string) ([]InsightRule
 		rule, ok := b.insightRules[name]
 		if !ok {
 			failures = append(failures, InsightRuleFailure{
-				RuleName:    name,
-				FailureCode: "ResourceNotFoundException",
+				RuleName:           name,
+				FailureCode:        "ResourceNotFoundException",
+				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
 			})
 
 			continue
@@ -1390,8 +1412,9 @@ func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleF
 		rule, ok := b.insightRules[name]
 		if !ok {
 			failures = append(failures, InsightRuleFailure{
-				RuleName:    name,
-				FailureCode: "ResourceNotFoundException",
+				RuleName:           name,
+				FailureCode:        "ResourceNotFoundException",
+				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
 			})
 
 			continue
