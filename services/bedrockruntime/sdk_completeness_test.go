@@ -17,12 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := bedrockruntime.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrockruntime.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &bedrockruntimesdk.Client{}, h.GetSupportedOperations(), []string{
-		"ApplyGuardrail",
-		"CountTokens",
-		"GetAsyncInvoke",
-		"InvokeModelWithBidirectionalStream",
-		"ListAsyncInvokes",
-		"StartAsyncInvoke",
-	})
+	sdkcheck.CheckCompleteness(t, &bedrockruntimesdk.Client{}, h.GetSupportedOperations(), []string{})
 }
