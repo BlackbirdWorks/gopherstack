@@ -681,7 +681,7 @@ func TestExtractOperationAndResource(t *testing.T) {
 			name:          "create_oai",
 			method:        http.MethodPost,
 			path:          "/2020-05-31/origin-access-identity/cloudfront",
-			wantOperation: "CreateOriginAccessIdentity",
+			wantOperation: "CreateCloudFrontOriginAccessIdentity",
 			wantResource:  "",
 		},
 	}
@@ -1045,6 +1045,975 @@ func TestHandler_CreateInvalidation_ListInvalidations(t *testing.T) {
 			// Verify the Quantity matches.
 			assert.Contains(t, listRec.Body.String(),
 				fmt.Sprintf("<Quantity>%d</Quantity>", tt.wantListCount))
+		})
+	}
+}
+
+// TestAssociateAlias covers the AssociateAlias operation.
+func TestAssociateAlias(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *cloudfront.Handler) string
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		alias      string
+		wantStatus int
+	}{
+		{
+			name:  "associate_alias_success",
+			alias: "www.example.com",
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-aa-001", "alias-dist", true,
+					minimalDistConfig("ref-aa-001", "alias-dist", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusOK,
+			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+		},
+		{
+			name:  "associate_alias_distribution_not_found",
+			alias: "notfound.example.com",
+			setup: func(t *testing.T, _ *cloudfront.Handler) string {
+				t.Helper()
+
+				return "DOESNOTEXIST"
+			},
+			wantStatus: http.StatusNotFound,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "NoSuchDistribution")
+			},
+		},
+		{
+			name:  "associate_alias_empty_alias",
+			alias: "",
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-aa-002", "alias-dist2", true,
+					minimalDistConfig("ref-aa-002", "alias-dist2", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			distID := tt.setup(t, h)
+			path := "/2020-05-31/distribution/" + distID + "/associate-alias"
+			if tt.alias != "" {
+				path += "?Alias=" + tt.alias
+			}
+
+			rec := doXML(t, h, http.MethodPut, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestAssociateAlias_Idempotent verifies associating the same alias twice is safe.
+func TestAssociateAlias_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	d, err := h.Backend.CreateDistribution("ref-ai-001", "idempotent-dist", true,
+		minimalDistConfig("ref-ai-001", "idempotent-dist", true))
+	require.NoError(t, err)
+
+	path := "/2020-05-31/distribution/" + d.ID + "/associate-alias?Alias=idem.example.com"
+	rec := doXML(t, h, http.MethodPut, path, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doXML(t, h, http.MethodPut, path, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestAssociateDistributionWebACL covers the AssociateDistributionWebACL operation.
+func TestAssociateDistributionWebACL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *cloudfront.Handler) string
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "associate_web_acl_success",
+			body: []byte(
+				`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/test/abc</WebACLId></WebACLAssociation>`,
+			),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-wacl-001", "wacl-dist", true,
+					minimalDistConfig("ref-wacl-001", "wacl-dist", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusOK,
+			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+		},
+		{
+			name: "associate_web_acl_not_found",
+			body: []byte(`<WebACLAssociation><WebACLId>some-acl</WebACLId></WebACLAssociation>`),
+			setup: func(t *testing.T, _ *cloudfront.Handler) string {
+				t.Helper()
+
+				return "DOESNOTEXIST"
+			},
+			wantStatus: http.StatusNotFound,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "NoSuchDistribution")
+			},
+		},
+		{
+			name: "associate_web_acl_empty_body",
+			body: nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-wacl-002", "wacl-dist2", true,
+					minimalDistConfig("ref-wacl-002", "wacl-dist2", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusOK,
+			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			distID := tt.setup(t, h)
+			path := "/2020-05-31/distribution/" + distID + "/associate-web-acl"
+
+			rec := doXML(t, h, http.MethodPut, path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestAssociateDistributionTenantWebACL covers the AssociateDistributionTenantWebACL operation.
+func TestAssociateDistributionTenantWebACL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		tenantID   string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name:     "associate_tenant_web_acl_success",
+			tenantID: "tenant-abc-123",
+			body: []byte(
+				`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc</WebACLId></WebACLAssociation>`,
+			),
+			wantStatus: http.StatusOK,
+			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+		},
+		{
+			name:       "associate_tenant_web_acl_empty_tenant",
+			tenantID:   "",
+			body:       []byte(`<WebACLAssociation><WebACLId>some-acl</WebACLId></WebACLAssociation>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			var path string
+			if tt.tenantID == "" {
+				// POST to the tenant endpoint with empty tenant ID segment
+				path = "/2020-05-31/distribution-tenant//associate-web-acl"
+			} else {
+				path = "/2020-05-31/distribution-tenant/" + tt.tenantID + "/associate-web-acl"
+			}
+
+			rec := doXML(t, h, http.MethodPut, path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCopyDistribution covers the CopyDistribution operation.
+func TestCopyDistribution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *cloudfront.Handler) string
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "copy_distribution_success",
+			body: []byte(
+				`<CopyDistributionRequest><CallerReference>copy-ref-001</CallerReference></CopyDistributionRequest>`,
+			),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-copy-001", "source-dist", true,
+					minimalDistConfig("ref-copy-001", "source-dist", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<Distribution")
+				assert.Contains(t, rec.Body.String(), "<Status>Deployed</Status>")
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name: "copy_distribution_not_found",
+			body: []byte(
+				`<CopyDistributionRequest><CallerReference>copy-ref-002</CallerReference></CopyDistributionRequest>`,
+			),
+			setup: func(t *testing.T, _ *cloudfront.Handler) string {
+				t.Helper()
+
+				return "DOESNOTEXIST"
+			},
+			wantStatus: http.StatusNotFound,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "NoSuchDistribution")
+			},
+		},
+		{
+			name: "copy_distribution_empty_caller_ref",
+			body: []byte(`<CopyDistributionRequest><CallerReference></CallerReference></CopyDistributionRequest>`),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-copy-003", "source-dist2", true,
+					minimalDistConfig("ref-copy-003", "source-dist2", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name: "copy_distribution_malformed_xml",
+			body: []byte(`<<<not xml`),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-copy-004", "source-dist3", true,
+					minimalDistConfig("ref-copy-004", "source-dist3", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			distID := tt.setup(t, h)
+			path := "/2020-05-31/distribution/" + distID + "/copy"
+
+			rec := doXML(t, h, http.MethodPost, path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCreateAnycastIPList covers the CreateAnycastIPList operation.
+func TestCreateAnycastIPList(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_anycast_ip_list_success",
+			body: []byte(
+				`<AnycastIPListRequest><Name>my-anycast-list</Name><IPCount>5</IPCount></AnycastIPListRequest>`,
+			),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<AnycastIPList")
+				assert.Contains(t, rec.Body.String(), "<Name>my-anycast-list</Name>")
+				assert.Contains(t, rec.Body.String(), "<Status>Deployed</Status>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name:       "create_anycast_ip_list_empty_name",
+			body:       []byte(`<AnycastIPListRequest><Name></Name><IPCount>5</IPCount></AnycastIPListRequest>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name:       "create_anycast_ip_list_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/anycast-ip-list", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCreateCachePolicy covers the CreateCachePolicy operation.
+func TestCreateCachePolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_cache_policy_success",
+			body: []byte(`<CachePolicyConfig>` +
+				`<Name>my-cache-policy</Name>` +
+				`<Comment>test policy</Comment>` +
+				`<DefaultTTL>86400</DefaultTTL>` +
+				`<MaxTTL>31536000</MaxTTL>` +
+				`<MinTTL>0</MinTTL>` +
+				`</CachePolicyConfig>`),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<CachePolicy")
+				assert.Contains(t, rec.Body.String(), "<Name>my-cache-policy</Name>")
+				assert.Contains(t, rec.Body.String(), "<Comment>test policy</Comment>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name:       "create_cache_policy_empty_name",
+			body:       []byte(`<CachePolicyConfig><Name></Name></CachePolicyConfig>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name:       "create_cache_policy_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCreateCloudFrontOriginAccessIdentity verifies that CreateCloudFrontOriginAccessIdentity
+// (the renamed op) still works and is reported correctly.
+func TestCreateCloudFrontOriginAccessIdentity(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "CreateCloudFrontOriginAccessIdentity", h.ExtractOperation(c))
+}
+
+// TestCreateConnectionFunction covers the CreateConnectionFunction operation.
+func TestCreateConnectionFunction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_connection_function_success",
+			body: []byte(`<CreateConnectionFunctionRequest>` +
+				`<Name>my-conn-fn</Name>` +
+				`<Comment>my function</Comment>` +
+				`</CreateConnectionFunctionRequest>`),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ConnectionFunction")
+				assert.Contains(t, rec.Body.String(), "<Name>my-conn-fn</Name>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name: "create_connection_function_empty_name",
+			body: []byte(`<CreateConnectionFunctionRequest>` +
+				`<Name></Name>` +
+				`</CreateConnectionFunctionRequest>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name:       "create_connection_function_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/connection-function", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCreateConnectionGroup covers the CreateConnectionGroup operation.
+func TestCreateConnectionGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_connection_group_success",
+			body: []byte(`<CreateConnectionGroupRequest>` +
+				`<Name>my-conn-group</Name>` +
+				`<Comment>my group</Comment>` +
+				`</CreateConnectionGroupRequest>`),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ConnectionGroup")
+				assert.Contains(t, rec.Body.String(), "<Name>my-conn-group</Name>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name: "create_connection_group_empty_name",
+			body: []byte(`<CreateConnectionGroupRequest>` +
+				`<Name></Name>` +
+				`</CreateConnectionGroupRequest>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name:       "create_connection_group_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/connection-group", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCreateContinuousDeploymentPolicy covers the CreateContinuousDeploymentPolicy operation.
+func TestCreateContinuousDeploymentPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_continuous_deployment_policy_enabled",
+			body: []byte(
+				`<ContinuousDeploymentPolicyConfig><Enabled>true</Enabled></ContinuousDeploymentPolicyConfig>`,
+			),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ContinuousDeploymentPolicy")
+				assert.Contains(t, rec.Body.String(), "<Enabled>true</Enabled>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name: "create_continuous_deployment_policy_disabled",
+			body: []byte(
+				`<ContinuousDeploymentPolicyConfig><Enabled>false</Enabled></ContinuousDeploymentPolicyConfig>`,
+			),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ContinuousDeploymentPolicy")
+				assert.Contains(t, rec.Body.String(), "<Enabled>false</Enabled>")
+			},
+		},
+		{
+			name:       "create_continuous_deployment_policy_no_body",
+			body:       nil,
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ContinuousDeploymentPolicy")
+			},
+		},
+		{
+			name:       "create_continuous_deployment_policy_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/continuous-deployment-policy", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestNewOperations_PersistenceRoundTrip verifies that all new resources survive snapshot/restore.
+func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create a distribution and associate an alias + web ACL.
+	d, err := b.CreateDistribution("ref-persist-1", "persist-dist", true, nil)
+	require.NoError(t, err)
+
+	err = b.AssociateAlias(d.ID, "persist.example.com")
+	require.NoError(t, err)
+
+	err = b.AssociateDistributionWebACL(d.ID, "arn:aws:wafv2:us-east-1:123:global/webacl/test/abc")
+	require.NoError(t, err)
+
+	err = b.AssociateDistributionTenantWebACL("tenant-persist-001", "acl-for-tenant")
+	require.NoError(t, err)
+
+	// Copy the distribution.
+	_, err = b.CopyDistribution(d.ID, "copy-persist-ref")
+	require.NoError(t, err)
+
+	// Create new resource types.
+	_, err = b.CreateAnycastIPList("persist-anycast-list", 3)
+	require.NoError(t, err)
+
+	_, err = b.CreateCachePolicy("persist-cache-policy", "comment", 86400, 31536000, 0)
+	require.NoError(t, err)
+
+	_, err = b.CreateConnectionFunction("persist-conn-fn", "comment")
+	require.NoError(t, err)
+
+	_, err = b.CreateConnectionGroup("persist-conn-group", "comment")
+	require.NoError(t, err)
+
+	_, err = b.CreateContinuousDeploymentPolicy(true)
+	require.NoError(t, err)
+
+	h := cloudfront.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := cloudfront.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Distribution is restored.
+	d2, err := b2.GetDistribution(d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "persist-dist", d2.Comment)
+}
+
+// TestNewOperations_BackendDirectly exercises all new backend methods directly.
+func TestNewOperations_BackendDirectly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(*testing.T, *cloudfront.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "associate_alias_not_found",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				err := b.AssociateAlias("NOTEXIST", "alias.example.com")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "associate_alias_empty",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				d, err := b.CreateDistribution("ref-ba-001", "ba-dist", true, nil)
+				require.NoError(t, err)
+				err = b.AssociateAlias(d.ID, "")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "associate_distribution_web_acl_not_found",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				err := b.AssociateDistributionWebACL("NOTEXIST", "acl-id")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "associate_distribution_tenant_web_acl_empty_tenant",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				err := b.AssociateDistributionTenantWebACL("", "acl-id")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "copy_distribution_not_found",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CopyDistribution("NOTEXIST", "ref")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "copy_distribution_empty_caller_ref",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				d, err := b.CreateDistribution("ref-cp-001", "cp-dist", true, nil)
+				require.NoError(t, err)
+				_, err = b.CopyDistribution(d.ID, "")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_anycast_ip_list_empty_name",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateAnycastIPList("", 5)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_cache_policy_empty_name",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateCachePolicy("", "comment", 86400, 0, 0)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_connection_function_empty_name",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateConnectionFunction("", "comment")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_connection_group_empty_name",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateConnectionGroup("", "comment")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_anycast_ip_list_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				list, err := b.CreateAnycastIPList("my-list", 5)
+				require.NoError(t, err)
+				assert.NotEmpty(t, list.ID)
+				assert.NotEmpty(t, list.ARN)
+				assert.Equal(t, "my-list", list.Name)
+				assert.Equal(t, int32(5), list.IPCount)
+				assert.Equal(t, "Deployed", list.Status)
+			},
+		},
+		{
+			name: "create_cache_policy_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				p, err := b.CreateCachePolicy("test-policy", "a comment", 3600, 86400, 0)
+				require.NoError(t, err)
+				assert.NotEmpty(t, p.ID)
+				assert.Equal(t, "test-policy", p.Name)
+				assert.Equal(t, int64(3600), p.DefaultTTL)
+				assert.Equal(t, int64(86400), p.MaxTTL)
+				assert.Equal(t, int64(0), p.MinTTL)
+			},
+		},
+		{
+			name: "create_connection_function_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				fn, err := b.CreateConnectionFunction("my-fn", "fn comment")
+				require.NoError(t, err)
+				assert.NotEmpty(t, fn.ARN)
+				assert.Equal(t, "my-fn", fn.Name)
+				assert.Equal(t, "fn comment", fn.Comment)
+			},
+		},
+		{
+			name: "create_connection_group_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				g, err := b.CreateConnectionGroup("my-group", "group comment")
+				require.NoError(t, err)
+				assert.NotEmpty(t, g.ID)
+				assert.NotEmpty(t, g.ARN)
+				assert.Equal(t, "my-group", g.Name)
+			},
+		},
+		{
+			name: "create_continuous_deployment_policy_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				p, err := b.CreateContinuousDeploymentPolicy(true)
+				require.NoError(t, err)
+				assert.NotEmpty(t, p.ID)
+				assert.True(t, p.Enabled)
+			},
+		},
+		{
+			name: "copy_distribution_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				src, err := b.CreateDistribution("ref-cpy-001", "src-dist", true,
+					minimalDistConfig("ref-cpy-001", "src-dist", true))
+				require.NoError(t, err)
+
+				cp, err := b.CopyDistribution(src.ID, "copy-ref-001")
+				require.NoError(t, err)
+				assert.NotEqual(t, src.ID, cp.ID)
+				assert.Equal(t, src.Comment, cp.Comment)
+				assert.Equal(t, src.Enabled, cp.Enabled)
+				assert.NotEmpty(t, cp.DomainName)
+				assert.Equal(t, "Deployed", cp.Status)
+			},
+		},
+		{
+			name: "associate_alias_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				d, err := b.CreateDistribution("ref-aal-001", "alias-dist", true, nil)
+				require.NoError(t, err)
+				err = b.AssociateAlias(d.ID, "www.example.com")
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "associate_distribution_web_acl_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				d, err := b.CreateDistribution("ref-awacl-001", "wacl-dist", true, nil)
+				require.NoError(t, err)
+				err = b.AssociateDistributionWebACL(d.ID, "arn:aws:wafv2:us-east-1:123:global/webacl/test")
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "associate_distribution_tenant_web_acl_success",
+			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				err := b.AssociateDistributionTenantWebACL("tenant-001", "acl-001")
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+			tt.run(t, b)
+		})
+	}
+}
+
+// TestNewOperations_ExtractOperation verifies route parsing for new operations.
+func TestNewOperations_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		method        string
+		path          string
+		wantOperation string
+	}{
+		{
+			name:          "associate_alias",
+			method:        http.MethodPut,
+			path:          "/2020-05-31/distribution/ABCD1234/associate-alias",
+			wantOperation: "AssociateAlias",
+		},
+		{
+			name:          "associate_distribution_web_acl",
+			method:        http.MethodPut,
+			path:          "/2020-05-31/distribution/ABCD1234/associate-web-acl",
+			wantOperation: "AssociateDistributionWebACL",
+		},
+		{
+			name:          "associate_distribution_tenant_web_acl",
+			method:        http.MethodPut,
+			path:          "/2020-05-31/distribution-tenant/TENANT1234/associate-web-acl",
+			wantOperation: "AssociateDistributionTenantWebACL",
+		},
+		{
+			name:          "copy_distribution",
+			method:        http.MethodPost,
+			path:          "/2020-05-31/distribution/ABCD1234/copy",
+			wantOperation: "CopyDistribution",
+		},
+		{
+			name:          "create_anycast_ip_list",
+			method:        http.MethodPost,
+			path:          "/2020-05-31/anycast-ip-list",
+			wantOperation: "CreateAnycastIpList",
+		},
+		{
+			name:          "create_cache_policy",
+			method:        http.MethodPost,
+			path:          "/2020-05-31/cache-policy",
+			wantOperation: "CreateCachePolicy",
+		},
+		{
+			name:          "create_connection_function",
+			method:        http.MethodPost,
+			path:          "/2020-05-31/connection-function",
+			wantOperation: "CreateConnectionFunction",
+		},
+		{
+			name:          "create_connection_group",
+			method:        http.MethodPost,
+			path:          "/2020-05-31/connection-group",
+			wantOperation: "CreateConnectionGroup",
+		},
+		{
+			name:          "create_continuous_deployment_policy",
+			method:        http.MethodPost,
+			path:          "/2020-05-31/continuous-deployment-policy",
+			wantOperation: "CreateContinuousDeploymentPolicy",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantOperation, h.ExtractOperation(c))
 		})
 	}
 }

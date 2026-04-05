@@ -37,22 +37,31 @@ func (h *Handler) Name() string { return "CloudFront" }
 // GetSupportedOperations returns the list of supported CloudFront operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AssociateAlias",
+		"AssociateDistributionTenantWebACL",
+		"AssociateDistributionWebACL",
+		"CopyDistribution",
+		"CreateAnycastIpList",
+		"CreateCachePolicy",
+		"CreateCloudFrontOriginAccessIdentity",
+		"CreateConnectionFunction",
+		"CreateConnectionGroup",
+		"CreateContinuousDeploymentPolicy",
 		"CreateDistribution",
+		"CreateInvalidation",
+		"DeleteDistribution",
+		"DeleteOriginAccessIdentity",
 		"GetDistribution",
 		"GetDistributionConfig",
-		"UpdateDistribution",
-		"DeleteDistribution",
-		"ListDistributions",
-		"CreateOriginAccessIdentity",
+		"GetInvalidation",
 		"GetOriginAccessIdentity",
+		"ListDistributions",
+		"ListInvalidations",
 		"ListOriginAccessIdentities",
-		"DeleteOriginAccessIdentity",
+		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
-		"CreateInvalidation",
-		"ListInvalidations",
-		"GetInvalidation",
+		"UpdateDistribution",
 	}
 }
 
@@ -105,7 +114,7 @@ func xmlResp(c *echo.Context, status int, body string) error {
 
 // parseCFPath maps HTTP method + path to (operationName, resourceID).
 //
-//nolint:cyclop // dispatch table for 15 REST operations is inherently wide
+//nolint:cyclop,funlen,gocognit,gocyclo // dispatch table for 25 REST operations is inherently wide
 func parseCFPath(method, path, resourceParam string) (string, string) {
 	suffix := strings.TrimPrefix(path, cfPathPrefix)
 
@@ -132,6 +141,24 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodGet:
 			return "ListInvalidations", id
 		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-alias"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/associate-alias")
+		if method == http.MethodPut {
+			return "AssociateAlias", id
+		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-web-acl"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/associate-web-acl")
+		if method == http.MethodPut {
+			return "AssociateDistributionWebACL", id
+		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/copy"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/copy")
+		if method == http.MethodPost {
+			return "CopyDistribution", id
+		}
 	case strings.HasPrefix(suffix, "distribution/") && !strings.Contains(strings.TrimPrefix(suffix, "distribution/"), "/"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		switch method {
@@ -140,8 +167,14 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return "DeleteDistribution", id
 		}
+	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/associate-web-acl"):
+		id := strings.TrimPrefix(suffix, "distribution-tenant/")
+		id = strings.TrimSuffix(id, "/associate-web-acl")
+		if method == http.MethodPut {
+			return "AssociateDistributionTenantWebACL", id
+		}
 	case suffix == "origin-access-identity/cloudfront" && method == http.MethodPost:
-		return "CreateOriginAccessIdentity", ""
+		return "CreateCloudFrontOriginAccessIdentity", ""
 	case suffix == "origin-access-identity/cloudfront" && method == http.MethodGet:
 		return "ListOriginAccessIdentities", ""
 	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/"):
@@ -152,6 +185,16 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return "DeleteOriginAccessIdentity", id
 		}
+	case suffix == "anycast-ip-list" && method == http.MethodPost:
+		return "CreateAnycastIpList", ""
+	case suffix == "cache-policy" && method == http.MethodPost:
+		return "CreateCachePolicy", ""
+	case suffix == "connection-function" && method == http.MethodPost:
+		return "CreateConnectionFunction", ""
+	case suffix == "connection-group" && method == http.MethodPost:
+		return "CreateConnectionGroup", ""
+	case suffix == "continuous-deployment-policy" && method == http.MethodPost:
+		return "CreateContinuousDeploymentPolicy", ""
 	case suffix == "tagging":
 		switch method {
 		case http.MethodGet:
@@ -281,9 +324,29 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 15 REST operations is inherently wide
+//nolint:cyclop,funlen // dispatch table for 25 REST operations is inherently wide
 func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 	switch operation {
+	case "AssociateAlias":
+		return h.handleAssociateAlias(c, resource)
+	case "AssociateDistributionTenantWebACL":
+		return h.handleAssociateDistributionTenantWebACL(c, resource)
+	case "AssociateDistributionWebACL":
+		return h.handleAssociateDistributionWebACL(c, resource)
+	case "CopyDistribution":
+		return h.handleCopyDistribution(c, resource)
+	case "CreateAnycastIpList":
+		return h.handleCreateAnycastIPList(c)
+	case "CreateCachePolicy":
+		return h.handleCreateCachePolicy(c)
+	case "CreateCloudFrontOriginAccessIdentity":
+		return h.handleCreateOAI(c)
+	case "CreateConnectionFunction":
+		return h.handleCreateConnectionFunction(c)
+	case "CreateConnectionGroup":
+		return h.handleCreateConnectionGroup(c)
+	case "CreateContinuousDeploymentPolicy":
+		return h.handleCreateContinuousDeploymentPolicy(c)
 	case "CreateDistribution":
 		return h.handleCreateDistribution(c)
 	case "GetDistribution":
@@ -296,8 +359,6 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return h.handleDeleteDistribution(c, resource)
 	case "ListDistributions":
 		return h.handleListDistributions(c)
-	case "CreateOriginAccessIdentity":
-		return h.handleCreateOAI(c)
 	case "GetOriginAccessIdentity":
 		return h.handleGetOAI(c, resource)
 	case "ListOriginAccessIdentities":
@@ -327,6 +388,18 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchDistribution", err.Error()))
 	case errors.Is(err, ErrOAINotFound):
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchCloudFrontOriginAccessIdentity", err.Error()))
+	case errors.Is(err, ErrCachePolicyNotFound):
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchCachePolicy", err.Error()))
+	case errors.Is(err, ErrAnycastIPListNotFound):
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchAnycastIPList", err.Error()))
+	case errors.Is(err, ErrConnectionFunctionNotFound):
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchConnectionFunction", err.Error()))
+	case errors.Is(err, ErrConnectionGroupNotFound):
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchConnectionGroup", err.Error()))
+	case errors.Is(err, ErrContinuousDeploymentPolicyNotFound):
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchContinuousDeploymentPolicy", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:
 		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", err.Error()))
 	}
@@ -471,6 +544,297 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 	}
 
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+// --- New operation handlers ---
+
+type webACLAssociationXML struct {
+	XMLName  xml.Name `xml:"WebACLAssociation"`
+	WebACLID string   `xml:"WebACLId"`
+}
+
+type copyDistributionRequestXML struct {
+	XMLName         xml.Name `xml:"CopyDistributionRequest"`
+	CallerReference string   `xml:"CallerReference"`
+}
+
+type anycastIPListRequestXML struct {
+	XMLName xml.Name `xml:"AnycastIPListRequest"`
+	Name    string   `xml:"Name"`
+	IPCount int32    `xml:"IPCount"`
+}
+
+type cachePolicyConfigXML struct {
+	XMLName    xml.Name `xml:"CachePolicyConfig"`
+	Name       string   `xml:"Name"`
+	Comment    string   `xml:"Comment"`
+	DefaultTTL int64    `xml:"DefaultTTL"`
+	MaxTTL     int64    `xml:"MaxTTL"`
+	MinTTL     int64    `xml:"MinTTL"`
+}
+
+type connectionFunctionRequestXML struct {
+	XMLName xml.Name `xml:"CreateConnectionFunctionRequest"`
+	Name    string   `xml:"Name"`
+	Comment string   `xml:"Comment"`
+}
+
+type connectionGroupRequestXML struct {
+	XMLName xml.Name `xml:"CreateConnectionGroupRequest"`
+	Name    string   `xml:"Name"`
+	Comment string   `xml:"Comment"`
+}
+
+type continuousDeploymentPolicyConfigXML struct {
+	XMLName xml.Name `xml:"ContinuousDeploymentPolicyConfig"`
+	Enabled bool     `xml:"Enabled"`
+}
+
+func (h *Handler) handleAssociateAlias(c *echo.Context, distributionID string) error {
+	alias := c.Request().URL.Query().Get("Alias")
+
+	if err := h.Backend.AssociateAlias(distributionID, alias); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributionID string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req webACLAssociationXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"))
+		}
+	}
+
+	if assocErr := h.Backend.AssociateDistributionWebACL(distributionID, req.WebACLID); assocErr != nil {
+		return h.handleError(c, assocErr)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req webACLAssociationXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"))
+		}
+	}
+
+	if assocErr := h.Backend.AssociateDistributionTenantWebACL(tenantID, req.WebACLID); assocErr != nil {
+		return h.handleError(c, assocErr)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req copyDistributionRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CopyDistributionRequest XML"))
+		}
+	}
+
+	d, copyErr := h.Backend.CopyDistribution(primaryDistID, req.CallerReference)
+	if copyErr != nil {
+		return h.handleError(c, copyErr)
+	}
+
+	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+d.ID)
+	c.Response().Header().Set("ETag", d.ETag)
+
+	return xmlResp(c, http.StatusCreated, distributionResponseXML(d))
+}
+
+func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req anycastIPListRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid AnycastIPListRequest XML"))
+		}
+	}
+
+	list, createErr := h.Backend.CreateAnycastIPList(req.Name, req.IPCount)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<AnycastIPList xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<Name>%s</Name>`+
+		`<Status>%s</Status>`+
+		`<IPCount>%d</IPCount>`+
+		`</AnycastIPList>`,
+		cfNS, list.ID, list.ARN, list.Name, list.Status, list.IPCount)
+
+	c.Response().Header().Set("Location", cfPathPrefix+"anycast-ip-list/"+list.ID)
+
+	return xmlResp(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req cachePolicyConfigXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CachePolicyConfig XML"))
+		}
+	}
+
+	policy, createErr := h.Backend.CreateCachePolicy(req.Name, req.Comment, req.DefaultTTL, req.MaxTTL, req.MinTTL)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<CachePolicy xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<CachePolicyConfig>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`<DefaultTTL>%d</DefaultTTL>`+
+		`<MaxTTL>%d</MaxTTL>`+
+		`<MinTTL>%d</MinTTL>`+
+		`</CachePolicyConfig>`+
+		`</CachePolicy>`,
+		cfNS, policy.ID, policy.Name, policy.Comment, policy.DefaultTTL, policy.MaxTTL, policy.MinTTL)
+
+	c.Response().Header().Set("Location", cfPathPrefix+"cache-policy/"+policy.ID)
+
+	return xmlResp(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req connectionFunctionRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateConnectionFunctionRequest XML"),
+			)
+		}
+	}
+
+	fn, createErr := h.Backend.CreateConnectionFunction(req.Name, req.Comment)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ConnectionFunction xmlns="%s">`+
+		`<ARN>%s</ARN>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`</ConnectionFunction>`,
+		cfNS, fn.ARN, fn.Name, fn.Comment)
+
+	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.Name)
+
+	return xmlResp(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req connectionGroupRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateConnectionGroupRequest XML"),
+			)
+		}
+	}
+
+	group, createErr := h.Backend.CreateConnectionGroup(req.Name, req.Comment)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ConnectionGroup xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`</ConnectionGroup>`,
+		cfNS, group.ID, group.ARN, group.Name, group.Comment)
+
+	c.Response().Header().Set("Location", cfPathPrefix+"connection-group/"+group.ID)
+
+	return xmlResp(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req continuousDeploymentPolicyConfigXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ContinuousDeploymentPolicyConfig XML"))
+		}
+	}
+
+	policy, createErr := h.Backend.CreateContinuousDeploymentPolicy(req.Enabled)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ContinuousDeploymentPolicy xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<ContinuousDeploymentPolicyConfig>`+
+		`<Enabled>%v</Enabled>`+
+		`</ContinuousDeploymentPolicyConfig>`+
+		`</ContinuousDeploymentPolicy>`,
+		cfNS, policy.ID, policy.Enabled)
+
+	c.Response().Header().Set("Location", cfPathPrefix+"continuous-deployment-policy/"+policy.ID)
+
+	return xmlResp(c, http.StatusCreated, resp)
 }
 
 // --- OAI handlers ---
