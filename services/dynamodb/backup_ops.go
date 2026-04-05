@@ -7,6 +7,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdkdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -29,70 +31,24 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	if req.TableName == "" {
-		return nil, NewValidationException("TableName is required")
-	}
-
-	if req.BackupName == "" {
-		return nil, NewValidationException("BackupName is required")
-	}
-
-	db, ok := h.Backend.(*InMemoryDB)
-	if !ok {
-		return nil, NewInternalServerError("backup operations require in-memory backend")
-	}
-
-	region := h.regionFromHandlerContext(ctx)
-
-	table, err := db.getTable(ctx, req.TableName)
+	out, err := h.Backend.CreateBackup(ctx, &sdkdynamodb.CreateBackupInput{
+		TableName:  &req.TableName,
+		BackupName: &req.BackupName,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	table.mu.RLock("CreateBackup")
-	// Deep copy items inside the read lock so the snapshot is consistent
-	// and races with concurrent writes are avoided.
-	itemsCopy := deepCopyItems(table.Items)
-	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchema, table.KeySchema)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
-	tableArn := table.TableArn
-	tableID := table.TableID
-	table.mu.RUnlock()
-
-	now := time.Now()
-	bkpARN := backupARN(region, db.accountID, req.TableName, now)
-
-	sizeBytes := estimateTableSizeBytes(itemsCopy)
-
-	backup := &Backup{
-		BackupArn:            bkpARN,
-		BackupName:           req.BackupName,
-		BackupStatus:         models.BackupStatusAvailable,
-		BackupType:           models.BackupTypeUser,
-		TableName:            req.TableName,
-		TableArn:             tableArn,
-		TableID:              tableID,
-		CreationDateTime:     now,
-		Items:                itemsCopy,
-		KeySchema:            keySchema,
-		AttributeDefinitions: attrDefs,
-		SizeBytes:            sizeBytes,
-	}
-
-	db.mu.Lock("CreateBackup")
-	db.Backups[bkpARN] = backup
-	db.mu.Unlock()
+	bd := out.BackupDetails
 
 	return &models.CreateBackupOutput{
 		BackupDetails: models.BackupDetails{
-			BackupArn:              bkpARN,
-			BackupName:             req.BackupName,
-			BackupStatus:           models.BackupStatusAvailable,
-			BackupType:             models.BackupTypeUser,
-			BackupCreationDateTime: now.UTC().Format(time.RFC3339),
-			BackupSizeBytes:        sizeBytes,
+			BackupArn:              aws.ToString(bd.BackupArn),
+			BackupName:             aws.ToString(bd.BackupName),
+			BackupStatus:           string(bd.BackupStatus),
+			BackupType:             string(bd.BackupType),
+			BackupCreationDateTime: aws.ToTime(bd.BackupCreationDateTime).UTC().Format(time.RFC3339),
+			BackupSizeBytes:        aws.ToInt64(bd.BackupSizeBytes),
 		},
 	}, nil
 }
@@ -129,38 +85,37 @@ func (h *DynamoDBHandler) describeBackup(_ context.Context, body []byte) (any, e
 	}, nil
 }
 
-func (h *DynamoDBHandler) deleteBackup(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.DeleteBackupInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	if req.BackupArn == "" {
-		return nil, NewValidationException("BackupArn is required")
+	out, err := h.Backend.DeleteBackup(ctx, &sdkdynamodb.DeleteBackupInput{
+		BackupArn: &req.BackupArn,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	db, ok := h.Backend.(*InMemoryDB)
-	if !ok {
-		return nil, NewInternalServerError("backup operations require in-memory backend")
-	}
-
-	db.mu.Lock("DeleteBackup")
-	backup, exists := db.Backups[req.BackupArn]
-	if !exists {
-		db.mu.Unlock()
-
-		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", req.BackupArn))
-	}
-
-	// Copy the struct and set deleted status before releasing lock.
-	backupCopy := *backup
-	backupCopy.BackupStatus = models.BackupStatusDeleted
-
-	delete(db.Backups, req.BackupArn)
-	db.mu.Unlock()
+	bd := out.BackupDescription
 
 	return &models.DeleteBackupOutput{
-		BackupDescription: buildBackupDescription(&backupCopy),
+		BackupDescription: models.BackupDescription{
+			BackupDetails: models.BackupDetails{
+				BackupArn:              aws.ToString(bd.BackupDetails.BackupArn),
+				BackupName:             aws.ToString(bd.BackupDetails.BackupName),
+				BackupStatus:           string(bd.BackupDetails.BackupStatus),
+				BackupType:             string(bd.BackupDetails.BackupType),
+				BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Format(time.RFC3339),
+				BackupSizeBytes:        aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
+			},
+			SourceTableDetails: models.SourceTableDetails{
+				TableName: aws.ToString(bd.SourceTableDetails.TableName),
+				TableArn:  aws.ToString(bd.SourceTableDetails.TableArn),
+				TableID:   aws.ToString(bd.SourceTableDetails.TableId),
+			},
+		},
 	}, nil
 }
 

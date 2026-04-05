@@ -109,6 +109,34 @@ type batchExecuteStatementResponse struct {
 	Responses []batchStatementResponse `json:"Responses"`
 }
 
+// partiQLRunner executes individual PartiQL statements against any StorageBackend.
+// Using a runner instead of handler methods allows InMemoryDB.BatchExecuteStatement
+// to satisfy the StorageBackend interface without circular dependencies.
+type partiQLRunner struct {
+	backend StorageBackend
+}
+
+// executeStatement dispatches a single PartiQL statement to the appropriate handler.
+func (r *partiQLRunner) executeStatement(
+	ctx context.Context,
+	req executeStatementRequest,
+) (*executeStatementResponse, error) {
+	stmt := strings.TrimSpace(req.Statement)
+
+	switch {
+	case partiqlSelectRe.MatchString(stmt):
+		return r.executePartiQLSelect(ctx, req)
+	case partiqlInsertRe.MatchString(stmt):
+		return r.executePartiQLInsert(ctx, req)
+	case partiqlUpdateRe.MatchString(stmt):
+		return r.executePartiQLUpdate(ctx, req)
+	case partiqlDeleteRe.MatchString(stmt):
+		return r.executePartiQLDelete(ctx, req)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrInvalidStatement, stmt)
+	}
+}
+
 // handleExecuteStatement routes to specific DML/DQL handlers based on the statement type.
 func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byte) (any, error) {
 	var req executeStatementRequest
@@ -116,66 +144,71 @@ func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	stmt := strings.TrimSpace(req.Statement)
+	runner := &partiQLRunner{backend: h.Backend}
 
-	switch {
-	case partiqlSelectRe.MatchString(stmt):
-		return h.executePartiQLSelect(ctx, req)
-	case partiqlInsertRe.MatchString(stmt):
-		return h.executePartiQLInsert(ctx, req)
-	case partiqlUpdateRe.MatchString(stmt):
-		return h.executePartiQLUpdate(ctx, req)
-	case partiqlDeleteRe.MatchString(stmt):
-		return h.executePartiQLDelete(ctx, req)
-	default:
-		return nil, fmt.Errorf("%w: %q", ErrInvalidStatement, stmt)
-	}
+	return runner.executeStatement(ctx, req)
 }
 
-// handleBatchExecuteStatement handles multiple PartiQL statements, dispatching each one.
+// handleBatchExecuteStatement delegates to the StorageBackend.BatchExecuteStatement interface
+// method, translating between wire format and SDK v2 types.
 func (h *DynamoDBHandler) handleBatchExecuteStatement(ctx context.Context, body []byte) (any, error) {
 	var req batchExecuteStatementRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	responses := make([]batchStatementResponse, 0, len(req.Statements))
+	sdkStmts := make([]types.BatchStatementRequest, 0, len(req.Statements))
+	for _, s := range req.Statements {
+		sdkParams := make([]types.AttributeValue, 0, len(s.Parameters))
 
-	for _, stmt := range req.Statements {
-		stmtBody, _ := json.Marshal(executeStatementRequest{
-			Statement:  stmt.Statement,
-			Parameters: stmt.Parameters,
+		for _, p := range s.Parameters {
+			av, convErr := models.ToSDKAttributeValue(p)
+			if convErr != nil {
+				continue
+			}
+
+			sdkParams = append(sdkParams, av)
+		}
+
+		sdkStmts = append(sdkStmts, types.BatchStatementRequest{
+			Statement:  aws.String(s.Statement),
+			Parameters: sdkParams,
 		})
+	}
 
-		result, err := h.handleExecuteStatement(ctx, stmtBody)
-		if err != nil {
+	out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
+		Statements: sdkStmts,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make([]batchStatementResponse, 0, len(out.Responses))
+	for _, resp := range out.Responses {
+		if resp.Error != nil {
 			responses = append(responses, batchStatementResponse{
 				Error: &batchStatementError{
-					Code:    "StatementError",
-					Message: err.Error(),
+					Code:    string(resp.Error.Code),
+					Message: aws.ToString(resp.Error.Message),
 				},
 			})
 
 			continue
 		}
 
-		execResp, ok := result.(*executeStatementResponse)
-		if !ok || len(execResp.Items) == 0 {
-			responses = append(responses, batchStatementResponse{})
-
-			continue
+		wireResp := batchStatementResponse{}
+		if resp.Item != nil {
+			wireResp.Item = models.FromSDKItem(resp.Item)
 		}
 
-		// BatchExecuteStatement returns one Item per statement (key-based lookup).
-		// Return the first matched item; callers should use key-based WHERE clauses.
-		responses = append(responses, batchStatementResponse{Item: execResp.Items[0]})
+		responses = append(responses, wireResp)
 	}
 
 	return &batchExecuteStatementResponse{Responses: responses}, nil
 }
 
 // executePartiQLSelect handles SELECT statements, supporting WHERE, LIMIT and column projection.
-func (h *DynamoDBHandler) executePartiQLSelect(
+func (r *partiQLRunner) executePartiQLSelect(
 	ctx context.Context,
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
@@ -196,7 +229,7 @@ func (h *DynamoDBHandler) executePartiQLSelect(
 	colList := partiqlExtractColumns(substituted)
 
 	// Try to use Query if the partition key is present in the WHERE clause.
-	out, queryErr := h.tryQueryOptimization(ctx, tableName, whereClause, filterExpr, eav, colList, limit)
+	out, queryErr := r.tryQueryOptimization(ctx, tableName, whereClause, filterExpr, eav, colList, limit)
 	if queryErr != nil && !errors.Is(queryErr, errScanFallback) {
 		return nil, queryErr
 	}
@@ -204,20 +237,20 @@ func (h *DynamoDBHandler) executePartiQLSelect(
 		return out, nil
 	}
 
-	return h.executeScanSelect(ctx, tableName, filterExpr, eav, colList, limit)
+	return r.executeScanSelect(ctx, tableName, filterExpr, eav, colList, limit)
 }
 
 // tryQueryOptimization attempts to convert the PartiQL SELECT into a Query operation
 // when the partition key is present. Returns (nil, nil) when scan should be used instead,
 // or (result, nil) on success, or (nil, err) when a definitive error occurred.
-func (h *DynamoDBHandler) tryQueryOptimization(
+func (r *partiQLRunner) tryQueryOptimization(
 	ctx context.Context,
 	tableName, whereClause, filterExpr string,
 	eav map[string]any,
 	colList string,
 	limit int,
 ) (*executeStatementResponse, error) {
-	descOut, err := h.Backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
 	})
 	if err != nil {
@@ -245,12 +278,12 @@ func (h *DynamoDBHandler) tryQueryOptimization(
 		return nil, errScanFallback // PK value not present
 	}
 
-	queryInput, err := h.buildQueryInput(tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit)
+	queryInput, err := r.buildQueryInput(tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	out, queryErr := h.Backend.Query(ctx, queryInput)
+	out, queryErr := r.backend.Query(ctx, queryInput)
 	if queryErr != nil {
 		return nil, queryErr
 	}
@@ -259,7 +292,7 @@ func (h *DynamoDBHandler) tryQueryOptimization(
 }
 
 // buildQueryInput constructs a QueryInput from the parsed PartiQL components.
-func (h *DynamoDBHandler) buildQueryInput(
+func (r *partiQLRunner) buildQueryInput(
 	tableName, whereClause, filterExpr string,
 	eav map[string]any,
 	pkAttr, colList string,
@@ -292,7 +325,7 @@ func (h *DynamoDBHandler) buildQueryInput(
 }
 
 // executeScanSelect runs a full Scan for a PartiQL SELECT that couldn't be optimized.
-func (h *DynamoDBHandler) executeScanSelect(
+func (r *partiQLRunner) executeScanSelect(
 	ctx context.Context,
 	tableName, filterExpr string,
 	eav map[string]any,
@@ -323,7 +356,7 @@ func (h *DynamoDBHandler) executeScanSelect(
 		scanInput.ProjectionExpression = aws.String(colList)
 	}
 
-	out, err := h.Backend.Scan(ctx, scanInput)
+	out, err := r.backend.Scan(ctx, scanInput)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +386,7 @@ func findPlaceholderForKey(whereExpr, keyName string) string {
 }
 
 // executePartiQLInsert handles INSERT INTO "table" VALUE {...} statements.
-func (h *DynamoDBHandler) executePartiQLInsert(
+func (r *partiQLRunner) executePartiQLInsert(
 	ctx context.Context,
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
@@ -381,7 +414,7 @@ func (h *DynamoDBHandler) executePartiQLInsert(
 		return nil, err
 	}
 
-	if _, putErr := h.Backend.PutItem(ctx, &dynamodb.PutItemInput{
+	if _, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item:      sdkItem,
 	}); putErr != nil {
@@ -392,7 +425,7 @@ func (h *DynamoDBHandler) executePartiQLInsert(
 }
 
 // executePartiQLUpdate handles UPDATE "table" SET ... WHERE ... statements.
-func (h *DynamoDBHandler) executePartiQLUpdate(
+func (r *partiQLRunner) executePartiQLUpdate(
 	ctx context.Context,
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
@@ -426,7 +459,7 @@ func (h *DynamoDBHandler) executePartiQLUpdate(
 	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
 
 	// Get key schema to identify which WHERE conditions are key conditions.
-	descOut, err := h.Backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
 	})
 	if err != nil {
@@ -453,7 +486,7 @@ func (h *DynamoDBHandler) executePartiQLUpdate(
 		return nil, err
 	}
 
-	if _, updateErr := h.Backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	if _, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tableName),
 		Key:                       sdkKey,
 		UpdateExpression:          aws.String("SET " + setClause),
@@ -466,7 +499,7 @@ func (h *DynamoDBHandler) executePartiQLUpdate(
 }
 
 // executePartiQLDelete handles DELETE FROM "table" WHERE ... statements.
-func (h *DynamoDBHandler) executePartiQLDelete(
+func (r *partiQLRunner) executePartiQLDelete(
 	ctx context.Context,
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
@@ -488,7 +521,7 @@ func (h *DynamoDBHandler) executePartiQLDelete(
 
 	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
 
-	descOut, err := h.Backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
 	})
 	if err != nil {
@@ -510,7 +543,7 @@ func (h *DynamoDBHandler) executePartiQLDelete(
 		return nil, err
 	}
 
-	if _, delErr := h.Backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+	if _, delErr := r.backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(tableName),
 		Key:       sdkKey,
 	}); delErr != nil {
