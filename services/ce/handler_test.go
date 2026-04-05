@@ -1127,3 +1127,406 @@ func TestHandler_UpdateOperations_NotFound(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_GetAnomalies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "returns_empty_with_no_anomalies",
+			body:           map[string]any{},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "filter_by_monitor_arn",
+			body: map[string]any{
+				"MonitorArn": "arn:aws:ce::000000000000:anomalymonitor/test",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "with_date_interval",
+			body: map[string]any{
+				"DateInterval": map[string]string{
+					"StartDate": "2024-01-01",
+					"EndDate":   "2024-02-01",
+				},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetAnomalies", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Anomalies []any `json:"Anomalies"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out.Anomalies)
+		})
+	}
+}
+
+func TestHandler_GetApproximateUsageRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty",
+			body: map[string]any{
+				"ApproximationDimension": "SERVICE",
+				"Granularity":            "MONTHLY",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetApproximateUsageRecords", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Services     map[string]any `json:"Services"`
+				TotalRecords string         `json:"TotalRecords"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Equal(t, "0", out.TotalRecords)
+		})
+	}
+}
+
+func TestHandler_GetCommitmentPurchaseAnalysis(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "returns_stub",
+			body:           map[string]any{"AnalysisId": "analysis-123"},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCommitmentPurchaseAnalysis", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetCostAndUsageComparisons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_comparisons",
+			body: map[string]any{
+				"BaseTimePeriod":       map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
+				"Granularity":          "MONTHLY",
+				"Metrics":              []string{"BlendedCost"},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCostAndUsageComparisons", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				CostAndUsages []any `json:"CostAndUsages"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.CostAndUsages)
+		})
+	}
+}
+
+func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_results",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCostAndUsageWithResources", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				ResultsByTime []any `json:"ResultsByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.ResultsByTime)
+		})
+	}
+}
+
+func TestHandler_GetCostCategories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		costCategoryName  string
+		wantValuesContain string
+		wantLen           int
+	}{
+		{
+			name:    "returns_empty_when_no_categories",
+			wantLen: 0,
+		},
+		{
+			name:              "returns_values_for_existing_category",
+			costCategoryName:  "Env",
+			wantValuesContain: "Production",
+			wantLen:           1,
+		},
+		{
+			name:    "returns_all_values_when_no_filter",
+			wantLen: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.wantLen > 0 {
+				// Create cost categories with rules.
+				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+					"Name":        "Env",
+					"RuleVersion": "CostCategoryExpression.v1",
+					"Rules":       []map[string]any{{"Value": "Production"}},
+				})
+
+				if tt.costCategoryName == "" {
+					// Also create a second category for "all values" test.
+					doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+						"Name":        "Team",
+						"RuleVersion": "CostCategoryExpression.v1",
+						"Rules":       []map[string]any{{"Value": "Platform"}},
+					})
+				}
+			}
+
+			body := map[string]any{
+				"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+			}
+			if tt.costCategoryName != "" {
+				body["CostCategoryName"] = tt.costCategoryName
+			}
+
+			rec := doRequest(t, h, "GetCostCategories", body)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				CostCategoryValues []string `json:"CostCategoryValues"`
+				ReturnSize         int      `json:"ReturnSize"`
+				TotalSize          int      `json:"TotalSize"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.CostCategoryValues, tt.wantLen)
+			assert.Equal(t, tt.wantLen, out.ReturnSize)
+			assert.Equal(t, tt.wantLen, out.TotalSize)
+
+			if tt.wantValuesContain != "" {
+				assert.Contains(t, out.CostCategoryValues, tt.wantValuesContain)
+			}
+		})
+	}
+}
+
+func TestHandler_GetCostComparisonDrivers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_drivers",
+			body: map[string]any{
+				"BaselineTimePeriod":   map[string]string{"Start": "2023-01-01", "End": "2024-01-01"},
+				"ComparisonTimePeriod": map[string]string{"Start": "2024-01-01", "End": "2025-01-01"},
+				"Metric":               "BlendedCost",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetCostComparisonDrivers", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				CostComparisonDrivers []any `json:"CostComparisonDrivers"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.CostComparisonDrivers)
+		})
+	}
+}
+
+func TestHandler_GetReservationCoverage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_coverage",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetReservationCoverage", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				CoveragesByTime []any `json:"CoveragesByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.CoveragesByTime)
+		})
+	}
+}
+
+func TestHandler_GetReservationPurchaseRecommendation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_recommendations",
+			body: map[string]any{
+				"Service":              "Amazon Elastic Compute Cloud - Compute",
+				"LookbackPeriodInDays": "SIXTY_DAYS",
+				"TermInYears":          "ONE_YEAR",
+				"PaymentOption":        "NO_UPFRONT",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetReservationPurchaseRecommendation", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				Recommendations []any `json:"Recommendations"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.Recommendations)
+		})
+	}
+}
+
+func TestHandler_GetReservationUtilization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "returns_empty_utilization",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetReservationUtilization", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			var out struct {
+				UtilizationsByTime []any `json:"UtilizationsByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Empty(t, out.UtilizationsByTime)
+		})
+	}
+}

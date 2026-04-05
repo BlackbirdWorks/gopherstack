@@ -66,6 +66,20 @@ type AnomalySubscription struct {
 	Threshold        float64           `json:"threshold"`
 }
 
+// Anomaly represents a detected cost anomaly in AWS CE.
+type Anomaly struct {
+	CreationDate     time.Time `json:"creationDate"`
+	AnomalyID        string    `json:"anomalyID"`
+	AnomalyStartDate string    `json:"anomalyStartDate"`
+	AnomalyEndDate   string    `json:"anomalyEndDate"`
+	DimensionValue   string    `json:"dimensionValue"`
+	MonitorARN       string    `json:"monitorARN"`
+	SubscriptionARN  string    `json:"subscriptionARN"`
+	FeedbackType     string    `json:"feedbackType"`
+	AnomalyScore     float64   `json:"anomalyScore"`
+	TotalImpact      float64   `json:"totalImpact"`
+}
+
 // Subscriber represents a CE anomaly subscription notification target.
 type Subscriber struct {
 	Address string `json:"address"`
@@ -78,6 +92,7 @@ type InMemoryBackend struct {
 	costCategories       map[string]*CostCategory
 	anomalyMonitors      map[string]*AnomalyMonitor
 	anomalySubscriptions map[string]*AnomalySubscription
+	anomalies            map[string]*Anomaly
 	mu                   *lockmetrics.RWMutex
 	accountID            string
 	region               string
@@ -89,6 +104,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		costCategories:       make(map[string]*CostCategory),
 		anomalyMonitors:      make(map[string]*AnomalyMonitor),
 		anomalySubscriptions: make(map[string]*AnomalySubscription),
+		anomalies:            make(map[string]*Anomaly),
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("ce"),
@@ -106,6 +122,7 @@ func (b *InMemoryBackend) Reset() {
 	b.costCategories = make(map[string]*CostCategory)
 	b.anomalyMonitors = make(map[string]*AnomalyMonitor)
 	b.anomalySubscriptions = make(map[string]*AnomalySubscription)
+	b.anomalies = make(map[string]*Anomaly)
 }
 
 func (b *InMemoryBackend) buildCostCategoryARN(name string) string {
@@ -556,4 +573,48 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	out := *sub
 
 	return &out, nil
+}
+
+// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN.
+func (b *InMemoryBackend) GetAnomalies(monitorARN string) []*Anomaly {
+	b.mu.RLock("GetAnomalies")
+	defer b.mu.RUnlock()
+
+	result := make([]*Anomaly, 0, len(b.anomalies))
+
+	for _, a := range b.anomalies {
+		if monitorARN != "" && a.MonitorARN != monitorARN {
+			continue
+		}
+
+		out := *a
+		result = append(result, &out)
+	}
+
+	return result
+}
+
+// GetCostCategories returns the distinct cost category values stored in the
+// backend, optionally filtered by cost category name.
+func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
+	b.mu.RLock("GetCostCategories")
+	defer b.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	var values []string
+
+	for _, cat := range b.costCategories {
+		if costCategoryName != "" && cat.Name != costCategoryName {
+			continue
+		}
+
+		for _, rule := range cat.Rules {
+			if _, exists := seen[rule.Value]; !exists && rule.Value != "" {
+				seen[rule.Value] = struct{}{}
+				values = append(values, rule.Value)
+			}
+		}
+	}
+
+	return values
 }

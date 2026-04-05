@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ce.NewInMemoryBackend("000000000000", "us-east-1")
 	h := ce.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &cesdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetAnomalies",
-		"GetApproximateUsageRecords",
-		"GetCommitmentPurchaseAnalysis",
-		"GetCostAndUsageComparisons",
-		"GetCostAndUsageWithResources",
-		"GetCostCategories",
-		"GetCostComparisonDrivers",
-		"GetReservationCoverage",
-		"GetReservationPurchaseRecommendation",
-		"GetReservationUtilization",
 		"GetRightsizingRecommendation",
 		"GetSavingsPlanPurchaseRecommendationDetails",
 		"GetSavingsPlansCoverage",
