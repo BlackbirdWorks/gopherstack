@@ -881,7 +881,7 @@ func (h *Handler) handleApplyPendingMaintenanceAction(
 ) (*applyPendingMaintenanceActionOutput, error) {
 	instanceArn := ptrStr(in.ReplicationInstanceArn)
 	if instanceArn == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrValidation)
 	}
 
 	ri, err := h.Backend.ApplyPendingMaintenanceAction(
@@ -1039,12 +1039,12 @@ func (h *Handler) handleCreateDataMigration(
 ) (*createDataMigrationOutput, error) {
 	name := ptrStr(in.DataMigrationName)
 	if name == "" {
-		return nil, fmt.Errorf("%w: DataMigrationName is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: DataMigrationName is required", ErrValidation)
 	}
 
 	migrationType := ptrStr(in.DataMigrationType)
 	if migrationType == "" {
-		return nil, fmt.Errorf("%w: DataMigrationType is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: DataMigrationType is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -1103,12 +1103,12 @@ func (h *Handler) handleCreateDataProvider(
 ) (*createDataProviderOutput, error) {
 	name := ptrStr(in.DataProviderName)
 	if name == "" {
-		return nil, fmt.Errorf("%w: DataProviderName is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: DataProviderName is required", ErrValidation)
 	}
 
 	engine := ptrStr(in.Engine)
 	if engine == "" {
-		return nil, fmt.Errorf("%w: Engine is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: Engine is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -1160,12 +1160,12 @@ func (h *Handler) handleCreateEventSubscription(
 ) (*createEventSubscriptionOutput, error) {
 	name := ptrStr(in.SubscriptionName)
 	if name == "" {
-		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrValidation)
 	}
 
 	snsTopicArn := ptrStr(in.SnsTopicArn)
 	if snsTopicArn == "" {
-		return nil, fmt.Errorf("%w: SnsTopicArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: SnsTopicArn is required", ErrValidation)
 	}
 
 	enabled := true
@@ -1224,7 +1224,7 @@ func (h *Handler) handleCreateFleetAdvisorCollector(
 ) (*createFleetAdvisorCollectorOutput, error) {
 	name := ptrStr(in.CollectorName)
 	if name == "" {
-		return nil, fmt.Errorf("%w: CollectorName is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: CollectorName is required", ErrValidation)
 	}
 
 	col, err := h.Backend.CreateFleetAdvisorCollector(
