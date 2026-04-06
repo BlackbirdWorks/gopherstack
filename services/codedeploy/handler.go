@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -25,11 +26,21 @@ var (
 // Handler is the Echo HTTP handler for AWS CodeDeploy operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	// ops is a pre-built dispatch table to avoid allocating a new map on every request.
+	ops map[string]service.JSONOpFunc
 }
 
-// NewHandler creates a new CodeDeploy handler.
+// NewHandler creates a new CodeDeploy handler with a pre-built dispatch table.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.dispatchTable()
+
+	return h
+}
+
+// Reset clears the handler state by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -156,7 +167,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -201,6 +212,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrDeploymentConfigAlreadyExists):
 		return c.JSONBlob(http.StatusConflict,
 			makePayload("DeploymentConfigAlreadyExistsException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSONBlob(http.StatusBadRequest,
+			makePayload("InvalidParameterValueException", err.Error()))
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSONBlob(http.StatusBadRequest,
@@ -368,6 +382,10 @@ func (h *Handler) handleGetDeploymentGroup(
 	_ context.Context,
 	in *getDeploymentGroupInput,
 ) (*getDeploymentGroupOutput, error) {
+	if in.ApplicationName == "" || in.DeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
+	}
+
 	dg, err := h.Backend.GetDeploymentGroup(in.ApplicationName, in.DeploymentGroupName)
 	if err != nil {
 		return nil, err
@@ -461,14 +479,15 @@ type getDeploymentInput struct {
 }
 
 type deploymentInfo struct {
-	CompleteTime        *int64 `json:"completeTime,omitempty"`
-	DeploymentID        string `json:"deploymentId"`
-	ApplicationName     string `json:"applicationName"`
-	DeploymentGroupName string `json:"deploymentGroupName"`
-	Status              string `json:"status"`
-	Creator             string `json:"creator"`
-	Description         string `json:"description,omitempty"`
-	CreateTime          int64  `json:"createTime"`
+	CompleteTime         *int64 `json:"completeTime,omitempty"`
+	DeploymentID         string `json:"deploymentId"`
+	ApplicationName      string `json:"applicationName"`
+	DeploymentGroupName  string `json:"deploymentGroupName"`
+	DeploymentConfigName string `json:"deploymentConfigName,omitempty"`
+	Status               string `json:"status"`
+	Creator              string `json:"creator"`
+	Description          string `json:"description,omitempty"`
+	CreateTime           int64  `json:"createTime"`
 }
 
 type getDeploymentOutput struct {
@@ -489,13 +508,14 @@ func (h *Handler) handleGetDeployment(
 	}
 
 	info := deploymentInfo{
-		DeploymentID:        d.DeploymentID,
-		ApplicationName:     d.ApplicationName,
-		DeploymentGroupName: d.DeploymentGroupName,
-		Status:              d.Status,
-		Creator:             d.Creator,
-		CreateTime:          d.CreateTime.UnixMilli(),
-		Description:         d.Description,
+		DeploymentID:         d.DeploymentID,
+		ApplicationName:      d.ApplicationName,
+		DeploymentGroupName:  d.DeploymentGroupName,
+		DeploymentConfigName: d.DeploymentConfigName,
+		Status:               d.Status,
+		Creator:              d.Creator,
+		CreateTime:           d.CreateTime.UnixMilli(),
+		Description:          d.Description,
 	}
 
 	if d.CompleteTime != nil {
@@ -589,18 +609,27 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	entries := make([]tagEntry, 0, len(kv))
-	for k, v := range kv {
-		entries = append(entries, tagEntry{Key: k, Value: v})
-	}
-
-	return &listTagsForResourceOutput{Tags: entries}, nil
+	return &listTagsForResourceOutput{Tags: tagsToSortedSlice(kv)}, nil
 }
 
 // tagEntry is a key-value tag pair for JSON (de)serialization.
 type tagEntry struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
+}
+
+// tagsToSortedSlice converts a tag map to a deterministically-sorted slice of tagEntry.
+func tagsToSortedSlice(kv map[string]string) []tagEntry {
+	entries := make([]tagEntry, 0, len(kv))
+	for k, v := range kv {
+		entries = append(entries, tagEntry{Key: k, Value: v})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Key < entries[j].Key
+	})
+
+	return entries
 }
 
 // tagEntriesToMap converts a slice of tag entries to a map.
@@ -668,7 +697,7 @@ func (h *Handler) handleBatchGetApplicationRevisions(
 		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
 	}
 
-	appName, err := h.Backend.BatchGetApplicationRevisions(in.ApplicationName)
+	appName, err := h.Backend.BatchGetApplicationRevisions(in.ApplicationName, len(in.Revisions))
 	if err != nil {
 		return nil, err
 	}
@@ -829,13 +858,14 @@ func (h *Handler) handleBatchGetDeployments(
 	infos := make([]deploymentInfo, 0, len(deployments))
 	for _, d := range deployments {
 		info := deploymentInfo{
-			DeploymentID:        d.DeploymentID,
-			ApplicationName:     d.ApplicationName,
-			DeploymentGroupName: d.DeploymentGroupName,
-			Status:              d.Status,
-			Creator:             d.Creator,
-			CreateTime:          d.CreateTime.UnixMilli(),
-			Description:         d.Description,
+			DeploymentID:         d.DeploymentID,
+			ApplicationName:      d.ApplicationName,
+			DeploymentGroupName:  d.DeploymentGroupName,
+			DeploymentConfigName: d.DeploymentConfigName,
+			Status:               d.Status,
+			Creator:              d.Creator,
+			CreateTime:           d.CreateTime.UnixMilli(),
+			Description:          d.Description,
 		}
 
 		if d.CompleteTime != nil {
@@ -891,12 +921,9 @@ func (h *Handler) handleBatchGetOnPremisesInstances(
 		}
 
 		if inst.Tags != nil {
-			kv := inst.Tags.Clone()
-			entries := make([]tagEntry, 0, len(kv))
-			for k, v := range kv {
-				entries = append(entries, tagEntry{Key: k, Value: v})
-			}
-			info.Tags = entries
+			info.Tags = tagsToSortedSlice(inst.Tags.Clone())
+		} else {
+			info.Tags = []tagEntry{}
 		}
 
 		infos = append(infos, info)

@@ -1419,3 +1419,419 @@ func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
 		assert.Contains(t, ops, op)
 	}
 }
+
+// --- Refinement check 1 tests ---
+
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("app-1", "Server", nil)
+	_, _ = h.Backend.CreateApplication("app-2", "Lambda", nil)
+
+	require.Equal(t, 2, h.Backend.ApplicationCount())
+
+	h.Reset()
+
+	assert.Equal(t, 0, h.Backend.ApplicationCount())
+	assert.Equal(t, 0, h.Backend.DeploymentCount())
+	assert.Equal(t, 0, h.Backend.DeploymentConfigCount())
+}
+
+func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &codedeploy.Provider{}
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, codedeploy.ErrNilAppContext)
+}
+
+func TestRefinement1_SortedListApplications(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("zebra", "Server", nil)
+	_, _ = h.Backend.CreateApplication("apple", "Server", nil)
+	_, _ = h.Backend.CreateApplication("mango", "Server", nil)
+
+	rec := doRequest(t, h, "ListApplications", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Applications []string `json:"applications"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, []string{"apple", "mango", "zebra"}, resp.Applications)
+}
+
+func TestRefinement1_SortedListDeploymentGroups(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "z-group", "", "", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "a-group", "", "", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "m-group", "", "", nil)
+
+	rec := doRequest(t, h, "ListDeploymentGroups", map[string]any{"applicationName": "my-app"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		DeploymentGroups []string `json:"deploymentGroups"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, []string{"a-group", "m-group", "z-group"}, resp.DeploymentGroups)
+}
+
+func TestRefinement1_SortedListDeployments(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
+	d1, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+	d2, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+
+	rec := doRequest(t, h, "ListDeployments", map[string]any{"applicationName": "my-app"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Deployments []string `json:"deployments"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp.Deployments, 2)
+
+	ids := []string{d1.DeploymentID, d2.DeploymentID}
+	_ = ids // verify both exist
+	assert.Contains(t, resp.Deployments, d1.DeploymentID)
+	assert.Contains(t, resp.Deployments, d2.DeploymentID)
+
+	// Verify the output is sorted
+	assert.LessOrEqual(t, resp.Deployments[0], resp.Deployments[1], "deployments should be sorted")
+}
+
+func TestRefinement1_SortedTagsInListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", map[string]string{
+		"zzz": "last",
+		"aaa": "first",
+		"mmm": "middle",
+	})
+
+	arn := h.Backend.ApplicationARN("my-app")
+	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": arn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"tags"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Tags, 3)
+	assert.Equal(t, "aaa", resp.Tags[0].Key)
+	assert.Equal(t, "mmm", resp.Tags[1].Key)
+	assert.Equal(t, "zzz", resp.Tags[2].Key)
+}
+
+func TestRefinement1_TagsOnDeploymentGroups(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
+
+	dgArn := h.Backend.DeploymentGroupARN("my-app", "my-dg")
+
+	// Tag the deployment group via TagResource
+	rec := doRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": dgArn,
+		"tags":        []map[string]string{{"Key": "env", "Value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Read the tags back
+	rec = doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": dgArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"tags"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Tags, 1)
+	assert.Equal(t, "env", resp.Tags[0].Key)
+	assert.Equal(t, "prod", resp.Tags[0].Value)
+}
+
+func TestRefinement1_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	h.Backend.AddApplicationInternal(&codedeploy.Application{
+		ApplicationName: "seeded-app",
+		ComputePlatform: "Lambda",
+	})
+
+	h.Backend.AddDeploymentGroupInternal(&codedeploy.DeploymentGroup{
+		ApplicationName:     "seeded-app",
+		DeploymentGroupName: "seeded-dg",
+	})
+
+	h.Backend.AddDeploymentInternal(&codedeploy.Deployment{
+		ApplicationName:     "seeded-app",
+		DeploymentGroupName: "seeded-dg",
+		Status:              "InProgress",
+	})
+
+	h.Backend.AddOnPremisesInstanceInternal(&codedeploy.OnPremisesInstance{
+		InstanceName: "my-server",
+	})
+
+	h.Backend.AddDeploymentConfigInternal(&codedeploy.DeploymentConfig{
+		DeploymentConfigName: "my-config",
+		ComputePlatform:      "ECS",
+	})
+
+	assert.Equal(t, 1, h.Backend.ApplicationCount())
+	assert.Equal(t, 1, h.Backend.DeploymentGroupCount("seeded-app"))
+	assert.Equal(t, 1, h.Backend.DeploymentCount())
+	assert.Equal(t, 1, h.Backend.OnPremisesInstanceCount())
+	assert.Equal(t, 1, h.Backend.DeploymentConfigCount())
+}
+
+func TestRefinement1_DeploymentConfigARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	cfgARN := h.Backend.DeploymentConfigARN("my-config")
+
+	assert.Contains(t, cfgARN, "deploymentconfig:my-config")
+}
+
+func TestRefinement1_DeploymentGroupARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dgARN := h.Backend.DeploymentGroupARN("my-app", "my-dg")
+
+	assert.Contains(t, dgARN, "deploymentgroup:my-app/my-dg")
+}
+
+func TestRefinement1_ComputePlatformValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		platform    string
+		wantStatus  int
+		wantSuccess bool
+	}{
+		{name: "server", platform: "Server", wantStatus: http.StatusOK, wantSuccess: true},
+		{name: "lambda", platform: "Lambda", wantStatus: http.StatusOK, wantSuccess: true},
+		{name: "ecs", platform: "ECS", wantStatus: http.StatusOK, wantSuccess: true},
+		{name: "invalid", platform: "Docker", wantStatus: http.StatusBadRequest, wantSuccess: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateDeploymentConfig", map[string]any{
+				"deploymentConfigName": "cfg-" + tt.name,
+				"computePlatform":      tt.platform,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestRefinement1_GetDeploymentGroupRequiresAppName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "GetDeploymentGroup", map[string]any{
+		"deploymentGroupName": "my-dg",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRefinement1_BatchGetApplicationRevisions_MaxLimit(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+
+	// Build 26 revisions (> maxBatchRevisions=25)
+	revisions := make([]map[string]string, 26)
+	for i := range revisions {
+		revisions[i] = map[string]string{"revisionType": "S3"}
+	}
+
+	rec := doRequest(t, h, "BatchGetApplicationRevisions", map[string]any{
+		"applicationName": "my-app",
+		"revisions":       revisions,
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRefinement1_DeploymentInfoIncludesConfigName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "CodeDeployDefault.AllAtOnce", nil)
+	d, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+
+	rec := doRequest(t, h, "GetDeployment", map[string]any{"deploymentId": d.DeploymentID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	info := resp["deploymentInfo"]
+	assert.Equal(t, "CodeDeployDefault.AllAtOnce", info["deploymentConfigName"])
+}
+
+func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("persisted-app", "Server", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("persisted-app", "persisted-dg", "", "", nil)
+	d, _ := h.Backend.CreateDeployment("persisted-app", "persisted-dg", "", "")
+	_, _ = h.Backend.CreateDeploymentConfig("persisted-cfg", "Lambda")
+
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(snap))
+
+	assert.Equal(t, 1, h2.Backend.ApplicationCount())
+	assert.Equal(t, 1, h2.Backend.DeploymentGroupCount("persisted-app"))
+	assert.Equal(t, 1, h2.Backend.DeploymentCount())
+	assert.Equal(t, 1, h2.Backend.DeploymentConfigCount())
+
+	// Verify deployment is readable
+	rec := doRequest(t, h2, "GetDeployment", map[string]any{"deploymentId": d.DeploymentID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRefinement1_ErrValidationMapping(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Invalid compute platform triggers ErrValidation → 400
+	rec := doRequest(t, h, "CreateDeploymentConfig", map[string]any{
+		"deploymentConfigName": "bad-cfg",
+		"computePlatform":      "InvalidPlatform",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterValueException", resp["__type"])
+}
+
+func TestRefinement1_OnPremisesInstanceTagsAlwaysSlice(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Add instance with no tags
+	h.Backend.AddOnPremisesInstanceInternal(&codedeploy.OnPremisesInstance{
+		InstanceName: "notag-server",
+	})
+
+	rec := doRequest(t, h, "BatchGetOnPremisesInstances", map[string]any{
+		"instanceNames": []string{"notag-server"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		InstanceInfos []struct {
+			Tags []map[string]string `json:"tags"`
+		} `json:"instanceInfos"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.InstanceInfos, 1)
+	// Tags should be an empty slice, not nil/missing
+	assert.NotNil(t, resp.InstanceInfos[0].Tags)
+	assert.Empty(t, resp.InstanceInfos[0].Tags)
+}
+
+func TestRefinement1_BatchGetDeploymentGroups_EmptySlice(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+
+	rec := doRequest(t, h, "BatchGetDeploymentGroups", map[string]any{
+		"applicationName":      "my-app",
+		"deploymentGroupNames": []string{"nonexistent"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		DeploymentGroupsInfo []any `json:"deploymentGroupsInfo"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	// Should be an empty array not null
+	assert.NotNil(t, resp.DeploymentGroupsInfo)
+	assert.Empty(t, resp.DeploymentGroupsInfo)
+}
+
+func TestRefinement1_UntagDeploymentGroup(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", map[string]string{"env": "test", "team": "eng"})
+
+	dgARN := h.Backend.DeploymentGroupARN("my-app", "my-dg")
+
+	rec := doRequest(t, h, "UntagResource", map[string]any{
+		"resourceArn": dgARN,
+		"tagKeys":     []string{"team"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	kv, err := h.Backend.ListTagsForResource(dgARN)
+	require.NoError(t, err)
+	assert.NotContains(t, kv, "team")
+	assert.Contains(t, kv, "env")
+}
