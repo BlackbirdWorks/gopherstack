@@ -1,7 +1,10 @@
 package codecommit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,7 +20,82 @@ var (
 	ErrNotFound = awserr.New("RepositoryDoesNotExistException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("RepositoryNameExistsException", awserr.ErrConflict)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+	// ErrApprovalRuleTemplateNotFound is returned when an approval rule template is not found.
+	ErrApprovalRuleTemplateNotFound = awserr.New("ApprovalRuleTemplateDoesNotExistException", awserr.ErrNotFound)
+	// ErrApprovalRuleTemplateAlreadyExists is returned when an approval rule template already exists.
+	ErrApprovalRuleTemplateAlreadyExists = awserr.New(
+		"ApprovalRuleTemplateNameAlreadyExistsException",
+		awserr.ErrConflict,
+	)
+	// ErrBranchNotFound is returned when a branch is not found.
+	ErrBranchNotFound = awserr.New("BranchDoesNotExistException", awserr.ErrNotFound)
+	// ErrBranchAlreadyExists is returned when a branch already exists.
+	ErrBranchAlreadyExists = awserr.New("BranchNameExistsException", awserr.ErrConflict)
+	// ErrCommitNotFound is returned when a commit is not found.
+	ErrCommitNotFound = awserr.New("CommitDoesNotExistException", awserr.ErrNotFound)
+	// ErrPullRequestNotFound is returned when a pull request is not found.
+	ErrPullRequestNotFound = awserr.New("PullRequestDoesNotExistException", awserr.ErrNotFound)
 )
+
+// ApprovalRuleTemplate represents an AWS CodeCommit approval rule template.
+type ApprovalRuleTemplate struct {
+	CreationDate                    time.Time `json:"creationDate"`
+	LastModifiedDate                time.Time `json:"lastModifiedDate"`
+	ApprovalRuleTemplateID          string    `json:"approvalRuleTemplateId"`
+	ApprovalRuleTemplateName        string    `json:"approvalRuleTemplateName"`
+	ApprovalRuleTemplateARN         string    `json:"approvalRuleTemplateArn"`
+	ApprovalRuleTemplateContent     string    `json:"approvalRuleTemplateContent"`
+	ApprovalRuleTemplateDescription string    `json:"approvalRuleTemplateDescription,omitempty"`
+	LastModifiedUser                string    `json:"lastModifiedUser,omitempty"`
+	RuleContentSha256               string    `json:"ruleContentSha256"`
+}
+
+// Branch represents a CodeCommit branch.
+type Branch struct {
+	BranchName     string `json:"branchName"`
+	CommitID       string `json:"commitId"`
+	RepositoryName string `json:"repositoryName"`
+}
+
+// Commit represents a CodeCommit commit.
+type Commit struct {
+	CommitID       string   `json:"commitId"`
+	TreeID         string   `json:"treeId"`
+	Message        string   `json:"message,omitempty"`
+	AdditionalData string   `json:"additionalData,omitempty"`
+	AuthorName     string   `json:"authorName,omitempty"`
+	AuthorEmail    string   `json:"authorEmail,omitempty"`
+	CommitterName  string   `json:"committerName,omitempty"`
+	CommitterEmail string   `json:"committerEmail,omitempty"`
+	RepositoryName string   `json:"repositoryName"`
+	Parents        []string `json:"parents,omitempty"`
+}
+
+// PullRequestTarget represents a target for a pull request.
+type PullRequestTarget struct {
+	RepositoryName       string `json:"repositoryName"`
+	SourceReference      string `json:"sourceReference"`
+	DestinationReference string `json:"destinationReference,omitempty"`
+	SourceCommit         string `json:"sourceCommit,omitempty"`
+	DestinationCommit    string `json:"destinationCommit,omitempty"`
+	MergeBase            string `json:"mergeBase,omitempty"`
+}
+
+// PullRequest represents a CodeCommit pull request.
+type PullRequest struct {
+	CreationDate       time.Time           `json:"creationDate"`
+	LastActivityDate   time.Time           `json:"lastActivityDate"`
+	PullRequestID      string              `json:"pullRequestId"`
+	Title              string              `json:"title"`
+	Description        string              `json:"description,omitempty"`
+	AuthorARN          string              `json:"authorArn,omitempty"`
+	PullRequestStatus  string              `json:"pullRequestStatus"`
+	ClientRequestToken string              `json:"clientRequestToken,omitempty"`
+	RevisionID         string              `json:"revisionId"`
+	PullRequestTargets []PullRequestTarget `json:"pullRequestTargets"`
+}
 
 // Repository represents an AWS CodeCommit repository.
 //
@@ -39,19 +117,34 @@ type Repository struct {
 
 // InMemoryBackend is the in-memory store for CodeCommit resources.
 type InMemoryBackend struct {
-	repositories map[string]*Repository // key: repositoryName
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	repositories          map[string]*Repository           // key: repositoryName
+	approvalRuleTemplates map[string]*ApprovalRuleTemplate // key: templateName
+	// repoTemplateAssoc maps repositoryName -> set of templateNames
+	repoTemplateAssoc map[string]map[string]struct{}
+	// branches maps repositoryName -> branchName -> Branch
+	branches map[string]map[string]*Branch
+	// commits maps repositoryName -> commitId -> Commit
+	commits map[string]map[string]*Commit
+	// pullRequests maps pullRequestId -> PullRequest
+	pullRequests  map[string]*PullRequest
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
+	nextPRCounter int
 }
 
 // NewInMemoryBackend creates a new in-memory CodeCommit backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		repositories: make(map[string]*Repository),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("codecommit"),
+		repositories:          make(map[string]*Repository),
+		approvalRuleTemplates: make(map[string]*ApprovalRuleTemplate),
+		repoTemplateAssoc:     make(map[string]map[string]struct{}),
+		branches:              make(map[string]map[string]*Branch),
+		commits:               make(map[string]map[string]*Commit),
+		pullRequests:          make(map[string]*PullRequest),
+		accountID:             accountID,
+		region:                region,
+		mu:                    lockmetrics.New("codecommit"),
 	}
 }
 
@@ -181,4 +274,441 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
+// BatchGetRepositories returns repositories by name, splitting results into found/notFound.
+func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, []string) {
+	b.mu.RLock("BatchGetRepositories")
+	defer b.mu.RUnlock()
+
+	var found []*Repository
+
+	var notFound []string
+
+	for _, name := range names {
+		r, ok := b.repositories[name]
+		if !ok {
+			notFound = append(notFound, name)
+
+			continue
+		}
+		cp := *r
+		found = append(found, &cp)
+	}
+
+	return found, notFound
+}
+
+// CreateApprovalRuleTemplate creates a new approval rule template.
+func (b *InMemoryBackend) CreateApprovalRuleTemplate(name, description, content string) (*ApprovalRuleTemplate, error) {
+	b.mu.Lock("CreateApprovalRuleTemplate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.approvalRuleTemplates[name]; ok {
+		return nil, fmt.Errorf(
+			"%w: approval rule template %s already exists",
+			ErrApprovalRuleTemplateAlreadyExists,
+			name,
+		)
+	}
+
+	templateID := uuid.NewString()
+	templateARN := arn.Build("codecommit", b.region, b.accountID, "approval-rule-template/"+name)
+	now := time.Now().UTC()
+	hash := sha256.Sum256([]byte(content))
+	t := &ApprovalRuleTemplate{
+		ApprovalRuleTemplateID:          templateID,
+		ApprovalRuleTemplateName:        name,
+		ApprovalRuleTemplateARN:         templateARN,
+		ApprovalRuleTemplateContent:     content,
+		ApprovalRuleTemplateDescription: description,
+		CreationDate:                    now,
+		LastModifiedDate:                now,
+		RuleContentSha256:               hex.EncodeToString(hash[:]),
+	}
+	b.approvalRuleTemplates[name] = t
+	cp := *t
+
+	return &cp, nil
+}
+
+// AssociateApprovalRuleTemplateWithRepository associates an approval rule template with a repository.
+func (b *InMemoryBackend) AssociateApprovalRuleTemplateWithRepository(templateName, repositoryName string) error {
+	b.mu.Lock("AssociateApprovalRuleTemplateWithRepository")
+	defer b.mu.Unlock()
+
+	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, templateName)
+	}
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	if b.repoTemplateAssoc[repositoryName] == nil {
+		b.repoTemplateAssoc[repositoryName] = make(map[string]struct{})
+	}
+	b.repoTemplateAssoc[repositoryName][templateName] = struct{}{}
+
+	return nil
+}
+
+// DisassociateApprovalRuleTemplateFromRepository removes an approval rule template association from a repository.
+func (b *InMemoryBackend) DisassociateApprovalRuleTemplateFromRepository(templateName, repositoryName string) error {
+	b.mu.Lock("DisassociateApprovalRuleTemplateFromRepository")
+	defer b.mu.Unlock()
+
+	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, templateName)
+	}
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	if assoc, ok := b.repoTemplateAssoc[repositoryName]; ok {
+		delete(assoc, templateName)
+	}
+
+	return nil
+}
+
+// BatchAssociateApprovalRuleTemplateWithRepositories associates an approval rule template with multiple repositories.
+// Returns lists of associated and failed repository names.
+func (b *InMemoryBackend) BatchAssociateApprovalRuleTemplateWithRepositories(
+	templateName string,
+	repositoryNames []string,
+) ([]string, []BatchAssociationError) {
+	b.mu.Lock("BatchAssociateApprovalRuleTemplateWithRepositories")
+	defer b.mu.Unlock()
+
+	var associated []string
+
+	var errors []BatchAssociationError
+
+	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+		for _, name := range repositoryNames {
+			errors = append(errors, BatchAssociationError{
+				RepositoryName: name,
+				ErrorCode:      "ApprovalRuleTemplateDoesNotExistException",
+				ErrorMessage:   fmt.Sprintf("approval rule template %s not found", templateName),
+			})
+		}
+
+		return associated, errors
+	}
+
+	for _, name := range repositoryNames {
+		if _, ok := b.repositories[name]; !ok {
+			errors = append(errors, BatchAssociationError{
+				RepositoryName: name,
+				ErrorCode:      "RepositoryDoesNotExistException",
+				ErrorMessage:   fmt.Sprintf("repository %s not found", name),
+			})
+
+			continue
+		}
+
+		if b.repoTemplateAssoc[name] == nil {
+			b.repoTemplateAssoc[name] = make(map[string]struct{})
+		}
+		b.repoTemplateAssoc[name][templateName] = struct{}{}
+		associated = append(associated, name)
+	}
+
+	return associated, errors
+}
+
+// BatchDisassociateApprovalRuleTemplateFromRepositories removes associations between
+// a template and multiple repositories.
+func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
+	templateName string,
+	repositoryNames []string,
+) ([]string, []BatchAssociationError) {
+	b.mu.Lock("BatchDisassociateApprovalRuleTemplateFromRepositories")
+	defer b.mu.Unlock()
+
+	var disassociated []string
+
+	var errors []BatchAssociationError
+
+	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+		for _, name := range repositoryNames {
+			errors = append(errors, BatchAssociationError{
+				RepositoryName: name,
+				ErrorCode:      "ApprovalRuleTemplateDoesNotExistException",
+				ErrorMessage:   fmt.Sprintf("approval rule template %s not found", templateName),
+			})
+		}
+
+		return disassociated, errors
+	}
+
+	for _, name := range repositoryNames {
+		if _, ok := b.repositories[name]; !ok {
+			errors = append(errors, BatchAssociationError{
+				RepositoryName: name,
+				ErrorCode:      "RepositoryDoesNotExistException",
+				ErrorMessage:   fmt.Sprintf("repository %s not found", name),
+			})
+
+			continue
+		}
+
+		if assoc, ok := b.repoTemplateAssoc[name]; ok {
+			delete(assoc, templateName)
+		}
+		disassociated = append(disassociated, name)
+	}
+
+	return disassociated, errors
+}
+
+// BatchAssociationError holds the error info for a single failed batch association.
+type BatchAssociationError struct {
+	RepositoryName string `json:"repositoryName"`
+	ErrorCode      string `json:"errorCode"`
+	ErrorMessage   string `json:"errorMessage"`
+}
+
+// CreateBranch creates a new branch in a repository.
+func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID string) error {
+	b.mu.Lock("CreateBranch")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	if b.branches[repositoryName] == nil {
+		b.branches[repositoryName] = make(map[string]*Branch)
+	}
+
+	if _, ok := b.branches[repositoryName][branchName]; ok {
+		return fmt.Errorf("%w: branch %s already exists", ErrBranchAlreadyExists, branchName)
+	}
+
+	b.branches[repositoryName][branchName] = &Branch{
+		BranchName:     branchName,
+		CommitID:       commitID,
+		RepositoryName: repositoryName,
+	}
+
+	return nil
+}
+
+// CreateCommit creates a new commit in a repository.
+func (b *InMemoryBackend) CreateCommit(
+	repositoryName, branchName, authorName, authorEmail, message string,
+) (*Commit, error) {
+	b.mu.Lock("CreateCommit")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	commitID := uuid.NewString()
+	treeID := uuid.NewString()
+
+	commit := &Commit{
+		CommitID:       commitID,
+		TreeID:         treeID,
+		Message:        message,
+		AuthorName:     authorName,
+		AuthorEmail:    authorEmail,
+		CommitterName:  authorName,
+		CommitterEmail: authorEmail,
+		RepositoryName: repositoryName,
+	}
+
+	if b.commits[repositoryName] == nil {
+		b.commits[repositoryName] = make(map[string]*Commit)
+	}
+	b.commits[repositoryName][commitID] = commit
+
+	// Update the branch if specified.
+	if branchName != "" {
+		if b.branches[repositoryName] == nil {
+			b.branches[repositoryName] = make(map[string]*Branch)
+		}
+		b.branches[repositoryName][branchName] = &Branch{
+			BranchName:     branchName,
+			CommitID:       commitID,
+			RepositoryName: repositoryName,
+		}
+	}
+
+	cp := *commit
+
+	return &cp, nil
+}
+
+// BatchGetCommits retrieves multiple commits by ID from a repository.
+func (b *InMemoryBackend) BatchGetCommits(repositoryName string, commitIDs []string) ([]*Commit, []BatchCommitError) {
+	b.mu.RLock("BatchGetCommits")
+	defer b.mu.RUnlock()
+
+	var found []*Commit
+
+	var errors []BatchCommitError
+
+	repoCommits := b.commits[repositoryName]
+
+	for _, id := range commitIDs {
+		if repoCommits == nil {
+			errors = append(errors, BatchCommitError{
+				CommitID:     id,
+				ErrorCode:    "CommitDoesNotExistException",
+				ErrorMessage: fmt.Sprintf("commit %s not found", id),
+			})
+
+			continue
+		}
+
+		c, ok := repoCommits[id]
+		if !ok {
+			errors = append(errors, BatchCommitError{
+				CommitID:     id,
+				ErrorCode:    "CommitDoesNotExistException",
+				ErrorMessage: fmt.Sprintf("commit %s not found", id),
+			})
+
+			continue
+		}
+
+		cp := *c
+		found = append(found, &cp)
+	}
+
+	return found, errors
+}
+
+// BatchCommitError holds error information for a failed batch commit retrieval.
+type BatchCommitError struct {
+	CommitID     string `json:"commitId"`
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+// BatchDescribeMergeConflictsResult holds the result of a merge conflict description.
+type BatchDescribeMergeConflictsResult struct {
+	DestinationCommitID string          `json:"destinationCommitId"`
+	SourceCommitID      string          `json:"sourceCommitId"`
+	BaseCommitID        string          `json:"baseCommitId,omitempty"`
+	Conflicts           []MergeConflict `json:"conflicts"`
+	Errors              []ConflictError `json:"errors,omitempty"`
+}
+
+// MergeConflict represents a single file conflict.
+type MergeConflict struct {
+	MergeHunks       []MergeHunk      `json:"mergeHunks,omitempty"`
+	ConflictMetadata ConflictMetadata `json:"conflictMetadata"`
+}
+
+// ConflictMetadata holds metadata about a merge conflict.
+type ConflictMetadata struct {
+	FilePath          string           `json:"filePath"`
+	NumberOfConflicts int              `json:"numberOfConflicts"`
+	IsBinaryFile      FileBinaryStatus `json:"isBinaryFile"`
+	ContentConflict   bool             `json:"contentConflict"`
+}
+
+// FileBinaryStatus holds whether each version of a file is binary.
+type FileBinaryStatus struct {
+	Source      bool `json:"source"`
+	Destination bool `json:"destination"`
+	Base        bool `json:"base"`
+}
+
+// MergeHunk represents a merge hunk.
+type MergeHunk struct {
+	Source      *MergeHunkDetail `json:"source,omitempty"`
+	Destination *MergeHunkDetail `json:"destination,omitempty"`
+	Base        *MergeHunkDetail `json:"base,omitempty"`
+	IsConflict  bool             `json:"isConflict"`
+}
+
+// MergeHunkDetail represents details about a merge hunk.
+type MergeHunkDetail struct {
+	HunkContent string `json:"hunkContent"`
+	StartLine   int    `json:"startLine"`
+	EndLine     int    `json:"endLine"`
+}
+
+// ConflictError represents an error encountered while describing a conflict.
+type ConflictError struct {
+	FilePath     string `json:"filePath"`
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+// BatchDescribeMergeConflicts describes merge conflicts between two commits.
+// This is a stub implementation — it returns empty conflicts since the backend
+// does not track file-level content.
+func (b *InMemoryBackend) BatchDescribeMergeConflicts(
+	repositoryName, destinationCommitSpecifier, sourceCommitSpecifier, _ string,
+	filePaths []string,
+) (*BatchDescribeMergeConflictsResult, error) {
+	b.mu.RLock("BatchDescribeMergeConflicts")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	result := &BatchDescribeMergeConflictsResult{
+		DestinationCommitID: destinationCommitSpecifier,
+		SourceCommitID:      sourceCommitSpecifier,
+		Conflicts:           []MergeConflict{},
+	}
+
+	if len(filePaths) > 0 {
+		result.Conflicts = make([]MergeConflict, 0, len(filePaths))
+		for _, fp := range filePaths {
+			result.Conflicts = append(result.Conflicts, MergeConflict{
+				ConflictMetadata: ConflictMetadata{
+					FilePath:          fp,
+					NumberOfConflicts: 0,
+					ContentConflict:   false,
+				},
+				MergeHunks: []MergeHunk{},
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// CreatePullRequest creates a new pull request.
+func (b *InMemoryBackend) CreatePullRequest(
+	title, description, clientRequestToken string,
+	targets []PullRequestTarget,
+) (*PullRequest, error) {
+	b.mu.Lock("CreatePullRequest")
+	defer b.mu.Unlock()
+
+	b.nextPRCounter++
+	prID := strconv.Itoa(b.nextPRCounter)
+	now := time.Now().UTC()
+
+	pr := &PullRequest{
+		PullRequestID:      prID,
+		Title:              title,
+		Description:        description,
+		PullRequestStatus:  "OPEN",
+		CreationDate:       now,
+		LastActivityDate:   now,
+		ClientRequestToken: clientRequestToken,
+		PullRequestTargets: targets,
+		RevisionID:         uuid.NewString(),
+	}
+	b.pullRequests[prID] = pr
+	cp := *pr
+
+	// deep copy targets slice
+	cp.PullRequestTargets = make([]PullRequestTarget, len(targets))
+	copy(cp.PullRequestTargets, targets)
+
+	return &cp, nil
 }

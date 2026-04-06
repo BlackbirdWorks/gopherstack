@@ -25,11 +25,40 @@ var (
 // Handler is the Echo HTTP handler for AWS CodeCommit operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]func([]byte) (any, error)
 }
 
 // NewHandler creates a new CodeCommit handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// buildOps returns the dispatch table mapping action name to handler function.
+func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
+	batchDisassoc := h.handleBatchDisassociateApprovalRuleTemplateFromRepositories
+
+	return map[string]func([]byte) (any, error){
+		"AssociateApprovalRuleTemplateWithRepository":           h.handleAssociateApprovalRuleTemplateWithRepository,
+		"BatchAssociateApprovalRuleTemplateWithRepositories":    h.handleBatchAssociateApprovalRuleTemplateWithRepositories,
+		"BatchDescribeMergeConflicts":                           h.handleBatchDescribeMergeConflicts,
+		"BatchDisassociateApprovalRuleTemplateFromRepositories": batchDisassoc,
+		"BatchGetCommits":            h.handleBatchGetCommits,
+		"BatchGetRepositories":       h.handleBatchGetRepositories,
+		"CreateApprovalRuleTemplate": h.handleCreateApprovalRuleTemplate,
+		"CreateBranch":               h.handleCreateBranch,
+		"CreateCommit":               h.handleCreateCommit,
+		"CreatePullRequest":          h.handleCreatePullRequest,
+		"CreateRepository":           h.handleCreateRepository,
+		"GetRepository":              h.handleGetRepository,
+		"DeleteRepository":           h.handleDeleteRepository,
+		"ListRepositories":           h.handleListRepositories,
+		"TagResource":                h.handleTagResource,
+		"UntagResource":              h.handleUntagResource,
+		"ListTagsForResource":        h.handleListTagsForResource,
+	}
 }
 
 // Name returns the service name.
@@ -38,6 +67,16 @@ func (h *Handler) Name() string { return "CodeCommit" }
 // GetSupportedOperations returns the list of supported CodeCommit operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AssociateApprovalRuleTemplateWithRepository",
+		"BatchAssociateApprovalRuleTemplateWithRepositories",
+		"BatchDescribeMergeConflicts",
+		"BatchDisassociateApprovalRuleTemplateFromRepositories",
+		"BatchGetCommits",
+		"BatchGetRepositories",
+		"CreateApprovalRuleTemplate",
+		"CreateBranch",
+		"CreateCommit",
+		"CreatePullRequest",
 		"CreateRepository",
 		"GetRepository",
 		"DeleteRepository",
@@ -110,33 +149,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the operation to the appropriate handler and marshals the response.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	resp, err := h.dispatchJSON(action, body)
+	fn, ok := h.ops[action]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+
+	resp, err := fn(body)
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(resp)
-}
-
-func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
-	switch action {
-	case "CreateRepository":
-		return h.handleCreateRepository(body)
-	case "GetRepository":
-		return h.handleGetRepository(body)
-	case "DeleteRepository":
-		return h.handleDeleteRepository(body)
-	case "ListRepositories":
-		return h.handleListRepositories(body)
-	case "TagResource":
-		return h.handleTagResource(body)
-	case "UntagResource":
-		return h.handleUntagResource(body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(body)
-	}
-
-	return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 }
 
 // handleError maps backend errors to HTTP error responses.
@@ -151,6 +174,27 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
 		errType = "RepositoryNameExistsException"
+	case errors.Is(err, ErrApprovalRuleTemplateNotFound):
+		code = http.StatusNotFound
+		errType = "ApprovalRuleTemplateDoesNotExistException"
+	case errors.Is(err, ErrApprovalRuleTemplateAlreadyExists):
+		code = http.StatusBadRequest
+		errType = "ApprovalRuleTemplateNameAlreadyExistsException"
+	case errors.Is(err, ErrBranchNotFound):
+		code = http.StatusNotFound
+		errType = "BranchDoesNotExistException"
+	case errors.Is(err, ErrBranchAlreadyExists):
+		code = http.StatusBadRequest
+		errType = "BranchNameExistsException"
+	case errors.Is(err, ErrCommitNotFound):
+		code = http.StatusNotFound
+		errType = "CommitDoesNotExistException"
+	case errors.Is(err, ErrPullRequestNotFound):
+		code = http.StatusNotFound
+		errType = "PullRequestDoesNotExistException"
+	case errors.Is(err, ErrValidation):
+		code = http.StatusBadRequest
+		errType = "InvalidParameterException"
 	case errors.Is(err, errInvalidRequest):
 		code = http.StatusBadRequest
 		errType = "ValidationException"
@@ -331,5 +375,374 @@ func (h *Handler) handleListTagsForResource(body []byte) (any, error) {
 
 	return map[string]any{
 		"tags": kv,
+	}, nil
+}
+
+// --- New operation input types ---
+
+type createApprovalRuleTemplateInput struct {
+	ApprovalRuleTemplateName        string `json:"approvalRuleTemplateName"`
+	ApprovalRuleTemplateContent     string `json:"approvalRuleTemplateContent"`
+	ApprovalRuleTemplateDescription string `json:"approvalRuleTemplateDescription"`
+}
+
+type associateApprovalRuleTemplateWithRepositoryInput struct {
+	ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
+	RepositoryName           string `json:"repositoryName"`
+}
+
+type batchAssociateApprovalRuleTemplateInput struct {
+	ApprovalRuleTemplateName string   `json:"approvalRuleTemplateName"`
+	RepositoryNames          []string `json:"repositoryNames"`
+}
+
+type batchDisassociateApprovalRuleTemplateInput struct {
+	ApprovalRuleTemplateName string   `json:"approvalRuleTemplateName"`
+	RepositoryNames          []string `json:"repositoryNames"`
+}
+
+type batchDescribeMergeConflictsInput struct {
+	RepositoryName             string   `json:"repositoryName"`
+	DestinationCommitSpecifier string   `json:"destinationCommitSpecifier"`
+	SourceCommitSpecifier      string   `json:"sourceCommitSpecifier"`
+	MergeOption                string   `json:"mergeOption"`
+	FilePaths                  []string `json:"filePaths"`
+}
+
+type batchGetCommitsInput struct {
+	RepositoryName string   `json:"repositoryName"`
+	CommitIDs      []string `json:"commitIds"`
+}
+
+type batchGetRepositoriesInput struct {
+	RepositoryNames []string `json:"repositoryNames"`
+}
+
+type createBranchInput struct {
+	RepositoryName string `json:"repositoryName"`
+	BranchName     string `json:"branchName"`
+	CommitID       string `json:"commitId"`
+}
+
+type createCommitInput struct {
+	RepositoryName string `json:"repositoryName"`
+	BranchName     string `json:"branchName"`
+	AuthorName     string `json:"authorName"`
+	Email          string `json:"email"`
+	CommitMessage  string `json:"commitMessage"`
+}
+
+type pullRequestTargetInput struct {
+	RepositoryName       string `json:"repositoryName"`
+	SourceReference      string `json:"sourceReference"`
+	DestinationReference string `json:"destinationReference"`
+}
+
+type createPullRequestInput struct {
+	Title              string                   `json:"title"`
+	Description        string                   `json:"description"`
+	ClientRequestToken string                   `json:"clientRequestToken"`
+	Targets            []pullRequestTargetInput `json:"targets"`
+}
+
+// --- New operation handlers ---
+
+func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
+	return map[string]any{
+		"approvalRuleTemplateId":          t.ApprovalRuleTemplateID,
+		"approvalRuleTemplateName":        t.ApprovalRuleTemplateName,
+		"approvalRuleTemplateArn":         t.ApprovalRuleTemplateARN,
+		"approvalRuleTemplateContent":     t.ApprovalRuleTemplateContent,
+		"approvalRuleTemplateDescription": t.ApprovalRuleTemplateDescription,
+		"creationDate":                    t.CreationDate.Unix(),
+		"lastModifiedDate":                t.LastModifiedDate.Unix(),
+		"ruleContentSha256":               t.RuleContentSha256,
+	}
+}
+
+func (h *Handler) handleCreateApprovalRuleTemplate(body []byte) (any, error) {
+	var in createApprovalRuleTemplateInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.ApprovalRuleTemplateName == "" {
+		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
+	}
+
+	if in.ApprovalRuleTemplateContent == "" {
+		return nil, fmt.Errorf("%w: approvalRuleTemplateContent is required", errInvalidRequest)
+	}
+
+	t, err := h.Backend.CreateApprovalRuleTemplate(
+		in.ApprovalRuleTemplateName,
+		in.ApprovalRuleTemplateDescription,
+		in.ApprovalRuleTemplateContent,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"approvalRuleTemplate": approvalRuleTemplateToMap(t),
+	}, nil
+}
+
+func (h *Handler) handleAssociateApprovalRuleTemplateWithRepository(body []byte) (any, error) {
+	var in associateApprovalRuleTemplateWithRepositoryInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.ApprovalRuleTemplateName == "" {
+		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.AssociateApprovalRuleTemplateWithRepository(
+		in.ApprovalRuleTemplateName,
+		in.RepositoryName,
+	); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) handleBatchAssociateApprovalRuleTemplateWithRepositories(body []byte) (any, error) {
+	var in batchAssociateApprovalRuleTemplateInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.ApprovalRuleTemplateName == "" {
+		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
+	}
+
+	associated, errors := h.Backend.BatchAssociateApprovalRuleTemplateWithRepositories(
+		in.ApprovalRuleTemplateName,
+		in.RepositoryNames,
+	)
+
+	return map[string]any{
+		"associatedRepositoryNames": associated,
+		"errors":                    errors,
+	}, nil
+}
+
+func (h *Handler) handleBatchDisassociateApprovalRuleTemplateFromRepositories(body []byte) (any, error) {
+	var in batchDisassociateApprovalRuleTemplateInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.ApprovalRuleTemplateName == "" {
+		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
+	}
+
+	disassociated, errors := h.Backend.BatchDisassociateApprovalRuleTemplateFromRepositories(
+		in.ApprovalRuleTemplateName,
+		in.RepositoryNames,
+	)
+
+	return map[string]any{
+		"disassociatedRepositoryNames": disassociated,
+		"errors":                       errors,
+	}, nil
+}
+
+func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
+	var in batchDescribeMergeConflictsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	if in.DestinationCommitSpecifier == "" {
+		return nil, fmt.Errorf("%w: destinationCommitSpecifier is required", errInvalidRequest)
+	}
+
+	if in.SourceCommitSpecifier == "" {
+		return nil, fmt.Errorf("%w: sourceCommitSpecifier is required", errInvalidRequest)
+	}
+
+	if in.MergeOption == "" {
+		return nil, fmt.Errorf("%w: mergeOption is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.BatchDescribeMergeConflicts(
+		in.RepositoryName,
+		in.DestinationCommitSpecifier,
+		in.SourceCommitSpecifier,
+		in.MergeOption,
+		in.FilePaths,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"conflicts":           result.Conflicts,
+		"destinationCommitId": result.DestinationCommitID,
+		"sourceCommitId":      result.SourceCommitID,
+		"errors":              result.Errors,
+	}, nil
+}
+
+func (h *Handler) handleBatchGetCommits(body []byte) (any, error) {
+	var in batchGetCommitsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	found, errors := h.Backend.BatchGetCommits(in.RepositoryName, in.CommitIDs)
+
+	commits := make([]map[string]any, 0, len(found))
+	for _, c := range found {
+		commits = append(commits, map[string]any{
+			"commitId": c.CommitID,
+			"treeId":   c.TreeID,
+			"message":  c.Message,
+			"parents":  c.Parents,
+		})
+	}
+
+	return map[string]any{
+		"commits": commits,
+		"errors":  errors,
+	}, nil
+}
+
+func (h *Handler) handleBatchGetRepositories(body []byte) (any, error) {
+	var in batchGetRepositoriesInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	found, notFound := h.Backend.BatchGetRepositories(in.RepositoryNames)
+
+	repos := make([]map[string]any, 0, len(found))
+	for _, r := range found {
+		repos = append(repos, repoMetadata(r))
+	}
+
+	return map[string]any{
+		"repositories":         repos,
+		"repositoriesNotFound": notFound,
+	}, nil
+}
+
+func (h *Handler) handleCreateBranch(body []byte) (any, error) {
+	var in createBranchInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	if in.BranchName == "" {
+		return nil, fmt.Errorf("%w: branchName is required", errInvalidRequest)
+	}
+
+	if in.CommitID == "" {
+		return nil, fmt.Errorf("%w: commitId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.CreateBranch(in.RepositoryName, in.BranchName, in.CommitID); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) handleCreateCommit(body []byte) (any, error) {
+	var in createCommitInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	if in.BranchName == "" {
+		return nil, fmt.Errorf("%w: branchName is required", errInvalidRequest)
+	}
+
+	commit, err := h.Backend.CreateCommit(in.RepositoryName, in.BranchName, in.AuthorName, in.Email, in.CommitMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"commitId": commit.CommitID,
+		"treeId":   commit.TreeID,
+	}, nil
+}
+
+func pullRequestToMap(pr *PullRequest) map[string]any {
+	targets := make([]map[string]any, 0, len(pr.PullRequestTargets))
+	for _, t := range pr.PullRequestTargets {
+		targets = append(targets, map[string]any{
+			"repositoryName":       t.RepositoryName,
+			"sourceReference":      t.SourceReference,
+			"destinationReference": t.DestinationReference,
+		})
+	}
+
+	return map[string]any{
+		"pullRequestId":      pr.PullRequestID,
+		"title":              pr.Title,
+		"description":        pr.Description,
+		"pullRequestStatus":  pr.PullRequestStatus,
+		"creationDate":       pr.CreationDate.Unix(),
+		"lastActivityDate":   pr.LastActivityDate.Unix(),
+		"revisionId":         pr.RevisionID,
+		"pullRequestTargets": targets,
+	}
+}
+
+func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
+	var in createPullRequestInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.Title == "" {
+		return nil, fmt.Errorf("%w: title is required", errInvalidRequest)
+	}
+
+	if len(in.Targets) == 0 {
+		return nil, fmt.Errorf("%w: at least one target is required", errInvalidRequest)
+	}
+
+	targets := make([]PullRequestTarget, 0, len(in.Targets))
+	for _, t := range in.Targets {
+		targets = append(targets, PullRequestTarget{
+			RepositoryName:       t.RepositoryName,
+			SourceReference:      t.SourceReference,
+			DestinationReference: t.DestinationReference,
+		})
+	}
+
+	pr, err := h.Backend.CreatePullRequest(in.Title, in.Description, in.ClientRequestToken, targets)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"pullRequest": pullRequestToMap(pr),
 	}, nil
 }

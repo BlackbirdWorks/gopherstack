@@ -686,3 +686,795 @@ func TestHandler_NotFoundErrors(t *testing.T) {
 		})
 	}
 }
+
+// ---- New operation tests ----
+
+func TestHandler_CreateApprovalRuleTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			input: map[string]any{
+				"approvalRuleTemplateName": "my-template",
+				"approvalRuleTemplateContent": `{"Version":"2018-11-08",` +
+					`"Statements":[{"Type":"Approvers","NumberOfApprovalsNeeded":1}]}`,
+				"approvalRuleTemplateDescription": "A test template",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_name",
+			input: map[string]any{
+				"approvalRuleTemplateName":    "",
+				"approvalRuleTemplateContent": `{}`,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_content",
+			input: map[string]any{
+				"approvalRuleTemplateName":    "no-content",
+				"approvalRuleTemplateContent": "",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate_name",
+			input: map[string]any{
+				"approvalRuleTemplateName":    "dup-template",
+				"approvalRuleTemplateContent": `{}`,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "duplicate_name" {
+				rec := doRequest(t, h, "CreateApprovalRuleTemplate", map[string]any{
+					"approvalRuleTemplateName":    "dup-template",
+					"approvalRuleTemplateContent": `{}`,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "CreateApprovalRuleTemplate", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				tmpl, ok := resp["approvalRuleTemplate"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "my-template", tmpl["approvalRuleTemplateName"])
+				assert.NotEmpty(t, tmpl["approvalRuleTemplateId"])
+				assert.NotEmpty(t, tmpl["ruleContentSha256"])
+			}
+		})
+	}
+}
+
+func TestHandler_AssociateApprovalRuleTemplateWithRepository(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		templateName string
+		repoName     string
+		seedTemplate bool
+		seedRepo     bool
+		wantStatus   int
+	}{
+		{
+			name:         "success",
+			templateName: "tmpl",
+			repoName:     "repo",
+			seedTemplate: true,
+			seedRepo:     true,
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "template_not_found",
+			templateName: "missing-tmpl",
+			repoName:     "repo",
+			seedRepo:     true,
+			wantStatus:   http.StatusNotFound,
+		},
+		{
+			name:         "repo_not_found",
+			templateName: "tmpl",
+			repoName:     "missing-repo",
+			seedTemplate: true,
+			wantStatus:   http.StatusNotFound,
+		},
+		{
+			name:         "missing_template_name",
+			templateName: "",
+			repoName:     "repo",
+			wantStatus:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.seedTemplate {
+				rec := doRequest(t, h, "CreateApprovalRuleTemplate", map[string]any{
+					"approvalRuleTemplateName":    "tmpl",
+					"approvalRuleTemplateContent": `{}`,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			if tt.seedRepo {
+				rec := doRequest(t, h, "CreateRepository", map[string]any{
+					"repositoryName": "repo",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "AssociateApprovalRuleTemplateWithRepository", map[string]any{
+				"approvalRuleTemplateName": tt.templateName,
+				"repositoryName":           tt.repoName,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_BatchAssociateApprovalRuleTemplateWithRepositories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		templateName   string
+		repos          []string
+		wantAssocCount int
+		wantErrorCount int
+		wantStatus     int
+		seedTemplate   bool
+	}{
+		{
+			name:           "all_found",
+			templateName:   "tmpl",
+			repos:          []string{"repo-a", "repo-b"},
+			seedTemplate:   true,
+			wantAssocCount: 2,
+			wantErrorCount: 0,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:           "partial_found",
+			templateName:   "tmpl",
+			repos:          []string{"repo-a", "missing-repo"},
+			seedTemplate:   true,
+			wantAssocCount: 1,
+			wantErrorCount: 1,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:           "template_not_found",
+			templateName:   "no-tmpl",
+			repos:          []string{"repo-a"},
+			wantAssocCount: 0,
+			wantErrorCount: 1,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:         "missing_template_name",
+			templateName: "",
+			repos:        []string{"repo-a"},
+			wantStatus:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.seedTemplate {
+				rec := doRequest(t, h, "CreateApprovalRuleTemplate", map[string]any{
+					"approvalRuleTemplateName":    "tmpl",
+					"approvalRuleTemplateContent": `{}`,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo-a"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo-b"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "BatchAssociateApprovalRuleTemplateWithRepositories", map[string]any{
+				"approvalRuleTemplateName": tt.templateName,
+				"repositoryNames":          tt.repos,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				assoc, _ := resp["associatedRepositoryNames"].([]any)
+				assert.Len(t, assoc, tt.wantAssocCount)
+
+				errs, _ := resp["errors"].([]any)
+				assert.Len(t, errs, tt.wantErrorCount)
+			}
+		})
+	}
+}
+
+func TestHandler_BatchDisassociateApprovalRuleTemplateFromRepositories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		templateName      string
+		repos             []string
+		wantDisassocCount int
+		wantErrorCount    int
+		wantStatus        int
+		seedAndAssociate  bool
+	}{
+		{
+			name:              "all_found",
+			templateName:      "tmpl",
+			repos:             []string{"repo-a"},
+			seedAndAssociate:  true,
+			wantDisassocCount: 1,
+			wantErrorCount:    0,
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "repo_not_found",
+			templateName:      "tmpl",
+			repos:             []string{"missing-repo"},
+			seedAndAssociate:  true,
+			wantDisassocCount: 0,
+			wantErrorCount:    1,
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "template_not_found",
+			templateName:      "no-tmpl",
+			repos:             []string{"repo-a"},
+			wantDisassocCount: 0,
+			wantErrorCount:    1,
+			wantStatus:        http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.seedAndAssociate {
+				rec := doRequest(t, h, "CreateApprovalRuleTemplate", map[string]any{
+					"approvalRuleTemplateName":    "tmpl",
+					"approvalRuleTemplateContent": `{}`,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo-a"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doRequest(t, h, "AssociateApprovalRuleTemplateWithRepository", map[string]any{
+					"approvalRuleTemplateName": "tmpl",
+					"repositoryName":           "repo-a",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "BatchDisassociateApprovalRuleTemplateFromRepositories", map[string]any{
+				"approvalRuleTemplateName": tt.templateName,
+				"repositoryNames":          tt.repos,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				disassoc, _ := resp["disassociatedRepositoryNames"].([]any)
+				assert.Len(t, disassoc, tt.wantDisassocCount)
+
+				errs, _ := resp["errors"].([]any)
+				assert.Len(t, errs, tt.wantErrorCount)
+			}
+		})
+	}
+}
+
+func TestHandler_BatchGetRepositories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		seedRepos      []string
+		requestRepos   []string
+		wantFoundCount int
+		wantMissCount  int
+		wantStatus     int
+	}{
+		{
+			name:           "all_found",
+			seedRepos:      []string{"repo-a", "repo-b"},
+			requestRepos:   []string{"repo-a", "repo-b"},
+			wantFoundCount: 2,
+			wantMissCount:  0,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:           "partial_found",
+			seedRepos:      []string{"repo-a"},
+			requestRepos:   []string{"repo-a", "missing-b"},
+			wantFoundCount: 1,
+			wantMissCount:  1,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:           "none_found",
+			seedRepos:      nil,
+			requestRepos:   []string{"missing-a"},
+			wantFoundCount: 0,
+			wantMissCount:  1,
+			wantStatus:     http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for _, name := range tt.seedRepos {
+				rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": name})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "BatchGetRepositories", map[string]any{
+				"repositoryNames": tt.requestRepos,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			repos, _ := resp["repositories"].([]any)
+			assert.Len(t, repos, tt.wantFoundCount)
+
+			notFound, _ := resp["repositoriesNotFound"].([]any)
+			assert.Len(t, notFound, tt.wantMissCount)
+		})
+	}
+}
+
+func TestHandler_CreateBranch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		repoName   string
+		branchName string
+		commitID   string
+		seedRepo   bool
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			repoName:   "repo",
+			branchName: "feature",
+			commitID:   "abc123",
+			seedRepo:   true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "repo_not_found",
+			repoName:   "missing-repo",
+			branchName: "feature",
+			commitID:   "abc123",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "missing_branch_name",
+			repoName:   "repo",
+			branchName: "",
+			commitID:   "abc123",
+			seedRepo:   true,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_commit_id",
+			repoName:   "repo",
+			branchName: "feature",
+			commitID:   "",
+			seedRepo:   true,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.seedRepo {
+				rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "CreateBranch", map[string]any{
+				"repositoryName": tt.repoName,
+				"branchName":     tt.branchName,
+				"commitId":       tt.commitID,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateCommit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		repoName   string
+		branchName string
+		authorName string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			repoName:   "repo",
+			branchName: "main",
+			authorName: "Alice",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "repo_not_found",
+			repoName:   "missing-repo",
+			branchName: "main",
+			authorName: "Alice",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "missing_repo_name",
+			repoName:   "",
+			branchName: "main",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_branch_name",
+			repoName:   "repo",
+			branchName: "",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.repoName == "repo" {
+				rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "CreateCommit", map[string]any{
+				"repositoryName": tt.repoName,
+				"branchName":     tt.branchName,
+				"authorName":     tt.authorName,
+				"commitMessage":  "initial commit",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["commitId"])
+				assert.NotEmpty(t, resp["treeId"])
+			}
+		})
+	}
+}
+
+func TestHandler_BatchGetCommits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		wantFoundCount int
+		wantErrCount   int
+		wantStatus     int
+		seedCommits    int
+		requestMissing bool
+	}{
+		{
+			name:           "all_found",
+			seedCommits:    2,
+			wantFoundCount: 2,
+			wantErrCount:   0,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:           "partial_found",
+			seedCommits:    1,
+			requestMissing: true,
+			wantFoundCount: 1,
+			wantErrCount:   1,
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:       "missing_repo",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "missing_repo" {
+				rec := doRequest(t, h, "BatchGetCommits", map[string]any{
+					"repositoryName": "",
+					"commitIds":      []string{"abc"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var commitIDs []string
+			for i := range tt.seedCommits {
+				_ = i
+				r := doRequest(t, h, "CreateCommit", map[string]any{
+					"repositoryName": "repo",
+					"branchName":     "main",
+					"commitMessage":  "commit",
+				})
+				require.Equal(t, http.StatusOK, r.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(r.Body.Bytes(), &resp))
+				commitIDs = append(commitIDs, resp["commitId"].(string))
+			}
+
+			if tt.requestMissing {
+				commitIDs = append(commitIDs, "nonexistent-commit-id")
+			}
+
+			rec = doRequest(t, h, "BatchGetCommits", map[string]any{
+				"repositoryName": "repo",
+				"commitIds":      commitIDs,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			commits, _ := resp["commits"].([]any)
+			assert.Len(t, commits, tt.wantFoundCount)
+
+			errs, _ := resp["errors"].([]any)
+			assert.Len(t, errs, tt.wantErrCount)
+		})
+	}
+}
+
+func TestHandler_BatchDescribeMergeConflicts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success_no_file_paths",
+			input: map[string]any{
+				"repositoryName":             "repo",
+				"destinationCommitSpecifier": "main",
+				"sourceCommitSpecifier":      "feature",
+				"mergeOption":                "FAST_FORWARD_MERGE",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_with_file_paths",
+			input: map[string]any{
+				"repositoryName":             "repo",
+				"destinationCommitSpecifier": "main",
+				"sourceCommitSpecifier":      "feature",
+				"mergeOption":                "THREE_WAY_MERGE",
+				"filePaths":                  []string{"file1.txt", "file2.txt"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "repo_not_found",
+			input: map[string]any{
+				"repositoryName":             "missing",
+				"destinationCommitSpecifier": "main",
+				"sourceCommitSpecifier":      "feature",
+				"mergeOption":                "FAST_FORWARD_MERGE",
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_repo_name",
+			input: map[string]any{
+				"repositoryName":             "",
+				"destinationCommitSpecifier": "main",
+				"sourceCommitSpecifier":      "feature",
+				"mergeOption":                "FAST_FORWARD_MERGE",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_merge_option",
+			input: map[string]any{
+				"repositoryName":             "repo",
+				"destinationCommitSpecifier": "main",
+				"sourceCommitSpecifier":      "feature",
+				"mergeOption":                "",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, "BatchDescribeMergeConflicts", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, "conflicts")
+				assert.Contains(t, resp, "destinationCommitId")
+				assert.Contains(t, resp, "sourceCommitId")
+			}
+		})
+	}
+}
+
+func TestHandler_CreatePullRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			input: map[string]any{
+				"title":       "My PR",
+				"description": "A test PR",
+				"targets": []map[string]any{
+					{
+						"repositoryName":       "repo",
+						"sourceReference":      "refs/heads/feature",
+						"destinationReference": "refs/heads/main",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_title",
+			input: map[string]any{
+				"title": "",
+				"targets": []map[string]any{
+					{
+						"repositoryName":  "repo",
+						"sourceReference": "refs/heads/feature",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "no_targets",
+			input: map[string]any{
+				"title":   "My PR",
+				"targets": []map[string]any{},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "sequential_ids",
+			input: map[string]any{
+				"title": "Second PR",
+				"targets": []map[string]any{
+					{
+						"repositoryName":  "repo",
+						"sourceReference": "refs/heads/feature",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, "CreatePullRequest", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				pr, ok := resp["pullRequest"].(map[string]any)
+				require.True(t, ok, "pullRequest key should be present")
+				assert.NotEmpty(t, pr["pullRequestId"])
+				assert.Equal(t, "OPEN", pr["pullRequestStatus"])
+				assert.NotEmpty(t, pr["revisionId"])
+			}
+		})
+	}
+}
+
+func TestHandler_NewOperations_GetSupportedOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	expected := []string{
+		"AssociateApprovalRuleTemplateWithRepository",
+		"BatchAssociateApprovalRuleTemplateWithRepositories",
+		"BatchDescribeMergeConflicts",
+		"BatchDisassociateApprovalRuleTemplateFromRepositories",
+		"BatchGetCommits",
+		"BatchGetRepositories",
+		"CreateApprovalRuleTemplate",
+		"CreateBranch",
+		"CreateCommit",
+		"CreatePullRequest",
+	}
+
+	for _, op := range expected {
+		assert.Contains(t, ops, op)
+	}
+}

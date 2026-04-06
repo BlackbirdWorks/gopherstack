@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := codecommit.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codecommit.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &codecommitsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateApprovalRuleTemplateWithRepository",
-		"BatchAssociateApprovalRuleTemplateWithRepositories",
-		"BatchDescribeMergeConflicts",
-		"BatchDisassociateApprovalRuleTemplateFromRepositories",
-		"BatchGetCommits",
-		"BatchGetRepositories",
-		"CreateApprovalRuleTemplate",
-		"CreateBranch",
-		"CreateCommit",
-		"CreatePullRequest",
 		"CreatePullRequestApprovalRule",
 		"CreateUnreferencedMergeCommit",
 		"DeleteApprovalRuleTemplate",
