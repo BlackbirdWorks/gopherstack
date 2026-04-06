@@ -26,6 +26,43 @@ type Backend interface {
 	// SetEndpoint updates the registry endpoint used in new repository URIs.
 	// It should be called once the server's listening address is known.
 	SetEndpoint(endpoint string)
+
+	// BatchCheckLayerAvailability checks the availability of image layers.
+	BatchCheckLayerAvailability(
+		repositoryName string,
+		layerDigests []string,
+	) ([]LayerAvailability, []LayerFailure, error)
+
+	// BatchDeleteImage deletes specified images from a repository.
+	BatchDeleteImage(repositoryName string, imageIDs []ImageIdentifier) ([]ImageIdentifier, []ImageFailure, error)
+
+	// BatchGetImage gets details for specified images.
+	BatchGetImage(repositoryName string, imageIDs []ImageIdentifier) ([]Image, []ImageFailure, error)
+
+	// BatchGetRepositoryScanningConfiguration gets scanning config for repositories.
+	BatchGetRepositoryScanningConfiguration(
+		repositoryNames []string,
+	) ([]RepositoryScanningConfiguration, []RepositoryScanningConfigurationFailure, error)
+
+	// CompleteLayerUpload completes the upload of an image layer.
+	CompleteLayerUpload(repositoryName, uploadID string, layerDigests []string) (*CompleteLayerUploadResult, error)
+
+	// CreatePullThroughCacheRule creates a pull-through cache rule.
+	CreatePullThroughCacheRule(
+		prefix, upstreamURL, credentialArn, upstreamRegistry string,
+	) (*PullThroughCacheRule, error)
+
+	// CreateRepositoryCreationTemplate creates a repository creation template.
+	CreateRepositoryCreationTemplate(req *RepositoryCreationTemplate) (*RepositoryCreationTemplate, error)
+
+	// DeleteLifecyclePolicy deletes the lifecycle policy for a repository.
+	DeleteLifecyclePolicy(repositoryName string) (*LifecyclePolicyResult, error)
+
+	// DeletePullThroughCacheRule deletes a pull-through cache rule by prefix.
+	DeletePullThroughCacheRule(prefix string) (*PullThroughCacheRule, error)
+
+	// DeleteRegistryPolicy deletes the registry-level policy.
+	DeleteRegistryPolicy() (*RegistryPolicyResult, error)
 }
 
 // Snapshottable is an optional interface that a Backend may implement to

@@ -693,3 +693,514 @@ func TestECR_UntagResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestECR_BatchCheckLayerAvailability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		repositoryName string
+		layerDigests   []string
+		wantStatus     int
+		wantLayers     int
+		wantFailures   int
+		preUpload      bool
+	}{
+		{
+			name:           "no layers uploaded returns failures",
+			repositoryName: "my-repo",
+			layerDigests:   []string{"sha256:abc123"},
+			wantStatus:     http.StatusOK,
+			wantLayers:     0,
+			wantFailures:   1,
+		},
+		{
+			name:           "uploaded layer is available",
+			preUpload:      true,
+			repositoryName: "my-repo",
+			layerDigests:   []string{"sha256:abc123"},
+			wantStatus:     http.StatusOK,
+			wantLayers:     1,
+			wantFailures:   0,
+		},
+		{
+			name:           "empty digests returns empty results",
+			repositoryName: "my-repo",
+			layerDigests:   []string{},
+			wantStatus:     http.StatusOK,
+			wantLayers:     0,
+			wantFailures:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.preUpload {
+				rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
+					"repositoryName": tt.repositoryName,
+					"uploadId":       "upload-1",
+					"layerDigests":   []string{"sha256:abc123"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doECRRequest(t, h, "BatchCheckLayerAvailability", map[string]any{
+				"repositoryName": tt.repositoryName,
+				"layerDigests":   tt.layerDigests,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["layers"], tt.wantLayers)
+			assert.Len(t, out["failures"], tt.wantFailures)
+		})
+	}
+}
+
+func TestECR_BatchDeleteImage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		repositoryName string
+		imageIDs       []map[string]any
+		wantStatus     int
+		wantDeleted    int
+		wantFailures   int
+	}{
+		{
+			name:           "image not found returns failure",
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{{"imageDigest": "sha256:notfound"}},
+			wantStatus:     http.StatusOK,
+			wantDeleted:    0,
+			wantFailures:   1,
+		},
+		{
+			name:           "empty image list returns empty results",
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{},
+			wantStatus:     http.StatusOK,
+			wantDeleted:    0,
+			wantFailures:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECRRequest(t, h, "BatchDeleteImage", map[string]any{
+				"repositoryName": tt.repositoryName,
+				"imageIds":       tt.imageIDs,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["imageIds"], tt.wantDeleted)
+			assert.Len(t, out["failures"], tt.wantFailures)
+		})
+	}
+}
+
+func TestECR_BatchGetImage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		repositoryName string
+		imageIDs       []map[string]any
+		wantStatus     int
+		wantImages     int
+		wantFailures   int
+	}{
+		{
+			name:           "image not found returns failure",
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{{"imageDigest": "sha256:notfound"}},
+			wantStatus:     http.StatusOK,
+			wantImages:     0,
+			wantFailures:   1,
+		},
+		{
+			name:           "empty image list returns empty results",
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{},
+			wantStatus:     http.StatusOK,
+			wantImages:     0,
+			wantFailures:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECRRequest(t, h, "BatchGetImage", map[string]any{
+				"repositoryName": tt.repositoryName,
+				"imageIds":       tt.imageIDs,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["images"], tt.wantImages)
+			assert.Len(t, out["failures"], tt.wantFailures)
+		})
+	}
+}
+
+func TestECR_BatchGetRepositoryScanningConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		setup           func(*ecr.Handler)
+		repositoryNames []string
+		wantStatus      int
+		wantConfigs     int
+		wantFailures    int
+	}{
+		{
+			name:            "nonexistent repository returns failure",
+			repositoryNames: []string{"nonexistent"},
+			wantStatus:      http.StatusOK,
+			wantConfigs:     0,
+			wantFailures:    1,
+		},
+		{
+			name: "existing repository returns config",
+			setup: func(h *ecr.Handler) {
+				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "scan-repo"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			repositoryNames: []string{"scan-repo"},
+			wantStatus:      http.StatusOK,
+			wantConfigs:     1,
+			wantFailures:    0,
+		},
+		{
+			name:            "empty list returns empty results",
+			repositoryNames: []string{},
+			wantStatus:      http.StatusOK,
+			wantConfigs:     0,
+			wantFailures:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doECRRequest(t, h, "BatchGetRepositoryScanningConfiguration", map[string]any{
+				"repositoryNames": tt.repositoryNames,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["scanningConfigurations"], tt.wantConfigs)
+			assert.Len(t, out["failures"], tt.wantFailures)
+		})
+	}
+}
+
+func TestECR_CompleteLayerUpload(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		repositoryName string
+		uploadID       string
+		wantDigest     string
+		layerDigests   []string
+		wantStatus     int
+	}{
+		{
+			name:           "completes upload and returns digest",
+			repositoryName: "my-repo",
+			uploadID:       "upload-123",
+			layerDigests:   []string{"sha256:abc123"},
+			wantStatus:     http.StatusOK,
+			wantDigest:     "sha256:abc123",
+		},
+		{
+			name:           "empty digests still completes",
+			repositoryName: "my-repo",
+			uploadID:       "upload-456",
+			layerDigests:   []string{},
+			wantStatus:     http.StatusOK,
+			wantDigest:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
+				"repositoryName": tt.repositoryName,
+				"uploadId":       tt.uploadID,
+				"layerDigests":   tt.layerDigests,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, tt.wantDigest, out["layerDigest"])
+			assert.Equal(t, tt.repositoryName, out["repositoryName"])
+			assert.Equal(t, tt.uploadID, out["uploadId"])
+		})
+	}
+}
+
+func TestECR_CreatePullThroughCacheRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		ecrRepositoryPrefix string
+		upstreamRegistryURL string
+		wantPrefix          string
+		wantStatus          int
+	}{
+		{
+			name:                "creates rule successfully",
+			ecrRepositoryPrefix: "docker-hub",
+			upstreamRegistryURL: "registry-1.docker.io",
+			wantStatus:          http.StatusOK,
+			wantPrefix:          "docker-hub",
+		},
+		{
+			name:                "empty prefix returns error",
+			ecrRepositoryPrefix: "",
+			upstreamRegistryURL: "registry-1.docker.io",
+			wantStatus:          http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+				"ecrRepositoryPrefix": tt.ecrRepositoryPrefix,
+				"upstreamRegistryUrl": tt.upstreamRegistryURL,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.wantPrefix, out["ecrRepositoryPrefix"])
+			}
+		})
+	}
+}
+
+func TestECR_CreatePullThroughCacheRule_AlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+		"ecrRepositoryPrefix": "docker-hub",
+		"upstreamRegistryUrl": "registry-1.docker.io",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+		"ecrRepositoryPrefix": "docker-hub",
+		"upstreamRegistryUrl": "registry-1.docker.io",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Contains(t, out["__type"], "PullThroughCacheRuleAlreadyExistsException")
+}
+
+func TestECR_CreateRepositoryCreationTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		prefix     string
+		wantStatus int
+	}{
+		{
+			name:       "creates template successfully",
+			prefix:     "my-org",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "empty prefix returns error",
+			prefix:     "",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
+				"prefix": tt.prefix,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				tmpl, ok := out["repositoryCreationTemplate"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.prefix, tmpl["prefix"])
+			}
+		})
+	}
+}
+
+func TestECR_DeleteLifecyclePolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setup          func(*ecr.Handler)
+		repositoryName string
+		wantStatus     int
+	}{
+		{
+			name: "deletes lifecycle policy for existing repo",
+			setup: func(h *ecr.Handler) {
+				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "policy-repo"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			repositoryName: "policy-repo",
+			wantStatus:     http.StatusOK,
+		},
+		{
+			name:           "nonexistent repository returns not found",
+			repositoryName: "nonexistent",
+			wantStatus:     http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doECRRequest(t, h, "DeleteLifecyclePolicy", map[string]any{
+				"repositoryName": tt.repositoryName,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.repositoryName, out["repositoryName"])
+			}
+		})
+	}
+}
+
+func TestECR_DeletePullThroughCacheRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		setup               func(*ecr.Handler)
+		ecrRepositoryPrefix string
+		wantStatus          int
+	}{
+		{
+			name: "deletes existing rule",
+			setup: func(h *ecr.Handler) {
+				rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+					"ecrRepositoryPrefix": "docker-hub",
+					"upstreamRegistryUrl": "registry-1.docker.io",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			ecrRepositoryPrefix: "docker-hub",
+			wantStatus:          http.StatusOK,
+		},
+		{
+			name:                "nonexistent rule returns not found",
+			ecrRepositoryPrefix: "nonexistent",
+			wantStatus:          http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doECRRequest(t, h, "DeletePullThroughCacheRule", map[string]any{
+				"ecrRepositoryPrefix": tt.ecrRepositoryPrefix,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.ecrRepositoryPrefix, out["ecrRepositoryPrefix"])
+			}
+		})
+	}
+}
+
+func TestECR_DeleteRegistryPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "no registry policy returns not found",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECRRequest(t, h, "DeleteRegistryPolicy", map[string]any{})
+			require.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

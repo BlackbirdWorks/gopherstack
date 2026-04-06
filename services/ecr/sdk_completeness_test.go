@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ecr.NewInMemoryBackend("000000000000", "us-east-1", "")
 	h := ecr.NewHandler(backend, nil)
 	sdkcheck.CheckCompleteness(t, &ecrsdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchCheckLayerAvailability",
-		"BatchDeleteImage",
-		"BatchGetImage",
-		"BatchGetRepositoryScanningConfiguration",
-		"CompleteLayerUpload",
-		"CreatePullThroughCacheRule",
-		"CreateRepositoryCreationTemplate",
-		"DeleteLifecyclePolicy",
-		"DeletePullThroughCacheRule",
-		"DeleteRegistryPolicy",
 		"DeleteRepositoryCreationTemplate",
 		"DeleteRepositoryPolicy",
 		"DeleteSigningConfiguration",

@@ -13,7 +13,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -62,9 +61,19 @@ func (h *Handler) Name() string { return "ECR" }
 // GetSupportedOperations returns the list of supported ECR operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"BatchCheckLayerAvailability",
+		"BatchDeleteImage",
+		"BatchGetImage",
+		"BatchGetRepositoryScanningConfiguration",
+		"CompleteLayerUpload",
+		"CreatePullThroughCacheRule",
 		"CreateRepository",
-		"DescribeRepositories",
+		"CreateRepositoryCreationTemplate",
+		"DeleteLifecyclePolicy",
+		"DeletePullThroughCacheRule",
+		"DeleteRegistryPolicy",
 		"DeleteRepository",
+		"DescribeRepositories",
 		"GetAuthorizationToken",
 		"ListTagsForResource",
 		"TagResource",
@@ -202,13 +211,23 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateRepository":      service.WrapOp(h.handleCreateRepository),
-		"DescribeRepositories":  service.WrapOp(h.handleDescribeRepositories),
-		"DeleteRepository":      service.WrapOp(h.handleDeleteRepository),
-		"GetAuthorizationToken": service.WrapOp(h.handleGetAuthorizationToken),
-		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
-		"TagResource":           service.WrapOp(h.handleTagResource),
-		"UntagResource":         service.WrapOp(h.handleUntagResource),
+		"BatchCheckLayerAvailability":             service.WrapOp(h.handleBatchCheckLayerAvailability),
+		"BatchDeleteImage":                        service.WrapOp(h.handleBatchDeleteImage),
+		"BatchGetImage":                           service.WrapOp(h.handleBatchGetImage),
+		"BatchGetRepositoryScanningConfiguration": service.WrapOp(h.handleBatchGetRepositoryScanningConfiguration),
+		"CompleteLayerUpload":                     service.WrapOp(h.handleCompleteLayerUpload),
+		"CreatePullThroughCacheRule":              service.WrapOp(h.handleCreatePullThroughCacheRule),
+		"CreateRepository":                        service.WrapOp(h.handleCreateRepository),
+		"CreateRepositoryCreationTemplate":        service.WrapOp(h.handleCreateRepositoryCreationTemplate),
+		"DeleteLifecyclePolicy":                   service.WrapOp(h.handleDeleteLifecyclePolicy),
+		"DeletePullThroughCacheRule":              service.WrapOp(h.handleDeletePullThroughCacheRule),
+		"DeleteRegistryPolicy":                    service.WrapOp(h.handleDeleteRegistryPolicy),
+		"DeleteRepository":                        service.WrapOp(h.handleDeleteRepository),
+		"DescribeRepositories":                    service.WrapOp(h.handleDescribeRepositories),
+		"GetAuthorizationToken":                   service.WrapOp(h.handleGetAuthorizationToken),
+		"ListTagsForResource":                     service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                             service.WrapOp(h.handleTagResource),
+		"UntagResource":                           service.WrapOp(h.handleUntagResource),
 	}
 }
 
@@ -231,15 +250,28 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, awserr.ErrNotFound):
+	case errors.Is(err, ErrRepositoryNotFound):
 		return c.JSON(
 			http.StatusNotFound,
 			map[string]string{"__type": "RepositoryNotFoundException", "message": err.Error()},
 		)
-	case errors.Is(err, awserr.ErrAlreadyExists):
+	case errors.Is(err, ErrPullThroughCacheRuleNotFound),
+		errors.Is(err, ErrLifecyclePolicyNotFound),
+		errors.Is(err, ErrRepositoryCreationTemplateNotFound),
+		errors.Is(err, ErrRegistryPolicyNotFound):
+		return c.JSON(
+			http.StatusNotFound,
+			map[string]string{"__type": "NotFoundException", "message": err.Error()},
+		)
+	case errors.Is(err, ErrRepositoryAlreadyExists):
 		return c.JSON(
 			http.StatusBadRequest,
 			map[string]string{"__type": "RepositoryAlreadyExistsException", "message": err.Error()},
+		)
+	case errors.Is(err, ErrPullThroughCacheRuleAlreadyExists):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{"__type": "PullThroughCacheRuleAlreadyExistsException", "message": err.Error()},
 		)
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(
@@ -433,4 +465,282 @@ func (h *Handler) handleUntagResource(
 	_ *untagResourceInput,
 ) (*untagResourceOutput, error) {
 	return &untagResourceOutput{}, nil
+}
+
+// batchCheckLayerAvailabilityInput is the request body for BatchCheckLayerAvailability.
+type batchCheckLayerAvailabilityInput struct {
+	RepositoryName string   `json:"repositoryName"`
+	RegistryID     string   `json:"registryId,omitempty"`
+	LayerDigests   []string `json:"layerDigests"`
+}
+
+type batchCheckLayerAvailabilityOutput struct {
+	Layers   []LayerAvailability `json:"layers"`
+	Failures []LayerFailure      `json:"failures"`
+}
+
+func (h *Handler) handleBatchCheckLayerAvailability(
+	_ context.Context,
+	in *batchCheckLayerAvailabilityInput,
+) (*batchCheckLayerAvailabilityOutput, error) {
+	layers, failures, err := h.Backend.BatchCheckLayerAvailability(in.RepositoryName, in.LayerDigests)
+	if err != nil {
+		return nil, err
+	}
+
+	if layers == nil {
+		layers = []LayerAvailability{}
+	}
+
+	if failures == nil {
+		failures = []LayerFailure{}
+	}
+
+	return &batchCheckLayerAvailabilityOutput{Layers: layers, Failures: failures}, nil
+}
+
+// batchDeleteImageInput is the request body for BatchDeleteImage.
+type batchDeleteImageInput struct {
+	RepositoryName string            `json:"repositoryName"`
+	RegistryID     string            `json:"registryId,omitempty"`
+	ImageIDs       []ImageIdentifier `json:"imageIds"`
+}
+
+type batchDeleteImageOutput struct {
+	ImageIDs []ImageIdentifier `json:"imageIds"`
+	Failures []ImageFailure    `json:"failures"`
+}
+
+func (h *Handler) handleBatchDeleteImage(
+	_ context.Context,
+	in *batchDeleteImageInput,
+) (*batchDeleteImageOutput, error) {
+	deleted, failures, err := h.Backend.BatchDeleteImage(in.RepositoryName, in.ImageIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if deleted == nil {
+		deleted = []ImageIdentifier{}
+	}
+
+	if failures == nil {
+		failures = []ImageFailure{}
+	}
+
+	return &batchDeleteImageOutput{ImageIDs: deleted, Failures: failures}, nil
+}
+
+// batchGetImageInput is the request body for BatchGetImage.
+type batchGetImageInput struct {
+	RepositoryName string            `json:"repositoryName"`
+	RegistryID     string            `json:"registryId,omitempty"`
+	ImageIDs       []ImageIdentifier `json:"imageIds"`
+}
+
+type batchGetImageOutput struct {
+	Images   []Image        `json:"images"`
+	Failures []ImageFailure `json:"failures"`
+}
+
+func (h *Handler) handleBatchGetImage(
+	_ context.Context,
+	in *batchGetImageInput,
+) (*batchGetImageOutput, error) {
+	imgs, failures, err := h.Backend.BatchGetImage(in.RepositoryName, in.ImageIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if imgs == nil {
+		imgs = []Image{}
+	}
+
+	if failures == nil {
+		failures = []ImageFailure{}
+	}
+
+	return &batchGetImageOutput{Images: imgs, Failures: failures}, nil
+}
+
+// batchGetRepositoryScanningConfigurationInput is the request body for BatchGetRepositoryScanningConfiguration.
+type batchGetRepositoryScanningConfigurationInput struct {
+	RepositoryNames []string `json:"repositoryNames"`
+}
+
+type batchGetRepositoryScanningConfigurationOutput struct {
+	ScanningConfigurations []RepositoryScanningConfiguration        `json:"scanningConfigurations"`
+	Failures               []RepositoryScanningConfigurationFailure `json:"failures"`
+}
+
+func (h *Handler) handleBatchGetRepositoryScanningConfiguration(
+	_ context.Context,
+	in *batchGetRepositoryScanningConfigurationInput,
+) (*batchGetRepositoryScanningConfigurationOutput, error) {
+	configs, failures, err := h.Backend.BatchGetRepositoryScanningConfiguration(in.RepositoryNames)
+	if err != nil {
+		return nil, err
+	}
+
+	if configs == nil {
+		configs = []RepositoryScanningConfiguration{}
+	}
+
+	if failures == nil {
+		failures = []RepositoryScanningConfigurationFailure{}
+	}
+
+	return &batchGetRepositoryScanningConfigurationOutput{
+		ScanningConfigurations: configs,
+		Failures:               failures,
+	}, nil
+}
+
+// completeLayerUploadInput is the request body for CompleteLayerUpload.
+type completeLayerUploadInput struct {
+	RepositoryName string   `json:"repositoryName"`
+	UploadID       string   `json:"uploadId"`
+	RegistryID     string   `json:"registryId,omitempty"`
+	LayerDigests   []string `json:"layerDigests"`
+}
+
+func (h *Handler) handleCompleteLayerUpload(
+	_ context.Context,
+	in *completeLayerUploadInput,
+) (*CompleteLayerUploadResult, error) {
+	result, err := h.Backend.CompleteLayerUpload(in.RepositoryName, in.UploadID, in.LayerDigests)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// createPullThroughCacheRuleInput is the request body for CreatePullThroughCacheRule.
+type createPullThroughCacheRuleInput struct {
+	EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
+	UpstreamRegistryURL string `json:"upstreamRegistryUrl"`
+	CredentialArn       string `json:"credentialArn,omitempty"`
+	UpstreamRegistry    string `json:"upstreamRegistry,omitempty"`
+}
+
+type createPullThroughCacheRuleOutput struct {
+	EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
+	UpstreamRegistryURL string `json:"upstreamRegistryUrl"`
+	CredentialArn       string `json:"credentialArn,omitempty"`
+	UpstreamRegistry    string `json:"upstreamRegistry,omitempty"`
+	RegistryID          string `json:"registryId"`
+	CreatedAt           int64  `json:"createdAt"`
+}
+
+func (h *Handler) handleCreatePullThroughCacheRule(
+	_ context.Context,
+	in *createPullThroughCacheRuleInput,
+) (*createPullThroughCacheRuleOutput, error) {
+	rule, err := h.Backend.CreatePullThroughCacheRule(
+		in.EcrRepositoryPrefix, in.UpstreamRegistryURL, in.CredentialArn, in.UpstreamRegistry,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createPullThroughCacheRuleOutput{
+		EcrRepositoryPrefix: rule.EcrRepositoryPrefix,
+		UpstreamRegistryURL: rule.UpstreamRegistryURL,
+		CredentialArn:       rule.CredentialArn,
+		UpstreamRegistry:    rule.UpstreamRegistry,
+		RegistryID:          rule.RegistryID,
+		CreatedAt:           rule.CreatedAt.Unix(),
+	}, nil
+}
+
+// createRepositoryCreationTemplateInput is the request body for CreateRepositoryCreationTemplate.
+type createRepositoryCreationTemplateInput struct {
+	Prefix             string   `json:"prefix"`
+	Description        string   `json:"description,omitempty"`
+	ImageTagMutability string   `json:"imageTagMutability,omitempty"`
+	RepositoryPolicy   string   `json:"repositoryPolicy,omitempty"`
+	LifecyclePolicy    string   `json:"lifecyclePolicy,omitempty"`
+	CustomRoleArn      string   `json:"customRoleArn,omitempty"`
+	AppliedFor         []string `json:"appliedFor,omitempty"`
+}
+
+type createRepositoryCreationTemplateOutput struct {
+	Template   *RepositoryCreationTemplate `json:"repositoryCreationTemplate"`
+	RegistryID string                      `json:"registryId"`
+}
+
+func (h *Handler) handleCreateRepositoryCreationTemplate(
+	_ context.Context,
+	in *createRepositoryCreationTemplateInput,
+) (*createRepositoryCreationTemplateOutput, error) {
+	req := &RepositoryCreationTemplate{
+		Prefix:             in.Prefix,
+		Description:        in.Description,
+		ImageTagMutability: in.ImageTagMutability,
+		RepositoryPolicy:   in.RepositoryPolicy,
+		LifecyclePolicy:    in.LifecyclePolicy,
+		AppliedFor:         in.AppliedFor,
+		CustomRoleArn:      in.CustomRoleArn,
+	}
+
+	tmpl, err := h.Backend.CreateRepositoryCreationTemplate(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createRepositoryCreationTemplateOutput{Template: tmpl}, nil
+}
+
+// deleteLifecyclePolicyInput is the request body for DeleteLifecyclePolicy.
+type deleteLifecyclePolicyInput struct {
+	RepositoryName string `json:"repositoryName"`
+	RegistryID     string `json:"registryId,omitempty"`
+}
+
+func (h *Handler) handleDeleteLifecyclePolicy(
+	_ context.Context,
+	in *deleteLifecyclePolicyInput,
+) (*LifecyclePolicyResult, error) {
+	return h.Backend.DeleteLifecyclePolicy(in.RepositoryName)
+}
+
+// deletePullThroughCacheRuleInput is the request body for DeletePullThroughCacheRule.
+type deletePullThroughCacheRuleInput struct {
+	EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
+	RegistryID          string `json:"registryId,omitempty"`
+}
+
+type deletePullThroughCacheRuleOutput struct {
+	EcrRepositoryPrefix string `json:"ecrRepositoryPrefix"`
+	UpstreamRegistryURL string `json:"upstreamRegistryUrl"`
+	RegistryID          string `json:"registryId"`
+	CreatedAt           int64  `json:"createdAt"`
+}
+
+func (h *Handler) handleDeletePullThroughCacheRule(
+	_ context.Context,
+	in *deletePullThroughCacheRuleInput,
+) (*deletePullThroughCacheRuleOutput, error) {
+	rule, err := h.Backend.DeletePullThroughCacheRule(in.EcrRepositoryPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deletePullThroughCacheRuleOutput{
+		EcrRepositoryPrefix: rule.EcrRepositoryPrefix,
+		UpstreamRegistryURL: rule.UpstreamRegistryURL,
+		RegistryID:          rule.RegistryID,
+		CreatedAt:           rule.CreatedAt.Unix(),
+	}, nil
+}
+
+// deleteRegistryPolicyInput is the (empty) request body for DeleteRegistryPolicy.
+type deleteRegistryPolicyInput struct{}
+
+func (h *Handler) handleDeleteRegistryPolicy(
+	_ context.Context,
+	_ *deleteRegistryPolicyInput,
+) (*RegistryPolicyResult, error) {
+	return h.Backend.DeleteRegistryPolicy()
 }

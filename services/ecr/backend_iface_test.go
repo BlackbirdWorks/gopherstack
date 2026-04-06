@@ -94,6 +94,56 @@ func (s *stubBackend) DeleteRepository(name string) (*ecr.Repository, error) {
 func (s *stubBackend) ProxyEndpoint() string { return "stub:5000" }
 func (s *stubBackend) SetEndpoint(_ string)  {}
 
+func (s *stubBackend) BatchCheckLayerAvailability(
+	_ string,
+	_ []string,
+) ([]ecr.LayerAvailability, []ecr.LayerFailure, error) {
+	return []ecr.LayerAvailability{}, []ecr.LayerFailure{}, nil
+}
+
+func (s *stubBackend) BatchDeleteImage(
+	_ string,
+	_ []ecr.ImageIdentifier,
+) ([]ecr.ImageIdentifier, []ecr.ImageFailure, error) {
+	return []ecr.ImageIdentifier{}, []ecr.ImageFailure{}, nil
+}
+
+func (s *stubBackend) BatchGetImage(_ string, _ []ecr.ImageIdentifier) ([]ecr.Image, []ecr.ImageFailure, error) {
+	return []ecr.Image{}, []ecr.ImageFailure{}, nil
+}
+
+func (s *stubBackend) BatchGetRepositoryScanningConfiguration(
+	_ []string,
+) ([]ecr.RepositoryScanningConfiguration, []ecr.RepositoryScanningConfigurationFailure, error) {
+	return []ecr.RepositoryScanningConfiguration{}, []ecr.RepositoryScanningConfigurationFailure{}, nil
+}
+
+func (s *stubBackend) CompleteLayerUpload(_ string, _ string, _ []string) (*ecr.CompleteLayerUploadResult, error) {
+	return &ecr.CompleteLayerUploadResult{}, nil
+}
+
+func (s *stubBackend) CreatePullThroughCacheRule(_, _, _, _ string) (*ecr.PullThroughCacheRule, error) {
+	return &ecr.PullThroughCacheRule{}, nil
+}
+
+func (s *stubBackend) CreateRepositoryCreationTemplate(
+	_ *ecr.RepositoryCreationTemplate,
+) (*ecr.RepositoryCreationTemplate, error) {
+	return &ecr.RepositoryCreationTemplate{}, nil
+}
+
+func (s *stubBackend) DeleteLifecyclePolicy(_ string) (*ecr.LifecyclePolicyResult, error) {
+	return &ecr.LifecyclePolicyResult{}, nil
+}
+
+func (s *stubBackend) DeletePullThroughCacheRule(_ string) (*ecr.PullThroughCacheRule, error) {
+	return &ecr.PullThroughCacheRule{}, nil
+}
+
+func (s *stubBackend) DeleteRegistryPolicy() (*ecr.RegistryPolicyResult, error) {
+	return &ecr.RegistryPolicyResult{}, nil
+}
+
 // ---- tests --------------------------------------------------------------
 
 // TestECR_Handler_AcceptsBackendInterface ensures Handler works with any
