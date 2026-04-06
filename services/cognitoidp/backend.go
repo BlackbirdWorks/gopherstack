@@ -23,6 +23,9 @@ const (
 	// clientIDLen is the length of randomly generated client IDs.
 	clientIDLen = 26
 
+	// clientSecretLen is the length of randomly generated client secrets.
+	clientSecretLen = 51
+
 	// alphanumChars contains characters used for random ID generation.
 	alphanumChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -36,21 +39,36 @@ const (
 	UserStatusForceChangePassword = "FORCE_CHANGE_PASSWORD"
 )
 
+// SchemaAttribute represents a custom attribute definition for a user pool.
+type SchemaAttribute struct {
+	Name                     string  `json:"Name"`
+	AttributeDataType        string  `json:"AttributeDataType,omitempty"`
+	StringAttributeMinLength string  `json:"StringAttributeMinLength,omitempty"`
+	StringAttributeMaxLength string  `json:"StringAttributeMaxLength,omitempty"`
+	NumberAttributeMinValue  float64 `json:"NumberAttributeMinValue,omitempty"`
+	NumberAttributeMaxValue  float64 `json:"NumberAttributeMaxValue,omitempty"`
+	Mutable                  bool    `json:"Mutable"`
+	Required                 bool    `json:"Required"`
+	DeveloperOnlyAttribute   bool    `json:"DeveloperOnlyAttribute"`
+}
+
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
-	CreatedAt time.Time
-	issuer    *tokenIssuer
-	ID        string
-	Name      string
-	ARN       string
+	CreatedAt        time.Time
+	issuer           *tokenIssuer
+	ID               string
+	Name             string
+	ARN              string
+	CustomAttributes []SchemaAttribute
 }
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
-	CreatedAt  time.Time `json:"createdAt"`
-	ClientID   string    `json:"clientId"`
-	ClientName string    `json:"clientName"`
-	UserPoolID string    `json:"userPoolId"`
+	CreatedAt    time.Time `json:"createdAt"`
+	ClientID     string    `json:"clientId"`
+	ClientName   string    `json:"clientName"`
+	UserPoolID   string    `json:"userPoolId"`
+	ClientSecret string    `json:"clientSecret,omitempty"`
 }
 
 // User represents a Cognito user within a pool.
@@ -63,6 +81,7 @@ type User struct {
 	PasswordHash string
 	Status       string
 	ConfirmCode  string
+	Enabled      bool
 }
 
 // Group represents a Cognito User Pool group.
@@ -332,6 +351,7 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		Status:       UserStatusUnconfirmed,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
+		Enabled:      true,
 		// Generate a confirmation code (simulates the code sent via email/SMS).
 		ConfirmCode: randomAlphanumeric(confirmCodeLen),
 	}
@@ -457,6 +477,7 @@ func (b *InMemoryBackend) AdminCreateUser(
 		Status:       UserStatusForceChangePassword,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
+		Enabled:      true,
 	}
 
 	poolUsers[username] = user
@@ -770,6 +791,10 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: user %q is not confirmed", ErrUserNotConfirmed, user.Username)
 	}
 
+	if !user.Enabled {
+		return nil, fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, user.Username)
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
@@ -1041,6 +1066,135 @@ func (b *InMemoryBackend) AdminUpdateUserAttributes(userPoolID, username string,
 	}
 
 	maps.Copy(u.Attributes, attributes)
+
+	return nil
+}
+
+// AddCustomAttributes adds custom attribute definitions to a user pool schema.
+func (b *InMemoryBackend) AddCustomAttributes(userPoolID string, attrs []SchemaAttribute) error {
+	b.mu.Lock("AddCustomAttributes")
+	defer b.mu.Unlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	pool.CustomAttributes = append(pool.CustomAttributes, attrs...)
+
+	return nil
+}
+
+// AddUserPoolClientSecret generates and stores a client secret for the given app client.
+func (b *InMemoryBackend) AddUserPoolClientSecret(userPoolID, clientID string) (string, error) {
+	b.mu.Lock("AddUserPoolClientSecret")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	client, ok := b.clients[clientID]
+	if !ok {
+		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	if client.UserPoolID != userPoolID {
+		return "", fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
+	secret := randomAlphanumeric(clientSecretLen)
+	client.ClientSecret = secret
+
+	return secret, nil
+}
+
+// AdminDeleteUserAttributes removes specific attributes from a user in a pool.
+func (b *InMemoryBackend) AdminDeleteUserAttributes(userPoolID, username string, attrNames []string) error {
+	b.mu.Lock("AdminDeleteUserAttributes")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	u, ok := b.users[userPoolID][username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	for _, name := range attrNames {
+		delete(u.Attributes, name)
+	}
+
+	return nil
+}
+
+// AdminDisableProviderForUser prevents a federated identity from signing in for a user.
+// Since this mock does not track federated identity providers, this validates the pool exists
+// and returns success (matching AWS behaviour for unknown provider links).
+func (b *InMemoryBackend) AdminDisableProviderForUser(userPoolID string) error {
+	b.mu.RLock("AdminDisableProviderForUser")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	return nil
+}
+
+// AdminDisableUser disables a user account in a pool.
+func (b *InMemoryBackend) AdminDisableUser(userPoolID, username string) error {
+	b.mu.Lock("AdminDisableUser")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	u, ok := b.users[userPoolID][username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	u.Enabled = false
+
+	return nil
+}
+
+// AdminEnableUser re-enables a previously disabled user account in a pool.
+func (b *InMemoryBackend) AdminEnableUser(userPoolID, username string) error {
+	b.mu.Lock("AdminEnableUser")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	u, ok := b.users[userPoolID][username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	u.Enabled = true
+
+	return nil
+}
+
+// AdminForgetDevice forgets a device for a user. Since this mock does not track devices,
+// it validates the user exists and returns success.
+func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username string) error {
+	b.mu.RLock("AdminForgetDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
 
 	return nil
 }

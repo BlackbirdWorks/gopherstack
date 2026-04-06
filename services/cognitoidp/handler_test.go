@@ -2227,3 +2227,453 @@ func TestHandler_GetUser_ChangePassword(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, authRec2.Code)
 }
+
+func TestHandler_AddCustomAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(h *cognitoidp.Handler) string
+		body     func(poolID string) map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(h *cognitoidp.Handler) string {
+				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "test-pool"})
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["UserPool"].(map[string]any)["Id"].(string)
+			},
+			body: func(poolID string) map[string]any {
+				return map[string]any{
+					"UserPoolId": poolID,
+					"CustomAttributes": []map[string]any{
+						{
+							"Name":              "custom:department",
+							"AttributeDataType": "String",
+							"Mutable":           true,
+						},
+					},
+				}
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:  "pool_not_found",
+			setup: func(_ *cognitoidp.Handler) string { return "us-east-1_NOTEXIST" },
+			body: func(poolID string) map[string]any {
+				return map[string]any{
+					"UserPoolId":       poolID,
+					"CustomAttributes": []map[string]any{{"Name": "custom:x"}},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolID := tt.setup(h)
+			rec := doCognitoRequest(t, h, "AddCustomAttributes", tt.body(poolID))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AddUserPoolClientSecret(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantCode     int
+		poolExists   bool
+		clientExists bool
+	}{
+		{
+			name:         "success",
+			poolExists:   true,
+			clientExists: true,
+			wantCode:     http.StatusOK,
+			wantContains: "ClientSecret",
+		},
+		{
+			name:       "pool_not_found",
+			poolExists: false,
+			wantCode:   http.StatusBadRequest,
+		},
+		{
+			name:       "client_not_found",
+			poolExists: true,
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolID := "us-east-1_NOTEXIST"
+			clientID := "nonexistent-client"
+
+			if tt.poolExists {
+				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sec-pool"})
+				var poolResp map[string]any
+				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+				poolID = poolResp["UserPool"].(map[string]any)["Id"].(string)
+			}
+
+			if tt.clientExists {
+				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+					"UserPoolId": poolID,
+					"ClientName": "test-client",
+				})
+				var clientResp map[string]any
+				require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+				clientID = clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+			}
+
+			rec := doCognitoRequest(t, h, "AddUserPoolClientSecret", map[string]any{
+				"UserPoolId": poolID,
+				"ClientId":   clientID,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestHandler_AdminDeleteUserAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupAttrs map[string]any
+		name       string
+		attrNames  []string
+		wantCode   int
+		setupUser  bool
+	}{
+		{
+			name:      "success",
+			setupUser: true,
+			setupAttrs: map[string]any{
+				"email": "test@example.com",
+				"phone": "+1234567890",
+			},
+			attrNames: []string{"phone"},
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "user_not_found",
+			setupUser: false,
+			attrNames: []string{"email"},
+			wantCode:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "attr-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+			username := "deleteattr-user"
+			if tt.setupUser {
+				userAttrs := make([]map[string]any, 0)
+				for k, v := range tt.setupAttrs {
+					userAttrs = append(userAttrs, map[string]any{"Name": k, "Value": v})
+				}
+				doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+					"UserPoolId":        poolID,
+					"Username":          username,
+					"TemporaryPassword": "TempPass123!",
+					"UserAttributes":    userAttrs,
+				})
+			}
+
+			rec := doCognitoRequest(t, h, "AdminDeleteUserAttributes", map[string]any{
+				"UserPoolId":         poolID,
+				"Username":           username,
+				"UserAttributeNames": tt.attrNames,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AdminDisableProviderForUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		poolID   string
+		wantCode int
+	}{
+		{
+			name:     "success_existing_pool",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "pool_not_found",
+			poolID:   "us-east-1_NOTEXIST",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolID := tt.poolID
+			if poolID == "" {
+				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "provider-pool"})
+				var poolResp map[string]any
+				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+				poolID = poolResp["UserPool"].(map[string]any)["Id"].(string)
+			}
+
+			rec := doCognitoRequest(t, h, "AdminDisableProviderForUser", map[string]any{
+				"UserPoolId": poolID,
+				"User": map[string]any{
+					"ProviderName":           "Google",
+					"ProviderAttributeName":  "Cognito_Subject",
+					"ProviderAttributeValue": "google-123",
+				},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AdminDisableEnableUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		operation string
+		setupUser bool
+		wantCode  int
+	}{
+		{
+			name:      "disable_success",
+			operation: "AdminDisableUser",
+			setupUser: true,
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "enable_success",
+			operation: "AdminEnableUser",
+			setupUser: true,
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "disable_user_not_found",
+			operation: "AdminDisableUser",
+			setupUser: false,
+			wantCode:  http.StatusBadRequest,
+		},
+		{
+			name:      "enable_user_not_found",
+			operation: "AdminEnableUser",
+			setupUser: false,
+			wantCode:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "dis-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+			username := "dis-user"
+			if tt.setupUser {
+				doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+					"UserPoolId":        poolID,
+					"Username":          username,
+					"TemporaryPassword": "TempPass123!",
+				})
+			}
+
+			rec := doCognitoRequest(t, h, tt.operation, map[string]any{
+				"UserPoolId": poolID,
+				"Username":   username,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AdminDisableUser_BlocksAuth(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "block-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "block-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "blockuser",
+		"TemporaryPassword": "TempPass123!",
+	})
+	doCognitoRequest(t, h, "AdminSetUserPassword", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "blockuser",
+		"Password":   "FinalPass123!",
+		"Permanent":  true,
+	})
+
+	// Disable the user.
+	disableRec := doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "blockuser",
+	})
+	assert.Equal(t, http.StatusOK, disableRec.Code)
+
+	// Attempt to authenticate with disabled user must fail.
+	authRec := doCognitoRequest(t, h, "AdminInitiateAuth", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+		"AuthFlow":   "ADMIN_USER_PASSWORD_AUTH",
+		"AuthParameters": map[string]any{
+			"USERNAME": "blockuser",
+			"PASSWORD": "FinalPass123!",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, authRec.Code)
+
+	// Re-enable the user.
+	enableRec := doCognitoRequest(t, h, "AdminEnableUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "blockuser",
+	})
+	assert.Equal(t, http.StatusOK, enableRec.Code)
+
+	// Authentication must succeed again.
+	authRec2 := doCognitoRequest(t, h, "AdminInitiateAuth", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+		"AuthFlow":   "ADMIN_USER_PASSWORD_AUTH",
+		"AuthParameters": map[string]any{
+			"USERNAME": "blockuser",
+			"PASSWORD": "FinalPass123!",
+		},
+	})
+	assert.Equal(t, http.StatusOK, authRec2.Code)
+}
+
+func TestHandler_AdminForgetDevice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setupUser bool
+		wantCode  int
+	}{
+		{
+			name:      "success",
+			setupUser: true,
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "user_not_found",
+			setupUser: false,
+			wantCode:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "device-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+			username := "device-user"
+			if tt.setupUser {
+				doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+					"UserPoolId":        poolID,
+					"Username":          username,
+					"TemporaryPassword": "TempPass123!",
+				})
+			}
+
+			rec := doCognitoRequest(t, h, "AdminForgetDevice", map[string]any{
+				"UserPoolId": poolID,
+				"Username":   username,
+				"DeviceKey":  "device-abc123",
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListUsers_EnabledField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "enabled-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "enabled-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+
+	// Initially the user is enabled.
+	listRec := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, listRec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	users := listResp["Users"].([]any)
+	require.Len(t, users, 1)
+	assert.True(t, users[0].(map[string]any)["Enabled"].(bool))
+
+	// Disable the user and verify the field.
+	doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "enabled-user",
+	})
+
+	listRec2 := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, listRec2.Code)
+	var listResp2 map[string]any
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
+	users2 := listResp2["Users"].([]any)
+	require.Len(t, users2, 1)
+	assert.False(t, users2[0].(map[string]any)["Enabled"].(bool))
+}

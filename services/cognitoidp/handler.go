@@ -72,6 +72,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateUserAttributes",
 		"AdminUpdateUserAttributes",
 		"RevokeToken",
+		"AddCustomAttributes",
+		"AddUserPoolClientSecret",
+		"AdminDeleteUserAttributes",
+		"AdminDisableProviderForUser",
+		"AdminDisableUser",
+		"AdminEnableUser",
+		"AdminForgetDevice",
 	}
 }
 
@@ -167,38 +174,45 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateUserPool":            service.WrapOp(h.handleCreateUserPool),
-		"DescribeUserPool":          service.WrapOp(h.handleDescribeUserPool),
-		"ListUserPools":             service.WrapOp(h.handleListUserPools),
-		"DeleteUserPool":            service.WrapOp(h.handleDeleteUserPool),
-		"GetUserPoolMfaConfig":      service.WrapOp(h.handleGetUserPoolMfaConfig),
-		"CreateUserPoolClient":      service.WrapOp(h.handleCreateUserPoolClient),
-		"DescribeUserPoolClient":    service.WrapOp(h.handleDescribeUserPoolClient),
-		"ListUserPoolClients":       service.WrapOp(h.handleListUserPoolClients),
-		"DeleteUserPoolClient":      service.WrapOp(h.handleDeleteUserPoolClient),
-		"SignUp":                    service.WrapOp(h.handleSignUp),
-		"ConfirmSignUp":             service.WrapOp(h.handleConfirmSignUp),
-		"InitiateAuth":              service.WrapOp(h.handleInitiateAuth),
-		"AdminInitiateAuth":         service.WrapOp(h.handleAdminInitiateAuth),
-		"AdminCreateUser":           service.WrapOp(h.handleAdminCreateUser),
-		"AdminSetUserPassword":      service.WrapOp(h.handleAdminSetUserPassword),
-		"AdminGetUser":              service.WrapOp(h.handleAdminGetUser),
-		"AdminConfirmSignUp":        service.WrapOp(h.handleAdminConfirmSignUp),
-		"AdminDeleteUser":           service.WrapOp(h.handleAdminDeleteUser),
-		"ListUsers":                 service.WrapOp(h.handleListUsers),
-		"ForgotPassword":            service.WrapOp(h.handleForgotPassword),
-		"ConfirmForgotPassword":     service.WrapOp(h.handleConfirmForgotPassword),
-		"GetUser":                   service.WrapOp(h.handleGetUser),
-		"ChangePassword":            service.WrapOp(h.handleChangePassword),
-		"CreateGroup":               service.WrapOp(h.handleCreateGroup),
-		"DeleteGroup":               service.WrapOp(h.handleDeleteGroup),
-		"ListGroups":                service.WrapOp(h.handleListGroups),
-		"AdminAddUserToGroup":       service.WrapOp(h.handleAdminAddUserToGroup),
-		"AdminRemoveUserFromGroup":  service.WrapOp(h.handleAdminRemoveUserFromGroup),
-		"AdminListGroupsForUser":    service.WrapOp(h.handleAdminListGroupsForUser),
-		"UpdateUserAttributes":      service.WrapOp(h.handleUpdateUserAttributes),
-		"AdminUpdateUserAttributes": service.WrapOp(h.handleAdminUpdateUserAttributes),
-		"RevokeToken":               service.WrapOp(h.handleRevokeToken),
+		"CreateUserPool":              service.WrapOp(h.handleCreateUserPool),
+		"DescribeUserPool":            service.WrapOp(h.handleDescribeUserPool),
+		"ListUserPools":               service.WrapOp(h.handleListUserPools),
+		"DeleteUserPool":              service.WrapOp(h.handleDeleteUserPool),
+		"GetUserPoolMfaConfig":        service.WrapOp(h.handleGetUserPoolMfaConfig),
+		"CreateUserPoolClient":        service.WrapOp(h.handleCreateUserPoolClient),
+		"DescribeUserPoolClient":      service.WrapOp(h.handleDescribeUserPoolClient),
+		"ListUserPoolClients":         service.WrapOp(h.handleListUserPoolClients),
+		"DeleteUserPoolClient":        service.WrapOp(h.handleDeleteUserPoolClient),
+		"SignUp":                      service.WrapOp(h.handleSignUp),
+		"ConfirmSignUp":               service.WrapOp(h.handleConfirmSignUp),
+		"InitiateAuth":                service.WrapOp(h.handleInitiateAuth),
+		"AdminInitiateAuth":           service.WrapOp(h.handleAdminInitiateAuth),
+		"AdminCreateUser":             service.WrapOp(h.handleAdminCreateUser),
+		"AdminSetUserPassword":        service.WrapOp(h.handleAdminSetUserPassword),
+		"AdminGetUser":                service.WrapOp(h.handleAdminGetUser),
+		"AdminConfirmSignUp":          service.WrapOp(h.handleAdminConfirmSignUp),
+		"AdminDeleteUser":             service.WrapOp(h.handleAdminDeleteUser),
+		"ListUsers":                   service.WrapOp(h.handleListUsers),
+		"ForgotPassword":              service.WrapOp(h.handleForgotPassword),
+		"ConfirmForgotPassword":       service.WrapOp(h.handleConfirmForgotPassword),
+		"GetUser":                     service.WrapOp(h.handleGetUser),
+		"ChangePassword":              service.WrapOp(h.handleChangePassword),
+		"CreateGroup":                 service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup":                 service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":                  service.WrapOp(h.handleListGroups),
+		"AdminAddUserToGroup":         service.WrapOp(h.handleAdminAddUserToGroup),
+		"AdminRemoveUserFromGroup":    service.WrapOp(h.handleAdminRemoveUserFromGroup),
+		"AdminListGroupsForUser":      service.WrapOp(h.handleAdminListGroupsForUser),
+		"UpdateUserAttributes":        service.WrapOp(h.handleUpdateUserAttributes),
+		"AdminUpdateUserAttributes":   service.WrapOp(h.handleAdminUpdateUserAttributes),
+		"RevokeToken":                 service.WrapOp(h.handleRevokeToken),
+		"AddCustomAttributes":         service.WrapOp(h.handleAddCustomAttributes),
+		"AddUserPoolClientSecret":     service.WrapOp(h.handleAddUserPoolClientSecret),
+		"AdminDeleteUserAttributes":   service.WrapOp(h.handleAdminDeleteUserAttributes),
+		"AdminDisableProviderForUser": service.WrapOp(h.handleAdminDisableProviderForUser),
+		"AdminDisableUser":            service.WrapOp(h.handleAdminDisableUser),
+		"AdminEnableUser":             service.WrapOp(h.handleAdminEnableUser),
+		"AdminForgetDevice":           service.WrapOp(h.handleAdminForgetDevice),
 	}
 }
 
@@ -874,7 +888,7 @@ func (h *Handler) handleListUsers(
 			UserStatus:     u.Status,
 			UserCreateDate: float64(u.CreatedAt.Unix()),
 			Attributes:     mapToAttributeList(u.Attributes),
-			Enabled:        true,
+			Enabled:        u.Enabled,
 		})
 	}
 
@@ -1166,4 +1180,141 @@ func (h *Handler) handleRevokeToken(_ context.Context, in *revokeTokenInput) (*r
 	}
 
 	return &revokeTokenOutput{}, nil
+}
+
+type addCustomAttributesInput struct {
+	UserPoolID       string            `json:"UserPoolId"`
+	CustomAttributes []SchemaAttribute `json:"CustomAttributes"`
+}
+
+type addCustomAttributesOutput struct{}
+
+func (h *Handler) handleAddCustomAttributes(
+	_ context.Context,
+	in *addCustomAttributesInput,
+) (*addCustomAttributesOutput, error) {
+	if err := h.Backend.AddCustomAttributes(in.UserPoolID, in.CustomAttributes); err != nil {
+		return nil, err
+	}
+
+	return &addCustomAttributesOutput{}, nil
+}
+
+type addUserPoolClientSecretInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	ClientID   string `json:"ClientId"`
+}
+
+type addUserPoolClientSecretOutput struct {
+	ClientSecret string `json:"ClientSecret"`
+}
+
+func (h *Handler) handleAddUserPoolClientSecret(
+	_ context.Context,
+	in *addUserPoolClientSecretInput,
+) (*addUserPoolClientSecretOutput, error) {
+	secret, err := h.Backend.AddUserPoolClientSecret(in.UserPoolID, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addUserPoolClientSecretOutput{ClientSecret: secret}, nil
+}
+
+type adminDeleteUserAttributesInput struct {
+	UserPoolID         string   `json:"UserPoolId"`
+	Username           string   `json:"Username"`
+	UserAttributeNames []string `json:"UserAttributeNames"`
+}
+
+type adminDeleteUserAttributesOutput struct{}
+
+func (h *Handler) handleAdminDeleteUserAttributes(
+	_ context.Context,
+	in *adminDeleteUserAttributesInput,
+) (*adminDeleteUserAttributesOutput, error) {
+	if err := h.Backend.AdminDeleteUserAttributes(in.UserPoolID, in.Username, in.UserAttributeNames); err != nil {
+		return nil, err
+	}
+
+	return &adminDeleteUserAttributesOutput{}, nil
+}
+
+type providerUserIdentifierType struct {
+	ProviderAttributeName  string `json:"ProviderAttributeName"`
+	ProviderAttributeValue string `json:"ProviderAttributeValue"`
+	ProviderName           string `json:"ProviderName"`
+}
+
+type adminDisableProviderForUserInput struct {
+	UserPoolID string                     `json:"UserPoolId"`
+	User       providerUserIdentifierType `json:"User"`
+}
+
+type adminDisableProviderForUserOutput struct{}
+
+func (h *Handler) handleAdminDisableProviderForUser(
+	_ context.Context,
+	in *adminDisableProviderForUserInput,
+) (*adminDisableProviderForUserOutput, error) {
+	if err := h.Backend.AdminDisableProviderForUser(in.UserPoolID); err != nil {
+		return nil, err
+	}
+
+	return &adminDisableProviderForUserOutput{}, nil
+}
+
+type adminDisableUserInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminDisableUserOutput struct{}
+
+func (h *Handler) handleAdminDisableUser(
+	_ context.Context,
+	in *adminDisableUserInput,
+) (*adminDisableUserOutput, error) {
+	if err := h.Backend.AdminDisableUser(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminDisableUserOutput{}, nil
+}
+
+type adminEnableUserInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminEnableUserOutput struct{}
+
+func (h *Handler) handleAdminEnableUser(
+	_ context.Context,
+	in *adminEnableUserInput,
+) (*adminEnableUserOutput, error) {
+	if err := h.Backend.AdminEnableUser(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminEnableUserOutput{}, nil
+}
+
+type adminForgetDeviceInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+	DeviceKey  string `json:"DeviceKey"`
+}
+
+type adminForgetDeviceOutput struct{}
+
+func (h *Handler) handleAdminForgetDevice(
+	_ context.Context,
+	in *adminForgetDeviceInput,
+) (*adminForgetDeviceOutput, error) {
+	if err := h.Backend.AdminForgetDevice(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminForgetDeviceOutput{}, nil
 }
