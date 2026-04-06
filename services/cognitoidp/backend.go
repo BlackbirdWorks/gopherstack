@@ -43,8 +43,8 @@ const (
 type SchemaAttribute struct {
 	Name                     string  `json:"Name"`
 	AttributeDataType        string  `json:"AttributeDataType,omitempty"`
-	StringAttributeMinLength string  `json:"StringAttributeMinLength,omitempty"`
-	StringAttributeMaxLength string  `json:"StringAttributeMaxLength,omitempty"`
+	StringAttributeMinLength int64   `json:"StringAttributeMinLength,omitempty"`
+	StringAttributeMaxLength int64   `json:"StringAttributeMaxLength,omitempty"`
 	NumberAttributeMinValue  float64 `json:"NumberAttributeMinValue,omitempty"`
 	NumberAttributeMaxValue  float64 `json:"NumberAttributeMaxValue,omitempty"`
 	Mutable                  bool    `json:"Mutable"`

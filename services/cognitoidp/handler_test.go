@@ -2639,41 +2639,58 @@ func TestHandler_AdminForgetDevice(t *testing.T) {
 	}
 }
 
-func TestHandler_ListUsers_EnabledField(t *testing.T) {
+func TestHandler_ListUsers_ReturnsCorrectEnabledState(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "enabled-pool"})
-	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
-	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+	tests := []struct {
+		name        string
+		disableUser bool
+		wantEnabled bool
+	}{
+		{
+			name:        "user_initially_enabled",
+			disableUser: false,
+			wantEnabled: true,
+		},
+		{
+			name:        "user_disabled_shows_false",
+			disableUser: true,
+			wantEnabled: false,
+		},
+	}
 
-	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
-		"UserPoolId":        poolID,
-		"Username":          "enabled-user",
-		"TemporaryPassword": "TempPass123!",
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Initially the user is enabled.
-	listRec := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
-	assert.Equal(t, http.StatusOK, listRec.Code)
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	users := listResp["Users"].([]any)
-	require.Len(t, users, 1)
-	assert.True(t, users[0].(map[string]any)["Enabled"].(bool))
+			h := newTestHandler(t)
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "enabled-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
-	// Disable the user and verify the field.
-	doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
-		"UserPoolId": poolID,
-		"Username":   "enabled-user",
-	})
+			const username = "state-user"
+			doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+				"UserPoolId":        poolID,
+				"Username":          username,
+				"TemporaryPassword": "TempPass123!",
+			})
 
-	listRec2 := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
-	assert.Equal(t, http.StatusOK, listRec2.Code)
-	var listResp2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
-	users2 := listResp2["Users"].([]any)
-	require.Len(t, users2, 1)
-	assert.False(t, users2[0].(map[string]any)["Enabled"].(bool))
+			if tt.disableUser {
+				doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
+					"UserPoolId": poolID,
+					"Username":   username,
+				})
+			}
+
+			listRec := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
+			assert.Equal(t, http.StatusOK, listRec.Code)
+
+			var listResp map[string]any
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			users := listResp["Users"].([]any)
+			require.Len(t, users, 1)
+			assert.Equal(t, tt.wantEnabled, users[0].(map[string]any)["Enabled"].(bool))
+		})
+	}
 }
