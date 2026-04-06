@@ -282,7 +282,6 @@ func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, [
 	defer b.mu.RUnlock()
 
 	var found []*Repository
-
 	var notFound []string
 
 	for _, name := range names {
@@ -383,7 +382,6 @@ func (b *InMemoryBackend) BatchAssociateApprovalRuleTemplateWithRepositories(
 	defer b.mu.Unlock()
 
 	var associated []string
-
 	var errors []BatchAssociationError
 
 	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
@@ -429,7 +427,6 @@ func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
 	defer b.mu.Unlock()
 
 	var disassociated []string
-
 	var errors []BatchAssociationError
 
 	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
@@ -550,7 +547,6 @@ func (b *InMemoryBackend) BatchGetCommits(repositoryName string, commitIDs []str
 	defer b.mu.RUnlock()
 
 	var found []*Commit
-
 	var errors []BatchCommitError
 
 	repoCommits := b.commits[repositoryName]
