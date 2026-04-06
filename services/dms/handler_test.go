@@ -1537,3 +1537,686 @@ func TestDescribeReplicationTasksContinuation(t *testing.T) {
 	_, stillHasMarker := resp2["Marker"]
 	assert.False(t, stillHasMarker)
 }
+
+// --- Tests for 10 new operations ---
+
+func TestHandler_ApplyPendingMaintenanceAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "maint-inst",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				arn := parseJSON(t, create)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+				rec := doDMS(t, h, "ApplyPendingMaintenanceAction", map[string]any{
+					"ReplicationInstanceArn": arn,
+					"ApplyAction":            "os-upgrade",
+					"OptInType":              "immediate",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				rp, ok := resp["ResourcePendingMaintenanceActions"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, arn, rp["ResourceIdentifier"])
+			},
+		},
+		{
+			name: "missing_arn",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "ApplyPendingMaintenanceAction", map[string]any{
+					"ApplyAction": "os-upgrade",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "not_found",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "ApplyPendingMaintenanceAction", map[string]any{
+					"ReplicationInstanceArn": "arn:aws:dms:us-east-1:123:rep:nonexistent",
+					"ApplyAction":            "os-upgrade",
+					"OptInType":              "immediate",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_BatchStartRecommendations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "BatchStartRecommendations", map[string]any{
+		"Data": []any{},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	resp := parseJSON(t, rec)
+	entries, ok := resp["ErrorEntries"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, entries)
+}
+
+func TestHandler_CancelMetadataModelConversion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "success",
+			wantCode: http.StatusOK,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+				"RequestIdentifier":          "req-abc",
+			},
+		},
+		{
+			name:     "missing_project_identifier",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"RequestIdentifier": "req-abc",
+			},
+		},
+		{
+			name:     "missing_request_identifier",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CancelMetadataModelConversion", tt.input)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "req-abc", resp["RequestIdentifier"])
+			}
+		})
+	}
+}
+
+func TestHandler_CancelMetadataModelCreation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "success",
+			wantCode: http.StatusOK,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+				"RequestIdentifier":          "req-xyz",
+			},
+		},
+		{
+			name:     "missing_project",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"RequestIdentifier": "req-xyz",
+			},
+		},
+		{
+			name:     "missing_request_identifier",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CancelMetadataModelCreation", tt.input)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "req-xyz", resp["RequestIdentifier"])
+			}
+		})
+	}
+}
+
+func TestHandler_CancelReplicationTaskAssessmentRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "missing_arn",
+			wantCode: http.StatusBadRequest,
+			input:    map[string]any{},
+		},
+		{
+			name:     "not_found",
+			wantCode: http.StatusNotFound,
+			input: map[string]any{
+				"ReplicationTaskAssessmentRunArn": "arn:aws:dms:us-east-1:123:assessment-run:nonexistent",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CancelReplicationTaskAssessmentRun", tt.input)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateDataMigration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateDataMigration", map[string]any{
+					"DataMigrationName":          "my-migration",
+					"MigrationProjectIdentifier": "proj-1",
+					"DataMigrationType":          "full-load",
+					"ServiceAccessRoleArn":       "arn:aws:iam::123456789012:role/dms-role",
+					"NumberOfJobs":               2,
+					"EnableCloudwatchLogs":       true,
+					"Tags": []map[string]string{
+						{"Key": "Env", "Value": "test"},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				dm, ok := resp["DataMigration"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "my-migration", dm["DataMigrationName"])
+				assert.Equal(t, "full-load", dm["DataMigrationType"])
+				assert.Equal(t, "ready", dm["DataMigrationStatus"])
+				assert.NotEmpty(t, dm["DataMigrationArn"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateDataMigration", map[string]any{
+					"DataMigrationName": "dup-migration",
+					"DataMigrationType": "full-load",
+				})
+				rec := doDMS(t, h, "CreateDataMigration", map[string]any{
+					"DataMigrationName": "dup-migration",
+					"DataMigrationType": "full-load",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_name",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateDataMigration", map[string]any{
+					"DataMigrationType": "full-load",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "missing_type",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateDataMigration", map[string]any{
+					"DataMigrationName": "no-type-migration",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_CreateDataProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateDataProvider", map[string]any{
+					"DataProviderName": "my-provider",
+					"Engine":           "mysql",
+					"Description":      "My MySQL provider",
+					"Tags": []map[string]string{
+						{"Key": "Team", "Value": "infra"},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				dp, ok := resp["DataProvider"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "my-provider", dp["DataProviderName"])
+				assert.Equal(t, "mysql", dp["Engine"])
+				assert.Equal(t, "My MySQL provider", dp["Description"])
+				assert.NotEmpty(t, dp["DataProviderArn"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateDataProvider", map[string]any{
+					"DataProviderName": "dup-provider",
+					"Engine":           "postgres",
+				})
+				rec := doDMS(t, h, "CreateDataProvider", map[string]any{
+					"DataProviderName": "dup-provider",
+					"Engine":           "postgres",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_name",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateDataProvider", map[string]any{
+					"Engine": "mysql",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "missing_engine",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateDataProvider", map[string]any{
+					"DataProviderName": "no-engine",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_CreateEventSubscription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEventSubscription", map[string]any{
+					"SubscriptionName": "my-sub",
+					"SnsTopicArn":      "arn:aws:sns:us-east-1:123:my-topic",
+					"SourceType":       "replication-instance",
+					"EventCategories":  []string{"creation", "deletion"},
+					"Enabled":          true,
+					"Tags": []map[string]string{
+						{"Key": "Env", "Value": "prod"},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				es, ok := resp["EventSubscription"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "my-sub", es["SubscriptionName"])
+				assert.Equal(t, "arn:aws:sns:us-east-1:123:my-topic", es["SnsTopicArn"])
+				assert.Equal(t, "active", es["Status"])
+				assert.Equal(t, true, es["Enabled"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateEventSubscription", map[string]any{
+					"SubscriptionName": "dup-sub",
+					"SnsTopicArn":      "arn:aws:sns:us-east-1:123:topic",
+				})
+				rec := doDMS(t, h, "CreateEventSubscription", map[string]any{
+					"SubscriptionName": "dup-sub",
+					"SnsTopicArn":      "arn:aws:sns:us-east-1:123:topic",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_subscription_name",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEventSubscription", map[string]any{
+					"SnsTopicArn": "arn:aws:sns:us-east-1:123:topic",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "missing_sns_topic_arn",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEventSubscription", map[string]any{
+					"SubscriptionName": "no-topic",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_CreateFleetAdvisorCollector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"CollectorName":        "my-collector",
+					"Description":          "My Fleet Advisor collector",
+					"ServiceAccessRoleArn": "arn:aws:iam::123456789012:role/fleet-role",
+					"S3BucketName":         "my-bucket",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "my-collector", resp["CollectorName"])
+				assert.NotEmpty(t, resp["CollectorReferencedId"])
+				assert.Equal(t, "arn:aws:iam::123456789012:role/fleet-role", resp["ServiceAccessRoleArn"])
+				assert.Equal(t, "my-bucket", resp["S3BucketName"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"CollectorName": "dup-collector",
+				})
+				rec := doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"CollectorName": "dup-collector",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_collector_name",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"S3BucketName": "my-bucket",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_CreateInstanceProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success_named",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateInstanceProfile", map[string]any{
+					"InstanceProfileName":   "my-profile",
+					"AvailabilityZone":      "us-east-1a",
+					"NetworkType":           "IPV4",
+					"PubliclyAccessible":    false,
+					"Description":           "Test profile",
+					"SubnetGroupIdentifier": "subnet-group-1",
+					"Tags": []map[string]string{
+						{"Key": "Env", "Value": "staging"},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				ip, ok := resp["InstanceProfile"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "my-profile", ip["InstanceProfileName"])
+				assert.Equal(t, "us-east-1a", ip["AvailabilityZone"])
+				assert.NotEmpty(t, ip["InstanceProfileArn"])
+			},
+		},
+		{
+			name: "create_success_no_name",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateInstanceProfile", map[string]any{
+					"AvailabilityZone": "us-west-2a",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				ip, ok := resp["InstanceProfile"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, ip["InstanceProfileArn"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateInstanceProfile", map[string]any{
+					"InstanceProfileName": "dup-profile",
+				})
+				rec := doDMS(t, h, "CreateInstanceProfile", map[string]any{
+					"InstanceProfileName": "dup-profile",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_NewOps_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	ops := h.GetSupportedOperations()
+
+	newOps := []string{
+		"ApplyPendingMaintenanceAction",
+		"BatchStartRecommendations",
+		"CancelMetadataModelConversion",
+		"CancelMetadataModelCreation",
+		"CancelReplicationTaskAssessmentRun",
+		"CreateDataMigration",
+		"CreateDataProvider",
+		"CreateEventSubscription",
+		"CreateFleetAdvisorCollector",
+		"CreateInstanceProfile",
+	}
+
+	for _, op := range newOps {
+		assert.Contains(t, ops, op, "operation %q should be in GetSupportedOperations()", op)
+	}
+}
+
+func TestHandler_TagsOnNewResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "tags_on_data_migration",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateDataMigration", map[string]any{
+					"DataMigrationName": "tag-dm",
+					"DataMigrationType": "full-load",
+					"Tags": []map[string]string{
+						{"Key": "Phase", "Value": "alpha"},
+					},
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				dmArn := parseJSON(t, create)["DataMigration"].(map[string]any)["DataMigrationArn"].(string)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": dmArn,
+				})
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				tags := parseJSON(t, listRec)["TagList"].([]any)
+				require.Len(t, tags, 1)
+				assert.Equal(t, "Phase", tags[0].(map[string]any)["Key"])
+			},
+		},
+		{
+			name: "tags_on_data_provider",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateDataProvider", map[string]any{
+					"DataProviderName": "tag-dp",
+					"Engine":           "oracle",
+					"Tags": []map[string]string{
+						{"Key": "Owner", "Value": "dba"},
+					},
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				dpArn := parseJSON(t, create)["DataProvider"].(map[string]any)["DataProviderArn"].(string)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": dpArn,
+				})
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				tags := parseJSON(t, listRec)["TagList"].([]any)
+				require.Len(t, tags, 1)
+				assert.Equal(t, "Owner", tags[0].(map[string]any)["Key"])
+			},
+		},
+		{
+			name: "tags_on_instance_profile",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateInstanceProfile", map[string]any{
+					"InstanceProfileName": "tag-ip",
+					"Tags": []map[string]string{
+						{"Key": "Tier", "Value": "prod"},
+					},
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				ipArn := parseJSON(t, create)["InstanceProfile"].(map[string]any)["InstanceProfileArn"].(string)
+
+				addRec := doDMS(t, h, "AddTagsToResource", map[string]any{
+					"ResourceArn": ipArn,
+					"Tags": []map[string]string{
+						{"Key": "Extra", "Value": "value"},
+					},
+				})
+				assert.Equal(t, http.StatusOK, addRec.Code)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": ipArn,
+				})
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				tags := parseJSON(t, listRec)["TagList"].([]any)
+				assert.Len(t, tags, 2)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}

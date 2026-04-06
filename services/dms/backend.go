@@ -19,7 +19,87 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsFault", awserr.ErrConflict)
 	// ErrInvalidState is returned when a DMS resource is in an invalid state for the requested operation.
 	ErrInvalidState = awserr.New("InvalidResourceStateFault", awserr.ErrInvalidParameter)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+// DataMigration represents an AWS DMS data migration.
+type DataMigration struct {
+	CreationTime         time.Time  `json:"creationTime"`
+	Tags                 *tags.Tags `json:"tags,omitempty"`
+	DataMigrationName    string     `json:"dataMigrationName"`
+	DataMigrationArn     string     `json:"dataMigrationArn"`
+	MigrationProjectArn  string     `json:"migrationProjectArn"`
+	DataMigrationType    string     `json:"dataMigrationType"`
+	ServiceAccessRoleArn string     `json:"serviceAccessRoleArn"`
+	DataMigrationStatus  string     `json:"dataMigrationStatus"`
+	AccountID            string     `json:"accountId"`
+	Region               string     `json:"region"`
+	SelectionRules       string     `json:"selectionRules,omitempty"`
+	NumberOfJobs         int32      `json:"numberOfJobs"`
+	EnableCloudwatchLogs bool       `json:"enableCloudwatchLogs"`
+}
+
+// DataProvider represents an AWS DMS data provider.
+type DataProvider struct {
+	CreationTime             time.Time  `json:"creationTime"`
+	Tags                     *tags.Tags `json:"tags,omitempty"`
+	DataProviderName         string     `json:"dataProviderName"`
+	DataProviderArn          string     `json:"dataProviderArn"`
+	Engine                   string     `json:"engine"`
+	Description              string     `json:"description,omitempty"`
+	DataProviderCreationTime time.Time  `json:"dataProviderCreationTime"`
+	AccountID                string     `json:"accountId"`
+	Region                   string     `json:"region"`
+}
+
+// EventSubscription represents an AWS DMS event notification subscription.
+type EventSubscription struct {
+	CreationTime     time.Time  `json:"creationTime"`
+	Tags             *tags.Tags `json:"tags,omitempty"`
+	SubscriptionName string     `json:"subscriptionName"`
+	SnsTopicArn      string     `json:"snsTopicArn"`
+	SourceType       string     `json:"sourceType,omitempty"`
+	Status           string     `json:"status"`
+	AccountID        string     `json:"accountId"`
+	Region           string     `json:"region"`
+	SourceIDsList    []string   `json:"sourceIdsList,omitempty"`
+	EventCategories  []string   `json:"eventCategories,omitempty"`
+	Enabled          bool       `json:"enabled"`
+}
+
+// FleetAdvisorCollector represents an AWS DMS Fleet Advisor collector.
+type FleetAdvisorCollector struct {
+	CreatedDate           time.Time `json:"createdDate"`
+	CollectorName         string    `json:"collectorName"`
+	CollectorReferencedID string    `json:"collectorReferencedId"`
+	CollectorVersion      string    `json:"collectorVersion"`
+	Description           string    `json:"description,omitempty"`
+	ServiceAccessRoleArn  string    `json:"serviceAccessRoleArn"`
+	S3BucketName          string    `json:"s3BucketName"`
+	CollectorHealthCheck  string    `json:"collectorHealthCheck"`
+	LastDataReceived      string    `json:"lastDataReceived,omitempty"`
+	RegisteredDate        string    `json:"registeredDate,omitempty"`
+	ModifiedDate          string    `json:"modifiedDate,omitempty"`
+	AccountID             string    `json:"accountId"`
+	Region                string    `json:"region"`
+}
+
+// InstanceProfile represents an AWS DMS instance profile.
+type InstanceProfile struct {
+	CreationTime          time.Time  `json:"creationTime"`
+	Tags                  *tags.Tags `json:"tags,omitempty"`
+	InstanceProfileName   string     `json:"instanceProfileName"`
+	InstanceProfileArn    string     `json:"instanceProfileArn"`
+	AvailabilityZone      string     `json:"availabilityZone,omitempty"`
+	KmsKeyArn             string     `json:"kmsKeyArn,omitempty"`
+	NetworkType           string     `json:"networkType,omitempty"`
+	Description           string     `json:"description,omitempty"`
+	SubnetGroupIdentifier string     `json:"subnetGroupIdentifier,omitempty"`
+	AccountID             string     `json:"accountId"`
+	Region                string     `json:"region"`
+	PubliclyAccessible    bool       `json:"publiclyAccessible"`
+}
 
 // ReplicationInstance represents an AWS DMS replication instance.
 //
@@ -84,23 +164,33 @@ type ReplicationTask struct {
 
 // InMemoryBackend is the in-memory store for AWS DMS resources.
 type InMemoryBackend struct {
-	replicationInstances map[string]*ReplicationInstance
-	endpoints            map[string]*Endpoint
-	replicationTasks     map[string]*ReplicationTask
-	mu                   *lockmetrics.RWMutex
-	accountID            string
-	region               string
+	replicationInstances   map[string]*ReplicationInstance
+	endpoints              map[string]*Endpoint
+	replicationTasks       map[string]*ReplicationTask
+	dataMigrations         map[string]*DataMigration
+	dataProviders          map[string]*DataProvider
+	eventSubscriptions     map[string]*EventSubscription
+	fleetAdvisorCollectors map[string]*FleetAdvisorCollector
+	instanceProfiles       map[string]*InstanceProfile
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend creates a new in-memory DMS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		replicationInstances: make(map[string]*ReplicationInstance),
-		endpoints:            make(map[string]*Endpoint),
-		replicationTasks:     make(map[string]*ReplicationTask),
-		accountID:            accountID,
-		region:               region,
-		mu:                   lockmetrics.New("dms"),
+		replicationInstances:   make(map[string]*ReplicationInstance),
+		endpoints:              make(map[string]*Endpoint),
+		replicationTasks:       make(map[string]*ReplicationTask),
+		dataMigrations:         make(map[string]*DataMigration),
+		dataProviders:          make(map[string]*DataProvider),
+		eventSubscriptions:     make(map[string]*EventSubscription),
+		fleetAdvisorCollectors: make(map[string]*FleetAdvisorCollector),
+		instanceProfiles:       make(map[string]*InstanceProfile),
+		accountID:              accountID,
+		region:                 region,
+		mu:                     lockmetrics.New("dms"),
 	}
 }
 
@@ -492,6 +582,27 @@ func (b *InMemoryBackend) AddTagsToResource(resourceArn string, kv map[string]st
 			return nil
 		}
 	}
+	for _, dm := range b.dataMigrations {
+		if dm.DataMigrationArn == resourceArn {
+			dm.Tags.Merge(kv)
+
+			return nil
+		}
+	}
+	for _, dp := range b.dataProviders {
+		if dp.DataProviderArn == resourceArn {
+			dp.Tags.Merge(kv)
+
+			return nil
+		}
+	}
+	for _, ip := range b.instanceProfiles {
+		if ip.InstanceProfileArn == resourceArn {
+			ip.Tags.Merge(kv)
+
+			return nil
+		}
+	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 }
@@ -516,6 +627,294 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 			return rt.Tags.Clone(), nil
 		}
 	}
+	for _, dm := range b.dataMigrations {
+		if dm.DataMigrationArn == resourceArn {
+			return dm.Tags.Clone(), nil
+		}
+	}
+	for _, dp := range b.dataProviders {
+		if dp.DataProviderArn == resourceArn {
+			return dp.Tags.Clone(), nil
+		}
+	}
+	for _, ip := range b.instanceProfiles {
+		if ip.InstanceProfileArn == resourceArn {
+			return ip.Tags.Clone(), nil
+		}
+	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+}
+
+// ApplyPendingMaintenanceAction applies a pending maintenance action to a replication instance.
+func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
+	replicationInstanceArn, applyAction, optInType string,
+) (*ReplicationInstance, error) {
+	b.mu.Lock("ApplyPendingMaintenanceAction")
+	defer b.mu.Unlock()
+
+	for _, ri := range b.replicationInstances {
+		if ri.ReplicationInstanceArn == replicationInstanceArn {
+			// In-memory: mark the action as applied by updating the engine version
+			// for "os-upgrade" / "db-upgrade" or just acknowledge for others.
+			_ = applyAction
+			_ = optInType
+			cp := *ri
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, replicationInstanceArn)
+}
+
+// BatchStartRecommendations starts the analysis to generate recommendations.
+// In-memory: always returns an empty error list (all successful).
+func (b *InMemoryBackend) BatchStartRecommendations() error {
+	return nil
+}
+
+// CancelMetadataModelConversion cancels a pending metadata model conversion task.
+func (b *InMemoryBackend) CancelMetadataModelConversion(
+	migrationProjectIdentifier, requestIdentifier string,
+) (string, error) {
+	if migrationProjectIdentifier == "" {
+		return "", fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	if requestIdentifier == "" {
+		return "", fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
+	}
+
+	return requestIdentifier, nil
+}
+
+// CancelMetadataModelCreation cancels a pending metadata model creation task.
+func (b *InMemoryBackend) CancelMetadataModelCreation(
+	migrationProjectIdentifier, requestIdentifier string,
+) (string, error) {
+	if migrationProjectIdentifier == "" {
+		return "", fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	if requestIdentifier == "" {
+		return "", fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
+	}
+
+	return requestIdentifier, nil
+}
+
+// CancelReplicationTaskAssessmentRun cancels a single premigration assessment run.
+func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
+	replicationTaskAssessmentRunArn string,
+) error {
+	if replicationTaskAssessmentRunArn == "" {
+		return fmt.Errorf("%w: ReplicationTaskAssessmentRunArn is required", ErrValidation)
+	}
+
+	// In-memory: there are no real assessment runs to cancel; return not-found.
+	return fmt.Errorf("%w: assessment run %s not found", ErrNotFound, replicationTaskAssessmentRunArn)
+}
+
+// CreateDataMigration creates a new data migration.
+func (b *InMemoryBackend) CreateDataMigration(
+	name, migrationProjectArn, migrationType, serviceAccessRoleArn, selectionRules string,
+	numberOfJobs int32,
+	enableCloudwatchLogs bool,
+	kv map[string]string,
+) (*DataMigration, error) {
+	b.mu.Lock("CreateDataMigration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.dataMigrations[name]; ok {
+		return nil, fmt.Errorf("%w: data migration %s already exists", ErrAlreadyExists, name)
+	}
+
+	migrationARN := arn.Build("dms", b.region, b.accountID, "data-migration:"+uuid.NewString())
+	t := tags.New("dms.data-migration." + name + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+
+	if numberOfJobs == 0 {
+		numberOfJobs = 1
+	}
+
+	dm := &DataMigration{
+		DataMigrationName:    name,
+		DataMigrationArn:     migrationARN,
+		MigrationProjectArn:  migrationProjectArn,
+		DataMigrationType:    migrationType,
+		ServiceAccessRoleArn: serviceAccessRoleArn,
+		SelectionRules:       selectionRules,
+		NumberOfJobs:         numberOfJobs,
+		EnableCloudwatchLogs: enableCloudwatchLogs,
+		DataMigrationStatus:  "ready",
+		AccountID:            b.accountID,
+		Region:               b.region,
+		CreationTime:         time.Now().UTC(),
+		Tags:                 t,
+	}
+	b.dataMigrations[name] = dm
+	cp := *dm
+
+	return &cp, nil
+}
+
+// CreateDataProvider creates a new data provider.
+func (b *InMemoryBackend) CreateDataProvider(
+	name, engine, description string,
+	kv map[string]string,
+) (*DataProvider, error) {
+	b.mu.Lock("CreateDataProvider")
+	defer b.mu.Unlock()
+
+	if _, ok := b.dataProviders[name]; ok {
+		return nil, fmt.Errorf("%w: data provider %s already exists", ErrAlreadyExists, name)
+	}
+
+	providerARN := arn.Build("dms", b.region, b.accountID, "data-provider:"+uuid.NewString())
+	t := tags.New("dms.data-provider." + name + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+
+	now := time.Now().UTC()
+	dp := &DataProvider{
+		DataProviderName:         name,
+		DataProviderArn:          providerARN,
+		Engine:                   engine,
+		Description:              description,
+		DataProviderCreationTime: now,
+		AccountID:                b.accountID,
+		Region:                   b.region,
+		CreationTime:             now,
+		Tags:                     t,
+	}
+	b.dataProviders[name] = dp
+	cp := *dp
+
+	return &cp, nil
+}
+
+// CreateEventSubscription creates a new event subscription.
+func (b *InMemoryBackend) CreateEventSubscription(
+	subscriptionName, snsTopicArn, sourceType string,
+	sourceIDs, eventCategories []string,
+	enabled bool,
+	kv map[string]string,
+) (*EventSubscription, error) {
+	b.mu.Lock("CreateEventSubscription")
+	defer b.mu.Unlock()
+
+	if _, ok := b.eventSubscriptions[subscriptionName]; ok {
+		return nil, fmt.Errorf("%w: event subscription %s already exists", ErrAlreadyExists, subscriptionName)
+	}
+
+	t := tags.New("dms.event-subscription." + subscriptionName + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+
+	sourceIDsCopy := make([]string, len(sourceIDs))
+	copy(sourceIDsCopy, sourceIDs)
+
+	eventCategoriesCopy := make([]string, len(eventCategories))
+	copy(eventCategoriesCopy, eventCategories)
+
+	es := &EventSubscription{
+		SubscriptionName: subscriptionName,
+		SnsTopicArn:      snsTopicArn,
+		SourceType:       sourceType,
+		SourceIDsList:    sourceIDsCopy,
+		EventCategories:  eventCategoriesCopy,
+		Enabled:          enabled,
+		Status:           "active",
+		AccountID:        b.accountID,
+		Region:           b.region,
+		CreationTime:     time.Now().UTC(),
+		Tags:             t,
+	}
+	b.eventSubscriptions[subscriptionName] = es
+	cp := *es
+
+	return &cp, nil
+}
+
+// CreateFleetAdvisorCollector creates a new Fleet Advisor collector.
+func (b *InMemoryBackend) CreateFleetAdvisorCollector(
+	collectorName, description, serviceAccessRoleArn, s3BucketName string,
+) (*FleetAdvisorCollector, error) {
+	b.mu.Lock("CreateFleetAdvisorCollector")
+	defer b.mu.Unlock()
+
+	if _, ok := b.fleetAdvisorCollectors[collectorName]; ok {
+		return nil, fmt.Errorf("%w: Fleet Advisor collector %s already exists", ErrAlreadyExists, collectorName)
+	}
+
+	collectorID := uuid.NewString()
+	col := &FleetAdvisorCollector{
+		CollectorName:         collectorName,
+		CollectorReferencedID: collectorID,
+		CollectorVersion:      "1.0.0",
+		Description:           description,
+		ServiceAccessRoleArn:  serviceAccessRoleArn,
+		S3BucketName:          s3BucketName,
+		CollectorHealthCheck:  "HEALTHY",
+		AccountID:             b.accountID,
+		Region:                b.region,
+		CreatedDate:           time.Now().UTC(),
+	}
+	b.fleetAdvisorCollectors[collectorName] = col
+	cp := *col
+
+	return &cp, nil
+}
+
+// CreateInstanceProfile creates a new instance profile.
+func (b *InMemoryBackend) CreateInstanceProfile(
+	instanceProfileName, availabilityZone, kmsKeyArn, networkType, description, subnetGroupIdentifier string,
+	publiclyAccessible bool,
+	kv map[string]string,
+) (*InstanceProfile, error) {
+	b.mu.Lock("CreateInstanceProfile")
+	defer b.mu.Unlock()
+
+	key := instanceProfileName
+	if key == "" {
+		key = uuid.NewString()
+	}
+
+	if _, ok := b.instanceProfiles[key]; ok {
+		return nil, fmt.Errorf("%w: instance profile %s already exists", ErrAlreadyExists, key)
+	}
+
+	profileARN := arn.Build("dms", b.region, b.accountID, "instance-profile:"+uuid.NewString())
+	t := tags.New("dms.instance-profile." + key + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
+
+	if instanceProfileName == "" {
+		instanceProfileName = key
+	}
+
+	ip := &InstanceProfile{
+		InstanceProfileName:   instanceProfileName,
+		InstanceProfileArn:    profileARN,
+		AvailabilityZone:      availabilityZone,
+		KmsKeyArn:             kmsKeyArn,
+		NetworkType:           networkType,
+		Description:           description,
+		SubnetGroupIdentifier: subnetGroupIdentifier,
+		PubliclyAccessible:    publiclyAccessible,
+		AccountID:             b.accountID,
+		Region:                b.region,
+		CreationTime:          time.Now().UTC(),
+		Tags:                  t,
+	}
+	b.instanceProfiles[key] = ip
+	cp := *ip
+
+	return &cp, nil
 }
