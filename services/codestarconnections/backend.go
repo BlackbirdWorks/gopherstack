@@ -2,7 +2,9 @@
 package codestarconnections
 
 import (
+	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -29,7 +31,21 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource with the same name already exists.
 	ErrAlreadyExists = awserr.New("InvalidInputException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+// validSyncTypes returns the set of sync configuration types accepted by AWS CodeStar Connections.
+func validSyncTypes() map[string]bool {
+	return map[string]bool{
+		"CFN_STACK_SYNC": true,
+	}
+}
+
+// syncConfigKey returns the composite map key for a sync configuration.
+func syncConfigKey(resourceName, syncType string) string {
+	return resourceName + "/" + syncType
+}
 
 // Connection represents an in-memory AWS CodeStar connection.
 type Connection struct {
@@ -55,21 +71,25 @@ type Host struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CodeStar Connections resources.
 type InMemoryBackend struct {
-	connections map[string]*Connection
-	hosts       map[string]*Host
-	mu          *lockmetrics.RWMutex
-	accountID   string
-	region      string
+	connections        map[string]*Connection
+	hosts              map[string]*Host
+	repositoryLinks    map[string]*RepositoryLink    // keyed by RepositoryLinkID
+	syncConfigurations map[string]*SyncConfiguration // keyed by ResourceName+SyncType
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		connections: make(map[string]*Connection),
-		hosts:       make(map[string]*Host),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("codestarconnections"),
+		connections:        make(map[string]*Connection),
+		hosts:              make(map[string]*Host),
+		repositoryLinks:    make(map[string]*RepositoryLink),
+		syncConfigurations: make(map[string]*SyncConfiguration),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("codestarconnections"),
 	}
 }
 
@@ -327,4 +347,273 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	}
 
 	return ErrNotFound
+}
+
+// RepositoryLink represents an in-memory AWS CodeStar Connections repository link.
+type RepositoryLink struct {
+	CreatedAt         time.Time `json:"createdAt"`
+	ConnectionArn     string    `json:"connectionArn"`
+	OwnerID           string    `json:"ownerID"`
+	RepositoryName    string    `json:"repositoryName"`
+	RepositoryLinkID  string    `json:"repositoryLinkID"`
+	RepositoryLinkArn string    `json:"repositoryLinkArn"`
+	ProviderType      string    `json:"providerType"`
+	EncryptionKeyArn  string    `json:"encryptionKeyArn,omitempty"`
+}
+
+// CreateRepositoryLink creates a new repository link.
+func (b *InMemoryBackend) CreateRepositoryLink(
+	connectionArn, ownerID, repoName, encryptionKeyArn string,
+) (*RepositoryLink, error) {
+	b.mu.Lock("CreateRepositoryLink")
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	linkArn := arn.Build("codestar-connections", b.region, b.accountID, fmt.Sprintf("repository-link/%s", id))
+
+	providerType := ""
+	if conn, ok := b.connections[connectionArn]; ok {
+		providerType = conn.ProviderType
+	}
+
+	link := &RepositoryLink{
+		ConnectionArn:     connectionArn,
+		OwnerID:           ownerID,
+		RepositoryName:    repoName,
+		RepositoryLinkID:  id,
+		RepositoryLinkArn: linkArn,
+		ProviderType:      providerType,
+		EncryptionKeyArn:  encryptionKeyArn,
+		CreatedAt:         time.Now().UTC(),
+	}
+
+	b.repositoryLinks[id] = link
+
+	cp := *link
+
+	return &cp, nil
+}
+
+// GetRepositoryLink retrieves a repository link by ID.
+func (b *InMemoryBackend) GetRepositoryLink(repositoryLinkID string) (*RepositoryLink, error) {
+	b.mu.RLock("GetRepositoryLink")
+	defer b.mu.RUnlock()
+
+	link, ok := b.repositoryLinks[repositoryLinkID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *link
+
+	return &cp, nil
+}
+
+// DeleteRepositoryLink removes a repository link by ID.
+func (b *InMemoryBackend) DeleteRepositoryLink(repositoryLinkID string) error {
+	b.mu.Lock("DeleteRepositoryLink")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.repositoryLinks, repositoryLinkID)
+
+	return nil
+}
+
+// ListRepositoryLinks returns all repository links.
+func (b *InMemoryBackend) ListRepositoryLinks() []*RepositoryLink {
+	b.mu.RLock("ListRepositoryLinks")
+	defer b.mu.RUnlock()
+
+	result := make([]*RepositoryLink, 0, len(b.repositoryLinks))
+
+	for _, link := range b.repositoryLinks {
+		cp := *link
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// SyncConfiguration represents an in-memory AWS CodeStar Connections sync configuration.
+type SyncConfiguration struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	Branch           string    `json:"branch"`
+	ConfigFile       string    `json:"configFile"`
+	RepositoryLinkID string    `json:"repositoryLinkID"`
+	ResourceName     string    `json:"resourceName"`
+	RoleArn          string    `json:"roleArn"`
+	SyncType         string    `json:"syncType"`
+	OwnerID          string    `json:"ownerID"`
+	ProviderType     string    `json:"providerType"`
+	RepositoryName   string    `json:"repositoryName"`
+}
+
+// CreateSyncConfiguration creates a new sync configuration.
+func (b *InMemoryBackend) CreateSyncConfiguration(
+	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
+) (*SyncConfiguration, error) {
+	if !validSyncTypes()[syncType] {
+		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	b.mu.Lock("CreateSyncConfiguration")
+	defer b.mu.Unlock()
+
+	ownerID := ""
+	providerType := ""
+	repoName := ""
+
+	if link, ok := b.repositoryLinks[repositoryLinkID]; ok {
+		ownerID = link.OwnerID
+		providerType = link.ProviderType
+		repoName = link.RepositoryName
+	}
+
+	cfg := &SyncConfiguration{
+		Branch:           branch,
+		ConfigFile:       configFile,
+		RepositoryLinkID: repositoryLinkID,
+		ResourceName:     resourceName,
+		RoleArn:          roleArn,
+		SyncType:         syncType,
+		OwnerID:          ownerID,
+		ProviderType:     providerType,
+		RepositoryName:   repoName,
+		CreatedAt:        time.Now().UTC(),
+	}
+
+	b.syncConfigurations[syncConfigKey(resourceName, syncType)] = cfg
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// GetSyncConfiguration retrieves a sync configuration by resource name and sync type.
+func (b *InMemoryBackend) GetSyncConfiguration(resourceName, syncType string) (*SyncConfiguration, error) {
+	b.mu.RLock("GetSyncConfiguration")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.syncConfigurations[syncConfigKey(resourceName, syncType)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// DeleteSyncConfiguration removes a sync configuration.
+func (b *InMemoryBackend) DeleteSyncConfiguration(resourceName, syncType string) error {
+	if syncType != "" && !validSyncTypes()[syncType] {
+		return fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	b.mu.Lock("DeleteSyncConfiguration")
+	defer b.mu.Unlock()
+
+	key := syncConfigKey(resourceName, syncType)
+	if _, ok := b.syncConfigurations[key]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.syncConfigurations, key)
+
+	return nil
+}
+
+// SyncEvent is a single event in a sync attempt.
+type SyncEvent struct {
+	Time       time.Time
+	Event      string
+	Type       string
+	ExternalID string
+}
+
+// RepositorySyncStatus holds the latest sync attempt information for a repository link.
+type RepositorySyncStatus struct {
+	StartedAt time.Time
+	Status    string
+	Events    []SyncEvent
+}
+
+// GetRepositorySyncStatus returns a stub latest sync status for a repository link and branch.
+func (b *InMemoryBackend) GetRepositorySyncStatus(
+	repositoryLinkID, _ /*branch*/, _ /*syncType*/ string,
+) (*RepositorySyncStatus, error) {
+	b.mu.RLock("GetRepositorySyncStatus")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return &RepositorySyncStatus{
+		StartedAt: time.Now().UTC(),
+		Status:    "SUCCEEDED",
+		Events:    []SyncEvent{},
+	}, nil
+}
+
+// ResourceSyncStatus holds the latest sync attempt for an AWS resource.
+type ResourceSyncStatus struct {
+	StartedAt time.Time
+	Status    string
+	Events    []SyncEvent
+}
+
+// GetResourceSyncStatus returns a stub latest sync status for a resource.
+func (b *InMemoryBackend) GetResourceSyncStatus(resourceName, syncType string) (*ResourceSyncStatus, error) {
+	b.mu.RLock("GetResourceSyncStatus")
+	defer b.mu.RUnlock()
+
+	key := syncConfigKey(resourceName, syncType)
+	if _, ok := b.syncConfigurations[key]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return &ResourceSyncStatus{
+		StartedAt: time.Now().UTC(),
+		Status:    "SUCCEEDED",
+		Events:    []SyncEvent{},
+	}, nil
+}
+
+// SyncBlockerSummary is a stub summary of sync blockers for a resource.
+type SyncBlockerSummary struct {
+	ResourceName       string
+	ParentResourceName string
+	LatestBlockers     []SyncBlocker
+}
+
+// SyncBlocker represents a single sync blocker entry.
+type SyncBlocker struct {
+	ID            string
+	Type          string
+	Status        string
+	CreatedAt     time.Time
+	CreatedReason string
+}
+
+// GetSyncBlockerSummary returns a stub sync blocker summary for a resource.
+func (b *InMemoryBackend) GetSyncBlockerSummary(
+	resourceName, syncType string,
+) (*SyncBlockerSummary, error) {
+	b.mu.RLock("GetSyncBlockerSummary")
+	defer b.mu.RUnlock()
+
+	key := syncConfigKey(resourceName, syncType)
+	if _, ok := b.syncConfigurations[key]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return &SyncBlockerSummary{
+		ResourceName:   resourceName,
+		LatestBlockers: []SyncBlocker{},
+	}, nil
 }

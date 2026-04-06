@@ -779,3 +779,709 @@ func TestHandler_ChaosRegions(t *testing.T) {
 	require.Len(t, regions, 1)
 	assert.Equal(t, "us-east-1", regions[0])
 }
+
+func TestHandler_CreateRepositoryLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body    map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			body: map[string]any{
+				"ConnectionArn":  "arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+				"OwnerId":        "my-owner",
+				"RepositoryName": "my-repo",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing connection arn",
+			body:    map[string]any{"OwnerId": "owner", "RepositoryName": "repo"},
+			wantErr: true,
+		},
+		{
+			name: "missing owner id",
+			body: map[string]any{
+				"ConnectionArn":  "arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+				"RepositoryName": "repo",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing repository name",
+			body: map[string]any{
+				"ConnectionArn": "arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+				"OwnerId":       "owner",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateRepositoryLink", tt.body)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			info, ok := out["RepositoryLinkInfo"].(map[string]any)
+			require.True(t, ok)
+			assert.NotEmpty(t, info["RepositoryLinkId"])
+			assert.NotEmpty(t, info["RepositoryLinkArn"])
+			assert.Equal(t, "my-owner", info["OwnerId"])
+			assert.Equal(t, "my-repo", info["RepositoryName"])
+		})
+	}
+}
+
+func TestHandler_GetRepositoryLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) string {
+				link, err := h.Backend.CreateRepositoryLink(
+					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+					"my-owner", "my-repo", "",
+				)
+				if err != nil {
+					return ""
+				}
+
+				return link.RepositoryLinkID
+			},
+			wantErr: false,
+		},
+		{
+			name: "not found",
+			setupFn: func(_ *codestarconnections.Handler) string {
+				return "nonexistent-id"
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing id",
+			setupFn: func(_ *codestarconnections.Handler) string {
+				return ""
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := tt.setupFn(h)
+
+			rec := doRequest(t, h, "GetRepositoryLink", map[string]any{"RepositoryLinkId": id})
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			info, ok := out["RepositoryLinkInfo"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "my-owner", info["OwnerId"])
+			assert.Equal(t, "my-repo", info["RepositoryName"])
+		})
+	}
+}
+
+func TestHandler_DeleteRepositoryLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) string {
+				link, err := h.Backend.CreateRepositoryLink(
+					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+					"owner", "repo", "",
+				)
+				if err != nil {
+					return ""
+				}
+
+				return link.RepositoryLinkID
+			},
+			wantErr: false,
+		},
+		{
+			name: "not found",
+			setupFn: func(_ *codestarconnections.Handler) string {
+				return "nonexistent-id"
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing id",
+			setupFn: func(_ *codestarconnections.Handler) string {
+				return ""
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := tt.setupFn(h)
+
+			rec := doRequest(t, h, "DeleteRepositoryLink", map[string]any{"RepositoryLinkId": id})
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListRepositoryLinks(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateRepositoryLink(
+		"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+		"owner1", "repo1", "",
+	)
+	_, _ = h.Backend.CreateRepositoryLink(
+		"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+		"owner2", "repo2", "",
+	)
+
+	rec := doRequest(t, h, "ListRepositoryLinks", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	links, ok := out["RepositoryLinks"].([]any)
+	require.True(t, ok)
+	assert.Len(t, links, 2)
+}
+
+func TestHandler_CreateSyncConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body    map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			body: map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "config.yaml",
+				"RepositoryLinkId": "link-id",
+				"ResourceName":     "my-stack",
+				"RoleArn":          "arn:aws:iam::000000000000:role/my-role",
+				"SyncType":         "CFN_STACK_SYNC",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing branch",
+			body: map[string]any{
+				"ConfigFile":       "f",
+				"RepositoryLinkId": "id",
+				"ResourceName":     "n",
+				"RoleArn":          "r",
+				"SyncType":         "CFN_STACK_SYNC",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid sync type",
+			body: map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "f",
+				"RepositoryLinkId": "id",
+				"ResourceName":     "n",
+				"RoleArn":          "r",
+				"SyncType":         "INVALID",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing sync type",
+			body: map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "f",
+				"RepositoryLinkId": "id",
+				"ResourceName":     "n",
+				"RoleArn":          "r",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateSyncConfiguration", tt.body)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			cfg, ok := out["SyncConfiguration"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "main", cfg["Branch"])
+			assert.Equal(t, "my-stack", cfg["ResourceName"])
+			assert.Equal(t, "CFN_STACK_SYNC", cfg["SyncType"])
+		})
+	}
+}
+
+func TestHandler_GetSyncConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler)
+		input   map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) {
+				_, _ = h.Backend.CreateSyncConfiguration(
+					"main", "config.yaml", "link-id", "my-stack",
+					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
+				)
+			},
+			input:   map[string]any{"ResourceName": "my-stack", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: false,
+		},
+		{
+			name:    "not found",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"ResourceName": "nonexistent", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+		{
+			name:    "missing resource name",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setupFn(h)
+
+			rec := doRequest(t, h, "GetSyncConfiguration", tt.input)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			cfg, ok := out["SyncConfiguration"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "my-stack", cfg["ResourceName"])
+			assert.Equal(t, "CFN_STACK_SYNC", cfg["SyncType"])
+		})
+	}
+}
+
+func TestHandler_DeleteSyncConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler)
+		input   map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) {
+				_, _ = h.Backend.CreateSyncConfiguration(
+					"main", "config.yaml", "link-id", "del-stack",
+					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
+				)
+			},
+			input:   map[string]any{"ResourceName": "del-stack", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: false,
+		},
+		{
+			name:    "not found",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"ResourceName": "nonexistent", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setupFn(h)
+
+			rec := doRequest(t, h, "DeleteSyncConfiguration", tt.input)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetRepositorySyncStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) string {
+				link, err := h.Backend.CreateRepositoryLink(
+					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
+					"owner", "repo", "",
+				)
+				if err != nil {
+					return ""
+				}
+
+				return link.RepositoryLinkID
+			},
+			wantErr: false,
+		},
+		{
+			name: "not found",
+			setupFn: func(_ *codestarconnections.Handler) string {
+				return "nonexistent-id"
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing link id",
+			setupFn: func(_ *codestarconnections.Handler) string {
+				return ""
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := tt.setupFn(h)
+
+			rec := doRequest(t, h, "GetRepositorySyncStatus", map[string]any{
+				"RepositoryLinkId": id,
+				"Branch":           "main",
+				"SyncType":         "CFN_STACK_SYNC",
+			})
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			latest, ok := out["LatestSync"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "SUCCEEDED", latest["Status"])
+			assert.NotEmpty(t, latest["StartedAt"])
+		})
+	}
+}
+
+func TestHandler_GetResourceSyncStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler)
+		input   map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) {
+				_, _ = h.Backend.CreateSyncConfiguration(
+					"main", "config.yaml", "link-id", "my-resource",
+					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
+				)
+			},
+			input:   map[string]any{"ResourceName": "my-resource", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: false,
+		},
+		{
+			name:    "not found",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"ResourceName": "nonexistent", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+		{
+			name:    "missing resource name",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setupFn(h)
+
+			rec := doRequest(t, h, "GetResourceSyncStatus", tt.input)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			latest, ok := out["LatestSync"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "SUCCEEDED", latest["Status"])
+			assert.NotEmpty(t, latest["StartedAt"])
+		})
+	}
+}
+
+func TestHandler_GetSyncBlockerSummary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(h *codestarconnections.Handler)
+		input   map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			setupFn: func(h *codestarconnections.Handler) {
+				_, _ = h.Backend.CreateSyncConfiguration(
+					"main", "config.yaml", "link-id", "blocker-resource",
+					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
+				)
+			},
+			input:   map[string]any{"ResourceName": "blocker-resource", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: false,
+		},
+		{
+			name:    "not found",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"ResourceName": "nonexistent", "SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+		{
+			name:    "missing resource name",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"SyncType": "CFN_STACK_SYNC"},
+			wantErr: true,
+		},
+		{
+			name:    "missing sync type",
+			setupFn: func(_ *codestarconnections.Handler) {},
+			input:   map[string]any{"ResourceName": "some-resource"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setupFn(h)
+
+			rec := doRequest(t, h, "GetSyncBlockerSummary", tt.input)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			summary, ok := out["SyncBlockerSummary"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "blocker-resource", summary["ResourceName"])
+			blockers, ok := summary["LatestBlockers"].([]any)
+			require.True(t, ok)
+			assert.Empty(t, blockers)
+		})
+	}
+}
+
+func TestHandler_RepositoryLink_SyncConfiguration_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	conn, err := h.Backend.CreateConnection("my-conn", "GitHub", "", nil)
+	require.NoError(t, err)
+
+	// Create a repository link.
+	recLink := doRequest(t, h, "CreateRepositoryLink", map[string]any{
+		"ConnectionArn":  conn.ConnectionArn,
+		"OwnerId":        "my-owner",
+		"RepositoryName": "my-repo",
+	})
+	require.Equal(t, http.StatusOK, recLink.Code)
+
+	var linkOut map[string]any
+	require.NoError(t, json.Unmarshal(recLink.Body.Bytes(), &linkOut))
+	linkInfo := linkOut["RepositoryLinkInfo"].(map[string]any)
+	linkID := linkInfo["RepositoryLinkId"].(string)
+	require.NotEmpty(t, linkID)
+
+	// Create a sync configuration using the link.
+	recSync := doRequest(t, h, "CreateSyncConfiguration", map[string]any{
+		"Branch":           "main",
+		"ConfigFile":       "config.yaml",
+		"RepositoryLinkId": linkID,
+		"ResourceName":     "my-stack",
+		"RoleArn":          "arn:aws:iam::000000000000:role/sync-role",
+		"SyncType":         "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, recSync.Code)
+
+	var syncOut map[string]any
+	require.NoError(t, json.Unmarshal(recSync.Body.Bytes(), &syncOut))
+	syncCfg := syncOut["SyncConfiguration"].(map[string]any)
+	assert.Equal(t, "my-repo", syncCfg["RepositoryName"])
+	assert.Equal(t, "GitHub", syncCfg["ProviderType"])
+
+	// Get repository sync status.
+	recStatus := doRequest(t, h, "GetRepositorySyncStatus", map[string]any{
+		"RepositoryLinkId": linkID,
+		"Branch":           "main",
+		"SyncType":         "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, recStatus.Code)
+
+	// Get resource sync status.
+	recResStatus := doRequest(t, h, "GetResourceSyncStatus", map[string]any{
+		"ResourceName": "my-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, recResStatus.Code)
+
+	// List repository links.
+	recList := doRequest(t, h, "ListRepositoryLinks", map[string]any{})
+	require.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	links, ok := listOut["RepositoryLinks"].([]any)
+	require.True(t, ok)
+	assert.Len(t, links, 1)
+
+	// Delete sync configuration.
+	recDelSync := doRequest(t, h, "DeleteSyncConfiguration", map[string]any{
+		"ResourceName": "my-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	assert.Equal(t, http.StatusOK, recDelSync.Code)
+
+	// Delete repository link.
+	recDelLink := doRequest(t, h, "DeleteRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+	assert.Equal(t, http.StatusOK, recDelLink.Code)
+}
+
+func TestHandler_NewOps_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	newOps := []string{
+		"CreateRepositoryLink",
+		"GetRepositoryLink",
+		"DeleteRepositoryLink",
+		"ListRepositoryLinks",
+		"CreateSyncConfiguration",
+		"GetSyncConfiguration",
+		"DeleteSyncConfiguration",
+		"GetRepositorySyncStatus",
+		"GetResourceSyncStatus",
+		"GetSyncBlockerSummary",
+	}
+
+	for _, op := range newOps {
+		assert.Contains(t, ops, op)
+	}
+}
