@@ -337,16 +337,28 @@ func (h *Handler) handleAcceptVpcEndpointConnections(vals url.Values, reqID stri
 		endpointIDs = append(endpointIDs, id)
 	}
 
-	_, err := h.Backend.AcceptVpcEndpointConnections(serviceID, endpointIDs)
+	accepted, err := h.Backend.AcceptVpcEndpointConnections(serviceID, endpointIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	// The AWS API returns an empty unsuccessful set on success.
-	return &acceptVpcEndpointConnectionsResponse{
+	// The AWS API returns an unsuccessful set on success (empty for all accepted).
+	// Build the response including the successful connections as the accepted set.
+	resp := &acceptVpcEndpointConnectionsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-	}, nil
+	}
+
+	for _, conn := range accepted {
+		resp.VpcEndpointConnections.Items = append(resp.VpcEndpointConnections.Items,
+			vpcEndpointConnectionItem{
+				ServiceID:     conn.ServiceID,
+				VpcEndpointID: conn.VpcEndpointID,
+				State:         conn.State,
+			})
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string) (any, error) {

@@ -69,7 +69,7 @@ func TestHandler_AcceptAddressTransfer(t *testing.T) {
 	}
 }
 
-// TestHandler_AcceptCapacityReservationBillingOwnership verifies ACRBО routing.
+// TestHandler_AcceptCapacityReservationBillingOwnership verifies ACRBO routing.
 func TestHandler_AcceptCapacityReservationBillingOwnership(t *testing.T) {
 	t.Parallel()
 
@@ -450,6 +450,7 @@ func TestHandler_AdvertiseByoipCidr(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup    func(h *ec2.Handler)
 		name     string
 		body     string
 		wantBody string
@@ -468,7 +469,12 @@ func TestHandler_AdvertiseByoipCidr(t *testing.T) {
 			wantBody: "AdvertiseByoipCidrResponse",
 		},
 		{
-			name:     "advertise_cidr_idempotent",
+			name: "advertise_cidr_idempotent",
+			setup: func(h *ec2.Handler) {
+				// Seed an existing advertised CIDR so the handler processes it again.
+				rec := postForm(t, h, "Action=AdvertiseByoipCidr&Version=2016-11-15&Cidr=203.0.113.0/24")
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
 			body:     "Action=AdvertiseByoipCidr&Version=2016-11-15&Cidr=203.0.113.0/24",
 			wantCode: http.StatusOK,
 			wantBody: "advertised",
@@ -481,10 +487,8 @@ func TestHandler_AdvertiseByoipCidr(t *testing.T) {
 
 			h := newHandler()
 
-			// First call to seed state.
-			if tt.name == "advertise_cidr_idempotent" {
-				rec1 := postForm(t, h, "Action=AdvertiseByoipCidr&Version=2016-11-15&Cidr=203.0.113.0/24")
-				require.Equal(t, http.StatusOK, rec1.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := postForm(t, h, tt.body)
