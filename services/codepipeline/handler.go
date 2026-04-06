@@ -16,6 +16,10 @@ import (
 
 const (
 	codepipelineTargetPrefix = "CodePipeline_20150709."
+
+	// transitionTypeInbound and transitionTypeOutbound are the valid values for StageTransitionType.
+	transitionTypeInbound  = "Inbound"
+	transitionTypeOutbound = "Outbound"
 )
 
 var (
@@ -458,7 +462,7 @@ func validActionCategory(cat string) bool {
 
 // validTransitionType returns true if t is a valid AWS StageTransitionType value.
 func validTransitionType(t string) bool {
-	return t == "Inbound" || t == "Outbound"
+	return t == transitionTypeInbound || t == transitionTypeOutbound
 }
 
 // --- AcknowledgeJob ---
@@ -810,8 +814,8 @@ func (h *Handler) handleDisableStageTransition(
 	}
 
 	if !validTransitionType(in.TransitionType) {
-		return nil, fmt.Errorf("%w: invalid transitionType %q, must be Inbound or Outbound",
-			ErrValidation, in.TransitionType)
+		return nil, fmt.Errorf("%w: invalid transitionType %q, must be %s or %s",
+			ErrValidation, in.TransitionType, transitionTypeInbound, transitionTypeOutbound)
 	}
 
 	if in.Reason == "" {
@@ -854,8 +858,8 @@ func (h *Handler) handleEnableStageTransition(
 	}
 
 	if !validTransitionType(in.TransitionType) {
-		return nil, fmt.Errorf("%w: invalid transitionType %q, must be Inbound or Outbound",
-			ErrValidation, in.TransitionType)
+		return nil, fmt.Errorf("%w: invalid transitionType %q, must be %s or %s",
+			ErrValidation, in.TransitionType, transitionTypeInbound, transitionTypeOutbound)
 	}
 
 	if err := h.Backend.EnableStageTransition(in.PipelineName, in.StageName, in.TransitionType); err != nil {

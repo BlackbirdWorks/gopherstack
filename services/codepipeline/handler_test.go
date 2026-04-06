@@ -1875,10 +1875,12 @@ func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
 	t.Parallel()
 
 	// Verify that handler dispatches correctly without rebuilding the table
-	// (ops cached in NewHandler). Run many parallel requests to exercise concurrency.
+	// (ops cached in NewHandler). Run requests to exercise the cached dispatch path.
+	const numRequests = 5
+
 	h := newTestHandler(t)
 
-	for range 5 {
+	for range numRequests {
 		rec := doRequest(t, h, "ListPipelines", map[string]any{})
 		assert.Equal(t, http.StatusOK, rec.Code)
 	}

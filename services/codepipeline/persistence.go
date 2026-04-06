@@ -88,6 +88,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:            b.region,
 	}
 
+	// Marshal can only fail for unsupported types (e.g. channels/functions) which are not present here.
 	data, _ := json.Marshal(&snap)
 
 	return data

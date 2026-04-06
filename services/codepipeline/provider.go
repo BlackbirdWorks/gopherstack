@@ -2,7 +2,6 @@ package codepipeline
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -22,7 +21,7 @@ func (p *Provider) Name() string { return "CodePipeline" }
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ctx == nil {
-		return nil, fmt.Errorf("%w", ErrNilAppContext)
+		return nil, ErrNilAppContext
 	}
 
 	accountID := config.DefaultAccountID
