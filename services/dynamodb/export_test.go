@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -324,4 +326,10 @@ func (t *Table) GetItems() []map[string]any {
 	}
 
 	return snapshot
+}
+
+// ApplyGlobalTableLimit exposes applyGlobalTableLimit for testing.
+// In particular it lets tests verify that a zero limit does not cause a panic.
+func ApplyGlobalTableLimit(list []types.GlobalTable, limit *int32) ([]types.GlobalTable, *string) {
+	return applyGlobalTableLimit(list, limit)
 }

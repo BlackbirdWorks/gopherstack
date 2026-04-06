@@ -1132,7 +1132,7 @@ func (b *InMemoryBackend) ListObjects(
 }
 
 func (b *InMemoryBackend) ListObjectsV2(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.ListObjectsV2Input,
 ) (*s3.ListObjectsV2Output, error) {
 	// Re-use ListObjects logic but handle V2 specific params
@@ -1143,7 +1143,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 		marker = *input.StartAfter
 	}
 
-	listOut, err := b.ListObjects(context.TODO(), &s3.ListObjectsInput{
+	listOut, err := b.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket:    input.Bucket,
 		Prefix:    input.Prefix,
 		MaxKeys:   input.MaxKeys,

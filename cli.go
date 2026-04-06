@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -1860,6 +1861,7 @@ func buildEchoServer(
 	cli CLI,
 ) *echo.Echo {
 	e := echo.New()
+	e.Use(panicRecoveryMiddleware())
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
@@ -4349,6 +4351,53 @@ func seedBedrockRuntimeDemoInvocations(ctx context.Context, h service.Registerab
 	)
 
 	log.InfoContext(ctx, "Seeded BedrockRuntime demo invocations")
+}
+
+// panicRecoveryMiddleware returns an Echo middleware that recovers from panics
+// in HTTP handlers, logs the panic and stack trace via slog, and returns an
+// HTTP 500 response. Without this middleware, a single unhandled panic in any
+// handler goroutine kills the entire server process immediately.
+func panicRecoveryMiddleware() echo.MiddlewareFunc {
+	const stackSize = 4 << 10 // 4 KB
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					// Re-panic for http.ErrAbortHandler — it is not a real error
+					// and must propagate to signal the transport layer.
+					if rErr, ok := r.(error); ok && errors.Is(rErr, http.ErrAbortHandler) {
+						panic(r)
+					}
+
+					panicErr, ok := r.(error)
+					if !ok {
+						panicErr = recoveredPanicError{val: r}
+					}
+
+					stack := make([]byte, stackSize)
+					n := runtime.Stack(stack, false)
+					logger.Load(c.Request().Context()).Error("panic recovered in HTTP handler",
+						"error", panicErr, "stack", string(stack[:n]))
+
+					err = c.JSON(http.StatusInternalServerError, map[string]string{
+						"message": "internal server error",
+					})
+				}
+			}()
+
+			return next(c)
+		}
+	}
+}
+
+// recoveredPanicError wraps a non-error panic value recovered by panicRecoveryMiddleware.
+type recoveredPanicError struct {
+	val any
+}
+
+func (e recoveredPanicError) Error() string {
+	return fmt.Sprintf("panic: %v", e.val)
 }
 
 // persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot

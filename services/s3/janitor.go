@@ -128,18 +128,22 @@ const (
 	// starved. 10 000 is fast enough (sub-millisecond in practice) while keeping
 	// the critical section short.
 	drainChunkSize = 10_000
+
+	// maxConcurrentDrains is the maximum number of bucket drain goroutines that
+	// may run simultaneously. Without a cap, thousands of pending-delete buckets
+	// would each spawn a goroutine, all competing for the same locks and
+	// exhausting goroutine and memory budgets.
+	maxConcurrentDrains = 32
 )
 
 // Janitor is the S3 background worker that drains buckets queued for async
 // deletion and records queue-depth metrics for the live dashboard.
 type Janitor struct {
 	Backend      *InMemoryBackend
+	drainSem     chan struct{}
 	activeDrains sync.Map
 	Interval     time.Duration
-	// TaskTimeout bounds each individual janitor task. When non-zero, each task
-	// runs with a child context that expires after this duration, preventing a
-	// stalled operation from blocking the janitor loop indefinitely.
-	TaskTimeout time.Duration
+	TaskTimeout  time.Duration
 }
 
 // NewJanitor creates a new S3 Janitor for the given backend.
@@ -154,6 +158,7 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 	return &Janitor{
 		Backend:  backend,
 		Interval: interval,
+		drainSem: make(chan struct{}, maxConcurrentDrains),
 	}
 }
 
@@ -223,8 +228,24 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 
 	for _, name := range pending {
 		if _, loaded := j.activeDrains.LoadOrStore(name, struct{}{}); !loaded {
+			// Acquire the semaphore slot before spawning. If the channel is full
+			// (maxConcurrentDrains goroutines already running), skip this tick;
+			// the bucket will be picked up on the next janitor tick.
+			select {
+			case j.drainSem <- struct{}{}:
+			default:
+				// All semaphore slots are taken; release the activeDrains entry
+				// so the bucket can be picked up in a future tick.
+				j.activeDrains.Delete(name)
+
+				continue
+			}
+
 			go func(n string) {
-				defer j.activeDrains.Delete(n)
+				defer func() {
+					<-j.drainSem
+					j.activeDrains.Delete(n)
+				}()
 				j.processBucket(ctx, n)
 			}(name)
 		}

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -619,7 +621,7 @@ func TestDynamoDB_ListGlobalTables(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, tables, 3)
 
-	// Pagination: limit 2
+	// Limit=2 pagination: limit 2
 	code2, resp2 := invokeOp(t, handler, "ListGlobalTables", map[string]any{"Limit": 2})
 	require.Equal(t, http.StatusOK, code2)
 
@@ -627,6 +629,17 @@ func TestDynamoDB_ListGlobalTables(t *testing.T) {
 	require.True(t, ok2)
 	assert.Len(t, tables2, 2)
 	assert.NotEmpty(t, resp2["LastEvaluatedGlobalTableName"])
+
+	// applyGlobalTableLimit with *int32(0) must not panic — it should return
+	// an empty list. The handler guards against Limit=0 coming from the wire,
+	// but the backend API may be called directly with a zero limit.
+	zeroLimit := int32(0)
+	result, cursor := dynamodb.ApplyGlobalTableLimit(
+		[]sdktypes.GlobalTable{{GlobalTableName: aws.String("A")}, {GlobalTableName: aws.String("B")}},
+		&zeroLimit,
+	)
+	assert.Empty(t, result)
+	assert.Nil(t, cursor)
 }
 
 func TestDynamoDB_ResourcePolicy(t *testing.T) {

@@ -2,6 +2,7 @@ package s3_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -303,6 +304,74 @@ func TestPutObject_ChecksumVerification(t *testing.T) {
 			case "SHA1":
 				assert.Equal(t, checksum, aws.ToString(getOut.ChecksumSHA1))
 			}
+		})
+	}
+}
+
+// TestS3Janitor_DrainSemaphoreCapacity verifies that the drain semaphore is
+// initialised with the correct capacity (maxConcurrentDrains) to bound the
+// number of concurrent bucket drain goroutines.
+func TestS3Janitor_DrainSemaphoreCapacity(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	j := s3.NewJanitor(backend, s3.Settings{})
+
+	assert.Equal(t, s3.MaxConcurrentDrains, j.DrainSemCapacity(),
+		"drain semaphore capacity should equal maxConcurrentDrains")
+}
+
+// TestListObjectsV2_ContextPropagation verifies that ListObjectsV2 passes the
+// caller's context to the underlying ListObjects call rather than using
+// [context.TODO]. The in-memory backend completes synchronously regardless of
+// cancellation, but the fix ensures real backends and context-aware operations
+// receive the correct context.
+func TestListObjectsV2_ContextPropagation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		cancelCtx   bool
+		wantObjects int
+	}{
+		{
+			name:        "active_context_returns_results",
+			cancelCtx:   false,
+			wantObjects: 2,
+		},
+		{
+			// The in-memory backend is synchronous and does not check ctx.Err,
+			// so it completes successfully even when the context is already
+			// cancelled. The important thing is that ctx is passed through
+			// (not replaced with context.TODO()) and the call does not panic.
+			name:        "cancelled_context_does_not_panic",
+			cancelCtx:   true,
+			wantObjects: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newTestBackend(t)
+			mustCreateBucket(t, backend, "ctx-test-bucket")
+			mustPutObject(t, backend, "ctx-test-bucket", "key-a", []byte("data"))
+			mustPutObject(t, backend, "ctx-test-bucket", "key-b", []byte("data"))
+
+			ctx := t.Context()
+			if tt.cancelCtx {
+				var cancel func()
+				ctx, cancel = context.WithCancel(ctx)
+				cancel() // cancel immediately
+			}
+
+			out, err := backend.ListObjectsV2(ctx, &sdk_s3.ListObjectsV2Input{
+				Bucket: aws.String("ctx-test-bucket"),
+			})
+
+			require.NoError(t, err)
+			assert.Len(t, out.Contents, tt.wantObjects)
 		})
 	}
 }

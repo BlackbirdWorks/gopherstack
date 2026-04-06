@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -619,4 +622,58 @@ func TestCLI_S3InitBuckets_Parsing(t *testing.T) {
 		"S3_BUCKETS": "my-bucket",
 	})
 	assert.Equal(t, []string{"my-bucket"}, cli.S3InitBuckets)
+}
+
+// errTestPanic is a sentinel error used by TestPanicRecoveryMiddleware_RecoversPanic
+// to test the recovers-error-panic code path without triggering err113.
+var errTestPanic = errors.New("deliberate error panic")
+
+func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		handler        func(*echo.Context) error
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "recovers_string_panic",
+			handler: func(_ *echo.Context) error {
+				panic("deliberate test panic")
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name: "recovers_error_panic",
+			handler: func(_ *echo.Context) error {
+				panic(errTestPanic)
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name: "passes_through_normal_response",
+			handler: func(c *echo.Context) error {
+				return c.JSON(http.StatusOK, map[string]string{"ok": "true"})
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mw := panicRecoveryMiddleware()
+			wrapped := mw(tt.handler)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			_ = wrapped(c)
+
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
 }
