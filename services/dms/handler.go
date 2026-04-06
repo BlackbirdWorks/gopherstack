@@ -1215,24 +1215,24 @@ func (h *Handler) handleCreateEventSubscription(
 }
 
 func esToJSON(es *EventSubscription) eventSubscriptionJSON {
-	sourceIDs := es.SourceIDsList
-	if sourceIDs == nil {
-		sourceIDs = []string{}
-	}
-	eventCats := es.EventCategories
-	if eventCats == nil {
-		eventCats = []string{}
-	}
-
 	return eventSubscriptionJSON{
 		SubscriptionName: es.SubscriptionName,
 		SnsTopicArn:      es.SnsTopicArn,
 		SourceType:       es.SourceType,
-		SourceIDsList:    sourceIDs,
-		EventCategories:  eventCats,
+		SourceIDsList:    ensureNonNil(es.SourceIDsList),
+		EventCategories:  ensureNonNil(es.EventCategories),
 		Status:           es.Status,
 		Enabled:          es.Enabled,
 	}
+}
+
+// ensureNonNil returns the slice if non-nil, otherwise an empty slice.
+func ensureNonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+
+	return s
 }
 
 // --- CreateFleetAdvisorCollector handler ---

@@ -720,6 +720,14 @@ func isValidMigrationType(s string) bool {
 	return s == "full-load" || s == "cdc" || s == "full-load-and-cdc"
 }
 
+// copyStringsOrEmpty returns a copy of src, guaranteeing a non-nil slice.
+func copyStringsOrEmpty(src []string) []string {
+	out := make([]string, len(src))
+	copy(out, src)
+
+	return out
+}
+
 // CreateDataMigration creates a new data migration.
 func (b *InMemoryBackend) CreateDataMigration(
 	name, migrationProjectArn, migrationType, serviceAccessRoleArn, selectionRules string,
@@ -829,11 +837,8 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		t.Merge(kv)
 	}
 
-	sourceIDsCopy := make([]string, len(sourceIDs))
-	copy(sourceIDsCopy, sourceIDs)
-
-	eventCategoriesCopy := make([]string, len(eventCategories))
-	copy(eventCategoriesCopy, eventCategories)
+	sourceIDsCopy := copyStringsOrEmpty(sourceIDs)
+	eventCategoriesCopy := copyStringsOrEmpty(eventCategories)
 
 	es := &EventSubscription{
 		SubscriptionName: subscriptionName,
@@ -850,18 +855,8 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	}
 	b.eventSubscriptions[subscriptionName] = es
 	cp := *es
-	if len(es.SourceIDsList) > 0 {
-		cp.SourceIDsList = make([]string, len(es.SourceIDsList))
-		copy(cp.SourceIDsList, es.SourceIDsList)
-	} else {
-		cp.SourceIDsList = []string{}
-	}
-	if len(es.EventCategories) > 0 {
-		cp.EventCategories = make([]string, len(es.EventCategories))
-		copy(cp.EventCategories, es.EventCategories)
-	} else {
-		cp.EventCategories = []string{}
-	}
+	cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
+	cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
 
 	return &cp, nil
 }
