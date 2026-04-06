@@ -36,6 +36,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return h
 }
 
+// Reset clears all handler and backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // buildOps returns the dispatch table mapping action name to handler function.
 func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 	batchDisassoc := h.handleBatchDisassociateApprovalRuleTemplateFromRepositories
@@ -240,12 +245,14 @@ type listTagsForResourceInput struct {
 
 func repoMetadata(r *Repository) map[string]any {
 	m := map[string]any{
-		"repositoryId":   r.RepositoryID,
-		"repositoryName": r.RepositoryName,
-		"Arn":            r.ARN,
-		"accountId":      r.AccountID,
-		"cloneUrlHttp":   r.CloneURLHTTP,
-		"cloneUrlSsh":    r.CloneURLSSH,
+		"repositoryId":     r.RepositoryID,
+		"repositoryName":   r.RepositoryName,
+		"Arn":              r.ARN,
+		"accountId":        r.AccountID,
+		"cloneUrlHttp":     r.CloneURLHTTP,
+		"cloneUrlSsh":      r.CloneURLSSH,
+		"creationDate":     r.CreationDate.Unix(),
+		"lastModifiedDate": r.LastModifiedDate.Unix(),
 	}
 	if r.Description != "" {
 		m["repositoryDescription"] = r.Description
@@ -448,7 +455,7 @@ type createPullRequestInput struct {
 // --- New operation handlers ---
 
 func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"approvalRuleTemplateId":          t.ApprovalRuleTemplateID,
 		"approvalRuleTemplateName":        t.ApprovalRuleTemplateName,
 		"approvalRuleTemplateArn":         t.ApprovalRuleTemplateARN,
@@ -458,6 +465,11 @@ func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
 		"lastModifiedDate":                t.LastModifiedDate.Unix(),
 		"ruleContentSha256":               t.RuleContentSha256,
 	}
+	if t.LastModifiedUser != "" {
+		m["lastModifiedUser"] = t.LastModifiedUser
+	}
+
+	return m
 }
 
 func (h *Handler) handleCreateApprovalRuleTemplate(body []byte) (any, error) {
@@ -522,14 +534,22 @@ func (h *Handler) handleBatchAssociateApprovalRuleTemplateWithRepositories(body 
 		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
 	}
 
-	associated, errors := h.Backend.BatchAssociateApprovalRuleTemplateWithRepositories(
+	associated, batchErrors := h.Backend.BatchAssociateApprovalRuleTemplateWithRepositories(
 		in.ApprovalRuleTemplateName,
 		in.RepositoryNames,
 	)
 
+	if associated == nil {
+		associated = []string{}
+	}
+
+	if batchErrors == nil {
+		batchErrors = []BatchAssociationError{}
+	}
+
 	return map[string]any{
 		"associatedRepositoryNames": associated,
-		"errors":                    errors,
+		"errors":                    batchErrors,
 	}, nil
 }
 
@@ -543,15 +563,33 @@ func (h *Handler) handleBatchDisassociateApprovalRuleTemplateFromRepositories(bo
 		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
 	}
 
-	disassociated, errors := h.Backend.BatchDisassociateApprovalRuleTemplateFromRepositories(
+	disassociated, batchErrors := h.Backend.BatchDisassociateApprovalRuleTemplateFromRepositories(
 		in.ApprovalRuleTemplateName,
 		in.RepositoryNames,
 	)
 
+	if disassociated == nil {
+		disassociated = []string{}
+	}
+
+	if batchErrors == nil {
+		batchErrors = []BatchAssociationError{}
+	}
+
 	return map[string]any{
 		"disassociatedRepositoryNames": disassociated,
-		"errors":                       errors,
+		"errors":                       batchErrors,
 	}, nil
+}
+
+// validMergeOptions are the AWS-accepted values for the mergeOption parameter.
+func isValidMergeOption(opt string) bool {
+	switch opt {
+	case "FAST_FORWARD_MERGE", "SQUASH_MERGE", "THREE_WAY_MERGE":
+		return true
+	}
+
+	return false
 }
 
 func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
@@ -576,6 +614,13 @@ func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: mergeOption is required", errInvalidRequest)
 	}
 
+	if !isValidMergeOption(in.MergeOption) {
+		return nil, fmt.Errorf(
+			"%w: mergeOption must be FAST_FORWARD_MERGE, SQUASH_MERGE, or THREE_WAY_MERGE",
+			ErrValidation,
+		)
+	}
+
 	result, err := h.Backend.BatchDescribeMergeConflicts(
 		in.RepositoryName,
 		in.DestinationCommitSpecifier,
@@ -587,11 +632,16 @@ func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 		return nil, err
 	}
 
+	errs := result.Errors
+	if errs == nil {
+		errs = []ConflictError{}
+	}
+
 	return map[string]any{
 		"conflicts":           result.Conflicts,
 		"destinationCommitId": result.DestinationCommitID,
 		"sourceCommitId":      result.SourceCommitID,
-		"errors":              result.Errors,
+		"errors":              errs,
 	}, nil
 }
 
@@ -605,22 +655,50 @@ func (h *Handler) handleBatchGetCommits(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	found, errors := h.Backend.BatchGetCommits(in.RepositoryName, in.CommitIDs)
+	if len(in.CommitIDs) == 0 {
+		return nil, fmt.Errorf("%w: commitIds must contain at least one commit ID", errInvalidRequest)
+	}
+
+	found, batchErrors, err := h.Backend.BatchGetCommits(in.RepositoryName, in.CommitIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	commits := make([]map[string]any, 0, len(found))
 	for _, c := range found {
-		commits = append(commits, map[string]any{
-			"commitId": c.CommitID,
-			"treeId":   c.TreeID,
-			"message":  c.Message,
-			"parents":  c.Parents,
-		})
+		commits = append(commits, commitToMap(c))
 	}
 
 	return map[string]any{
 		"commits": commits,
-		"errors":  errors,
+		"errors":  batchErrors,
 	}, nil
+}
+
+// commitToMap converts a Commit to the AWS-accurate JSON map representation.
+func commitToMap(c *Commit) map[string]any {
+	parents := c.Parents
+	if parents == nil {
+		parents = []string{}
+	}
+
+	return map[string]any{
+		"commitId": c.CommitID,
+		"treeId":   c.TreeID,
+		"message":  c.Message,
+		"parents":  parents,
+		"author": map[string]any{
+			"name":  c.AuthorName,
+			"email": c.AuthorEmail,
+			"date":  "",
+		},
+		"committer": map[string]any{
+			"name":  c.CommitterName,
+			"email": c.CommitterEmail,
+			"date":  "",
+		},
+		"additionalData": c.AdditionalData,
+	}
 }
 
 func (h *Handler) handleBatchGetRepositories(body []byte) (any, error) {
@@ -634,6 +712,10 @@ func (h *Handler) handleBatchGetRepositories(body []byte) (any, error) {
 	repos := make([]map[string]any, 0, len(found))
 	for _, r := range found {
 		repos = append(repos, repoMetadata(r))
+	}
+
+	if notFound == nil {
+		notFound = []string{}
 	}
 
 	return map[string]any{
@@ -687,8 +769,11 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"commitId": commit.CommitID,
-		"treeId":   commit.TreeID,
+		"commitId":     commit.CommitID,
+		"treeId":       commit.TreeID,
+		"filesAdded":   []any{},
+		"filesUpdated": []any{},
+		"filesDeleted": []any{},
 	}, nil
 }
 
@@ -699,6 +784,9 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 			"repositoryName":       t.RepositoryName,
 			"sourceReference":      t.SourceReference,
 			"destinationReference": t.DestinationReference,
+			"sourceCommit":         t.SourceCommit,
+			"destinationCommit":    t.DestinationCommit,
+			"mergeBase":            t.MergeBase,
 		})
 	}
 
@@ -706,11 +794,13 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 		"pullRequestId":      pr.PullRequestID,
 		"title":              pr.Title,
 		"description":        pr.Description,
+		"authorArn":          pr.AuthorARN,
 		"pullRequestStatus":  pr.PullRequestStatus,
 		"creationDate":       pr.CreationDate.Unix(),
 		"lastActivityDate":   pr.LastActivityDate.Unix(),
 		"revisionId":         pr.RevisionID,
 		"pullRequestTargets": targets,
+		"clientRequestToken": pr.ClientRequestToken,
 	}
 }
 
@@ -729,7 +819,15 @@ func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
 	}
 
 	targets := make([]PullRequestTarget, 0, len(in.Targets))
-	for _, t := range in.Targets {
+	for i, t := range in.Targets {
+		if t.RepositoryName == "" {
+			return nil, fmt.Errorf("%w: targets[%d].repositoryName is required", errInvalidRequest, i)
+		}
+
+		if t.SourceReference == "" {
+			return nil, fmt.Errorf("%w: targets[%d].sourceReference is required", errInvalidRequest, i)
+		}
+
 		targets = append(targets, PullRequestTarget{
 			RepositoryName:       t.RepositoryName,
 			SourceReference:      t.SourceReference,

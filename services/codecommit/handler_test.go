@@ -1478,3 +1478,546 @@ func TestHandler_NewOperations_GetSupportedOps(t *testing.T) {
 		assert.Contains(t, ops, op)
 	}
 }
+
+// ---- Refinement check 1 tests ----
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+
+	// Seed data
+	_, err := b.CreateRepository("repo-a", "", nil)
+	require.NoError(t, err)
+	_, err = b.CreateApprovalRuleTemplate("tmpl", "", "{}")
+	require.NoError(t, err)
+	_, err = b.CreateCommit("repo-a", "main", "Alice", "alice@test.com", "init")
+	require.NoError(t, err)
+	_, err = b.CreatePullRequest("My PR", "", "", []codecommit.PullRequestTarget{
+		{RepositoryName: "repo-a", SourceReference: "refs/heads/feature"},
+	})
+	require.NoError(t, err)
+
+	b.Reset()
+
+	// All state cleared
+	_, err = b.GetRepository("repo-a")
+	require.Error(t, err)
+
+	repos := b.ListRepositories()
+	assert.Empty(t, repos)
+}
+
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo-a"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	h.Reset()
+
+	rec = doRequest(t, h, "GetRepository", map[string]any{"repositoryName": "repo-a"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestProvider_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &codecommit.Provider{}
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, codecommit.ErrNilAppContext)
+}
+
+func TestHandler_SortedListRepositories(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"zebra", "alpha", "middle"} {
+		rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": name})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListRepositories", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	items, ok := resp["repositories"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 3)
+
+	names := make([]string, 0, 3)
+	for _, item := range items {
+		m := item.(map[string]any)
+		names = append(names, m["repositoryName"].(string))
+	}
+
+	assert.Equal(t, []string{"alpha", "middle", "zebra"}, names)
+}
+
+func TestHandler_DeleteRepository_Cascade(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create repo + branch + commit
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "repo",
+		"branchName":     "main",
+		"commitMessage":  "init",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Delete the repo
+	rec = doRequest(t, h, "DeleteRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Repo is gone
+	rec = doRequest(t, h, "GetRepository", map[string]any{"repositoryName": "repo"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// BatchGetCommits on deleted repo returns 404
+	rec = doRequest(t, h, "BatchGetCommits", map[string]any{
+		"repositoryName": "repo",
+		"commitIds":      []string{"some-id"},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_CommitParentTracking(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// First commit — no parents
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "repo",
+		"branchName":     "main",
+		"commitMessage":  "initial",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var firstResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+	firstCommitID := firstResp["commitId"].(string)
+
+	// Second commit on same branch — should have firstCommitID as parent
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "repo",
+		"branchName":     "main",
+		"commitMessage":  "second",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var secondResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp))
+	secondCommitID := secondResp["commitId"].(string)
+
+	// Fetch both commits via BatchGetCommits and check parent linkage
+	rec = doRequest(t, h, "BatchGetCommits", map[string]any{
+		"repositoryName": "repo",
+		"commitIds":      []string{firstCommitID, secondCommitID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var batchResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp))
+
+	commits, ok := batchResp["commits"].([]any)
+	require.True(t, ok)
+	require.Len(t, commits, 2)
+
+	// Find the second commit and verify it has the first as parent
+	for _, raw := range commits {
+		c := raw.(map[string]any)
+		if c["commitId"].(string) == secondCommitID {
+			parents, _ := c["parents"].([]any)
+			require.Len(t, parents, 1)
+			assert.Equal(t, firstCommitID, parents[0].(string))
+		}
+	}
+}
+
+func TestHandler_BatchGetCommits_RepoNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "BatchGetCommits", map[string]any{
+		"repositoryName": "nonexistent-repo",
+		"commitIds":      []string{"abc123"},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_BatchGetCommits_EmptyIDsRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "BatchGetCommits", map[string]any{
+		"repositoryName": "repo",
+		"commitIds":      []string{},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_BatchAssociate_EmptySlicesNotNull(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Template doesn't exist → errors list has entries, associated is empty []
+	rec := doRequest(t, h, "BatchAssociateApprovalRuleTemplateWithRepositories", map[string]any{
+		"approvalRuleTemplateName": "no-such-tmpl",
+		"repositoryNames":          []string{"repo-a"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	// Must be JSON array, not null
+	associated := resp["associatedRepositoryNames"]
+	assert.NotNil(t, associated, "associatedRepositoryNames must not be null")
+
+	errs := resp["errors"]
+	assert.NotNil(t, errs, "errors must not be null")
+}
+
+func TestHandler_BatchDisassociate_EmptySlicesNotNull(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "BatchDisassociateApprovalRuleTemplateFromRepositories", map[string]any{
+		"approvalRuleTemplateName": "no-such-tmpl",
+		"repositoryNames":          []string{"repo-a"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	disassoc := resp["disassociatedRepositoryNames"]
+	assert.NotNil(t, disassoc, "disassociatedRepositoryNames must not be null")
+}
+
+func TestHandler_RepoMetadataTimestamps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "GetRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	meta, ok := resp["repositoryMetadata"].(map[string]any)
+	require.True(t, ok)
+
+	assert.NotNil(t, meta["creationDate"], "creationDate should be present")
+	assert.NotNil(t, meta["lastModifiedDate"], "lastModifiedDate should be present")
+	assert.Greater(t, meta["creationDate"].(float64), float64(0))
+}
+
+func TestHandler_BatchGetCommits_FullCommitMap(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "repo",
+		"branchName":     "main",
+		"authorName":     "Alice",
+		"email":          "alice@example.com",
+		"commitMessage":  "test commit",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	commitID := createResp["commitId"].(string)
+
+	rec = doRequest(t, h, "BatchGetCommits", map[string]any{
+		"repositoryName": "repo",
+		"commitIds":      []string{commitID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	commits, ok := resp["commits"].([]any)
+	require.True(t, ok)
+	require.Len(t, commits, 1)
+
+	c := commits[0].(map[string]any)
+	assert.Equal(t, commitID, c["commitId"])
+	assert.NotNil(t, c["author"], "author sub-object should be present")
+	assert.NotNil(t, c["committer"], "committer sub-object should be present")
+
+	author, ok := c["author"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Alice", author["name"])
+	assert.Equal(t, "alice@example.com", author["email"])
+
+	// parents should be a JSON array (not null) for first commit
+	parents, ok := c["parents"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, parents)
+}
+
+func TestHandler_MergeOption_InvalidValue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "BatchDescribeMergeConflicts", map[string]any{
+		"repositoryName":             "repo",
+		"destinationCommitSpecifier": "main",
+		"sourceCommitSpecifier":      "feature",
+		"mergeOption":                "INVALID_MERGE_OPTION",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreatePullRequest_TargetValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		targets    []map[string]any
+		wantStatus int
+	}{
+		{
+			name: "missing_repo_name",
+			targets: []map[string]any{
+				{"repositoryName": "", "sourceReference": "refs/heads/feature"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_source_reference",
+			targets: []map[string]any{
+				{"repositoryName": "repo", "sourceReference": ""},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, "CreatePullRequest", map[string]any{
+				"title":   "My PR",
+				"targets": tt.targets,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ARN_TagOps_O1(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create repo and get its ARN
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+
+	meta := createResp["repositoryMetadata"].(map[string]any)
+	repoARN := meta["Arn"].(string)
+	require.NotEmpty(t, repoARN)
+
+	// Tag using ARN
+	rec = doRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": repoARN,
+		"tags":        map[string]string{"env": "prod"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags to verify
+	rec = doRequest(t, h, "ListTagsForResource", map[string]any{
+		"resourceArn": repoARN,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+
+	tagMap, ok := tagsResp["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "prod", tagMap["env"])
+
+	// Untag
+	rec = doRequest(t, h, "UntagResource", map[string]any{
+		"resourceArn": repoARN,
+		"tagKeys":     []string{"env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify removed
+	rec = doRequest(t, h, "ListTagsForResource", map[string]any{
+		"resourceArn": repoARN,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	tagMap, _ = tagsResp["tags"].(map[string]any)
+	assert.Empty(t, tagMap)
+}
+
+func TestHandler_PullRequest_FieldsPresent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreatePullRequest", map[string]any{
+		"title":              "My PR",
+		"description":        "Details here",
+		"clientRequestToken": "tok-123",
+		"targets": []map[string]any{
+			{
+				"repositoryName":       "repo",
+				"sourceReference":      "refs/heads/feature",
+				"destinationReference": "refs/heads/main",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	pr, ok := resp["pullRequest"].(map[string]any)
+	require.True(t, ok)
+
+	assert.NotEmpty(t, pr["pullRequestId"])
+	assert.Equal(t, "My PR", pr["title"])
+	assert.Equal(t, "Details here", pr["description"])
+	assert.Equal(t, "OPEN", pr["pullRequestStatus"])
+	assert.NotNil(t, pr["authorArn"])
+	assert.NotNil(t, pr["clientRequestToken"])
+	assert.NotNil(t, pr["revisionId"])
+	assert.NotNil(t, pr["creationDate"])
+	assert.NotNil(t, pr["lastActivityDate"])
+
+	targets, ok := pr["pullRequestTargets"].([]any)
+	require.True(t, ok)
+	require.Len(t, targets, 1)
+
+	target := targets[0].(map[string]any)
+	assert.Equal(t, "repo", target["repositoryName"])
+	assert.Equal(t, "refs/heads/feature", target["sourceReference"])
+	assert.Equal(t, "refs/heads/main", target["destinationReference"])
+}
+
+func TestHandler_ApprovalRuleTemplate_LastModifiedUser(t *testing.T) {
+	t.Parallel()
+
+	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	h := codecommit.NewHandler(b)
+
+	// Seed template directly with LastModifiedUser set
+	b.AddApprovalRuleTemplateInternal(&codecommit.ApprovalRuleTemplate{
+		ApprovalRuleTemplateID:      "tmpl-id",
+		ApprovalRuleTemplateName:    "my-tmpl",
+		ApprovalRuleTemplateARN:     "arn:aws:codecommit:us-east-1:123456789012:approval-rule-template/my-tmpl",
+		ApprovalRuleTemplateContent: `{}`,
+		RuleContentSha256:           "abc",
+		LastModifiedUser:            "arn:aws:iam::123456789012:user/Alice",
+	})
+
+	// Create a repo and associate
+	rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "AssociateApprovalRuleTemplateWithRepository", map[string]any{
+		"approvalRuleTemplateName": "my-tmpl",
+		"repositoryName":           "repo",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+
+	// Seed a repository
+	repoARN := "arn:aws:codecommit:us-east-1:123456789012:seed-repo"
+	b.AddRepositoryInternal(&codecommit.Repository{
+		RepositoryName: "seed-repo",
+		RepositoryID:   "seed-id",
+		ARN:            repoARN,
+		AccountID:      config.DefaultAccountID,
+	})
+
+	r, err := b.GetRepository("seed-repo")
+	require.NoError(t, err)
+	assert.Equal(t, "seed-repo", r.RepositoryName)
+
+	// Seed a commit
+	b.AddCommitInternal("seed-repo", &codecommit.Commit{
+		CommitID:       "commit-seed",
+		TreeID:         "tree-seed",
+		Message:        "seeded",
+		RepositoryName: "seed-repo",
+	})
+
+	found, errs, err := b.BatchGetCommits("seed-repo", []string{"commit-seed"})
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Empty(t, errs)
+	assert.Equal(t, "commit-seed", found[0].CommitID)
+
+	// Seed a branch
+	b.AddBranchInternal("seed-repo", &codecommit.Branch{
+		BranchName:     "seed-branch",
+		CommitID:       "commit-seed",
+		RepositoryName: "seed-repo",
+	})
+
+	// Seed a pull request
+	b.AddPullRequestInternal(&codecommit.PullRequest{
+		PullRequestID:     "99",
+		Title:             "Seeded PR",
+		PullRequestStatus: "OPEN",
+		PullRequestTargets: []codecommit.PullRequestTarget{
+			{RepositoryName: "seed-repo", SourceReference: "refs/heads/feat"},
+		},
+	})
+}
