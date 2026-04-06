@@ -16,6 +16,10 @@ import (
 
 const (
 	codepipelineTargetPrefix = "CodePipeline_20150709."
+
+	// transitionTypeInbound and transitionTypeOutbound are the valid values for StageTransitionType.
+	transitionTypeInbound  = "Inbound"
+	transitionTypeOutbound = "Outbound"
 )
 
 var (
@@ -26,11 +30,20 @@ var (
 // Handler is the Echo HTTP handler for CodePipeline operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new CodePipeline handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.dispatchTable()
+
+	return h
+}
+
+// Reset clears all handler and backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -39,14 +52,24 @@ func (h *Handler) Name() string { return "CodePipeline" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AcknowledgeJob",
+		"AcknowledgeThirdPartyJob",
+		"CreateCustomActionType",
 		"CreatePipeline",
-		"GetPipeline",
-		"UpdatePipeline",
+		"DeleteCustomActionType",
 		"DeletePipeline",
+		"DeleteWebhook",
+		"DeregisterWebhookWithThirdParty",
+		"DisableStageTransition",
+		"EnableStageTransition",
+		"GetActionType",
+		"GetJobDetails",
+		"GetPipeline",
 		"ListPipelines",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"UpdatePipeline",
 	}
 }
 
@@ -96,19 +119,29 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreatePipeline":      service.WrapOp(h.handleCreatePipeline),
-		"GetPipeline":         service.WrapOp(h.handleGetPipeline),
-		"UpdatePipeline":      service.WrapOp(h.handleUpdatePipeline),
-		"DeletePipeline":      service.WrapOp(h.handleDeletePipeline),
-		"ListPipelines":       service.WrapOp(h.handleListPipelines),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"UntagResource":       service.WrapOp(h.handleUntagResource),
+		"AcknowledgeJob":                  service.WrapOp(h.handleAcknowledgeJob),
+		"AcknowledgeThirdPartyJob":        service.WrapOp(h.handleAcknowledgeThirdPartyJob),
+		"CreateCustomActionType":          service.WrapOp(h.handleCreateCustomActionType),
+		"CreatePipeline":                  service.WrapOp(h.handleCreatePipeline),
+		"DeleteCustomActionType":          service.WrapOp(h.handleDeleteCustomActionType),
+		"DeletePipeline":                  service.WrapOp(h.handleDeletePipeline),
+		"DeleteWebhook":                   service.WrapOp(h.handleDeleteWebhook),
+		"DeregisterWebhookWithThirdParty": service.WrapOp(h.handleDeregisterWebhookWithThirdParty),
+		"DisableStageTransition":          service.WrapOp(h.handleDisableStageTransition),
+		"EnableStageTransition":           service.WrapOp(h.handleEnableStageTransition),
+		"GetActionType":                   service.WrapOp(h.handleGetActionType),
+		"GetJobDetails":                   service.WrapOp(h.handleGetJobDetails),
+		"GetPipeline":                     service.WrapOp(h.handleGetPipeline),
+		"ListPipelines":                   service.WrapOp(h.handleListPipelines),
+		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                     service.WrapOp(h.handleTagResource),
+		"UntagResource":                   service.WrapOp(h.handleUntagResource),
+		"UpdatePipeline":                  service.WrapOp(h.handleUpdatePipeline),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -133,9 +166,37 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrActionTypeNotFound):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ActionTypeNotFoundException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrJobNotFound):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "JobNotFoundException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrWebhookNotFound):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "WebhookNotFoundException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidStructureException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
 			Message: err.Error(),
 		})
 
@@ -299,6 +360,9 @@ func (h *Handler) handleListPipelines(
 	_ *listPipelinesInput,
 ) (*listPipelinesOutput, error) {
 	summaries := h.Backend.ListPipelines()
+	if summaries == nil {
+		summaries = []PipelineSummary{}
+	}
 
 	return &listPipelinesOutput{Pipelines: summaries}, nil
 }
@@ -324,6 +388,10 @@ func (h *Handler) handleListTagsForResource(
 	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
 		return nil, err
+	}
+
+	if tags == nil {
+		tags = []Tag{}
 	}
 
 	return &listTagsForResourceOutput{Tags: tags}, nil
@@ -380,4 +448,423 @@ func tagsToMap(tags []Tag) map[string]string {
 	}
 
 	return m
+}
+
+// validActionCategory returns true if cat is a valid AWS ActionCategory value.
+func validActionCategory(cat string) bool {
+	switch cat {
+	case "Source", "Build", "Deploy", "Test", "Invoke", "Approval", "Compute":
+		return true
+	default:
+		return false
+	}
+}
+
+// validTransitionType returns true if t is a valid AWS StageTransitionType value.
+func validTransitionType(t string) bool {
+	return t == transitionTypeInbound || t == transitionTypeOutbound
+}
+
+// --- AcknowledgeJob ---
+
+type acknowledgeJobInput struct {
+	JobID string `json:"jobId"`
+	Nonce string `json:"nonce"`
+}
+
+type acknowledgeJobOutput struct {
+	Status string `json:"status"`
+}
+
+func (h *Handler) handleAcknowledgeJob(
+	_ context.Context,
+	in *acknowledgeJobInput,
+) (*acknowledgeJobOutput, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
+	}
+
+	if in.Nonce == "" {
+		return nil, fmt.Errorf("%w: nonce is required", errInvalidRequest)
+	}
+
+	status, err := h.Backend.AcknowledgeJob(in.JobID, in.Nonce)
+	if err != nil {
+		return nil, err
+	}
+
+	return &acknowledgeJobOutput{Status: status}, nil
+}
+
+// --- AcknowledgeThirdPartyJob ---
+
+type acknowledgeThirdPartyJobInput struct {
+	ClientToken string `json:"clientToken"`
+	JobID       string `json:"jobId"`
+	Nonce       string `json:"nonce"`
+}
+
+type acknowledgeThirdPartyJobOutput struct {
+	Status string `json:"status"`
+}
+
+func (h *Handler) handleAcknowledgeThirdPartyJob(
+	_ context.Context,
+	in *acknowledgeThirdPartyJobInput,
+) (*acknowledgeThirdPartyJobOutput, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
+	}
+
+	if in.Nonce == "" {
+		return nil, fmt.Errorf("%w: nonce is required", errInvalidRequest)
+	}
+
+	if in.ClientToken == "" {
+		return nil, fmt.Errorf("%w: clientToken is required", errInvalidRequest)
+	}
+
+	status, err := h.Backend.AcknowledgeThirdPartyJob(in.JobID, in.Nonce, in.ClientToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &acknowledgeThirdPartyJobOutput{Status: status}, nil
+}
+
+// --- CreateCustomActionType ---
+
+type createCustomActionTypeInput struct {
+	Settings                *ActionTypeSettings           `json:"settings,omitempty"`
+	Category                string                        `json:"category"`
+	Provider                string                        `json:"provider"`
+	Version                 string                        `json:"version"`
+	ConfigurationProperties []ActionConfigurationProperty `json:"configurationProperties,omitempty"`
+	Tags                    []Tag                         `json:"tags,omitempty"`
+	InputArtifactDetails    ArtifactDetails               `json:"inputArtifactDetails"`
+	OutputArtifactDetails   ArtifactDetails               `json:"outputArtifactDetails"`
+}
+
+type customActionTypeResponse struct {
+	Settings                      *ActionTypeSettings           `json:"settings,omitempty"`
+	ID                            ActionTypeID                  `json:"id"`
+	ActionConfigurationProperties []ActionConfigurationProperty `json:"actionConfigurationProperties,omitempty"`
+	InputArtifactDetails          ArtifactDetails               `json:"inputArtifactDetails"`
+	OutputArtifactDetails         ArtifactDetails               `json:"outputArtifactDetails"`
+}
+
+type createCustomActionTypeOutput struct {
+	Tags       []Tag                    `json:"tags,omitempty"`
+	ActionType customActionTypeResponse `json:"actionType"`
+}
+
+func (h *Handler) handleCreateCustomActionType(
+	_ context.Context,
+	in *createCustomActionTypeInput,
+) (*createCustomActionTypeOutput, error) {
+	if in.Category == "" {
+		return nil, fmt.Errorf("%w: category is required", errInvalidRequest)
+	}
+
+	if !validActionCategory(in.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
+	}
+
+	if in.Provider == "" {
+		return nil, fmt.Errorf("%w: provider is required", errInvalidRequest)
+	}
+
+	if in.Version == "" {
+		return nil, fmt.Errorf("%w: version is required", errInvalidRequest)
+	}
+
+	cat := &CustomActionType{
+		Category:                in.Category,
+		Provider:                in.Provider,
+		Version:                 in.Version,
+		InputArtifactDetails:    in.InputArtifactDetails,
+		OutputArtifactDetails:   in.OutputArtifactDetails,
+		Settings:                in.Settings,
+		ConfigurationProperties: in.ConfigurationProperties,
+		Tags:                    tagsToMap(in.Tags),
+	}
+
+	created, err := h.Backend.CreateCustomActionType(cat)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createCustomActionTypeOutput{
+		ActionType: customActionTypeResponse{
+			ID: ActionTypeID{
+				Category: created.Category,
+				Owner:    "Custom",
+				Provider: created.Provider,
+				Version:  created.Version,
+			},
+			InputArtifactDetails:          created.InputArtifactDetails,
+			OutputArtifactDetails:         created.OutputArtifactDetails,
+			Settings:                      created.Settings,
+			ActionConfigurationProperties: created.ConfigurationProperties,
+		},
+		Tags: in.Tags,
+	}, nil
+}
+
+// --- DeleteCustomActionType ---
+
+type deleteCustomActionTypeInput struct {
+	Category string `json:"category"`
+	Provider string `json:"provider"`
+	Version  string `json:"version"`
+}
+
+type deleteCustomActionTypeOutput struct{}
+
+func (h *Handler) handleDeleteCustomActionType(
+	_ context.Context,
+	in *deleteCustomActionTypeInput,
+) (*deleteCustomActionTypeOutput, error) {
+	if in.Category == "" {
+		return nil, fmt.Errorf("%w: category is required", errInvalidRequest)
+	}
+
+	if !validActionCategory(in.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
+	}
+
+	if in.Provider == "" {
+		return nil, fmt.Errorf("%w: provider is required", errInvalidRequest)
+	}
+
+	if in.Version == "" {
+		return nil, fmt.Errorf("%w: version is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteCustomActionType(in.Category, in.Provider, in.Version); err != nil {
+		return nil, err
+	}
+
+	return &deleteCustomActionTypeOutput{}, nil
+}
+
+// --- GetActionType ---
+
+type getActionTypeInput struct {
+	Category string `json:"category"`
+	Owner    string `json:"owner"`
+	Provider string `json:"provider"`
+	Version  string `json:"version"`
+}
+
+type getActionTypeOutput struct {
+	ActionType customActionTypeResponse `json:"actionType"`
+}
+
+func (h *Handler) handleGetActionType(
+	_ context.Context,
+	in *getActionTypeInput,
+) (*getActionTypeOutput, error) {
+	if in.Category == "" {
+		return nil, fmt.Errorf("%w: category is required", errInvalidRequest)
+	}
+
+	if !validActionCategory(in.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
+	}
+
+	if in.Provider == "" {
+		return nil, fmt.Errorf("%w: provider is required", errInvalidRequest)
+	}
+
+	if in.Version == "" {
+		return nil, fmt.Errorf("%w: version is required", errInvalidRequest)
+	}
+
+	cat, err := h.Backend.GetActionType(in.Category, in.Owner, in.Provider, in.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getActionTypeOutput{
+		ActionType: customActionTypeResponse{
+			ID: ActionTypeID{
+				Category: cat.Category,
+				Owner:    "Custom",
+				Provider: cat.Provider,
+				Version:  cat.Version,
+			},
+			InputArtifactDetails:          cat.InputArtifactDetails,
+			OutputArtifactDetails:         cat.OutputArtifactDetails,
+			Settings:                      cat.Settings,
+			ActionConfigurationProperties: cat.ConfigurationProperties,
+		},
+	}, nil
+}
+
+// --- GetJobDetails ---
+
+type jobDataResponse struct {
+	ActionTypeID ActionTypeID `json:"actionTypeId"`
+}
+
+type jobDetailsResponse struct {
+	Data      jobDataResponse `json:"data"`
+	AccountID string          `json:"accountId"`
+	ID        string          `json:"id"`
+}
+
+type getJobDetailsInput struct {
+	JobID string `json:"jobId"`
+}
+
+type getJobDetailsOutput struct {
+	JobDetails jobDetailsResponse `json:"jobDetails"`
+}
+
+func (h *Handler) handleGetJobDetails(
+	_ context.Context,
+	in *getJobDetailsInput,
+) (*getJobDetailsOutput, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
+	}
+
+	job, err := h.Backend.GetJobDetails(in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getJobDetailsOutput{
+		JobDetails: jobDetailsResponse{
+			ID:        job.ID,
+			AccountID: "",
+			Data:      jobDataResponse{},
+		},
+	}, nil
+}
+
+// --- DeleteWebhook ---
+
+type deleteWebhookInput struct {
+	Name string `json:"name"`
+}
+
+type deleteWebhookOutput struct{}
+
+func (h *Handler) handleDeleteWebhook(
+	_ context.Context,
+	in *deleteWebhookInput,
+) (*deleteWebhookOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteWebhook(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &deleteWebhookOutput{}, nil
+}
+
+// --- DeregisterWebhookWithThirdParty ---
+
+type deregisterWebhookWithThirdPartyInput struct {
+	WebhookName string `json:"webhookName"`
+}
+
+type deregisterWebhookWithThirdPartyOutput struct{}
+
+func (h *Handler) handleDeregisterWebhookWithThirdParty(
+	_ context.Context,
+	in *deregisterWebhookWithThirdPartyInput,
+) (*deregisterWebhookWithThirdPartyOutput, error) {
+	if err := h.Backend.DeregisterWebhookWithThirdParty(in.WebhookName); err != nil {
+		return nil, err
+	}
+
+	return &deregisterWebhookWithThirdPartyOutput{}, nil
+}
+
+// --- DisableStageTransition ---
+
+type disableStageTransitionInput struct {
+	PipelineName   string `json:"pipelineName"`
+	Reason         string `json:"reason"`
+	StageName      string `json:"stageName"`
+	TransitionType string `json:"transitionType"`
+}
+
+type disableStageTransitionOutput struct{}
+
+func (h *Handler) handleDisableStageTransition(
+	_ context.Context,
+	in *disableStageTransitionInput,
+) (*disableStageTransitionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	if in.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", errInvalidRequest)
+	}
+
+	if in.TransitionType == "" {
+		return nil, fmt.Errorf("%w: transitionType is required", errInvalidRequest)
+	}
+
+	if !validTransitionType(in.TransitionType) {
+		return nil, fmt.Errorf("%w: invalid transitionType %q, must be %s or %s",
+			ErrValidation, in.TransitionType, transitionTypeInbound, transitionTypeOutbound)
+	}
+
+	if in.Reason == "" {
+		return nil, fmt.Errorf("%w: reason is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DisableStageTransition(
+		in.PipelineName, in.StageName, in.TransitionType, in.Reason,
+	); err != nil {
+		return nil, err
+	}
+
+	return &disableStageTransitionOutput{}, nil
+}
+
+// --- EnableStageTransition ---
+
+type enableStageTransitionInput struct {
+	PipelineName   string `json:"pipelineName"`
+	StageName      string `json:"stageName"`
+	TransitionType string `json:"transitionType"`
+}
+
+type enableStageTransitionOutput struct{}
+
+func (h *Handler) handleEnableStageTransition(
+	_ context.Context,
+	in *enableStageTransitionInput,
+) (*enableStageTransitionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	if in.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", errInvalidRequest)
+	}
+
+	if in.TransitionType == "" {
+		return nil, fmt.Errorf("%w: transitionType is required", errInvalidRequest)
+	}
+
+	if !validTransitionType(in.TransitionType) {
+		return nil, fmt.Errorf("%w: invalid transitionType %q, must be %s or %s",
+			ErrValidation, in.TransitionType, transitionTypeInbound, transitionTypeOutbound)
+	}
+
+	if err := h.Backend.EnableStageTransition(in.PipelineName, in.StageName, in.TransitionType); err != nil {
+		return nil, err
+	}
+
+	return &enableStageTransitionOutput{}, nil
 }

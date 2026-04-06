@@ -4,6 +4,7 @@ package codepipeline
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -16,6 +17,14 @@ var (
 	ErrNotFound = awserr.New("PipelineNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource with the same name already exists.
 	ErrAlreadyExists = awserr.New("InvalidStructureException", awserr.ErrAlreadyExists)
+	// ErrActionTypeNotFound is returned when a requested custom action type does not exist.
+	ErrActionTypeNotFound = awserr.New("ActionTypeNotFoundException", awserr.ErrNotFound)
+	// ErrJobNotFound is returned when a requested job does not exist.
+	ErrJobNotFound = awserr.New("JobNotFoundException", awserr.ErrNotFound)
+	// ErrWebhookNotFound is returned when a requested webhook does not exist.
+	ErrWebhookNotFound = awserr.New("WebhookNotFoundException", awserr.ErrNotFound)
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // ArtifactStore represents the artifact store for a pipeline stage.
@@ -30,6 +39,82 @@ type ActionTypeID struct {
 	Owner    string `json:"owner"`
 	Provider string `json:"provider"`
 	Version  string `json:"version"`
+}
+
+// ArtifactDetails represents min/max artifact counts for a custom action type.
+type ArtifactDetails struct {
+	MinimumCount int `json:"minimumCount"`
+	MaximumCount int `json:"maximumCount"`
+}
+
+// ActionTypeSettings represents the URLs for a custom action type.
+type ActionTypeSettings struct {
+	EntityURLTemplate          string `json:"entityUrlTemplate,omitempty"`
+	ExecutionURLTemplate       string `json:"executionUrlTemplate,omitempty"`
+	RevisionURLTemplate        string `json:"revisionUrlTemplate,omitempty"`
+	ThirdPartyConfigurationURL string `json:"thirdPartyConfigurationUrl,omitempty"`
+}
+
+// ActionConfigurationProperty represents a property in a custom action type's configuration.
+type ActionConfigurationProperty struct {
+	Description string `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Type        string `json:"type,omitempty"`
+	Key         bool   `json:"key"`
+	Queryable   bool   `json:"queryable,omitempty"`
+	Required    bool   `json:"required"`
+	Secret      bool   `json:"secret"`
+}
+
+// CustomActionType represents an in-memory custom action type.
+type CustomActionType struct {
+	Settings                *ActionTypeSettings           `json:"settings,omitempty"`
+	Tags                    map[string]string             `json:"-"`
+	Category                string                        `json:"category"`
+	Provider                string                        `json:"provider"`
+	Version                 string                        `json:"version"`
+	ConfigurationProperties []ActionConfigurationProperty `json:"configurationProperties,omitempty"`
+	InputArtifactDetails    ArtifactDetails               `json:"inputArtifactDetails"`
+	OutputArtifactDetails   ArtifactDetails               `json:"outputArtifactDetails"`
+}
+
+// customActionTypeKey is the composite key for a custom action type.
+type customActionTypeKey struct {
+	Category string
+	Provider string
+	Version  string
+}
+
+// Job represents a CodePipeline job queued for a custom action.
+type Job struct {
+	ID           string `json:"id"`
+	PipelineName string `json:"pipelineName,omitempty"`
+	Nonce        string `json:"nonce"`
+	Status       string `json:"status"`
+}
+
+// Webhook represents a CodePipeline webhook.
+type Webhook struct {
+	Name                     string `json:"name"`
+	TargetPipeline           string `json:"targetPipeline"`
+	TargetAction             string `json:"targetAction"`
+	RegisteredWithThirdParty bool   `json:"registeredWithThirdParty"`
+}
+
+// StageTransitionState holds the disabled state and reason for a pipeline stage transition.
+type StageTransitionState struct {
+	PipelineName   string `json:"pipelineName"`
+	StageName      string `json:"stageName"`
+	TransitionType string `json:"transitionType"`
+	Reason         string `json:"reason"`
+	Disabled       bool   `json:"disabled"`
+}
+
+// stageTransitionKey is the composite key for a stage transition.
+type stageTransitionKey struct {
+	PipelineName   string
+	StageName      string
+	TransitionType string
 }
 
 // Action represents a single action within a pipeline stage.
@@ -71,17 +156,18 @@ type PipelineMetadata struct {
 
 // Pipeline wraps the declaration and metadata.
 type Pipeline struct {
-	Tags        map[string]string
-	Declaration PipelineDeclaration
-	Metadata    PipelineMetadata
+	Tags        map[string]string   `json:"tags"`
+	Declaration PipelineDeclaration `json:"declaration"`
+	Metadata    PipelineMetadata    `json:"metadata"`
 }
 
 // PipelineSummary is a condensed view of a pipeline for listing.
 type PipelineSummary struct {
-	Name    string  `json:"name"`
-	Version int     `json:"version"`
-	Created float64 `json:"created"`
-	Updated float64 `json:"updated"`
+	PipelineArn string  `json:"pipelineArn,omitempty"`
+	Name        string  `json:"name"`
+	Version     int     `json:"version"`
+	Created     float64 `json:"created"`
+	Updated     float64 `json:"updated"`
 }
 
 // Tag represents a key-value tag.
@@ -92,27 +178,47 @@ type Tag struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CodePipeline resources.
 type InMemoryBackend struct {
-	pipelines        map[string]*Pipeline
-	pipelineARNIndex map[string]string // ARN → pipeline name
-	mu               *lockmetrics.RWMutex
-	accountID        string
-	region           string
+	pipelines         map[string]*Pipeline
+	pipelineARNIndex  map[string]string // ARN → pipeline name
+	customActionTypes map[customActionTypeKey]*CustomActionType
+	jobs              map[string]*Job     // jobID → Job
+	webhooks          map[string]*Webhook // name → Webhook
+	stageTransitions  map[stageTransitionKey]*StageTransitionState
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		pipelines:        make(map[string]*Pipeline),
-		pipelineARNIndex: make(map[string]string),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("codepipeline"),
+		pipelines:         make(map[string]*Pipeline),
+		pipelineARNIndex:  make(map[string]string),
+		customActionTypes: make(map[customActionTypeKey]*CustomActionType),
+		jobs:              make(map[string]*Job),
+		webhooks:          make(map[string]*Webhook),
+		stageTransitions:  make(map[stageTransitionKey]*StageTransitionState),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("codepipeline"),
 	}
 }
 
 // Region returns the region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// Reset clears all state in the backend, resetting it to a pristine empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.pipelines = make(map[string]*Pipeline)
+	b.pipelineARNIndex = make(map[string]string)
+	b.customActionTypes = make(map[customActionTypeKey]*CustomActionType)
+	b.jobs = make(map[string]*Job)
+	b.webhooks = make(map[string]*Webhook)
+	b.stageTransitions = make(map[stageTransitionKey]*StageTransitionState)
+}
 func (b *InMemoryBackend) buildPipelineARN(name string) string {
 	return arn.Build("codepipeline", b.region, b.accountID, name)
 }
@@ -180,7 +286,7 @@ func (b *InMemoryBackend) UpdatePipeline(decl PipelineDeclaration) (*Pipeline, e
 	return copyPipeline(p), nil
 }
 
-// DeletePipeline removes the pipeline with the given name.
+// DeletePipeline removes the pipeline with the given name and cleans up associated state.
 func (b *InMemoryBackend) DeletePipeline(name string) error {
 	b.mu.Lock("DeletePipeline")
 	defer b.mu.Unlock()
@@ -193,28 +299,44 @@ func (b *InMemoryBackend) DeletePipeline(name string) error {
 	delete(b.pipelineARNIndex, p.Metadata.PipelineArn)
 	delete(b.pipelines, name)
 
+	// Cascade: remove any disabled stage transitions for this pipeline.
+	for key := range b.stageTransitions {
+		if key.PipelineName == name {
+			delete(b.stageTransitions, key)
+		}
+	}
+
 	return nil
 }
 
-// ListPipelines returns a summary of all pipelines.
+// ListPipelines returns a sorted summary of all pipelines.
 func (b *InMemoryBackend) ListPipelines() []PipelineSummary {
 	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
+	names := make([]string, 0, len(b.pipelines))
+	for name := range b.pipelines {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
 	summaries := make([]PipelineSummary, 0, len(b.pipelines))
-	for _, p := range b.pipelines {
+	for _, name := range names {
+		p := b.pipelines[name]
 		summaries = append(summaries, PipelineSummary{
-			Name:    p.Declaration.Name,
-			Version: p.Declaration.Version,
-			Created: p.Metadata.Created,
-			Updated: p.Metadata.Updated,
+			Name:        p.Declaration.Name,
+			Version:     p.Declaration.Version,
+			Created:     p.Metadata.Created,
+			Updated:     p.Metadata.Updated,
+			PipelineArn: p.Metadata.PipelineArn,
 		})
 	}
 
 	return summaries
 }
 
-// ListTagsForResource returns the tags for a pipeline by ARN.
+// ListTagsForResource returns the sorted tags for a pipeline by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
@@ -225,13 +347,8 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	}
 
 	p := b.pipelines[name]
-	tags := make([]Tag, 0, len(p.Tags))
 
-	for k, v := range p.Tags {
-		tags = append(tags, Tag{Key: k, Value: v})
-	}
-
-	return tags, nil
+	return tagsToSortedSlice(p.Tags), nil
 }
 
 // TagResource adds or updates tags on a pipeline by ARN.
@@ -284,6 +401,287 @@ func copyPipeline(p *Pipeline) *Pipeline {
 	out.Declaration = copyDeclaration(p.Declaration)
 
 	return &out
+}
+
+// tagsToSortedSlice converts a tag map to a deterministically-sorted slice of Tag.
+func tagsToSortedSlice(kv map[string]string) []Tag {
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	tags := make([]Tag, 0, len(kv))
+	for _, k := range keys {
+		tags = append(tags, Tag{Key: k, Value: kv[k]})
+	}
+
+	return tags
+}
+
+// AddPipelineInternal seeds a pipeline directly into the backend (for testing).
+func (b *InMemoryBackend) AddPipelineInternal(decl PipelineDeclaration, tags map[string]string) *Pipeline {
+	b.mu.Lock("AddPipelineInternal")
+	defer b.mu.Unlock()
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	now := float64(time.Now().Unix())
+	if decl.Version == 0 {
+		decl.Version = 1
+	}
+
+	p := &Pipeline{
+		Declaration: decl,
+		Metadata: PipelineMetadata{
+			PipelineArn: b.buildPipelineARN(decl.Name),
+			Created:     now,
+			Updated:     now,
+		},
+		Tags: tagsCopy,
+	}
+	b.pipelines[decl.Name] = p
+	b.pipelineARNIndex[p.Metadata.PipelineArn] = decl.Name
+
+	return copyPipeline(p)
+}
+
+// AddCustomActionTypeInternal seeds a custom action type directly into the backend (for testing).
+func (b *InMemoryBackend) AddCustomActionTypeInternal(cat *CustomActionType) {
+	b.mu.Lock("AddCustomActionTypeInternal")
+	defer b.mu.Unlock()
+
+	key := customActionTypeKey{Category: cat.Category, Provider: cat.Provider, Version: cat.Version}
+	b.customActionTypes[key] = copyCustomActionType(cat)
+}
+
+// GetStageTransitionState returns the disabled state for a stage transition, or nil if enabled.
+func (b *InMemoryBackend) GetStageTransitionState(
+	pipelineName, stageName, transitionType string,
+) *StageTransitionState {
+	b.mu.RLock("GetStageTransitionState")
+	defer b.mu.RUnlock()
+
+	key := stageTransitionKey{
+		PipelineName:   pipelineName,
+		StageName:      stageName,
+		TransitionType: transitionType,
+	}
+
+	state, ok := b.stageTransitions[key]
+	if !ok {
+		return nil
+	}
+
+	cp := *state
+
+	return &cp
+}
+
+// --- Custom Action Type operations ---
+
+// CreateCustomActionType stores a new custom action type.
+func (b *InMemoryBackend) CreateCustomActionType(cat *CustomActionType) (*CustomActionType, error) {
+	b.mu.Lock("CreateCustomActionType")
+	defer b.mu.Unlock()
+
+	key := customActionTypeKey{Category: cat.Category, Provider: cat.Provider, Version: cat.Version}
+
+	if _, exists := b.customActionTypes[key]; exists {
+		return nil, fmt.Errorf("%w: custom action type %q/%q/%q already exists",
+			ErrAlreadyExists, cat.Category, cat.Provider, cat.Version)
+	}
+
+	cp := copyCustomActionType(cat)
+	b.customActionTypes[key] = cp
+
+	return copyCustomActionType(cp), nil
+}
+
+// DeleteCustomActionType removes a custom action type.
+func (b *InMemoryBackend) DeleteCustomActionType(category, provider, version string) error {
+	b.mu.Lock("DeleteCustomActionType")
+	defer b.mu.Unlock()
+
+	key := customActionTypeKey{Category: category, Provider: provider, Version: version}
+
+	if _, ok := b.customActionTypes[key]; !ok {
+		return fmt.Errorf("%w: custom action type %q/%q/%q", ErrActionTypeNotFound, category, provider, version)
+	}
+
+	delete(b.customActionTypes, key)
+
+	return nil
+}
+
+// GetActionType retrieves a custom action type.
+func (b *InMemoryBackend) GetActionType(category, owner, provider, version string) (*CustomActionType, error) {
+	b.mu.RLock("GetActionType")
+	defer b.mu.RUnlock()
+
+	key := customActionTypeKey{Category: category, Provider: provider, Version: version}
+
+	cat, ok := b.customActionTypes[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: action type %q/%q/%q/%q", ErrActionTypeNotFound, category, owner, provider, version)
+	}
+
+	return copyCustomActionType(cat), nil
+}
+
+// --- Job operations ---
+
+// AcknowledgeJob acknowledges that a job worker has received a job.
+// It returns the current status of the job ("InProgress" if Nonce matches).
+func (b *InMemoryBackend) AcknowledgeJob(jobID, nonce string) (string, error) {
+	b.mu.Lock("AcknowledgeJob")
+	defer b.mu.Unlock()
+
+	job, ok := b.jobs[jobID]
+	if !ok {
+		return "", fmt.Errorf("%w: job %q", ErrJobNotFound, jobID)
+	}
+
+	if job.Nonce == nonce {
+		job.Status = "InProgress"
+	}
+
+	return job.Status, nil
+}
+
+// AcknowledgeThirdPartyJob acknowledges that a third-party job worker has received a job.
+func (b *InMemoryBackend) AcknowledgeThirdPartyJob(jobID, nonce, clientToken string) (string, error) {
+	b.mu.Lock("AcknowledgeThirdPartyJob")
+	defer b.mu.Unlock()
+
+	job, ok := b.jobs[jobID]
+	if !ok {
+		return "", fmt.Errorf("%w: third-party job %q with client token %q", ErrJobNotFound, jobID, clientToken)
+	}
+
+	if job.Nonce == nonce {
+		job.Status = "InProgress"
+	}
+
+	return job.Status, nil
+}
+
+// GetJobDetails returns details for a job by ID.
+func (b *InMemoryBackend) GetJobDetails(jobID string) (*Job, error) {
+	b.mu.RLock("GetJobDetails")
+	defer b.mu.RUnlock()
+
+	job, ok := b.jobs[jobID]
+	if !ok {
+		return nil, fmt.Errorf("%w: job %q", ErrJobNotFound, jobID)
+	}
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// AddJobInternal seeds a job directly into the backend (for testing).
+func (b *InMemoryBackend) AddJobInternal(job *Job) {
+	b.mu.Lock("AddJobInternal")
+	defer b.mu.Unlock()
+
+	cp := *job
+	b.jobs[cp.ID] = &cp
+}
+
+// --- Webhook operations ---
+
+// DeleteWebhook removes a webhook by name (idempotent).
+func (b *InMemoryBackend) DeleteWebhook(name string) error {
+	b.mu.Lock("DeleteWebhook")
+	defer b.mu.Unlock()
+
+	delete(b.webhooks, name)
+
+	return nil
+}
+
+// DeregisterWebhookWithThirdParty clears the third-party registration flag on a webhook.
+func (b *InMemoryBackend) DeregisterWebhookWithThirdParty(name string) error {
+	b.mu.Lock("DeregisterWebhookWithThirdParty")
+	defer b.mu.Unlock()
+
+	if wh, ok := b.webhooks[name]; ok {
+		wh.RegisteredWithThirdParty = false
+	}
+
+	return nil
+}
+
+// AddWebhookInternal seeds a webhook directly into the backend (for testing).
+func (b *InMemoryBackend) AddWebhookInternal(wh *Webhook) {
+	b.mu.Lock("AddWebhookInternal")
+	defer b.mu.Unlock()
+
+	cp := *wh
+	b.webhooks[cp.Name] = &cp
+}
+
+// --- Stage transition operations ---
+
+// DisableStageTransition disables a stage transition and records the reason.
+func (b *InMemoryBackend) DisableStageTransition(pipelineName, stageName, transitionType, reason string) error {
+	b.mu.Lock("DisableStageTransition")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+	}
+
+	key := stageTransitionKey{PipelineName: pipelineName, StageName: stageName, TransitionType: transitionType}
+	b.stageTransitions[key] = &StageTransitionState{
+		PipelineName:   pipelineName,
+		StageName:      stageName,
+		TransitionType: transitionType,
+		Reason:         reason,
+		Disabled:       true,
+	}
+
+	return nil
+}
+
+// EnableStageTransition re-enables a stage transition.
+func (b *InMemoryBackend) EnableStageTransition(pipelineName, stageName, transitionType string) error {
+	b.mu.Lock("EnableStageTransition")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+	}
+
+	key := stageTransitionKey{PipelineName: pipelineName, StageName: stageName, TransitionType: transitionType}
+	delete(b.stageTransitions, key)
+
+	return nil
+}
+
+func copyCustomActionType(c *CustomActionType) *CustomActionType {
+	cp := *c
+
+	if c.Tags != nil {
+		cp.Tags = make(map[string]string, len(c.Tags))
+		maps.Copy(cp.Tags, c.Tags)
+	}
+
+	if c.ConfigurationProperties != nil {
+		cp.ConfigurationProperties = make([]ActionConfigurationProperty, len(c.ConfigurationProperties))
+		copy(cp.ConfigurationProperties, c.ConfigurationProperties)
+	}
+
+	if c.Settings != nil {
+		s := *c.Settings
+		cp.Settings = &s
+	}
+
+	return &cp
 }
 
 // copyDeclaration deep-copies a PipelineDeclaration so callers cannot mutate
