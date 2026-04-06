@@ -3,11 +3,12 @@ package cognitoidentity
 import "encoding/json"
 
 type backendSnapshot struct {
-	Pools      map[string]*IdentityPool  `json:"pools"`
-	Identities map[string]*Identity      `json:"identities"`
-	Roles      map[string]*IdentityRoles `json:"roles"`
-	AccountID  string                    `json:"accountID"`
-	Region     string                    `json:"region"`
+	Pools         map[string]*IdentityPool        `json:"pools"`
+	Identities    map[string]*Identity            `json:"identities"`
+	Roles         map[string]*IdentityRoles       `json:"roles"`
+	PrincipalTags map[string]*PrincipalTagMapping `json:"principalTags"`
+	AccountID     string                          `json:"accountID"`
+	Region        string                          `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,11 +17,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Pools:      b.pools,
-		Identities: b.identities,
-		Roles:      b.roles,
-		AccountID:  b.accountID,
-		Region:     b.region,
+		Pools:         b.pools,
+		Identities:    b.identities,
+		Roles:         b.roles,
+		PrincipalTags: b.principalTags,
+		AccountID:     b.accountID,
+		Region:        b.region,
 	}
 
 	data, _ := json.Marshal(snap)
@@ -28,7 +30,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot and rebuilds poolsByName index.
+// Restore loads backend state from a JSON snapshot and rebuilds indexes.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -51,17 +53,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Roles = make(map[string]*IdentityRoles)
 	}
 
+	if snap.PrincipalTags == nil {
+		snap.PrincipalTags = make(map[string]*PrincipalTagMapping)
+	}
+
 	b.pools = snap.Pools
 	b.identities = snap.Identities
 	b.roles = snap.Roles
+	b.principalTags = snap.PrincipalTags
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild poolsByName and identitiesByPool indexes.
+	// Rebuild poolsByName, poolsByARN, and identitiesByPool indexes.
 	b.poolsByName = make(map[string]*IdentityPool, len(snap.Pools))
+	b.poolsByARN = make(map[string]*IdentityPool, len(snap.Pools))
 
 	for _, p := range snap.Pools {
 		b.poolsByName[p.IdentityPoolName] = p
+		b.poolsByARN[p.ARN] = p
 	}
 
 	b.identitiesByPool = make(map[string][]*Identity)

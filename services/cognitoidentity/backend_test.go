@@ -562,3 +562,117 @@ func TestInMemoryBackend_CreateIdentityPool_WithProviders(t *testing.T) {
 	assert.Equal(t, "123456789", pool.SupportedLoginProviders["graph.facebook.com"])
 	assert.Equal(t, "test", pool.Tags["env"])
 }
+
+func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool("persist-pool", true, false, nil, nil, map[string]string{
+		"env": "prod",
+	})
+	require.NoError(t, err)
+
+	_, err = b.GetID(pool.IdentityPoolID, "000000000000", map[string]string{
+		"accounts.google.com": "google-token",
+	})
+	require.NoError(t, err)
+
+	_, err = b.SetPrincipalTagAttributeMap(
+		pool.IdentityPoolID,
+		"cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx",
+		false,
+		map[string]string{"sub": "user_id"},
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	restored, err := b2.DescribeIdentityPool(pool.IdentityPoolID)
+	require.NoError(t, err)
+	assert.Equal(t, "persist-pool", restored.IdentityPoolName)
+	assert.Equal(t, "prod", restored.Tags["env"])
+
+	result, err := b2.ListIdentities(pool.IdentityPoolID, 10, false)
+	require.NoError(t, err)
+	assert.Len(t, result.Identities, 1)
+
+	mapping, err := b2.GetPrincipalTagAttributeMap(
+		pool.IdentityPoolID,
+		"cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "user_id", mapping.PrincipalTags["sub"])
+}
+
+func TestHandler_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
+	h := cognitoidentity.NewHandler(b, "us-east-1")
+
+	_, err := b.CreateIdentityPool("handler-persist-pool", true, false, nil, nil, nil)
+	require.NoError(t, err)
+
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := cognitoidentity.NewHandler(b2, "us-east-1")
+
+	require.NoError(t, h2.Restore(snap))
+
+	pools := b2.ListIdentityPools(0)
+	assert.Len(t, pools, 1)
+	assert.Equal(t, "handler-persist-pool", pools[0].IdentityPoolName)
+}
+
+func TestInMemoryBackend_DeleteIdentities_UnprocessedNil(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool("del-id-pool", true, false, nil, nil, nil)
+	require.NoError(t, err)
+
+	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	require.NoError(t, err)
+
+	unprocessed := b.DeleteIdentities([]string{identity.IdentityID})
+	assert.Empty(t, unprocessed)
+
+	_, descErr := b.GetCredentialsForIdentity(identity.IdentityID, nil)
+	require.Error(t, descErr)
+}
+
+func TestInMemoryBackend_DeveloperLoginsFrom_EmptyProviderName(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool("dev-logins-pool", true, false, nil, nil, nil)
+	require.NoError(t, err)
+
+	devRec, err := b.GetOpenIDTokenForDeveloperIdentity(
+		pool.IdentityPoolID,
+		"",
+		map[string]string{"developer.example.com": "user-001"},
+		0,
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(t, devRec.IdentityID)
+
+	// LookupDeveloperIdentity with empty provider name returns all dev user IDs.
+	result, err := b.LookupDeveloperIdentity(
+		pool.IdentityPoolID,
+		devRec.IdentityID,
+		"",
+		"",
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.DeveloperUserIdentifierList)
+}
