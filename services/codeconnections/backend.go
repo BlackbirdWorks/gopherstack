@@ -463,6 +463,7 @@ type SyncConfiguration struct {
 }
 
 // syncConfigKey returns the composite map key for a sync configuration.
+// ResourceName values must not contain "/" to avoid key collisions with SyncType.
 func syncConfigKey(resourceName, syncType string) string {
 	return resourceName + "/" + syncType
 }
@@ -585,8 +586,7 @@ func (b *InMemoryBackend) GetResourceSyncStatus(resourceName, syncType string) (
 	}, nil
 }
 
-// sortedTags returns the tags map as a sorted slice of key=value pairs.
-// This is used internally; callers that need tag arrays should use tagsToSortedArray.
+// sortedTagKeys returns the keys of the tags map in sorted order.
 func sortedTagKeys(tags map[string]string) []string {
 	keys := make([]string, 0, len(tags))
 	for k := range tags {

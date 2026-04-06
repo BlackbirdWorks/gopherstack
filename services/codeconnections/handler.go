@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -25,7 +26,7 @@ const (
 	ccDefaultPageSize            = 100
 )
 
-var errUnknownAction = errors.New("UnknownOperationException")
+var errUnknownAction = awserr.New("UnknownOperationException", awserr.ErrNotFound)
 
 // Handler is the Echo HTTP handler for AWS CodeConnections operations (JSON 1.0 protocol).
 type Handler struct {
