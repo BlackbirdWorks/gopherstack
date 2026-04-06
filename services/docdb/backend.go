@@ -3,6 +3,7 @@ package docdb
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -19,6 +20,10 @@ var (
 	ErrClusterParameterGroupAlreadyExists = errors.New("DBClusterParameterGroupAlreadyExists")
 	ErrClusterSnapshotNotFound            = errors.New("DBClusterSnapshotNotFound")
 	ErrClusterSnapshotAlreadyExists       = errors.New("DBClusterSnapshotAlreadyExists")
+	ErrEventSubscriptionNotFound          = errors.New("SubscriptionNotFoundFault")
+	ErrEventSubscriptionAlreadyExists     = errors.New("SubscriptionAlreadyExistFault")
+	ErrGlobalClusterNotFound              = errors.New("GlobalClusterNotFoundFault")
+	ErrGlobalClusterAlreadyExists         = errors.New("GlobalClusterAlreadyExistsFault")
 	ErrInvalidParameter                   = errors.New("InvalidParameterValue")
 	ErrUnknownAction                      = errors.New("InvalidAction")
 )
@@ -76,12 +81,45 @@ type DBClusterSnapshot struct {
 	Status                      string
 }
 
+type EventSubscription struct {
+	SubscriptionName string
+	SnsTopicARN      string
+	Status           string
+	SourceIDs        []string
+}
+
+type GlobalCluster struct {
+	GlobalClusterIdentifier string
+	SourceDBClusterID       string
+	Status                  string
+}
+
+type Certificate struct {
+	CertificateIdentifier string
+	CertificateType       string
+	Thumbprint            string
+	ValidFrom             string
+	ValidTill             string
+}
+
+type DBClusterParameter struct {
+	ParameterName  string
+	ParameterValue string
+	Description    string
+	Source         string
+	ApplyType      string
+	DataType       string
+	IsModifiable   bool
+}
+
 type InMemoryBackend struct {
 	clusters               map[string]*DBCluster
 	instances              map[string]*DBInstance
 	subnetGroups           map[string]*DBSubnetGroup
 	clusterParameterGroups map[string]*DBClusterParameterGroup
 	clusterSnapshots       map[string]*DBClusterSnapshot
+	eventSubscriptions     map[string]*EventSubscription
+	globalClusters         map[string]*GlobalCluster
 	tags                   map[string][]Tag
 	mu                     *lockmetrics.RWMutex
 	accountID              string
@@ -95,6 +133,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		subnetGroups:           make(map[string]*DBSubnetGroup),
 		clusterParameterGroups: make(map[string]*DBClusterParameterGroup),
 		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
+		eventSubscriptions:     make(map[string]*EventSubscription),
+		globalClusters:         make(map[string]*GlobalCluster),
 		tags:                   make(map[string][]Tag),
 		accountID:              accountID,
 		region:                 region,
@@ -588,4 +628,275 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
 	copy(cp, src)
 
 	return cp
+}
+
+// AddSourceIdentifierToSubscription adds a source identifier to an event subscription.
+func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
+	subscriptionName, sourceID string,
+) (*EventSubscription, error) {
+	if subscriptionName == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	if sourceID == "" {
+		return nil, fmt.Errorf("%w: SourceIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("AddSourceIdentifierToSubscription")
+	defer b.mu.Unlock()
+	sub, exists := b.eventSubscriptions[subscriptionName]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
+	}
+	if slices.Contains(sub.SourceIDs, sourceID) {
+		cp := *sub
+		cp.SourceIDs = make([]string, len(sub.SourceIDs))
+		copy(cp.SourceIDs, sub.SourceIDs)
+
+		return &cp, nil
+	}
+	sub.SourceIDs = append(sub.SourceIDs, sourceID)
+	cp := *sub
+	cp.SourceIDs = make([]string, len(sub.SourceIDs))
+	copy(cp.SourceIDs, sub.SourceIDs)
+
+	return &cp, nil
+}
+
+// ApplyPendingMaintenanceAction applies a pending maintenance action to a resource.
+func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
+	resourceARN, action, optInType string,
+) error {
+	if resourceARN == "" {
+		return fmt.Errorf("%w: ResourceIdentifier is required", ErrInvalidParameter)
+	}
+	if action == "" {
+		return fmt.Errorf("%w: ApplyAction is required", ErrInvalidParameter)
+	}
+	if optInType == "" {
+		return fmt.Errorf("%w: OptInType is required", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// CopyDBClusterParameterGroup copies a DB cluster parameter group.
+func (b *InMemoryBackend) CopyDBClusterParameterGroup(
+	sourceGroupName, targetName, targetDescription string,
+) (*DBClusterParameterGroup, error) {
+	if sourceGroupName == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterParameterGroupIdentifier is required", ErrInvalidParameter)
+	}
+	if targetName == "" {
+		return nil, fmt.Errorf("%w: TargetDBClusterParameterGroupIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CopyDBClusterParameterGroup")
+	defer b.mu.Unlock()
+	src, exists := b.clusterParameterGroups[sourceGroupName]
+	if !exists {
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s not found",
+			ErrClusterParameterGroupNotFound,
+			sourceGroupName,
+		)
+	}
+	if _, ok := b.clusterParameterGroups[targetName]; ok {
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s already exists",
+			ErrClusterParameterGroupAlreadyExists,
+			targetName,
+		)
+	}
+	desc := targetDescription
+	if desc == "" {
+		desc = src.Description
+	}
+	pg := &DBClusterParameterGroup{
+		DBClusterParameterGroupName: targetName,
+		DBParameterGroupFamily:      src.DBParameterGroupFamily,
+		Description:                 desc,
+	}
+	b.clusterParameterGroups[targetName] = pg
+	cp := *pg
+
+	return &cp, nil
+}
+
+// CopyDBClusterSnapshot copies a DB cluster snapshot.
+func (b *InMemoryBackend) CopyDBClusterSnapshot(
+	sourceSnapshotID, targetSnapshotID string,
+) (*DBClusterSnapshot, error) {
+	if sourceSnapshotID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	if targetSnapshotID == "" {
+		return nil, fmt.Errorf("%w: TargetDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CopyDBClusterSnapshot")
+	defer b.mu.Unlock()
+	src, exists := b.clusterSnapshots[sourceSnapshotID]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
+	}
+	if _, ok := b.clusterSnapshots[targetSnapshotID]; ok {
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s already exists",
+			ErrClusterSnapshotAlreadyExists,
+			targetSnapshotID,
+		)
+	}
+	snap := &DBClusterSnapshot{
+		DBClusterSnapshotIdentifier: targetSnapshotID,
+		DBClusterIdentifier:         src.DBClusterIdentifier,
+		Engine:                      src.Engine,
+		Status:                      "available",
+	}
+	b.clusterSnapshots[targetSnapshotID] = snap
+	cp := *snap
+
+	return &cp, nil
+}
+
+// CreateEventSubscription creates an event subscription.
+func (b *InMemoryBackend) CreateEventSubscription(
+	name, snsTopicARN string,
+	sourceIDs []string,
+) (*EventSubscription, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateEventSubscription")
+	defer b.mu.Unlock()
+	if _, exists := b.eventSubscriptions[name]; exists {
+		return nil, fmt.Errorf("%w: subscription %s already exists", ErrEventSubscriptionAlreadyExists, name)
+	}
+	ids := make([]string, len(sourceIDs))
+	copy(ids, sourceIDs)
+	sub := &EventSubscription{
+		SubscriptionName: name,
+		SnsTopicARN:      snsTopicARN,
+		Status:           "active",
+		SourceIDs:        ids,
+	}
+	b.eventSubscriptions[name] = sub
+	cp := *sub
+	cp.SourceIDs = make([]string, len(ids))
+	copy(cp.SourceIDs, ids)
+
+	return &cp, nil
+}
+
+// CreateGlobalCluster creates a global cluster.
+func (b *InMemoryBackend) CreateGlobalCluster(
+	id, sourceDBClusterID string,
+) (*GlobalCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateGlobalCluster")
+	defer b.mu.Unlock()
+	if _, exists := b.globalClusters[id]; exists {
+		return nil, fmt.Errorf("%w: global cluster %s already exists", ErrGlobalClusterAlreadyExists, id)
+	}
+	gc := &GlobalCluster{
+		GlobalClusterIdentifier: id,
+		SourceDBClusterID:       sourceDBClusterID,
+		Status:                  "available",
+	}
+	b.globalClusters[id] = gc
+	cp := *gc
+
+	return &cp, nil
+}
+
+// DeleteEventSubscription deletes an event subscription.
+func (b *InMemoryBackend) DeleteEventSubscription(name string) (*EventSubscription, error) {
+	b.mu.Lock("DeleteEventSubscription")
+	defer b.mu.Unlock()
+	sub, exists := b.eventSubscriptions[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
+	}
+	cp := *sub
+	cp.SourceIDs = make([]string, len(sub.SourceIDs))
+	copy(cp.SourceIDs, sub.SourceIDs)
+	delete(b.eventSubscriptions, name)
+
+	return &cp, nil
+}
+
+// DeleteGlobalCluster deletes a global cluster.
+func (b *InMemoryBackend) DeleteGlobalCluster(id string) (*GlobalCluster, error) {
+	b.mu.Lock("DeleteGlobalCluster")
+	defer b.mu.Unlock()
+	gc, exists := b.globalClusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, id)
+	}
+	cp := *gc
+	delete(b.globalClusters, id)
+
+	return &cp, nil
+}
+
+// DescribeCertificates returns certificate information.
+func (b *InMemoryBackend) DescribeCertificates(certificateID string) []Certificate {
+	certs := []Certificate{
+		{
+			CertificateIdentifier: "rds-ca-2019",
+			CertificateType:       "CA",
+			Thumbprint:            "d404926ab3b1c6f0ad61f8d95dadf6c3eea47dbf",
+			ValidFrom:             "2019-09-19T00:00:00Z",
+			ValidTill:             "2024-08-22T00:00:00Z",
+		},
+		{
+			CertificateIdentifier: "rds-ca-rsa2048-g1",
+			CertificateType:       "CA",
+			Thumbprint:            "cf5c7c1cf32cae39012fc84c8d9e76c25bce55fb",
+			ValidFrom:             "2021-05-25T00:00:00Z",
+			ValidTill:             "2061-05-25T00:00:00Z",
+		},
+	}
+	if certificateID == "" {
+		return certs
+	}
+	for _, c := range certs {
+		if c.CertificateIdentifier == certificateID {
+			return []Certificate{c}
+		}
+	}
+
+	return []Certificate{}
+}
+
+// DescribeDBClusterParameters returns the parameters for a DB cluster parameter group.
+func (b *InMemoryBackend) DescribeDBClusterParameters(groupName string) ([]DBClusterParameter, error) {
+	b.mu.RLock("DescribeDBClusterParameters")
+	defer b.mu.RUnlock()
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: DBClusterParameterGroupName is required", ErrInvalidParameter)
+	}
+	if _, exists := b.clusterParameterGroups[groupName]; !exists {
+		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, groupName)
+	}
+	params := []DBClusterParameter{
+		{
+			ParameterName:  "tls",
+			ParameterValue: "enabled",
+			Description:    "Specifies the TLS setting",
+			Source:         "system",
+			ApplyType:      "static",
+			DataType:       "string",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "ttl_monitor",
+			ParameterValue: "enabled",
+			Description:    "Specifies the TTL monitor setting",
+			Source:         "system",
+			ApplyType:      "dynamic",
+			DataType:       "string",
+			IsModifiable:   true,
+		},
+	}
+
+	return params, nil
 }

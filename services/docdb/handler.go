@@ -66,6 +66,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeDBEngineVersions",
 		"DescribeOrderableDBInstanceOptions",
 		"DescribeGlobalClusters",
+		"AddSourceIdentifierToSubscription",
+		"ApplyPendingMaintenanceAction",
+		"CopyDBClusterParameterGroup",
+		"CopyDBClusterSnapshot",
+		"CreateEventSubscription",
+		"CreateGlobalCluster",
+		"DeleteEventSubscription",
+		"DeleteGlobalCluster",
+		"DescribeCertificates",
+		"DescribeDBClusterParameters",
 	}
 }
 
@@ -233,6 +243,33 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 		return h.handleDescribeOrderableDBInstanceOptions(vals)
 	case "DescribeGlobalClusters":
 		return h.handleDescribeGlobalClusters(vals)
+	default:
+		return h.dispatchExtended3(action, vals)
+	}
+}
+
+func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error) {
+	switch action {
+	case "AddSourceIdentifierToSubscription":
+		return h.handleAddSourceIdentifierToSubscription(vals)
+	case "ApplyPendingMaintenanceAction":
+		return h.handleApplyPendingMaintenanceAction(vals)
+	case "CopyDBClusterParameterGroup":
+		return h.handleCopyDBClusterParameterGroup(vals)
+	case "CopyDBClusterSnapshot":
+		return h.handleCopyDBClusterSnapshot(vals)
+	case "CreateEventSubscription":
+		return h.handleCreateEventSubscription(vals)
+	case "CreateGlobalCluster":
+		return h.handleCreateGlobalCluster(vals)
+	case "DeleteEventSubscription":
+		return h.handleDeleteEventSubscription(vals)
+	case "DeleteGlobalCluster":
+		return h.handleDeleteGlobalCluster(vals)
+	case "DescribeCertificates":
+		return h.handleDescribeCertificates(vals)
+	case "DescribeDBClusterParameters":
+		return h.handleDescribeDBClusterParameters(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid DocDB action", ErrUnknownAction, action)
 	}
@@ -643,6 +680,160 @@ func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
 	}, nil
 }
 
+func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any, error) {
+	subscriptionName := vals.Get("SubscriptionName")
+	sourceID := vals.Get("SourceIdentifier")
+	sub, err := h.Backend.AddSourceIdentifierToSubscription(subscriptionName, sourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addSourceIdentifierToSubscriptionResponse{
+		Xmlns:             docdbXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleApplyPendingMaintenanceAction(vals url.Values) (any, error) {
+	resourceARN := vals.Get("ResourceIdentifier")
+	action := vals.Get("ApplyAction")
+	optInType := vals.Get("OptInType")
+	if err := h.Backend.ApplyPendingMaintenanceAction(resourceARN, action, optInType); err != nil {
+		return nil, err
+	}
+
+	return &applyPendingMaintenanceActionResponse{
+		Xmlns: docdbXMLNS,
+		Result: applyPendingMaintenanceActionResult{
+			ResourcePendingMaintenanceActions: xmlResourcePendingMaintenanceActions{
+				ResourceIdentifier:              resourceARN,
+				PendingMaintenanceActionDetails: xmlPendingMaintenanceActionList{},
+			},
+		},
+	}, nil
+}
+
+func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error) {
+	sourceGroupName := vals.Get("SourceDBClusterParameterGroupIdentifier")
+	targetName := vals.Get("TargetDBClusterParameterGroupIdentifier")
+	targetDescription := vals.Get("TargetDBClusterParameterGroupDescription")
+	pg, err := h.Backend.CopyDBClusterParameterGroup(sourceGroupName, targetName, targetDescription)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBClusterParameterGroupResponse{
+		Xmlns:                   docdbXMLNS,
+		DBClusterParameterGroup: toXMLParameterGroup(pg),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
+	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
+	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
+	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBClusterSnapshotResponse{
+		Xmlns:             docdbXMLNS,
+		DBClusterSnapshot: toXMLClusterSnapshot(snap),
+	}, nil
+}
+
+func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
+	name := vals.Get("SubscriptionName")
+	snsTopicARN := vals.Get("SnsTopicArn")
+	sourceIDs := parseSourceIDMembers(vals)
+	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createEventSubscriptionResponse{
+		Xmlns:             docdbXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
+	gc, err := h.Backend.CreateGlobalCluster(id, sourceDBClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createGlobalClusterResponse{
+		Xmlns:         docdbXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleDeleteEventSubscription(vals url.Values) (any, error) {
+	name := vals.Get("SubscriptionName")
+	sub, err := h.Backend.DeleteEventSubscription(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteEventSubscriptionResponse{
+		Xmlns:             docdbXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleDeleteGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	gc, err := h.Backend.DeleteGlobalCluster(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteGlobalClusterResponse{
+		Xmlns:         docdbXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleDescribeCertificates(vals url.Values) (any, error) {
+	certificateID := vals.Get("CertificateIdentifier")
+	certs := h.Backend.DescribeCertificates(certificateID)
+	members := make([]xmlCertificate, 0, len(certs))
+	for _, c := range certs {
+		cp := c
+		members = append(members, toXMLCertificate(&cp))
+	}
+
+	return &describeCertificatesResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeCertificatesResult{
+			Certificates: xmlCertificateList{Members: members},
+		},
+	}, nil
+}
+
+func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error) {
+	groupName := vals.Get("DBClusterParameterGroupName")
+	params, err := h.Backend.DescribeDBClusterParameters(groupName)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]xmlDBClusterParameter, 0, len(params))
+	for _, p := range params {
+		cp := p
+		members = append(members, toXMLDBClusterParameter(&cp))
+	}
+
+	return &describeDBClusterParametersResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeDBClusterParametersResult{
+			Parameters: xmlDBClusterParameterList{Members: members},
+		},
+	}, nil
+}
+
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	statusCode := http.StatusBadRequest
 	code := docdbErrorCode(opErr)
@@ -671,6 +862,10 @@ func docdbErrorCode(opErr error) string {
 		{ErrClusterParameterGroupAlreadyExists, "DBClusterParameterGroupAlreadyExistsFault"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},
+		{ErrEventSubscriptionNotFound, "SubscriptionNotFoundFault"},
+		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExistFault"},
+		{ErrGlobalClusterNotFound, "GlobalClusterNotFoundFault"},
+		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExistsFault"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrUnknownAction, "InvalidAction"},
 	}
@@ -1095,6 +1290,188 @@ type describeGlobalClustersResponse struct {
 	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
 	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
+}
+
+type xmlSourceIDList struct {
+	Members []string `xml:"SourceId"`
+}
+
+type xmlEventSubscription struct {
+	SubscriptionName string          `xml:"CustSubscriptionId"`
+	SnsTopicARN      string          `xml:"SnsTopicArn,omitempty"`
+	Status           string          `xml:"Status"`
+	SourceIDsList    xmlSourceIDList `xml:"SourceIdsList"`
+}
+
+type addSourceIdentifierToSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"AddSourceIdentifierToSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"AddSourceIdentifierToSubscriptionResult>EventSubscription"`
+}
+
+type xmlPendingMaintenanceAction struct {
+	Action      string `xml:"Action"`
+	OptInStatus string `xml:"OptInStatus"`
+}
+
+type xmlPendingMaintenanceActionList struct {
+	Members []xmlPendingMaintenanceAction `xml:"PendingMaintenanceAction"`
+}
+
+type xmlResourcePendingMaintenanceActions struct {
+	ResourceIdentifier              string                          `xml:"ResourceIdentifier"`
+	PendingMaintenanceActionDetails xmlPendingMaintenanceActionList `xml:"PendingMaintenanceActionDetails"`
+}
+
+type applyPendingMaintenanceActionResult struct {
+	ResourcePendingMaintenanceActions xmlResourcePendingMaintenanceActions `xml:"ResourcePendingMaintenanceActions"`
+}
+
+type applyPendingMaintenanceActionResponse struct {
+	XMLName xml.Name                            `xml:"ApplyPendingMaintenanceActionResponse"`
+	Xmlns   string                              `xml:"xmlns,attr"`
+	Result  applyPendingMaintenanceActionResult `xml:"ApplyPendingMaintenanceActionResult"`
+}
+
+type copyDBClusterParameterGroupResponse struct {
+	XMLName                 xml.Name                   `xml:"CopyDBClusterParameterGroupResponse"`
+	Xmlns                   string                     `xml:"xmlns,attr"`
+	DBClusterParameterGroup xmlDBClusterParameterGroup `xml:"CopyDBClusterParameterGroupResult>DBClusterParameterGroup"`
+}
+
+type copyDBClusterSnapshotResponse struct {
+	XMLName           xml.Name             `xml:"CopyDBClusterSnapshotResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterSnapshot xmlDBClusterSnapshot `xml:"CopyDBClusterSnapshotResult>DBClusterSnapshot"`
+}
+
+type createEventSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"CreateEventSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"CreateEventSubscriptionResult>EventSubscription"`
+}
+
+type xmlGlobalCluster struct {
+	GlobalClusterIdentifier string `xml:"GlobalClusterIdentifier"`
+	SourceDBClusterID       string `xml:"GlobalClusterArn,omitempty"`
+	Status                  string `xml:"Status"`
+}
+
+type createGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"CreateGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"CreateGlobalClusterResult>GlobalCluster"`
+}
+
+type deleteEventSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"DeleteEventSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"DeleteEventSubscriptionResult>EventSubscription"`
+}
+
+type deleteGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"DeleteGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"DeleteGlobalClusterResult>GlobalCluster"`
+}
+
+type xmlCertificate struct {
+	CertificateIdentifier string `xml:"CertificateIdentifier"`
+	CertificateType       string `xml:"CertificateType"`
+	Thumbprint            string `xml:"Thumbprint,omitempty"`
+	ValidFrom             string `xml:"ValidFrom,omitempty"`
+	ValidTill             string `xml:"ValidTill,omitempty"`
+}
+
+type xmlCertificateList struct {
+	Members []xmlCertificate `xml:"Certificate"`
+}
+
+type describeCertificatesResult struct {
+	Certificates xmlCertificateList `xml:"Certificates"`
+}
+
+type describeCertificatesResponse struct {
+	XMLName xml.Name                   `xml:"DescribeCertificatesResponse"`
+	Xmlns   string                     `xml:"xmlns,attr"`
+	Result  describeCertificatesResult `xml:"DescribeCertificatesResult"`
+}
+
+type xmlDBClusterParameter struct {
+	ParameterName  string `xml:"ParameterName"`
+	ParameterValue string `xml:"ParameterValue,omitempty"`
+	Description    string `xml:"Description,omitempty"`
+	Source         string `xml:"Source,omitempty"`
+	ApplyType      string `xml:"ApplyType,omitempty"`
+	DataType       string `xml:"DataType,omitempty"`
+	IsModifiable   bool   `xml:"IsModifiable"`
+}
+
+type xmlDBClusterParameterList struct {
+	Members []xmlDBClusterParameter `xml:"Parameter"`
+}
+
+type describeDBClusterParametersResult struct {
+	Parameters xmlDBClusterParameterList `xml:"Parameters"`
+}
+
+type describeDBClusterParametersResponse struct {
+	XMLName xml.Name                          `xml:"DescribeDBClusterParametersResponse"`
+	Xmlns   string                            `xml:"xmlns,attr"`
+	Result  describeDBClusterParametersResult `xml:"DescribeDBClusterParametersResult"`
+}
+
+func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
+	ids := make([]string, len(sub.SourceIDs))
+	copy(ids, sub.SourceIDs)
+
+	return xmlEventSubscription{
+		SubscriptionName: sub.SubscriptionName,
+		SnsTopicARN:      sub.SnsTopicARN,
+		Status:           sub.Status,
+		SourceIDsList:    xmlSourceIDList{Members: ids},
+	}
+}
+
+func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
+	return xmlGlobalCluster{
+		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
+		SourceDBClusterID:       gc.SourceDBClusterID,
+		Status:                  gc.Status,
+	}
+}
+
+func toXMLCertificate(c *Certificate) xmlCertificate {
+	return xmlCertificate{
+		CertificateIdentifier: c.CertificateIdentifier,
+		CertificateType:       c.CertificateType,
+		Thumbprint:            c.Thumbprint,
+		ValidFrom:             c.ValidFrom,
+		ValidTill:             c.ValidTill,
+	}
+}
+
+func toXMLDBClusterParameter(p *DBClusterParameter) xmlDBClusterParameter {
+	return xmlDBClusterParameter{
+		ParameterName:  p.ParameterName,
+		ParameterValue: p.ParameterValue,
+		Description:    p.Description,
+		Source:         p.Source,
+		ApplyType:      p.ApplyType,
+		DataType:       p.DataType,
+		IsModifiable:   p.IsModifiable,
+	}
+}
+
+func parseSourceIDMembers(vals url.Values) []string {
+	var ids []string
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("SourceIds.SourceId.%d", i))
+		if id == "" {
+			return ids
+		}
+		ids = append(ids, id)
+	}
 }
 
 const defaultDocDBMaxRecords = 100
