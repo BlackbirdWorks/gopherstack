@@ -29,11 +29,48 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for AWS DMS operations (JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new DMS handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateReplicationInstance":          service.WrapOp(h.handleCreateReplicationInstance),
+		"DescribeReplicationInstances":       service.WrapOp(h.handleDescribeReplicationInstances),
+		"DeleteReplicationInstance":          service.WrapOp(h.handleDeleteReplicationInstance),
+		"CreateEndpoint":                     service.WrapOp(h.handleCreateEndpoint),
+		"DescribeEndpoints":                  service.WrapOp(h.handleDescribeEndpoints),
+		"DeleteEndpoint":                     service.WrapOp(h.handleDeleteEndpoint),
+		"CreateReplicationTask":              service.WrapOp(h.handleCreateReplicationTask),
+		"DescribeReplicationTasks":           service.WrapOp(h.handleDescribeReplicationTasks),
+		"StartReplicationTask":               service.WrapOp(h.handleStartReplicationTask),
+		"StopReplicationTask":                service.WrapOp(h.handleStopReplicationTask),
+		"DeleteReplicationTask":              service.WrapOp(h.handleDeleteReplicationTask),
+		"AddTagsToResource":                  service.WrapOp(h.handleAddTagsToResource),
+		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
+		"ApplyPendingMaintenanceAction":      service.WrapOp(h.handleApplyPendingMaintenanceAction),
+		"BatchStartRecommendations":          service.WrapOp(h.handleBatchStartRecommendations),
+		"CancelMetadataModelConversion":      service.WrapOp(h.handleCancelMetadataModelConversion),
+		"CancelMetadataModelCreation":        service.WrapOp(h.handleCancelMetadataModelCreation),
+		"CancelReplicationTaskAssessmentRun": service.WrapOp(h.handleCancelReplicationTaskAssessmentRun),
+		"CreateDataMigration":                service.WrapOp(h.handleCreateDataMigration),
+		"CreateDataProvider":                 service.WrapOp(h.handleCreateDataProvider),
+		"CreateEventSubscription":            service.WrapOp(h.handleCreateEventSubscription),
+		"CreateFleetAdvisorCollector":        service.WrapOp(h.handleCreateFleetAdvisorCollector),
+		"CreateInstanceProfile":              service.WrapOp(h.handleCreateInstanceProfile),
+	}
+}
+
+// Reset delegates to the backend Reset, clearing all in-memory state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -55,6 +92,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteReplicationTask",
 		"AddTagsToResource",
 		"ListTagsForResource",
+		"ApplyPendingMaintenanceAction",
+		"BatchStartRecommendations",
+		"CancelMetadataModelConversion",
+		"CancelMetadataModelCreation",
+		"CancelReplicationTaskAssessmentRun",
+		"CreateDataMigration",
+		"CreateDataProvider",
+		"CreateEventSubscription",
+		"CreateFleetAdvisorCollector",
+		"CreateInstanceProfile",
 	}
 }
 
@@ -103,6 +150,18 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return extractField(c, "ReplicationTaskIdentifier", "ReplicationTaskArn")
 	case "AddTagsToResource", "ListTagsForResource":
 		return extractField(c, "ResourceArn")
+	case "ApplyPendingMaintenanceAction":
+		return extractField(c, "ReplicationInstanceArn")
+	case "CreateDataMigration":
+		return extractField(c, "DataMigrationName")
+	case "CreateDataProvider":
+		return extractField(c, "DataProviderName")
+	case "CreateEventSubscription":
+		return extractField(c, "SubscriptionName")
+	case "CreateFleetAdvisorCollector":
+		return extractField(c, "CollectorName")
+	case "CreateInstanceProfile":
+		return extractField(c, "InstanceProfileName")
 	}
 
 	return ""
@@ -147,23 +206,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	table := map[string]service.JSONOpFunc{
-		"CreateReplicationInstance":    service.WrapOp(h.handleCreateReplicationInstance),
-		"DescribeReplicationInstances": service.WrapOp(h.handleDescribeReplicationInstances),
-		"DeleteReplicationInstance":    service.WrapOp(h.handleDeleteReplicationInstance),
-		"CreateEndpoint":               service.WrapOp(h.handleCreateEndpoint),
-		"DescribeEndpoints":            service.WrapOp(h.handleDescribeEndpoints),
-		"DeleteEndpoint":               service.WrapOp(h.handleDeleteEndpoint),
-		"CreateReplicationTask":        service.WrapOp(h.handleCreateReplicationTask),
-		"DescribeReplicationTasks":     service.WrapOp(h.handleDescribeReplicationTasks),
-		"StartReplicationTask":         service.WrapOp(h.handleStartReplicationTask),
-		"StopReplicationTask":          service.WrapOp(h.handleStopReplicationTask),
-		"DeleteReplicationTask":        service.WrapOp(h.handleDeleteReplicationTask),
-		"AddTagsToResource":            service.WrapOp(h.handleAddTagsToResource),
-		"ListTagsForResource":          service.WrapOp(h.handleListTagsForResource),
-	}
-
-	fn, ok := table[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -188,7 +231,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			Type:    "ResourceAlreadyExistsFault",
 			Message: err.Error(),
 		})
-	case errors.Is(err, ErrInvalidState):
+	case errors.Is(err, ErrInvalidState), errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "InvalidResourceStateFault",
 			Message: err.Error(),
@@ -231,11 +274,11 @@ func (h *Handler) handleCreateReplicationInstance(
 	class := ptrStr(in.ReplicationInstanceClass)
 
 	if identifier == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceIdentifier is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceIdentifier is required", ErrValidation)
 	}
 
 	if class == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceClass is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceClass is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -364,15 +407,15 @@ func (h *Handler) handleCreateEndpoint(
 	engineName := ptrStr(in.EngineName)
 
 	if identifier == "" {
-		return nil, fmt.Errorf("%w: EndpointIdentifier is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: EndpointIdentifier is required", ErrValidation)
 	}
 
 	if endpointType == "" {
-		return nil, fmt.Errorf("%w: EndpointType is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: EndpointType is required", ErrValidation)
 	}
 
 	if engineName == "" {
-		return nil, fmt.Errorf("%w: EngineName is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: EngineName is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -484,23 +527,23 @@ func (h *Handler) handleCreateReplicationTask(
 	migrationType := ptrStr(in.MigrationType)
 
 	if identifier == "" {
-		return nil, fmt.Errorf("%w: ReplicationTaskIdentifier is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationTaskIdentifier is required", ErrValidation)
 	}
 
 	if sourceEndpointArn == "" {
-		return nil, fmt.Errorf("%w: SourceEndpointArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: SourceEndpointArn is required", ErrValidation)
 	}
 
 	if targetEndpointArn == "" {
-		return nil, fmt.Errorf("%w: TargetEndpointArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: TargetEndpointArn is required", ErrValidation)
 	}
 
 	if replicationInstanceArn == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrValidation)
 	}
 
 	if migrationType == "" {
-		return nil, fmt.Errorf("%w: MigrationType is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: MigrationType is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -661,6 +704,7 @@ func (h *Handler) handleListTagsForResource(
 	for k, v := range kv {
 		list = append(list, tagEntry{Key: k, Value: v})
 	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
 
 	return &listTagsForResourceOutput{TagList: list}, nil
 }
@@ -837,4 +881,462 @@ func tagsToMap(entries []tagEntry) map[string]string {
 	}
 
 	return m
+}
+
+// --- ApplyPendingMaintenanceAction handler ---
+
+type applyPendingMaintenanceActionInput struct {
+	ReplicationInstanceArn *string `json:"ReplicationInstanceArn"`
+	ApplyAction            *string `json:"ApplyAction"`
+	OptInType              *string `json:"OptInType"`
+}
+
+type resourcePendingMaintenanceActionsJSON struct {
+	ResourceIdentifier              string `json:"ResourceIdentifier"`
+	PendingMaintenanceActionDetails []any  `json:"PendingMaintenanceActionDetails"`
+}
+
+type applyPendingMaintenanceActionOutput struct {
+	ResourcePendingMaintenanceActions resourcePendingMaintenanceActionsJSON `json:"ResourcePendingMaintenanceActions"`
+}
+
+func (h *Handler) handleApplyPendingMaintenanceAction(
+	_ context.Context, in *applyPendingMaintenanceActionInput,
+) (*applyPendingMaintenanceActionOutput, error) {
+	instanceArn := ptrStr(in.ReplicationInstanceArn)
+	if instanceArn == "" {
+		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrValidation)
+	}
+
+	ri, err := h.Backend.ApplyPendingMaintenanceAction(
+		instanceArn,
+		ptrStr(in.ApplyAction),
+		ptrStr(in.OptInType),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &applyPendingMaintenanceActionOutput{
+		ResourcePendingMaintenanceActions: resourcePendingMaintenanceActionsJSON{
+			ResourceIdentifier:              ri.ReplicationInstanceArn,
+			PendingMaintenanceActionDetails: []any{},
+		},
+	}, nil
+}
+
+// --- BatchStartRecommendations handler ---
+
+type batchStartRecommendationsInput struct {
+	Data []any `json:"Data"`
+}
+
+type batchStartRecommendationsErrorEntryJSON struct {
+	Code       string `json:"Code"`
+	Message    string `json:"Message"`
+	DatabaseID string `json:"DatabaseId"`
+}
+
+type batchStartRecommendationsOutput struct {
+	ErrorEntries []batchStartRecommendationsErrorEntryJSON `json:"ErrorEntries"`
+}
+
+func (h *Handler) handleBatchStartRecommendations(
+	_ context.Context, _ *batchStartRecommendationsInput,
+) (*batchStartRecommendationsOutput, error) {
+	if err := h.Backend.BatchStartRecommendations(); err != nil {
+		return nil, err
+	}
+
+	return &batchStartRecommendationsOutput{
+		ErrorEntries: []batchStartRecommendationsErrorEntryJSON{},
+	}, nil
+}
+
+// --- CancelMetadataModelConversion handler ---
+
+type cancelMetadataModelConversionInput struct {
+	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	RequestIdentifier          *string `json:"RequestIdentifier"`
+}
+
+type cancelMetadataModelConversionOutput struct {
+	RequestIdentifier string `json:"RequestIdentifier"`
+}
+
+func (h *Handler) handleCancelMetadataModelConversion(
+	_ context.Context, in *cancelMetadataModelConversionInput,
+) (*cancelMetadataModelConversionOutput, error) {
+	reqID, err := h.Backend.CancelMetadataModelConversion(
+		ptrStr(in.MigrationProjectIdentifier),
+		ptrStr(in.RequestIdentifier),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cancelMetadataModelConversionOutput{RequestIdentifier: reqID}, nil
+}
+
+// --- CancelMetadataModelCreation handler ---
+
+type cancelMetadataModelCreationInput struct {
+	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	RequestIdentifier          *string `json:"RequestIdentifier"`
+}
+
+type cancelMetadataModelCreationOutput struct {
+	RequestIdentifier string `json:"RequestIdentifier"`
+}
+
+func (h *Handler) handleCancelMetadataModelCreation(
+	_ context.Context, in *cancelMetadataModelCreationInput,
+) (*cancelMetadataModelCreationOutput, error) {
+	reqID, err := h.Backend.CancelMetadataModelCreation(
+		ptrStr(in.MigrationProjectIdentifier),
+		ptrStr(in.RequestIdentifier),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cancelMetadataModelCreationOutput{RequestIdentifier: reqID}, nil
+}
+
+// --- CancelReplicationTaskAssessmentRun handler ---
+
+type cancelReplicationTaskAssessmentRunInput struct {
+	ReplicationTaskAssessmentRunArn *string `json:"ReplicationTaskAssessmentRunArn"`
+}
+
+type cancelReplicationTaskAssessmentRunOutput struct {
+	ReplicationTaskAssessmentRun map[string]any `json:"ReplicationTaskAssessmentRun"`
+}
+
+func (h *Handler) handleCancelReplicationTaskAssessmentRun(
+	_ context.Context, in *cancelReplicationTaskAssessmentRunInput,
+) (*cancelReplicationTaskAssessmentRunOutput, error) {
+	if err := h.Backend.CancelReplicationTaskAssessmentRun(
+		ptrStr(in.ReplicationTaskAssessmentRunArn),
+	); err != nil {
+		return nil, err
+	}
+
+	return &cancelReplicationTaskAssessmentRunOutput{
+		ReplicationTaskAssessmentRun: map[string]any{
+			"ReplicationTaskAssessmentRunArn": ptrStr(in.ReplicationTaskAssessmentRunArn),
+			"Status":                          "cancelling",
+		},
+	}, nil
+}
+
+// --- CreateDataMigration handler ---
+
+type createDataMigrationInput struct {
+	DataMigrationName          *string    `json:"DataMigrationName"`
+	MigrationProjectIdentifier *string    `json:"MigrationProjectIdentifier"`
+	DataMigrationType          *string    `json:"DataMigrationType"`
+	ServiceAccessRoleArn       *string    `json:"ServiceAccessRoleArn"`
+	SelectionRules             *string    `json:"SelectionRules"`
+	NumberOfJobs               *int32     `json:"NumberOfJobs"`
+	EnableCloudwatchLogs       *bool      `json:"EnableCloudwatchLogs"`
+	Tags                       []tagEntry `json:"Tags"`
+}
+
+type dataMigrationJSON struct {
+	DataMigrationName    string `json:"DataMigrationName"`
+	DataMigrationArn     string `json:"DataMigrationArn"`
+	MigrationProjectArn  string `json:"MigrationProjectArn"`
+	DataMigrationType    string `json:"DataMigrationType"`
+	ServiceAccessRoleArn string `json:"ServiceAccessRoleArn"`
+	DataMigrationStatus  string `json:"DataMigrationStatus"`
+	NumberOfJobs         int32  `json:"NumberOfJobs"`
+	EnableCloudwatchLogs bool   `json:"EnableCloudwatchLogs"`
+}
+
+type createDataMigrationOutput struct {
+	DataMigration dataMigrationJSON `json:"DataMigration"`
+}
+
+func (h *Handler) handleCreateDataMigration(
+	_ context.Context, in *createDataMigrationInput,
+) (*createDataMigrationOutput, error) {
+	name := ptrStr(in.DataMigrationName)
+	if name == "" {
+		return nil, fmt.Errorf("%w: DataMigrationName is required", ErrValidation)
+	}
+
+	migrationType := ptrStr(in.DataMigrationType)
+	if migrationType == "" {
+		return nil, fmt.Errorf("%w: DataMigrationType is required", ErrValidation)
+	}
+
+	kv := tagsToMap(in.Tags)
+	dm, err := h.Backend.CreateDataMigration(
+		name,
+		ptrStr(in.MigrationProjectIdentifier),
+		migrationType,
+		ptrStr(in.ServiceAccessRoleArn),
+		ptrStr(in.SelectionRules),
+		ptrInt32(in.NumberOfJobs),
+		ptrBool(in.EnableCloudwatchLogs),
+		kv,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDataMigrationOutput{DataMigration: dmToJSON(dm)}, nil
+}
+
+func dmToJSON(dm *DataMigration) dataMigrationJSON {
+	return dataMigrationJSON{
+		DataMigrationName:    dm.DataMigrationName,
+		DataMigrationArn:     dm.DataMigrationArn,
+		MigrationProjectArn:  dm.MigrationProjectArn,
+		DataMigrationType:    dm.DataMigrationType,
+		ServiceAccessRoleArn: dm.ServiceAccessRoleArn,
+		DataMigrationStatus:  dm.DataMigrationStatus,
+		NumberOfJobs:         dm.NumberOfJobs,
+		EnableCloudwatchLogs: dm.EnableCloudwatchLogs,
+	}
+}
+
+// --- CreateDataProvider handler ---
+
+type createDataProviderInput struct {
+	DataProviderName *string    `json:"DataProviderName"`
+	Engine           *string    `json:"Engine"`
+	Description      *string    `json:"Description"`
+	Tags             []tagEntry `json:"Tags"`
+}
+
+type dataProviderJSON struct {
+	DataProviderName string `json:"DataProviderName"`
+	DataProviderArn  string `json:"DataProviderArn"`
+	Engine           string `json:"Engine"`
+	Description      string `json:"Description,omitempty"`
+}
+
+type createDataProviderOutput struct {
+	DataProvider dataProviderJSON `json:"DataProvider"`
+}
+
+func (h *Handler) handleCreateDataProvider(
+	_ context.Context, in *createDataProviderInput,
+) (*createDataProviderOutput, error) {
+	name := ptrStr(in.DataProviderName)
+	if name == "" {
+		return nil, fmt.Errorf("%w: DataProviderName is required", ErrValidation)
+	}
+
+	engine := ptrStr(in.Engine)
+	if engine == "" {
+		return nil, fmt.Errorf("%w: Engine is required", ErrValidation)
+	}
+
+	kv := tagsToMap(in.Tags)
+	dp, err := h.Backend.CreateDataProvider(name, engine, ptrStr(in.Description), kv)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDataProviderOutput{DataProvider: dpToJSON(dp)}, nil
+}
+
+func dpToJSON(dp *DataProvider) dataProviderJSON {
+	return dataProviderJSON{
+		DataProviderName: dp.DataProviderName,
+		DataProviderArn:  dp.DataProviderArn,
+		Engine:           dp.Engine,
+		Description:      dp.Description,
+	}
+}
+
+// --- CreateEventSubscription handler ---
+
+type createEventSubscriptionInput struct {
+	SubscriptionName *string    `json:"SubscriptionName"`
+	SnsTopicArn      *string    `json:"SnsTopicArn"`
+	SourceType       *string    `json:"SourceType"`
+	SourceIDs        []string   `json:"SourceIds"`
+	EventCategories  []string   `json:"EventCategories"`
+	Enabled          *bool      `json:"Enabled"`
+	Tags             []tagEntry `json:"Tags"`
+}
+
+type eventSubscriptionJSON struct {
+	SubscriptionName string   `json:"SubscriptionName"`
+	SnsTopicArn      string   `json:"SnsTopicArn"`
+	SourceType       string   `json:"SourceType,omitempty"`
+	Status           string   `json:"Status"`
+	SourceIDsList    []string `json:"SourceIdsList"`
+	EventCategories  []string `json:"EventCategories"`
+	Enabled          bool     `json:"Enabled"`
+}
+
+type createEventSubscriptionOutput struct {
+	EventSubscription eventSubscriptionJSON `json:"EventSubscription"`
+}
+
+func (h *Handler) handleCreateEventSubscription(
+	_ context.Context, in *createEventSubscriptionInput,
+) (*createEventSubscriptionOutput, error) {
+	name := ptrStr(in.SubscriptionName)
+	if name == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrValidation)
+	}
+
+	snsTopicArn := ptrStr(in.SnsTopicArn)
+	if snsTopicArn == "" {
+		return nil, fmt.Errorf("%w: SnsTopicArn is required", ErrValidation)
+	}
+
+	enabled := true
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
+
+	kv := tagsToMap(in.Tags)
+	es, err := h.Backend.CreateEventSubscription(
+		name,
+		snsTopicArn,
+		ptrStr(in.SourceType),
+		in.SourceIDs,
+		in.EventCategories,
+		enabled,
+		kv,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createEventSubscriptionOutput{EventSubscription: esToJSON(es)}, nil
+}
+
+func esToJSON(es *EventSubscription) eventSubscriptionJSON {
+	return eventSubscriptionJSON{
+		SubscriptionName: es.SubscriptionName,
+		SnsTopicArn:      es.SnsTopicArn,
+		SourceType:       es.SourceType,
+		SourceIDsList:    ensureNonNil(es.SourceIDsList),
+		EventCategories:  ensureNonNil(es.EventCategories),
+		Status:           es.Status,
+		Enabled:          es.Enabled,
+	}
+}
+
+// ensureNonNil returns the slice if non-nil, otherwise an empty slice.
+func ensureNonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+
+	return s
+}
+
+// --- CreateFleetAdvisorCollector handler ---
+
+type createFleetAdvisorCollectorInput struct {
+	CollectorName        *string `json:"CollectorName"`
+	Description          *string `json:"Description"`
+	ServiceAccessRoleArn *string `json:"ServiceAccessRoleArn"`
+	S3BucketName         *string `json:"S3BucketName"`
+}
+
+type createFleetAdvisorCollectorOutput struct {
+	CollectorName         string `json:"CollectorName"`
+	CollectorReferencedID string `json:"CollectorReferencedId"`
+	Description           string `json:"Description,omitempty"`
+	ServiceAccessRoleArn  string `json:"ServiceAccessRoleArn"`
+	S3BucketName          string `json:"S3BucketName"`
+}
+
+func (h *Handler) handleCreateFleetAdvisorCollector(
+	_ context.Context, in *createFleetAdvisorCollectorInput,
+) (*createFleetAdvisorCollectorOutput, error) {
+	name := ptrStr(in.CollectorName)
+	if name == "" {
+		return nil, fmt.Errorf("%w: CollectorName is required", ErrValidation)
+	}
+
+	col, err := h.Backend.CreateFleetAdvisorCollector(
+		name,
+		ptrStr(in.Description),
+		ptrStr(in.ServiceAccessRoleArn),
+		ptrStr(in.S3BucketName),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createFleetAdvisorCollectorOutput{
+		CollectorName:         col.CollectorName,
+		CollectorReferencedID: col.CollectorReferencedID,
+		Description:           col.Description,
+		ServiceAccessRoleArn:  col.ServiceAccessRoleArn,
+		S3BucketName:          col.S3BucketName,
+	}, nil
+}
+
+// --- CreateInstanceProfile handler ---
+
+type createInstanceProfileInput struct {
+	InstanceProfileName   *string    `json:"InstanceProfileName"`
+	AvailabilityZone      *string    `json:"AvailabilityZone"`
+	KmsKeyArn             *string    `json:"KmsKeyArn"`
+	NetworkType           *string    `json:"NetworkType"`
+	Description           *string    `json:"Description"`
+	SubnetGroupIdentifier *string    `json:"SubnetGroupIdentifier"`
+	PubliclyAccessible    *bool      `json:"PubliclyAccessible"`
+	Tags                  []tagEntry `json:"Tags"`
+}
+
+type instanceProfileJSON struct {
+	InstanceProfileName   string `json:"InstanceProfileName"`
+	InstanceProfileArn    string `json:"InstanceProfileArn"`
+	AvailabilityZone      string `json:"AvailabilityZone,omitempty"`
+	KmsKeyArn             string `json:"KmsKeyArn,omitempty"`
+	NetworkType           string `json:"NetworkType,omitempty"`
+	Description           string `json:"Description,omitempty"`
+	SubnetGroupIdentifier string `json:"SubnetGroupIdentifier,omitempty"`
+	PubliclyAccessible    bool   `json:"PubliclyAccessible"`
+}
+
+type createInstanceProfileOutput struct {
+	InstanceProfile instanceProfileJSON `json:"InstanceProfile"`
+}
+
+func (h *Handler) handleCreateInstanceProfile(
+	_ context.Context, in *createInstanceProfileInput,
+) (*createInstanceProfileOutput, error) {
+	kv := tagsToMap(in.Tags)
+	ip, err := h.Backend.CreateInstanceProfile(
+		ptrStr(in.InstanceProfileName),
+		ptrStr(in.AvailabilityZone),
+		ptrStr(in.KmsKeyArn),
+		ptrStr(in.NetworkType),
+		ptrStr(in.Description),
+		ptrStr(in.SubnetGroupIdentifier),
+		ptrBool(in.PubliclyAccessible),
+		kv,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createInstanceProfileOutput{InstanceProfile: ipToJSON(ip)}, nil
+}
+
+func ipToJSON(ip *InstanceProfile) instanceProfileJSON {
+	return instanceProfileJSON{
+		InstanceProfileName:   ip.InstanceProfileName,
+		InstanceProfileArn:    ip.InstanceProfileArn,
+		AvailabilityZone:      ip.AvailabilityZone,
+		KmsKeyArn:             ip.KmsKeyArn,
+		NetworkType:           ip.NetworkType,
+		Description:           ip.Description,
+		SubnetGroupIdentifier: ip.SubnetGroupIdentifier,
+		PubliclyAccessible:    ip.PubliclyAccessible,
+	}
 }

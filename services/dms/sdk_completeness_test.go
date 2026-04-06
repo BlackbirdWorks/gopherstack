@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := dms.NewInMemoryBackend("000000000000", "us-east-1")
 	h := dms.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &dmssdk.Client{}, h.GetSupportedOperations(), []string{
-		"ApplyPendingMaintenanceAction",
-		"BatchStartRecommendations",
-		"CancelMetadataModelConversion",
-		"CancelMetadataModelCreation",
-		"CancelReplicationTaskAssessmentRun",
-		"CreateDataMigration",
-		"CreateDataProvider",
-		"CreateEventSubscription",
-		"CreateFleetAdvisorCollector",
-		"CreateInstanceProfile",
 		"CreateMigrationProject",
 		"CreateReplicationConfig",
 		"CreateReplicationSubnetGroup",
