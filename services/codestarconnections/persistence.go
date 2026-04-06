@@ -1,6 +1,9 @@
 package codestarconnections
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	Connections        map[string]*Connection        `json:"connections"`
@@ -32,6 +35,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("codestarconnections: Snapshot marshal failure", "error", err)
+
 		return nil
 	}
 

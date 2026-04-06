@@ -201,7 +201,12 @@ type tagEntry struct {
 }
 
 // tagsToSortedArray converts a tag map to a sorted array for deterministic output.
+// Returns an empty (non-nil) slice when tags is empty or nil.
 func tagsToSortedArray(tags map[string]string) []tagEntry {
+	if len(tags) == 0 {
+		return []tagEntry{}
+	}
+
 	keys := sortedTagKeys(tags)
 	result := make([]tagEntry, len(keys))
 

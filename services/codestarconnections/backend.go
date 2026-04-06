@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ var (
 )
 
 // validProviderTypes returns the set of valid provider types for connections and hosts.
+// Using a plain function (rather than a global) avoids gochecknoglobals lint violations.
 func validProviderTypes() map[string]bool {
 	return map[string]bool{
 		"Bitbucket":              true,
@@ -48,6 +50,7 @@ func validProviderTypes() map[string]bool {
 }
 
 // validSyncTypes returns the set of sync configuration types accepted by AWS CodeStar Connections.
+// Using a plain function (rather than a global) avoids gochecknoglobals lint violations.
 func validSyncTypes() map[string]bool {
 	return map[string]bool{
 		"CFN_STACK_SYNC": true,
@@ -573,6 +576,10 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 ) (*SyncConfiguration, error) {
 	if !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	if strings.Contains(resourceName, "/") {
+		return nil, fmt.Errorf("%w: ResourceName must not contain \"/\"", ErrValidation)
 	}
 
 	b.mu.Lock("CreateSyncConfiguration")
