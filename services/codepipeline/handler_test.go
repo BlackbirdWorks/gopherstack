@@ -775,3 +775,642 @@ func TestInMemoryBackend_DeepCopy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "original", stored.Declaration.Stages[0].Actions[0].Configuration["key"])
 }
+
+func TestHandler_AcknowledgeJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		wantStatus string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success_inprogress",
+			setup: func(h *codepipeline.Handler) {
+				h.Backend.AddJobInternal(&codepipeline.Job{ID: "job-1", Nonce: "nonce-abc", Status: "Created"})
+			},
+			input:      map[string]any{"jobId": "job-1", "nonce": "nonce-abc"},
+			httpStatus: http.StatusOK,
+			wantStatus: "InProgress",
+		},
+		{
+			name: "nonce_mismatch_status_unchanged",
+			setup: func(h *codepipeline.Handler) {
+				h.Backend.AddJobInternal(&codepipeline.Job{ID: "job-2", Nonce: "nonce-right", Status: "Created"})
+			},
+			input:      map[string]any{"jobId": "job-2", "nonce": "nonce-wrong"},
+			httpStatus: http.StatusOK,
+			wantStatus: "Created",
+		},
+		{
+			name:       "not_found",
+			setup:      nil,
+			input:      map[string]any{"jobId": "no-such-job", "nonce": "nonce-1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_jobId",
+			setup:      nil,
+			input:      map[string]any{"nonce": "nonce-1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_nonce",
+			setup:      nil,
+			input:      map[string]any{"jobId": "job-x"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "AcknowledgeJob", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if !tt.wantErr {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.wantStatus, out["status"])
+			}
+		})
+	}
+}
+
+func TestHandler_AcknowledgeThirdPartyJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		wantStatus string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(h *codepipeline.Handler) {
+				h.Backend.AddJobInternal(&codepipeline.Job{ID: "tp-job-1", Nonce: "tp-nonce", Status: "Created"})
+			},
+			input: map[string]any{
+				"jobId":       "tp-job-1",
+				"nonce":       "tp-nonce",
+				"clientToken": "token-abc",
+			},
+			httpStatus: http.StatusOK,
+			wantStatus: "InProgress",
+		},
+		{
+			name:       "missing_clientToken",
+			setup:      nil,
+			input:      map[string]any{"jobId": "x", "nonce": "y"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "not_found",
+			setup:      nil,
+			input:      map[string]any{"jobId": "no-such", "nonce": "n", "clientToken": "t"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "AcknowledgeThirdPartyJob", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if !tt.wantErr {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.wantStatus, out["status"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateCustomActionType(t *testing.T) {
+	t.Parallel()
+
+	validInput := map[string]any{
+		"category":              "Build",
+		"provider":              "MyBuilder",
+		"version":               "1",
+		"inputArtifactDetails":  map[string]any{"minimumCount": 1, "maximumCount": 5},
+		"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+	}
+
+	tests := []struct {
+		input      any
+		setup      func(h *codepipeline.Handler)
+		name       string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			input:      validInput,
+			httpStatus: http.StatusOK,
+		},
+		{
+			name: "duplicate",
+			setup: func(h *codepipeline.Handler) {
+				rec := doRequest(t, h, "CreateCustomActionType", validInput)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			input:      validInput,
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_category",
+			input:      map[string]any{"provider": "P", "version": "1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_provider",
+			input:      map[string]any{"category": "Build", "version": "1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_version",
+			input:      map[string]any{"category": "Build", "provider": "P"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "CreateCustomActionType", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if !tt.wantErr {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				at, ok := out["actionType"].(map[string]any)
+				require.True(t, ok)
+				id, ok := at["id"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "Build", id["category"])
+				assert.Equal(t, "MyBuilder", id["provider"])
+				assert.Equal(t, "1", id["version"])
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteCustomActionType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(h *codepipeline.Handler) {
+				rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
+					"category": "Deploy", "provider": "MyDeploy", "version": "2",
+					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			input:      map[string]any{"category": "Deploy", "provider": "MyDeploy", "version": "2"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			setup:      nil,
+			input:      map[string]any{"category": "Build", "provider": "Ghost", "version": "1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_category",
+			setup:      nil,
+			input:      map[string]any{"provider": "P", "version": "1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "DeleteCustomActionType", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetActionType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(h *codepipeline.Handler) {
+				rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
+					"category": "Test", "provider": "MyTest", "version": "3",
+					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			input:      map[string]any{"category": "Test", "owner": "Custom", "provider": "MyTest", "version": "3"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			setup:      nil,
+			input:      map[string]any{"category": "Build", "owner": "Custom", "provider": "Ghost", "version": "1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_category",
+			setup:      nil,
+			input:      map[string]any{"owner": "Custom", "provider": "P", "version": "1"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "GetActionType", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if !tt.wantErr {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				at, ok := out["actionType"].(map[string]any)
+				require.True(t, ok)
+				id, ok := at["id"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "Test", id["category"])
+				assert.Equal(t, "MyTest", id["provider"])
+			}
+		})
+	}
+}
+
+func TestHandler_GetJobDetails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(h *codepipeline.Handler) {
+				h.Backend.AddJobInternal(&codepipeline.Job{ID: "jd-1", Nonce: "n", Status: "Created"})
+			},
+			input:      map[string]any{"jobId": "jd-1"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			setup:      nil,
+			input:      map[string]any{"jobId": "missing"},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_jobId",
+			setup:      nil,
+			input:      map[string]any{},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "GetJobDetails", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if !tt.wantErr {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				details, ok := out["jobDetails"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "jd-1", details["id"])
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteWebhook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		httpStatus int
+	}{
+		{
+			name: "success_existing",
+			setup: func(h *codepipeline.Handler) {
+				h.Backend.AddWebhookInternal(&codepipeline.Webhook{Name: "wh-1", TargetPipeline: "pl-1"})
+			},
+			input:      map[string]any{"name": "wh-1"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "idempotent_nonexistent",
+			setup:      nil,
+			input:      map[string]any{"name": "no-such-webhook"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_name",
+			setup:      nil,
+			input:      map[string]any{},
+			httpStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "DeleteWebhook", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeregisterWebhookWithThirdParty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		httpStatus int
+	}{
+		{
+			name: "success_existing",
+			setup: func(h *codepipeline.Handler) {
+				h.Backend.AddWebhookInternal(&codepipeline.Webhook{
+					Name:                     "wh-2",
+					TargetPipeline:           "pl-2",
+					RegisteredWithThirdParty: true,
+				})
+			},
+			input:      map[string]any{"webhookName": "wh-2"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "idempotent_nonexistent",
+			setup:      nil,
+			input:      map[string]any{"webhookName": "no-such"},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:       "empty_name_is_ok",
+			setup:      nil,
+			input:      map[string]any{},
+			httpStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "DeregisterWebhookWithThirdParty", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DisableEnableStageTransition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		action     string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name:   "disable_success",
+			action: "DisableStageTransition",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(samplePipeline("trans-pipeline"), nil)
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"pipelineName":   "trans-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+				"reason":         "waiting for approval",
+			},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:   "disable_pipeline_not_found",
+			action: "DisableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName":   "ghost-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+				"reason":         "test",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:   "disable_missing_reason",
+			action: "DisableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName":   "any",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:   "enable_success",
+			action: "EnableStageTransition",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(samplePipeline("enable-pipeline"), nil)
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"pipelineName":   "enable-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Outbound",
+			},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:   "enable_pipeline_not_found",
+			action: "EnableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName":   "ghost",
+				"stageName":      "Source",
+				"transitionType": "Outbound",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:   "enable_missing_transitionType",
+			action: "EnableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName": "any",
+				"stageName":    "Source",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, tt.action, tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DisableEnableStageTransition_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(samplePipeline("rt-pipeline"), nil)
+	require.NoError(t, err)
+
+	// Disable the transition.
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"pipelineName":   "rt-pipeline",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "blocked",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Re-enable the transition.
+	rec = doRequest(t, h, "EnableStageTransition", map[string]any{
+		"pipelineName":   "rt-pipeline",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_NewOps_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, want := range []string{
+		"AcknowledgeJob",
+		"AcknowledgeThirdPartyJob",
+		"CreateCustomActionType",
+		"DeleteCustomActionType",
+		"DeleteWebhook",
+		"DeregisterWebhookWithThirdParty",
+		"DisableStageTransition",
+		"EnableStageTransition",
+		"GetActionType",
+		"GetJobDetails",
+	} {
+		assert.Contains(t, ops, want)
+	}
+}
