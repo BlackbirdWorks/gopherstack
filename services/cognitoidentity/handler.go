@@ -29,12 +29,21 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for Cognito Identity Pool operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 	region  string
 }
 
 // NewHandler creates a new Cognito Identity handler.
 func NewHandler(backend *InMemoryBackend, region string) *Handler {
-	return &Handler{Backend: backend, region: region}
+	h := &Handler{Backend: backend, region: region}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all backend state and rebuilds the dispatch table.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -132,7 +141,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateIdentityPool":                 service.WrapOp(h.handleCreateIdentityPool),
 		"DeleteIdentityPool":                 service.WrapOp(h.handleDeleteIdentityPool),
@@ -159,7 +168,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -223,6 +232,7 @@ type cognitoIdentityProviderInput struct {
 
 type identityPoolOutput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders,omitempty"`
+	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags,omitempty"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders,omitempty"`
@@ -525,6 +535,7 @@ func toIdentityPoolOutput(pool *IdentityPool) *identityPoolOutput {
 		AllowClassicFlow:               pool.AllowClassicFlow,
 		IdentityProviders:              providers,
 		SupportedLoginProviders:        pool.SupportedLoginProviders,
+		IdentityPoolTags:               pool.Tags,
 	}
 }
 
@@ -551,7 +562,10 @@ func (h *Handler) handleDeleteIdentities(
 		return nil, fmt.Errorf("%w: IdentityIdsToDelete must not be empty", ErrInvalidParameter)
 	}
 
-	unprocessed := h.Backend.DeleteIdentities(in.IdentityIDsToDelete)
+	unprocessed, err := h.Backend.DeleteIdentities(in.IdentityIDsToDelete)
+	if err != nil {
+		return nil, err
+	}
 
 	out := make([]unprocessedIdentityIDOutput, 0, len(unprocessed))
 	for _, u := range unprocessed {
@@ -576,6 +590,10 @@ func (h *Handler) handleDescribeIdentity(
 	_ context.Context,
 	in *describeIdentityInput,
 ) (*describeIdentityOutput, error) {
+	if in.IdentityID == "" {
+		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
 	desc, err := h.Backend.DescribeIdentity(in.IdentityID)
 	if err != nil {
 		return nil, err
@@ -710,7 +728,7 @@ type listTagsForResourceInput struct {
 }
 
 type listTagsForResourceOutput struct {
-	Tags map[string]string `json:"Tags,omitempty"`
+	Tags map[string]string `json:"Tags"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -720,6 +738,10 @@ func (h *Handler) handleListTagsForResource(
 	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
 		return nil, err
+	}
+
+	if tags == nil {
+		tags = make(map[string]string)
 	}
 
 	return &listTagsForResourceOutput{Tags: tags}, nil

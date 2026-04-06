@@ -642,7 +642,8 @@ func TestInMemoryBackend_DeleteIdentities_UnprocessedNil(t *testing.T) {
 	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
 
-	unprocessed := b.DeleteIdentities([]string{identity.IdentityID})
+	unprocessed, err := b.DeleteIdentities([]string{identity.IdentityID})
+	require.NoError(t, err)
 	assert.Empty(t, unprocessed)
 
 	_, descErr := b.GetCredentialsForIdentity(identity.IdentityID, nil)

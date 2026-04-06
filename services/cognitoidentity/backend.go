@@ -5,11 +5,21 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+)
+
+const (
+	// deleteIdentitiesMaxBatch is the AWS-imposed limit on identities per DeleteIdentities call.
+	deleteIdentitiesMaxBatch = 60
+
+	// listIdentitiesMaxResults is the AWS-imposed upper limit on MaxResults for ListIdentities.
+	listIdentitiesMaxResults = 60
 )
 
 const (
@@ -150,7 +160,8 @@ func (b *InMemoryBackend) CreateIdentityPool(
 	return clonePool(pool), nil
 }
 
-// DeleteIdentityPool removes an identity pool and all associated identities and roles.
+// DeleteIdentityPool removes an identity pool and all associated identities, roles,
+// and principal-tag configurations.
 func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 	b.mu.Lock("DeleteIdentityPool")
 	defer b.mu.Unlock()
@@ -173,6 +184,14 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 
 	delete(b.identitiesByPool, poolID)
 
+	// Purge all principal-tag mappings that belong to this pool.
+	prefix := poolID + ":"
+	for key := range b.principalTags {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(b.principalTags, key)
+		}
+	}
+
 	return nil
 }
 
@@ -189,14 +208,24 @@ func (b *InMemoryBackend) DescribeIdentityPool(poolID string) (*IdentityPool, er
 	return clonePool(pool), nil
 }
 
-// ListIdentityPools returns all identity pools, up to maxResults (0 = all).
+// ListIdentityPools returns all identity pools sorted by name, up to maxResults (0 = all).
 func (b *InMemoryBackend) ListIdentityPools(maxResults int) []*IdentityPool {
 	b.mu.RLock("ListIdentityPools")
 	defer b.mu.RUnlock()
 
+	keys := make([]string, 0, len(b.pools))
+	for id := range b.pools {
+		keys = append(keys, id)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return b.pools[keys[i]].IdentityPoolName < b.pools[keys[j]].IdentityPoolName
+	})
+
 	out := make([]*IdentityPool, 0, len(b.pools))
-	for _, p := range b.pools {
-		out = append(out, clonePool(p))
+
+	for _, id := range keys {
+		out = append(out, clonePool(b.pools[id]))
 
 		if maxResults > 0 && len(out) >= maxResults {
 			break
@@ -383,7 +412,15 @@ type ListIdentitiesResult struct {
 
 // DeleteIdentities deletes the given identity IDs from the backend.
 // Identities that do not exist are silently skipped.
-func (b *InMemoryBackend) DeleteIdentities(identityIDs []string) []UnprocessedIdentityID {
+// Returns a (possibly empty) list of IDs that could not be processed.
+func (b *InMemoryBackend) DeleteIdentities(identityIDs []string) ([]UnprocessedIdentityID, error) {
+	if len(identityIDs) > deleteIdentitiesMaxBatch {
+		return nil, fmt.Errorf(
+			"%w: DeleteIdentities accepts at most %d identities per call, got %d",
+			ErrInvalidParameter, deleteIdentitiesMaxBatch, len(identityIDs),
+		)
+	}
+
 	b.mu.Lock("DeleteIdentities")
 	defer b.mu.Unlock()
 
@@ -412,11 +449,15 @@ func (b *InMemoryBackend) DeleteIdentities(identityIDs []string) []UnprocessedId
 		b.identitiesByPool[poolID] = updated
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // DescribeIdentity returns metadata about a specific federated identity.
 func (b *InMemoryBackend) DescribeIdentity(identityID string) (*IdentityDescription, error) {
+	if identityID == "" {
+		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("DescribeIdentity")
 	defer b.mu.RUnlock()
 
@@ -429,6 +470,8 @@ func (b *InMemoryBackend) DescribeIdentity(identityID string) (*IdentityDescript
 	for provider := range identity.Logins {
 		logins = append(logins, provider)
 	}
+
+	slices.Sort(logins)
 
 	return &IdentityDescription{
 		IdentityID:       identity.IdentityID,
@@ -468,6 +511,8 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		for _, identity := range b.identitiesByPool[poolID] {
 			if mapsEqual(identity.Logins, logins) {
 				identityID = identity.IdentityID
+
+				break // stop at first match
 			}
 		}
 
@@ -523,8 +568,15 @@ func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName strin
 	return &PrincipalTagMapping{UseDefaults: true}, nil
 }
 
-// ListIdentities returns identities associated with an identity pool.
+// ListIdentities returns identities associated with an identity pool, sorted by IdentityId.
 func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) (*ListIdentitiesResult, error) {
+	if maxResults < 0 || maxResults > listIdentitiesMaxResults {
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrInvalidParameter, listIdentitiesMaxResults,
+		)
+	}
+
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
@@ -534,7 +586,15 @@ func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) 
 
 	poolIdentities := b.identitiesByPool[poolID]
 
-	limit := len(poolIdentities)
+	// Sort by IdentityId for deterministic output.
+	sorted := make([]*Identity, len(poolIdentities))
+	copy(sorted, poolIdentities)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].IdentityID < sorted[j].IdentityID
+	})
+
+	limit := len(sorted)
 	if maxResults > 0 && maxResults < limit {
 		limit = maxResults
 	}
@@ -542,12 +602,14 @@ func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) 
 	descriptions := make([]IdentityDescription, 0, limit)
 
 	for i := range limit {
-		identity := poolIdentities[i]
+		identity := sorted[i]
 		logins := make([]string, 0, len(identity.Logins))
 
 		for provider := range identity.Logins {
 			logins = append(logins, provider)
 		}
+
+		slices.Sort(logins)
 
 		descriptions = append(descriptions, IdentityDescription{
 			IdentityID:       identity.IdentityID,
@@ -635,6 +697,7 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 
 // developerLoginsFrom extracts developer user identifiers from a logins map.
 // A developer login key is non-standard (not a well-known provider prefix).
+// The result is always sorted for deterministic output.
 func developerLoginsFrom(logins map[string]string, developerProviderName string) []string {
 	ids := make([]string, 0)
 
@@ -649,6 +712,8 @@ func developerLoginsFrom(logins map[string]string, developerProviderName string)
 	for _, v := range logins {
 		ids = append(ids, v)
 	}
+
+	slices.Sort(ids)
 
 	return ids
 }
@@ -876,4 +941,26 @@ func (b *InMemoryBackend) Reset() {
 	b.identitiesByPool = make(map[string][]*Identity)
 	b.roles = make(map[string]*IdentityRoles)
 	b.principalTags = make(map[string]*PrincipalTagMapping)
+}
+
+// AddPoolInternal seeds an identity pool directly into the backend for testing purposes.
+// It bypasses the normal CreateIdentityPool validation.
+func (b *InMemoryBackend) AddPoolInternal(pool *IdentityPool) {
+	b.mu.Lock("AddPoolInternal")
+	defer b.mu.Unlock()
+
+	cp := clonePool(pool)
+	b.pools[cp.IdentityPoolID] = cp
+	b.poolsByName[cp.IdentityPoolName] = cp
+	b.poolsByARN[cp.ARN] = cp
+}
+
+// AddIdentityInternal seeds an identity directly into the backend for testing purposes.
+func (b *InMemoryBackend) AddIdentityInternal(identity *Identity) {
+	b.mu.Lock("AddIdentityInternal")
+	defer b.mu.Unlock()
+
+	cp := cloneIdentity(identity)
+	b.identities[cp.IdentityID] = cp
+	b.identitiesByPool[cp.IdentityPoolID] = append(b.identitiesByPool[cp.IdentityPoolID], cp)
 }

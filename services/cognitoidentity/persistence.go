@@ -1,6 +1,9 @@
 package cognitoidentity
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	Pools         map[string]*IdentityPool        `json:"pools"`
@@ -25,7 +28,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:        b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("cognitoidentity: Snapshot marshal failure", "error", err)
+
+		return nil
+	}
 
 	return data
 }
