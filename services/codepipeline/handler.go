@@ -26,11 +26,20 @@ var (
 // Handler is the Echo HTTP handler for CodePipeline operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new CodePipeline handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.dispatchTable()
+
+	return h
+}
+
+// Reset clears all handler and backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -128,7 +137,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -177,6 +186,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidStructureException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
 			Message: err.Error(),
 		})
 
@@ -340,6 +356,9 @@ func (h *Handler) handleListPipelines(
 	_ *listPipelinesInput,
 ) (*listPipelinesOutput, error) {
 	summaries := h.Backend.ListPipelines()
+	if summaries == nil {
+		summaries = []PipelineSummary{}
+	}
 
 	return &listPipelinesOutput{Pipelines: summaries}, nil
 }
@@ -365,6 +384,10 @@ func (h *Handler) handleListTagsForResource(
 	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
 		return nil, err
+	}
+
+	if tags == nil {
+		tags = []Tag{}
 	}
 
 	return &listTagsForResourceOutput{Tags: tags}, nil
@@ -421,6 +444,21 @@ func tagsToMap(tags []Tag) map[string]string {
 	}
 
 	return m
+}
+
+// validActionCategory returns true if cat is a valid AWS ActionCategory value.
+func validActionCategory(cat string) bool {
+	switch cat {
+	case "Source", "Build", "Deploy", "Test", "Invoke", "Approval", "Compute":
+		return true
+	default:
+		return false
+	}
+}
+
+// validTransitionType returns true if t is a valid AWS StageTransitionType value.
+func validTransitionType(t string) bool {
+	return t == "Inbound" || t == "Outbound"
 }
 
 // --- AcknowledgeJob ---
@@ -524,6 +562,10 @@ func (h *Handler) handleCreateCustomActionType(
 		return nil, fmt.Errorf("%w: category is required", errInvalidRequest)
 	}
 
+	if !validActionCategory(in.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
+	}
+
 	if in.Provider == "" {
 		return nil, fmt.Errorf("%w: provider is required", errInvalidRequest)
 	}
@@ -583,6 +625,10 @@ func (h *Handler) handleDeleteCustomActionType(
 		return nil, fmt.Errorf("%w: category is required", errInvalidRequest)
 	}
 
+	if !validActionCategory(in.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
+	}
+
 	if in.Provider == "" {
 		return nil, fmt.Errorf("%w: provider is required", errInvalidRequest)
 	}
@@ -617,6 +663,10 @@ func (h *Handler) handleGetActionType(
 ) (*getActionTypeOutput, error) {
 	if in.Category == "" {
 		return nil, fmt.Errorf("%w: category is required", errInvalidRequest)
+	}
+
+	if !validActionCategory(in.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
 	}
 
 	if in.Provider == "" {
@@ -759,6 +809,11 @@ func (h *Handler) handleDisableStageTransition(
 		return nil, fmt.Errorf("%w: transitionType is required", errInvalidRequest)
 	}
 
+	if !validTransitionType(in.TransitionType) {
+		return nil, fmt.Errorf("%w: invalid transitionType %q, must be Inbound or Outbound",
+			ErrValidation, in.TransitionType)
+	}
+
 	if in.Reason == "" {
 		return nil, fmt.Errorf("%w: reason is required", errInvalidRequest)
 	}
@@ -796,6 +851,11 @@ func (h *Handler) handleEnableStageTransition(
 
 	if in.TransitionType == "" {
 		return nil, fmt.Errorf("%w: transitionType is required", errInvalidRequest)
+	}
+
+	if !validTransitionType(in.TransitionType) {
+		return nil, fmt.Errorf("%w: invalid transitionType %q, must be Inbound or Outbound",
+			ErrValidation, in.TransitionType)
 	}
 
 	if err := h.Backend.EnableStageTransition(in.PipelineName, in.StageName, in.TransitionType); err != nil {

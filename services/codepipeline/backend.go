@@ -4,6 +4,7 @@ package codepipeline
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -22,6 +23,8 @@ var (
 	ErrJobNotFound = awserr.New("JobNotFoundException", awserr.ErrNotFound)
 	// ErrWebhookNotFound is returned when a requested webhook does not exist.
 	ErrWebhookNotFound = awserr.New("WebhookNotFoundException", awserr.ErrNotFound)
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // ArtifactStore represents the artifact store for a pipeline stage.
@@ -153,17 +156,18 @@ type PipelineMetadata struct {
 
 // Pipeline wraps the declaration and metadata.
 type Pipeline struct {
-	Tags        map[string]string
-	Declaration PipelineDeclaration
-	Metadata    PipelineMetadata
+	Tags        map[string]string   `json:"tags"`
+	Declaration PipelineDeclaration `json:"declaration"`
+	Metadata    PipelineMetadata    `json:"metadata"`
 }
 
 // PipelineSummary is a condensed view of a pipeline for listing.
 type PipelineSummary struct {
-	Name    string  `json:"name"`
-	Version int     `json:"version"`
-	Created float64 `json:"created"`
-	Updated float64 `json:"updated"`
+	PipelineArn string  `json:"pipelineArn,omitempty"`
+	Name        string  `json:"name"`
+	Version     int     `json:"version"`
+	Created     float64 `json:"created"`
+	Updated     float64 `json:"updated"`
 }
 
 // Tag represents a key-value tag.
@@ -203,6 +207,18 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// Reset clears all state in the backend, resetting it to a pristine empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.pipelines = make(map[string]*Pipeline)
+	b.pipelineARNIndex = make(map[string]string)
+	b.customActionTypes = make(map[customActionTypeKey]*CustomActionType)
+	b.jobs = make(map[string]*Job)
+	b.webhooks = make(map[string]*Webhook)
+	b.stageTransitions = make(map[stageTransitionKey]*StageTransitionState)
+}
 func (b *InMemoryBackend) buildPipelineARN(name string) string {
 	return arn.Build("codepipeline", b.region, b.accountID, name)
 }
@@ -270,7 +286,7 @@ func (b *InMemoryBackend) UpdatePipeline(decl PipelineDeclaration) (*Pipeline, e
 	return copyPipeline(p), nil
 }
 
-// DeletePipeline removes the pipeline with the given name.
+// DeletePipeline removes the pipeline with the given name and cleans up associated state.
 func (b *InMemoryBackend) DeletePipeline(name string) error {
 	b.mu.Lock("DeletePipeline")
 	defer b.mu.Unlock()
@@ -283,28 +299,44 @@ func (b *InMemoryBackend) DeletePipeline(name string) error {
 	delete(b.pipelineARNIndex, p.Metadata.PipelineArn)
 	delete(b.pipelines, name)
 
+	// Cascade: remove any disabled stage transitions for this pipeline.
+	for key := range b.stageTransitions {
+		if key.PipelineName == name {
+			delete(b.stageTransitions, key)
+		}
+	}
+
 	return nil
 }
 
-// ListPipelines returns a summary of all pipelines.
+// ListPipelines returns a sorted summary of all pipelines.
 func (b *InMemoryBackend) ListPipelines() []PipelineSummary {
 	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
+	names := make([]string, 0, len(b.pipelines))
+	for name := range b.pipelines {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
 	summaries := make([]PipelineSummary, 0, len(b.pipelines))
-	for _, p := range b.pipelines {
+	for _, name := range names {
+		p := b.pipelines[name]
 		summaries = append(summaries, PipelineSummary{
-			Name:    p.Declaration.Name,
-			Version: p.Declaration.Version,
-			Created: p.Metadata.Created,
-			Updated: p.Metadata.Updated,
+			Name:        p.Declaration.Name,
+			Version:     p.Declaration.Version,
+			Created:     p.Metadata.Created,
+			Updated:     p.Metadata.Updated,
+			PipelineArn: p.Metadata.PipelineArn,
 		})
 	}
 
 	return summaries
 }
 
-// ListTagsForResource returns the tags for a pipeline by ARN.
+// ListTagsForResource returns the sorted tags for a pipeline by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
@@ -315,13 +347,8 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	}
 
 	p := b.pipelines[name]
-	tags := make([]Tag, 0, len(p.Tags))
 
-	for k, v := range p.Tags {
-		tags = append(tags, Tag{Key: k, Value: v})
-	}
-
-	return tags, nil
+	return tagsToSortedSlice(p.Tags), nil
 }
 
 // TagResource adds or updates tags on a pipeline by ARN.
@@ -374,6 +401,83 @@ func copyPipeline(p *Pipeline) *Pipeline {
 	out.Declaration = copyDeclaration(p.Declaration)
 
 	return &out
+}
+
+// tagsToSortedSlice converts a tag map to a deterministically-sorted slice of Tag.
+func tagsToSortedSlice(kv map[string]string) []Tag {
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	tags := make([]Tag, 0, len(kv))
+	for _, k := range keys {
+		tags = append(tags, Tag{Key: k, Value: kv[k]})
+	}
+
+	return tags
+}
+
+// AddPipelineInternal seeds a pipeline directly into the backend (for testing).
+func (b *InMemoryBackend) AddPipelineInternal(decl PipelineDeclaration, tags map[string]string) *Pipeline {
+	b.mu.Lock("AddPipelineInternal")
+	defer b.mu.Unlock()
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	now := float64(time.Now().Unix())
+	if decl.Version == 0 {
+		decl.Version = 1
+	}
+
+	p := &Pipeline{
+		Declaration: decl,
+		Metadata: PipelineMetadata{
+			PipelineArn: b.buildPipelineARN(decl.Name),
+			Created:     now,
+			Updated:     now,
+		},
+		Tags: tagsCopy,
+	}
+	b.pipelines[decl.Name] = p
+	b.pipelineARNIndex[p.Metadata.PipelineArn] = decl.Name
+
+	return copyPipeline(p)
+}
+
+// AddCustomActionTypeInternal seeds a custom action type directly into the backend (for testing).
+func (b *InMemoryBackend) AddCustomActionTypeInternal(cat *CustomActionType) {
+	b.mu.Lock("AddCustomActionTypeInternal")
+	defer b.mu.Unlock()
+
+	key := customActionTypeKey{Category: cat.Category, Provider: cat.Provider, Version: cat.Version}
+	b.customActionTypes[key] = copyCustomActionType(cat)
+}
+
+// GetStageTransitionState returns the disabled state for a stage transition, or nil if enabled.
+func (b *InMemoryBackend) GetStageTransitionState(
+	pipelineName, stageName, transitionType string,
+) *StageTransitionState {
+	b.mu.RLock("GetStageTransitionState")
+	defer b.mu.RUnlock()
+
+	key := stageTransitionKey{
+		PipelineName:   pipelineName,
+		StageName:      stageName,
+		TransitionType: transitionType,
+	}
+
+	state, ok := b.stageTransitions[key]
+	if !ok {
+		return nil
+	}
+
+	cp := *state
+
+	return &cp
 }
 
 // --- Custom Action Type operations ---

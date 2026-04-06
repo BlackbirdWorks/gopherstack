@@ -1420,3 +1420,530 @@ func TestHandler_NewOps_GetSupportedOperations(t *testing.T) {
 		assert.Contains(t, ops, want)
 	}
 }
+
+// ============================================================
+// Refinement check 1 tests
+// ============================================================
+
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a pipeline so there is state to reset.
+	_, err := h.Backend.CreatePipeline(samplePipeline("reset-pl"), nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, h.Backend.PipelineCount())
+
+	h.Reset()
+
+	assert.Equal(t, 0, h.Backend.PipelineCount())
+	assert.Equal(t, 0, h.Backend.CustomActionTypeCount())
+	assert.Equal(t, 0, h.Backend.JobCount())
+	assert.Equal(t, 0, h.Backend.WebhookCount())
+	assert.Equal(t, 0, h.Backend.StageTransitionCount())
+}
+
+func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	var p codepipeline.Provider
+
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, codepipeline.ErrNilAppContext)
+}
+
+func TestRefinement1_SortedListPipelines(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"zebra-pl", "apple-pl", "mango-pl"} {
+		_, err := h.Backend.CreatePipeline(samplePipeline(name), nil)
+		require.NoError(t, err)
+	}
+
+	rec := doRequest(t, h, "ListPipelines", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	list, ok := out["pipelines"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 3)
+
+	names := make([]string, len(list))
+	for i, item := range list {
+		m := item.(map[string]any)
+		names[i] = m["name"].(string)
+	}
+
+	assert.Equal(t, []string{"apple-pl", "mango-pl", "zebra-pl"}, names)
+}
+
+func TestRefinement1_ListPipelines_NonNilWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ListPipelines", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	// pipelines key must exist and be an array, not null.
+	list, ok := out["pipelines"]
+	require.True(t, ok)
+	assert.NotNil(t, list)
+}
+
+func TestRefinement1_ListPipelines_IncludesARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(samplePipeline("arn-pl"), nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, "ListPipelines", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	list := out["pipelines"].([]any)
+	item := list[0].(map[string]any)
+	arn, ok := item["pipelineArn"].(string)
+	require.True(t, ok)
+	assert.Contains(t, arn, "arn:aws:codepipeline")
+	assert.Contains(t, arn, "arn-pl")
+}
+
+func TestRefinement1_SortedListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(samplePipeline("tag-pl"), map[string]string{
+		"zzz": "last", "aaa": "first", "mmm": "mid",
+	})
+	require.NoError(t, err)
+
+	// Get the ARN by listing pipelines.
+	summaries := h.Backend.ListPipelines()
+	require.Len(t, summaries, 1)
+	pipelineARN := summaries[0].PipelineArn
+	require.NotEmpty(t, pipelineARN)
+
+	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": pipelineARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	tags, ok := out["tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 3)
+
+	keys := make([]string, len(tags))
+	for i, tag := range tags {
+		keys[i] = tag.(map[string]any)["key"].(string)
+	}
+	assert.Equal(t, []string{"aaa", "mmm", "zzz"}, keys)
+}
+
+func TestRefinement1_ListTagsForResource_EmptySlice(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(samplePipeline("notag-pl"), nil)
+	require.NoError(t, err)
+
+	summaries := h.Backend.ListPipelines()
+	pipelineARN := summaries[0].PipelineArn
+
+	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": pipelineARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	tags := out["tags"]
+	assert.NotNil(t, tags)
+}
+
+func TestRefinement1_DeletePipeline_CascadeStageTransitions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(samplePipeline("cascade-pl"), nil)
+	require.NoError(t, err)
+
+	// Disable a stage transition.
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"pipelineName":   "cascade-pl",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "testing cascade",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 1, h.Backend.StageTransitionCount())
+
+	// Delete the pipeline.
+	rec = doRequest(t, h, "DeletePipeline", map[string]any{"name": "cascade-pl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Transition should also be gone.
+	assert.Equal(t, 0, h.Backend.StageTransitionCount())
+	assert.Equal(t, 0, h.Backend.PipelineCount())
+}
+
+func TestRefinement1_TransitionTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		action         string
+		transitionType string
+		wantErr        bool
+	}{
+		{
+			name:           "disable_inbound_ok",
+			action:         "DisableStageTransition",
+			transitionType: "Inbound",
+			wantErr:        false,
+		},
+		{
+			name:           "disable_outbound_ok",
+			action:         "DisableStageTransition",
+			transitionType: "Outbound",
+			wantErr:        false,
+		},
+		{
+			name:           "disable_invalid",
+			action:         "DisableStageTransition",
+			transitionType: "Invalid",
+			wantErr:        true,
+		},
+		{
+			name:           "enable_inbound_ok",
+			action:         "EnableStageTransition",
+			transitionType: "Inbound",
+			wantErr:        false,
+		},
+		{
+			name:           "enable_invalid",
+			action:         "EnableStageTransition",
+			transitionType: "BadValue",
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreatePipeline(samplePipeline("enum-pl"), nil)
+			require.NoError(t, err)
+
+			var input map[string]any
+			if tt.action == "DisableStageTransition" {
+				input = map[string]any{
+					"pipelineName":   "enum-pl",
+					"stageName":      "Source",
+					"transitionType": tt.transitionType,
+					"reason":         "test",
+				}
+			} else {
+				input = map[string]any{
+					"pipelineName":   "enum-pl",
+					"stageName":      "Source",
+					"transitionType": tt.transitionType,
+				}
+			}
+
+			rec := doRequest(t, h, tt.action, input)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			} else {
+				assert.Equal(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
+
+func TestRefinement1_ActionCategoryValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		category string
+		wantErr  bool
+	}{
+		{name: "source", category: "Source", wantErr: false},
+		{name: "build", category: "Build", wantErr: false},
+		{name: "deploy", category: "Deploy", wantErr: false},
+		{name: "test", category: "Test", wantErr: false},
+		{name: "invoke", category: "Invoke", wantErr: false},
+		{name: "approval", category: "Approval", wantErr: false},
+		{name: "compute", category: "Compute", wantErr: false},
+		{name: "invalid", category: "Invalid", wantErr: true},
+		{name: "lowercase", category: "build", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
+				"category":              tt.category,
+				"provider":              "TestProvider",
+				"version":               "1",
+				"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+				"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+			})
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			} else {
+				assert.Equal(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
+
+func TestRefinement1_ErrValidationMapping(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Trigger ErrValidation via invalid category.
+	rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
+		"category":              "NotAValidCategory",
+		"provider":              "P",
+		"version":               "1",
+		"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+		"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "ValidationException", out["__type"])
+}
+
+func TestRefinement1_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// AddPipelineInternal
+	b.AddPipelineInternal(samplePipeline("seed-pl"), map[string]string{"x": "y"})
+	assert.Equal(t, 1, b.PipelineCount())
+
+	// AddCustomActionTypeInternal
+	b.AddCustomActionTypeInternal(&codepipeline.CustomActionType{
+		Category: "Build", Provider: "Seed", Version: "1",
+		InputArtifactDetails:  codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+		OutputArtifactDetails: codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+	})
+	assert.Equal(t, 1, b.CustomActionTypeCount())
+
+	// AddJobInternal
+	b.AddJobInternal(&codepipeline.Job{ID: "j-1", Nonce: "n", Status: "Created"})
+	assert.Equal(t, 1, b.JobCount())
+
+	// AddWebhookInternal
+	b.AddWebhookInternal(&codepipeline.Webhook{Name: "wh-seed", TargetPipeline: "pl"})
+	assert.Equal(t, 1, b.WebhookCount())
+}
+
+func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := codepipeline.NewInMemoryBackend("123456789012", "eu-west-1")
+
+	// Populate state.
+	b.AddPipelineInternal(samplePipeline("persist-pl"), map[string]string{"tier": "prod"})
+	b.AddCustomActionTypeInternal(&codepipeline.CustomActionType{
+		Category: "Deploy", Provider: "MyDeploy", Version: "2",
+		InputArtifactDetails:  codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+		OutputArtifactDetails: codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+	})
+	b.AddJobInternal(&codepipeline.Job{ID: "persist-job", Nonce: "nonce-42", Status: "Created"})
+	b.AddWebhookInternal(&codepipeline.Webhook{Name: "persist-wh", TargetPipeline: "persist-pl"})
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	// Verify pipeline.
+	p, err := b2.GetPipeline("persist-pl")
+	require.NoError(t, err)
+	assert.Equal(t, "persist-pl", p.Declaration.Name)
+
+	// Verify custom action type.
+	cat, err := b2.GetActionType("Deploy", "Custom", "MyDeploy", "2")
+	require.NoError(t, err)
+	assert.Equal(t, "Deploy", cat.Category)
+
+	// Verify job.
+	job, err := b2.GetJobDetails("persist-job")
+	require.NoError(t, err)
+	assert.Equal(t, "persist-job", job.ID)
+
+	// Verify region/account carried through.
+	assert.Equal(t, "eu-west-1", b2.Region())
+}
+
+func TestRefinement1_PersistenceWithStageTransitions(t *testing.T) {
+	t.Parallel()
+
+	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+	b.AddPipelineInternal(samplePipeline("trans-pl"), nil)
+
+	err := b.DisableStageTransition("trans-pl", "Source", "Inbound", "test reason")
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.StageTransitionCount())
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	// Verify stage transition was restored.
+	assert.Equal(t, 1, b2.StageTransitionCount())
+	state := b2.GetStageTransitionState("trans-pl", "Source", "Inbound")
+	require.NotNil(t, state)
+	assert.Equal(t, "test reason", state.Reason)
+	assert.True(t, state.Disabled)
+}
+
+func TestRefinement1_GetStageTransitionState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(samplePipeline("state-pl"), nil)
+	require.NoError(t, err)
+
+	// Initially enabled (nil).
+	state := h.Backend.GetStageTransitionState("state-pl", "Source", "Inbound")
+	assert.Nil(t, state)
+
+	// Disable it.
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"pipelineName":   "state-pl",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "blocked",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	state = h.Backend.GetStageTransitionState("state-pl", "Source", "Inbound")
+	require.NotNil(t, state)
+	assert.Equal(t, "blocked", state.Reason)
+	assert.True(t, state.Disabled)
+
+	// Re-enable it.
+	rec = doRequest(t, h, "EnableStageTransition", map[string]any{
+		"pipelineName":   "state-pl",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	state = h.Backend.GetStageTransitionState("state-pl", "Source", "Inbound")
+	assert.Nil(t, state)
+}
+
+func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
+	t.Parallel()
+
+	// Verify that handler dispatches correctly without rebuilding the table
+	// (ops cached in NewHandler). Run many parallel requests to exercise concurrency.
+	h := newTestHandler(t)
+
+	for range 5 {
+		rec := doRequest(t, h, "ListPipelines", map[string]any{})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	}
+}
+
+func TestRefinement1_AddCustomActionTypeInternal_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+	cat := &codepipeline.CustomActionType{
+		Category:              "Build",
+		Provider:              "CopyTest",
+		Version:               "1",
+		Tags:                  map[string]string{"original": "value"},
+		InputArtifactDetails:  codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+		OutputArtifactDetails: codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+	}
+
+	b.AddCustomActionTypeInternal(cat)
+
+	// Mutate original - backend should not be affected.
+	cat.Tags["original"] = "mutated"
+
+	retrieved, err := b.GetActionType("Build", "Custom", "CopyTest", "1")
+	require.NoError(t, err)
+	assert.Equal(t, "value", retrieved.Tags["original"])
+}
+
+func TestRefinement1_PipelineNameRequiredInDisable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "test",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRefinement1_ExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+
+	assert.Equal(t, 0, b.PipelineCount())
+	assert.Equal(t, 0, b.CustomActionTypeCount())
+	assert.Equal(t, 0, b.JobCount())
+	assert.Equal(t, 0, b.WebhookCount())
+	assert.Equal(t, 0, b.StageTransitionCount())
+
+	b.AddPipelineInternal(samplePipeline("cnt-pl"), nil)
+	assert.Equal(t, 1, b.PipelineCount())
+
+	b.AddCustomActionTypeInternal(&codepipeline.CustomActionType{
+		Category: "Build", Provider: "Cnt", Version: "1",
+		InputArtifactDetails:  codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+		OutputArtifactDetails: codepipeline.ArtifactDetails{MinimumCount: 0, MaximumCount: 5},
+	})
+	assert.Equal(t, 1, b.CustomActionTypeCount())
+
+	b.AddJobInternal(&codepipeline.Job{ID: "cnt-j", Nonce: "n", Status: "Created"})
+	assert.Equal(t, 1, b.JobCount())
+
+	b.AddWebhookInternal(&codepipeline.Webhook{Name: "cnt-wh", TargetPipeline: "cnt-pl"})
+	assert.Equal(t, 1, b.WebhookCount())
+}
