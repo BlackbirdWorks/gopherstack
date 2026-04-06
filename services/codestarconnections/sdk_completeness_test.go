@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codestarconnections.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &codestarconnectionssdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateRepositoryLink",
-		"CreateSyncConfiguration",
-		"DeleteRepositoryLink",
-		"DeleteSyncConfiguration",
-		"GetRepositoryLink",
-		"GetRepositorySyncStatus",
-		"GetResourceSyncStatus",
-		"GetSyncBlockerSummary",
-		"GetSyncConfiguration",
-		"ListRepositoryLinks",
 		"ListRepositorySyncDefinitions",
 		"ListSyncConfigurations",
 		"UpdateRepositoryLink",
