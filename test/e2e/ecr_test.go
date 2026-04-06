@@ -16,10 +16,10 @@ import (
 func TestECRDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.ECRHandler.Backend.CreateRepository("demo-app/backend")
+	_, err := stack.ECRHandler.Backend.CreateRepository("demo-app/backend", "")
 	require.NoError(t, err)
 
-	_, err = stack.ECRHandler.Backend.CreateRepository("demo-app/frontend")
+	_, err = stack.ECRHandler.Backend.CreateRepository("demo-app/frontend", "")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
