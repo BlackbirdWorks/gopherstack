@@ -3,6 +3,7 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -120,6 +121,68 @@ type Host struct {
 	OwnedBy          string    `json:"ownedBy"`
 }
 
+// ---- Reset ----
+
+// Reset clears all resource state in the backend, returning it to its initial state.
+// All resource maps for original and new operations are re-created, and defaults
+// (default VPC, subnet, security group) are re-populated.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	// Reset original resource maps.
+	b.instances = make(map[string]*Instance)
+	b.securityGroups = make(map[string]*SecurityGroup)
+	b.vpcs = make(map[string]*VPC)
+	b.subnets = make(map[string]*Subnet)
+	b.keyPairs = make(map[string]*KeyPair)
+	b.volumes = make(map[string]*Volume)
+	b.addresses = make(map[string]*Address)
+	b.internetGateways = make(map[string]*InternetGateway)
+	b.routeTables = make(map[string]*RouteTable)
+	b.natGateways = make(map[string]*NatGateway)
+	b.networkInterfaces = make(map[string]*NetworkInterface)
+	b.spotRequests = make(map[string]*SpotInstanceRequest)
+	b.placementGroups = make(map[string]*PlacementGroup)
+	b.tags = make(map[string]map[string]string)
+	b.freePrivateIPs = nil
+	b.nextPrivateIPIndex = 0
+	b.nextElasticIPIndex = 0
+
+	// Reset new operation resource maps.
+	b.addressTransfers = make(map[string]*AddressTransfer)
+	b.capacityReservations = make(map[string]*CapacityReservation)
+	b.reservedInstancesExchanges = make(map[string]*ReservedInstancesExchange)
+	b.tgwMulticastDomainAssociations = make(map[string]*TransitGatewayMulticastDomainAssociation)
+	b.tgwPeeringAttachments = make(map[string]*TransitGatewayPeeringAttachment)
+	b.tgwVpcAttachments = make(map[string]*TransitGatewayVpcAttachment)
+	b.vpcEndpointConnections = make(map[string]*VpcEndpointConnection)
+	b.vpcPeeringConnections = make(map[string]*VpcPeeringConnection)
+	b.byoipCidrs = make(map[string]*ByoipCidr)
+	b.dedicatedHosts = make(map[string]*Host)
+
+	// Re-populate defaults (must be called without the lock held since it acquires its own).
+	// Since we already hold the lock, populate inline.
+	b.vpcs["vpc-default"] = &VPC{
+		ID:        "vpc-default",
+		CIDRBlock: "172.31.0.0/16",
+		IsDefault: true,
+	}
+	b.subnets["subnet-default"] = &Subnet{
+		ID:               "subnet-default",
+		VPCID:            "vpc-default",
+		CIDRBlock:        "172.31.0.0/20",
+		AvailabilityZone: b.Region + "a",
+		IsDefault:        true,
+	}
+	b.securityGroups["sg-default"] = &SecurityGroup{
+		ID:          "sg-default",
+		Name:        "default",
+		Description: "default VPC security group",
+		VPCID:       "vpc-default",
+	}
+}
+
 // ---- AcceptAddressTransfer ----
 
 // AcceptAddressTransfer accepts a pending Elastic IP address transfer.
@@ -145,12 +208,13 @@ func (b *InMemoryBackend) AcceptAddressTransfer(address string) (*AddressTransfe
 }
 
 // AddAddressTransferInternal inserts an AddressTransfer directly (for seeding in tests).
-// The key is the PublicIP field of the transfer.
+// The key is the PublicIP field of the transfer. The value is deep-copied.
 func (b *InMemoryBackend) AddAddressTransferInternal(t *AddressTransfer) {
 	b.mu.Lock("AddAddressTransferInternal")
 	defer b.mu.Unlock()
 
-	b.addressTransfers[t.PublicIP] = t
+	cp := *t
+	b.addressTransfers[cp.PublicIP] = &cp
 }
 
 // ---- AcceptCapacityReservationBillingOwnership ----
@@ -173,17 +237,57 @@ func (b *InMemoryBackend) AcceptCapacityReservationBillingOwnership(
 	}
 
 	cr.State = stateActive
+	cr.OwnedBy = b.AccountID
 	cp := *cr
 
 	return &cp, nil
 }
 
 // AddCapacityReservationInternal inserts a CapacityReservation directly (for seeding in tests).
+// OwnedBy is populated from b.AccountID if unset. The value is deep-copied.
 func (b *InMemoryBackend) AddCapacityReservationInternal(cr *CapacityReservation) {
 	b.mu.Lock("AddCapacityReservationInternal")
 	defer b.mu.Unlock()
 
-	b.capacityReservations[cr.CapacityReservationID] = cr
+	cp := *cr
+	if cp.OwnedBy == "" {
+		cp.OwnedBy = b.AccountID
+	}
+
+	if cp.CreateTime.IsZero() {
+		cp.CreateTime = time.Now()
+	}
+
+	b.capacityReservations[cp.CapacityReservationID] = &cp
+}
+
+// DescribeCapacityReservations returns capacity reservations sorted by ID.
+// If ids is non-empty, only reservations matching those IDs are returned.
+func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*CapacityReservation {
+	b.mu.RLock("DescribeCapacityReservations")
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var result []*CapacityReservation
+
+	for _, cr := range b.capacityReservations {
+		if len(idSet) > 0 && !idSet[cr.CapacityReservationID] {
+			continue
+		}
+
+		cp := *cr
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CapacityReservationID < result[j].CapacityReservationID
+	})
+
+	return result
 }
 
 // ---- AcceptReservedInstancesExchangeQuote ----
@@ -203,9 +307,12 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 	exchangeID := "riex-" + uuid.New().String()[:17]
 	targetID := "ri-" + uuid.New().String()[:17]
 
+	ids := make([]string, len(reservedInstanceIDs))
+	copy(ids, reservedInstanceIDs)
+
 	exchange := &ReservedInstancesExchange{
 		ExchangeID:              exchangeID,
-		ReservedInstanceIDs:     reservedInstanceIDs,
+		ReservedInstanceIDs:     ids,
 		TargetReservedInstances: []string{targetID},
 		Status:                  "successful",
 	}
@@ -213,6 +320,10 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 	b.reservedInstancesExchanges[exchangeID] = exchange
 
 	cp := *exchange
+	cp.ReservedInstanceIDs = make([]string, len(exchange.ReservedInstanceIDs))
+	copy(cp.ReservedInstanceIDs, exchange.ReservedInstanceIDs)
+	cp.TargetReservedInstances = make([]string, len(exchange.TargetReservedInstances))
+	copy(cp.TargetReservedInstances, exchange.TargetReservedInstances)
 
 	return &cp, nil
 }
@@ -221,6 +332,7 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 
 // AcceptTransitGatewayMulticastDomainAssociations accepts a request to associate
 // subnets with a transit gateway multicast domain.
+// Returns a non-nil (possibly empty) slice of associations.
 func (b *InMemoryBackend) AcceptTransitGatewayMulticastDomainAssociations(
 	transitGatewayMulticastDomainID, transitGatewayAttachmentID string,
 	subnetIDs []string,
@@ -236,7 +348,8 @@ func (b *InMemoryBackend) AcceptTransitGatewayMulticastDomainAssociations(
 	b.mu.Lock("AcceptTransitGatewayMulticastDomainAssociations")
 	defer b.mu.Unlock()
 
-	var assocs []*TransitGatewayMulticastDomainAssociation
+	// Always return a non-nil slice.
+	assocs := make([]*TransitGatewayMulticastDomainAssociation, 0, len(subnetIDs))
 
 	for _, subnetID := range subnetIDs {
 		key := transitGatewayMulticastDomainID + ":" + subnetID
@@ -254,6 +367,19 @@ func (b *InMemoryBackend) AcceptTransitGatewayMulticastDomainAssociations(
 	}
 
 	return assocs, nil
+}
+
+// AddTGWMulticastDomainAssociationInternal inserts a TGW multicast domain association
+// directly (for seeding in tests). The value is deep-copied.
+func (b *InMemoryBackend) AddTGWMulticastDomainAssociationInternal(
+	assoc *TransitGatewayMulticastDomainAssociation,
+) {
+	b.mu.Lock("AddTGWMulticastDomainAssociationInternal")
+	defer b.mu.Unlock()
+
+	cp := *assoc
+	key := cp.TransitGatewayMulticastDomainID + ":" + cp.SubnetID
+	b.tgwMulticastDomainAssociations[key] = &cp
 }
 
 // ---- AcceptTransitGatewayPeeringAttachment ----
@@ -282,11 +408,17 @@ func (b *InMemoryBackend) AcceptTransitGatewayPeeringAttachment(
 }
 
 // AddTGWPeeringAttachmentInternal inserts a TGW peering attachment (for seeding in tests).
+// CreationTime is populated if zero. The value is deep-copied.
 func (b *InMemoryBackend) AddTGWPeeringAttachmentInternal(att *TransitGatewayPeeringAttachment) {
 	b.mu.Lock("AddTGWPeeringAttachmentInternal")
 	defer b.mu.Unlock()
 
-	b.tgwPeeringAttachments[att.TransitGatewayAttachmentID] = att
+	cp := *att
+	if cp.CreationTime.IsZero() {
+		cp.CreationTime = time.Now()
+	}
+
+	b.tgwPeeringAttachments[cp.TransitGatewayAttachmentID] = &cp
 }
 
 // ---- AcceptTransitGatewayVpcAttachment ----
@@ -315,17 +447,24 @@ func (b *InMemoryBackend) AcceptTransitGatewayVpcAttachment(
 }
 
 // AddTGWVpcAttachmentInternal inserts a TGW VPC attachment (for seeding in tests).
+// CreationTime is populated if zero. The value is deep-copied.
 func (b *InMemoryBackend) AddTGWVpcAttachmentInternal(att *TransitGatewayVpcAttachment) {
 	b.mu.Lock("AddTGWVpcAttachmentInternal")
 	defer b.mu.Unlock()
 
-	b.tgwVpcAttachments[att.TransitGatewayAttachmentID] = att
+	cp := *att
+	if cp.CreationTime.IsZero() {
+		cp.CreationTime = time.Now()
+	}
+
+	b.tgwVpcAttachments[cp.TransitGatewayAttachmentID] = &cp
 }
 
 // ---- AcceptVpcEndpointConnections ----
 
 // AcceptVpcEndpointConnections accepts VPC endpoint connections to the given service,
 // transitioning each endpoint's state to "available".
+// Returns a non-nil (possibly empty) slice of accepted connections.
 func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 	serviceID string,
 	vpcEndpointIDs []string,
@@ -341,7 +480,8 @@ func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 	b.mu.Lock("AcceptVpcEndpointConnections")
 	defer b.mu.Unlock()
 
-	var accepted []*VpcEndpointConnection
+	// Always return a non-nil slice.
+	accepted := make([]*VpcEndpointConnection, 0, len(vpcEndpointIDs))
 
 	for _, epID := range vpcEndpointIDs {
 		key := serviceID + ":" + epID
@@ -362,6 +502,21 @@ func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 	}
 
 	return accepted, nil
+}
+
+// AddVpcEndpointConnectionInternal inserts a VPC endpoint connection directly
+// (for seeding in tests). The value is deep-copied.
+func (b *InMemoryBackend) AddVpcEndpointConnectionInternal(conn *VpcEndpointConnection) {
+	b.mu.Lock("AddVpcEndpointConnectionInternal")
+	defer b.mu.Unlock()
+
+	cp := *conn
+	if cp.CreationTime.IsZero() {
+		cp.CreationTime = time.Now()
+	}
+
+	key := cp.ServiceID + ":" + cp.VpcEndpointID
+	b.vpcEndpointConnections[key] = &cp
 }
 
 // ---- AcceptVpcPeeringConnection ----
@@ -390,11 +545,46 @@ func (b *InMemoryBackend) AcceptVpcPeeringConnection(
 }
 
 // AddVpcPeeringConnectionInternal inserts a VPC peering connection (for seeding in tests).
+// ExpirationTime is set to 7 days from now if zero. The value is deep-copied.
 func (b *InMemoryBackend) AddVpcPeeringConnectionInternal(pc *VpcPeeringConnection) {
 	b.mu.Lock("AddVpcPeeringConnectionInternal")
 	defer b.mu.Unlock()
 
-	b.vpcPeeringConnections[pc.VpcPeeringConnectionID] = pc
+	cp := *pc
+	if cp.ExpirationTime.IsZero() {
+		cp.ExpirationTime = time.Now().Add(7 * 24 * time.Hour)
+	}
+
+	b.vpcPeeringConnections[cp.VpcPeeringConnectionID] = &cp
+}
+
+// DescribeVpcPeeringConnections returns VPC peering connections sorted by ID.
+// If ids is non-empty, only connections matching those IDs are returned.
+func (b *InMemoryBackend) DescribeVpcPeeringConnections(ids []string) []*VpcPeeringConnection {
+	b.mu.RLock("DescribeVpcPeeringConnections")
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var result []*VpcPeeringConnection
+
+	for _, pc := range b.vpcPeeringConnections {
+		if len(idSet) > 0 && !idSet[pc.VpcPeeringConnectionID] {
+			continue
+		}
+
+		cp := *pc
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].VpcPeeringConnectionID < result[j].VpcPeeringConnectionID
+	})
+
+	return result
 }
 
 // ---- AdvertiseByoipCidr ----
@@ -425,6 +615,40 @@ func (b *InMemoryBackend) AdvertiseByoipCidr(cidr string) (*ByoipCidr, error) {
 	return &cp, nil
 }
 
+// AddByoipCidrInternal inserts a ByoipCidr directly (for seeding in tests).
+// The value is deep-copied.
+func (b *InMemoryBackend) AddByoipCidrInternal(cidr *ByoipCidr) {
+	b.mu.Lock("AddByoipCidrInternal")
+	defer b.mu.Unlock()
+
+	cp := *cidr
+	b.byoipCidrs[cp.Cidr] = &cp
+}
+
+// DescribeByoipCidrs returns BYOIP CIDRs sorted by CIDR string.
+// If state is non-empty, only CIDRs in that state are returned.
+func (b *InMemoryBackend) DescribeByoipCidrs(state string) []*ByoipCidr {
+	b.mu.RLock("DescribeByoipCidrs")
+	defer b.mu.RUnlock()
+
+	var result []*ByoipCidr
+
+	for _, c := range b.byoipCidrs {
+		if state != "" && c.State != state {
+			continue
+		}
+
+		cp := *c
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Cidr < result[j].Cidr
+	})
+
+	return result
+}
+
 // ---- AllocateHosts ----
 
 // AllocateHosts allocates one or more Dedicated Hosts in the given availability zone.
@@ -447,7 +671,8 @@ func (b *InMemoryBackend) AllocateHosts(
 	b.mu.Lock("AllocateHosts")
 	defer b.mu.Unlock()
 
-	var hosts []*Host
+	// Always return a non-nil slice.
+	hosts := make([]*Host, 0, hostCount)
 
 	for range hostCount {
 		host := &Host{
@@ -466,4 +691,33 @@ func (b *InMemoryBackend) AllocateHosts(
 	}
 
 	return hosts, nil
+}
+
+// DescribeHosts returns dedicated hosts sorted by host ID.
+// If ids is non-empty, only hosts matching those IDs are returned.
+func (b *InMemoryBackend) DescribeHosts(ids []string) []*Host {
+	b.mu.RLock("DescribeHosts")
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var result []*Host
+
+	for _, h := range b.dedicatedHosts {
+		if len(idSet) > 0 && !idSet[h.HostID] {
+			continue
+		}
+
+		cp := *h
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].HostID < result[j].HostID
+	})
+
+	return result
 }

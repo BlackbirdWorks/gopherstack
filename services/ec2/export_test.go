@@ -79,3 +79,90 @@ func (b *InMemoryBackend) InjectOrphanedENIForTest(eni *NetworkInterface) {
 
 	b.networkInterfaces[eni.ID] = eni
 }
+
+// ---- count helpers for new resource types ----
+
+// AddressTransferCount returns the number of address transfers in the backend.
+func (b *InMemoryBackend) AddressTransferCount() int {
+	b.mu.RLock("AddressTransferCount")
+	defer b.mu.RUnlock()
+
+	return len(b.addressTransfers)
+}
+
+// CapacityReservationCount returns the number of capacity reservations in the backend.
+func (b *InMemoryBackend) CapacityReservationCount() int {
+	b.mu.RLock("CapacityReservationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.capacityReservations)
+}
+
+// ReservedInstancesExchangeCount returns the number of reserved instances exchanges.
+func (b *InMemoryBackend) ReservedInstancesExchangeCount() int {
+	b.mu.RLock("ReservedInstancesExchangeCount")
+	defer b.mu.RUnlock()
+
+	return len(b.reservedInstancesExchanges)
+}
+
+// TGWMulticastDomainAssociationCount returns the number of TGW multicast domain associations.
+func (b *InMemoryBackend) TGWMulticastDomainAssociationCount() int {
+	b.mu.RLock("TGWMulticastDomainAssociationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tgwMulticastDomainAssociations)
+}
+
+// TGWPeeringAttachmentCount returns the number of TGW peering attachments.
+func (b *InMemoryBackend) TGWPeeringAttachmentCount() int {
+	b.mu.RLock("TGWPeeringAttachmentCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tgwPeeringAttachments)
+}
+
+// TGWVpcAttachmentCount returns the number of TGW VPC attachments.
+func (b *InMemoryBackend) TGWVpcAttachmentCount() int {
+	b.mu.RLock("TGWVpcAttachmentCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tgwVpcAttachments)
+}
+
+// VpcEndpointConnectionCount returns the number of VPC endpoint connections.
+func (b *InMemoryBackend) VpcEndpointConnectionCount() int {
+	b.mu.RLock("VpcEndpointConnectionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.vpcEndpointConnections)
+}
+
+// VpcPeeringConnectionCount returns the number of VPC peering connections.
+func (b *InMemoryBackend) VpcPeeringConnectionCount() int {
+	b.mu.RLock("VpcPeeringConnectionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.vpcPeeringConnections)
+}
+
+// ByoipCidrCount returns the number of BYOIP CIDRs in the backend.
+func (b *InMemoryBackend) ByoipCidrCount() int {
+	b.mu.RLock("ByoipCidrCount")
+	defer b.mu.RUnlock()
+
+	return len(b.byoipCidrs)
+}
+
+// DedicatedHostCount returns the number of dedicated hosts in the backend.
+func (b *InMemoryBackend) DedicatedHostCount() int {
+	b.mu.RLock("DedicatedHostCount")
+	defer b.mu.RUnlock()
+
+	return len(b.dedicatedHosts)
+}
+
+// HandlerOpsLen returns the number of operations registered in the handler's dispatch table.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.ops)
+}

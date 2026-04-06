@@ -27,14 +27,24 @@ const (
 // Handler is the Echo HTTP handler for EC2 operations.
 type Handler struct {
 	Backend   Backend
+	ops       map[string]ec2ActionFn
 	janitor   *Janitor
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new EC2 handler with the given backend.
+// The dispatch table is built once and cached in h.ops.
 func NewHandler(backend Backend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all backend resource state and re-caches the dispatch table.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -164,6 +174,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AcceptVpcPeeringConnection",
 		"AdvertiseByoipCidr",
 		"AllocateHosts",
+		"DescribeCapacityReservations",
+		"DescribeByoipCidrs",
+		"DescribeHosts",
+		"DescribeVpcPeeringConnections",
 	}
 }
 
@@ -296,7 +310,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type ec2ActionFn func(vals url.Values, reqID string) (any, error)
 
-func (h *Handler) dispatchTable() map[string]ec2ActionFn {
+func (h *Handler) buildOps() map[string]ec2ActionFn {
 	return map[string]ec2ActionFn{
 		"RunInstances":                                    h.handleRunInstances,
 		"DescribeInstances":                               h.handleDescribeInstances,
@@ -389,12 +403,16 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"AcceptVpcPeeringConnection":                      h.handleAcceptVpcPeeringConnection,
 		"AdvertiseByoipCidr":                              h.handleAdvertiseByoipCidr,
 		"AllocateHosts":                                   h.handleAllocateHosts,
+		"DescribeCapacityReservations":                    h.handleDescribeCapacityReservations,
+		"DescribeByoipCidrs":                              h.handleDescribeByoipCidrs,
+		"DescribeHosts":                                   h.handleDescribeHosts,
+		"DescribeVpcPeeringConnections":                   h.handleDescribeVpcPeeringConnections,
 	}
 }
 
 // dispatch routes the EC2 action to the appropriate handler function.
 func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s is not a supported EC2 action", ErrInvalidParameter, action)
 	}

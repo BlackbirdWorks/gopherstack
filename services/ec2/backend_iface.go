@@ -279,4 +279,23 @@ type Backend interface {
 
 	// AllocateHosts allocates one or more Dedicated Hosts.
 	AllocateHosts(availabilityZone, instanceType string, hostCount int) ([]*Host, error)
+
+	// ---- describe operations for new resource types ----
+
+	// DescribeCapacityReservations returns capacity reservations, optionally filtered by IDs.
+	DescribeCapacityReservations(ids []string) []*CapacityReservation
+
+	// DescribeByoipCidrs returns BYOIP CIDRs, optionally filtered by state.
+	DescribeByoipCidrs(state string) []*ByoipCidr
+
+	// DescribeHosts returns dedicated hosts, optionally filtered by IDs.
+	DescribeHosts(ids []string) []*Host
+
+	// DescribeVpcPeeringConnections returns VPC peering connections, optionally filtered by IDs.
+	DescribeVpcPeeringConnections(ids []string) []*VpcPeeringConnection
+
+	// ---- reset ----
+
+	// Reset clears all resource state, returning the backend to its initial state.
+	Reset()
 }

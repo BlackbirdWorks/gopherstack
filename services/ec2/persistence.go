@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 // snapTGWMcastAssoc is a type alias used in backendSnapshot to keep line lengths manageable.
@@ -88,6 +89,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("ec2: Snapshot marshal failure", "error", err)
+
 		return nil
 	}
 

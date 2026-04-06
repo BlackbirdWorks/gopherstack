@@ -103,10 +103,13 @@ type vpcEndpointConnectionSet struct {
 }
 
 type acceptVpcEndpointConnectionsResponse struct {
-	XMLName                xml.Name                 `xml:"AcceptVpcEndpointConnectionsResponse"`
-	Xmlns                  string                   `xml:"xmlns,attr"`
-	RequestID              string                   `xml:"requestId"`
-	VpcEndpointConnections vpcEndpointConnectionSet `xml:"unsuccessful"`
+	XMLName xml.Name `xml:"AcceptVpcEndpointConnectionsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	// RequestID is the AWS request identifier.
+	RequestID string `xml:"requestId"`
+	// Unsuccessful holds items that FAILED to be accepted.
+	// On full success this list is empty; the XML element name matches the AWS API.
+	Unsuccessful vpcEndpointConnectionSet `xml:"unsuccessful"`
 }
 
 type vpcPeeringConnectionItem struct {
@@ -342,23 +345,14 @@ func (h *Handler) handleAcceptVpcEndpointConnections(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	// The AWS API returns an unsuccessful set on success (empty for all accepted).
-	// Build the response including the successful connections as the accepted set.
-	resp := &acceptVpcEndpointConnectionsResponse{
+	// AWS returns the connections in vpcEndpointConnectionSet.item on success.
+	// The "unsuccessful" wrapper is empty because all connections were accepted.
+	_ = accepted // connections were accepted; unsuccessful set is empty
+
+	return &acceptVpcEndpointConnectionsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-	}
-
-	for _, conn := range accepted {
-		resp.VpcEndpointConnections.Items = append(resp.VpcEndpointConnections.Items,
-			vpcEndpointConnectionItem{
-				ServiceID:     conn.ServiceID,
-				VpcEndpointID: conn.VpcEndpointID,
-				State:         conn.State,
-			})
-	}
-
-	return resp, nil
+	}, nil
 }
 
 func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string) (any, error) {
@@ -429,6 +423,180 @@ func (h *Handler) handleAllocateHosts(vals url.Values, reqID string) (any, error
 
 	for _, host := range hosts {
 		resp.HostIDs.Items = append(resp.HostIDs.Items, host.HostID)
+	}
+
+	return resp, nil
+}
+
+// ---- Describe handlers for new resource types ----
+
+type capacityReservationSet struct {
+	Items []capacityReservationItem `xml:"item"`
+}
+
+type describeCapacityReservationsResponse struct {
+	XMLName              xml.Name               `xml:"DescribeCapacityReservationsResponse"`
+	Xmlns                string                 `xml:"xmlns,attr"`
+	RequestID            string                 `xml:"requestId"`
+	CapacityReservations capacityReservationSet `xml:"capacityReservationSet"`
+}
+
+func (h *Handler) handleDescribeCapacityReservations(vals url.Values, reqID string) (any, error) {
+	var ids []string
+
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("CapacityReservationId.%d", i))
+		if id == "" {
+			break
+		}
+
+		ids = append(ids, id)
+	}
+
+	reservations := h.Backend.DescribeCapacityReservations(ids)
+
+	resp := &describeCapacityReservationsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+	}
+
+	for _, cr := range reservations {
+		resp.CapacityReservations.Items = append(resp.CapacityReservations.Items,
+			capacityReservationItem{
+				CapacityReservationID:  cr.CapacityReservationID,
+				InstanceType:           cr.InstanceType,
+				AvailabilityZone:       cr.AvailabilityZone,
+				OwnedBy:                cr.OwnedBy,
+				State:                  cr.State,
+				AvailableInstanceCount: cr.AvailableInstanceCount,
+				TotalInstanceCount:     cr.TotalInstanceCount,
+			})
+	}
+
+	return resp, nil
+}
+
+type byoipCidrSet struct {
+	Items []byoipCidrItem `xml:"item"`
+}
+
+type describeByoipCidrsResponse struct {
+	XMLName    xml.Name     `xml:"DescribeByoipCidrsResponse"`
+	Xmlns      string       `xml:"xmlns,attr"`
+	RequestID  string       `xml:"requestId"`
+	ByoipCidrs byoipCidrSet `xml:"byoipCidrSet"`
+}
+
+func (h *Handler) handleDescribeByoipCidrs(vals url.Values, reqID string) (any, error) {
+	state := vals.Get("State")
+
+	cidrs := h.Backend.DescribeByoipCidrs(state)
+
+	resp := &describeByoipCidrsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+	}
+
+	for _, c := range cidrs {
+		resp.ByoipCidrs.Items = append(resp.ByoipCidrs.Items, byoipCidrItem{
+			Cidr:          c.Cidr,
+			State:         c.State,
+			StatusMessage: c.StatusMessage,
+		})
+	}
+
+	return resp, nil
+}
+
+type hostItem struct {
+	HostID           string `xml:"hostId"`
+	InstanceType     string `xml:"instanceType,omitempty"`
+	AvailabilityZone string `xml:"availabilityZone"`
+	State            string `xml:"state"`
+	OwnedBy          string `xml:"ownerId,omitempty"`
+}
+
+type hostSet struct {
+	Items []hostItem `xml:"item"`
+}
+
+type describeHostsResponse struct {
+	XMLName   xml.Name `xml:"DescribeHostsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Hosts     hostSet  `xml:"hostSet"`
+}
+
+func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error) {
+	var ids []string
+
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("HostId.%d", i))
+		if id == "" {
+			break
+		}
+
+		ids = append(ids, id)
+	}
+
+	hosts := h.Backend.DescribeHosts(ids)
+
+	resp := &describeHostsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+	}
+
+	for _, host := range hosts {
+		resp.Hosts.Items = append(resp.Hosts.Items, hostItem{
+			HostID:           host.HostID,
+			InstanceType:     host.InstanceType,
+			AvailabilityZone: host.AvailabilityZone,
+			State:            host.State,
+			OwnedBy:          host.OwnedBy,
+		})
+	}
+
+	return resp, nil
+}
+
+type vpcPeeringConnectionSet struct {
+	Items []vpcPeeringConnectionItem `xml:"item"`
+}
+
+type describeVpcPeeringConnectionsResponse struct {
+	XMLName               xml.Name                `xml:"DescribeVpcPeeringConnectionsResponse"`
+	Xmlns                 string                  `xml:"xmlns,attr"`
+	RequestID             string                  `xml:"requestId"`
+	VpcPeeringConnections vpcPeeringConnectionSet `xml:"vpcPeeringConnectionSet"`
+}
+
+func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID string) (any, error) {
+	var ids []string
+
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("VpcPeeringConnectionId.%d", i))
+		if id == "" {
+			break
+		}
+
+		ids = append(ids, id)
+	}
+
+	connections := h.Backend.DescribeVpcPeeringConnections(ids)
+
+	resp := &describeVpcPeeringConnectionsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+	}
+
+	for _, pc := range connections {
+		resp.VpcPeeringConnections.Items = append(resp.VpcPeeringConnections.Items,
+			vpcPeeringConnectionItem{
+				VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
+				RequesterVpcID:         pc.RequesterVpcID,
+				AccepterVpcID:          pc.AccepterVpcID,
+				State:                  pc.State,
+			})
 	}
 
 	return resp, nil
