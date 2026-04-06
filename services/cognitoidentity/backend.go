@@ -510,9 +510,10 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		// Look up by developer login tokens or create new.
 		for _, identity := range b.identitiesByPool[poolID] {
 			if mapsEqual(identity.Logins, logins) {
+				// Break early: only one identity can match these exact login credentials.
 				identityID = identity.IdentityID
 
-				break // stop at first match
+				break
 			}
 		}
 
