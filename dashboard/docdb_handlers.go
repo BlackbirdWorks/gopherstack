@@ -166,7 +166,7 @@ func (h *DashboardHandler) docdbCreateCluster(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.DocDBOps.Backend.CreateDBCluster(id, engine, masterUser, "", "", 0); err != nil {
+	if _, err := h.DocDBOps.Backend.CreateDBCluster(id, engine, masterUser, "", "", 0, nil); err != nil {
 		h.Logger.Error("failed to create DocDB cluster", "id", id, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

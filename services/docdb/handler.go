@@ -32,6 +32,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears all backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "DocDB" }
 
@@ -281,7 +284,8 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	masterUser := vals.Get("MasterUsername")
 	dbName := vals.Get("DatabaseName")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, 0)
+	tags := tagsToMap(parseTagEntries(vals))
+	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, 0, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +390,8 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
 	engine := vals.Get("Engine")
-	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine)
+	tags := tagsToMap(parseTagEntries(vals))
+	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +470,8 @@ func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
 	description := vals.Get("DBSubnetGroupDescription")
 	vpcID := vals.Get("VpcId")
 	subnetIDs := parseSubnetIDMembers(vals)
-	sg, err := h.Backend.CreateDBSubnetGroup(name, description, vpcID, subnetIDs)
+	tags := tagsToMap(parseTagEntries(vals))
+	sg, err := h.Backend.CreateDBSubnetGroup(name, description, vpcID, subnetIDs, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -512,7 +518,8 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 	name := vals.Get("DBClusterParameterGroupName")
 	family := vals.Get("DBParameterGroupFamily")
 	description := vals.Get("Description")
-	pg, err := h.Backend.CreateDBClusterParameterGroup(name, family, description)
+	tags := tagsToMap(parseTagEntries(vals))
+	pg, err := h.Backend.CreateDBClusterParameterGroup(name, family, description, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +575,8 @@ func (h *Handler) handleModifyDBClusterParameterGroup(vals url.Values) (any, err
 func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snap, err := h.Backend.CreateDBClusterSnapshot(snapshotID, clusterID)
+	tags := tagsToMap(parseTagEntries(vals))
+	snap, err := h.Backend.CreateDBClusterSnapshot(snapshotID, clusterID, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +589,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID)
+	clusterID := vals.Get("DBClusterIdentifier")
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -673,10 +682,17 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 	}, nil
 }
 
-func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeGlobalClusters(vals url.Values) (any, error) {
+	gcs := h.Backend.DescribeGlobalClusters(vals.Get("GlobalClusterIdentifier"))
+	members := make([]xmlGlobalCluster, 0, len(gcs))
+	for _, gc := range gcs {
+		cp := gc
+		members = append(members, toXMLGlobalCluster(&cp))
+	}
+
 	return &describeGlobalClustersResponse{
 		Xmlns:          docdbXMLNS,
-		GlobalClusters: xmlGlobalClusterList{},
+		GlobalClusters: xmlGlobalClusterList{Members: members},
 	}, nil
 }
 
@@ -847,31 +863,19 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 }
 
 func docdbErrorCode(opErr error) string {
-	type errorMapping struct {
-		sentinel error
-		code     string
+	sentinels := []error{
+		ErrClusterNotFound, ErrClusterAlreadyExists,
+		ErrInstanceNotFound, ErrInstanceAlreadyExists,
+		ErrSubnetGroupNotFound, ErrSubnetGroupAlreadyExists,
+		ErrClusterParameterGroupNotFound, ErrClusterParameterGroupAlreadyExists,
+		ErrClusterSnapshotNotFound, ErrClusterSnapshotAlreadyExists,
+		ErrEventSubscriptionNotFound, ErrEventSubscriptionAlreadyExists,
+		ErrGlobalClusterNotFound, ErrGlobalClusterAlreadyExists,
+		ErrInvalidParameter, ErrUnknownAction,
 	}
-	mappings := []errorMapping{
-		{ErrClusterNotFound, "DBClusterNotFoundFault"},
-		{ErrClusterAlreadyExists, "DBClusterAlreadyExistsFault"},
-		{ErrInstanceNotFound, "DBInstanceNotFound"},
-		{ErrInstanceAlreadyExists, "DBInstanceAlreadyExists"},
-		{ErrSubnetGroupNotFound, "DBSubnetGroupNotFoundFault"},
-		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExistsFault"},
-		{ErrClusterParameterGroupNotFound, "DBClusterParameterGroupNotFoundFault"},
-		{ErrClusterParameterGroupAlreadyExists, "DBClusterParameterGroupAlreadyExistsFault"},
-		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
-		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},
-		{ErrEventSubscriptionNotFound, "SubscriptionNotFoundFault"},
-		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExistFault"},
-		{ErrGlobalClusterNotFound, "GlobalClusterNotFoundFault"},
-		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExistsFault"},
-		{ErrInvalidParameter, "InvalidParameterValue"},
-		{ErrUnknownAction, "InvalidAction"},
-	}
-	for _, m := range mappings {
-		if errors.Is(opErr, m.sentinel) {
-			return m.code
+	for _, s := range sentinels {
+		if errors.Is(opErr, s) {
+			return s.Error()
 		}
 	}
 
@@ -943,6 +947,8 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
 		Endpoint:                    c.Endpoint,
 		Port:                        c.Port,
+		DBClusterArn:                c.DBClusterArn,
+		EngineVersion:               c.EngineVersion,
 	}
 }
 
@@ -955,6 +961,8 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		DBInstanceStatus:     inst.DBInstanceStatus,
 		Endpoint:             inst.Endpoint,
 		Port:                 inst.Port,
+		DBInstanceArn:        inst.DBInstanceArn,
+		EngineVersion:        inst.EngineVersion,
 	}
 }
 
@@ -987,6 +995,7 @@ func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 		DBClusterIdentifier:         snap.DBClusterIdentifier,
 		Engine:                      snap.Engine,
 		Status:                      snap.Status,
+		EngineVersion:               snap.EngineVersion,
 	}
 }
 
@@ -1010,6 +1019,8 @@ type xmlDBCluster struct {
 	DatabaseName                string `xml:"DatabaseName,omitempty"`
 	DBClusterParameterGroupName string `xml:"DBClusterParameterGroup,omitempty"`
 	Endpoint                    string `xml:"Endpoint,omitempty"`
+	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
+	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Port                        int    `xml:"Port"`
 }
 
@@ -1071,6 +1082,8 @@ type xmlDBInstance struct {
 	Engine               string `xml:"Engine"`
 	DBInstanceStatus     string `xml:"DBInstanceStatus"`
 	Endpoint             string `xml:"Endpoint>Address,omitempty"`
+	DBInstanceArn        string `xml:"DBInstanceArn,omitempty"`
+	EngineVersion        string `xml:"EngineVersion,omitempty"`
 	Port                 int    `xml:"Endpoint>Port"`
 }
 
@@ -1197,6 +1210,7 @@ type xmlDBClusterSnapshot struct {
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	Engine                      string `xml:"Engine"`
 	Status                      string `xml:"Status"`
+	EngineVersion               string `xml:"EngineVersion,omitempty"`
 }
 
 type xmlDBClusterSnapshotList struct {
@@ -1283,7 +1297,7 @@ type describeOrderableDBInstanceOptionsResponse struct {
 }
 
 type xmlGlobalClusterList struct {
-	Members []struct{} `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalCluster"`
 }
 
 type describeGlobalClustersResponse struct {
@@ -1472,6 +1486,18 @@ func parseSourceIDMembers(vals url.Values) []string {
 		}
 		ids = append(ids, id)
 	}
+}
+
+func tagsToMap(tags []Tag) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		m[t.Key] = t.Value
+	}
+
+	return m
 }
 
 const defaultDocDBMaxRecords = 100
