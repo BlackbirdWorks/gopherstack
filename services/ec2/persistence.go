@@ -2,28 +2,51 @@ package ec2
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
+// snapTGWMcastAssoc is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWMcastAssoc = TransitGatewayMulticastDomainAssociation
+
+// snapRIExchange is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapRIExchange = ReservedInstancesExchange
+
+// snapTGWPeeringAtt is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWPeeringAtt = TransitGatewayPeeringAttachment
+
+// snapTGWVpcAtt is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWVpcAtt = TransitGatewayVpcAttachment
+
 type backendSnapshot struct {
-	RouteTables        map[string]*RouteTable          `json:"routeTables"`
-	NetworkInterfaces  map[string]*NetworkInterface    `json:"networkInterfaces"`
-	VPCs               map[string]*VPC                 `json:"vpcs"`
-	NatGateways        map[string]*NatGateway          `json:"natGateways"`
-	KeyPairs           map[string]*KeyPair             `json:"keyPairs"`
-	Volumes            map[string]*Volume              `json:"volumes"`
-	Addresses          map[string]*Address             `json:"addresses"`
-	InternetGateways   map[string]*InternetGateway     `json:"internetGateways"`
-	SecurityGroups     map[string]*SecurityGroup       `json:"securityGroups"`
-	Instances          map[string]*Instance            `json:"instances"`
-	Subnets            map[string]*Subnet              `json:"subnets"`
-	SpotRequests       map[string]*SpotInstanceRequest `json:"spotRequests"`
-	PlacementGroups    map[string]*PlacementGroup      `json:"placementGroups"`
-	Tags               map[string]map[string]string    `json:"tags"`
-	AccountID          string                          `json:"accountID"`
-	Region             string                          `json:"region"`
-	FreePrivateIPs     []string                        `json:"freePrivateIPs,omitempty"`
-	NextPrivateIPIndex int                             `json:"nextPrivateIPIndex"`
-	NextElasticIPIndex int                             `json:"nextElasticIPIndex"`
+	RouteTables                    map[string]*RouteTable            `json:"routeTables"`
+	NetworkInterfaces              map[string]*NetworkInterface      `json:"networkInterfaces"`
+	VPCs                           map[string]*VPC                   `json:"vpcs"`
+	NatGateways                    map[string]*NatGateway            `json:"natGateways"`
+	KeyPairs                       map[string]*KeyPair               `json:"keyPairs"`
+	Volumes                        map[string]*Volume                `json:"volumes"`
+	Addresses                      map[string]*Address               `json:"addresses"`
+	InternetGateways               map[string]*InternetGateway       `json:"internetGateways"`
+	SecurityGroups                 map[string]*SecurityGroup         `json:"securityGroups"`
+	Instances                      map[string]*Instance              `json:"instances"`
+	Subnets                        map[string]*Subnet                `json:"subnets"`
+	SpotRequests                   map[string]*SpotInstanceRequest   `json:"spotRequests"`
+	PlacementGroups                map[string]*PlacementGroup        `json:"placementGroups"`
+	Tags                           map[string]map[string]string      `json:"tags"`
+	AddressTransfers               map[string]*AddressTransfer       `json:"addressTransfers,omitempty"`
+	CapacityReservations           map[string]*CapacityReservation   `json:"capacityReservations,omitempty"`
+	ReservedInstancesExchanges     map[string]*snapRIExchange        `json:"reservedInstancesExchanges,omitempty"`
+	TGWMulticastDomainAssociations map[string]*snapTGWMcastAssoc     `json:"tgwMulticastDomainAssociations,omitempty"`
+	TGWPeeringAttachments          map[string]*snapTGWPeeringAtt     `json:"tgwPeeringAttachments,omitempty"`
+	TGWVpcAttachments              map[string]*snapTGWVpcAtt         `json:"tgwVpcAttachments,omitempty"`
+	VpcEndpointConnections         map[string]*VpcEndpointConnection `json:"vpcEndpointConnections,omitempty"`
+	VpcPeeringConnections          map[string]*VpcPeeringConnection  `json:"vpcPeeringConnections,omitempty"`
+	ByoipCidrs                     map[string]*ByoipCidr             `json:"byoipCidrs,omitempty"`
+	DedicatedHosts                 map[string]*Host                  `json:"dedicatedHosts,omitempty"`
+	AccountID                      string                            `json:"accountID"`
+	Region                         string                            `json:"region"`
+	FreePrivateIPs                 []string                          `json:"freePrivateIPs,omitempty"`
+	NextPrivateIPIndex             int                               `json:"nextPrivateIPIndex"`
+	NextElasticIPIndex             int                               `json:"nextElasticIPIndex"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -33,29 +56,41 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Instances:          b.instances,
-		SecurityGroups:     b.securityGroups,
-		VPCs:               b.vpcs,
-		Subnets:            b.subnets,
-		KeyPairs:           b.keyPairs,
-		Volumes:            b.volumes,
-		Addresses:          b.addresses,
-		InternetGateways:   b.internetGateways,
-		RouteTables:        b.routeTables,
-		NatGateways:        b.natGateways,
-		NetworkInterfaces:  b.networkInterfaces,
-		SpotRequests:       b.spotRequests,
-		PlacementGroups:    b.placementGroups,
-		Tags:               b.tags,
-		FreePrivateIPs:     b.freePrivateIPs,
-		AccountID:          b.AccountID,
-		Region:             b.Region,
-		NextPrivateIPIndex: b.nextPrivateIPIndex,
-		NextElasticIPIndex: b.nextElasticIPIndex,
+		Instances:                      b.instances,
+		SecurityGroups:                 b.securityGroups,
+		VPCs:                           b.vpcs,
+		Subnets:                        b.subnets,
+		KeyPairs:                       b.keyPairs,
+		Volumes:                        b.volumes,
+		Addresses:                      b.addresses,
+		InternetGateways:               b.internetGateways,
+		RouteTables:                    b.routeTables,
+		NatGateways:                    b.natGateways,
+		NetworkInterfaces:              b.networkInterfaces,
+		SpotRequests:                   b.spotRequests,
+		PlacementGroups:                b.placementGroups,
+		Tags:                           b.tags,
+		AddressTransfers:               b.addressTransfers,
+		CapacityReservations:           b.capacityReservations,
+		ReservedInstancesExchanges:     b.reservedInstancesExchanges,
+		TGWMulticastDomainAssociations: b.tgwMulticastDomainAssociations,
+		TGWPeeringAttachments:          b.tgwPeeringAttachments,
+		TGWVpcAttachments:              b.tgwVpcAttachments,
+		VpcEndpointConnections:         b.vpcEndpointConnections,
+		VpcPeeringConnections:          b.vpcPeeringConnections,
+		ByoipCidrs:                     b.byoipCidrs,
+		DedicatedHosts:                 b.dedicatedHosts,
+		FreePrivateIPs:                 b.freePrivateIPs,
+		AccountID:                      b.AccountID,
+		Region:                         b.Region,
+		NextPrivateIPIndex:             b.nextPrivateIPIndex,
+		NextElasticIPIndex:             b.nextElasticIPIndex,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("ec2: Snapshot marshal failure", "error", err)
+
 		return nil
 	}
 
@@ -90,6 +125,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.spotRequests = snap.SpotRequests
 	b.placementGroups = snap.PlacementGroups
 	b.tags = snap.Tags
+	b.addressTransfers = snap.AddressTransfers
+	b.capacityReservations = snap.CapacityReservations
+	b.reservedInstancesExchanges = snap.ReservedInstancesExchanges
+	b.tgwMulticastDomainAssociations = snap.TGWMulticastDomainAssociations
+	b.tgwPeeringAttachments = snap.TGWPeeringAttachments
+	b.tgwVpcAttachments = snap.TGWVpcAttachments
+	b.vpcEndpointConnections = snap.VpcEndpointConnections
+	b.vpcPeeringConnections = snap.VpcPeeringConnections
+	b.byoipCidrs = snap.ByoipCidrs
+	b.dedicatedHosts = snap.DedicatedHosts
 	b.freePrivateIPs = snap.FreePrivateIPs
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
@@ -103,6 +148,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // This prevents nil-map panics when the snapshot was created from a backend
 // that never populated a particular resource type.
 func (s *backendSnapshot) initMissingMaps() {
+	s.initCoreMaps()
+	s.initNewOpsMaps()
+}
+
+// initCoreMaps initialises the original map fields.
+func (s *backendSnapshot) initCoreMaps() {
 	if s.Instances == nil {
 		s.Instances = make(map[string]*Instance)
 	}
@@ -157,6 +208,49 @@ func (s *backendSnapshot) initMissingMaps() {
 
 	if s.Tags == nil {
 		s.Tags = make(map[string]map[string]string)
+	}
+}
+
+// initNewOpsMaps initialises the map fields added for the new Accept/Advertise/Allocate operations.
+func (s *backendSnapshot) initNewOpsMaps() {
+	if s.AddressTransfers == nil {
+		s.AddressTransfers = make(map[string]*AddressTransfer)
+	}
+
+	if s.CapacityReservations == nil {
+		s.CapacityReservations = make(map[string]*CapacityReservation)
+	}
+
+	if s.ReservedInstancesExchanges == nil {
+		s.ReservedInstancesExchanges = make(map[string]*ReservedInstancesExchange)
+	}
+
+	if s.TGWMulticastDomainAssociations == nil {
+		s.TGWMulticastDomainAssociations = make(map[string]*TransitGatewayMulticastDomainAssociation)
+	}
+
+	if s.TGWPeeringAttachments == nil {
+		s.TGWPeeringAttachments = make(map[string]*TransitGatewayPeeringAttachment)
+	}
+
+	if s.TGWVpcAttachments == nil {
+		s.TGWVpcAttachments = make(map[string]*TransitGatewayVpcAttachment)
+	}
+
+	if s.VpcEndpointConnections == nil {
+		s.VpcEndpointConnections = make(map[string]*VpcEndpointConnection)
+	}
+
+	if s.VpcPeeringConnections == nil {
+		s.VpcPeeringConnections = make(map[string]*VpcPeeringConnection)
+	}
+
+	if s.ByoipCidrs == nil {
+		s.ByoipCidrs = make(map[string]*ByoipCidr)
+	}
+
+	if s.DedicatedHosts == nil {
+		s.DedicatedHosts = make(map[string]*Host)
 	}
 }
 

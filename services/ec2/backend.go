@@ -35,6 +35,10 @@ const (
 	// stateAvailable is the "available" state string shared by volumes, ENIs,
 	// and other resources that are not currently in use.
 	stateAvailable = "available"
+
+	// stateActive is the "active" state string used by peering connections,
+	// capacity reservations, and spot instance requests.
+	stateActive = "active"
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -115,48 +119,68 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
-	networkInterfaces  map[string]*NetworkInterface
-	securityGroups     map[string]*SecurityGroup
-	vpcs               map[string]*VPC
-	subnets            map[string]*Subnet
-	keyPairs           map[string]*KeyPair
-	volumes            map[string]*Volume
-	addresses          map[string]*Address
-	internetGateways   map[string]*InternetGateway
-	natGateways        map[string]*NatGateway
-	routeTables        map[string]*RouteTable
-	placementGroups    map[string]*PlacementGroup
-	spotRequests       map[string]*SpotInstanceRequest
-	instances          map[string]*Instance
-	tags               map[string]map[string]string
-	mu                 *lockmetrics.RWMutex
-	AccountID          string
-	Region             string
-	freePrivateIPs     []string
-	nextPrivateIPIndex int
-	nextElasticIPIndex int
+	networkInterfaces              map[string]*NetworkInterface
+	securityGroups                 map[string]*SecurityGroup
+	vpcs                           map[string]*VPC
+	subnets                        map[string]*Subnet
+	keyPairs                       map[string]*KeyPair
+	volumes                        map[string]*Volume
+	addresses                      map[string]*Address
+	internetGateways               map[string]*InternetGateway
+	natGateways                    map[string]*NatGateway
+	routeTables                    map[string]*RouteTable
+	placementGroups                map[string]*PlacementGroup
+	spotRequests                   map[string]*SpotInstanceRequest
+	instances                      map[string]*Instance
+	tags                           map[string]map[string]string
+	addressTransfers               map[string]*AddressTransfer
+	capacityReservations           map[string]*CapacityReservation
+	reservedInstancesExchanges     map[string]*ReservedInstancesExchange
+	tgwMulticastDomainAssociations map[string]*TransitGatewayMulticastDomainAssociation
+	tgwPeeringAttachments          map[string]*TransitGatewayPeeringAttachment
+	tgwVpcAttachments              map[string]*TransitGatewayVpcAttachment
+	vpcEndpointConnections         map[string]*VpcEndpointConnection
+	vpcPeeringConnections          map[string]*VpcPeeringConnection
+	byoipCidrs                     map[string]*ByoipCidr
+	dedicatedHosts                 map[string]*Host
+	mu                             *lockmetrics.RWMutex
+	AccountID                      string
+	Region                         string
+	freePrivateIPs                 []string
+	nextPrivateIPIndex             int
+	nextElasticIPIndex             int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		instances:         make(map[string]*Instance),
-		securityGroups:    make(map[string]*SecurityGroup),
-		vpcs:              make(map[string]*VPC),
-		subnets:           make(map[string]*Subnet),
-		keyPairs:          make(map[string]*KeyPair),
-		volumes:           make(map[string]*Volume),
-		addresses:         make(map[string]*Address),
-		internetGateways:  make(map[string]*InternetGateway),
-		routeTables:       make(map[string]*RouteTable),
-		natGateways:       make(map[string]*NatGateway),
-		networkInterfaces: make(map[string]*NetworkInterface),
-		spotRequests:      make(map[string]*SpotInstanceRequest),
-		placementGroups:   make(map[string]*PlacementGroup),
-		tags:              make(map[string]map[string]string),
-		AccountID:         accountID,
-		Region:            region,
-		mu:                lockmetrics.New("ec2"),
+		instances:                      make(map[string]*Instance),
+		securityGroups:                 make(map[string]*SecurityGroup),
+		vpcs:                           make(map[string]*VPC),
+		subnets:                        make(map[string]*Subnet),
+		keyPairs:                       make(map[string]*KeyPair),
+		volumes:                        make(map[string]*Volume),
+		addresses:                      make(map[string]*Address),
+		internetGateways:               make(map[string]*InternetGateway),
+		routeTables:                    make(map[string]*RouteTable),
+		natGateways:                    make(map[string]*NatGateway),
+		networkInterfaces:              make(map[string]*NetworkInterface),
+		spotRequests:                   make(map[string]*SpotInstanceRequest),
+		placementGroups:                make(map[string]*PlacementGroup),
+		tags:                           make(map[string]map[string]string),
+		addressTransfers:               make(map[string]*AddressTransfer),
+		capacityReservations:           make(map[string]*CapacityReservation),
+		reservedInstancesExchanges:     make(map[string]*ReservedInstancesExchange),
+		tgwMulticastDomainAssociations: make(map[string]*TransitGatewayMulticastDomainAssociation),
+		tgwPeeringAttachments:          make(map[string]*TransitGatewayPeeringAttachment),
+		tgwVpcAttachments:              make(map[string]*TransitGatewayVpcAttachment),
+		vpcEndpointConnections:         make(map[string]*VpcEndpointConnection),
+		vpcPeeringConnections:          make(map[string]*VpcPeeringConnection),
+		byoipCidrs:                     make(map[string]*ByoipCidr),
+		dedicatedHosts:                 make(map[string]*Host),
+		AccountID:                      accountID,
+		Region:                         region,
+		mu:                             lockmetrics.New("ec2"),
 	}
 
 	b.initDefaults()
@@ -327,7 +351,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		// Mirror AWS behaviour: when the backing instance of a spot request is
 		// terminated, the request transitions to "closed" (not "cancelled").
 		for _, req := range b.spotRequests {
-			if req.InstanceID == id && req.State == "active" {
+			if req.InstanceID == id && req.State == stateActive {
 				req.State = "closed"
 				req.CancelledAt = time.Now()
 			}

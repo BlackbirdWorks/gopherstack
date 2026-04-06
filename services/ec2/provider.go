@@ -1,9 +1,14 @@
 package ec2
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Provider.Init is called with a nil AppContext.
+var ErrNilAppContext = errors.New("AppContext is required")
 
 // ConfigProvider is a private interface to extract EC2 configuration
 // from the abstract AppContext Config.
@@ -23,6 +28,10 @@ func (p *Provider) Name() string {
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	var accountID, region string
 
 	if cp, ok := ctx.Config.(config.Provider); ok {

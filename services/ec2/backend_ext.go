@@ -882,7 +882,7 @@ func (b *InMemoryBackend) CreateRoute(rtID, destCIDR, gatewayID, natGatewayID st
 		DestinationCIDR: destCIDR,
 		GatewayID:       gatewayID,
 		NatGatewayID:    natGatewayID,
-		State:           "active",
+		State:           stateActive,
 	})
 
 	return nil
@@ -1326,7 +1326,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 	req := &SpotInstanceRequest{
 		ID:         reqID,
 		InstanceID: instanceID,
-		State:      "active",
+		State:      stateActive,
 		SpotPrice:  spotPrice,
 		Type:       "one-time",
 		CreateTime: time.Now(),
