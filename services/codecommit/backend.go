@@ -601,8 +601,8 @@ func (b *InMemoryBackend) BatchGetCommits(
 		return nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	found := make([]*Commit, 0)
-	errors := make([]BatchCommitError, 0)
+	found := make([]*Commit, 0, len(commitIDs))
+	errors := make([]BatchCommitError, 0, len(commitIDs))
 
 	repoCommits := b.commits[repositoryName]
 

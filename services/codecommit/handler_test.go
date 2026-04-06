@@ -1253,8 +1253,7 @@ func TestHandler_BatchGetCommits(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var commitIDs []string
-			for i := range tt.seedCommits {
-				_ = i
+			for range tt.seedCommits {
 				r := doRequest(t, h, "CreateCommit", map[string]any{
 					"repositoryName": "repo",
 					"branchName":     "main",
