@@ -228,7 +228,11 @@ func TestHandler_ReplicationInstanceCRUD(t *testing.T) {
 						{"Name": "replication-instance-id", "Values": []string{"missing"}},
 					},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				list, ok := resp["ReplicationInstances"].([]any)
+				require.True(t, ok)
+				assert.Empty(t, list)
 			},
 		},
 		{
@@ -2219,4 +2223,365 @@ func TestHandler_TagsOnNewResources(t *testing.T) {
 			tt.run(t, h)
 		})
 	}
+}
+
+// --- Refinement tests ---
+
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddReplicationInstanceInternal("inst1", "dms.t3.medium")
+	require.Equal(t, 1, h.Backend.ReplicationInstanceCount())
+
+	h.Backend.Reset()
+	assert.Equal(t, 0, h.Backend.ReplicationInstanceCount())
+}
+
+func TestRefinement1_HandlerReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddEndpointInternal("ep1", "source", "mysql")
+	require.Equal(t, 1, h.Backend.EndpointCount())
+
+	h.Reset()
+	assert.Equal(t, 0, h.Backend.EndpointCount())
+}
+
+func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := dms.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dms.ErrNilAppContext)
+}
+
+func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": "pre-built-inst",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRefinement1_SortedListTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	create := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": "tagtest",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+		"Tags": []map[string]any{
+			{"Key": "zebra", "Value": "z"},
+			{"Key": "alpha", "Value": "a"},
+			{"Key": "middle", "Value": "m"},
+		},
+	})
+	require.Equal(t, http.StatusOK, create.Code)
+	arnStr := parseJSON(t, create)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": arnStr,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	tagList := parseJSON(t, listRec)["TagList"].([]any)
+	require.Len(t, tagList, 3)
+	assert.Equal(t, "alpha", tagList[0].(map[string]any)["Key"])
+	assert.Equal(t, "middle", tagList[1].(map[string]any)["Key"])
+	assert.Equal(t, "zebra", tagList[2].(map[string]any)["Key"])
+}
+
+func TestRefinement1_NonNilEventSubscriptionSlices(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "CreateEventSubscription", map[string]any{
+		"SubscriptionName": "sub1",
+		"SnsTopicArn":      "arn:aws:sns:us-east-1:123:topic1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseJSON(t, rec)
+	es := body["EventSubscription"].(map[string]any)
+	require.NotNil(t, es["SourceIdsList"])
+	require.NotNil(t, es["EventCategories"])
+}
+
+func TestRefinement1_DescribeReturnsEmptyListOnFilterMiss(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "DescribeReplicationInstances", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "replication-instance-id", "Values": []string{"nonexistent"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseJSON(t, rec)
+	instances := body["ReplicationInstances"].([]any)
+	assert.Empty(t, instances)
+}
+
+func TestRefinement1_DescribeEndpointsFilterMiss(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "endpoint-id", "Values": []string{"nonexistent"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseJSON(t, rec)
+	endpoints := body["Endpoints"].([]any)
+	assert.Empty(t, endpoints)
+}
+
+func TestRefinement1_DescribeTasksFilterMiss(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "replication-task-id", "Values": []string{"nonexistent"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseJSON(t, rec)
+	tasks := body["ReplicationTasks"].([]any)
+	assert.Empty(t, tasks)
+}
+
+func TestRefinement1_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddReplicationInstanceInternal("seed-inst", "dms.t3.medium")
+	h.Backend.AddEndpointInternal("seed-ep", "source", "mysql")
+	h.Backend.AddReplicationTaskInternal("seed-task", "src-arn", "tgt-arn", "inst-arn", "full-load")
+
+	assert.Equal(t, 1, h.Backend.ReplicationInstanceCount())
+	assert.Equal(t, 1, h.Backend.EndpointCount())
+	assert.Equal(t, 1, h.Backend.ReplicationTaskCount())
+}
+
+func TestRefinement1_ExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddDataMigrationInternal("dm1", "cdc")
+	h.Backend.AddDataProviderInternal("dp1", "mysql")
+	h.Backend.AddEventSubscriptionInternal("sub1", "arn:aws:sns:us-east-1:123:t")
+	h.Backend.AddFleetAdvisorCollectorInternal("col1")
+	h.Backend.AddInstanceProfileInternal("prof1")
+
+	assert.Equal(t, 1, h.Backend.DataMigrationCount())
+	assert.Equal(t, 1, h.Backend.DataProviderCount())
+	assert.Equal(t, 1, h.Backend.EventSubscriptionCount())
+	assert.Equal(t, 1, h.Backend.FleetAdvisorCollectorCount())
+	assert.Equal(t, 1, h.Backend.InstanceProfileCount())
+}
+
+func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddReplicationInstanceInternal("persist-inst", "dms.t3.medium")
+	h.Backend.AddEndpointInternal("persist-ep", "source", "mysql")
+
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
+
+	h2 := newTestDMSHandler()
+	require.NoError(t, h2.Restore(snap))
+
+	assert.Equal(t, 1, h2.Backend.ReplicationInstanceCount())
+	assert.Equal(t, 1, h2.Backend.EndpointCount())
+}
+
+func TestRefinement1_MigrationTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		typeStr    string
+		wantStatus int
+	}{
+		{name: "valid_full_load", typeStr: "full-load", wantStatus: http.StatusOK},
+		{name: "valid_cdc", typeStr: "cdc", wantStatus: http.StatusOK},
+		{name: "valid_full_load_and_cdc", typeStr: "full-load-and-cdc", wantStatus: http.StatusOK},
+		{name: "invalid_type", typeStr: "unknown-type", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CreateDataMigration", map[string]any{
+				"DataMigrationName": "dm-" + tt.typeStr,
+				"DataMigrationType": tt.typeStr,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestRefinement1_NetworkTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		networkType string
+		wantStatus  int
+	}{
+		{name: "empty_network_type", networkType: "", wantStatus: http.StatusOK},
+		{name: "ipv4", networkType: "IPV4", wantStatus: http.StatusOK},
+		{name: "ipv6", networkType: "IPV6", wantStatus: http.StatusOK},
+		{name: "dual", networkType: "DUAL", wantStatus: http.StatusOK},
+		{name: "invalid", networkType: "INVALID", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			body := map[string]any{
+				"InstanceProfileName": "prof-" + tt.networkType,
+			}
+			if tt.networkType != "" {
+				body["NetworkType"] = tt.networkType
+			}
+			rec := doDMS(t, h, "CreateInstanceProfile", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestRefinement1_ValidationMappedTo400(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "missing_instance_identifier",
+			action: "CreateReplicationInstance",
+			body:   map[string]any{"ReplicationInstanceClass": "dms.t3.medium"},
+		},
+		{
+			name:   "missing_endpoint_identifier",
+			action: "CreateEndpoint",
+			body:   map[string]any{"EndpointType": "source", "EngineName": "mysql"},
+		},
+		{
+			name:   "missing_task_identifier",
+			action: "CreateReplicationTask",
+			body: map[string]any{
+				"SourceEndpointArn":      "arn:src",
+				"TargetEndpointArn":      "arn:tgt",
+				"ReplicationInstanceArn": "arn:inst",
+				"MigrationType":          "full-load",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func TestRefinement1_MultipleResetCycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	for _, name := range []string{"inst-0", "inst-1", "inst-2"} {
+		h.Backend.AddReplicationInstanceInternal(name, "dms.t3.medium")
+	}
+	require.Equal(t, 3, h.Backend.ReplicationInstanceCount())
+
+	h.Backend.Reset()
+	require.Equal(t, 0, h.Backend.ReplicationInstanceCount())
+
+	h.Backend.AddReplicationInstanceInternal("inst-after-reset", "dms.t3.medium")
+	assert.Equal(t, 1, h.Backend.ReplicationInstanceCount())
+}
+
+func TestRefinement1_ARNIndexedTagOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	createRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": "arn-tag-inst",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	instARN := parseJSON(t, createRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	addRec := doDMS(t, h, "AddTagsToResource", map[string]any{
+		"ResourceArn": instARN,
+		"Tags":        []map[string]any{{"Key": "team", "Value": "platform"}},
+	})
+	assert.Equal(t, http.StatusOK, addRec.Code)
+
+	listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": instARN,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	tagList := parseJSON(t, listRec)["TagList"].([]any)
+	require.Len(t, tagList, 1)
+	assert.Equal(t, "team", tagList[0].(map[string]any)["Key"])
+}
+
+func TestRefinement1_FleetAdvisorCollectorTagsOnReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddFleetAdvisorCollectorInternal("col-reset-test")
+
+	// Should not panic on reset even with collector tags.
+	assert.NotPanics(t, func() { h.Backend.Reset() })
+	assert.Equal(t, 0, h.Backend.FleetAdvisorCollectorCount())
+}
+
+func TestRefinement1_DataMigrationSeedHelper(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddDataMigrationInternal("seed-migration", "full-load")
+	assert.Equal(t, 1, h.Backend.DataMigrationCount())
+}
+
+func TestRefinement1_EventSubscriptionSeedHelper(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddEventSubscriptionInternal("seed-sub", "arn:aws:sns:us-east-1:123:topic")
+	assert.Equal(t, 1, h.Backend.EventSubscriptionCount())
+}
+
+func TestRefinement1_InstanceProfileSeedHelper(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddInstanceProfileInternal("seed-profile")
+	assert.Equal(t, 1, h.Backend.InstanceProfileCount())
 }

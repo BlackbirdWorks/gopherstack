@@ -29,11 +29,48 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for AWS DMS operations (JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new DMS handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateReplicationInstance":          service.WrapOp(h.handleCreateReplicationInstance),
+		"DescribeReplicationInstances":       service.WrapOp(h.handleDescribeReplicationInstances),
+		"DeleteReplicationInstance":          service.WrapOp(h.handleDeleteReplicationInstance),
+		"CreateEndpoint":                     service.WrapOp(h.handleCreateEndpoint),
+		"DescribeEndpoints":                  service.WrapOp(h.handleDescribeEndpoints),
+		"DeleteEndpoint":                     service.WrapOp(h.handleDeleteEndpoint),
+		"CreateReplicationTask":              service.WrapOp(h.handleCreateReplicationTask),
+		"DescribeReplicationTasks":           service.WrapOp(h.handleDescribeReplicationTasks),
+		"StartReplicationTask":               service.WrapOp(h.handleStartReplicationTask),
+		"StopReplicationTask":                service.WrapOp(h.handleStopReplicationTask),
+		"DeleteReplicationTask":              service.WrapOp(h.handleDeleteReplicationTask),
+		"AddTagsToResource":                  service.WrapOp(h.handleAddTagsToResource),
+		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
+		"ApplyPendingMaintenanceAction":      service.WrapOp(h.handleApplyPendingMaintenanceAction),
+		"BatchStartRecommendations":          service.WrapOp(h.handleBatchStartRecommendations),
+		"CancelMetadataModelConversion":      service.WrapOp(h.handleCancelMetadataModelConversion),
+		"CancelMetadataModelCreation":        service.WrapOp(h.handleCancelMetadataModelCreation),
+		"CancelReplicationTaskAssessmentRun": service.WrapOp(h.handleCancelReplicationTaskAssessmentRun),
+		"CreateDataMigration":                service.WrapOp(h.handleCreateDataMigration),
+		"CreateDataProvider":                 service.WrapOp(h.handleCreateDataProvider),
+		"CreateEventSubscription":            service.WrapOp(h.handleCreateEventSubscription),
+		"CreateFleetAdvisorCollector":        service.WrapOp(h.handleCreateFleetAdvisorCollector),
+		"CreateInstanceProfile":              service.WrapOp(h.handleCreateInstanceProfile),
+	}
+}
+
+// Reset delegates to the backend Reset, clearing all in-memory state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -113,6 +150,18 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return extractField(c, "ReplicationTaskIdentifier", "ReplicationTaskArn")
 	case "AddTagsToResource", "ListTagsForResource":
 		return extractField(c, "ResourceArn")
+	case "ApplyPendingMaintenanceAction":
+		return extractField(c, "ReplicationInstanceArn")
+	case "CreateDataMigration":
+		return extractField(c, "DataMigrationName")
+	case "CreateDataProvider":
+		return extractField(c, "DataProviderName")
+	case "CreateEventSubscription":
+		return extractField(c, "SubscriptionName")
+	case "CreateFleetAdvisorCollector":
+		return extractField(c, "CollectorName")
+	case "CreateInstanceProfile":
+		return extractField(c, "InstanceProfileName")
 	}
 
 	return ""
@@ -157,33 +206,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	table := map[string]service.JSONOpFunc{
-		"CreateReplicationInstance":          service.WrapOp(h.handleCreateReplicationInstance),
-		"DescribeReplicationInstances":       service.WrapOp(h.handleDescribeReplicationInstances),
-		"DeleteReplicationInstance":          service.WrapOp(h.handleDeleteReplicationInstance),
-		"CreateEndpoint":                     service.WrapOp(h.handleCreateEndpoint),
-		"DescribeEndpoints":                  service.WrapOp(h.handleDescribeEndpoints),
-		"DeleteEndpoint":                     service.WrapOp(h.handleDeleteEndpoint),
-		"CreateReplicationTask":              service.WrapOp(h.handleCreateReplicationTask),
-		"DescribeReplicationTasks":           service.WrapOp(h.handleDescribeReplicationTasks),
-		"StartReplicationTask":               service.WrapOp(h.handleStartReplicationTask),
-		"StopReplicationTask":                service.WrapOp(h.handleStopReplicationTask),
-		"DeleteReplicationTask":              service.WrapOp(h.handleDeleteReplicationTask),
-		"AddTagsToResource":                  service.WrapOp(h.handleAddTagsToResource),
-		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
-		"ApplyPendingMaintenanceAction":      service.WrapOp(h.handleApplyPendingMaintenanceAction),
-		"BatchStartRecommendations":          service.WrapOp(h.handleBatchStartRecommendations),
-		"CancelMetadataModelConversion":      service.WrapOp(h.handleCancelMetadataModelConversion),
-		"CancelMetadataModelCreation":        service.WrapOp(h.handleCancelMetadataModelCreation),
-		"CancelReplicationTaskAssessmentRun": service.WrapOp(h.handleCancelReplicationTaskAssessmentRun),
-		"CreateDataMigration":                service.WrapOp(h.handleCreateDataMigration),
-		"CreateDataProvider":                 service.WrapOp(h.handleCreateDataProvider),
-		"CreateEventSubscription":            service.WrapOp(h.handleCreateEventSubscription),
-		"CreateFleetAdvisorCollector":        service.WrapOp(h.handleCreateFleetAdvisorCollector),
-		"CreateInstanceProfile":              service.WrapOp(h.handleCreateInstanceProfile),
-	}
-
-	fn, ok := table[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -251,11 +274,11 @@ func (h *Handler) handleCreateReplicationInstance(
 	class := ptrStr(in.ReplicationInstanceClass)
 
 	if identifier == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceIdentifier is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceIdentifier is required", ErrValidation)
 	}
 
 	if class == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceClass is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceClass is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -384,15 +407,15 @@ func (h *Handler) handleCreateEndpoint(
 	engineName := ptrStr(in.EngineName)
 
 	if identifier == "" {
-		return nil, fmt.Errorf("%w: EndpointIdentifier is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: EndpointIdentifier is required", ErrValidation)
 	}
 
 	if endpointType == "" {
-		return nil, fmt.Errorf("%w: EndpointType is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: EndpointType is required", ErrValidation)
 	}
 
 	if engineName == "" {
-		return nil, fmt.Errorf("%w: EngineName is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: EngineName is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -504,23 +527,23 @@ func (h *Handler) handleCreateReplicationTask(
 	migrationType := ptrStr(in.MigrationType)
 
 	if identifier == "" {
-		return nil, fmt.Errorf("%w: ReplicationTaskIdentifier is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationTaskIdentifier is required", ErrValidation)
 	}
 
 	if sourceEndpointArn == "" {
-		return nil, fmt.Errorf("%w: SourceEndpointArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: SourceEndpointArn is required", ErrValidation)
 	}
 
 	if targetEndpointArn == "" {
-		return nil, fmt.Errorf("%w: TargetEndpointArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: TargetEndpointArn is required", ErrValidation)
 	}
 
 	if replicationInstanceArn == "" {
-		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrValidation)
 	}
 
 	if migrationType == "" {
-		return nil, fmt.Errorf("%w: MigrationType is required", ErrInvalidState)
+		return nil, fmt.Errorf("%w: MigrationType is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -681,6 +704,7 @@ func (h *Handler) handleListTagsForResource(
 	for k, v := range kv {
 		list = append(list, tagEntry{Key: k, Value: v})
 	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
 
 	return &listTagsForResourceOutput{TagList: list}, nil
 }
@@ -1146,8 +1170,8 @@ type eventSubscriptionJSON struct {
 	SnsTopicArn      string   `json:"SnsTopicArn"`
 	SourceType       string   `json:"SourceType,omitempty"`
 	Status           string   `json:"Status"`
-	SourceIDsList    []string `json:"SourceIdsList,omitempty"`
-	EventCategories  []string `json:"EventCategories,omitempty"`
+	SourceIDsList    []string `json:"SourceIdsList"`
+	EventCategories  []string `json:"EventCategories"`
 	Enabled          bool     `json:"Enabled"`
 }
 
@@ -1191,12 +1215,21 @@ func (h *Handler) handleCreateEventSubscription(
 }
 
 func esToJSON(es *EventSubscription) eventSubscriptionJSON {
+	sourceIDs := es.SourceIDsList
+	if sourceIDs == nil {
+		sourceIDs = []string{}
+	}
+	eventCats := es.EventCategories
+	if eventCats == nil {
+		eventCats = []string{}
+	}
+
 	return eventSubscriptionJSON{
 		SubscriptionName: es.SubscriptionName,
 		SnsTopicArn:      es.SnsTopicArn,
 		SourceType:       es.SourceType,
-		SourceIDsList:    es.SourceIDsList,
-		EventCategories:  es.EventCategories,
+		SourceIDsList:    sourceIDs,
+		EventCategories:  eventCats,
 		Status:           es.Status,
 		Enabled:          es.Enabled,
 	}
