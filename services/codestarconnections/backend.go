@@ -4,6 +4,7 @@ package codestarconnections
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +36,17 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+// validProviderTypes returns the set of valid provider types for connections and hosts.
+func validProviderTypes() map[string]bool {
+	return map[string]bool{
+		"Bitbucket":              true,
+		"GitHub":                 true,
+		"GitHubEnterpriseServer": true,
+		"GitLab":                 true,
+		"GitLabSelfManaged":      true,
+	}
+}
+
 // validSyncTypes returns the set of sync configuration types accepted by AWS CodeStar Connections.
 func validSyncTypes() map[string]bool {
 	return map[string]bool{
@@ -43,8 +55,21 @@ func validSyncTypes() map[string]bool {
 }
 
 // syncConfigKey returns the composite map key for a sync configuration.
+// ResourceName values must not contain "/" to avoid key collisions with SyncType.
 func syncConfigKey(resourceName, syncType string) string {
 	return resourceName + "/" + syncType
+}
+
+// sortedTagKeys returns the keys of the tags map in sorted order for deterministic output.
+func sortedTagKeys(tags map[string]string) []string {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 // Connection represents an in-memory AWS CodeStar connection.
@@ -71,8 +96,10 @@ type Host struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CodeStar Connections resources.
 type InMemoryBackend struct {
-	connections        map[string]*Connection
-	hosts              map[string]*Host
+	connections        map[string]*Connection        // keyed by ARN
+	connectionsByName  map[string]string             // name → ARN (O(1) uniqueness index)
+	hosts              map[string]*Host              // keyed by ARN
+	hostsByName        map[string]string             // name → ARN (O(1) uniqueness index)
 	repositoryLinks    map[string]*RepositoryLink    // keyed by RepositoryLinkID
 	syncConfigurations map[string]*SyncConfiguration // keyed by ResourceName+SyncType
 	mu                 *lockmetrics.RWMutex
@@ -84,7 +111,9 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		connections:        make(map[string]*Connection),
+		connectionsByName:  make(map[string]string),
 		hosts:              make(map[string]*Host),
+		hostsByName:        make(map[string]string),
 		repositoryLinks:    make(map[string]*RepositoryLink),
 		syncConfigurations: make(map[string]*SyncConfiguration),
 		accountID:          accountID,
@@ -93,28 +122,64 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all state in the backend.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.connections = make(map[string]*Connection)
+	b.connectionsByName = make(map[string]string)
+	b.hosts = make(map[string]*Host)
+	b.hostsByName = make(map[string]string)
+	b.repositoryLinks = make(map[string]*RepositoryLink)
+	b.syncConfigurations = make(map[string]*SyncConfiguration)
+}
+
 // Region returns the region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // AccountID returns the account ID for this backend instance.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+// findResourceTagsLocked returns the tag map for a resource ARN.
+// Must be called with at least an RLock held.
+func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) (map[string]string, bool) {
+	if conn, ok := b.connections[resourceArn]; ok {
+		return conn.Tags, true
+	}
+
+	if host, ok := b.hosts[resourceArn]; ok {
+		return host.Tags, true
+	}
+
+	return nil, false
+}
+
 // CreateConnection creates a new CodeStar connection.
 func (b *InMemoryBackend) CreateConnection(
 	name, providerType, hostArn string,
 	tags map[string]string,
 ) (*Connection, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	}
+
+	if providerType != "" && !validProviderTypes()[providerType] {
+		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+	}
+
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	for _, c := range b.connections {
-		if c.ConnectionName == name {
-			return nil, ErrAlreadyExists
-		}
+	if _, exists := b.connectionsByName[name]; exists {
+		return nil, fmt.Errorf("%w: connection %q already exists", ErrAlreadyExists, name)
 	}
 
 	id := uuid.NewString()
 	connArn := arn.Build("codestar-connections", b.region, b.accountID, "connection/"+id)
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
 
 	conn := &Connection{
 		ConnectionName:   name,
@@ -123,13 +188,16 @@ func (b *InMemoryBackend) CreateConnection(
 		OwnerAccountID:   b.accountID,
 		ProviderType:     providerType,
 		HostArn:          hostArn,
-		Tags:             maps.Clone(tags),
+		Tags:             tagsCopy,
 	}
 	b.connections[connArn] = conn
+	b.connectionsByName[name] = connArn
 
-	out := *conn
+	cp := *conn
+	cp.Tags = make(map[string]string, len(conn.Tags))
+	maps.Copy(cp.Tags, conn.Tags)
 
-	return &out, nil
+	return &cp, nil
 }
 
 // GetConnection returns a connection by ARN.
@@ -142,12 +210,14 @@ func (b *InMemoryBackend) GetConnection(connectionArn string) (*Connection, erro
 		return nil, ErrNotFound
 	}
 
-	out := *conn
+	cp := *conn
+	cp.Tags = make(map[string]string, len(conn.Tags))
+	maps.Copy(cp.Tags, conn.Tags)
 
-	return &out, nil
+	return &cp, nil
 }
 
-// ListConnections returns all connections, optionally filtered by provider type or host ARN.
+// ListConnections returns all connections sorted by name, optionally filtered by provider type or host ARN.
 func (b *InMemoryBackend) ListConnections(providerTypeFilter, hostArnFilter string) []*Connection {
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
@@ -163,9 +233,15 @@ func (b *InMemoryBackend) ListConnections(providerTypeFilter, hostArnFilter stri
 			continue
 		}
 
-		out := *conn
-		result = append(result, &out)
+		cp := *conn
+		cp.Tags = make(map[string]string, len(conn.Tags))
+		maps.Copy(cp.Tags, conn.Tags)
+		result = append(result, &cp)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ConnectionName < result[j].ConnectionName
+	})
 
 	return result
 }
@@ -175,10 +251,12 @@ func (b *InMemoryBackend) DeleteConnection(connectionArn string) error {
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connections[connectionArn]; !ok {
+	conn, ok := b.connections[connectionArn]
+	if !ok {
 		return ErrNotFound
 	}
 
+	delete(b.connectionsByName, conn.ConnectionName)
 	delete(b.connections, connectionArn)
 
 	return nil
@@ -189,17 +267,26 @@ func (b *InMemoryBackend) CreateHost(
 	name, providerType, providerEndpoint string,
 	tags map[string]string,
 ) (*Host, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if providerType != "" && !validProviderTypes()[providerType] {
+		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+	}
+
 	b.mu.Lock("CreateHost")
 	defer b.mu.Unlock()
 
-	for _, h := range b.hosts {
-		if h.Name == name {
-			return nil, ErrAlreadyExists
-		}
+	if _, exists := b.hostsByName[name]; exists {
+		return nil, fmt.Errorf("%w: host %q already exists", ErrAlreadyExists, name)
 	}
 
 	id := uuid.NewString()
 	hostArn := arn.Build("codestar-connections", b.region, b.accountID, "host/"+name+"/"+id[:8])
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
 
 	host := &Host{
 		Name:             name,
@@ -207,13 +294,16 @@ func (b *InMemoryBackend) CreateHost(
 		ProviderType:     providerType,
 		ProviderEndpoint: providerEndpoint,
 		Status:           HostStatusAvailable,
-		Tags:             maps.Clone(tags),
+		Tags:             tagsCopy,
 	}
 	b.hosts[hostArn] = host
+	b.hostsByName[name] = hostArn
 
-	out := *host
+	cp := *host
+	cp.Tags = make(map[string]string, len(host.Tags))
+	maps.Copy(cp.Tags, host.Tags)
 
-	return &out, nil
+	return &cp, nil
 }
 
 // GetHost returns a host by ARN.
@@ -226,12 +316,14 @@ func (b *InMemoryBackend) GetHost(hostArn string) (*Host, error) {
 		return nil, ErrNotFound
 	}
 
-	out := *host
+	cp := *host
+	cp.Tags = make(map[string]string, len(host.Tags))
+	maps.Copy(cp.Tags, host.Tags)
 
-	return &out, nil
+	return &cp, nil
 }
 
-// ListHosts returns all hosts.
+// ListHosts returns all hosts sorted by name.
 func (b *InMemoryBackend) ListHosts() []*Host {
 	b.mu.RLock("ListHosts")
 	defer b.mu.RUnlock()
@@ -239,9 +331,15 @@ func (b *InMemoryBackend) ListHosts() []*Host {
 	result := make([]*Host, 0, len(b.hosts))
 
 	for _, host := range b.hosts {
-		out := *host
-		result = append(result, &out)
+		cp := *host
+		cp.Tags = make(map[string]string, len(host.Tags))
+		maps.Copy(cp.Tags, host.Tags)
+		result = append(result, &cp)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
 
 	return result
 }
@@ -251,10 +349,12 @@ func (b *InMemoryBackend) DeleteHost(hostArn string) error {
 	b.mu.Lock("DeleteHost")
 	defer b.mu.Unlock()
 
-	if _, ok := b.hosts[hostArn]; !ok {
+	host, ok := b.hosts[hostArn]
+	if !ok {
 		return ErrNotFound
 	}
 
+	delete(b.hostsByName, host.Name)
 	delete(b.hosts, hostArn)
 
 	return nil
@@ -280,17 +380,15 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if conn, ok := b.connections[resourceArn]; ok {
-		return maps.Clone(conn.Tags), nil
+	existing, ok := b.findResourceTagsLocked(resourceArn)
+	if !ok {
+		return nil, ErrNotFound
 	}
 
-	for _, host := range b.hosts {
-		if host.HostArn == resourceArn {
-			return maps.Clone(host.Tags), nil
-		}
-	}
+	result := make(map[string]string, len(existing))
+	maps.Copy(result, existing)
 
-	return nil, ErrNotFound
+	return result, nil
 }
 
 // TagResource adds or updates tags on a resource.
@@ -298,29 +396,25 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if conn, ok := b.connections[resourceArn]; ok {
-		if conn.Tags == nil {
+	existing, ok := b.findResourceTagsLocked(resourceArn)
+	if !ok {
+		return ErrNotFound
+	}
+
+	if existing == nil {
+		// Should not happen given Tags is initialised in Create*, but be safe.
+		if conn, isConn := b.connections[resourceArn]; isConn {
 			conn.Tags = make(map[string]string)
-		}
-
-		maps.Copy(conn.Tags, tags)
-
-		return nil
-	}
-
-	for _, host := range b.hosts {
-		if host.HostArn == resourceArn {
-			if host.Tags == nil {
-				host.Tags = make(map[string]string)
-			}
-
-			maps.Copy(host.Tags, tags)
-
-			return nil
+			existing = conn.Tags
+		} else if host, isHost := b.hosts[resourceArn]; isHost {
+			host.Tags = make(map[string]string)
+			existing = host.Tags
 		}
 	}
 
-	return ErrNotFound
+	maps.Copy(existing, tags)
+
+	return nil
 }
 
 // UntagResource removes tags from a resource.
@@ -328,25 +422,34 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if conn, ok := b.connections[resourceArn]; ok {
-		for _, k := range tagKeys {
-			delete(conn.Tags, k)
-		}
-
-		return nil
+	existing, ok := b.findResourceTagsLocked(resourceArn)
+	if !ok {
+		return ErrNotFound
 	}
 
-	for _, host := range b.hosts {
-		if host.HostArn == resourceArn {
-			for _, k := range tagKeys {
-				delete(host.Tags, k)
-			}
-
-			return nil
-		}
+	for _, k := range tagKeys {
+		delete(existing, k)
 	}
 
-	return ErrNotFound
+	return nil
+}
+
+// AddConnectionInternal seeds a connection directly for testing.
+func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
+	b.mu.Lock("AddConnectionInternal")
+	defer b.mu.Unlock()
+
+	b.connections[conn.ConnectionArn] = conn
+	b.connectionsByName[conn.ConnectionName] = conn.ConnectionArn
+}
+
+// AddHostInternal seeds a host directly for testing.
+func (b *InMemoryBackend) AddHostInternal(host *Host) {
+	b.mu.Lock("AddHostInternal")
+	defer b.mu.Unlock()
+
+	b.hosts[host.HostArn] = host
+	b.hostsByName[host.Name] = host.HostArn
 }
 
 // RepositoryLink represents an in-memory AWS CodeStar Connections repository link.
@@ -423,7 +526,7 @@ func (b *InMemoryBackend) DeleteRepositoryLink(repositoryLinkID string) error {
 	return nil
 }
 
-// ListRepositoryLinks returns all repository links.
+// ListRepositoryLinks returns all repository links sorted by ID.
 func (b *InMemoryBackend) ListRepositoryLinks() []*RepositoryLink {
 	b.mu.RLock("ListRepositoryLinks")
 	defer b.mu.RUnlock()
@@ -435,7 +538,19 @@ func (b *InMemoryBackend) ListRepositoryLinks() []*RepositoryLink {
 		result = append(result, &cp)
 	}
 
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].RepositoryLinkID < result[j].RepositoryLinkID
+	})
+
 	return result
+}
+
+// AddRepositoryLinkInternal seeds a repository link directly for testing.
+func (b *InMemoryBackend) AddRepositoryLinkInternal(link *RepositoryLink) {
+	b.mu.Lock("AddRepositoryLinkInternal")
+	defer b.mu.Unlock()
+
+	b.repositoryLinks[link.RepositoryLinkID] = link
 }
 
 // SyncConfiguration represents an in-memory AWS CodeStar Connections sync configuration.
