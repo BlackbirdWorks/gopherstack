@@ -27,6 +27,12 @@ var (
 	ErrAlreadyExists = awserr.New("ApplicationAlreadyExistsException", awserr.ErrConflict)
 	// ErrDeploymentGroupAlreadyExists is returned when a deployment group already exists.
 	ErrDeploymentGroupAlreadyExists = awserr.New("DeploymentGroupAlreadyExistsException", awserr.ErrConflict)
+	// ErrDeploymentConfigNotFound is returned when a deployment config does not exist.
+	ErrDeploymentConfigNotFound = awserr.New("DeploymentConfigDoesNotExistException", awserr.ErrNotFound)
+	// ErrDeploymentConfigAlreadyExists is returned when a deployment config already exists.
+	ErrDeploymentConfigAlreadyExists = awserr.New("DeploymentConfigAlreadyExistsException", awserr.ErrConflict)
+	// ErrOnPremisesInstanceNotFound is returned when an on-premises instance does not exist.
+	ErrOnPremisesInstanceNotFound = awserr.New("InstanceNameRequiredException", awserr.ErrNotFound)
 )
 
 // Application represents an AWS CodeDeploy application.
@@ -72,25 +78,47 @@ type Deployment struct {
 	Region              string     `json:"-"`
 }
 
+// OnPremisesInstance represents an on-premises instance registered with CodeDeploy.
+type OnPremisesInstance struct {
+	RegisterTime   time.Time  `json:"registerTime"`
+	DeregisterTime *time.Time `json:"deregisterTime,omitempty"`
+	Tags           *tags.Tags `json:"-"`
+	InstanceName   string     `json:"instanceName"`
+	IamSessionArn  string     `json:"iamSessionArn,omitempty"`
+	IamUserArn     string     `json:"iamUserArn,omitempty"`
+}
+
+// DeploymentConfig represents a CodeDeploy deployment configuration.
+type DeploymentConfig struct {
+	CreateTime           time.Time `json:"createTime"`
+	DeploymentConfigName string    `json:"deploymentConfigName"`
+	DeploymentConfigID   string    `json:"deploymentConfigId"`
+	ComputePlatform      string    `json:"computePlatform"`
+}
+
 // InMemoryBackend is the in-memory store for CodeDeploy resources.
 type InMemoryBackend struct {
-	applications     map[string]*Application
-	deploymentGroups map[string]map[string]*DeploymentGroup // appName -> dgName -> DG
-	deployments      map[string]*Deployment
-	mu               *lockmetrics.RWMutex
-	accountID        string
-	region           string
+	applications        map[string]*Application
+	deploymentGroups    map[string]map[string]*DeploymentGroup // appName -> dgName -> DG
+	deployments         map[string]*Deployment
+	onPremisesInstances map[string]*OnPremisesInstance
+	deploymentConfigs   map[string]*DeploymentConfig
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new in-memory CodeDeploy backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications:     make(map[string]*Application),
-		deploymentGroups: make(map[string]map[string]*DeploymentGroup),
-		deployments:      make(map[string]*Deployment),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("codedeploy"),
+		applications:        make(map[string]*Application),
+		deploymentGroups:    make(map[string]map[string]*DeploymentGroup),
+		deployments:         make(map[string]*Deployment),
+		onPremisesInstances: make(map[string]*OnPremisesInstance),
+		deploymentConfigs:   make(map[string]*DeploymentConfig),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("codedeploy"),
 	}
 }
 
@@ -466,6 +494,242 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // ApplicationARN builds an ARN for a CodeDeploy application.
 func (b *InMemoryBackend) ApplicationARN(name string) string {
 	return arn.Build("codedeploy", b.region, b.accountID, "application:"+name)
+}
+
+// AddTagsToOnPremisesInstances adds tags to on-premises instances, registering them if needed.
+func (b *InMemoryBackend) AddTagsToOnPremisesInstances(instanceNames []string, kv map[string]string) error {
+	b.mu.Lock("AddTagsToOnPremisesInstances")
+	defer b.mu.Unlock()
+
+	for _, name := range instanceNames {
+		inst, ok := b.onPremisesInstances[name]
+		if !ok {
+			t := tags.New("codedeploy.onprem." + name + ".tags")
+			inst = &OnPremisesInstance{
+				InstanceName: name,
+				RegisterTime: time.Now().UTC(),
+				Tags:         t,
+			}
+			b.onPremisesInstances[name] = inst
+		}
+
+		inst.Tags.Merge(kv)
+	}
+
+	return nil
+}
+
+// BatchGetApplicationRevisions returns stub revision info for named revisions.
+// In a real implementation, revisions would be stored; here we return empty info.
+func (b *InMemoryBackend) BatchGetApplicationRevisions(appName string) (string, error) {
+	b.mu.RLock("BatchGetApplicationRevisions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[appName]; !ok {
+		return "", fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+	}
+
+	return appName, nil
+}
+
+// BatchGetApplications returns application structs for the given names.
+// Names that do not exist are silently omitted (AWS behavior).
+func (b *InMemoryBackend) BatchGetApplications(names []string) []*Application {
+	b.mu.RLock("BatchGetApplications")
+	defer b.mu.RUnlock()
+
+	result := make([]*Application, 0, len(names))
+
+	for _, name := range names {
+		app, ok := b.applications[name]
+		if !ok {
+			continue
+		}
+
+		cp := *app
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// BatchGetDeploymentGroups returns deployment group info for the given names under an app.
+// Groups that do not exist are silently omitted.
+func (b *InMemoryBackend) BatchGetDeploymentGroups(appName string, dgNames []string) ([]*DeploymentGroup, error) {
+	b.mu.RLock("BatchGetDeploymentGroups")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[appName]; !ok {
+		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+	}
+
+	dgs := b.deploymentGroups[appName]
+	result := make([]*DeploymentGroup, 0, len(dgNames))
+
+	for _, name := range dgNames {
+		dg, ok := dgs[name]
+		if !ok {
+			continue
+		}
+
+		cp := *dg
+		result = append(result, &cp)
+	}
+
+	return result, nil
+}
+
+// BatchGetDeploymentInstances returns stub instance summaries for the given instance IDs.
+// This is a deprecated operation; returns empty summaries for found deployments.
+func (b *InMemoryBackend) BatchGetDeploymentInstances(
+	deploymentID string,
+	instanceIDs []string,
+) ([]InstanceSummaryItem, string) {
+	b.mu.RLock("BatchGetDeploymentInstances")
+	defer b.mu.RUnlock()
+
+	d, ok := b.deployments[deploymentID]
+	if !ok {
+		return nil, fmt.Sprintf("deployment %s not found", deploymentID)
+	}
+
+	result := make([]InstanceSummaryItem, 0, len(instanceIDs))
+
+	for _, id := range instanceIDs {
+		result = append(result, InstanceSummaryItem{
+			DeploymentID: d.DeploymentID,
+			InstanceID:   id,
+			Status:       "Succeeded",
+		})
+	}
+
+	return result, ""
+}
+
+// BatchGetDeploymentTargets returns stub deployment targets for the given target IDs.
+func (b *InMemoryBackend) BatchGetDeploymentTargets(
+	deploymentID string,
+	targetIDs []string,
+) ([]*DeploymentTargetItem, error) {
+	b.mu.RLock("BatchGetDeploymentTargets")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.deployments[deploymentID]; !ok {
+		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	result := make([]*DeploymentTargetItem, 0, len(targetIDs))
+
+	for _, id := range targetIDs {
+		result = append(result, &DeploymentTargetItem{
+			DeploymentID: deploymentID,
+			TargetID:     id,
+			Status:       "Succeeded",
+			TargetType:   "instanceTarget",
+		})
+	}
+
+	return result, nil
+}
+
+// BatchGetDeployments returns deployment structs for the given IDs.
+// Deployment IDs that do not exist are silently omitted.
+// Shallow copies are returned, consistent with GetDeployment. The pointer field
+// CompleteTime shares the same [time.Time] value, which is immutable (value semantics).
+func (b *InMemoryBackend) BatchGetDeployments(deploymentIDs []string) []*Deployment {
+	b.mu.RLock("BatchGetDeployments")
+	defer b.mu.RUnlock()
+
+	result := make([]*Deployment, 0, len(deploymentIDs))
+
+	for _, id := range deploymentIDs {
+		d, ok := b.deployments[id]
+		if !ok {
+			continue
+		}
+
+		cp := *d
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// BatchGetOnPremisesInstances returns on-premises instance info for the given names.
+// Names that do not exist are silently omitted.
+// Shallow copies are returned. The Tags field pointer is shared with the backend store;
+// callers must not mutate tags through the returned pointer (use TagResource instead).
+func (b *InMemoryBackend) BatchGetOnPremisesInstances(instanceNames []string) []*OnPremisesInstance {
+	b.mu.RLock("BatchGetOnPremisesInstances")
+	defer b.mu.RUnlock()
+
+	result := make([]*OnPremisesInstance, 0, len(instanceNames))
+
+	for _, name := range instanceNames {
+		inst, ok := b.onPremisesInstances[name]
+		if !ok {
+			continue
+		}
+
+		cp := *inst
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// ContinueDeployment marks a blue/green deployment as continuing past the wait point.
+// In this in-memory implementation the deployment status is unchanged.
+func (b *InMemoryBackend) ContinueDeployment(deploymentID string) error {
+	b.mu.Lock("ContinueDeployment")
+	defer b.mu.Unlock()
+
+	if _, ok := b.deployments[deploymentID]; !ok {
+		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	return nil
+}
+
+// CreateDeploymentConfig creates a named deployment configuration.
+func (b *InMemoryBackend) CreateDeploymentConfig(name, computePlatform string) (*DeploymentConfig, error) {
+	b.mu.Lock("CreateDeploymentConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.deploymentConfigs[name]; ok {
+		return nil, fmt.Errorf("%w: deployment config %s already exists", ErrDeploymentConfigAlreadyExists, name)
+	}
+
+	if computePlatform == "" {
+		computePlatform = "Server"
+	}
+
+	cfg := &DeploymentConfig{
+		DeploymentConfigName: name,
+		DeploymentConfigID:   uuid.NewString(),
+		ComputePlatform:      computePlatform,
+		CreateTime:           time.Now().UTC(),
+	}
+	b.deploymentConfigs[name] = cfg
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// InstanceSummaryItem is a simplified deployment instance summary used by BatchGetDeploymentInstances.
+type InstanceSummaryItem struct {
+	DeploymentID string `json:"deploymentId"`
+	InstanceID   string `json:"instanceId"`
+	Status       string `json:"status"`
+}
+
+// DeploymentTargetItem is a simplified deployment target used by BatchGetDeploymentTargets.
+type DeploymentTargetItem struct {
+	DeploymentID string `json:"deploymentId"`
+	TargetID     string `json:"targetId"`
+	Status       string `json:"status"`
+	TargetType   string `json:"targetType"`
 }
 
 // appNameFromARN extracts the application name from a CodeDeploy application ARN.
