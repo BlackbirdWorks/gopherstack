@@ -1352,9 +1352,9 @@ type createEventSubscriptionResponse struct {
 }
 
 type xmlGlobalCluster struct {
-	GlobalClusterIdentifier string `xml:"GlobalClusterIdentifier"`
-	SourceDBClusterID       string `xml:"GlobalClusterArn,omitempty"`
-	Status                  string `xml:"Status"`
+	GlobalClusterIdentifier   string `xml:"GlobalClusterIdentifier"`
+	SourceDBClusterIdentifier string `xml:"SourceDBClusterIdentifier,omitempty"`
+	Status                    string `xml:"Status"`
 }
 
 type createGlobalClusterResponse struct {
@@ -1435,9 +1435,9 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	return xmlGlobalCluster{
-		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
-		SourceDBClusterID:       gc.SourceDBClusterID,
-		Status:                  gc.Status,
+		GlobalClusterIdentifier:   gc.GlobalClusterIdentifier,
+		SourceDBClusterIdentifier: gc.SourceDBClusterID,
+		Status:                    gc.Status,
 	}
 }
 
