@@ -61,7 +61,7 @@ client = boto3.client('codeconnections', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	conns := h.CodeConnectionsOps.Backend.ListConnections("")
+	conns := h.CodeConnectionsOps.Backend.ListConnections("", "")
 	connViews := make([]codeconnectionsConnectionView, 0, len(conns))
 
 	for _, conn := range conns {
