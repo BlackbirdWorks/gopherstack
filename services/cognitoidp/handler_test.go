@@ -2694,3 +2694,631 @@ func TestHandler_ListUsers_ReturnsCorrectEnabledState(t *testing.T) {
 		})
 	}
 }
+
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a pool then reset.
+	doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "reset-pool"})
+	assert.Equal(t, 1, h.Backend.UserPoolCount())
+
+	h.Reset()
+	assert.Equal(t, 0, h.Backend.UserPoolCount())
+	assert.Equal(t, 0, h.Backend.UserCount())
+	assert.Equal(t, 0, h.Backend.ClientCount())
+}
+
+func TestRefinement1_MultipleResetCycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 3 {
+		_ = i
+		doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "cycle-pool"})
+		h.Reset()
+		assert.Equal(t, 0, h.Backend.UserPoolCount())
+	}
+}
+
+func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &cognitoidp.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidp.ErrNilAppContext)
+}
+
+func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
+	t.Parallel()
+
+	// Ensure the handler works correctly with the cached dispatch table.
+	h := newTestHandler(t)
+	rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "ops-pool"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRefinement1_SortedListUserPools(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"zebra-pool", "alpha-pool", "mango-pool"} {
+		doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": name})
+	}
+
+	rec := doCognitoRequest(t, h, "ListUserPools", map[string]any{"MaxResults": 10})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	pools := resp["UserPools"].([]any)
+	require.Len(t, pools, 3)
+	assert.Equal(t, "alpha-pool", pools[0].(map[string]any)["Name"])
+	assert.Equal(t, "mango-pool", pools[1].(map[string]any)["Name"])
+	assert.Equal(t, "zebra-pool", pools[2].(map[string]any)["Name"])
+}
+
+func TestRefinement1_SortedListUsers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-users-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	for _, username := range []string{"zeus", "alice", "bob"} {
+		doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+			"UserPoolId":        poolID,
+			"Username":          username,
+			"TemporaryPassword": "TempPass123!",
+		})
+	}
+
+	rec := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	users := listResp["Users"].([]any)
+	require.Len(t, users, 3)
+	assert.Equal(t, "alice", users[0].(map[string]any)["Username"])
+	assert.Equal(t, "bob", users[1].(map[string]any)["Username"])
+	assert.Equal(t, "zeus", users[2].(map[string]any)["Username"])
+}
+
+func TestRefinement1_SortedListGroups(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-groups-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	for _, name := range []string{"zeta", "admin", "moderator"} {
+		doCognitoRequest(t, h, "CreateGroup", map[string]any{
+			"UserPoolId": poolID,
+			"GroupName":  name,
+		})
+	}
+
+	rec := doCognitoRequest(t, h, "ListGroups", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	groups := listResp["Groups"].([]any)
+	require.Len(t, groups, 3)
+	assert.Equal(t, "admin", groups[0].(map[string]any)["GroupName"])
+	assert.Equal(t, "moderator", groups[1].(map[string]any)["GroupName"])
+	assert.Equal(t, "zeta", groups[2].(map[string]any)["GroupName"])
+}
+
+func TestRefinement1_SortedListUserPoolClients(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-clients-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	for _, name := range []string{"web-client", "android-client", "ios-client"} {
+		doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+			"UserPoolId": poolID,
+			"ClientName": name,
+		})
+	}
+
+	rec := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	clients := listResp["UserPoolClients"].([]any)
+	require.Len(t, clients, 3)
+	assert.Equal(t, "android-client", clients[0].(map[string]any)["ClientName"])
+	assert.Equal(t, "ios-client", clients[1].(map[string]any)["ClientName"])
+	assert.Equal(t, "web-client", clients[2].(map[string]any)["ClientName"])
+}
+
+func TestRefinement1_AdminGetUser_IncludesEnabledAndModifiedDate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "agu-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "agu-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+
+	rec := doCognitoRequest(t, h, "AdminGetUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "agu-user",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp["Enabled"].(bool))
+	assert.NotZero(t, resp["UserCreateDate"])
+	assert.NotZero(t, resp["UserLastModifiedDate"])
+}
+
+func TestRefinement1_AdminCreateUser_IncludesEnabled(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "acu-enabled-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	rec := doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "new-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp["User"].(map[string]any)["Enabled"].(bool))
+}
+
+func TestRefinement1_DescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "secret-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "sec-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+	// No secret yet.
+	descRec := doCognitoRequest(t, h, "DescribeUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+	})
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	assert.Empty(t, descResp["UserPoolClient"].(map[string]any)["ClientSecret"])
+
+	// Add secret.
+	doCognitoRequest(t, h, "AddUserPoolClientSecret", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+	})
+
+	// Secret now present.
+	descRec2 := doCognitoRequest(t, h, "DescribeUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+	})
+	var descResp2 map[string]any
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2))
+	assert.NotEmpty(t, descResp2["UserPoolClient"].(map[string]any)["ClientSecret"])
+}
+
+func TestRefinement1_DescribeUserPool_IncludesSchemaAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "schema-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	doCognitoRequest(t, h, "AddCustomAttributes", map[string]any{
+		"UserPoolId": poolID,
+		"CustomAttributes": []map[string]any{
+			{"Name": "custom:department", "AttributeDataType": "String"},
+		},
+	})
+
+	rec := doCognitoRequest(t, h, "DescribeUserPool", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	schema := resp["UserPool"].(map[string]any)["SchemaAttributes"]
+	assert.NotNil(t, schema)
+	schemaList := schema.([]any)
+	require.Len(t, schemaList, 1)
+	assert.Equal(t, "custom:department", schemaList[0].(map[string]any)["Name"])
+}
+
+func TestRefinement1_RefreshToken_DisabledUserBlocked(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "rt-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "rt-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "rt-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+	doCognitoRequest(t, h, "AdminSetUserPassword", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "rt-user",
+		"Password":   "FinalPass123!",
+		"Permanent":  true,
+	})
+
+	authRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]any{
+			"USERNAME": "rt-user",
+			"PASSWORD": "FinalPass123!",
+		},
+	})
+	require.Equal(t, http.StatusOK, authRec.Code)
+
+	var authResp map[string]any
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	refreshToken := authResp["AuthenticationResult"].(map[string]any)["RefreshToken"].(string)
+
+	// Disable the user.
+	doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "rt-user",
+	})
+
+	// Refresh token must now be rejected.
+	refreshRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "REFRESH_TOKEN_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]any{
+			"REFRESH_TOKEN": refreshToken,
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, refreshRec.Code)
+}
+
+func TestRefinement1_NonNilSlices(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "nil-slices-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	// Empty ListUsers must return [] not null.
+	listRec := doCognitoRequest(t, h, "ListUsers", map[string]any{"UserPoolId": poolID})
+	assert.Contains(t, listRec.Body.String(), `"Users":[]`)
+
+	// Empty ListGroups must return [] not null.
+	groupsRec := doCognitoRequest(t, h, "ListGroups", map[string]any{"UserPoolId": poolID})
+	assert.Contains(t, groupsRec.Body.String(), `"Groups":[]`)
+
+	// Empty ListUserPoolClients must return [] not null.
+	clientsRec := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{"UserPoolId": poolID})
+	assert.Contains(t, clientsRec.Body.String(), `"UserPoolClients":[]`)
+
+	// Empty ListUserPools must return [] not null.
+	h2 := newTestHandler(t)
+	poolsRec := doCognitoRequest(t, h2, "ListUserPools", map[string]any{"MaxResults": 10})
+	assert.Contains(t, poolsRec.Body.String(), `"UserPools":[]`)
+}
+
+func TestRefinement1_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	backend := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+	assert.Equal(t, 0, backend.UserPoolCount())
+
+	backend.AddUserPoolInternal(&cognitoidp.UserPool{
+		ID:   "us-east-1_TEST01",
+		Name: "seed-pool",
+		ARN:  "arn:aws:cognito-idp:us-east-1:000000000000:userpool/us-east-1_TEST01",
+	})
+	assert.Equal(t, 1, backend.UserPoolCount())
+
+	backend.AddUserInternal(&cognitoidp.User{
+		Sub:        "sub-123",
+		Username:   "seed-user",
+		UserPoolID: "us-east-1_TEST01",
+		Status:     "CONFIRMED",
+		Enabled:    true,
+	})
+	assert.Equal(t, 1, backend.UserCount())
+
+	backend.AddUserPoolClientInternal(&cognitoidp.UserPoolClient{
+		ClientID:   "client-123",
+		ClientName: "seed-client",
+		UserPoolID: "us-east-1_TEST01",
+	})
+	assert.Equal(t, 1, backend.ClientCount())
+}
+
+func TestRefinement1_ExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, 0, h.Backend.UserPoolCount())
+	assert.Equal(t, 0, h.Backend.UserCount())
+	assert.Equal(t, 0, h.Backend.ClientCount())
+
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "count-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+	assert.Equal(t, 1, h.Backend.UserPoolCount())
+
+	doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "c1",
+	})
+	assert.Equal(t, 1, h.Backend.ClientCount())
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "u1",
+		"TemporaryPassword": "TempPass123!",
+	})
+	assert.Equal(t, 1, h.Backend.UserCount())
+}
+
+func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "persist-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "persist-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "persist-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+	doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "persist-user",
+	})
+
+	snap := h.Backend.Snapshot()
+	require.NotEmpty(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(snap))
+
+	assert.Equal(t, 1, h2.Backend.UserPoolCount())
+	assert.Equal(t, 1, h2.Backend.UserCount())
+	assert.Equal(t, 1, h2.Backend.ClientCount())
+
+	// Disabled state should survive round-trip.
+	getUserRec := doCognitoRequest(t, h2, "AdminGetUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "persist-user",
+	})
+	var getUserResp map[string]any
+	require.NoError(t, json.Unmarshal(getUserRec.Body.Bytes(), &getUserResp))
+	assert.False(t, getUserResp["Enabled"].(bool))
+}
+
+func TestRefinement1_AddCustomAttributes_RequiresCustomPrefix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		attrName string
+		wantCode int
+	}{
+		{
+			name:     "valid_custom_prefix",
+			attrName: "custom:role",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "missing_custom_prefix",
+			attrName: "role",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "email_no_prefix_rejected",
+			attrName: "email",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "prefix-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+			rec := doCognitoRequest(t, h, "AddCustomAttributes", map[string]any{
+				"UserPoolId": poolID,
+				"CustomAttributes": []map[string]any{
+					{"Name": tt.attrName, "AttributeDataType": "String"},
+				},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestRefinement1_SortedAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-attrs-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "attr-user",
+		"TemporaryPassword": "TempPass123!",
+		"UserAttributes": []map[string]any{
+			{"Name": "zz_last", "Value": "z"},
+			{"Name": "aa_first", "Value": "a"},
+			{"Name": "mm_middle", "Value": "m"},
+		},
+	})
+
+	rec := doCognitoRequest(t, h, "AdminGetUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "attr-user",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	attrs := resp["UserAttributes"].([]any)
+	require.GreaterOrEqual(t, len(attrs), 3)
+
+	names := make([]string, 0, len(attrs))
+	for _, a := range attrs {
+		names = append(names, a.(map[string]any)["Name"].(string))
+	}
+
+	// Verify sorted order.
+	for i := 1; i < len(names); i++ {
+		assert.LessOrEqual(t, names[i-1], names[i], "attributes should be sorted by name")
+	}
+}
+
+func TestRefinement1_SortedAdminListGroupsForUser(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "algfu-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	for _, g := range []string{"zeta", "alpha", "beta"} {
+		doCognitoRequest(t, h, "CreateGroup", map[string]any{
+			"UserPoolId": poolID,
+			"GroupName":  g,
+		})
+	}
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "group-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+
+	for _, g := range []string{"zeta", "alpha", "beta"} {
+		doCognitoRequest(t, h, "AdminAddUserToGroup", map[string]any{
+			"UserPoolId": poolID,
+			"Username":   "group-user",
+			"GroupName":  g,
+		})
+	}
+
+	rec := doCognitoRequest(t, h, "AdminListGroupsForUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "group-user",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	groups := resp["Groups"].([]any)
+	require.Len(t, groups, 3)
+	assert.Equal(t, "alpha", groups[0].(map[string]any)["GroupName"])
+	assert.Equal(t, "beta", groups[1].(map[string]any)["GroupName"])
+	assert.Equal(t, "zeta", groups[2].(map[string]any)["GroupName"])
+}
+
+func TestRefinement1_ListUserPoolClients_NonNilWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "empty-clients-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	rec := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{"UserPoolId": poolID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	clients := listResp["UserPoolClients"].([]any)
+	assert.Empty(t, clients)
+}
+
+func TestRefinement1_ListUserPools_NonNilWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoRequest(t, h, "ListUserPools", map[string]any{"MaxResults": 10})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	pools, ok := listResp["UserPools"].([]any)
+	assert.True(t, ok, "UserPools should be an array, not nil")
+	assert.Empty(t, pools)
+}

@@ -1,9 +1,14 @@
 package cognitoidp
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Provider.Init receives a nil AppContext.
+var ErrNilAppContext = errors.New("cognitoidp: nil AppContext")
 
 // Provider implements service.Provider for Amazon Cognito User Pools (IDP).
 type Provider struct{}
@@ -15,20 +20,22 @@ func (p *Provider) Name() string { return "CognitoIDP" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := "000000000000"
 	region := "us-east-1"
 	endpoint := "http://localhost:8000"
 
-	if ctx != nil {
-		if cp, ok := ctx.Config.(config.Provider); ok {
-			cfg := cp.GetGlobalConfig()
-			accountID = cfg.GetAccountID()
-			region = cfg.GetRegion()
-		}
+	if cp, ok := ctx.Config.(config.Provider); ok {
+		cfg := cp.GetGlobalConfig()
+		accountID = cfg.GetAccountID()
+		region = cfg.GetRegion()
+	}
 
-		if ep, ok := ctx.Config.(endpointProvider); ok {
-			endpoint = ep.GetEndpoint()
-		}
+	if ep, ok := ctx.Config.(endpointProvider); ok {
+		endpoint = ep.GetEndpoint()
 	}
 
 	backend := NewInMemoryBackend(accountID, region, endpoint)

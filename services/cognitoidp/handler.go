@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -26,13 +27,20 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for Cognito IDP operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 	region  string
 }
 
 // NewHandler creates a new Cognito IDP handler.
 func NewHandler(backend *InMemoryBackend, region string) *Handler {
-	return &Handler{Backend: backend, region: region}
+	h := &Handler{Backend: backend, region: region}
+	h.ops = h.dispatchTable()
+
+	return h
 }
+
+// Reset clears all backend state. Useful for test isolation.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "CognitoIDP" }
@@ -217,7 +225,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -346,8 +354,23 @@ type userPoolData struct {
 	ARN                string               `json:"Arn"`
 	DeletionProtection string               `json:"DeletionProtection"`
 	MfaConfiguration   string               `json:"MfaConfiguration"`
+	SchemaAttributes   []SchemaAttribute    `json:"SchemaAttributes,omitempty"`
 	CreationDate       float64              `json:"CreationDate"`
 	LastModifiedDate   float64              `json:"LastModifiedDate"`
+}
+
+// poolToData converts a UserPool to the userPoolData wire format.
+func poolToData(pool *UserPool) userPoolData {
+	return userPoolData{
+		ID:                 pool.ID,
+		Name:               pool.Name,
+		ARN:                pool.ARN,
+		CreationDate:       float64(pool.CreatedAt.Unix()),
+		LastModifiedDate:   float64(pool.CreatedAt.Unix()),
+		DeletionProtection: "INACTIVE",
+		MfaConfiguration:   "OFF",
+		SchemaAttributes:   sortedCustomAttributes(pool.CustomAttributes),
+	}
 }
 
 type createUserPoolOutput struct {
@@ -360,17 +383,7 @@ func (h *Handler) handleCreateUserPool(_ context.Context, in *createUserPoolInpu
 		return nil, err
 	}
 
-	return &createUserPoolOutput{
-		UserPool: userPoolData{
-			ID:                 pool.ID,
-			Name:               pool.Name,
-			ARN:                pool.ARN,
-			CreationDate:       float64(pool.CreatedAt.Unix()),
-			LastModifiedDate:   float64(pool.CreatedAt.Unix()),
-			DeletionProtection: "INACTIVE",
-			MfaConfiguration:   "OFF",
-		},
-	}, nil
+	return &createUserPoolOutput{UserPool: poolToData(pool)}, nil
 }
 
 type describeUserPoolInput struct {
@@ -390,17 +403,7 @@ func (h *Handler) handleDescribeUserPool(
 		return nil, err
 	}
 
-	return &describeUserPoolOutput{
-		UserPool: userPoolData{
-			ID:                 pool.ID,
-			Name:               pool.Name,
-			ARN:                pool.ARN,
-			CreationDate:       float64(pool.CreatedAt.Unix()),
-			LastModifiedDate:   float64(pool.CreatedAt.Unix()),
-			DeletionProtection: "INACTIVE",
-			MfaConfiguration:   "OFF",
-		},
-	}, nil
+	return &describeUserPoolOutput{UserPool: poolToData(pool)}, nil
 }
 
 type listUserPoolsInput struct {
@@ -416,15 +419,7 @@ func (h *Handler) handleListUserPools(_ context.Context, _ *listUserPoolsInput) 
 
 	items := make([]userPoolData, 0, len(pools))
 	for _, p := range pools {
-		items = append(items, userPoolData{
-			ID:                 p.ID,
-			Name:               p.Name,
-			ARN:                p.ARN,
-			CreationDate:       float64(p.CreatedAt.Unix()),
-			LastModifiedDate:   float64(p.CreatedAt.Unix()),
-			DeletionProtection: "INACTIVE",
-			MfaConfiguration:   "OFF",
-		})
+		items = append(items, poolToData(p))
 	}
 
 	return &listUserPoolsOutput{UserPools: items}, nil
@@ -439,7 +434,19 @@ type userPoolClientData struct {
 	ClientID     string  `json:"ClientId"`
 	ClientName   string  `json:"ClientName"`
 	UserPoolID   string  `json:"UserPoolId"`
+	ClientSecret string  `json:"ClientSecret,omitempty"`
 	CreationDate float64 `json:"CreationDate"`
+}
+
+// clientToData converts a UserPoolClient to the wire format.
+func clientToData(c *UserPoolClient) userPoolClientData {
+	return userPoolClientData{
+		ClientID:     c.ClientID,
+		ClientName:   c.ClientName,
+		UserPoolID:   c.UserPoolID,
+		ClientSecret: c.ClientSecret,
+		CreationDate: float64(c.CreatedAt.Unix()),
+	}
 }
 
 type createUserPoolClientOutput struct {
@@ -455,14 +462,7 @@ func (h *Handler) handleCreateUserPoolClient(
 		return nil, err
 	}
 
-	return &createUserPoolClientOutput{
-		UserPoolClient: userPoolClientData{
-			ClientID:     client.ClientID,
-			ClientName:   client.ClientName,
-			UserPoolID:   client.UserPoolID,
-			CreationDate: float64(client.CreatedAt.Unix()),
-		},
-	}, nil
+	return &createUserPoolClientOutput{UserPoolClient: clientToData(client)}, nil
 }
 
 type describeUserPoolClientInput struct {
@@ -483,14 +483,7 @@ func (h *Handler) handleDescribeUserPoolClient(
 		return nil, err
 	}
 
-	return &describeUserPoolClientOutput{
-		UserPoolClient: userPoolClientData{
-			ClientID:     client.ClientID,
-			ClientName:   client.ClientName,
-			UserPoolID:   client.UserPoolID,
-			CreationDate: float64(client.CreatedAt.Unix()),
-		},
-	}, nil
+	return &describeUserPoolClientOutput{UserPoolClient: clientToData(client)}, nil
 }
 
 type deleteUserPoolInput struct {
@@ -564,12 +557,7 @@ func (h *Handler) handleListUserPoolClients(
 
 	items := make([]userPoolClientData, 0, len(clients))
 	for _, c := range clients {
-		items = append(items, userPoolClientData{
-			ClientID:     c.ClientID,
-			ClientName:   c.ClientName,
-			UserPoolID:   c.UserPoolID,
-			CreationDate: float64(c.CreatedAt.Unix()),
-		})
+		items = append(items, clientToData(c))
 	}
 
 	return &listUserPoolClientsOutput{UserPoolClients: items}, nil
@@ -729,6 +717,7 @@ type adminUserType struct {
 	UserStatus     string          `json:"UserStatus"`
 	Attributes     []attributeType `json:"Attributes"`
 	UserCreateDate float64         `json:"UserCreateDate"`
+	Enabled        bool            `json:"Enabled"`
 }
 
 type adminCreateUserOutput struct {
@@ -748,7 +737,8 @@ func (h *Handler) handleAdminCreateUser(_ context.Context, in *adminCreateUserIn
 			Username:       user.Username,
 			UserStatus:     user.Status,
 			UserCreateDate: float64(user.CreatedAt.Unix()),
-			Attributes:     mapToAttributeList(user.Attributes),
+			Attributes:     sortedAttributeList(user.Attributes),
+			Enabled:        user.Enabled,
 		},
 	}, nil
 }
@@ -779,10 +769,12 @@ type adminGetUserInput struct {
 }
 
 type adminGetUserOutput struct {
-	Username       string          `json:"Username"`
-	UserStatus     string          `json:"UserStatus"`
-	UserAttributes []attributeType `json:"UserAttributes"`
-	UserCreateDate float64         `json:"UserCreateDate"`
+	Username             string          `json:"Username"`
+	UserStatus           string          `json:"UserStatus"`
+	UserAttributes       []attributeType `json:"UserAttributes"`
+	UserCreateDate       float64         `json:"UserCreateDate"`
+	UserLastModifiedDate float64         `json:"UserLastModifiedDate"`
+	Enabled              bool            `json:"Enabled"`
 }
 
 func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (*adminGetUserOutput, error) {
@@ -792,10 +784,12 @@ func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (
 	}
 
 	return &adminGetUserOutput{
-		Username:       user.Username,
-		UserStatus:     user.Status,
-		UserCreateDate: float64(user.CreatedAt.Unix()),
-		UserAttributes: mapToAttributeList(user.Attributes),
+		Username:             user.Username,
+		UserStatus:           user.Status,
+		UserCreateDate:       float64(user.CreatedAt.Unix()),
+		UserLastModifiedDate: float64(user.CreatedAt.Unix()),
+		UserAttributes:       sortedAttributeList(user.Attributes),
+		Enabled:              user.Enabled,
 	}, nil
 }
 
@@ -809,11 +803,23 @@ func attributeListToMap(attrs []attributeType) map[string]string {
 	return m
 }
 
-// mapToAttributeList converts a map to a slice of Cognito attribute types.
-func mapToAttributeList(m map[string]string) []attributeType {
+// sortedAttributeList converts a map to a sorted slice of Cognito attribute types.
+// Sorting by name ensures deterministic output, matching AWS behaviour.
+func sortedAttributeList(m map[string]string) []attributeType {
+	if len(m) == 0 {
+		return []attributeType{}
+	}
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
 	out := make([]attributeType, 0, len(m))
-	for k, v := range m {
-		out = append(out, attributeType{Name: k, Value: v})
+	for _, k := range keys {
+		out = append(out, attributeType{Name: k, Value: m[k]})
 	}
 
 	return out
@@ -884,11 +890,12 @@ func (h *Handler) handleListUsers(
 	summaries := make([]*userSummary, 0, len(users))
 	for _, u := range users {
 		summaries = append(summaries, &userSummary{
-			Username:       u.Username,
-			UserStatus:     u.Status,
-			UserCreateDate: float64(u.CreatedAt.Unix()),
-			Attributes:     mapToAttributeList(u.Attributes),
-			Enabled:        u.Enabled,
+			Username:         u.Username,
+			UserStatus:       u.Status,
+			UserCreateDate:   float64(u.CreatedAt.Unix()),
+			UserLastModified: float64(u.CreatedAt.Unix()),
+			Attributes:       sortedAttributeList(u.Attributes),
+			Enabled:          u.Enabled,
 		})
 	}
 
@@ -963,7 +970,7 @@ func (h *Handler) handleGetUser(
 
 	return &getUserOutput{
 		Username:       user.Username,
-		UserAttributes: mapToAttributeList(user.Attributes),
+		UserAttributes: sortedAttributeList(user.Attributes),
 	}, nil
 }
 

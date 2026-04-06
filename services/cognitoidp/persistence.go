@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 )
 
 var (
@@ -96,6 +97,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	for id, p := range b.pools {
 		pem, err := marshalRSAKey(p.issuer.privateKey)
 		if err != nil {
+			slog.Default().Warn("cognitoidp: failed to marshal RSA key for pool snapshot", "poolId", id, "error", err)
 			pem = ""
 		}
 
@@ -144,7 +146,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Endpoint:      b.endpoint,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("cognitoidp: failed to marshal backend snapshot", "error", err)
+
+		return nil
+	}
 
 	return data
 }
