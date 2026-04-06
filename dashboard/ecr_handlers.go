@@ -93,7 +93,7 @@ func (h *DashboardHandler) ecrCreateRepository(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.ECROps.Backend.CreateRepository(name); err != nil {
+	if _, err := h.ECROps.Backend.CreateRepository(name, ""); err != nil {
 		h.Logger.Error("failed to create ECR repository", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

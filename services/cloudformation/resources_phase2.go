@@ -539,7 +539,7 @@ func (rc *ResourceCreator) createECRRepository(
 		name = strings.ToLower(logicalID)
 	}
 
-	repo, err := rc.backends.ECR.Backend.CreateRepository(name)
+	repo, err := rc.backends.ECR.Backend.CreateRepository(name, "")
 	if err != nil {
 		return "", fmt.Errorf("create ECR repository %s: %w", name, err)
 	}

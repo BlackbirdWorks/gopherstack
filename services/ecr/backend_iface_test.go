@@ -37,7 +37,7 @@ func newStubBackend() *stubBackend {
 	return &stubBackend{repos: make(map[string]*ecr.Repository)}
 }
 
-func (s *stubBackend) CreateRepository(name string) (*ecr.Repository, error) {
+func (s *stubBackend) CreateRepository(name, _ string) (*ecr.Repository, error) {
 	if name == "" {
 		return nil, ecr.ErrInvalidRepositoryName
 	}
@@ -93,6 +93,78 @@ func (s *stubBackend) DeleteRepository(name string) (*ecr.Repository, error) {
 
 func (s *stubBackend) ProxyEndpoint() string { return "stub:5000" }
 func (s *stubBackend) SetEndpoint(_ string)  {}
+
+func (s *stubBackend) BatchCheckLayerAvailability(
+	_ string,
+	_ []string,
+) ([]ecr.LayerAvailability, []ecr.LayerFailure, error) {
+	return []ecr.LayerAvailability{}, []ecr.LayerFailure{}, nil
+}
+
+func (s *stubBackend) BatchDeleteImage(
+	_ string,
+	_ []ecr.ImageIdentifier,
+) ([]ecr.ImageIdentifier, []ecr.ImageFailure, error) {
+	return []ecr.ImageIdentifier{}, []ecr.ImageFailure{}, nil
+}
+
+func (s *stubBackend) BatchGetImage(_ string, _ []ecr.ImageIdentifier) ([]ecr.Image, []ecr.ImageFailure, error) {
+	return []ecr.Image{}, []ecr.ImageFailure{}, nil
+}
+
+func (s *stubBackend) BatchGetRepositoryScanningConfiguration(
+	_ []string,
+) ([]ecr.RepositoryScanningConfiguration, []ecr.RepositoryScanningConfigurationFailure, error) {
+	return []ecr.RepositoryScanningConfiguration{}, []ecr.RepositoryScanningConfigurationFailure{}, nil
+}
+
+func (s *stubBackend) CompleteLayerUpload(_ string, _ string, _ []string) (*ecr.CompleteLayerUploadResult, error) {
+	return &ecr.CompleteLayerUploadResult{}, nil
+}
+
+func (s *stubBackend) CreatePullThroughCacheRule(_, _, _, _ string) (*ecr.PullThroughCacheRule, error) {
+	return &ecr.PullThroughCacheRule{}, nil
+}
+
+func (s *stubBackend) CreateRepositoryCreationTemplate(
+	_ *ecr.RepositoryCreationTemplate,
+) (*ecr.RepositoryCreationTemplate, error) {
+	return &ecr.RepositoryCreationTemplate{}, nil
+}
+
+func (s *stubBackend) DeleteLifecyclePolicy(_ string) (*ecr.LifecyclePolicyResult, error) {
+	return &ecr.LifecyclePolicyResult{}, nil
+}
+
+func (s *stubBackend) DeletePullThroughCacheRule(_ string) (*ecr.PullThroughCacheRule, error) {
+	return &ecr.PullThroughCacheRule{}, nil
+}
+
+func (s *stubBackend) DeleteRegistryPolicy() (*ecr.RegistryPolicyResult, error) {
+	return &ecr.RegistryPolicyResult{}, nil
+}
+
+func (s *stubBackend) PutLifecyclePolicy(_ string, _ string) (*ecr.LifecyclePolicyResult, error) {
+	return &ecr.LifecyclePolicyResult{}, nil
+}
+
+func (s *stubBackend) PutRegistryPolicy(_ string) (*ecr.RegistryPolicyResult, error) {
+	return &ecr.RegistryPolicyResult{}, nil
+}
+
+func (s *stubBackend) TagResource(_ string, _ map[string]string) error {
+	return nil
+}
+
+func (s *stubBackend) UntagResource(_ string, _ []string) error {
+	return nil
+}
+
+func (s *stubBackend) ListTagsForResource(_ string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (s *stubBackend) Reset() {}
 
 // ---- tests --------------------------------------------------------------
 
