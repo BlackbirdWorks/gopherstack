@@ -38,6 +38,11 @@ const (
 	defaultInstanceClass = "db.t3.medium"
 	defaultEngineVersion = "4.0.0"
 	docDBEngine          = "docdb"
+
+	// OptInType constants for ApplyPendingMaintenanceAction.
+	optInTypeImmediate       = "immediate"
+	optInTypeNextMaintenance = "next-maintenance"
+	optInTypeUndoOptIn       = "undo-opt-in"
 )
 
 type DBCluster struct {
@@ -775,10 +780,14 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 		return fmt.Errorf("%w: OptInType is required", ErrInvalidParameter)
 	}
 	switch optInType {
-	case "immediate", "next-maintenance", "undo-opt-in":
+	case optInTypeImmediate, optInTypeNextMaintenance, optInTypeUndoOptIn:
 		// valid
 	default:
-		return fmt.Errorf("%w: OptInType must be one of immediate, next-maintenance, undo-opt-in", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: OptInType must be one of %s, %s, %s",
+			ErrInvalidParameter,
+			optInTypeImmediate, optInTypeNextMaintenance, optInTypeUndoOptIn,
+		)
 	}
 
 	return nil

@@ -1,6 +1,9 @@
 package docdb
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 // backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
 type backendSnapshot struct {
@@ -69,8 +72,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                 b.region,
 	}
 
-	// Marshal can only fail for unsupported types (e.g. channels/functions) which are not present here.
-	data, _ := json.Marshal(&snap)
+	data, err := json.Marshal(&snap)
+	if err != nil {
+		slog.Default().Warn("docdb: failed to marshal snapshot", "error", err)
+
+		return nil
+	}
 
 	return data
 }

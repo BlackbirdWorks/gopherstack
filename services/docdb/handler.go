@@ -284,7 +284,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	masterUser := vals.Get("MasterUsername")
 	dbName := vals.Get("DatabaseName")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	tags := tagsToMap(parseTagEntries(vals))
+	tags := parseTags(vals)
 	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, 0, tags)
 	if err != nil {
 		return nil, err
@@ -390,7 +390,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
 	engine := vals.Get("Engine")
-	tags := tagsToMap(parseTagEntries(vals))
+	tags := parseTags(vals)
 	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, tags)
 	if err != nil {
 		return nil, err
@@ -470,7 +470,7 @@ func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
 	description := vals.Get("DBSubnetGroupDescription")
 	vpcID := vals.Get("VpcId")
 	subnetIDs := parseSubnetIDMembers(vals)
-	tags := tagsToMap(parseTagEntries(vals))
+	tags := parseTags(vals)
 	sg, err := h.Backend.CreateDBSubnetGroup(name, description, vpcID, subnetIDs, tags)
 	if err != nil {
 		return nil, err
@@ -518,7 +518,7 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 	name := vals.Get("DBClusterParameterGroupName")
 	family := vals.Get("DBParameterGroupFamily")
 	description := vals.Get("Description")
-	tags := tagsToMap(parseTagEntries(vals))
+	tags := parseTags(vals)
 	pg, err := h.Backend.CreateDBClusterParameterGroup(name, family, description, tags)
 	if err != nil {
 		return nil, err
@@ -575,7 +575,7 @@ func (h *Handler) handleModifyDBClusterParameterGroup(vals url.Values) (any, err
 func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	tags := tagsToMap(parseTagEntries(vals))
+	tags := parseTags(vals)
 	snap, err := h.Backend.CreateDBClusterSnapshot(snapshotID, clusterID, tags)
 	if err != nil {
 		return nil, err
@@ -1498,6 +1498,11 @@ func tagsToMap(tags []Tag) map[string]string {
 	}
 
 	return m
+}
+
+// parseTags parses Tags.Tag.N.Key/Value form values and returns a map.
+func parseTags(vals url.Values) map[string]string {
+	return tagsToMap(parseTagEntries(vals))
 }
 
 const defaultDocDBMaxRecords = 100

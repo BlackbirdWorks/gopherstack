@@ -1353,7 +1353,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	}{
 		{
 			name:  "empty_backend_reset",
-			setup: func(_ *docdb.InMemoryBackend) {},
+			setup: nil,
 			want:  0,
 		},
 		{
@@ -1371,7 +1371,9 @@ func TestRefinement1_Reset(t *testing.T) {
 			t.Parallel()
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-			tt.setup(b)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
 			b.Reset()
 
 			assert.Equal(t, tt.want, b.ClusterCount())
