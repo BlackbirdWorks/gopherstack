@@ -18,13 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "")
 	h := cognitoidp.NewHandler(backend, "us-east-1")
 	sdkcheck.CheckCompleteness(t, &cognitoidpsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddCustomAttributes",
-		"AddUserPoolClientSecret",
-		"AdminDeleteUserAttributes",
-		"AdminDisableProviderForUser",
-		"AdminDisableUser",
-		"AdminEnableUser",
-		"AdminForgetDevice",
 		"AdminGetDevice",
 		"AdminLinkProviderForUser",
 		"AdminListDevices",

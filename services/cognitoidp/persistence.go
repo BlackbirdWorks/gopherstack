@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 )
 
 var (
@@ -16,13 +17,14 @@ var (
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
 type userPoolSnapshot struct {
-	CreatedAt  string `json:"createdAt"`
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	ARN        string `json:"arn"`
-	IssuerURL  string `json:"issuerUrl"`
-	KeyID      string `json:"keyId"`
-	PrivKeyPEM string `json:"privKeyPem"`
+	CreatedAt        string            `json:"createdAt"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	ARN              string            `json:"arn"`
+	IssuerURL        string            `json:"issuerUrl"`
+	KeyID            string            `json:"keyId"`
+	PrivKeyPEM       string            `json:"privKeyPem"`
+	CustomAttributes []SchemaAttribute `json:"customAttributes,omitempty"`
 }
 
 // userSnapshot is a copy of User safe for JSON serialization.
@@ -35,6 +37,7 @@ type userSnapshot struct {
 	PasswordHash string            `json:"passwordHash"`
 	Status       string            `json:"status"`
 	ConfirmCode  string            `json:"confirmCode,omitempty"`
+	Enabled      bool              `json:"enabled"`
 }
 
 type backendSnapshot struct {
@@ -94,17 +97,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	for id, p := range b.pools {
 		pem, err := marshalRSAKey(p.issuer.privateKey)
 		if err != nil {
+			slog.Default().Warn("cognitoidp: failed to marshal RSA key for pool snapshot", "poolId", id, "error", err)
 			pem = ""
 		}
 
 		poolSnaps[id] = &userPoolSnapshot{
-			CreatedAt:  p.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			ID:         p.ID,
-			Name:       p.Name,
-			ARN:        p.ARN,
-			IssuerURL:  p.issuer.issuerURL,
-			KeyID:      p.issuer.keyID,
-			PrivKeyPEM: pem,
+			CreatedAt:        p.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			ID:               p.ID,
+			Name:             p.Name,
+			ARN:              p.ARN,
+			IssuerURL:        p.issuer.issuerURL,
+			KeyID:            p.issuer.keyID,
+			PrivKeyPEM:       pem,
+			CustomAttributes: p.CustomAttributes,
 		}
 	}
 
@@ -122,6 +127,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 				PasswordHash: u.PasswordHash,
 				Status:       u.Status,
 				ConfirmCode:  u.ConfirmCode,
+				Enabled:      u.Enabled,
 			}
 		}
 
@@ -140,7 +146,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Endpoint:      b.endpoint,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("cognitoidp: failed to marshal backend snapshot", "error", err)
+
+		return nil
+	}
 
 	return data
 }
@@ -164,9 +175,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 
 		pool := &UserPool{
-			ID:   ps.ID,
-			Name: ps.Name,
-			ARN:  ps.ARN,
+			ID:               ps.ID,
+			Name:             ps.Name,
+			ARN:              ps.ARN,
+			CustomAttributes: ps.CustomAttributes,
 		}
 
 		if rsaKey != nil {
@@ -191,6 +203,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 				PasswordHash: us.PasswordHash,
 				Status:       us.Status,
 				ConfirmCode:  us.ConfirmCode,
+				Enabled:      us.Enabled,
 			}
 		}
 
