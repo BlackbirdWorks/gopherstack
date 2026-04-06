@@ -1038,3 +1038,703 @@ func TestListConnectionsContinuation(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"conn-0", "conn-1", "conn-2"}, names)
 }
+
+// createHost is a test helper that creates a host and returns its ARN.
+func createHost(t *testing.T, h *codeconnections.Handler, name, providerType, endpoint string) string {
+	t.Helper()
+
+	rec := doJSON(t, h, "CreateHost", map[string]any{
+		"Name":             name,
+		"ProviderType":     providerType,
+		"ProviderEndpoint": endpoint,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+
+	hostArn, ok := resp["HostArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, hostArn)
+
+	return hostArn
+}
+
+// createRepositoryLink is a test helper that creates a repository link and returns its ID.
+func createRepositoryLink(t *testing.T, h *codeconnections.Handler, connectionArn, ownerID, repoName string) string {
+	t.Helper()
+
+	rec := doJSON(t, h, "CreateRepositoryLink", map[string]any{
+		"ConnectionArn":  connectionArn,
+		"OwnerId":        ownerID,
+		"RepositoryName": repoName,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+
+	info, ok := resp["RepositoryLinkInfo"].(map[string]any)
+	require.True(t, ok)
+
+	linkID, ok := info["RepositoryLinkId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, linkID)
+
+	return linkID
+}
+
+// TestCreateHost exercises the CreateHost handler.
+func TestCreateHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantArn    bool
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"Name":             "my-host",
+				"ProviderType":     "GitHubEnterpriseServer",
+				"ProviderEndpoint": "https://ghe.example.com",
+			},
+			wantStatus: http.StatusOK,
+			wantArn:    true,
+		},
+		{
+			name: "missing_name",
+			body: map[string]any{
+				"ProviderEndpoint": "https://ghe.example.com",
+				"ProviderType":     "GitHubEnterpriseServer",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_endpoint",
+			body:       map[string]any{"Name": "my-host", "ProviderType": "GitHubEnterpriseServer"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doJSON(t, h, "CreateHost", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantArn {
+				resp := parseResp(t, rec)
+				assert.NotEmpty(t, resp["HostArn"])
+			}
+		})
+	}
+}
+
+// TestGetHost exercises the GetHost handler.
+func TestGetHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupHostArn   func(t *testing.T, h *codeconnections.Handler) string
+		name           string
+		wantName       string
+		wantEndpoint   string
+		wantHostStatus string
+		wantStatus     int
+	}{
+		{
+			name: "success",
+			setupHostArn: func(t *testing.T, h *codeconnections.Handler) string {
+				t.Helper()
+
+				return createHost(t, h, "my-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+			},
+			wantStatus:     http.StatusOK,
+			wantName:       "my-host",
+			wantEndpoint:   "https://ghe.example.com",
+			wantHostStatus: "AVAILABLE",
+		},
+		{
+			name: "not_found",
+			setupHostArn: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return "arn:aws:codeconnections:us-east-1:123:host/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_arn",
+			setupHostArn: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			hostArn := tt.setupHostArn(t, h)
+			rec := doJSON(t, h, "GetHost", map[string]any{"HostArn": hostArn})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				resp := parseResp(t, rec)
+				assert.Equal(t, tt.wantName, resp["Name"])
+				assert.Equal(t, tt.wantEndpoint, resp["ProviderEndpoint"])
+				assert.Equal(t, tt.wantHostStatus, resp["Status"])
+			}
+		})
+	}
+}
+
+// TestDeleteHost exercises the DeleteHost handler.
+func TestDeleteHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupHostArn func(t *testing.T, h *codeconnections.Handler) string
+		name         string
+		wantStatus   int
+	}{
+		{
+			name: "success",
+			setupHostArn: func(t *testing.T, h *codeconnections.Handler) string {
+				t.Helper()
+
+				return createHost(t, h, "my-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setupHostArn: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return "arn:aws:codeconnections:us-east-1:123:host/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			hostArn := tt.setupHostArn(t, h)
+			rec := doJSON(t, h, "DeleteHost", map[string]any{"HostArn": hostArn})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				getRec := doJSON(t, h, "GetHost", map[string]any{"HostArn": hostArn})
+				assert.Equal(t, http.StatusBadRequest, getRec.Code)
+			}
+		})
+	}
+}
+
+// TestCreateRepositoryLink exercises the CreateRepositoryLink handler.
+func TestCreateRepositoryLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantLink   bool
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"ConnectionArn":  "arn:aws:codeconnections:us-east-1:123:connection/abc",
+				"OwnerId":        "my-org",
+				"RepositoryName": "my-repo",
+			},
+			wantStatus: http.StatusOK,
+			wantLink:   true,
+		},
+		{
+			name:       "missing_connection_arn",
+			body:       map[string]any{"OwnerId": "my-org", "RepositoryName": "my-repo"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_owner_id",
+			body: map[string]any{
+				"ConnectionArn":  "arn:aws:codeconnections:us-east-1:123:connection/abc",
+				"RepositoryName": "my-repo",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_repository_name",
+			body: map[string]any{
+				"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc",
+				"OwnerId":       "my-org",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doJSON(t, h, "CreateRepositoryLink", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantLink {
+				resp := parseResp(t, rec)
+				info, ok := resp["RepositoryLinkInfo"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, info["RepositoryLinkId"])
+				assert.NotEmpty(t, info["RepositoryLinkArn"])
+				assert.Equal(t, "my-org", info["OwnerId"])
+				assert.Equal(t, "my-repo", info["RepositoryName"])
+			}
+		})
+	}
+}
+
+// TestGetRepositoryLink exercises the GetRepositoryLink handler.
+func TestGetRepositoryLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupLinkID  func(t *testing.T, h *codeconnections.Handler) string
+		name         string
+		wantOwner    string
+		wantRepoName string
+		wantStatus   int
+	}{
+		{
+			name: "success",
+			setupLinkID: func(t *testing.T, h *codeconnections.Handler) string {
+				t.Helper()
+				connArn := createConn(t, h, "my-conn", "GitHub")
+
+				return createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			},
+			wantStatus:   http.StatusOK,
+			wantOwner:    "my-org",
+			wantRepoName: "my-repo",
+		},
+		{
+			name: "not_found",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return "nonexistent-id"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_id",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			linkID := tt.setupLinkID(t, h)
+			rec := doJSON(t, h, "GetRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				resp := parseResp(t, rec)
+				info, ok := resp["RepositoryLinkInfo"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantOwner, info["OwnerId"])
+				assert.Equal(t, tt.wantRepoName, info["RepositoryName"])
+			}
+		})
+	}
+}
+
+// TestDeleteRepositoryLink exercises the DeleteRepositoryLink handler.
+func TestDeleteRepositoryLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupLinkID func(t *testing.T, h *codeconnections.Handler) string
+		name        string
+		wantStatus  int
+	}{
+		{
+			name: "success",
+			setupLinkID: func(t *testing.T, h *codeconnections.Handler) string {
+				t.Helper()
+				connArn := createConn(t, h, "my-conn", "GitHub")
+
+				return createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return "nonexistent-id"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			linkID := tt.setupLinkID(t, h)
+			rec := doJSON(t, h, "DeleteRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				getRec := doJSON(t, h, "GetRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+				assert.Equal(t, http.StatusBadRequest, getRec.Code)
+			}
+		})
+	}
+}
+
+// TestCreateSyncConfiguration exercises the CreateSyncConfiguration handler.
+func TestCreateSyncConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupLinkID func(t *testing.T, h *codeconnections.Handler) string
+		body        func(linkID string) map[string]any
+		name        string
+		wantStatus  int
+		wantSync    bool
+	}{
+		{
+			name: "success",
+			setupLinkID: func(t *testing.T, h *codeconnections.Handler) string {
+				t.Helper()
+				connArn := createConn(t, h, "my-conn", "GitHub")
+
+				return createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			},
+			body: func(linkID string) map[string]any {
+				return map[string]any{
+					"Branch":           "main",
+					"ConfigFile":       "config.yaml",
+					"RepositoryLinkId": linkID,
+					"ResourceName":     "my-stack",
+					"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+					"SyncType":         "CFN_STACK_SYNC",
+				}
+			},
+			wantStatus: http.StatusOK,
+			wantSync:   true,
+		},
+		{
+			name:        "missing_branch",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string { return "some-id" },
+			body: func(_ string) map[string]any {
+				return map[string]any{
+					"ConfigFile":       "config.yaml",
+					"RepositoryLinkId": "some-id",
+					"ResourceName":     "my-stack",
+					"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+					"SyncType":         "CFN_STACK_SYNC",
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "missing_config_file",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string { return "some-id" },
+			body: func(_ string) map[string]any {
+				return map[string]any{
+					"Branch":           "main",
+					"RepositoryLinkId": "some-id",
+					"ResourceName":     "my-stack",
+					"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+					"SyncType":         "CFN_STACK_SYNC",
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "missing_role_arn",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string { return "some-id" },
+			body: func(_ string) map[string]any {
+				return map[string]any{
+					"Branch":           "main",
+					"ConfigFile":       "config.yaml",
+					"RepositoryLinkId": "some-id",
+					"ResourceName":     "my-stack",
+					"SyncType":         "CFN_STACK_SYNC",
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			linkID := tt.setupLinkID(t, h)
+			rec := doJSON(t, h, "CreateSyncConfiguration", tt.body(linkID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantSync {
+				resp := parseResp(t, rec)
+				cfg, ok := resp["SyncConfiguration"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "main", cfg["Branch"])
+				assert.Equal(t, "config.yaml", cfg["ConfigFile"])
+				assert.Equal(t, "my-stack", cfg["ResourceName"])
+				assert.Equal(t, "CFN_STACK_SYNC", cfg["SyncType"])
+			}
+		})
+	}
+}
+
+// TestDeleteSyncConfiguration exercises the DeleteSyncConfiguration handler.
+func TestDeleteSyncConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		preCreate  bool
+	}{
+		{
+			name:       "success",
+			preCreate:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			preCreate:  false,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.preCreate {
+				connArn := createConn(t, h, "my-conn", "GitHub")
+				linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+				rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+					"Branch":           "main",
+					"ConfigFile":       "config.yaml",
+					"RepositoryLinkId": linkID,
+					"ResourceName":     "my-stack",
+					"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+					"SyncType":         "CFN_STACK_SYNC",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doJSON(t, h, "DeleteSyncConfiguration", map[string]any{
+				"ResourceName": "my-stack",
+				"SyncType":     "CFN_STACK_SYNC",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestGetRepositorySyncStatus exercises the GetRepositorySyncStatus handler.
+func TestGetRepositorySyncStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupLinkID func(t *testing.T, h *codeconnections.Handler) string
+		name        string
+		wantStatus  int
+		wantSync    bool
+	}{
+		{
+			name: "success",
+			setupLinkID: func(t *testing.T, h *codeconnections.Handler) string {
+				t.Helper()
+				connArn := createConn(t, h, "my-conn", "GitHub")
+
+				return createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			},
+			wantStatus: http.StatusOK,
+			wantSync:   true,
+		},
+		{
+			name: "not_found",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return "nonexistent-id"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_repository_link_id",
+			setupLinkID: func(_ *testing.T, _ *codeconnections.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			linkID := tt.setupLinkID(t, h)
+			rec := doJSON(t, h, "GetRepositorySyncStatus", map[string]any{
+				"RepositoryLinkId": linkID,
+				"Branch":           "main",
+				"SyncType":         "CFN_STACK_SYNC",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantSync {
+				resp := parseResp(t, rec)
+				latest, ok := resp["LatestSync"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "SUCCEEDED", latest["Status"])
+				assert.NotEmpty(t, latest["StartedAt"])
+			}
+		})
+	}
+}
+
+// TestGetResourceSyncStatus exercises the GetResourceSyncStatus handler.
+func TestGetResourceSyncStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		wantSync   bool
+		preCreate  bool
+	}{
+		{
+			name:       "success",
+			preCreate:  true,
+			wantStatus: http.StatusOK,
+			wantSync:   true,
+		},
+		{
+			name:       "not_found",
+			preCreate:  false,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.preCreate {
+				connArn := createConn(t, h, "my-conn", "GitHub")
+				linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+				rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+					"Branch":           "main",
+					"ConfigFile":       "config.yaml",
+					"RepositoryLinkId": linkID,
+					"ResourceName":     "my-stack",
+					"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+					"SyncType":         "CFN_STACK_SYNC",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doJSON(t, h, "GetResourceSyncStatus", map[string]any{
+				"ResourceName": "my-stack",
+				"SyncType":     "CFN_STACK_SYNC",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantSync {
+				resp := parseResp(t, rec)
+				latest, ok := resp["LatestSync"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "SUCCEEDED", latest["Status"])
+				assert.NotEmpty(t, latest["StartedAt"])
+			}
+		})
+	}
+}
+
+// TestRepositoryLinkProviderTypeDerivedFromConnection verifies that provider type
+// is inherited from the associated connection when creating a repository link.
+func TestRepositoryLinkProviderTypeDerivedFromConnection(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	connArn := createConn(t, h, "my-conn", "GitHub")
+	linkID := createRepositoryLink(t, h, connArn, "acme-corp", "acme-service")
+
+	rec := doJSON(t, h, "GetRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	info, ok := resp["RepositoryLinkInfo"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "GitHub", info["ProviderType"])
+	assert.Equal(t, "acme-corp", info["OwnerId"])
+}
+
+// TestSyncConfigurationRoundTrip verifies create/delete round-trip for SyncConfiguration.
+func TestSyncConfigurationRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	connArn := createConn(t, h, "my-conn", "GitHub")
+	linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+
+	createRec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+		"Branch":           "main",
+		"ConfigFile":       "config.yaml",
+		"RepositoryLinkId": linkID,
+		"ResourceName":     "my-stack",
+		"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+		"SyncType":         "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	resp := parseResp(t, createRec)
+	cfg, ok := resp["SyncConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "my-org", cfg["OwnerId"])
+	assert.Equal(t, "my-repo", cfg["RepositoryName"])
+	assert.Equal(t, "GitHub", cfg["ProviderType"])
+
+	// Verify resource sync status works.
+	syncRec := doJSON(t, h, "GetResourceSyncStatus", map[string]any{
+		"ResourceName": "my-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, syncRec.Code)
+
+	// Delete and verify gone.
+	delRec := doJSON(t, h, "DeleteSyncConfiguration", map[string]any{
+		"ResourceName": "my-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	// Resource sync status should now return not found.
+	afterDelRec := doJSON(t, h, "GetResourceSyncStatus", map[string]any{
+		"ResourceName": "my-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	assert.Equal(t, http.StatusBadRequest, afterDelRec.Code)
+}

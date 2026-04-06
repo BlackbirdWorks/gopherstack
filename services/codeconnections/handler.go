@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -47,6 +48,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
+		"CreateHost",
+		"GetHost",
+		"DeleteHost",
+		"CreateRepositoryLink",
+		"GetRepositoryLink",
+		"DeleteRepositoryLink",
+		"CreateSyncConfiguration",
+		"DeleteSyncConfiguration",
+		"GetRepositorySyncStatus",
+		"GetResourceSyncStatus",
 	}
 }
 
@@ -84,17 +95,29 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		ConnectionArn string `json:"ConnectionArn"`
-		ResourceArn   string `json:"ResourceArn"`
+		ConnectionArn    string `json:"ConnectionArn"`
+		ResourceArn      string `json:"ResourceArn"`
+		HostArn          string `json:"HostArn"`
+		RepositoryLinkID string `json:"RepositoryLinkId"`
+		ResourceName     string `json:"ResourceName"`
 	}
 
 	_ = json.Unmarshal(body, &req)
 
-	if req.ConnectionArn != "" {
+	switch {
+	case req.ConnectionArn != "":
 		return req.ConnectionArn
+	case req.ResourceArn != "":
+		return req.ResourceArn
+	case req.HostArn != "":
+		return req.HostArn
+	case req.RepositoryLinkID != "":
+		return req.RepositoryLinkID
+	case req.ResourceName != "":
+		return req.ResourceName
+	default:
+		return ""
 	}
-
-	return req.ResourceArn
 }
 
 // Handler returns the Echo handler function for CodeConnections requests.
@@ -112,13 +135,23 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	table := map[string]service.JSONOpFunc{
-		"CreateConnection":    service.WrapOp(h.handleCreateConnection),
-		"GetConnection":       service.WrapOp(h.handleGetConnection),
-		"ListConnections":     service.WrapOp(h.handleListConnections),
-		"DeleteConnection":    service.WrapOp(h.handleDeleteConnection),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"UntagResource":       service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		"CreateConnection":        service.WrapOp(h.handleCreateConnection),
+		"GetConnection":           service.WrapOp(h.handleGetConnection),
+		"ListConnections":         service.WrapOp(h.handleListConnections),
+		"DeleteConnection":        service.WrapOp(h.handleDeleteConnection),
+		"TagResource":             service.WrapOp(h.handleTagResource),
+		"UntagResource":           service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
+		"CreateHost":              service.WrapOp(h.handleCreateHost),
+		"GetHost":                 service.WrapOp(h.handleGetHost),
+		"DeleteHost":              service.WrapOp(h.handleDeleteHost),
+		"CreateRepositoryLink":    service.WrapOp(h.handleCreateRepositoryLink),
+		"GetRepositoryLink":       service.WrapOp(h.handleGetRepositoryLink),
+		"DeleteRepositoryLink":    service.WrapOp(h.handleDeleteRepositoryLink),
+		"CreateSyncConfiguration": service.WrapOp(h.handleCreateSyncConfiguration),
+		"DeleteSyncConfiguration": service.WrapOp(h.handleDeleteSyncConfiguration),
+		"GetRepositorySyncStatus": service.WrapOp(h.handleGetRepositorySyncStatus),
+		"GetResourceSyncStatus":   service.WrapOp(h.handleGetResourceSyncStatus),
 	}
 
 	fn, ok := table[action]
@@ -354,4 +387,383 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	return &listTagsForResourceOutput{Tags: tagsToArray(tags)}, nil
+}
+
+// --- Host handlers ---
+
+type createHostInput struct {
+	Name             string `json:"Name"`
+	ProviderType     string `json:"ProviderType"`
+	ProviderEndpoint string `json:"ProviderEndpoint"`
+}
+
+type createHostOutput struct {
+	HostArn string `json:"HostArn"`
+}
+
+func (h *Handler) handleCreateHost(_ context.Context, in *createHostInput) (*createHostOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errValidation)
+	}
+
+	if in.ProviderEndpoint == "" {
+		return nil, fmt.Errorf("%w: ProviderEndpoint is required", errValidation)
+	}
+
+	host, err := h.Backend.CreateHost(in.Name, in.ProviderType, in.ProviderEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createHostOutput{HostArn: host.HostArn}, nil
+}
+
+type getHostInput struct {
+	HostArn string `json:"HostArn"`
+}
+
+type getHostOutput struct {
+	Name             string `json:"Name"`
+	ProviderEndpoint string `json:"ProviderEndpoint"`
+	ProviderType     string `json:"ProviderType"`
+	Status           string `json:"Status"`
+}
+
+func (h *Handler) handleGetHost(_ context.Context, in *getHostInput) (*getHostOutput, error) {
+	if in.HostArn == "" {
+		return nil, fmt.Errorf("%w: HostArn is required", errValidation)
+	}
+
+	host, err := h.Backend.GetHost(in.HostArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getHostOutput{
+		Name:             host.Name,
+		ProviderEndpoint: host.ProviderEndpoint,
+		ProviderType:     host.ProviderType,
+		Status:           host.Status,
+	}, nil
+}
+
+type deleteHostInput struct {
+	HostArn string `json:"HostArn"`
+}
+
+func (h *Handler) handleDeleteHost(_ context.Context, in *deleteHostInput) (*emptyOutput, error) {
+	if err := h.Backend.DeleteHost(in.HostArn); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- RepositoryLink handlers ---
+
+type createRepositoryLinkInput struct {
+	ConnectionArn    string `json:"ConnectionArn"`
+	OwnerID          string `json:"OwnerId"`
+	RepositoryName   string `json:"RepositoryName"`
+	EncryptionKeyArn string `json:"EncryptionKeyArn"`
+}
+
+type repositoryLinkItem struct {
+	ConnectionArn     string `json:"ConnectionArn"`
+	OwnerID           string `json:"OwnerId"`
+	ProviderType      string `json:"ProviderType"`
+	RepositoryLinkArn string `json:"RepositoryLinkArn"`
+	RepositoryLinkID  string `json:"RepositoryLinkId"`
+	RepositoryName    string `json:"RepositoryName"`
+	EncryptionKeyArn  string `json:"EncryptionKeyArn,omitempty"`
+}
+
+type createRepositoryLinkOutput struct {
+	RepositoryLinkInfo repositoryLinkItem `json:"RepositoryLinkInfo"`
+}
+
+func (h *Handler) handleCreateRepositoryLink(
+	_ context.Context,
+	in *createRepositoryLinkInput,
+) (*createRepositoryLinkOutput, error) {
+	if in.ConnectionArn == "" {
+		return nil, fmt.Errorf("%w: ConnectionArn is required", errValidation)
+	}
+
+	if in.OwnerID == "" {
+		return nil, fmt.Errorf("%w: OwnerId is required", errValidation)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: RepositoryName is required", errValidation)
+	}
+
+	link, err := h.Backend.CreateRepositoryLink(in.ConnectionArn, in.OwnerID, in.RepositoryName, in.EncryptionKeyArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createRepositoryLinkOutput{RepositoryLinkInfo: repositoryLinkToItem(link)}, nil
+}
+
+type getRepositoryLinkInput struct {
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+}
+
+type getRepositoryLinkOutput struct {
+	RepositoryLinkInfo repositoryLinkItem `json:"RepositoryLinkInfo"`
+}
+
+func (h *Handler) handleGetRepositoryLink(
+	_ context.Context,
+	in *getRepositoryLinkInput,
+) (*getRepositoryLinkOutput, error) {
+	if in.RepositoryLinkID == "" {
+		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errValidation)
+	}
+
+	link, err := h.Backend.GetRepositoryLink(in.RepositoryLinkID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getRepositoryLinkOutput{RepositoryLinkInfo: repositoryLinkToItem(link)}, nil
+}
+
+type deleteRepositoryLinkInput struct {
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+}
+
+func (h *Handler) handleDeleteRepositoryLink(
+	_ context.Context,
+	in *deleteRepositoryLinkInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteRepositoryLink(in.RepositoryLinkID); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+func repositoryLinkToItem(link *RepositoryLink) repositoryLinkItem {
+	return repositoryLinkItem{
+		ConnectionArn:     link.ConnectionArn,
+		OwnerID:           link.OwnerID,
+		ProviderType:      link.ProviderType,
+		RepositoryLinkArn: link.RepositoryLinkArn,
+		RepositoryLinkID:  link.RepositoryLinkID,
+		RepositoryName:    link.RepositoryName,
+		EncryptionKeyArn:  link.EncryptionKeyArn,
+	}
+}
+
+// --- SyncConfiguration handlers ---
+
+type createSyncConfigurationInput struct {
+	Branch           string `json:"Branch"`
+	ConfigFile       string `json:"ConfigFile"`
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+	ResourceName     string `json:"ResourceName"`
+	RoleArn          string `json:"RoleArn"`
+	SyncType         string `json:"SyncType"`
+}
+
+type syncConfigurationItem struct {
+	Branch           string `json:"Branch"`
+	ConfigFile       string `json:"ConfigFile"`
+	OwnerID          string `json:"OwnerId"`
+	ProviderType     string `json:"ProviderType"`
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+	RepositoryName   string `json:"RepositoryName"`
+	ResourceName     string `json:"ResourceName"`
+	RoleArn          string `json:"RoleArn"`
+	SyncType         string `json:"SyncType"`
+}
+
+type createSyncConfigurationOutput struct {
+	SyncConfiguration syncConfigurationItem `json:"SyncConfiguration"`
+}
+
+func (h *Handler) handleCreateSyncConfiguration(
+	_ context.Context,
+	in *createSyncConfigurationInput,
+) (*createSyncConfigurationOutput, error) {
+	if in.Branch == "" {
+		return nil, fmt.Errorf("%w: Branch is required", errValidation)
+	}
+
+	if in.ConfigFile == "" {
+		return nil, fmt.Errorf("%w: ConfigFile is required", errValidation)
+	}
+
+	if in.RepositoryLinkID == "" {
+		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errValidation)
+	}
+
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", errValidation)
+	}
+
+	if in.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", errValidation)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", errValidation)
+	}
+
+	cfg, err := h.Backend.CreateSyncConfiguration(
+		in.Branch, in.ConfigFile, in.RepositoryLinkID, in.ResourceName, in.RoleArn, in.SyncType,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSyncConfigurationOutput{SyncConfiguration: syncConfigToItem(cfg)}, nil
+}
+
+type deleteSyncConfigurationInput struct {
+	ResourceName string `json:"ResourceName"`
+	SyncType     string `json:"SyncType"`
+}
+
+func (h *Handler) handleDeleteSyncConfiguration(
+	_ context.Context,
+	in *deleteSyncConfigurationInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteSyncConfiguration(in.ResourceName, in.SyncType); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+func syncConfigToItem(cfg *SyncConfiguration) syncConfigurationItem {
+	return syncConfigurationItem{
+		Branch:           cfg.Branch,
+		ConfigFile:       cfg.ConfigFile,
+		OwnerID:          cfg.OwnerID,
+		ProviderType:     cfg.ProviderType,
+		RepositoryLinkID: cfg.RepositoryLinkID,
+		RepositoryName:   cfg.RepositoryName,
+		ResourceName:     cfg.ResourceName,
+		RoleArn:          cfg.RoleArn,
+		SyncType:         cfg.SyncType,
+	}
+}
+
+// --- Sync status handlers ---
+
+type getRepositorySyncStatusInput struct {
+	Branch           string `json:"Branch"`
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+	SyncType         string `json:"SyncType"`
+}
+
+type syncEventItem struct {
+	Event      string `json:"Event"`
+	Time       string `json:"Time"`
+	Type       string `json:"Type"`
+	ExternalID string `json:"ExternalId,omitempty"`
+}
+
+type repositorySyncAttemptItem struct {
+	StartedAt string          `json:"StartedAt"`
+	Status    string          `json:"Status"`
+	Events    []syncEventItem `json:"Events"`
+}
+
+type getRepositorySyncStatusOutput struct {
+	LatestSync repositorySyncAttemptItem `json:"LatestSync"`
+}
+
+func (h *Handler) handleGetRepositorySyncStatus(
+	_ context.Context,
+	in *getRepositorySyncStatusInput,
+) (*getRepositorySyncStatusOutput, error) {
+	if in.RepositoryLinkID == "" {
+		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errValidation)
+	}
+
+	if in.Branch == "" {
+		return nil, fmt.Errorf("%w: Branch is required", errValidation)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", errValidation)
+	}
+
+	status, err := h.Backend.GetRepositorySyncStatus(in.RepositoryLinkID, in.Branch, in.SyncType)
+	if err != nil {
+		return nil, err
+	}
+
+	events := make([]syncEventItem, 0, len(status.Events))
+	for _, e := range status.Events {
+		events = append(events, syncEventItem{
+			Event:      e.Event,
+			Time:       e.Time.Format(time.RFC3339),
+			Type:       e.Type,
+			ExternalID: e.ExternalID,
+		})
+	}
+
+	return &getRepositorySyncStatusOutput{
+		LatestSync: repositorySyncAttemptItem{
+			StartedAt: status.StartedAt.Format(time.RFC3339),
+			Status:    status.Status,
+			Events:    events,
+		},
+	}, nil
+}
+
+type getResourceSyncStatusInput struct {
+	ResourceName string `json:"ResourceName"`
+	SyncType     string `json:"SyncType"`
+}
+
+type resourceSyncAttemptItem struct {
+	StartedAt string          `json:"StartedAt"`
+	Status    string          `json:"Status"`
+	Events    []syncEventItem `json:"Events"`
+}
+
+type getResourceSyncStatusOutput struct {
+	LatestSync resourceSyncAttemptItem `json:"LatestSync"`
+}
+
+func (h *Handler) handleGetResourceSyncStatus(
+	_ context.Context,
+	in *getResourceSyncStatusInput,
+) (*getResourceSyncStatusOutput, error) {
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", errValidation)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", errValidation)
+	}
+
+	status, err := h.Backend.GetResourceSyncStatus(in.ResourceName, in.SyncType)
+	if err != nil {
+		return nil, err
+	}
+
+	events := make([]syncEventItem, 0, len(status.Events))
+	for _, e := range status.Events {
+		events = append(events, syncEventItem{
+			Event:      e.Event,
+			Time:       e.Time.Format(time.RFC3339),
+			Type:       e.Type,
+			ExternalID: e.ExternalID,
+		})
+	}
+
+	return &getResourceSyncStatusOutput{
+		LatestSync: resourceSyncAttemptItem{
+			StartedAt: status.StartedAt.Format(time.RFC3339),
+			Status:    status.Status,
+			Events:    events,
+		},
+	}, nil
 }
