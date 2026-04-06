@@ -31,10 +31,33 @@ func (b *InMemoryBackend) RepositoryCreationTemplateCount() int {
 	return len(b.repositoryCreationTemplates)
 }
 
+// RepositoryCount returns the number of repositories.
+// Used only in tests to verify backend state without going through the HTTP handler.
+func (b *InMemoryBackend) RepositoryCount() int {
+	b.mu.RLock("RepositoryCount")
+	defer b.mu.RUnlock()
+
+	return len(b.repos)
+}
+
 // LifecyclePolicyCount returns the number of lifecycle policies stored.
 func (b *InMemoryBackend) LifecyclePolicyCount() int {
 	b.mu.RLock("LifecyclePolicyCount")
 	defer b.mu.RUnlock()
 
 	return len(b.lifecyclePolicies)
+}
+
+// UploadedLayerCount returns the total number of uploaded layers.
+// Used only in tests to verify backend state without going through the HTTP handler.
+func (b *InMemoryBackend) UploadedLayerCount() int {
+	b.mu.RLock("UploadedLayerCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, layers := range b.uploadedLayers {
+		total += len(layers)
+	}
+
+	return total
 }

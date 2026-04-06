@@ -518,7 +518,7 @@ func TestECR_Backend_SetEndpoint(t *testing.T) {
 
 	backend.SetEndpoint("localhost:9000")
 
-	repo, err := backend.CreateRepository("my-repo")
+	repo, err := backend.CreateRepository("my-repo", "")
 	require.NoError(t, err)
 	assert.Contains(t, repo.RepositoryURI, "localhost:9000")
 }
@@ -677,7 +677,7 @@ func TestECR_TagResource(t *testing.T) {
 
 	rec := doECRRequest(t, h, "TagResource", map[string]any{
 		"resourceArn": "arn:aws:ecr:us-east-1:000000000000:repository/my-repo",
-		"tags":        map[string]string{"Env": "test"},
+		"tags":        []map[string]any{{"Key": "Env", "Value": "test"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -1173,6 +1173,12 @@ func TestECR_DeleteLifecyclePolicy(t *testing.T) {
 			setup: func(h *ecr.Handler) {
 				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "policy-repo"})
 				require.Equal(t, http.StatusOK, rec.Code)
+
+				rec2 := doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
+					"repositoryName":      "policy-repo",
+					"lifecyclePolicyText": `{"rules":[]}`,
+				})
+				require.Equal(t, http.StatusOK, rec2.Code)
 			},
 			repositoryName: "policy-repo",
 			wantStatus:     http.StatusOK,

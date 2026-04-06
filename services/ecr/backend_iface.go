@@ -8,7 +8,8 @@ type Backend interface {
 	// CreateRepository creates a new ECR repository and returns its metadata.
 	// Returns ErrRepositoryAlreadyExists if a repository with that name already
 	// exists, or ErrInvalidRepositoryName when name is empty.
-	CreateRepository(name string) (*Repository, error)
+	// imageTagMutability defaults to "MUTABLE" when empty.
+	CreateRepository(name, imageTagMutability string) (*Repository, error)
 
 	// DescribeRepositories returns repository metadata, optionally filtered by
 	// the provided names. Passing an empty slice returns all repositories.
@@ -58,11 +59,29 @@ type Backend interface {
 	// DeleteLifecyclePolicy deletes the lifecycle policy for a repository.
 	DeleteLifecyclePolicy(repositoryName string) (*LifecyclePolicyResult, error)
 
+	// PutLifecyclePolicy creates or replaces the lifecycle policy for a repository.
+	PutLifecyclePolicy(repositoryName, policyText string) (*LifecyclePolicyResult, error)
+
 	// DeletePullThroughCacheRule deletes a pull-through cache rule by prefix.
 	DeletePullThroughCacheRule(prefix string) (*PullThroughCacheRule, error)
 
 	// DeleteRegistryPolicy deletes the registry-level policy.
 	DeleteRegistryPolicy() (*RegistryPolicyResult, error)
+
+	// PutRegistryPolicy creates or replaces the registry-level IAM policy.
+	PutRegistryPolicy(policyText string) (*RegistryPolicyResult, error)
+
+	// TagResource associates tags with a resource identified by ARN.
+	TagResource(resourceArn string, tags map[string]string) error
+
+	// UntagResource removes tags from a resource identified by ARN.
+	UntagResource(resourceArn string, tagKeys []string) error
+
+	// ListTagsForResource returns all tags for a resource identified by ARN.
+	ListTagsForResource(resourceArn string) (map[string]string, error)
+
+	// Reset clears all backend state.
+	Reset()
 }
 
 // Snapshottable is an optional interface that a Backend may implement to

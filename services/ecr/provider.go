@@ -1,6 +1,8 @@
 package ecr
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -9,6 +11,9 @@ import (
 )
 
 const enableLocalRegistryEnv = "GOPHERSTACK_ENABLE_LOCAL_REGISTRY"
+
+// ErrNilAppContext is returned by Init when appCtx is nil.
+var ErrNilAppContext = errors.New("AppContext is required")
 
 // Provider implements service.Provider for Amazon ECR.
 type Provider struct{}
@@ -20,6 +25,10 @@ func (p *Provider) Name() string { return "ECR" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error) {
+	if appCtx == nil {
+		return nil, fmt.Errorf("%w", ErrNilAppContext)
+	}
+
 	var globalCfg *config.GlobalConfig
 	if cfgProvider, ok := appCtx.Config.(config.Provider); ok {
 		globalCfg = cfgProvider.GetGlobalConfig()

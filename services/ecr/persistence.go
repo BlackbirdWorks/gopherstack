@@ -12,6 +12,7 @@ type backendSnapshot struct {
 	RepositoryCreationTemplates map[string]*RepositoryCreationTemplate `json:"repositoryCreationTemplates"`
 	LifecyclePolicies           map[string]string                      `json:"lifecyclePolicies"`
 	UploadedLayers              map[string]map[string]int64            `json:"uploadedLayers"`
+	RepoTags                    map[string]map[string]string           `json:"repoTags,omitempty"`
 	RegistryPolicy              string                                 `json:"registryPolicy"`
 }
 
@@ -59,6 +60,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		uploadedLayers[repo] = cp
 	}
 
+	repoTags := make(map[string]map[string]string, len(b.repoTags))
+	for arn, tags := range b.repoTags {
+		cp := make(map[string]string, len(tags))
+		maps.Copy(cp, tags)
+		repoTags[arn] = cp
+	}
+
 	snap := backendSnapshot{
 		Repos:                       repos,
 		Images:                      images,
@@ -67,6 +75,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		LifecyclePolicies:           lifecyclePolicies,
 		RegistryPolicy:              b.registryPolicy,
 		UploadedLayers:              uploadedLayers,
+		RepoTags:                    repoTags,
 	}
 
 	data, err := json.Marshal(snap)
@@ -130,6 +139,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		uploadedLayers[repo] = cp
 	}
 
+	repoTags := make(map[string]map[string]string, len(snap.RepoTags))
+	for arn, tags := range snap.RepoTags {
+		cp := make(map[string]string, len(tags))
+		maps.Copy(cp, tags)
+		repoTags[arn] = cp
+	}
+
 	b.repos = repos
 	b.images = images
 	b.pullThroughCacheRules = ptcRules
@@ -137,6 +153,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.lifecyclePolicies = lifecyclePolicies
 	b.registryPolicy = snap.RegistryPolicy
 	b.uploadedLayers = uploadedLayers
+	b.repoTags = repoTags
 
 	return nil
 }

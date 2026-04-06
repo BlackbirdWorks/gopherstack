@@ -37,6 +37,7 @@ var (
 // Handler is the Echo HTTP handler for ECR operations.
 type Handler struct {
 	Backend         Backend
+	ops             map[string]service.JSONOpFunc
 	registryHandler http.Handler
 	setEndpointOnce sync.Once
 	registryEnabled bool
@@ -45,11 +46,14 @@ type Handler struct {
 // NewHandler creates a new ECR handler.
 // registryHandler may be nil when the local registry is disabled.
 func NewHandler(backend Backend, registryHandler http.Handler) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend:         backend,
 		registryHandler: registryHandler,
 		registryEnabled: registryHandler != nil,
 	}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // RegistryEnabled returns true if the embedded Docker registry is enabled.
@@ -76,6 +80,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeRepositories",
 		"GetAuthorizationToken",
 		"ListTagsForResource",
+		"PutLifecyclePolicy",
+		"PutRegistryPolicy",
 		"TagResource",
 		"UntagResource",
 	}
@@ -209,7 +215,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+// Reset clears the backend state and resets the endpoint lazy-init.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+
+	h.setEndpointOnce = sync.Once{}
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"BatchCheckLayerAvailability":             service.WrapOp(h.handleBatchCheckLayerAvailability),
 		"BatchDeleteImage":                        service.WrapOp(h.handleBatchDeleteImage),
@@ -226,13 +241,15 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DescribeRepositories":                    service.WrapOp(h.handleDescribeRepositories),
 		"GetAuthorizationToken":                   service.WrapOp(h.handleGetAuthorizationToken),
 		"ListTagsForResource":                     service.WrapOp(h.handleListTagsForResource),
+		"PutLifecyclePolicy":                      service.WrapOp(h.handlePutLifecyclePolicy),
+		"PutRegistryPolicy":                       service.WrapOp(h.handlePutRegistryPolicy),
 		"TagResource":                             service.WrapOp(h.handleTagResource),
 		"UntagResource":                           service.WrapOp(h.handleUntagResource),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -273,6 +290,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			http.StatusBadRequest,
 			map[string]string{"__type": "PullThroughCacheRuleAlreadyExistsException", "message": err.Error()},
 		)
+	case errors.Is(err, ErrRepositoryCreationTemplateAlreadyExists):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{"__type": "TemplateAlreadyExistsException", "message": err.Error()},
+		)
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(
 			http.StatusBadRequest,
@@ -297,26 +319,30 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // SDK v2 deserialiser, which expects a JSON Number for timestamp fields, can
 // decode it correctly.
 type repositoryView struct {
-	RegistryID     string  `json:"registryId"`
-	RepositoryARN  string  `json:"repositoryArn"`
-	RepositoryName string  `json:"repositoryName"`
-	RepositoryURI  string  `json:"repositoryUri"`
-	CreatedAt      float64 `json:"createdAt"`
+	RegistryID         string  `json:"registryId"`
+	RepositoryARN      string  `json:"repositoryArn"`
+	RepositoryName     string  `json:"repositoryName"`
+	RepositoryURI      string  `json:"repositoryUri"`
+	ImageTagMutability string  `json:"imageTagMutability,omitempty"`
+	CreatedAt          float64 `json:"createdAt"`
 }
 
 func toRepositoryView(r Repository) repositoryView {
 	return repositoryView{
-		CreatedAt:      float64(r.CreatedAt.Unix()),
-		RegistryID:     r.RegistryID,
-		RepositoryARN:  r.RepositoryARN,
-		RepositoryName: r.RepositoryName,
-		RepositoryURI:  r.RepositoryURI,
+		CreatedAt:          float64(r.CreatedAt.Unix()),
+		RegistryID:         r.RegistryID,
+		RepositoryARN:      r.RepositoryARN,
+		RepositoryName:     r.RepositoryName,
+		RepositoryURI:      r.RepositoryURI,
+		ImageTagMutability: r.ImageTagMutability,
 	}
 }
 
 // createRepositoryInput is the request body for CreateRepository.
 type createRepositoryInput struct {
-	RepositoryName string `json:"repositoryName"`
+	RepositoryName     string    `json:"repositoryName"`
+	ImageTagMutability string    `json:"imageTagMutability,omitempty"`
+	Tags               []tagView `json:"tags,omitempty"`
 }
 
 type createRepositoryOutput struct {
@@ -327,9 +353,20 @@ func (h *Handler) handleCreateRepository(
 	_ context.Context,
 	in *createRepositoryInput,
 ) (*createRepositoryOutput, error) {
-	repo, err := h.Backend.CreateRepository(in.RepositoryName)
+	repo, err := h.Backend.CreateRepository(in.RepositoryName, in.ImageTagMutability)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		tagMap := make(map[string]string, len(in.Tags))
+		for _, t := range in.Tags {
+			tagMap[t.Key] = t.Value
+		}
+
+		if tagErr := h.Backend.TagResource(repo.RepositoryARN, tagMap); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createRepositoryOutput{Repository: toRepositoryView(*repo)}, nil
@@ -432,23 +469,44 @@ type listTagsForResourceOutput struct {
 
 func (h *Handler) handleListTagsForResource(
 	_ context.Context,
-	_ *listTagsForResourceInput,
+	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{Tags: []tagView{}}, nil
+	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := sortedTagKeys(tags)
+	result := make([]tagView, 0, len(keys))
+
+	for _, k := range keys {
+		result = append(result, tagView{Key: k, Value: tags[k]})
+	}
+
+	return &listTagsForResourceOutput{Tags: result}, nil
 }
 
 // tagResourceInput is the request body for TagResource.
 type tagResourceInput struct {
-	Tags        map[string]string `json:"tags"`
-	ResourceArn string            `json:"resourceArn"`
+	ResourceArn string    `json:"resourceArn"`
+	Tags        []tagView `json:"tags"`
 }
 
 type tagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(
 	_ context.Context,
-	_ *tagResourceInput,
+	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
+	tagMap := make(map[string]string, len(in.Tags))
+	for _, t := range in.Tags {
+		tagMap[t.Key] = t.Value
+	}
+
+	if err := h.Backend.TagResource(in.ResourceArn, tagMap); err != nil {
+		return nil, err
+	}
+
 	return &tagResourceOutput{}, nil
 }
 
@@ -462,8 +520,12 @@ type untagResourceOutput struct{}
 
 func (h *Handler) handleUntagResource(
 	_ context.Context,
-	_ *untagResourceInput,
+	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
 	return &untagResourceOutput{}, nil
 }
 
@@ -743,4 +805,30 @@ func (h *Handler) handleDeleteRegistryPolicy(
 	_ *deleteRegistryPolicyInput,
 ) (*RegistryPolicyResult, error) {
 	return h.Backend.DeleteRegistryPolicy()
+}
+
+// putLifecyclePolicyInput is the request body for PutLifecyclePolicy.
+type putLifecyclePolicyInput struct {
+	RepositoryName      string `json:"repositoryName"`
+	LifecyclePolicyText string `json:"lifecyclePolicyText"`
+	RegistryID          string `json:"registryId,omitempty"`
+}
+
+func (h *Handler) handlePutLifecyclePolicy(
+	_ context.Context,
+	in *putLifecyclePolicyInput,
+) (*LifecyclePolicyResult, error) {
+	return h.Backend.PutLifecyclePolicy(in.RepositoryName, in.LifecyclePolicyText)
+}
+
+// putRegistryPolicyInput is the request body for PutRegistryPolicy.
+type putRegistryPolicyInput struct {
+	PolicyText string `json:"policyText"`
+}
+
+func (h *Handler) handlePutRegistryPolicy(
+	_ context.Context,
+	in *putRegistryPolicyInput,
+) (*RegistryPolicyResult, error) {
+	return h.Backend.PutRegistryPolicy(in.PolicyText)
 }

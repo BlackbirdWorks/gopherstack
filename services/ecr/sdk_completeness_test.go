@@ -45,8 +45,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"PutImage",
 		"PutImageScanningConfiguration",
 		"PutImageTagMutability",
-		"PutLifecyclePolicy",
-		"PutRegistryPolicy",
 		"PutRegistryScanningConfiguration",
 		"PutReplicationConfiguration",
 		"PutSigningConfiguration",

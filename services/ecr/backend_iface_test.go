@@ -37,7 +37,7 @@ func newStubBackend() *stubBackend {
 	return &stubBackend{repos: make(map[string]*ecr.Repository)}
 }
 
-func (s *stubBackend) CreateRepository(name string) (*ecr.Repository, error) {
+func (s *stubBackend) CreateRepository(name, _ string) (*ecr.Repository, error) {
 	if name == "" {
 		return nil, ecr.ErrInvalidRepositoryName
 	}
@@ -143,6 +143,28 @@ func (s *stubBackend) DeletePullThroughCacheRule(_ string) (*ecr.PullThroughCach
 func (s *stubBackend) DeleteRegistryPolicy() (*ecr.RegistryPolicyResult, error) {
 	return &ecr.RegistryPolicyResult{}, nil
 }
+
+func (s *stubBackend) PutLifecyclePolicy(_ string, _ string) (*ecr.LifecyclePolicyResult, error) {
+	return &ecr.LifecyclePolicyResult{}, nil
+}
+
+func (s *stubBackend) PutRegistryPolicy(_ string) (*ecr.RegistryPolicyResult, error) {
+	return &ecr.RegistryPolicyResult{}, nil
+}
+
+func (s *stubBackend) TagResource(_ string, _ map[string]string) error {
+	return nil
+}
+
+func (s *stubBackend) UntagResource(_ string, _ []string) error {
+	return nil
+}
+
+func (s *stubBackend) ListTagsForResource(_ string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (s *stubBackend) Reset() {}
 
 // ---- tests --------------------------------------------------------------
 

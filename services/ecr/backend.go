@@ -3,6 +3,8 @@ package ecr
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -27,17 +29,20 @@ var (
 	ErrLifecyclePolicyNotFound = awserr.New("LifecyclePolicyNotFoundException", awserr.ErrNotFound)
 	// ErrRepositoryCreationTemplateNotFound is returned when a creation template does not exist.
 	ErrRepositoryCreationTemplateNotFound = awserr.New("TemplateNotFoundException", awserr.ErrNotFound)
+	// ErrRepositoryCreationTemplateAlreadyExists is returned when a creation template prefix already exists.
+	ErrRepositoryCreationTemplateAlreadyExists = awserr.New("TemplateAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrRegistryPolicyNotFound is returned when the registry policy does not exist.
 	ErrRegistryPolicyNotFound = awserr.New("RegistryPolicyNotFoundException", awserr.ErrNotFound)
 )
 
 // Repository represents an ECR repository.
 type Repository struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	RegistryID     string    `json:"registryId"`
-	RepositoryARN  string    `json:"repositoryArn"`
-	RepositoryName string    `json:"repositoryName"`
-	RepositoryURI  string    `json:"repositoryUri"`
+	CreatedAt          time.Time `json:"createdAt"`
+	RegistryID         string    `json:"registryId"`
+	RepositoryARN      string    `json:"repositoryArn"`
+	RepositoryName     string    `json:"repositoryName"`
+	RepositoryURI      string    `json:"repositoryUri"`
+	ImageTagMutability string    `json:"imageTagMutability"`
 }
 
 // ImageIdentifier identifies a specific image by digest or tag.
@@ -150,6 +155,7 @@ type InMemoryBackend struct {
 	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
 	lifecyclePolicies           map[string]string
 	uploadedLayers              map[string]map[string]int64
+	repoTags                    map[string]map[string]string
 	mu                          *lockmetrics.RWMutex
 	registryPolicy              string
 	accountID                   string
@@ -166,6 +172,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		repositoryCreationTemplates: make(map[string]*RepositoryCreationTemplate),
 		lifecyclePolicies:           make(map[string]string),
 		uploadedLayers:              make(map[string]map[string]int64),
+		repoTags:                    make(map[string]map[string]string),
 		mu:                          lockmetrics.New("ecr"),
 		accountID:                   accountID,
 		region:                      region,
@@ -191,9 +198,13 @@ func (b *InMemoryBackend) ProxyEndpoint() string {
 }
 
 // CreateRepository creates a new ECR repository.
-func (b *InMemoryBackend) CreateRepository(name string) (*Repository, error) {
+func (b *InMemoryBackend) CreateRepository(name, imageTagMutability string) (*Repository, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: repositoryName is required", ErrInvalidRepositoryName)
+	}
+
+	if imageTagMutability == "" {
+		imageTagMutability = "MUTABLE"
 	}
 
 	b.mu.Lock("CreateRepository")
@@ -209,11 +220,12 @@ func (b *InMemoryBackend) CreateRepository(name string) (*Repository, error) {
 	}
 
 	repo := &Repository{
-		CreatedAt:      time.Now(),
-		RegistryID:     b.accountID,
-		RepositoryARN:  fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", b.region, b.accountID, name),
-		RepositoryName: name,
-		RepositoryURI:  fmt.Sprintf("%s/%s", endpoint, name),
+		CreatedAt:          time.Now(),
+		RegistryID:         b.accountID,
+		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", b.region, b.accountID, name),
+		RepositoryName:     name,
+		RepositoryURI:      fmt.Sprintf("%s/%s", endpoint, name),
+		ImageTagMutability: imageTagMutability,
 	}
 	b.repos[name] = repo
 
@@ -232,6 +244,10 @@ func (b *InMemoryBackend) DescribeRepositories(names []string) ([]Repository, er
 		for _, r := range b.repos {
 			out = append(out, *r)
 		}
+
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].RepositoryName < out[j].RepositoryName
+		})
 
 		return out, nil
 	}
@@ -261,6 +277,10 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	}
 
 	delete(b.repos, name)
+	delete(b.images, name)
+	delete(b.uploadedLayers, name)
+	delete(b.lifecyclePolicies, name)
+	delete(b.repoTags, r.RepositoryARN)
 
 	cp := *r
 
@@ -491,6 +511,10 @@ func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
 	b.mu.Lock("CreateRepositoryCreationTemplate")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repositoryCreationTemplates[req.Prefix]; ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateAlreadyExists, req.Prefix)
+	}
+
 	now := time.Now()
 	tmpl := &RepositoryCreationTemplate{
 		Prefix:             req.Prefix,
@@ -519,8 +543,31 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(repositoryName string) (*Lifecyc
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
+	if _, ok := b.lifecyclePolicies[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrLifecyclePolicyNotFound, repositoryName)
+	}
+
 	policyText := b.lifecyclePolicies[repositoryName]
 	delete(b.lifecyclePolicies, repositoryName)
+
+	return &LifecyclePolicyResult{
+		LifecyclePolicyText: policyText,
+		LastEvaluatedAt:     time.Now(),
+		RepositoryName:      repositoryName,
+		RegistryID:          b.accountID,
+	}, nil
+}
+
+// PutLifecyclePolicy creates or replaces the lifecycle policy for a repository.
+func (b *InMemoryBackend) PutLifecyclePolicy(repositoryName, policyText string) (*LifecyclePolicyResult, error) {
+	b.mu.Lock("PutLifecyclePolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	b.lifecyclePolicies[repositoryName] = policyText
 
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
@@ -586,4 +633,108 @@ func (b *InMemoryBackend) DeleteRegistryPolicy() (*RegistryPolicyResult, error) 
 		RegistryID: b.accountID,
 		Status:     "DELETED",
 	}, nil
+}
+
+// PutRegistryPolicy creates or replaces the registry-level IAM policy.
+func (b *InMemoryBackend) PutRegistryPolicy(policyText string) (*RegistryPolicyResult, error) {
+	b.mu.Lock("PutRegistryPolicy")
+	defer b.mu.Unlock()
+
+	b.registryPolicy = policyText
+
+	return &RegistryPolicyResult{
+		PolicyText: policyText,
+		RegistryID: b.accountID,
+		Status:     "SetComplete",
+	}, nil
+}
+
+// TagResource associates tags with an ECR resource identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	existing := b.findResourceTagsLocked(resourceArn)
+	maps.Copy(existing, tags)
+
+	return nil
+}
+
+// UntagResource removes tags from an ECR resource identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	existing := b.findResourceTagsLocked(resourceArn)
+	for _, k := range tagKeys {
+		delete(existing, k)
+	}
+
+	return nil
+}
+
+// ListTagsForResource returns all tags for an ECR resource identified by its ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	tags := b.repoTags[resourceArn]
+	out := make(map[string]string, len(tags))
+	maps.Copy(out, tags)
+
+	return out, nil
+}
+
+// findResourceTagsLocked returns (creating if absent) the tag map for the given ARN.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) map[string]string {
+	if _, ok := b.repoTags[resourceArn]; !ok {
+		b.repoTags[resourceArn] = make(map[string]string)
+	}
+
+	return b.repoTags[resourceArn]
+}
+
+// sortedTagKeys returns the keys of the given map sorted alphabetically.
+func sortedTagKeys(tags map[string]string) []string {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
+// Reset clears all state in the backend.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.repos = make(map[string]*Repository)
+	b.images = make(map[string]map[string]*Image)
+	b.pullThroughCacheRules = make(map[string]*PullThroughCacheRule)
+	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
+	b.lifecyclePolicies = make(map[string]string)
+	b.uploadedLayers = make(map[string]map[string]int64)
+	b.repoTags = make(map[string]map[string]string)
+	b.registryPolicy = ""
+}
+
+// AddRepositoryInternal seeds a repository directly into the backend for testing.
+func (b *InMemoryBackend) AddRepositoryInternal(repo Repository) {
+	b.mu.Lock("AddRepositoryInternal")
+	defer b.mu.Unlock()
+
+	cp := repo
+	b.repos[repo.RepositoryName] = &cp
+}
+
+// AddLifecyclePolicyInternal seeds a lifecycle policy directly into the backend for testing.
+func (b *InMemoryBackend) AddLifecyclePolicyInternal(repositoryName, policy string) {
+	b.mu.Lock("AddLifecyclePolicyInternal")
+	defer b.mu.Unlock()
+
+	b.lifecyclePolicies[repositoryName] = policy
 }
