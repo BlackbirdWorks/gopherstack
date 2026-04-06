@@ -1258,6 +1258,12 @@ func TestHandler_DeregisterWebhookWithThirdParty(t *testing.T) {
 
 			rec := doRequest(t, h, "DeregisterWebhookWithThirdParty", tt.input)
 			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if tt.httpStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Empty(t, out)
+			}
 		})
 	}
 }

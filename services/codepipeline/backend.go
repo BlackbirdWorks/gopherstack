@@ -448,13 +448,13 @@ func (b *InMemoryBackend) AcknowledgeJob(jobID, nonce string) (string, error) {
 }
 
 // AcknowledgeThirdPartyJob acknowledges that a third-party job worker has received a job.
-func (b *InMemoryBackend) AcknowledgeThirdPartyJob(jobID, nonce, _ string) (string, error) {
+func (b *InMemoryBackend) AcknowledgeThirdPartyJob(jobID, nonce, clientToken string) (string, error) {
 	b.mu.Lock("AcknowledgeThirdPartyJob")
 	defer b.mu.Unlock()
 
 	job, ok := b.jobs[jobID]
 	if !ok {
-		return "", fmt.Errorf("%w: third-party job %q", ErrJobNotFound, jobID)
+		return "", fmt.Errorf("%w: third-party job %q with client token %q", ErrJobNotFound, jobID, clientToken)
 	}
 
 	if job.Nonce == nonce {
