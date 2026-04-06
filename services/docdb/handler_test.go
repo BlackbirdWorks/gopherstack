@@ -1344,889 +1344,895 @@ func TestHandler_DescribeDBClusterParameters(t *testing.T) {
 // ---- Refinement check 1 tests ----
 
 func TestRefinement1_Reset(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name  string
-setup func(b *docdb.InMemoryBackend)
-want  int
-}{
-{
-name: "empty_backend_reset",
-setup: func(_ *docdb.InMemoryBackend) {},
-want:  0,
-},
-{
-name: "reset_with_data",
-setup: func(b *docdb.InMemoryBackend) {
-b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
-b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: "i1"})
-},
-want: 0,
-},
-}
+	tests := []struct {
+		setup func(b *docdb.InMemoryBackend)
+		name  string
+		want  int
+	}{
+		{
+			name:  "empty_backend_reset",
+			setup: func(_ *docdb.InMemoryBackend) {},
+			want:  0,
+		},
+		{
+			name: "reset_with_data",
+			setup: func(b *docdb.InMemoryBackend) {
+				b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
+				b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: "i1"})
+			},
+			want: 0,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-tt.setup(b)
-b.Reset()
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			tt.setup(b)
+			b.Reset()
 
-assert.Equal(t, tt.want, b.ClusterCount())
-assert.Equal(t, tt.want, b.InstanceCount())
-})
-}
+			assert.Equal(t, tt.want, b.ClusterCount())
+			assert.Equal(t, tt.want, b.InstanceCount())
+		})
+	}
 }
 
 func TestRefinement1_HandlerReset(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-}{
-{name: "handler_reset_clears_backend"},
-}
+	tests := []struct {
+		name string
+	}{
+		{name: "handler_reset_clears_backend"},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-h.Backend.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
-require.Equal(t, 1, h.Backend.ClusterCount())
+			h := newTestHandler(t)
+			h.Backend.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
+			require.Equal(t, 1, h.Backend.ClusterCount())
 
-h.Reset()
+			h.Reset()
 
-assert.Equal(t, 0, h.Backend.ClusterCount())
-})
-}
+			assert.Equal(t, 0, h.Backend.ClusterCount())
+		})
+	}
 }
 
 func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name    string
-wantErr error
-}{
-{
-name:    "nil_context_returns_error",
-wantErr: docdb.ErrNilAppContext,
-},
-}
+	tests := []struct {
+		wantErr error
+		name    string
+	}{
+		{
+			name:    "nil_context_returns_error",
+			wantErr: docdb.ErrNilAppContext,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-p := &docdb.Provider{}
-_, err := p.Init(nil)
+			p := &docdb.Provider{}
+			_, err := p.Init(nil)
 
-require.Error(t, err)
-assert.ErrorIs(t, err, tt.wantErr)
-})
-}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestRefinement1_SortedDescribeClusters(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-ids  []string
-want []string
-}{
-{
-name: "sorted_order",
-ids:  []string{"c-beta", "c-alpha", "c-gamma"},
-want: []string{"c-alpha", "c-beta", "c-gamma"},
-},
-}
+	tests := []struct {
+		name string
+		ids  []string
+		want []string
+	}{
+		{
+			name: "sorted_order",
+			ids:  []string{"c-beta", "c-alpha", "c-gamma"},
+			want: []string{"c-alpha", "c-beta", "c-gamma"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-for _, id := range tt.ids {
-b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: id})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			for _, id := range tt.ids {
+				b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: id})
+			}
 
-got, err := b.DescribeDBClusters("")
-require.NoError(t, err)
+			got, err := b.DescribeDBClusters("")
+			require.NoError(t, err)
 
-gotIDs := make([]string, len(got))
-for i, c := range got {
-gotIDs[i] = c.DBClusterIdentifier
-}
+			gotIDs := make([]string, len(got))
+			for i, c := range got {
+				gotIDs[i] = c.DBClusterIdentifier
+			}
 
-assert.Equal(t, tt.want, gotIDs)
-})
-}
+			assert.Equal(t, tt.want, gotIDs)
+		})
+	}
 }
 
 func TestRefinement1_SortedDescribeInstances(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-ids  []string
-want []string
-}{
-{
-name: "sorted_order",
-ids:  []string{"i-z", "i-a", "i-m"},
-want: []string{"i-a", "i-m", "i-z"},
-},
-}
+	tests := []struct {
+		name string
+		ids  []string
+		want []string
+	}{
+		{
+			name: "sorted_order",
+			ids:  []string{"i-z", "i-a", "i-m"},
+			want: []string{"i-a", "i-m", "i-z"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-for _, id := range tt.ids {
-b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: id})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			for _, id := range tt.ids {
+				b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: id})
+			}
 
-got, err := b.DescribeDBInstances("")
-require.NoError(t, err)
+			got, err := b.DescribeDBInstances("")
+			require.NoError(t, err)
 
-gotIDs := make([]string, len(got))
-for i, inst := range got {
-gotIDs[i] = inst.DBInstanceIdentifier
-}
+			gotIDs := make([]string, len(got))
+			for i, inst := range got {
+				gotIDs[i] = inst.DBInstanceIdentifier
+			}
 
-assert.Equal(t, tt.want, gotIDs)
-})
-}
+			assert.Equal(t, tt.want, gotIDs)
+		})
+	}
 }
 
 func TestRefinement1_SortedDescribeSubnetGroups(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name  string
-names []string
-want  []string
-}{
-{
-name:  "sorted_order",
-names: []string{"sg-z", "sg-a", "sg-m"},
-want:  []string{"sg-a", "sg-m", "sg-z"},
-},
-}
+	tests := []struct {
+		name  string
+		names []string
+		want  []string
+	}{
+		{
+			name:  "sorted_order",
+			names: []string{"sg-z", "sg-a", "sg-m"},
+			want:  []string{"sg-a", "sg-m", "sg-z"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-for _, name := range tt.names {
-b.AddDBSubnetGroupInternal(&docdb.DBSubnetGroup{DBSubnetGroupName: name})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			for _, name := range tt.names {
+				b.AddDBSubnetGroupInternal(&docdb.DBSubnetGroup{DBSubnetGroupName: name})
+			}
 
-got, err := b.DescribeDBSubnetGroups("")
-require.NoError(t, err)
+			got, err := b.DescribeDBSubnetGroups("")
+			require.NoError(t, err)
 
-gotNames := make([]string, len(got))
-for i, sg := range got {
-gotNames[i] = sg.DBSubnetGroupName
-}
+			gotNames := make([]string, len(got))
+			for i, sg := range got {
+				gotNames[i] = sg.DBSubnetGroupName
+			}
 
-assert.Equal(t, tt.want, gotNames)
-})
-}
+			assert.Equal(t, tt.want, gotNames)
+		})
+	}
 }
 
 func TestRefinement1_SortedDescribeParameterGroups(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name  string
-names []string
-want  []string
-}{
-{
-name:  "sorted_order",
-names: []string{"pg-z", "pg-a", "pg-m"},
-want:  []string{"pg-a", "pg-m", "pg-z"},
-},
-}
+	tests := []struct {
+		name  string
+		names []string
+		want  []string
+	}{
+		{
+			name:  "sorted_order",
+			names: []string{"pg-z", "pg-a", "pg-m"},
+			want:  []string{"pg-a", "pg-m", "pg-z"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-for _, name := range tt.names {
-b.AddDBClusterParameterGroupInternal(&docdb.DBClusterParameterGroup{DBClusterParameterGroupName: name})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			for _, name := range tt.names {
+				b.AddDBClusterParameterGroupInternal(&docdb.DBClusterParameterGroup{DBClusterParameterGroupName: name})
+			}
 
-got, err := b.DescribeDBClusterParameterGroups("")
-require.NoError(t, err)
+			got, err := b.DescribeDBClusterParameterGroups("")
+			require.NoError(t, err)
 
-gotNames := make([]string, len(got))
-for i, pg := range got {
-gotNames[i] = pg.DBClusterParameterGroupName
-}
+			gotNames := make([]string, len(got))
+			for i, pg := range got {
+				gotNames[i] = pg.DBClusterParameterGroupName
+			}
 
-assert.Equal(t, tt.want, gotNames)
-})
-}
+			assert.Equal(t, tt.want, gotNames)
+		})
+	}
 }
 
 func TestRefinement1_SortedDescribeSnapshots(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-ids  []string
-want []string
-}{
-{
-name: "sorted_order",
-ids:  []string{"snap-z", "snap-a", "snap-m"},
-want: []string{"snap-a", "snap-m", "snap-z"},
-},
-}
+	tests := []struct {
+		name string
+		ids  []string
+		want []string
+	}{
+		{
+			name: "sorted_order",
+			ids:  []string{"snap-z", "snap-a", "snap-m"},
+			want: []string{"snap-a", "snap-m", "snap-z"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-for _, id := range tt.ids {
-b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{DBClusterSnapshotIdentifier: id})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			for _, id := range tt.ids {
+				b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{DBClusterSnapshotIdentifier: id})
+			}
 
-got, err := b.DescribeDBClusterSnapshots("", "")
-require.NoError(t, err)
+			got, err := b.DescribeDBClusterSnapshots("", "")
+			require.NoError(t, err)
 
-gotIDs := make([]string, len(got))
-for i, s := range got {
-gotIDs[i] = s.DBClusterSnapshotIdentifier
-}
+			gotIDs := make([]string, len(got))
+			for i, s := range got {
+				gotIDs[i] = s.DBClusterSnapshotIdentifier
+			}
 
-assert.Equal(t, tt.want, gotIDs)
-})
-}
+			assert.Equal(t, tt.want, gotIDs)
+		})
+	}
 }
 
 func TestRefinement1_SortedDescribeGlobalClusters(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-ids  []string
-want []string
-}{
-{
-name: "sorted_order",
-ids:  []string{"gc-z", "gc-a", "gc-m"},
-want: []string{"gc-a", "gc-m", "gc-z"},
-},
-}
+	tests := []struct {
+		name string
+		ids  []string
+		want []string
+	}{
+		{
+			name: "sorted_order",
+			ids:  []string{"gc-z", "gc-a", "gc-m"},
+			want: []string{"gc-a", "gc-m", "gc-z"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-for _, id := range tt.ids {
-b.AddGlobalClusterInternal(&docdb.GlobalCluster{GlobalClusterIdentifier: id})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			for _, id := range tt.ids {
+				b.AddGlobalClusterInternal(&docdb.GlobalCluster{GlobalClusterIdentifier: id})
+			}
 
-got := b.DescribeGlobalClusters("")
+			got := b.DescribeGlobalClusters("")
 
-gotIDs := make([]string, len(got))
-for i, gc := range got {
-gotIDs[i] = gc.GlobalClusterIdentifier
-}
+			gotIDs := make([]string, len(got))
+			for i, gc := range got {
+				gotIDs[i] = gc.GlobalClusterIdentifier
+			}
 
-assert.Equal(t, tt.want, gotIDs)
-})
-}
+			assert.Equal(t, tt.want, gotIDs)
+		})
+	}
 }
 
 func TestRefinement1_SortedListTags(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name     string
-tags     []docdb.Tag
-wantKeys []string
-}{
-{
-name: "sorted_by_key",
-tags: []docdb.Tag{
-{Key: "z-key", Value: "v3"},
-{Key: "a-key", Value: "v1"},
-{Key: "m-key", Value: "v2"},
-},
-wantKeys: []string{"a-key", "m-key", "z-key"},
-},
-}
+	tests := []struct {
+		name     string
+		tags     []docdb.Tag
+		wantKeys []string
+	}{
+		{
+			name: "sorted_by_key",
+			tags: []docdb.Tag{
+				{Key: "z-key", Value: "v3"},
+				{Key: "a-key", Value: "v1"},
+				{Key: "m-key", Value: "v2"},
+			},
+			wantKeys: []string{"a-key", "m-key", "z-key"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags)
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags)
 
-got := b.ListTagsForResource("arn:aws:rds:us-east-1:000000000000:cluster:test")
+			got := b.ListTagsForResource("arn:aws:rds:us-east-1:000000000000:cluster:test")
 
-gotKeys := make([]string, len(got))
-for i, t := range got {
-gotKeys[i] = t.Key
-}
+			gotKeys := make([]string, len(got))
+			for i, t := range got {
+				gotKeys[i] = t.Key
+			}
 
-assert.Equal(t, tt.wantKeys, gotKeys)
-})
-}
+			assert.Equal(t, tt.wantKeys, gotKeys)
+		})
+	}
 }
 
 func TestRefinement1_ClusterARNInResponse(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-type wantFields struct {
-arnPrefix string
-engine    string
-}
+	type wantFields struct {
+		arnPrefix string
+		engine    string
+	}
 
-tests := []struct {
-name  string
-id    string
-wantF wantFields
-}{
-{
-name:  "arn_present",
-id:    "my-cluster",
-wantF: wantFields{arnPrefix: "arn:aws:rds:", engine: "docdb"},
-},
-}
+	tests := []struct {
+		name  string
+		id    string
+		wantF wantFields
+	}{
+		{
+			name:  "arn_present",
+			id:    "my-cluster",
+			wantF: wantFields{arnPrefix: "arn:aws:rds:", engine: "docdb"},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-vals := url.Values{
-"Action":              []string{"CreateDBCluster"},
-"Version":             []string{"2014-10-31"},
-"DBClusterIdentifier": []string{tt.id},
-}
-resp := doRequest(t, h, vals)
-require.Equal(t, http.StatusOK, resp.Code)
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              []string{"CreateDBCluster"},
+				"Version":             []string{"2014-10-31"},
+				"DBClusterIdentifier": []string{tt.id},
+			}
+			resp := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, resp.Code)
 
-body := resp.Body.String()
-assert.Contains(t, body, "DBClusterArn")
-assert.Contains(t, body, tt.wantF.arnPrefix)
-})
-}
+			body := resp.Body.String()
+			assert.Contains(t, body, "DBClusterArn")
+			assert.Contains(t, body, tt.wantF.arnPrefix)
+		})
+	}
 }
 
 func TestRefinement1_InstanceARNInResponse(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-id   string
-}{
-{name: "arn_present", id: "my-instance"},
-}
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "arn_present", id: "my-instance"},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-vals := url.Values{
-"Action":               []string{"CreateDBInstance"},
-"Version":              []string{"2014-10-31"},
-"DBInstanceIdentifier": []string{tt.id},
-}
-resp := doRequest(t, h, vals)
-require.Equal(t, http.StatusOK, resp.Code)
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":               []string{"CreateDBInstance"},
+				"Version":              []string{"2014-10-31"},
+				"DBInstanceIdentifier": []string{tt.id},
+			}
+			resp := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, resp.Code)
 
-body := resp.Body.String()
-assert.Contains(t, body, "DBInstanceArn")
-assert.Contains(t, body, "arn:aws:rds:")
-})
-}
+			body := resp.Body.String()
+			assert.Contains(t, body, "DBInstanceArn")
+			assert.Contains(t, body, "arn:aws:rds:")
+		})
+	}
 }
 
 func TestRefinement1_TagsOnCreate_Cluster(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name    string
-id      string
-tagKey  string
-tagVal  string
-wantLen int
-}{
-{
-name:    "tags_stored",
-id:      "tagged-cluster",
-tagKey:  "env",
-tagVal:  "test",
-wantLen: 1,
-},
-}
+	tests := []struct {
+		name    string
+		id      string
+		tagKey  string
+		tagVal  string
+		wantLen int
+	}{
+		{
+			name:    "tags_stored",
+			id:      "tagged-cluster",
+			tagKey:  "env",
+			tagVal:  "test",
+			wantLen: 1,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-vals := url.Values{
-"Action":              []string{"CreateDBCluster"},
-"Version":             []string{"2014-10-31"},
-"DBClusterIdentifier": []string{tt.id},
-"Tags.Tag.1.Key":      []string{tt.tagKey},
-"Tags.Tag.1.Value":    []string{tt.tagVal},
-}
-resp := doRequest(t, h, vals)
-require.Equal(t, http.StatusOK, resp.Code)
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              []string{"CreateDBCluster"},
+				"Version":             []string{"2014-10-31"},
+				"DBClusterIdentifier": []string{tt.id},
+				"Tags.Tag.1.Key":      []string{tt.tagKey},
+				"Tags.Tag.1.Value":    []string{tt.tagVal},
+			}
+			resp := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, resp.Code)
 
-clusters, err := h.Backend.DescribeDBClusters(tt.id)
-require.NoError(t, err)
-require.Len(t, clusters, 1)
+			clusters, err := h.Backend.DescribeDBClusters(tt.id)
+			require.NoError(t, err)
+			require.Len(t, clusters, 1)
 
-assert.Equal(t, tt.wantLen, len(clusters[0].Tags))
-assert.Equal(t, tt.tagVal, clusters[0].Tags[tt.tagKey])
-})
-}
+			assert.Len(t, clusters[0].Tags, tt.wantLen)
+			assert.Equal(t, tt.tagVal, clusters[0].Tags[tt.tagKey])
+		})
+	}
 }
 
 func TestRefinement1_TagsOnCreate_Instance(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name    string
-id      string
-tagKey  string
-tagVal  string
-wantLen int
-}{
-{
-name:    "tags_stored",
-id:      "tagged-instance",
-tagKey:  "env",
-tagVal:  "prod",
-wantLen: 1,
-},
-}
+	tests := []struct {
+		name    string
+		id      string
+		tagKey  string
+		tagVal  string
+		wantLen int
+	}{
+		{
+			name:    "tags_stored",
+			id:      "tagged-instance",
+			tagKey:  "env",
+			tagVal:  "prod",
+			wantLen: 1,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-vals := url.Values{
-"Action":               []string{"CreateDBInstance"},
-"Version":              []string{"2014-10-31"},
-"DBInstanceIdentifier": []string{tt.id},
-"Tags.Tag.1.Key":       []string{tt.tagKey},
-"Tags.Tag.1.Value":     []string{tt.tagVal},
-}
-resp := doRequest(t, h, vals)
-require.Equal(t, http.StatusOK, resp.Code)
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":               []string{"CreateDBInstance"},
+				"Version":              []string{"2014-10-31"},
+				"DBInstanceIdentifier": []string{tt.id},
+				"Tags.Tag.1.Key":       []string{tt.tagKey},
+				"Tags.Tag.1.Value":     []string{tt.tagVal},
+			}
+			resp := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, resp.Code)
 
-instances, err := h.Backend.DescribeDBInstances(tt.id)
-require.NoError(t, err)
-require.Len(t, instances, 1)
+			instances, err := h.Backend.DescribeDBInstances(tt.id)
+			require.NoError(t, err)
+			require.Len(t, instances, 1)
 
-assert.Equal(t, tt.wantLen, len(instances[0].Tags))
-assert.Equal(t, tt.tagVal, instances[0].Tags[tt.tagKey])
-})
-}
+			assert.Len(t, instances[0].Tags, tt.wantLen)
+			assert.Equal(t, tt.tagVal, instances[0].Tags[tt.tagKey])
+		})
+	}
 }
 
 func TestRefinement1_SnapshotClusterIdFilter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name      string
-clusterID string
-wantCount int
-}{
-{
-name:      "filter_by_cluster",
-clusterID: "cluster-a",
-wantCount: 2,
-},
-{
-name:      "no_filter",
-clusterID: "",
-wantCount: 3,
-},
-}
+	tests := []struct {
+		name      string
+		clusterID string
+		wantCount int
+	}{
+		{
+			name:      "filter_by_cluster",
+			clusterID: "cluster-a",
+			wantCount: 2,
+		},
+		{
+			name:      "no_filter",
+			clusterID: "",
+			wantCount: 3,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{
-DBClusterSnapshotIdentifier: "snap-1",
-DBClusterIdentifier:         "cluster-a",
-})
-b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{
-DBClusterSnapshotIdentifier: "snap-2",
-DBClusterIdentifier:         "cluster-a",
-})
-b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{
-DBClusterSnapshotIdentifier: "snap-3",
-DBClusterIdentifier:         "cluster-b",
-})
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{
+				DBClusterSnapshotIdentifier: "snap-1",
+				DBClusterIdentifier:         "cluster-a",
+			})
+			b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{
+				DBClusterSnapshotIdentifier: "snap-2",
+				DBClusterIdentifier:         "cluster-a",
+			})
+			b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{
+				DBClusterSnapshotIdentifier: "snap-3",
+				DBClusterIdentifier:         "cluster-b",
+			})
 
-got, err := b.DescribeDBClusterSnapshots("", tt.clusterID)
-require.NoError(t, err)
+			got, err := b.DescribeDBClusterSnapshots("", tt.clusterID)
+			require.NoError(t, err)
 
-assert.Len(t, got, tt.wantCount)
-})
-}
+			assert.Len(t, got, tt.wantCount)
+		})
+	}
 }
 
 func TestRefinement1_DescribeGlobalClusters_RealData(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name      string
-gcIDs     []string
-filterID  string
-wantCount int
-}{
-{
-name:      "all_clusters",
-gcIDs:     []string{"gc-1", "gc-2"},
-filterID:  "",
-wantCount: 2,
-},
-{
-name:      "filtered_by_id",
-gcIDs:     []string{"gc-1", "gc-2"},
-filterID:  "gc-1",
-wantCount: 1,
-},
-}
+	tests := []struct {
+		name      string
+		filterID  string
+		gcIDs     []string
+		wantCount int
+	}{
+		{
+			name:      "all_clusters",
+			gcIDs:     []string{"gc-1", "gc-2"},
+			filterID:  "",
+			wantCount: 2,
+		},
+		{
+			name:      "filtered_by_id",
+			gcIDs:     []string{"gc-1", "gc-2"},
+			filterID:  "gc-1",
+			wantCount: 1,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-for _, id := range tt.gcIDs {
-h.Backend.AddGlobalClusterInternal(&docdb.GlobalCluster{
-GlobalClusterIdentifier: id,
-Status:                  "available",
-})
-}
+			h := newTestHandler(t)
+			for _, id := range tt.gcIDs {
+				h.Backend.AddGlobalClusterInternal(&docdb.GlobalCluster{
+					GlobalClusterIdentifier: id,
+					Status:                  "available",
+				})
+			}
 
-vals := url.Values{
-"Action":  []string{"DescribeGlobalClusters"},
-"Version": []string{"2014-10-31"},
-}
-if tt.filterID != "" {
-vals.Set("GlobalClusterIdentifier", tt.filterID)
-}
+			vals := url.Values{
+				"Action":  []string{"DescribeGlobalClusters"},
+				"Version": []string{"2014-10-31"},
+			}
+			if tt.filterID != "" {
+				vals.Set("GlobalClusterIdentifier", tt.filterID)
+			}
 
-resp := doRequest(t, h, vals)
-require.Equal(t, http.StatusOK, resp.Code)
+			resp := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, resp.Code)
 
-body := resp.Body.String()
-for _, id := range tt.gcIDs[:tt.wantCount] {
-assert.Contains(t, body, id)
-}
-})
-}
+			body := resp.Body.String()
+			for _, id := range tt.gcIDs[:tt.wantCount] {
+				assert.Contains(t, body, id)
+			}
+		})
+	}
 }
 
 func TestRefinement1_OptInTypeValidation(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name      string
-optInType string
-wantErr   bool
-}{
-{name: "immediate_valid", optInType: "immediate", wantErr: false},
-{name: "next_maintenance_valid", optInType: "next-maintenance", wantErr: false},
-{name: "undo_opt_in_valid", optInType: "undo-opt-in", wantErr: false},
-{name: "invalid_opt_in_type", optInType: "bad-value", wantErr: true},
-}
+	tests := []struct {
+		name      string
+		optInType string
+		wantErr   bool
+	}{
+		{name: "immediate_valid", optInType: "immediate", wantErr: false},
+		{name: "next_maintenance_valid", optInType: "next-maintenance", wantErr: false},
+		{name: "undo_opt_in_valid", optInType: "undo-opt-in", wantErr: false},
+		{name: "invalid_opt_in_type", optInType: "bad-value", wantErr: true},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-err := b.ApplyPendingMaintenanceAction("arn:aws:rds:us-east-1:000000000000:cluster:c1", "system-update", tt.optInType)
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			err := b.ApplyPendingMaintenanceAction(
+				"arn:aws:rds:us-east-1:000000000000:cluster:c1",
+				"system-update",
+				tt.optInType,
+			)
 
-if tt.wantErr {
-require.Error(t, err)
-} else {
-require.NoError(t, err)
-}
-})
-}
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestRefinement1_SeedHelpers(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name    string
-seedFn  func(b *docdb.InMemoryBackend)
-checkFn func(t *testing.T, b *docdb.InMemoryBackend)
-}{
-{
-name: "add_cluster",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "seed-c"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.ClusterCount())
-},
-},
-{
-name: "add_instance",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: "seed-i"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.InstanceCount())
-},
-},
-{
-name: "add_subnet_group",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddDBSubnetGroupInternal(&docdb.DBSubnetGroup{DBSubnetGroupName: "seed-sg"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.SubnetGroupCount())
-},
-},
-{
-name: "add_parameter_group",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddDBClusterParameterGroupInternal(&docdb.DBClusterParameterGroup{DBClusterParameterGroupName: "seed-pg"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.ParameterGroupCount())
-},
-},
-{
-name: "add_snapshot",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{DBClusterSnapshotIdentifier: "seed-snap"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.SnapshotCount())
-},
-},
-{
-name: "add_event_subscription",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddEventSubscriptionInternal(&docdb.EventSubscription{SubscriptionName: "seed-sub"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.EventSubscriptionCount())
-},
-},
-{
-name: "add_global_cluster",
-seedFn: func(b *docdb.InMemoryBackend) {
-b.AddGlobalClusterInternal(&docdb.GlobalCluster{GlobalClusterIdentifier: "seed-gc"})
-},
-checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
-t.Helper()
-assert.Equal(t, 1, b.GlobalClusterCount())
-},
-},
-}
+	tests := []struct {
+		seedFn  func(b *docdb.InMemoryBackend)
+		checkFn func(t *testing.T, b *docdb.InMemoryBackend)
+		name    string
+	}{
+		{
+			name: "add_cluster",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "seed-c"})
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.ClusterCount())
+			},
+		},
+		{
+			name: "add_instance",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: "seed-i"})
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.InstanceCount())
+			},
+		},
+		{
+			name: "add_subnet_group",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddDBSubnetGroupInternal(&docdb.DBSubnetGroup{DBSubnetGroupName: "seed-sg"})
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.SubnetGroupCount())
+			},
+		},
+		{
+			name: "add_parameter_group",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddDBClusterParameterGroupInternal(
+					&docdb.DBClusterParameterGroup{DBClusterParameterGroupName: "seed-pg"},
+				)
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.ParameterGroupCount())
+			},
+		},
+		{
+			name: "add_snapshot",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{DBClusterSnapshotIdentifier: "seed-snap"})
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.SnapshotCount())
+			},
+		},
+		{
+			name: "add_event_subscription",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddEventSubscriptionInternal(&docdb.EventSubscription{SubscriptionName: "seed-sub"})
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.EventSubscriptionCount())
+			},
+		},
+		{
+			name: "add_global_cluster",
+			seedFn: func(b *docdb.InMemoryBackend) {
+				b.AddGlobalClusterInternal(&docdb.GlobalCluster{GlobalClusterIdentifier: "seed-gc"})
+			},
+			checkFn: func(t *testing.T, b *docdb.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 1, b.GlobalClusterCount())
+			},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-tt.seedFn(b)
-tt.checkFn(t, b)
-})
-}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			tt.seedFn(b)
+			tt.checkFn(t, b)
+		})
+	}
 }
 
 func TestRefinement1_ExportCountHelpers(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name      string
-wantCount int
-}{
-{name: "empty_backend", wantCount: 0},
-}
+	tests := []struct {
+		name      string
+		wantCount int
+	}{
+		{name: "empty_backend", wantCount: 0},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 
-assert.Equal(t, tt.wantCount, b.ClusterCount())
-assert.Equal(t, tt.wantCount, b.InstanceCount())
-assert.Equal(t, tt.wantCount, b.SubnetGroupCount())
-assert.Equal(t, tt.wantCount, b.ParameterGroupCount())
-assert.Equal(t, tt.wantCount, b.SnapshotCount())
-assert.Equal(t, tt.wantCount, b.EventSubscriptionCount())
-assert.Equal(t, tt.wantCount, b.GlobalClusterCount())
-})
-}
+			assert.Equal(t, tt.wantCount, b.ClusterCount())
+			assert.Equal(t, tt.wantCount, b.InstanceCount())
+			assert.Equal(t, tt.wantCount, b.SubnetGroupCount())
+			assert.Equal(t, tt.wantCount, b.ParameterGroupCount())
+			assert.Equal(t, tt.wantCount, b.SnapshotCount())
+			assert.Equal(t, tt.wantCount, b.EventSubscriptionCount())
+			assert.Equal(t, tt.wantCount, b.GlobalClusterCount())
+		})
+	}
 }
 
 func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name        string
-setupFn     func(b *docdb.InMemoryBackend)
-wantCluster string
-}{
-{
-name: "snapshot_and_restore",
-setupFn: func(b *docdb.InMemoryBackend) {
-b.AddDBClusterInternal(&docdb.DBCluster{
-DBClusterIdentifier: "restored-cluster",
-Engine:              "docdb",
-Status:              "available",
-})
-},
-wantCluster: "restored-cluster",
-},
-}
+	tests := []struct {
+		name        string
+		setupFn     func(b *docdb.InMemoryBackend)
+		wantCluster string
+	}{
+		{
+			name: "snapshot_and_restore",
+			setupFn: func(b *docdb.InMemoryBackend) {
+				b.AddDBClusterInternal(&docdb.DBCluster{
+					DBClusterIdentifier: "restored-cluster",
+					Engine:              "docdb",
+					Status:              "available",
+				})
+			},
+			wantCluster: "restored-cluster",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b1 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-tt.setupFn(b1)
+			b1 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			tt.setupFn(b1)
 
-data := b1.Snapshot()
-require.NotEmpty(t, data)
+			data := b1.Snapshot()
+			require.NotEmpty(t, data)
 
-b2 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-err := b2.Restore(data)
-require.NoError(t, err)
+			b2 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			err := b2.Restore(data)
+			require.NoError(t, err)
 
-clusters, err := b2.DescribeDBClusters(tt.wantCluster)
-require.NoError(t, err)
-require.Len(t, clusters, 1)
+			clusters, err := b2.DescribeDBClusters(tt.wantCluster)
+			require.NoError(t, err)
+			require.Len(t, clusters, 1)
 
-assert.Equal(t, tt.wantCluster, clusters[0].DBClusterIdentifier)
-})
-}
+			assert.Equal(t, tt.wantCluster, clusters[0].DBClusterIdentifier)
+		})
+	}
 }
 
 func TestRefinement1_DeleteCluster_RequiresId(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name    string
-id      string
-wantErr bool
-}{
-{name: "empty_id_returns_error", id: "", wantErr: true},
-{name: "missing_cluster_returns_error", id: "nonexistent", wantErr: true},
-}
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{name: "empty_id_returns_error", id: "", wantErr: true},
+		{name: "missing_cluster_returns_error", id: "nonexistent", wantErr: true},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-_, err := b.DeleteDBCluster(tt.id)
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.DeleteDBCluster(tt.id)
 
-if tt.wantErr {
-require.Error(t, err)
-} else {
-require.NoError(t, err)
-}
-})
-}
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestRefinement1_MultipleResetCycle(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-resetTimes int
-}{
-{name: "double_reset", resetTimes: 2},
-{name: "triple_reset", resetTimes: 3},
-}
+	tests := []struct {
+		name       string
+		resetTimes int
+	}{
+		{name: "double_reset", resetTimes: 2},
+		{name: "triple_reset", resetTimes: 3},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
 
-for i := 0; i < tt.resetTimes; i++ {
-b.Reset()
-b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
-}
+			for range tt.resetTimes {
+				b.Reset()
+				b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: "c1"})
+			}
 
-b.Reset()
-assert.Equal(t, 0, b.ClusterCount())
-})
-}
+			b.Reset()
+			assert.Equal(t, 0, b.ClusterCount())
+		})
+	}
 }
 
 func TestRefinement1_EngineVersionInResponse(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name          string
-id            string
-wantEngineVer string
-}{
-{
-name:          "engine_version_present",
-id:            "engine-ver-cluster",
-wantEngineVer: "4.0.0",
-},
-}
+	tests := []struct {
+		name          string
+		id            string
+		wantEngineVer string
+	}{
+		{
+			name:          "engine_version_present",
+			id:            "engine-ver-cluster",
+			wantEngineVer: "4.0.0",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-vals := url.Values{
-"Action":              []string{"CreateDBCluster"},
-"Version":             []string{"2014-10-31"},
-"DBClusterIdentifier": []string{tt.id},
-}
-resp := doRequest(t, h, vals)
-require.Equal(t, http.StatusOK, resp.Code)
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              []string{"CreateDBCluster"},
+				"Version":             []string{"2014-10-31"},
+				"DBClusterIdentifier": []string{tt.id},
+			}
+			resp := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, resp.Code)
 
-body := resp.Body.String()
-assert.Contains(t, body, "EngineVersion")
-assert.Contains(t, body, tt.wantEngineVer)
-})
-}
+			body := resp.Body.String()
+			assert.Contains(t, body, "EngineVersion")
+			assert.Contains(t, body, tt.wantEngineVer)
+		})
+	}
 }

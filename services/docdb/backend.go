@@ -2,6 +2,7 @@ package docdb
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 
@@ -18,15 +19,18 @@ var (
 	ErrSubnetGroupNotFound                = awserr.New("DBSubnetGroupNotFoundFault", awserr.ErrNotFound)
 	ErrSubnetGroupAlreadyExists           = awserr.New("DBSubnetGroupAlreadyExistsFault", awserr.ErrAlreadyExists)
 	ErrClusterParameterGroupNotFound      = awserr.New("DBClusterParameterGroupNotFoundFault", awserr.ErrNotFound)
-	ErrClusterParameterGroupAlreadyExists = awserr.New("DBClusterParameterGroupAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrClusterSnapshotNotFound            = awserr.New("DBClusterSnapshotNotFoundFault", awserr.ErrNotFound)
-	ErrClusterSnapshotAlreadyExists       = awserr.New("DBClusterSnapshotAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrEventSubscriptionNotFound          = awserr.New("SubscriptionNotFoundFault", awserr.ErrNotFound)
-	ErrEventSubscriptionAlreadyExists     = awserr.New("SubscriptionAlreadyExistFault", awserr.ErrAlreadyExists)
-	ErrGlobalClusterNotFound              = awserr.New("GlobalClusterNotFoundFault", awserr.ErrNotFound)
-	ErrGlobalClusterAlreadyExists         = awserr.New("GlobalClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrInvalidParameter                   = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
-	ErrUnknownAction                      = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
+	ErrClusterParameterGroupAlreadyExists = awserr.New(
+		"DBClusterParameterGroupAlreadyExistsFault",
+		awserr.ErrAlreadyExists,
+	)
+	ErrClusterSnapshotNotFound        = awserr.New("DBClusterSnapshotNotFoundFault", awserr.ErrNotFound)
+	ErrClusterSnapshotAlreadyExists   = awserr.New("DBClusterSnapshotAlreadyExistsFault", awserr.ErrAlreadyExists)
+	ErrEventSubscriptionNotFound      = awserr.New("SubscriptionNotFoundFault", awserr.ErrNotFound)
+	ErrEventSubscriptionAlreadyExists = awserr.New("SubscriptionAlreadyExistFault", awserr.ErrAlreadyExists)
+	ErrGlobalClusterNotFound          = awserr.New("GlobalClusterNotFoundFault", awserr.ErrNotFound)
+	ErrGlobalClusterAlreadyExists     = awserr.New("GlobalClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
+	ErrInvalidParameter               = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
+	ErrUnknownAction                  = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -75,8 +79,8 @@ type DBSubnetGroup struct {
 }
 
 type Tag struct {
-	Key   string
-	Value string
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type DBClusterParameterGroup struct {
@@ -1106,9 +1110,7 @@ func copyTags(src map[string]string) map[string]string {
 		return nil
 	}
 	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
+	maps.Copy(dst, src)
 
 	return dst
 }
