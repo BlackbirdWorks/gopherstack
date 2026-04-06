@@ -18,18 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cognitoidentity.NewHandler(backend, "us-east-1")
 	sdkcheck.CheckCompleteness(t, &cognitoidentitysdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteIdentities",
-		"DescribeIdentity",
-		"GetOpenIdTokenForDeveloperIdentity",
-		"GetPrincipalTagAttributeMap",
-		"ListIdentities",
-		"ListTagsForResource",
-		"LookupDeveloperIdentity",
-		"MergeDeveloperIdentities",
-		"SetPrincipalTagAttributeMap",
-		"TagResource",
 		"UnlinkDeveloperIdentity",
 		"UnlinkIdentity",
-		"UntagResource",
 	})
 }

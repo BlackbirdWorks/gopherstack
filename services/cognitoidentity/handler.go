@@ -18,6 +18,10 @@ import (
 const (
 	cognitoIdentityTargetPrefix = "AWSCognitoIdentityService."
 	contentType                 = "application/x-amz-json-1.1"
+
+	// millisPerSecond is the divisor to convert Unix milliseconds to seconds
+	// (as a float64) for AWS timestamp fields.
+	millisPerSecond = 1000.0
 )
 
 var errUnknownAction = errors.New("UnknownOperationException")
@@ -25,12 +29,21 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for Cognito Identity Pool operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 	region  string
 }
 
 // NewHandler creates a new Cognito Identity handler.
 func NewHandler(backend *InMemoryBackend, region string) *Handler {
-	return &Handler{Backend: backend, region: region}
+	h := &Handler{Backend: backend, region: region}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all backend state and rebuilds the dispatch table.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -49,6 +62,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetOpenIdToken",
 		"SetIdentityPoolRoles",
 		"GetIdentityPoolRoles",
+		"DeleteIdentities",
+		"DescribeIdentity",
+		"GetOpenIdTokenForDeveloperIdentity",
+		"GetPrincipalTagAttributeMap",
+		"ListIdentities",
+		"ListTagsForResource",
+		"LookupDeveloperIdentity",
+		"MergeDeveloperIdentities",
+		"SetPrincipalTagAttributeMap",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -117,23 +141,34 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateIdentityPool":        service.WrapOp(h.handleCreateIdentityPool),
-		"DeleteIdentityPool":        service.WrapOp(h.handleDeleteIdentityPool),
-		"DescribeIdentityPool":      service.WrapOp(h.handleDescribeIdentityPool),
-		"ListIdentityPools":         service.WrapOp(h.handleListIdentityPools),
-		"UpdateIdentityPool":        service.WrapOp(h.handleUpdateIdentityPool),
-		"GetId":                     service.WrapOp(h.handleGetID),
-		"GetCredentialsForIdentity": service.WrapOp(h.handleGetCredentialsForIdentity),
-		"GetOpenIdToken":            service.WrapOp(h.handleGetOpenIDToken),
-		"SetIdentityPoolRoles":      service.WrapOp(h.handleSetIdentityPoolRoles),
-		"GetIdentityPoolRoles":      service.WrapOp(h.handleGetIdentityPoolRoles),
+		"CreateIdentityPool":                 service.WrapOp(h.handleCreateIdentityPool),
+		"DeleteIdentityPool":                 service.WrapOp(h.handleDeleteIdentityPool),
+		"DescribeIdentityPool":               service.WrapOp(h.handleDescribeIdentityPool),
+		"ListIdentityPools":                  service.WrapOp(h.handleListIdentityPools),
+		"UpdateIdentityPool":                 service.WrapOp(h.handleUpdateIdentityPool),
+		"GetId":                              service.WrapOp(h.handleGetID),
+		"GetCredentialsForIdentity":          service.WrapOp(h.handleGetCredentialsForIdentity),
+		"GetOpenIdToken":                     service.WrapOp(h.handleGetOpenIDToken),
+		"SetIdentityPoolRoles":               service.WrapOp(h.handleSetIdentityPoolRoles),
+		"GetIdentityPoolRoles":               service.WrapOp(h.handleGetIdentityPoolRoles),
+		"DeleteIdentities":                   service.WrapOp(h.handleDeleteIdentities),
+		"DescribeIdentity":                   service.WrapOp(h.handleDescribeIdentity),
+		"GetOpenIdTokenForDeveloperIdentity": service.WrapOp(h.handleGetOpenIDTokenForDeveloperIdentity),
+		"GetPrincipalTagAttributeMap":        service.WrapOp(h.handleGetPrincipalTagAttributeMap),
+		"ListIdentities":                     service.WrapOp(h.handleListIdentities),
+		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
+		"LookupDeveloperIdentity":            service.WrapOp(h.handleLookupDeveloperIdentity),
+		"MergeDeveloperIdentities":           service.WrapOp(h.handleMergeDeveloperIdentities),
+		"SetPrincipalTagAttributeMap":        service.WrapOp(h.handleSetPrincipalTagAttributeMap),
+		"TagResource":                        service.WrapOp(h.handleTagResource),
+		"UntagResource":                      service.WrapOp(h.handleUntagResource),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -197,6 +232,7 @@ type cognitoIdentityProviderInput struct {
 
 type identityPoolOutput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders,omitempty"`
+	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags,omitempty"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders,omitempty"`
@@ -499,5 +535,354 @@ func toIdentityPoolOutput(pool *IdentityPool) *identityPoolOutput {
 		AllowClassicFlow:               pool.AllowClassicFlow,
 		IdentityProviders:              providers,
 		SupportedLoginProviders:        pool.SupportedLoginProviders,
+		IdentityPoolTags:               pool.Tags,
 	}
+}
+
+// --- New operations ---
+
+type deleteIdentitiesInput struct {
+	IdentityIDsToDelete []string `json:"IdentityIdsToDelete"`
+}
+
+type unprocessedIdentityIDOutput struct {
+	ErrorCode  string `json:"ErrorCode"`
+	IdentityID string `json:"IdentityId"`
+}
+
+type deleteIdentitiesOutput struct {
+	UnprocessedIdentityIDs []unprocessedIdentityIDOutput `json:"UnprocessedIdentityIds"`
+}
+
+func (h *Handler) handleDeleteIdentities(
+	_ context.Context,
+	in *deleteIdentitiesInput,
+) (*deleteIdentitiesOutput, error) {
+	if len(in.IdentityIDsToDelete) == 0 {
+		return nil, fmt.Errorf("%w: IdentityIdsToDelete must not be empty", ErrInvalidParameter)
+	}
+
+	unprocessed, err := h.Backend.DeleteIdentities(in.IdentityIDsToDelete)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]unprocessedIdentityIDOutput, 0, len(unprocessed))
+	for _, u := range unprocessed {
+		out = append(out, unprocessedIdentityIDOutput(u))
+	}
+
+	return &deleteIdentitiesOutput{UnprocessedIdentityIDs: out}, nil
+}
+
+type describeIdentityInput struct {
+	IdentityID string `json:"IdentityId"`
+}
+
+type describeIdentityOutput struct {
+	IdentityID       string   `json:"IdentityId"`
+	Logins           []string `json:"Logins"`
+	CreationDate     float64  `json:"CreationDate"`
+	LastModifiedDate float64  `json:"LastModifiedDate"`
+}
+
+func (h *Handler) handleDescribeIdentity(
+	_ context.Context,
+	in *describeIdentityInput,
+) (*describeIdentityOutput, error) {
+	if in.IdentityID == "" {
+		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
+	desc, err := h.Backend.DescribeIdentity(in.IdentityID)
+	if err != nil {
+		return nil, err
+	}
+
+	logins := desc.Logins
+	if logins == nil {
+		logins = []string{}
+	}
+
+	return &describeIdentityOutput{
+		IdentityID:       desc.IdentityID,
+		Logins:           logins,
+		CreationDate:     float64(desc.CreationDate.UnixMilli()) / millisPerSecond,
+		LastModifiedDate: float64(desc.LastModifiedDate.UnixMilli()) / millisPerSecond,
+	}, nil
+}
+
+type getOpenIDTokenForDeveloperIdentityInput struct {
+	Logins         map[string]string `json:"Logins"`
+	IdentityPoolID string            `json:"IdentityPoolId"`
+	IdentityID     string            `json:"IdentityId"`
+	TokenDuration  int64             `json:"TokenDuration"`
+}
+
+type getOpenIDTokenForDeveloperIdentityOutput struct {
+	IdentityID string `json:"IdentityId"`
+	Token      string `json:"Token"`
+}
+
+func (h *Handler) handleGetOpenIDTokenForDeveloperIdentity(
+	_ context.Context,
+	in *getOpenIDTokenForDeveloperIdentityInput,
+) (*getOpenIDTokenForDeveloperIdentityOutput, error) {
+	result, err := h.Backend.GetOpenIDTokenForDeveloperIdentity(
+		in.IdentityPoolID,
+		in.IdentityID,
+		in.Logins,
+		in.TokenDuration,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getOpenIDTokenForDeveloperIdentityOutput{
+		IdentityID: result.IdentityID,
+		Token:      result.Token,
+	}, nil
+}
+
+type getPrincipalTagAttributeMapInput struct {
+	IdentityPoolID       string `json:"IdentityPoolId"`
+	IdentityProviderName string `json:"IdentityProviderName"`
+}
+
+type getPrincipalTagAttributeMapOutput struct {
+	PrincipalTags        map[string]string `json:"PrincipalTags,omitempty"`
+	IdentityPoolID       string            `json:"IdentityPoolId"`
+	IdentityProviderName string            `json:"IdentityProviderName"`
+	UseDefaults          bool              `json:"UseDefaults"`
+}
+
+func (h *Handler) handleGetPrincipalTagAttributeMap(
+	_ context.Context,
+	in *getPrincipalTagAttributeMapInput,
+) (*getPrincipalTagAttributeMapOutput, error) {
+	mapping, err := h.Backend.GetPrincipalTagAttributeMap(in.IdentityPoolID, in.IdentityProviderName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getPrincipalTagAttributeMapOutput{
+		IdentityPoolID:       in.IdentityPoolID,
+		IdentityProviderName: in.IdentityProviderName,
+		UseDefaults:          mapping.UseDefaults,
+		PrincipalTags:        mapping.PrincipalTags,
+	}, nil
+}
+
+type listIdentitiesInput struct {
+	NextToken      string `json:"NextToken"`
+	IdentityPoolID string `json:"IdentityPoolId"`
+	MaxResults     int    `json:"MaxResults"`
+	HideDisabled   bool   `json:"HideDisabled"`
+}
+
+type identityDescriptionOutput struct {
+	IdentityID       string   `json:"IdentityId"`
+	Logins           []string `json:"Logins"`
+	CreationDate     float64  `json:"CreationDate"`
+	LastModifiedDate float64  `json:"LastModifiedDate"`
+}
+
+type listIdentitiesOutput struct {
+	IdentityPoolID string                      `json:"IdentityPoolId"`
+	NextToken      string                      `json:"NextToken,omitempty"`
+	Identities     []identityDescriptionOutput `json:"Identities"`
+}
+
+func (h *Handler) handleListIdentities(
+	_ context.Context,
+	in *listIdentitiesInput,
+) (*listIdentitiesOutput, error) {
+	result, err := h.Backend.ListIdentities(in.IdentityPoolID, in.MaxResults, in.HideDisabled)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]identityDescriptionOutput, 0, len(result.Identities))
+	for _, id := range result.Identities {
+		logins := id.Logins
+		if logins == nil {
+			logins = []string{}
+		}
+
+		items = append(items, identityDescriptionOutput{
+			IdentityID:       id.IdentityID,
+			Logins:           logins,
+			CreationDate:     float64(id.CreationDate.UnixMilli()) / millisPerSecond,
+			LastModifiedDate: float64(id.LastModifiedDate.UnixMilli()) / millisPerSecond,
+		})
+	}
+
+	return &listIdentitiesOutput{
+		IdentityPoolID: result.IdentityPoolID,
+		Identities:     items,
+	}, nil
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	if tags == nil {
+		tags = make(map[string]string)
+	}
+
+	return &listTagsForResourceOutput{Tags: tags}, nil
+}
+
+type lookupDeveloperIdentityInput struct {
+	NextToken               string `json:"NextToken"`
+	IdentityPoolID          string `json:"IdentityPoolId"`
+	IdentityID              string `json:"IdentityId"`
+	DeveloperUserIdentifier string `json:"DeveloperUserIdentifier"`
+	DeveloperProviderName   string `json:"DeveloperProviderName"`
+	MaxResults              int    `json:"MaxResults"`
+}
+
+type lookupDeveloperIdentityOutput struct {
+	IdentityID                  string   `json:"IdentityId"`
+	NextToken                   string   `json:"NextToken,omitempty"`
+	DeveloperUserIdentifierList []string `json:"DeveloperUserIdentifierList"`
+}
+
+func (h *Handler) handleLookupDeveloperIdentity(
+	_ context.Context,
+	in *lookupDeveloperIdentityInput,
+) (*lookupDeveloperIdentityOutput, error) {
+	result, err := h.Backend.LookupDeveloperIdentity(
+		in.IdentityPoolID,
+		in.IdentityID,
+		in.DeveloperUserIdentifier,
+		in.DeveloperProviderName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := result.DeveloperUserIdentifierList
+	if ids == nil {
+		ids = []string{}
+	}
+
+	return &lookupDeveloperIdentityOutput{
+		IdentityID:                  result.IdentityID,
+		DeveloperUserIdentifierList: ids,
+	}, nil
+}
+
+type mergeDeveloperIdentitiesInput struct {
+	SourceUserIdentifier      string `json:"SourceUserIdentifier"`
+	DestinationUserIdentifier string `json:"DestinationUserIdentifier"`
+	DeveloperProviderName     string `json:"DeveloperProviderName"`
+	IdentityPoolID            string `json:"IdentityPoolId"`
+}
+
+type mergeDeveloperIdentitiesOutput struct {
+	IdentityID string `json:"IdentityId"`
+}
+
+func (h *Handler) handleMergeDeveloperIdentities(
+	_ context.Context,
+	in *mergeDeveloperIdentitiesInput,
+) (*mergeDeveloperIdentitiesOutput, error) {
+	identity, err := h.Backend.MergeDeveloperIdentities(
+		in.SourceUserIdentifier,
+		in.DestinationUserIdentifier,
+		in.DeveloperProviderName,
+		in.IdentityPoolID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mergeDeveloperIdentitiesOutput{IdentityID: identity.IdentityID}, nil
+}
+
+type setPrincipalTagAttributeMapInput struct {
+	PrincipalTags        map[string]string `json:"PrincipalTags"`
+	IdentityPoolID       string            `json:"IdentityPoolId"`
+	IdentityProviderName string            `json:"IdentityProviderName"`
+	UseDefaults          bool              `json:"UseDefaults"`
+}
+
+type setPrincipalTagAttributeMapOutput struct {
+	PrincipalTags        map[string]string `json:"PrincipalTags,omitempty"`
+	IdentityPoolID       string            `json:"IdentityPoolId"`
+	IdentityProviderName string            `json:"IdentityProviderName"`
+	UseDefaults          bool              `json:"UseDefaults"`
+}
+
+func (h *Handler) handleSetPrincipalTagAttributeMap(
+	_ context.Context,
+	in *setPrincipalTagAttributeMapInput,
+) (*setPrincipalTagAttributeMapOutput, error) {
+	mapping, err := h.Backend.SetPrincipalTagAttributeMap(
+		in.IdentityPoolID,
+		in.IdentityProviderName,
+		in.UseDefaults,
+		in.PrincipalTags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &setPrincipalTagAttributeMapOutput{
+		IdentityPoolID:       in.IdentityPoolID,
+		IdentityProviderName: in.IdentityProviderName,
+		UseDefaults:          mapping.UseDefaults,
+		PrincipalTags:        mapping.PrincipalTags,
+	}, nil
+}
+
+type tagResourceInput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn"`
+}
+
+type tagResourceOutput struct{}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	in *tagResourceInput,
+) (*tagResourceOutput, error) {
+	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+		return nil, err
+	}
+
+	return &tagResourceOutput{}, nil
+}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *untagResourceInput,
+) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
 }

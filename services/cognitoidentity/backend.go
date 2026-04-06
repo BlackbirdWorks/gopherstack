@@ -5,11 +5,21 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+)
+
+const (
+	// deleteIdentitiesMaxBatch is the AWS-imposed limit on identities per DeleteIdentities call.
+	deleteIdentitiesMaxBatch = 60
+
+	// listIdentitiesMaxResults is the AWS-imposed upper limit on MaxResults for ListIdentities.
+	listIdentitiesMaxResults = 60
 )
 
 const (
@@ -63,14 +73,28 @@ type Identity struct {
 	IdentityPoolID string            `json:"identityPoolID"`
 }
 
+// PrincipalTagMapping stores the principal tag attribute map for a pool and provider.
+type PrincipalTagMapping struct {
+	PrincipalTags map[string]string `json:"principalTags,omitempty"`
+	UseDefaults   bool              `json:"useDefaults"`
+}
+
+// UnprocessedIdentityID represents a Cognito identity that could not be deleted.
+type UnprocessedIdentityID struct {
+	ErrorCode  string `json:"errorCode"`
+	IdentityID string `json:"identityId"`
+}
+
 // InMemoryBackend is the in-memory store for Cognito Identity Pool resources.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	pools            map[string]*IdentityPool
 	poolsByName      map[string]*IdentityPool
+	poolsByARN       map[string]*IdentityPool // ARN → pool (for tag/resource ops)
 	identities       map[string]*Identity
 	identitiesByPool map[string][]*Identity // poolID → identities (O(1) GetID lookup)
 	roles            map[string]*IdentityRoles
+	principalTags    map[string]*PrincipalTagMapping // key: poolID:providerName
 	accountID        string
 	region           string
 }
@@ -81,9 +105,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:               lockmetrics.New("cognitoidentity"),
 		pools:            make(map[string]*IdentityPool),
 		poolsByName:      make(map[string]*IdentityPool),
+		poolsByARN:       make(map[string]*IdentityPool),
 		identities:       make(map[string]*Identity),
 		identitiesByPool: make(map[string][]*Identity),
 		roles:            make(map[string]*IdentityRoles),
+		principalTags:    make(map[string]*PrincipalTagMapping),
 		accountID:        accountID,
 		region:           region,
 	}
@@ -129,11 +155,13 @@ func (b *InMemoryBackend) CreateIdentityPool(
 
 	b.pools[poolID] = pool
 	b.poolsByName[name] = pool
+	b.poolsByARN[arn] = pool
 
 	return clonePool(pool), nil
 }
 
-// DeleteIdentityPool removes an identity pool and all associated identities and roles.
+// DeleteIdentityPool removes an identity pool and all associated identities, roles,
+// and principal-tag configurations.
 func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 	b.mu.Lock("DeleteIdentityPool")
 	defer b.mu.Unlock()
@@ -144,6 +172,7 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 	}
 
 	delete(b.poolsByName, pool.IdentityPoolName)
+	delete(b.poolsByARN, pool.ARN)
 	delete(b.pools, poolID)
 	delete(b.roles, poolID)
 
@@ -154,6 +183,14 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 	}
 
 	delete(b.identitiesByPool, poolID)
+
+	// Purge all principal-tag mappings that belong to this pool.
+	prefix := poolID + ":"
+	for key := range b.principalTags {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(b.principalTags, key)
+		}
+	}
 
 	return nil
 }
@@ -171,14 +208,24 @@ func (b *InMemoryBackend) DescribeIdentityPool(poolID string) (*IdentityPool, er
 	return clonePool(pool), nil
 }
 
-// ListIdentityPools returns all identity pools, up to maxResults (0 = all).
+// ListIdentityPools returns all identity pools sorted by name, up to maxResults (0 = all).
 func (b *InMemoryBackend) ListIdentityPools(maxResults int) []*IdentityPool {
 	b.mu.RLock("ListIdentityPools")
 	defer b.mu.RUnlock()
 
+	keys := make([]string, 0, len(b.pools))
+	for id := range b.pools {
+		keys = append(keys, id)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return b.pools[keys[i]].IdentityPoolName < b.pools[keys[j]].IdentityPoolName
+	})
+
 	out := make([]*IdentityPool, 0, len(b.pools))
-	for _, p := range b.pools {
-		out = append(out, clonePool(p))
+
+	for _, id := range keys {
+		out = append(out, clonePool(b.pools[id]))
 
 		if maxResults > 0 && len(out) >= maxResults {
 			break
@@ -348,6 +395,452 @@ func (b *InMemoryBackend) GetIdentityPoolRoles(poolID string) (*IdentityRoles, e
 	return &cp, nil
 }
 
+// IdentityDescription describes a federated identity, including its login providers.
+type IdentityDescription struct {
+	CreationDate     time.Time `json:"creationDate"`
+	LastModifiedDate time.Time `json:"lastModifiedDate"`
+	IdentityID       string    `json:"identityId"`
+	Logins           []string  `json:"logins,omitempty"`
+}
+
+// ListIdentitiesResult holds the output for ListIdentities.
+type ListIdentitiesResult struct {
+	IdentityPoolID string                `json:"identityPoolId"`
+	NextToken      string                `json:"nextToken,omitempty"`
+	Identities     []IdentityDescription `json:"identities"`
+}
+
+// DeleteIdentities deletes the given identity IDs from the backend.
+// Identities that do not exist are silently skipped.
+// Returns a (possibly empty) list of IDs that could not be processed.
+func (b *InMemoryBackend) DeleteIdentities(identityIDs []string) ([]UnprocessedIdentityID, error) {
+	if len(identityIDs) > deleteIdentitiesMaxBatch {
+		return nil, fmt.Errorf(
+			"%w: DeleteIdentities accepts at most %d identities per call, got %d",
+			ErrInvalidParameter, deleteIdentitiesMaxBatch, len(identityIDs),
+		)
+	}
+
+	b.mu.Lock("DeleteIdentities")
+	defer b.mu.Unlock()
+
+	var unprocessed []UnprocessedIdentityID
+
+	for _, id := range identityIDs {
+		identity, ok := b.identities[id]
+		if !ok {
+			continue
+		}
+
+		poolID := identity.IdentityPoolID
+
+		delete(b.identities, id)
+
+		// Remove from identitiesByPool slice.
+		existing := b.identitiesByPool[poolID]
+		updated := make([]*Identity, 0, len(existing))
+
+		for _, i := range existing {
+			if i.IdentityID != id {
+				updated = append(updated, i)
+			}
+		}
+
+		b.identitiesByPool[poolID] = updated
+	}
+
+	return unprocessed, nil
+}
+
+// DescribeIdentity returns metadata about a specific federated identity.
+func (b *InMemoryBackend) DescribeIdentity(identityID string) (*IdentityDescription, error) {
+	if identityID == "" {
+		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeIdentity")
+	defer b.mu.RUnlock()
+
+	identity, ok := b.identities[identityID]
+	if !ok {
+		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+	}
+
+	logins := make([]string, 0, len(identity.Logins))
+	for provider := range identity.Logins {
+		logins = append(logins, provider)
+	}
+
+	slices.Sort(logins)
+
+	return &IdentityDescription{
+		IdentityID:       identity.IdentityID,
+		Logins:           logins,
+		CreationDate:     identity.CreatedAt,
+		LastModifiedDate: identity.CreatedAt,
+	}, nil
+}
+
+// DeveloperOpenIDToken is the result of GetOpenIDTokenForDeveloperIdentity.
+type DeveloperOpenIDToken struct {
+	IdentityID string
+	Token      string
+}
+
+// GetOpenIDTokenForDeveloperIdentity registers or retrieves an identity for a developer
+// authenticated user, then returns a synthetic OpenID token.
+func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
+	poolID string,
+	identityID string,
+	logins map[string]string,
+	_ int64,
+) (*DeveloperOpenIDToken, error) {
+	b.mu.Lock("GetOpenIDTokenForDeveloperIdentity")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	if identityID != "" {
+		if _, ok := b.identities[identityID]; !ok {
+			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+		}
+	} else {
+		// Look up by developer login tokens or create new.
+		for _, identity := range b.identitiesByPool[poolID] {
+			if mapsEqual(identity.Logins, logins) {
+				// Break early: only one identity can match these exact login credentials.
+				identityID = identity.IdentityID
+
+				break
+			}
+		}
+
+		if identityID == "" {
+			newID := b.region + ":" + uuid.New().String()
+			identity := &Identity{
+				IdentityID:     newID,
+				IdentityPoolID: poolID,
+				Logins:         cloneStringMap(logins),
+				CreatedAt:      time.Now(),
+			}
+
+			b.identities[newID] = identity
+			b.identitiesByPool[poolID] = append(b.identitiesByPool[poolID], identity)
+			identityID = newID
+		}
+	}
+
+	payload, err := randomAlphanumeric(tokenLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+
+	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature", payload)
+
+	return &DeveloperOpenIDToken{
+		IdentityID: identityID,
+		Token:      token,
+	}, nil
+}
+
+// principalTagKey returns the composite map key for a pool+provider combination.
+// Format: "<poolID>:<providerName>".
+func principalTagKey(poolID, providerName string) string {
+	return poolID + ":" + providerName
+}
+
+// GetPrincipalTagAttributeMap returns the principal tag attribute map for a pool and provider.
+func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName string) (*PrincipalTagMapping, error) {
+	b.mu.RLock("GetPrincipalTagAttributeMap")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	key := principalTagKey(poolID, providerName)
+
+	if m, ok := b.principalTags[key]; ok {
+		return clonePrincipalTagMapping(m), nil
+	}
+
+	return &PrincipalTagMapping{UseDefaults: true}, nil
+}
+
+// ListIdentities returns identities associated with an identity pool, sorted by IdentityId.
+func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) (*ListIdentitiesResult, error) {
+	if maxResults < 0 || maxResults > listIdentitiesMaxResults {
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrInvalidParameter, listIdentitiesMaxResults,
+		)
+	}
+
+	b.mu.RLock("ListIdentities")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	poolIdentities := b.identitiesByPool[poolID]
+
+	// Sort by IdentityId for deterministic output.
+	sorted := make([]*Identity, len(poolIdentities))
+	copy(sorted, poolIdentities)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].IdentityID < sorted[j].IdentityID
+	})
+
+	limit := len(sorted)
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	descriptions := make([]IdentityDescription, 0, limit)
+
+	for i := range limit {
+		identity := sorted[i]
+		logins := make([]string, 0, len(identity.Logins))
+
+		for provider := range identity.Logins {
+			logins = append(logins, provider)
+		}
+
+		slices.Sort(logins)
+
+		descriptions = append(descriptions, IdentityDescription{
+			IdentityID:       identity.IdentityID,
+			Logins:           logins,
+			CreationDate:     identity.CreatedAt,
+			LastModifiedDate: identity.CreatedAt,
+		})
+	}
+
+	return &ListIdentitiesResult{
+		IdentityPoolID: poolID,
+		Identities:     descriptions,
+	}, nil
+}
+
+// ListTagsForResource returns the tags for an identity pool resource by its ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	pool, ok := b.poolsByARN[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %q not found", ErrIdentityPoolNotFound, resourceARN)
+	}
+
+	return cloneStringMap(pool.Tags), nil
+}
+
+// LookupDeveloperIdentityResult holds the output of LookupDeveloperIdentity.
+type LookupDeveloperIdentityResult struct {
+	IdentityID                  string
+	DeveloperUserIdentifierList []string
+}
+
+// LookupDeveloperIdentity retrieves the identity associated with a developer user identifier
+// or the list of developer user identifiers associated with an identity.
+func (b *InMemoryBackend) LookupDeveloperIdentity(
+	poolID string,
+	identityID string,
+	developerUserIdentifier string,
+	developerProviderName string,
+) (*LookupDeveloperIdentityResult, error) {
+	b.mu.RLock("LookupDeveloperIdentity")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	if identityID != "" {
+		identity, ok := b.identities[identityID]
+		if !ok {
+			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+		}
+
+		devIDs := developerLoginsFrom(identity.Logins, developerProviderName)
+
+		return &LookupDeveloperIdentityResult{
+			IdentityID:                  identity.IdentityID,
+			DeveloperUserIdentifierList: devIDs,
+		}, nil
+	}
+
+	if developerUserIdentifier != "" {
+		for _, identity := range b.identitiesByPool[poolID] {
+			if v, ok := identity.Logins[developerProviderName]; ok && v == developerUserIdentifier {
+				devIDs := developerLoginsFrom(identity.Logins, developerProviderName)
+
+				return &LookupDeveloperIdentityResult{
+					IdentityID:                  identity.IdentityID,
+					DeveloperUserIdentifierList: devIDs,
+				}, nil
+			}
+		}
+
+		return nil, fmt.Errorf(
+			"%w: developer user identifier %q not found",
+			ErrIdentityPoolNotFound,
+			developerUserIdentifier,
+		)
+	}
+
+	return nil, fmt.Errorf("%w: either IdentityId or DeveloperUserIdentifier must be provided", ErrInvalidParameter)
+}
+
+// developerLoginsFrom extracts developer user identifiers from a logins map.
+// A developer login key is non-standard (not a well-known provider prefix).
+// The result is always sorted for deterministic output.
+func developerLoginsFrom(logins map[string]string, developerProviderName string) []string {
+	ids := make([]string, 0)
+
+	if developerProviderName != "" {
+		if v, ok := logins[developerProviderName]; ok {
+			ids = append(ids, v)
+		}
+
+		return ids
+	}
+
+	for _, v := range logins {
+		ids = append(ids, v)
+	}
+
+	slices.Sort(ids)
+
+	return ids
+}
+
+// MergeDeveloperIdentities merges the source identity into the destination identity.
+func (b *InMemoryBackend) MergeDeveloperIdentities(
+	sourceUserID string,
+	destUserID string,
+	developerProviderName string,
+	poolID string,
+) (*Identity, error) {
+	b.mu.Lock("MergeDeveloperIdentities")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	var sourceIdentity, destIdentity *Identity
+
+	for _, identity := range b.identitiesByPool[poolID] {
+		if v, ok := identity.Logins[developerProviderName]; ok {
+			switch v {
+			case sourceUserID:
+				sourceIdentity = identity
+			case destUserID:
+				destIdentity = identity
+			}
+		}
+	}
+
+	if sourceIdentity == nil {
+		return nil, fmt.Errorf("%w: source developer user %q not found", ErrIdentityPoolNotFound, sourceUserID)
+	}
+
+	if destIdentity == nil {
+		return nil, fmt.Errorf("%w: destination developer user %q not found", ErrIdentityPoolNotFound, destUserID)
+	}
+
+	// Merge logins from source into destination.
+	maps.Copy(destIdentity.Logins, sourceIdentity.Logins)
+
+	// Remove source identity.
+	delete(b.identities, sourceIdentity.IdentityID)
+
+	updated := make([]*Identity, 0, len(b.identitiesByPool[poolID])-1)
+
+	for _, i := range b.identitiesByPool[poolID] {
+		if i.IdentityID != sourceIdentity.IdentityID {
+			updated = append(updated, i)
+		}
+	}
+
+	b.identitiesByPool[poolID] = updated
+
+	return cloneIdentity(destIdentity), nil
+}
+
+// SetPrincipalTagAttributeMap configures principal tag attribute mappings for a pool and provider.
+func (b *InMemoryBackend) SetPrincipalTagAttributeMap(
+	poolID string,
+	providerName string,
+	useDefaults bool,
+	principalTags map[string]string,
+) (*PrincipalTagMapping, error) {
+	b.mu.Lock("SetPrincipalTagAttributeMap")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	mapping := &PrincipalTagMapping{
+		UseDefaults:   useDefaults,
+		PrincipalTags: cloneStringMap(principalTags),
+	}
+
+	b.principalTags[principalTagKey(poolID, providerName)] = mapping
+
+	return clonePrincipalTagMapping(mapping), nil
+}
+
+// TagResource adds or updates tags on an identity pool resource by ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	pool, ok := b.poolsByARN[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %q not found", ErrIdentityPoolNotFound, resourceARN)
+	}
+
+	if pool.Tags == nil {
+		pool.Tags = make(map[string]string)
+	}
+
+	maps.Copy(pool.Tags, tags)
+
+	return nil
+}
+
+// UntagResource removes the given tag keys from an identity pool resource by ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	pool, ok := b.poolsByARN[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %q not found", ErrIdentityPoolNotFound, resourceARN)
+	}
+
+	for _, k := range tagKeys {
+		delete(pool.Tags, k)
+	}
+
+	return nil
+}
+
+// clonePrincipalTagMapping returns a deep copy of a PrincipalTagMapping.
+func clonePrincipalTagMapping(m *PrincipalTagMapping) *PrincipalTagMapping {
+	return &PrincipalTagMapping{
+		UseDefaults:   m.UseDefaults,
+		PrincipalTags: cloneStringMap(m.PrincipalTags),
+	}
+}
+
 // Credentials holds temporary AWS credentials returned by GetCredentialsForIdentity.
 type Credentials struct {
 	Expiration      time.Time
@@ -444,7 +937,31 @@ func (b *InMemoryBackend) Reset() {
 
 	b.pools = make(map[string]*IdentityPool)
 	b.poolsByName = make(map[string]*IdentityPool)
+	b.poolsByARN = make(map[string]*IdentityPool)
 	b.identities = make(map[string]*Identity)
 	b.identitiesByPool = make(map[string][]*Identity)
 	b.roles = make(map[string]*IdentityRoles)
+	b.principalTags = make(map[string]*PrincipalTagMapping)
+}
+
+// AddPoolInternal seeds an identity pool directly into the backend for testing purposes.
+// It bypasses the normal CreateIdentityPool validation.
+func (b *InMemoryBackend) AddPoolInternal(pool *IdentityPool) {
+	b.mu.Lock("AddPoolInternal")
+	defer b.mu.Unlock()
+
+	cp := clonePool(pool)
+	b.pools[cp.IdentityPoolID] = cp
+	b.poolsByName[cp.IdentityPoolName] = cp
+	b.poolsByARN[cp.ARN] = cp
+}
+
+// AddIdentityInternal seeds an identity directly into the backend for testing purposes.
+func (b *InMemoryBackend) AddIdentityInternal(identity *Identity) {
+	b.mu.Lock("AddIdentityInternal")
+	defer b.mu.Unlock()
+
+	cp := cloneIdentity(identity)
+	b.identities[cp.IdentityID] = cp
+	b.identitiesByPool[cp.IdentityPoolID] = append(b.identitiesByPool[cp.IdentityPoolID], cp)
 }
