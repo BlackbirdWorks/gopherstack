@@ -500,6 +500,7 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 }
 
 // principalTagKey returns the composite map key for a pool+provider combination.
+// Format: "<poolID>:<providerName>".
 func principalTagKey(poolID, providerName string) string {
 	return poolID + ":" + providerName
 }

@@ -19,7 +19,8 @@ const (
 	cognitoIdentityTargetPrefix = "AWSCognitoIdentityService."
 	contentType                 = "application/x-amz-json-1.1"
 
-	// millisPerSecond converts milliseconds to fractional seconds for AWS timestamp fields.
+	// millisPerSecond is the divisor to convert Unix milliseconds to seconds
+	// (as a float64) for AWS timestamp fields.
 	millisPerSecond = 1000.0
 )
 
