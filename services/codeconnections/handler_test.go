@@ -808,7 +808,7 @@ func TestBackendListConnections(t *testing.T) {
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 			tt.setup(t, b)
-			conns := b.ListConnections(tt.filter)
+			conns := b.ListConnections(tt.filter, "")
 			assert.Len(t, conns, tt.wantCount)
 
 			if tt.wantProvider != "" {
@@ -1737,4 +1737,623 @@ func TestSyncConfigurationRoundTrip(t *testing.T) {
 		"SyncType":     "CFN_STACK_SYNC",
 	})
 	assert.Equal(t, http.StatusBadRequest, afterDelRec.Code)
+}
+
+// --- Refinement 1 tests ---
+
+// TestRefinement1_Reset exercises Reset() on the backend and handler.
+func TestRefinement1_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, h *codeconnections.Handler)
+		name  string
+	}{
+		{
+			name: "reset_clears_connections",
+			setup: func(t *testing.T, h *codeconnections.Handler) {
+				t.Helper()
+				createConn(t, h, "conn-to-clear", "GitHub")
+				h.Reset()
+				rec := doJSON(t, h, "ListConnections", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				conns, ok := resp["Connections"].([]any)
+				require.True(t, ok)
+				assert.Empty(t, conns)
+			},
+		},
+		{
+			name: "reset_clears_hosts",
+			setup: func(t *testing.T, h *codeconnections.Handler) {
+				t.Helper()
+				hostArn := createHost(t, h, "host-to-clear", "GitHubEnterpriseServer", "https://ghe.example.com")
+				h.Reset()
+				rec := doJSON(t, h, "GetHost", map[string]any{"HostArn": hostArn})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "reset_clears_repository_links",
+			setup: func(t *testing.T, h *codeconnections.Handler) {
+				t.Helper()
+				connArn := createConn(t, h, "conn-reset", "GitHub")
+				linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+				h.Reset()
+				rec := doJSON(t, h, "GetRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "reset_clears_sync_configurations",
+			setup: func(t *testing.T, h *codeconnections.Handler) {
+				t.Helper()
+				connArn := createConn(t, h, "conn-sync-reset", "GitHub")
+				linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+				rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+					"Branch":           "main",
+					"ConfigFile":       "config.yaml",
+					"RepositoryLinkId": linkID,
+					"ResourceName":     "reset-stack",
+					"RoleArn":          "arn:aws:iam::123456789012:role/role",
+					"SyncType":         "CFN_STACK_SYNC",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				h.Reset()
+				rec = doJSON(t, h, "GetResourceSyncStatus", map[string]any{
+					"ResourceName": "reset-stack",
+					"SyncType":     "CFN_STACK_SYNC",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			tt.setup(t, h)
+		})
+	}
+}
+
+// TestRefinement1_ProviderInit_NilCtx verifies that Provider.Init handles a nil AppContext.
+func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "nil_ctx_succeeds"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := &codeconnections.Provider{}
+			reg, err := p.Init(nil)
+			require.NoError(t, err)
+			assert.NotNil(t, reg)
+		})
+	}
+}
+
+// TestRefinement1_ConnectionNameUniqueness verifies duplicate connection names are rejected.
+func TestRefinement1_ConnectionNameUniqueness(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		connName      string
+		wantStatus    int
+		wantDuplicate bool
+	}{
+		{
+			name:       "unique_name_succeeds",
+			connName:   "only-created-once",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:          "duplicate_name_rejected",
+			connName:      "duplicate-target",
+			wantDuplicate: true,
+			wantStatus:    http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			// Pre-seed the duplicate case.
+			if tt.wantDuplicate {
+				createConn(t, h, tt.connName, "GitHub")
+			}
+
+			rec := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": tt.connName,
+				"ProviderType":   "GitHub",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestRefinement1_ProviderTypeValidation verifies invalid provider types are rejected.
+func TestRefinement1_ProviderTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		providerType string
+		wantStatus   int
+	}{
+		{name: "valid_github", providerType: "GitHub", wantStatus: http.StatusOK},
+		{name: "valid_gitlab", providerType: "GitLab", wantStatus: http.StatusOK},
+		{name: "valid_bitbucket", providerType: "Bitbucket", wantStatus: http.StatusOK},
+		{name: "valid_ghe", providerType: "GitHubEnterpriseServer", wantStatus: http.StatusOK},
+		{name: "invalid_provider", providerType: "InvalidProvider", wantStatus: http.StatusBadRequest},
+		{name: "empty_provider_allowed", providerType: "", wantStatus: http.StatusOK},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			rec := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "conn-" + strconv.Itoa(i),
+				"ProviderType":   tt.providerType,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestRefinement1_SyncTypeValidation verifies invalid sync types are rejected.
+func TestRefinement1_SyncTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		syncType   string
+		name       string
+		wantStatus int
+	}{
+		{name: "valid_cfn_stack_sync", syncType: "CFN_STACK_SYNC", wantStatus: http.StatusOK},
+		{name: "invalid_sync_type", syncType: "INVALID_SYNC", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			connArn := createConn(t, h, "conn-synctype", "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "config.yaml",
+				"RepositoryLinkId": linkID,
+				"ResourceName":     "my-stack",
+				"RoleArn":          "arn:aws:iam::123456789012:role/role",
+				"SyncType":         tt.syncType,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestRefinement1_TagsOnHosts verifies that tags can be managed on hosts.
+func TestRefinement1_TagsOnHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "tag_untag_list_on_host"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			hostArn := createHost(t, h, "tagged-host", "GitLabSelfManaged", "https://gitlab.example.com")
+
+			tagRec := doJSON(t, h, "TagResource", map[string]any{
+				"ResourceArn": hostArn,
+				"Tags":        []map[string]string{{"Key": "Env", "Value": "prod"}, {"Key": "Team", "Value": "infra"}},
+			})
+			require.Equal(t, http.StatusOK, tagRec.Code)
+
+			listRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			resp := parseResp(t, listRec)
+			tagArr, ok := resp["Tags"].([]any)
+			require.True(t, ok)
+			assert.Len(t, tagArr, 2)
+
+			untagRec := doJSON(t, h, "UntagResource", map[string]any{
+				"ResourceArn": hostArn,
+				"TagKeys":     []string{"Env"},
+			})
+			require.Equal(t, http.StatusOK, untagRec.Code)
+
+			listRec2 := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
+			require.Equal(t, http.StatusOK, listRec2.Code)
+			resp2 := parseResp(t, listRec2)
+			tagArr2, ok := resp2["Tags"].([]any)
+			require.True(t, ok)
+			assert.Len(t, tagArr2, 1)
+		})
+	}
+}
+
+// TestRefinement1_SortedTagsOutput verifies that ListTagsForResource returns sorted tags.
+func TestRefinement1_SortedTagsOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		inputTags []map[string]string
+		wantKeys  []string
+	}{
+		{
+			name: "sorted_alpha",
+			inputTags: []map[string]string{
+				{"Key": "Zebra", "Value": "z"},
+				{"Key": "Apple", "Value": "a"},
+				{"Key": "Mango", "Value": "m"},
+			},
+			wantKeys: []string{"Apple", "Mango", "Zebra"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			connArn := createConn(t, h, "sorted-tag-conn", "GitHub")
+
+			rec := doJSON(t, h, "TagResource", map[string]any{
+				"ResourceArn": connArn,
+				"Tags":        tt.inputTags,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			listRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": connArn})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			resp := parseResp(t, listRec)
+			tags, ok := resp["Tags"].([]any)
+			require.True(t, ok)
+
+			gotKeys := make([]string, 0, len(tags))
+			for _, tagItem := range tags {
+				tmap, isMap := tagItem.(map[string]any)
+				require.True(t, isMap)
+				gotKeys = append(gotKeys, tmap["Key"].(string))
+			}
+
+			assert.Equal(t, tt.wantKeys, gotKeys)
+		})
+	}
+}
+
+// TestRefinement1_HostArnFilter verifies HostArnFilter in ListConnections.
+func TestRefinement1_HostArnFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		wantCount   int
+		applyFilter bool
+	}{
+		{name: "no_filter_returns_all", wantCount: 2, applyFilter: false},
+		{name: "host_arn_filter_returns_one", wantCount: 1, applyFilter: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
+
+			// Seed two connections: one with HostArn, one without.
+			conn1 := &codeconnections.Connection{
+				ConnectionName: "with-host",
+				ConnectionArn:  "arn:aws:codeconnections:us-east-1:123456789012:connection/aaa",
+				ProviderType:   "GitHubEnterpriseServer",
+				HostArn:        "arn:aws:codeconnections:us-east-1:123456789012:host/hst-1",
+				Status:         "AVAILABLE",
+				OwnerAccountID: "123456789012",
+				Tags:           map[string]string{},
+			}
+			conn2 := &codeconnections.Connection{
+				ConnectionName: "no-host",
+				ConnectionArn:  "arn:aws:codeconnections:us-east-1:123456789012:connection/bbb",
+				ProviderType:   "GitHub",
+				Status:         "AVAILABLE",
+				OwnerAccountID: "123456789012",
+				Tags:           map[string]string{},
+			}
+			b.AddConnectionInternal(conn1)
+			b.AddConnectionInternal(conn2)
+
+			filter := ""
+			if tt.applyFilter {
+				filter = "arn:aws:codeconnections:us-east-1:123456789012:host/hst-1"
+			}
+
+			conns := b.ListConnections("", filter)
+			assert.Len(t, conns, tt.wantCount)
+		})
+	}
+}
+
+// TestRefinement1_GetConnectionIncludesTags verifies Tags are included in GetConnection response.
+func TestRefinement1_GetConnectionIncludesTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantTags int
+	}{
+		{name: "tags_in_get_response", wantTags: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			rec := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "tagged-conn",
+				"ProviderType":   "GitHub",
+				"Tags": []map[string]string{
+					{"Key": "Env", "Value": "prod"},
+					{"Key": "Owner", "Value": "team"},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			connArn := parseResp(t, rec)["ConnectionArn"].(string)
+
+			getRec := doJSON(t, h, "GetConnection", map[string]any{"ConnectionArn": connArn})
+			require.Equal(t, http.StatusOK, getRec.Code)
+			resp := parseResp(t, getRec)
+			conn, ok := resp["Connection"].(map[string]any)
+			require.True(t, ok)
+			tags, ok := conn["Tags"].([]any)
+			require.True(t, ok)
+			assert.Len(t, tags, tt.wantTags)
+		})
+	}
+}
+
+// TestRefinement1_CreateHostWithTags verifies that tags can be passed when creating a host.
+func TestRefinement1_CreateHostWithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		tags     []map[string]string
+		wantTags int
+	}{
+		{
+			name:     "host_with_tags",
+			tags:     []map[string]string{{"Key": "Owner", "Value": "ops"}, {"Key": "Tier", "Value": "infra"}},
+			wantTags: 2,
+		},
+		{
+			name:     "host_without_tags",
+			tags:     nil,
+			wantTags: 0,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			body := map[string]any{
+				"Name":             "tagged-host-" + strconv.Itoa(i),
+				"ProviderType":     "GitHubEnterpriseServer",
+				"ProviderEndpoint": "https://ghe.example.com",
+			}
+			if tt.tags != nil {
+				body["Tags"] = tt.tags
+			}
+
+			rec := doJSON(t, h, "CreateHost", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+			hostArn := parseResp(t, rec)["HostArn"].(string)
+
+			getRec := doJSON(t, h, "GetHost", map[string]any{"HostArn": hostArn})
+			require.Equal(t, http.StatusOK, getRec.Code)
+			resp := parseResp(t, getRec)
+			tags, _ := resp["Tags"].([]any)
+			assert.Len(t, tags, tt.wantTags)
+		})
+	}
+}
+
+// TestRefinement1_ErrValidation verifies ErrValidation is a distinct wrapped error.
+func TestRefinement1_ErrValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "is_distinct_from_not_found"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.NotEqual(t, codeconnections.ErrNotFound, codeconnections.ErrValidation)
+			assert.Error(t, codeconnections.ErrValidation)
+		})
+	}
+}
+
+// TestRefinement1_SnapshotRestore verifies Snapshot/Restore round-trip preserves state.
+func TestRefinement1_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "snapshot_restore_round_trip"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			createConn(t, h, "conn-snap", "GitHub")
+			createHost(t, h, "host-snap", "GitHubEnterpriseServer", "https://ghe.example.com")
+			connArn := createConn(t, h, "conn-snap2", "GitLab")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+
+			snap := h.Backend.Snapshot()
+			require.NotNil(t, snap)
+
+			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, newBackend.Restore(snap))
+
+			conns := newBackend.ListConnections("", "")
+			assert.Len(t, conns, 2)
+
+			_, err := newBackend.GetRepositoryLink(linkID)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestRefinement1_ErrAlreadyExistsMapping verifies that ErrAlreadyExists maps to
+// an HTTP error response.
+func TestRefinement1_ErrAlreadyExistsMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{name: "duplicate_connection_is_400", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			rec1 := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "dup-conn",
+				"ProviderType":   "GitHub",
+			})
+			require.Equal(t, http.StatusOK, rec1.Code)
+
+			rec2 := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "dup-conn",
+				"ProviderType":   "GitHub",
+			})
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+			resp := parseResp(t, rec2)
+			assert.Equal(t, "ResourceAlreadyExistsException", resp["__type"])
+		})
+	}
+}
+
+// TestRefinement1_DeleteConnectionCleansIndex verifies the name index is cleared on delete.
+func TestRefinement1_DeleteConnectionCleansIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "can_recreate_after_delete"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			arn1 := createConn(t, h, "reuse-conn", "GitHub")
+
+			delRec := doJSON(t, h, "DeleteConnection", map[string]any{"ConnectionArn": arn1})
+			require.Equal(t, http.StatusOK, delRec.Code)
+
+			// After deletion, same name should be allowed.
+			rec := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "reuse-conn",
+				"ProviderType":   "GitLab",
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+// TestRefinement1_SeedHelpers verifies AddConnectionInternal and AddHostInternal.
+func TestRefinement1_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "add_connection_internal"},
+		{name: "add_host_internal"},
+		{name: "add_repository_link_internal"},
+	}
+
+	b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
+
+	conn := &codeconnections.Connection{
+		ConnectionName: "seeded-conn",
+		ConnectionArn:  "arn:aws:codeconnections:us-east-1:123456789012:connection/seed-1",
+		ProviderType:   "GitHub",
+		Status:         "AVAILABLE",
+		OwnerAccountID: "123456789012",
+		Tags:           map[string]string{"seeded": "true"},
+	}
+
+	host := &codeconnections.Host{
+		Name:             "seeded-host",
+		HostArn:          "arn:aws:codeconnections:us-east-1:123456789012:host/seed-h1",
+		ProviderType:     "GitHubEnterpriseServer",
+		ProviderEndpoint: "https://ghe.example.com",
+		Status:           "AVAILABLE",
+		Tags:             map[string]string{},
+	}
+
+	link := &codeconnections.RepositoryLink{
+		RepositoryLinkID:  "seed-link-1",
+		RepositoryLinkArn: "arn:aws:codeconnections:us-east-1:123456789012:repository-link/seed-link-1",
+		ConnectionArn:     conn.ConnectionArn,
+		OwnerID:           "my-org",
+		RepositoryName:    "my-repo",
+		ProviderType:      "GitHub",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			switch tt.name {
+			case "add_connection_internal":
+				b.AddConnectionInternal(conn)
+				got, err := b.GetConnection(conn.ConnectionArn)
+				require.NoError(t, err)
+				assert.Equal(t, "seeded-conn", got.ConnectionName)
+			case "add_host_internal":
+				b.AddHostInternal(host)
+				got, err := b.GetHost(host.HostArn)
+				require.NoError(t, err)
+				assert.Equal(t, "seeded-host", got.Name)
+			case "add_repository_link_internal":
+				b.AddRepositoryLinkInternal(link)
+				got, err := b.GetRepositoryLink(link.RepositoryLinkID)
+				require.NoError(t, err)
+				assert.Equal(t, "my-org", got.OwnerID)
+			}
+		})
+	}
 }

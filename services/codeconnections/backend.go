@@ -3,6 +3,7 @@ package codeconnections
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,24 +18,46 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+// validProviderTypes is the set of provider types accepted by AWS CodeConnections.
+func validProviderTypes() map[string]bool {
+	return map[string]bool{
+		"Bitbucket":              true,
+		"GitHub":                 true,
+		"GitHubEnterpriseServer": true,
+		"GitLab":                 true,
+		"GitLabSelfManaged":      true,
+	}
+}
+
+// validSyncTypes is the set of sync configuration types accepted by AWS CodeConnections.
+func validSyncTypes() map[string]bool {
+	return map[string]bool{
+		"CFN_STACK_SYNC": true,
+	}
+}
 
 // Connection represents an AWS CodeConnections connection.
 type Connection struct {
-	CreatedAt      time.Time
-	Tags           map[string]string
-	ConnectionName string
-	ConnectionArn  string
-	ProviderType   string
-	Status         string
-	OwnerAccountID string
+	Tags           map[string]string `json:"tags,omitempty"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	ConnectionName string            `json:"connectionName"`
+	ConnectionArn  string            `json:"connectionArn"`
+	HostArn        string            `json:"hostArn,omitempty"`
+	OwnerAccountID string            `json:"ownerAccountID"`
+	ProviderType   string            `json:"providerType"`
+	Status         string            `json:"status"`
 }
 
 // InMemoryBackend is the in-memory store for AWS CodeConnections resources.
 type InMemoryBackend struct {
 	connections        map[string]*Connection        // keyed by ARN
+	connectionsByName  map[string]string             // name → ARN
 	hosts              map[string]*Host              // keyed by ARN
-	repositoryLinks    map[string]*RepositoryLink    // keyed by RepositoryLinkId
+	repositoryLinks    map[string]*RepositoryLink    // keyed by RepositoryLinkID
 	syncConfigurations map[string]*SyncConfiguration // keyed by ResourceName+SyncType
 	mu                 *lockmetrics.RWMutex
 	accountID          string
@@ -45,6 +68,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		connections:        make(map[string]*Connection),
+		connectionsByName:  make(map[string]string),
 		hosts:              make(map[string]*Host),
 		repositoryLinks:    make(map[string]*RepositoryLink),
 		syncConfigurations: make(map[string]*SyncConfiguration),
@@ -54,13 +78,39 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all state in the backend.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.connections = make(map[string]*Connection)
+	b.connectionsByName = make(map[string]string)
+	b.hosts = make(map[string]*Host)
+	b.repositoryLinks = make(map[string]*RepositoryLink)
+	b.syncConfigurations = make(map[string]*SyncConfiguration)
+}
+
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreateConnection creates a new connection.
 func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[string]string) (*Connection, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	}
+
+	if providerType != "" {
+		if !validProviderTypes()[providerType] {
+			return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+		}
+	}
+
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
+
+	if _, exists := b.connectionsByName[name]; exists {
+		return nil, fmt.Errorf("%w: connection %q already exists", ErrAlreadyExists, name)
+	}
 
 	id := uuid.NewString()
 	connectionArn := arn.Build("codeconnections", b.region, b.accountID, fmt.Sprintf("connection/%s", id))
@@ -79,8 +129,11 @@ func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[s
 	}
 
 	b.connections[connectionArn] = conn
+	b.connectionsByName[name] = connectionArn
 
 	cp := *conn
+	cp.Tags = make(map[string]string, len(conn.Tags))
+	maps.Copy(cp.Tags, conn.Tags)
 
 	return &cp, nil
 }
@@ -102,20 +155,26 @@ func (b *InMemoryBackend) GetConnection(connectionArn string) (*Connection, erro
 	return &cp, nil
 }
 
-// ListConnections returns all connections, optionally filtered by provider type.
-func (b *InMemoryBackend) ListConnections(providerTypeFilter string) []*Connection {
+// ListConnections returns all connections, optionally filtered by provider type or host ARN.
+func (b *InMemoryBackend) ListConnections(providerTypeFilter, hostArnFilter string) []*Connection {
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
 	conns := make([]*Connection, 0, len(b.connections))
 
 	for _, conn := range b.connections {
-		if providerTypeFilter == "" || conn.ProviderType == providerTypeFilter {
-			cp := *conn
-			cp.Tags = make(map[string]string, len(conn.Tags))
-			maps.Copy(cp.Tags, conn.Tags)
-			conns = append(conns, &cp)
+		if providerTypeFilter != "" && conn.ProviderType != providerTypeFilter {
+			continue
 		}
+
+		if hostArnFilter != "" && conn.HostArn != hostArnFilter {
+			continue
+		}
+
+		cp := *conn
+		cp.Tags = make(map[string]string, len(conn.Tags))
+		maps.Copy(cp.Tags, conn.Tags)
+		conns = append(conns, &cp)
 	}
 
 	return conns
@@ -126,84 +185,127 @@ func (b *InMemoryBackend) DeleteConnection(connectionArn string) error {
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connections[connectionArn]; !ok {
+	conn, ok := b.connections[connectionArn]
+	if !ok {
 		return ErrNotFound
 	}
 
+	delete(b.connectionsByName, conn.ConnectionName)
 	delete(b.connections, connectionArn)
 
 	return nil
 }
 
-// TagResource adds or updates tags on a connection.
+// findResourceTagsLocked returns the tag map for a resource ARN.
+// Must be called with the appropriate lock held.
+func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) (map[string]string, bool) {
+	if conn, ok := b.connections[resourceArn]; ok {
+		return conn.Tags, true
+	}
+
+	if host, ok := b.hosts[resourceArn]; ok {
+		return host.Tags, true
+	}
+
+	return nil, false
+}
+
+// TagResource adds or updates tags on a connection or host.
 func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	conn, ok := b.connections[resourceArn]
+	existing, ok := b.findResourceTagsLocked(resourceArn)
 	if !ok {
 		return ErrNotFound
 	}
 
-	if conn.Tags == nil {
-		conn.Tags = make(map[string]string)
-	}
-
-	maps.Copy(conn.Tags, tags)
+	maps.Copy(existing, tags)
 
 	return nil
 }
 
-// UntagResource removes tags from a connection.
+// UntagResource removes tags from a connection or host.
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	conn, ok := b.connections[resourceArn]
+	existing, ok := b.findResourceTagsLocked(resourceArn)
 	if !ok {
 		return ErrNotFound
 	}
 
 	for _, k := range tagKeys {
-		delete(conn.Tags, k)
+		delete(existing, k)
 	}
 
 	return nil
 }
 
-// ListTagsForResource returns the tags for a connection.
+// ListTagsForResource returns the tags for a connection or host.
 func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	conn, ok := b.connections[resourceArn]
+	existing, ok := b.findResourceTagsLocked(resourceArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
 
-	result := make(map[string]string, len(conn.Tags))
-	maps.Copy(result, conn.Tags)
+	result := make(map[string]string, len(existing))
+	maps.Copy(result, existing)
 
 	return result, nil
 }
 
+// AddConnectionInternal seeds a connection directly for testing.
+func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
+	b.mu.Lock("AddConnectionInternal")
+	defer b.mu.Unlock()
+
+	b.connections[conn.ConnectionArn] = conn
+	b.connectionsByName[conn.ConnectionName] = conn.ConnectionArn
+}
+
 // Host represents an AWS CodeConnections host (infrastructure endpoint).
 type Host struct {
-	CreatedAt        time.Time
-	Name             string
-	HostArn          string
-	ProviderType     string
-	ProviderEndpoint string
-	Status           string
+	Tags             map[string]string `json:"tags,omitempty"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	Name             string            `json:"name"`
+	HostArn          string            `json:"hostArn"`
+	ProviderType     string            `json:"providerType"`
+	ProviderEndpoint string            `json:"providerEndpoint"`
+	Status           string            `json:"status"`
+	StatusMessage    string            `json:"statusMessage,omitempty"`
 }
 
 // CreateHost creates a new host.
-func (b *InMemoryBackend) CreateHost(name, providerType, providerEndpoint string) (*Host, error) {
+func (b *InMemoryBackend) CreateHost(
+	name, providerType, providerEndpoint string,
+	tags map[string]string,
+) (*Host, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if providerEndpoint == "" {
+		return nil, fmt.Errorf("%w: ProviderEndpoint is required", ErrValidation)
+	}
+
+	if providerType != "" {
+		if !validProviderTypes()[providerType] {
+			return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+		}
+	}
+
 	b.mu.Lock("CreateHost")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
 	hostArn := arn.Build("codeconnections", b.region, b.accountID, fmt.Sprintf("host/%s", id))
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
 
 	host := &Host{
 		Name:             name,
@@ -211,12 +313,15 @@ func (b *InMemoryBackend) CreateHost(name, providerType, providerEndpoint string
 		ProviderType:     providerType,
 		ProviderEndpoint: providerEndpoint,
 		Status:           "AVAILABLE",
+		Tags:             tagsCopy,
 		CreatedAt:        time.Now().UTC(),
 	}
 
 	b.hosts[hostArn] = host
 
 	cp := *host
+	cp.Tags = make(map[string]string, len(host.Tags))
+	maps.Copy(cp.Tags, host.Tags)
 
 	return &cp, nil
 }
@@ -232,6 +337,8 @@ func (b *InMemoryBackend) GetHost(hostArn string) (*Host, error) {
 	}
 
 	cp := *host
+	cp.Tags = make(map[string]string, len(host.Tags))
+	maps.Copy(cp.Tags, host.Tags)
 
 	return &cp, nil
 }
@@ -250,16 +357,24 @@ func (b *InMemoryBackend) DeleteHost(hostArn string) error {
 	return nil
 }
 
+// AddHostInternal seeds a host directly for testing.
+func (b *InMemoryBackend) AddHostInternal(host *Host) {
+	b.mu.Lock("AddHostInternal")
+	defer b.mu.Unlock()
+
+	b.hosts[host.HostArn] = host
+}
+
 // RepositoryLink represents an AWS CodeConnections repository link.
 type RepositoryLink struct {
-	CreatedAt         time.Time
-	ConnectionArn     string
-	OwnerID           string
-	RepositoryName    string
-	RepositoryLinkID  string
-	RepositoryLinkArn string
-	ProviderType      string
-	EncryptionKeyArn  string
+	CreatedAt         time.Time `json:"createdAt"`
+	ConnectionArn     string    `json:"connectionArn"`
+	OwnerID           string    `json:"ownerID"`
+	RepositoryName    string    `json:"repositoryName"`
+	RepositoryLinkID  string    `json:"repositoryLinkID"`
+	RepositoryLinkArn string    `json:"repositoryLinkArn"`
+	ProviderType      string    `json:"providerType"`
+	EncryptionKeyArn  string    `json:"encryptionKeyArn,omitempty"`
 }
 
 // CreateRepositoryLink creates a new repository link.
@@ -325,18 +440,26 @@ func (b *InMemoryBackend) DeleteRepositoryLink(repositoryLinkID string) error {
 	return nil
 }
 
+// AddRepositoryLinkInternal seeds a repository link directly for testing.
+func (b *InMemoryBackend) AddRepositoryLinkInternal(link *RepositoryLink) {
+	b.mu.Lock("AddRepositoryLinkInternal")
+	defer b.mu.Unlock()
+
+	b.repositoryLinks[link.RepositoryLinkID] = link
+}
+
 // SyncConfiguration represents an AWS CodeConnections sync configuration.
 type SyncConfiguration struct {
-	CreatedAt        time.Time
-	Branch           string
-	ConfigFile       string
-	RepositoryLinkID string
-	ResourceName     string
-	RoleArn          string
-	SyncType         string
-	OwnerID          string
-	ProviderType     string
-	RepositoryName   string
+	CreatedAt        time.Time `json:"createdAt"`
+	Branch           string    `json:"branch"`
+	ConfigFile       string    `json:"configFile"`
+	RepositoryLinkID string    `json:"repositoryLinkID"`
+	ResourceName     string    `json:"resourceName"`
+	RoleArn          string    `json:"roleArn"`
+	SyncType         string    `json:"syncType"`
+	OwnerID          string    `json:"ownerID"`
+	ProviderType     string    `json:"providerType"`
+	RepositoryName   string    `json:"repositoryName"`
 }
 
 // syncConfigKey returns the composite map key for a sync configuration.
@@ -348,6 +471,10 @@ func syncConfigKey(resourceName, syncType string) string {
 func (b *InMemoryBackend) CreateSyncConfiguration(
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
 ) (*SyncConfiguration, error) {
+	if !validSyncTypes()[syncType] {
+		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
 	b.mu.Lock("CreateSyncConfiguration")
 	defer b.mu.Unlock()
 
@@ -384,6 +511,10 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 
 // DeleteSyncConfiguration removes a sync configuration.
 func (b *InMemoryBackend) DeleteSyncConfiguration(resourceName, syncType string) error {
+	if syncType != "" && !validSyncTypes()[syncType] {
+		return fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
 	b.mu.Lock("DeleteSyncConfiguration")
 	defer b.mu.Unlock()
 
@@ -452,4 +583,17 @@ func (b *InMemoryBackend) GetResourceSyncStatus(resourceName, syncType string) (
 		Status:    "SUCCEEDED",
 		Events:    []SyncEvent{},
 	}, nil
+}
+
+// sortedTags returns the tags map as a sorted slice of key=value pairs.
+// This is used internally; callers that need tag arrays should use tagsToSortedArray.
+func sortedTagKeys(tags map[string]string) []string {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
