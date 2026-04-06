@@ -244,4 +244,39 @@ type Backend interface {
 
 	// DescribeTags returns tag entries, optionally filtered by resource IDs.
 	DescribeTags(resourceIDs []string) []TagEntry
+
+	// ---- accept / advertise / allocate operations ----
+
+	// AcceptAddressTransfer accepts a pending Elastic IP address transfer.
+	AcceptAddressTransfer(address string) (*AddressTransfer, error)
+
+	// AcceptCapacityReservationBillingOwnership accepts billing ownership of a capacity reservation.
+	AcceptCapacityReservationBillingOwnership(capacityReservationID string) (*CapacityReservation, error)
+
+	// AcceptReservedInstancesExchangeQuote accepts a reserved instances exchange quote.
+	AcceptReservedInstancesExchangeQuote(reservedInstanceIDs []string) (*ReservedInstancesExchange, error)
+
+	// AcceptTransitGatewayMulticastDomainAssociations accepts multicast domain subnet associations.
+	AcceptTransitGatewayMulticastDomainAssociations(
+		transitGatewayMulticastDomainID, transitGatewayAttachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// AcceptTransitGatewayPeeringAttachment accepts a transit gateway peering attachment.
+	AcceptTransitGatewayPeeringAttachment(transitGatewayAttachmentID string) (*TransitGatewayPeeringAttachment, error)
+
+	// AcceptTransitGatewayVpcAttachment accepts a transit gateway VPC attachment.
+	AcceptTransitGatewayVpcAttachment(transitGatewayAttachmentID string) (*TransitGatewayVpcAttachment, error)
+
+	// AcceptVpcEndpointConnections accepts VPC endpoint connections to a service.
+	AcceptVpcEndpointConnections(serviceID string, vpcEndpointIDs []string) ([]*VpcEndpointConnection, error)
+
+	// AcceptVpcPeeringConnection accepts a VPC peering connection.
+	AcceptVpcPeeringConnection(vpcPeeringConnectionID string) (*VpcPeeringConnection, error)
+
+	// AdvertiseByoipCidr marks a BYOIP CIDR range as advertised.
+	AdvertiseByoipCidr(cidr string) (*ByoipCidr, error)
+
+	// AllocateHosts allocates one or more Dedicated Hosts.
+	AllocateHosts(availabilityZone, instanceType string, hostCount int) ([]*Host, error)
 }
