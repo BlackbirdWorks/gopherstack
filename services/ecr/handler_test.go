@@ -766,6 +766,7 @@ func TestECR_BatchDeleteImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup          func(*ecr.InMemoryBackend)
 		name           string
 		repositoryName string
 		imageIDs       []map[string]any
@@ -789,13 +790,50 @@ func TestECR_BatchDeleteImage(t *testing.T) {
 			wantDeleted:    0,
 			wantFailures:   0,
 		},
+		{
+			name: "delete by digest succeeds",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.AddImageInternal("my-repo", ecr.Image{
+					ImageDigest:    "sha256:abc111",
+					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:abc111"},
+					RepositoryName: "my-repo",
+					RegistryID:     testAccountID,
+				})
+			},
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{{"imageDigest": "sha256:abc111"}},
+			wantStatus:     http.StatusOK,
+			wantDeleted:    1,
+			wantFailures:   0,
+		},
+		{
+			name: "delete by tag succeeds",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.AddImageInternal("my-repo", ecr.Image{
+					ImageDigest:    "sha256:tag111",
+					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:tag111", ImageTag: "latest"},
+					RepositoryName: "my-repo",
+					RegistryID:     testAccountID,
+				})
+			},
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{{"imageTag": "latest"}},
+			wantStatus:     http.StatusOK,
+			wantDeleted:    1,
+			wantFailures:   0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+			if tt.setup != nil {
+				tt.setup(backend)
+			}
+
+			h := ecr.NewHandler(backend, nil)
 
 			rec := doECRRequest(t, h, "BatchDeleteImage", map[string]any{
 				"repositoryName": tt.repositoryName,
@@ -815,6 +853,7 @@ func TestECR_BatchGetImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup          func(*ecr.InMemoryBackend)
 		name           string
 		repositoryName string
 		imageIDs       []map[string]any
@@ -838,13 +877,52 @@ func TestECR_BatchGetImage(t *testing.T) {
 			wantImages:     0,
 			wantFailures:   0,
 		},
+		{
+			name: "get image by digest succeeds",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.AddImageInternal("my-repo", ecr.Image{
+					ImageDigest:    "sha256:getdig",
+					ImageManifest:  `{"schemaVersion":2}`,
+					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:getdig"},
+					RepositoryName: "my-repo",
+					RegistryID:     testAccountID,
+				})
+			},
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{{"imageDigest": "sha256:getdig"}},
+			wantStatus:     http.StatusOK,
+			wantImages:     1,
+			wantFailures:   0,
+		},
+		{
+			name: "get image by tag succeeds",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.AddImageInternal("my-repo", ecr.Image{
+					ImageDigest:    "sha256:gettag",
+					ImageManifest:  `{"schemaVersion":2}`,
+					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:gettag", ImageTag: "stable"},
+					RepositoryName: "my-repo",
+					RegistryID:     testAccountID,
+				})
+			},
+			repositoryName: "my-repo",
+			imageIDs:       []map[string]any{{"imageTag": "stable"}},
+			wantStatus:     http.StatusOK,
+			wantImages:     1,
+			wantFailures:   0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+			if tt.setup != nil {
+				tt.setup(backend)
+			}
+
+			h := ecr.NewHandler(backend, nil)
 
 			rec := doECRRequest(t, h, "BatchGetImage", map[string]any{
 				"repositoryName": tt.repositoryName,
@@ -1184,6 +1262,7 @@ func TestECR_DeleteRegistryPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*ecr.InMemoryBackend)
 		name       string
 		wantStatus int
 	}{
@@ -1191,16 +1270,124 @@ func TestECR_DeleteRegistryPolicy(t *testing.T) {
 			name:       "no registry policy returns not found",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name: "deletes existing registry policy",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.SetRegistryPolicyInternal(`{"Version":"2012-10-17","Statement":[]}`)
+			},
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+			if tt.setup != nil {
+				tt.setup(backend)
+			}
+
+			h := ecr.NewHandler(backend, nil)
 
 			rec := doECRRequest(t, h, "DeleteRegistryPolicy", map[string]any{})
 			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.NotEmpty(t, out["policyText"])
+				assert.Equal(t, testAccountID, out["registryId"])
+			}
 		})
 	}
+}
+
+func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	h := ecr.NewHandler(backend, nil)
+
+	// Create a repo
+	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "persist-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Complete a layer upload
+	rec = doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
+		"repositoryName": "persist-repo",
+		"uploadId":       "upload-xyz",
+		"layerDigests":   []string{"sha256:persist123"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Create pull-through cache rule
+	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+		"ecrRepositoryPrefix": "test-prefix",
+		"upstreamRegistryUrl": "registry.example.com",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Create repository creation template
+	rec = doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
+		"prefix": "my-org",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Seed a registry policy
+	backend.SetRegistryPolicyInternal(`{"Version":"2012-10-17"}`)
+
+	// Snapshot and restore
+	snapshot := h.Snapshot()
+	require.NotEmpty(t, snapshot)
+
+	backend2 := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	h2 := ecr.NewHandler(backend2, nil)
+	require.NoError(t, h2.Restore(snapshot))
+
+	// Verify layer availability is restored
+	rec = doECRRequest(t, h2, "BatchCheckLayerAvailability", map[string]any{
+		"repositoryName": "persist-repo",
+		"layerDigests":   []string{"sha256:persist123"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Len(t, out["layers"], 1)
+
+	// Verify cache rule is restored by deleting it
+	rec = doECRRequest(t, h2, "DeletePullThroughCacheRule", map[string]any{
+		"ecrRepositoryPrefix": "test-prefix",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify registry policy is restored by deleting it
+	rec = doECRRequest(t, h2, "DeleteRegistryPolicy", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestECR_ExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+
+	assert.Equal(t, 0, backend.ImageCount())
+	assert.Equal(t, 0, backend.PullThroughCacheRuleCount())
+	assert.Equal(t, 0, backend.RepositoryCreationTemplateCount())
+	assert.Equal(t, 0, backend.LifecyclePolicyCount())
+
+	backend.AddImageInternal("repo1", ecr.Image{
+		ImageDigest:    "sha256:count1",
+		ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:count1"},
+		RepositoryName: "repo1",
+	})
+	assert.Equal(t, 1, backend.ImageCount())
+
+	backend.AddImageInternal("repo1", ecr.Image{
+		ImageDigest:    "sha256:count2",
+		ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:count2"},
+		RepositoryName: "repo1",
+	})
+	assert.Equal(t, 2, backend.ImageCount())
 }

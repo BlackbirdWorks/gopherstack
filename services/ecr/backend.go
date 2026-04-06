@@ -547,6 +547,28 @@ func (b *InMemoryBackend) DeletePullThroughCacheRule(prefix string) (*PullThroug
 	return &cp, nil
 }
 
+// AddImageInternal seeds an image directly into the backend for testing.
+// repositoryName is the repository to add the image to; img is the image to add.
+func (b *InMemoryBackend) AddImageInternal(repositoryName string, img Image) {
+	b.mu.Lock("AddImageInternal")
+	defer b.mu.Unlock()
+
+	if b.images[repositoryName] == nil {
+		b.images[repositoryName] = make(map[string]*Image)
+	}
+
+	cp := img
+	b.images[repositoryName][img.ImageDigest] = &cp
+}
+
+// SetRegistryPolicyInternal sets the registry policy directly for testing.
+func (b *InMemoryBackend) SetRegistryPolicyInternal(policy string) {
+	b.mu.Lock("SetRegistryPolicyInternal")
+	defer b.mu.Unlock()
+
+	b.registryPolicy = policy
+}
+
 // DeleteRegistryPolicy deletes the registry-level IAM policy.
 func (b *InMemoryBackend) DeleteRegistryPolicy() (*RegistryPolicyResult, error) {
 	b.mu.Lock("DeleteRegistryPolicy")
