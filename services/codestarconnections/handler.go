@@ -953,15 +953,15 @@ func (h *Handler) handleGetSyncBlockerSummary(
 }
 
 func buildSyncEventItems(evts []SyncEvent) []syncEventItem {
-	out := make([]syncEventItem, 0, len(evts))
+	out := make([]syncEventItem, len(evts))
 
-	for _, e := range evts {
-		out = append(out, syncEventItem{
+	for i, e := range evts {
+		out[i] = syncEventItem{
 			Event:      e.Event,
 			Time:       e.Time.Format(time.RFC3339),
 			Type:       e.Type,
 			ExternalID: e.ExternalID,
-		})
+		}
 	}
 
 	return out

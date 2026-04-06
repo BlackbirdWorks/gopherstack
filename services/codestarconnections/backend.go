@@ -510,7 +510,7 @@ func (b *InMemoryBackend) GetSyncConfiguration(resourceName, syncType string) (*
 
 // DeleteSyncConfiguration removes a sync configuration.
 func (b *InMemoryBackend) DeleteSyncConfiguration(resourceName, syncType string) error {
-	if syncType != "" && !validSyncTypes()[syncType] {
+	if !validSyncTypes()[syncType] {
 		return fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
 	}
 
