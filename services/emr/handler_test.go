@@ -449,7 +449,7 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 
 	tests := []struct {
 		setup     func(*emr.Handler) string
-		checkTags func(*testing.T, map[string]string)
+		checkTags func(*testing.T, []emr.Tag)
 		name      string
 		wantCode  int
 	}{
@@ -470,9 +470,11 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 				return createOut.JobFlowID
 			},
 			wantCode: http.StatusOK,
-			checkTags: func(t *testing.T, tags map[string]string) {
+			checkTags: func(t *testing.T, tags []emr.Tag) {
 				t.Helper()
-				assert.Equal(t, "prod", tags["env"])
+				require.Len(t, tags, 1)
+				assert.Equal(t, "env", tags[0].Key)
+				assert.Equal(t, "prod", tags[0].Value)
 			},
 		},
 		{
@@ -489,7 +491,7 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 				return createOut.JobFlowID
 			},
 			wantCode: http.StatusOK,
-			checkTags: func(t *testing.T, tags map[string]string) {
+			checkTags: func(t *testing.T, tags []emr.Tag) {
 				t.Helper()
 				assert.Empty(t, tags)
 			},
@@ -517,7 +519,7 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 
 			if tt.checkTags != nil {
 				var tagOut struct {
-					Tags map[string]string `json:"Tags"`
+					Tags []emr.Tag `json:"Tags"`
 				}
 				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagOut))
 				tt.checkTags(t, tagOut.Tags)
@@ -637,7 +639,7 @@ func TestEMR_ListInstanceFleets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		InstanceFleets []any `json:"InstanceFleets"`
+		InstanceFleets []emr.InstanceFleet `json:"InstanceFleets"`
 	}
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -787,16 +789,16 @@ func TestEMR_Backend_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantTags   map[string]string
 		name       string
 		resourceID string
+		wantTags   []emr.Tag
 		wantErr    bool
 	}{
 		{
 			name:       "existing cluster by ID",
 			resourceID: "",
 			wantErr:    false,
-			wantTags:   map[string]string{"env": "test"},
+			wantTags:   []emr.Tag{{Key: "env", Value: "test"}},
 		},
 		{
 			name:       "not found",
@@ -840,7 +842,9 @@ func TestEMR_Backend_ListTagsForResourceByARN(t *testing.T) {
 
 	tags, err := b.ListTagsForResource(cluster.ARN)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"key": "val"}, tags)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "key", tags[0].Key)
+	assert.Equal(t, "val", tags[0].Value)
 }
 
 func TestEMR_TerminateJobFlows_Idempotent(t *testing.T) {

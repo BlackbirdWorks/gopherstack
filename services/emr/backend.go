@@ -3,6 +3,7 @@ package emr
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -138,11 +139,12 @@ type Studio struct {
 
 // StudioSessionMapping maps a user or group to an EMR Studio.
 type StudioSessionMapping struct {
-	StudioID         string `json:"StudioId"`
-	IdentityType     string `json:"IdentityType"`
-	IdentityID       string `json:"IdentityId,omitempty"`
-	IdentityName     string `json:"IdentityName,omitempty"`
-	SessionPolicyArn string `json:"SessionPolicyArn"`
+	CreationTime     time.Time `json:"CreationTime,omitzero"`
+	StudioID         string    `json:"StudioId"`
+	IdentityType     string    `json:"IdentityType"`
+	IdentityID       string    `json:"IdentityId,omitempty"`
+	IdentityName     string    `json:"IdentityName,omitempty"`
+	SessionPolicyArn string    `json:"SessionPolicyArn"`
 }
 
 // PersistentAppUI represents an EMR persistent application user interface.
@@ -218,7 +220,6 @@ func (b *InMemoryBackend) RunJobFlow(
 	defer b.mu.Unlock()
 
 	id := b.nextID()
-	clusterNum := b.counter.Load()
 	clusterARN := arn.Build("elasticmapreduce", b.region, b.accountID, "cluster/"+id)
 
 	tagsCopy := make([]Tag, len(tags))
@@ -232,7 +233,7 @@ func (b *InMemoryBackend) RunJobFlow(
 		}
 
 		groups = append(groups, InstanceGroup{
-			ID:                     fmt.Sprintf("ig-%013d%d", clusterNum, i),
+			ID:                     fmt.Sprintf("ig-%013d-%d", b.counter.Load(), i),
 			Name:                   spec.Name,
 			Market:                 market,
 			InstanceGroupType:      spec.InstanceRole,
@@ -252,7 +253,7 @@ func (b *InMemoryBackend) RunJobFlow(
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
-			Timeline:          map[string]any{timelineKeyCreation: 0},
+			Timeline:          map[string]any{timelineKeyCreation: time.Now().UnixMilli()},
 		},
 		Tags:           tagsCopy,
 		instanceGroups: groups,
@@ -304,7 +305,7 @@ func (c Cluster) clone() Cluster {
 	return cp
 }
 
-// ListClusters returns all active (non-terminated) clusters as summaries.
+// ListClusters returns all active (non-terminated) clusters as summaries, sorted by ID.
 func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
@@ -324,6 +325,10 @@ func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 			ReleaseLabel: c.ReleaseLabel,
 		})
 	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ID < list[j].ID
+	})
 
 	return list
 }
@@ -347,6 +352,10 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 
 		now := time.Now()
 		cluster.Status.State = StateTerminated
+		cluster.Status.StateChangeReason = map[string]any{
+			"Code":    "USER_REQUEST",
+			"Message": "Terminated by user request",
+		}
 		cluster.Status.Timeline[timelineKeyEnd] = now.UnixMilli()
 		cluster.TerminatedAt = now
 	}
@@ -410,8 +419,8 @@ func (b *InMemoryBackend) RemoveTags(resourceID string, tagKeys []string) error 
 	return nil
 }
 
-// ListTagsForResource returns tags for a cluster identified by ARN or ID.
-func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]string, error) {
+// ListTagsForResource returns tags for a cluster identified by ARN or ID, sorted by key.
+func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
@@ -420,11 +429,14 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]str
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 	}
 
-	out := tagsToMap(cluster.Tags)
-	result := make(map[string]string, len(out))
-	maps.Copy(result, out)
+	tags := make([]Tag, len(cluster.Tags))
+	copy(tags, cluster.Tags)
 
-	return result, nil
+	sort.Slice(tags, func(i, j int) bool {
+		return tags[i].Key < tags[j].Key
+	})
+
+	return tags, nil
 }
 
 // findClusterByIDOrARN looks up a cluster by either its ID or ARN.
@@ -451,12 +463,26 @@ func tagsToMap(tags []Tag) map[string]string {
 }
 
 func mapToTags(m map[string]string) []Tag {
-	tags := make([]Tag, 0, len(m))
-	for k, v := range m {
-		tags = append(tags, Tag{Key: k, Value: v})
+	keys := sortedTagKeys(m)
+	tags := make([]Tag, 0, len(keys))
+
+	for _, k := range keys {
+		tags = append(tags, Tag{Key: k, Value: m[k]})
 	}
 
 	return tags
+}
+
+// sortedTagKeys returns the keys of m in sorted order.
+func sortedTagKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
@@ -506,16 +532,15 @@ func (b *InMemoryBackend) AddInstanceGroups(clusterID string, specs []InstanceGr
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	clusterNum := b.counter.Load()
 	groupIDs := make([]string, 0, len(specs))
 
-	for i, spec := range specs {
+	for _, spec := range specs {
 		market := spec.Market
 		if market == "" {
 			market = "ON_DEMAND"
 		}
 
-		grpID := fmt.Sprintf("ig-%013d%d", clusterNum, len(cluster.instanceGroups)+i)
+		grpID := fmt.Sprintf("ig-%013d", b.counter.Add(1))
 		group := InstanceGroup{
 			ID:                     grpID,
 			Name:                   spec.Name,
@@ -563,8 +588,9 @@ func (b *InMemoryBackend) CreatePersistentAppUI(targetResourceArn string) (*Pers
 	}
 
 	b.persistentAppUIs[id] = ui
+	cp := *ui
 
-	return ui, nil
+	return &cp, nil
 }
 
 // CreateSecurityConfiguration creates a new security configuration.
@@ -617,6 +643,13 @@ func (b *InMemoryBackend) CreateStudio(
 
 	b.mu.Lock("CreateStudio")
 	defer b.mu.Unlock()
+
+	// Enforce name uniqueness.
+	for _, s := range b.studios {
+		if s.Name == name {
+			return nil, fmt.Errorf("%w: studio with name %s already exists", ErrAlreadyExists, name)
+		}
+	}
 
 	id := b.nextStudioID()
 	studioARN := arn.Build("elasticmapreduce", b.region, b.accountID, "studio/"+id)
@@ -693,6 +726,7 @@ func (b *InMemoryBackend) CreateStudioSessionMapping(
 		IdentityID:       identityID,
 		IdentityName:     identityName,
 		SessionPolicyArn: sessionPolicyArn,
+		CreationTime:     time.Now(),
 	}
 
 	return nil
@@ -729,4 +763,56 @@ func (b *InMemoryBackend) ListInstanceFleets(clusterID string) ([]InstanceFleet,
 	copy(fleets, cluster.instanceFleets)
 
 	return fleets, nil
+}
+
+// DescribeSecurityConfiguration returns the details of a security configuration.
+func (b *InMemoryBackend) DescribeSecurityConfiguration(name string) (*SecurityConfiguration, error) {
+	b.mu.RLock("DescribeSecurityConfiguration")
+	defer b.mu.RUnlock()
+
+	sc, ok := b.securityConfigs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: security configuration %s not found", ErrNotFound, name)
+	}
+
+	cp := *sc
+
+	return &cp, nil
+}
+
+// AddClusterInternal seeds a cluster directly into the backend for testing.
+func (b *InMemoryBackend) AddClusterInternal(cluster *Cluster) {
+	b.mu.Lock("AddClusterInternal")
+	defer b.mu.Unlock()
+
+	cp := cluster.clone()
+	b.clusters[cluster.ID] = &cp
+	b.arnIndex[cluster.ARN] = cluster.ID
+}
+
+// AddSecurityConfigInternal seeds a security configuration directly into the backend for testing.
+func (b *InMemoryBackend) AddSecurityConfigInternal(sc SecurityConfiguration) {
+	b.mu.Lock("AddSecurityConfigInternal")
+	defer b.mu.Unlock()
+
+	cp := sc
+	b.securityConfigs[sc.Name] = &cp
+}
+
+// AddStudioInternal seeds a studio directly into the backend for testing.
+func (b *InMemoryBackend) AddStudioInternal(studio Studio) {
+	b.mu.Lock("AddStudioInternal")
+	defer b.mu.Unlock()
+
+	cp := studio
+	b.studios[studio.StudioID] = &cp
+}
+
+// AddPersistentAppUIInternal seeds a persistent app UI directly into the backend for testing.
+func (b *InMemoryBackend) AddPersistentAppUIInternal(ui PersistentAppUI) {
+	b.mu.Lock("AddPersistentAppUIInternal")
+	defer b.mu.Unlock()
+
+	cp := ui
+	b.persistentAppUIs[ui.ID] = &cp
 }

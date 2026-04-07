@@ -25,3 +25,48 @@ func (h *Handler) GetJanitorInterval() time.Duration {
 func (h *Handler) GetJanitorTerminatedTTL() time.Duration {
 	return h.janitor.TerminatedTTL
 }
+
+// ClusterCount returns the number of clusters in the backend. Used only in tests.
+func (b *InMemoryBackend) ClusterCount() int {
+	b.mu.RLock("ClusterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.clusters)
+}
+
+// SecurityConfigCount returns the number of security configurations in the backend. Used only in tests.
+func (b *InMemoryBackend) SecurityConfigCount() int {
+	b.mu.RLock("SecurityConfigCount")
+	defer b.mu.RUnlock()
+
+	return len(b.securityConfigs)
+}
+
+// StudioCount returns the number of studios in the backend. Used only in tests.
+func (b *InMemoryBackend) StudioCount() int {
+	b.mu.RLock("StudioCount")
+	defer b.mu.RUnlock()
+
+	return len(b.studios)
+}
+
+// PersistentAppUICount returns the number of persistent app UIs in the backend. Used only in tests.
+func (b *InMemoryBackend) PersistentAppUICount() int {
+	b.mu.RLock("PersistentAppUICount")
+	defer b.mu.RUnlock()
+
+	return len(b.persistentAppUIs)
+}
+
+// StudioSessionMappingCount returns the number of studio session mappings in the backend. Used only in tests.
+func (b *InMemoryBackend) StudioSessionMappingCount() int {
+	b.mu.RLock("StudioSessionMappingCount")
+	defer b.mu.RUnlock()
+
+	return len(b.studioSessionMappings)
+}
+
+// HandlerOpsLen returns the number of operations in the cached dispatch table. Used only in tests.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.ops)
+}

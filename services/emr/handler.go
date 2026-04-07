@@ -27,12 +27,16 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for AWS EMR operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
 	janitor *Janitor
 }
 
 // NewHandler creates a new EMR handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -94,6 +98,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteSecurityConfiguration",
 		"DeleteStudio",
 		"DeleteStudioSessionMapping",
+		"DescribeSecurityConfiguration",
 	}
 }
 
@@ -176,37 +181,38 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RunJobFlow":                  service.WrapOp(h.handleRunJobFlow),
-		"DescribeCluster":             service.WrapOp(h.handleDescribeCluster),
-		"ListClusters":                service.WrapOp(h.handleListClusters),
-		"TerminateJobFlows":           service.WrapOp(h.handleTerminateJobFlows),
-		"AddTags":                     service.WrapOp(h.handleAddTags),
-		"RemoveTags":                  service.WrapOp(h.handleRemoveTags),
-		"ListTagsForResource":         service.WrapOp(h.handleListTagsForResource),
-		"ListSteps":                   service.WrapOp(h.handleListSteps),
-		"AddJobFlowSteps":             service.WrapOp(h.handleAddJobFlowSteps),
-		"ListInstanceGroups":          service.WrapOp(h.handleListInstanceGroups),
-		"ListInstanceFleets":          service.WrapOp(h.handleListInstanceFleets),
-		"ListBootstrapActions":        service.WrapOp(h.handleListBootstrapActions),
-		"GetAutoTerminationPolicy":    service.WrapOp(h.handleGetAutoTerminationPolicy),
-		"GetManagedScalingPolicy":     service.WrapOp(h.handleGetManagedScalingPolicy),
-		"AddInstanceFleet":            service.WrapOp(h.handleAddInstanceFleet),
-		"AddInstanceGroups":           service.WrapOp(h.handleAddInstanceGroups),
-		"CancelSteps":                 service.WrapOp(h.handleCancelSteps),
-		"CreatePersistentAppUI":       service.WrapOp(h.handleCreatePersistentAppUI),
-		"CreateSecurityConfiguration": service.WrapOp(h.handleCreateSecurityConfiguration),
-		"CreateStudio":                service.WrapOp(h.handleCreateStudio),
-		"CreateStudioSessionMapping":  service.WrapOp(h.handleCreateStudioSessionMapping),
-		"DeleteSecurityConfiguration": service.WrapOp(h.handleDeleteSecurityConfiguration),
-		"DeleteStudio":                service.WrapOp(h.handleDeleteStudio),
-		"DeleteStudioSessionMapping":  service.WrapOp(h.handleDeleteStudioSessionMapping),
+		"RunJobFlow":                    service.WrapOp(h.handleRunJobFlow),
+		"DescribeCluster":               service.WrapOp(h.handleDescribeCluster),
+		"ListClusters":                  service.WrapOp(h.handleListClusters),
+		"TerminateJobFlows":             service.WrapOp(h.handleTerminateJobFlows),
+		"AddTags":                       service.WrapOp(h.handleAddTags),
+		"RemoveTags":                    service.WrapOp(h.handleRemoveTags),
+		"ListTagsForResource":           service.WrapOp(h.handleListTagsForResource),
+		"ListSteps":                     service.WrapOp(h.handleListSteps),
+		"AddJobFlowSteps":               service.WrapOp(h.handleAddJobFlowSteps),
+		"ListInstanceGroups":            service.WrapOp(h.handleListInstanceGroups),
+		"ListInstanceFleets":            service.WrapOp(h.handleListInstanceFleets),
+		"ListBootstrapActions":          service.WrapOp(h.handleListBootstrapActions),
+		"GetAutoTerminationPolicy":      service.WrapOp(h.handleGetAutoTerminationPolicy),
+		"GetManagedScalingPolicy":       service.WrapOp(h.handleGetManagedScalingPolicy),
+		"AddInstanceFleet":              service.WrapOp(h.handleAddInstanceFleet),
+		"AddInstanceGroups":             service.WrapOp(h.handleAddInstanceGroups),
+		"CancelSteps":                   service.WrapOp(h.handleCancelSteps),
+		"CreatePersistentAppUI":         service.WrapOp(h.handleCreatePersistentAppUI),
+		"CreateSecurityConfiguration":   service.WrapOp(h.handleCreateSecurityConfiguration),
+		"CreateStudio":                  service.WrapOp(h.handleCreateStudio),
+		"CreateStudioSessionMapping":    service.WrapOp(h.handleCreateStudioSessionMapping),
+		"DeleteSecurityConfiguration":   service.WrapOp(h.handleDeleteSecurityConfiguration),
+		"DeleteStudio":                  service.WrapOp(h.handleDeleteStudio),
+		"DeleteStudioSessionMapping":    service.WrapOp(h.handleDeleteStudioSessionMapping),
+		"DescribeSecurityConfiguration": service.WrapOp(h.handleDescribeSecurityConfiguration),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -349,7 +355,7 @@ type listTagsForResourceInput struct {
 }
 
 type listTagsForResourceOutput struct {
-	Tags map[string]string `json:"Tags"`
+	Tags []Tag `json:"Tags"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -417,7 +423,7 @@ type listInstanceFleetsInput struct {
 }
 
 type listInstanceFleetsOutput struct {
-	InstanceFleets []any `json:"InstanceFleets"`
+	InstanceFleets []InstanceFleet `json:"InstanceFleets"`
 }
 
 func (h *Handler) handleListInstanceFleets(
@@ -429,12 +435,7 @@ func (h *Handler) handleListInstanceFleets(
 		return nil, err
 	}
 
-	out := make([]any, 0, len(fleets))
-	for _, f := range fleets {
-		out = append(out, f)
-	}
-
-	return &listInstanceFleetsOutput{InstanceFleets: out}, nil
+	return &listInstanceFleetsOutput{InstanceFleets: fleets}, nil
 }
 
 type listBootstrapActionsInput struct {
@@ -746,4 +747,32 @@ func (h *Handler) handleDeleteStudioSessionMapping(
 	}
 
 	return &emptyOutput{}, nil
+}
+
+// --- DescribeSecurityConfiguration ---
+
+type describeSecurityConfigurationInput struct {
+	Name string `json:"Name"`
+}
+
+type describeSecurityConfigurationOutput struct {
+	CreationDateTime      string `json:"CreationDateTime"`
+	Name                  string `json:"Name"`
+	SecurityConfiguration string `json:"SecurityConfiguration"`
+}
+
+func (h *Handler) handleDescribeSecurityConfiguration(
+	_ context.Context,
+	in *describeSecurityConfigurationInput,
+) (*describeSecurityConfigurationOutput, error) {
+	sc, err := h.Backend.DescribeSecurityConfiguration(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeSecurityConfigurationOutput{
+		Name:                  sc.Name,
+		SecurityConfiguration: sc.SecurityConfig,
+		CreationDateTime:      sc.CreationDateTime.UTC().Format("2006-01-02T15:04:05Z"),
+	}, nil
 }

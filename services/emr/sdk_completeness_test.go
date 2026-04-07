@@ -22,7 +22,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"DescribeNotebookExecution",
 		"DescribePersistentAppUI",
 		"DescribeReleaseLabel",
-		"DescribeSecurityConfiguration",
 		"DescribeStep",
 		"DescribeStudio",
 		"GetBlockPublicAccessConfiguration",
