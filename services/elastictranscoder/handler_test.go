@@ -920,3 +920,289 @@ func TestElasticTranscoder_ErrorPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestElasticTranscoder_ListJobsByStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		status     string
+		wantCount  int
+		wantStatus int
+	}{
+		{
+			name:       "list_progressing_jobs",
+			status:     "Progressing",
+			wantCount:  2,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "list_complete_jobs_empty",
+			status:     "Complete",
+			wantCount:  0,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create a pipeline first.
+			rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+				"Name": "test-pipeline", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+			var pipelineOut struct {
+				Pipeline struct {
+					ID string `json:"Id"`
+				} `json:"Pipeline"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&pipelineOut))
+			pipelineID := pipelineOut.Pipeline.ID
+
+			// Create 2 jobs (they default to "Progressing").
+			for range 2 {
+				rec = doRequest(t, h, http.MethodPost, "/2012-09-25/jobs", map[string]any{
+					"PipelineId": pipelineID,
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			rec = doRequest(t, h, http.MethodGet, "/2012-09-25/jobsByStatus/"+tt.status, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var out struct {
+				Jobs []any `json:"Jobs"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.Jobs, tt.wantCount)
+		})
+	}
+}
+
+func TestElasticTranscoder_TestRole(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		role         string
+		inputBucket  string
+		outputBucket string
+		wantSuccess  string
+		wantStatus   int
+	}{
+		{
+			name:         "valid_role",
+			role:         "arn:aws:iam::123456789012:role/TranscoderRole",
+			inputBucket:  "my-input-bucket",
+			outputBucket: "my-output-bucket",
+			wantStatus:   http.StatusOK,
+			wantSuccess:  "true",
+		},
+		{
+			name:         "missing_role",
+			role:         "",
+			inputBucket:  "my-input-bucket",
+			outputBucket: "",
+			wantStatus:   http.StatusBadRequest,
+		},
+		{
+			name:         "missing_input_bucket",
+			role:         "arn:aws:iam::123456789012:role/TranscoderRole",
+			inputBucket:  "",
+			outputBucket: "",
+			wantStatus:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			path := "/2012-09-25/roleTests"
+			if tt.role != "" || tt.inputBucket != "" || tt.outputBucket != "" {
+				path += "?role=" + tt.role + "&inputBucket=" + tt.inputBucket + "&outputBucket=" + tt.outputBucket
+			}
+
+			rec := doRequest(t, h, http.MethodGet, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantSuccess != "" {
+				var out struct {
+					Success  string   `json:"Success"`
+					Messages []string `json:"Messages"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Equal(t, tt.wantSuccess, out.Success)
+				assert.NotNil(t, out.Messages)
+			}
+		})
+	}
+}
+
+func TestElasticTranscoder_UpdatePipelineNotifications(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		notifications any
+		name          string
+		wantStatus    int
+	}{
+		{
+			name: "set_notifications",
+			notifications: map[string]any{
+				"Notifications": map[string]string{
+					"Completed":   "arn:aws:sns:us-east-1:123456789012:completed",
+					"Error":       "arn:aws:sns:us-east-1:123456789012:error",
+					"Progressing": "arn:aws:sns:us-east-1:123456789012:progressing",
+					"Warning":     "",
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:          "clear_notifications",
+			notifications: map[string]any{"Notifications": nil},
+			wantStatus:    http.StatusOK,
+		},
+		{
+			name:          "pipeline_not_found",
+			notifications: map[string]any{"Notifications": map[string]string{}},
+			wantStatus:    http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			pipelineID := "nonexistent"
+
+			if tt.name != "pipeline_not_found" {
+				rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+					"Name": "notif-pipeline", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var pipelineOut struct {
+					Pipeline struct {
+						ID string `json:"Id"`
+					} `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&pipelineOut))
+				pipelineID = pipelineOut.Pipeline.ID
+			}
+
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/2012-09-25/pipelines/"+pipelineID+"/notifications",
+				tt.notifications,
+			)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK && tt.name == "set_notifications" {
+				var out struct {
+					Pipeline struct {
+						Notifications struct {
+							Completed string `json:"Completed"`
+						} `json:"Notifications"`
+					} `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:completed", out.Pipeline.Notifications.Completed)
+			}
+		})
+	}
+}
+
+func TestElasticTranscoder_UpdatePipelineStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		pipelineID string
+		status     string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "pause_pipeline",
+			status:     "Paused",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "activate_pipeline",
+			status:     "Active",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "pipeline_not_found",
+			pipelineID: "nonexistent",
+			status:     "Active",
+			wantStatus: http.StatusNotFound,
+			wantErr:    true,
+		},
+		{
+			name:       "missing_status",
+			status:     "",
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			pipelineID := tt.pipelineID
+
+			if pipelineID == "" {
+				rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+					"Name": "status-pipeline", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var pipelineOut struct {
+					Pipeline struct {
+						ID string `json:"Id"`
+					} `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&pipelineOut))
+				pipelineID = pipelineOut.Pipeline.ID
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines/"+pipelineID+"/status", map[string]any{
+				"Status": tt.status,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out struct {
+					Pipeline struct {
+						Status string `json:"Status"`
+					} `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Equal(t, tt.status, out.Pipeline.Status)
+			}
+		})
+	}
+}
+
+func TestElasticTranscoder_GetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	assert.Contains(t, ops, "ListJobsByStatus")
+	assert.Contains(t, ops, "TestRole")
+	assert.Contains(t, ops, "UpdatePipelineNotifications")
+	assert.Contains(t, ops, "UpdatePipelineStatus")
+}

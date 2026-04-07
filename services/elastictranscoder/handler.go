@@ -32,6 +32,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears all backend state. It is used for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "ElasticTranscoder" }
 
@@ -43,6 +48,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListPipelines",
 		"UpdatePipeline",
 		"DeletePipeline",
+		"UpdatePipelineNotifications",
+		"UpdatePipelineStatus",
 		"CreatePreset",
 		"ReadPreset",
 		"ListPresets",
@@ -50,7 +57,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateJob",
 		"ReadJob",
 		"ListJobsByPipeline",
+		"ListJobsByStatus",
 		"CancelJob",
+		"TestRole",
 		"AddTagsToResource",
 		"RemoveTagsFromResource",
 		"ListTagsForResource",
@@ -132,6 +141,10 @@ func (h *Handler) dispatch(c *echo.Context, route etRoute) error {
 		return h.handleCancelJob(c, route.resource)
 	case "ListJobsByPipeline":
 		return h.handleListJobsByPipeline(c, route.resource)
+	case "ListJobsByStatus":
+		return h.handleListJobsByStatus(c, route.resource)
+	case "TestRole":
+		return h.handleTestRole(c)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c, route.resource)
 	}
@@ -151,6 +164,10 @@ func (h *Handler) dispatchMutating(c *echo.Context, route etRoute, readBody func
 		return h.handleCreatePipeline(c, body)
 	case "UpdatePipeline":
 		return h.handleUpdatePipeline(c, route.resource, body)
+	case "UpdatePipelineNotifications":
+		return h.handleUpdatePipelineNotifications(c, route.resource, body)
+	case "UpdatePipelineStatus":
+		return h.handleUpdatePipelineStatus(c, route.resource, body)
 	case "CreatePreset":
 		return h.handleCreatePreset(c, body)
 	case "CreateJob":
@@ -175,12 +192,18 @@ type etRoute struct {
 
 // parseRoute maps HTTP method + path to an operation name and resource ID.
 func parseRoute(method, path string) etRoute {
-	// Check jobsByPipeline BEFORE jobs to avoid prefix collision.
+	// Check jobsByStatus BEFORE jobsByPipeline to avoid prefix collision.
 	switch {
+	case strings.HasPrefix(path, "/2012-09-25/jobsByStatus/"):
+		status := strings.TrimPrefix(path, "/2012-09-25/jobsByStatus/")
+
+		return etRoute{operation: "ListJobsByStatus", resource: status}
 	case strings.HasPrefix(path, "/2012-09-25/jobsByPipeline/"):
 		id := strings.TrimPrefix(path, "/2012-09-25/jobsByPipeline/")
 
 		return etRoute{operation: "ListJobsByPipeline", resource: id}
+	case path == "/2012-09-25/roleTests" && method == http.MethodGet:
+		return etRoute{operation: "TestRole"}
 	case strings.HasPrefix(path, taggingPath+"/"):
 		resourceARN := strings.TrimPrefix(path, taggingPath+"/")
 		switch method {
@@ -213,6 +236,21 @@ func parsePipelineRoute(method, suffix string) etRoute {
 			return etRoute{operation: "ListPipelines"}
 		case http.MethodPost:
 			return etRoute{operation: "CreatePipeline"}
+		}
+	}
+
+	// Handle sub-paths: /{id}/notifications and /{id}/status
+	if before, ok := strings.CutSuffix(id, "/notifications"); ok {
+		pipelineID := before
+		if method == http.MethodPost {
+			return etRoute{operation: "UpdatePipelineNotifications", resource: pipelineID}
+		}
+	}
+
+	if before, ok := strings.CutSuffix(id, "/status"); ok {
+		pipelineID := before
+		if method == http.MethodPost {
+			return etRoute{operation: "UpdatePipelineStatus", resource: pipelineID}
 		}
 	}
 
@@ -527,19 +565,81 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		return h.writeError(c, err)
 	}
 
-	out := tagsListOutput{Tags: make([]tagEntry, 0, len(tags))}
+	keys := sortedTagKeys(tags)
+	out := tagsListOutput{Tags: make([]tagEntry, 0, len(keys))}
 
-	for k, v := range tags {
-		out.Tags = append(out.Tags, tagEntry{Key: k, Value: v})
+	for _, k := range keys {
+		out.Tags = append(out.Tags, tagEntry{Key: k, Value: tags[k]})
 	}
 
 	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleListJobsByStatus(c *echo.Context, status string) error {
+	jobs := h.Backend.ListJobsByStatus(status)
+	if jobs == nil {
+		jobs = []*Job{}
+	}
+
+	return c.JSON(http.StatusOK, jobsListOutput{Jobs: jobs})
+}
+
+func (h *Handler) handleTestRole(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	role := q.Get("role")
+	inputBucket := q.Get("inputBucket")
+	outputBucket := q.Get("outputBucket")
+
+	result, err := h.Backend.TestRole(role, inputBucket, outputBucket)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+type updatePipelineNotificationsInput struct {
+	Notifications *PipelineNotifications `json:"Notifications"`
+}
+
+func (h *Handler) handleUpdatePipelineNotifications(c *echo.Context, id string, body []byte) error {
+	var in updatePipelineNotificationsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	p, err := h.Backend.UpdatePipelineNotifications(id, in.Notifications)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, pipelineWrapper{Pipeline: p})
+}
+
+type updatePipelineStatusInput struct {
+	Status string `json:"Status"`
+}
+
+func (h *Handler) handleUpdatePipelineStatus(c *echo.Context, id string, body []byte) error {
+	var in updatePipelineStatusInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	p, err := h.Backend.UpdatePipelineStatus(id, in.Status)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, pipelineWrapper{Pipeline: p})
 }
 
 // --- Error handling ---
 
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):

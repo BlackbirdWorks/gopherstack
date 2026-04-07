@@ -1,8 +1,10 @@
 package elastictranscoder
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,21 +19,38 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	// ErrValidation is returned when request parameters fail validation.
+	ErrValidation = errors.New("ValidationException")
 )
+
+// PipelineNotifications holds SNS topic ARNs for pipeline event notifications.
+type PipelineNotifications struct {
+	Completed   string `json:"Completed,omitempty"`
+	Error       string `json:"Error,omitempty"`
+	Progressing string `json:"Progressing,omitempty"`
+	Warning     string `json:"Warning,omitempty"`
+}
 
 // Pipeline represents an Elastic Transcoder pipeline.
 type Pipeline struct {
-	CreationTime time.Time         `json:"creationTime,omitzero"`
-	Tags         map[string]string `json:"Tags,omitempty"`
-	Name         string            `json:"Name"`
-	ID           string            `json:"Id"`
-	ARN          string            `json:"Arn"`
-	InputBucket  string            `json:"InputBucket"`
-	OutputBucket string            `json:"OutputBucket,omitempty"`
-	Role         string            `json:"Role"`
-	Status       string            `json:"Status"`
-	AccountID    string            `json:"accountId,omitempty"`
-	Region       string            `json:"region,omitempty"`
+	CreationTime  time.Time              `json:"creationTime,omitzero"`
+	Tags          map[string]string      `json:"Tags,omitempty"`
+	Notifications *PipelineNotifications `json:"Notifications,omitempty"`
+	Name          string                 `json:"Name"`
+	ID            string                 `json:"Id"`
+	ARN           string                 `json:"Arn"`
+	InputBucket   string                 `json:"InputBucket"`
+	OutputBucket  string                 `json:"OutputBucket,omitempty"`
+	Role          string                 `json:"Role"`
+	Status        string                 `json:"Status"`
+	AccountID     string                 `json:"accountId,omitempty"`
+	Region        string                 `json:"region,omitempty"`
+}
+
+// TestRoleResult holds the result of a TestRole operation.
+type TestRoleResult struct {
+	Success  string   `json:"Success"`
+	Messages []string `json:"Messages"`
 }
 
 // Preset represents an Elastic Transcoder preset.
@@ -85,6 +104,94 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// pipelineCopy returns a deep copy of a Pipeline, duplicating all pointer/map fields.
+func pipelineCopy(p *Pipeline) *Pipeline {
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	if p.Notifications != nil {
+		n := *p.Notifications
+		cp.Notifications = &n
+	}
+
+	return &cp
+}
+
+// presetCopy returns a deep copy of a Preset.
+func presetCopy(p *Preset) *Preset {
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp
+}
+
+// jobCopy returns a deep copy of a Job.
+func jobCopy(j *Job) *Job {
+	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
+
+	return &cp
+}
+
+// sortedTagKeys returns the keys of a string map in sorted order.
+func sortedTagKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	return keys
+}
+
+// Reset clears all backend state, returning the backend to an empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.pipelines = make(map[string]*Pipeline)
+	b.presets = make(map[string]*Preset)
+	b.jobs = make(map[string]*Job)
+	b.pipelinesByName = make(map[string]string)
+	b.pipelinesByARN = make(map[string]string)
+	b.presetsByARN = make(map[string]string)
+	b.jobsByARN = make(map[string]string)
+}
+
+// AddPipelineInternal directly inserts a pipeline into the backend.
+// It is intended for use in tests and should not be called from production code.
+func (b *InMemoryBackend) AddPipelineInternal(p *Pipeline) {
+	b.mu.Lock("AddPipelineInternal")
+	defer b.mu.Unlock()
+
+	cp := pipelineCopy(p)
+	b.pipelines[cp.ID] = cp
+	b.pipelinesByName[cp.Name] = cp.ID
+	b.pipelinesByARN[cp.ARN] = cp.ID
+}
+
+// AddPresetInternal directly inserts a preset into the backend.
+// It is intended for use in tests and should not be called from production code.
+func (b *InMemoryBackend) AddPresetInternal(p *Preset) {
+	b.mu.Lock("AddPresetInternal")
+	defer b.mu.Unlock()
+
+	cp := presetCopy(p)
+	b.presets[cp.ID] = cp
+	b.presetsByARN[cp.ARN] = cp.ID
+}
+
+// AddJobInternal directly inserts a job into the backend.
+// It is intended for use in tests and should not be called from production code.
+func (b *InMemoryBackend) AddJobInternal(j *Job) {
+	b.mu.Lock("AddJobInternal")
+	defer b.mu.Unlock()
+
+	cp := jobCopy(j)
+	b.jobs[cp.ID] = cp
+	b.jobsByARN[cp.ARN] = cp.ID
+}
+
 // Region returns the region configured for this backend.
 func (b *InMemoryBackend) Region() string { return b.region }
 
@@ -115,10 +222,8 @@ func (b *InMemoryBackend) CreatePipeline(name, inputBucket, outputBucket, role s
 	b.pipelines[id] = p
 	b.pipelinesByName[name] = id
 	b.pipelinesByARN[pipelineARN] = id
-	cp := *p
-	cp.Tags = maps.Clone(p.Tags)
 
-	return &cp, nil
+	return pipelineCopy(p), nil
 }
 
 // ReadPipeline returns a pipeline by ID.
@@ -130,23 +235,20 @@ func (b *InMemoryBackend) ReadPipeline(id string) (*Pipeline, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
 	}
-	cp := *p
-	cp.Tags = maps.Clone(p.Tags)
 
-	return &cp, nil
+	return pipelineCopy(p), nil
 }
 
-// ListPipelines returns all pipelines.
+// ListPipelines returns all pipelines sorted by name.
 func (b *InMemoryBackend) ListPipelines() []*Pipeline {
 	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
 	list := make([]*Pipeline, 0, len(b.pipelines))
 	for _, p := range b.pipelines {
-		cp := *p
-		cp.Tags = maps.Clone(p.Tags)
-		list = append(list, &cp)
+		list = append(list, pipelineCopy(p))
 	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
 	return list
 }
@@ -161,7 +263,11 @@ func (b *InMemoryBackend) UpdatePipeline(id, name, inputBucket, outputBucket, ro
 		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
 	}
 
-	if name != "" {
+	if name != "" && name != p.Name {
+		if _, exists := b.pipelinesByName[name]; exists {
+			return nil, fmt.Errorf("%w: pipeline name %s already exists", ErrAlreadyExists, name)
+		}
+
 		delete(b.pipelinesByName, p.Name)
 		p.Name = name
 		b.pipelinesByName[name] = id
@@ -179,10 +285,7 @@ func (b *InMemoryBackend) UpdatePipeline(id, name, inputBucket, outputBucket, ro
 		p.Role = role
 	}
 
-	cp := *p
-	cp.Tags = maps.Clone(p.Tags)
-
-	return &cp, nil
+	return pipelineCopy(p), nil
 }
 
 // DeletePipeline removes a pipeline by ID.
@@ -219,10 +322,8 @@ func (b *InMemoryBackend) CreatePreset(name, description, container string) (*Pr
 	}
 	b.presets[id] = p
 	b.presetsByARN[presetARN] = id
-	cp := *p
-	cp.Tags = maps.Clone(p.Tags)
 
-	return &cp, nil
+	return presetCopy(p), nil
 }
 
 // ReadPreset returns a preset by ID.
@@ -234,23 +335,20 @@ func (b *InMemoryBackend) ReadPreset(id string) (*Preset, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, id)
 	}
-	cp := *p
-	cp.Tags = maps.Clone(p.Tags)
 
-	return &cp, nil
+	return presetCopy(p), nil
 }
 
-// ListPresets returns all presets.
+// ListPresets returns all presets sorted by name.
 func (b *InMemoryBackend) ListPresets() []*Preset {
 	b.mu.RLock("ListPresets")
 	defer b.mu.RUnlock()
 
 	list := make([]*Preset, 0, len(b.presets))
 	for _, p := range b.presets {
-		cp := *p
-		cp.Tags = maps.Clone(p.Tags)
-		list = append(list, &cp)
+		list = append(list, presetCopy(p))
 	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
 	return list
 }
@@ -291,10 +389,8 @@ func (b *InMemoryBackend) CreateJob(pipelineID string) (*Job, error) {
 	}
 	b.jobs[id] = j
 	b.jobsByARN[jobARN] = id
-	cp := *j
-	cp.Tags = maps.Clone(j.Tags)
 
-	return &cp, nil
+	return jobCopy(j), nil
 }
 
 // ReadJob returns a job by ID.
@@ -306,13 +402,11 @@ func (b *InMemoryBackend) ReadJob(id string) (*Job, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
-	cp := *j
-	cp.Tags = maps.Clone(j.Tags)
 
-	return &cp, nil
+	return jobCopy(j), nil
 }
 
-// ListJobsByPipeline returns all jobs for a given pipeline.
+// ListJobsByPipeline returns all jobs for a given pipeline sorted by ID.
 func (b *InMemoryBackend) ListJobsByPipeline(pipelineID string) []*Job {
 	b.mu.RLock("ListJobsByPipeline")
 	defer b.mu.RUnlock()
@@ -320,11 +414,10 @@ func (b *InMemoryBackend) ListJobsByPipeline(pipelineID string) []*Job {
 	list := make([]*Job, 0)
 	for _, j := range b.jobs {
 		if j.PipelineID == pipelineID {
-			cp := *j
-			cp.Tags = maps.Clone(j.Tags)
-			list = append(list, &cp)
+			list = append(list, jobCopy(j))
 		}
 	}
+	sort.Slice(list, func(i, k int) bool { return list[i].ID < list[k].ID })
 
 	return list
 }
@@ -409,6 +502,73 @@ func (b *InMemoryBackend) RemoveTagsFromResource(resourceARN string, tagKeys []s
 	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
+// ListJobsByStatus returns all jobs with the given status sorted by ID.
+func (b *InMemoryBackend) ListJobsByStatus(status string) []*Job {
+	b.mu.RLock("ListJobsByStatus")
+	defer b.mu.RUnlock()
+
+	list := make([]*Job, 0)
+	for _, j := range b.jobs {
+		if j.Status == status {
+			list = append(list, jobCopy(j))
+		}
+	}
+	sort.Slice(list, func(i, k int) bool { return list[i].ID < list[k].ID })
+
+	return list
+}
+
+// TestRole verifies that the given role can access the specified buckets.
+// In this in-memory implementation it always returns success.
+func (b *InMemoryBackend) TestRole(role, inputBucket, _ string) (*TestRoleResult, error) {
+	if role == "" || inputBucket == "" {
+		return nil, fmt.Errorf("%w: Role and InputBucket are required", ErrValidation)
+	}
+
+	return &TestRoleResult{
+		Messages: []string{},
+		Success:  "true",
+	}, nil
+}
+
+// UpdatePipelineNotifications updates the SNS notification settings for a pipeline.
+func (b *InMemoryBackend) UpdatePipelineNotifications(
+	id string,
+	notifications *PipelineNotifications,
+) (*Pipeline, error) {
+	b.mu.Lock("UpdatePipelineNotifications")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
+	}
+
+	p.Notifications = notifications
+
+	return pipelineCopy(p), nil
+}
+
+// UpdatePipelineStatus updates the active/paused status of a pipeline.
+// Valid values are "Active" and "Paused".
+func (b *InMemoryBackend) UpdatePipelineStatus(id, status string) (*Pipeline, error) {
+	b.mu.Lock("UpdatePipelineStatus")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
+	}
+
+	if status != "Active" && status != "Paused" {
+		return nil, fmt.Errorf("%w: Status must be Active or Paused, got %q", ErrValidation, status)
+	}
+
+	p.Status = status
+
+	return pipelineCopy(p), nil
 }
 
 // ListTagsForResource returns the tags for a resource identified by ARN.

@@ -2,7 +2,7 @@ package elastictranscoder
 
 import (
 	"encoding/json"
-	"maps"
+	"log/slog"
 )
 
 type backendSnapshot struct {
@@ -19,23 +19,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	pipelinesCopy := make(map[string]*Pipeline, len(b.pipelines))
 	for k, v := range b.pipelines {
-		cp := *v
-		cp.Tags = copyStringMap(v.Tags)
-		pipelinesCopy[k] = &cp
+		pipelinesCopy[k] = pipelineCopy(v)
 	}
 
 	presetsCopy := make(map[string]*Preset, len(b.presets))
 	for k, v := range b.presets {
-		cp := *v
-		cp.Tags = copyStringMap(v.Tags)
-		presetsCopy[k] = &cp
+		presetsCopy[k] = presetCopy(v)
 	}
 
 	jobsCopy := make(map[string]*Job, len(b.jobs))
 	for k, v := range b.jobs {
-		cp := *v
-		cp.Tags = copyStringMap(v.Tags)
-		jobsCopy[k] = &cp
+		jobsCopy[k] = jobCopy(v)
 	}
 
 	snap := backendSnapshot{
@@ -46,6 +40,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("elastictranscoder: failed to snapshot backend", "error", err)
+
 		return nil
 	}
 
@@ -100,18 +96,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	return nil
-}
-
-// copyStringMap returns a copy of a string map (nil-safe).
-func copyStringMap(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
-	}
-
-	cp := make(map[string]string, len(m))
-	maps.Copy(cp, m)
-
-	return cp
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
