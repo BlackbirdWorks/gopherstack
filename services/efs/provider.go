@@ -1,9 +1,14 @@
 package efs
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Init is called with a nil application context.
+var ErrNilAppContext = errors.New("appContext must not be nil")
 
 // Provider implements service.Provider for AWS EFS.
 type Provider struct{}
@@ -15,6 +20,10 @@ func (p *Provider) Name() string { return "EFS" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 
