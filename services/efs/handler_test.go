@@ -114,9 +114,12 @@ func TestFileSystemCRUD(t *testing.T) {
 				rec2 := doREST(t, h, http.MethodDelete, "/2015-02-01/file-systems/"+fsID, nil)
 				assert.Equal(t, http.StatusNoContent, rec2.Code)
 
-				// Describe after delete returns not found.
+				// Describe after delete returns empty list (AWS behaviour).
 				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/file-systems/"+fsID, nil)
-				assert.Equal(t, http.StatusNotFound, rec3.Code)
+				assert.Equal(t, http.StatusOK, rec3.Code)
+				resp3 := parseResp(t, rec3)
+				list := resp3["FileSystems"].([]any)
+				assert.Empty(t, list)
 			},
 		},
 		{

@@ -21,10 +21,7 @@ func TestSDKCompleteness(t *testing.T) {
 		"DescribeTags",
 		"ModifyMountTargetSecurityGroups",
 		"PutAccountPreferences",
-		"PutBackupPolicy",
-		"PutFileSystemPolicy",
 		"UntagResource",
-		"UpdateFileSystem",
 		"UpdateFileSystemProtection",
 	})
 }

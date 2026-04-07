@@ -31,11 +31,30 @@ const (
 // Handler is the Echo HTTP handler for AWS EFS operations (REST-JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]struct{}
 }
 
 // NewHandler creates a new EFS handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.buildOps()
+
+	return h
+}
+
+// buildOps pre-builds the set of supported operation names for fast lookup.
+func (h *Handler) buildOps() {
+	supported := h.GetSupportedOperations()
+	h.ops = make(map[string]struct{}, len(supported))
+
+	for _, op := range supported {
+		h.ops[op] = struct{}{}
+	}
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -47,6 +66,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateFileSystem",
 		"DescribeFileSystems",
 		"DeleteFileSystem",
+		"UpdateFileSystem",
 		"CreateMountTarget",
 		"DescribeMountTargets",
 		"DeleteMountTarget",
@@ -64,7 +84,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteTags",
 		"DescribeAccountPreferences",
 		"DescribeBackupPolicy",
+		"PutBackupPolicy",
 		"DescribeFileSystemPolicy",
+		"PutFileSystemPolicy",
 		"DescribeMountTargetSecurityGroups",
 		"DescribeReplicationConfigurations",
 	}
@@ -152,6 +174,8 @@ func parseFileSystemRoute(method, suffix string) efsRoute {
 			return efsRoute{operation: "DescribeFileSystems", resource: id}
 		case http.MethodDelete:
 			return efsRoute{operation: "DeleteFileSystem", resource: id}
+		case http.MethodPut:
+			return efsRoute{operation: "UpdateFileSystem", resource: id}
 		}
 	default:
 		return parseFileSystemSubRoute(method, id)
@@ -179,6 +203,9 @@ func parseFileSystemSubRoute(method, id string) efsRoute {
 	case "backup-policy":
 		if method == http.MethodGet {
 			return efsRoute{operation: "DescribeBackupPolicy", resource: fsID}
+		}
+		if method == http.MethodPut {
+			return efsRoute{operation: "PutBackupPolicy", resource: fsID}
 		}
 	}
 
@@ -211,6 +238,8 @@ func parseFileSystemPolicyRoute(method, fsID string) efsRoute {
 	switch method {
 	case http.MethodGet:
 		return efsRoute{operation: "DescribeFileSystemPolicy", resource: fsID}
+	case http.MethodPut:
+		return efsRoute{operation: "PutFileSystemPolicy", resource: fsID}
 	case http.MethodDelete:
 		return efsRoute{operation: "DeleteFileSystemPolicy", resource: fsID}
 	}
@@ -362,6 +391,8 @@ func (h *Handler) dispatchFileSystemOps(c *echo.Context, route efsRoute, body []
 		return true, h.handleDescribeFileSystems(c, route.resource)
 	case "DeleteFileSystem":
 		return true, h.handleDeleteFileSystem(c, route.resource)
+	case "UpdateFileSystem":
+		return true, h.handleUpdateFileSystem(c, route.resource, body)
 	case "DescribeLifecycleConfiguration":
 		return true, h.handleDescribeLifecycleConfiguration(c, route.resource)
 	case "PutLifecycleConfiguration":
@@ -374,10 +405,14 @@ func (h *Handler) dispatchFileSystemOps(c *echo.Context, route efsRoute, body []
 		return true, h.handleDescribeReplicationConfigurations(c)
 	case "DescribeFileSystemPolicy":
 		return true, h.handleDescribeFileSystemPolicy(c, route.resource)
+	case "PutFileSystemPolicy":
+		return true, h.handlePutFileSystemPolicy(c, route.resource, body)
 	case "DeleteFileSystemPolicy":
 		return true, h.handleDeleteFileSystemPolicy(c, route.resource)
 	case "DescribeBackupPolicy":
 		return true, h.handleDescribeBackupPolicy(c, route.resource)
+	case "PutBackupPolicy":
+		return true, h.handlePutBackupPolicy(c, route.resource, body)
 	}
 
 	return false, nil
@@ -423,6 +458,8 @@ func (h *Handler) dispatchTagAndMiscOps(c *echo.Context, route efsRoute, body []
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errResp("FileSystemNotFound", err.Error()))
 	case errors.Is(err, ErrMountTargetNotFound):
@@ -911,4 +948,74 @@ func (h *Handler) handleDescribeMountTargetSecurityGroups(c *echo.Context, mount
 	return c.JSON(http.StatusOK, map[string]any{
 		"SecurityGroups": groups,
 	})
+}
+
+// --- PutBackupPolicy handler ---
+
+type putBackupPolicyBody struct {
+	BackupPolicy struct {
+		Status string `json:"Status"`
+	} `json:"BackupPolicy"`
+}
+
+func (h *Handler) handlePutBackupPolicy(c *echo.Context, fileSystemID string, body []byte) error {
+	var in putBackupPolicyBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	if err := h.Backend.PutBackupPolicy(fileSystemID, in.BackupPolicy.Status); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupPolicy": map[string]any{
+			"Status": in.BackupPolicy.Status,
+		},
+	})
+}
+
+// --- PutFileSystemPolicy handler ---
+
+type putFileSystemPolicyBody struct {
+	Policy string `json:"Policy"`
+}
+
+func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string, body []byte) error {
+	var in putFileSystemPolicyBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	if err := h.Backend.PutFileSystemPolicy(fileSystemID, in.Policy); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"FileSystemId": fileSystemID,
+		"Policy":       in.Policy,
+	})
+}
+
+// --- UpdateFileSystem handler ---
+
+type updateFileSystemBody struct {
+	ThroughputMode           string  `json:"ThroughputMode,omitempty"`
+	ProvisionedThroughputMib float64 `json:"ProvisionedThroughputInMibps,omitempty"`
+}
+
+func (h *Handler) handleUpdateFileSystem(c *echo.Context, fileSystemID string, body []byte) error {
+	var in updateFileSystemBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	req := UpdateFileSystemRequest(in)
+
+	fs, err := h.Backend.UpdateFileSystem(fileSystemID, req)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusAccepted, fsToResponse(fs))
 }
