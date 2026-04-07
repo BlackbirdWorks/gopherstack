@@ -181,8 +181,10 @@ func TestEKS_AssociateAccessPolicy(t *testing.T) {
 				t.Helper()
 				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
 			},
-			principal:  "arn:aws:iam::123456789012:role/nonexistent",
-			body:       map[string]any{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"},
+			principal: "arn:aws:iam::123456789012:role/nonexistent",
+			body: map[string]any{
+				"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+			},
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -319,10 +321,19 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 			setup: func(t *testing.T, h *eks.Handler) {
 				t.Helper()
 				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-				doREST(t, h, http.MethodPost, "/clusters/my-cluster/identity-provider-configs/associate",
-					map[string]any{"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"}})
+				doREST(
+					t,
+					h,
+					http.MethodPost,
+					"/clusters/my-cluster/identity-provider-configs/associate",
+					map[string]any{
+						"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"},
+					},
+				)
 			},
-			body:       map[string]any{"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"}},
+			body: map[string]any{
+				"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"},
+			},
 			wantStatus: http.StatusConflict,
 		},
 	}
@@ -462,16 +473,16 @@ func TestEKS_CreateCapability(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				resp := parseResp(t, rec)
-				cap, ok := resp["capability"].(map[string]any)
+				capa, ok := resp["capability"].(map[string]any)
 				require.True(t, ok)
-				assert.Equal(t, "my-capability", cap["name"])
-				assert.Equal(t, "ACTIVE", cap["status"])
+				assert.Equal(t, "my-capability", capa["name"])
+				assert.Equal(t, "ACTIVE", capa["status"])
 			}
 		})
 	}
 }
 
-// TestEKS_CreateEksAnywhereSubscription verifies CreateEksAnywhereSubscription and error cases.
+// TestEKS_CreateAnywhereSubscription verifies CreateAnywhereSubscription and error cases.
 func TestEKS_CreateEksAnywhereSubscription(t *testing.T) {
 	t.Parallel()
 

@@ -18,9 +18,9 @@ import (
 const (
 	eksMatchPriority = service.PriorityPathVersioned
 
-	pathClusters     = "/clusters"
-	pathEKSTags      = "/tags/"
-	pathCapabilities = "/capabilities"
+	pathClusters      = "/clusters"
+	pathEKSTags       = "/tags/"
+	pathCapabilities  = "/capabilities"
 	pathSubscriptions = "/subscriptions"
 )
 
@@ -33,6 +33,9 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EKS" }
@@ -143,8 +146,8 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 	// parts[2] may be principalArn or principalArn/access-policies
 	tail := parts[2]
 
-	if strings.HasSuffix(tail, "/access-policies") {
-		principalARN := strings.TrimSuffix(tail, "/access-policies")
+	if before, ok := strings.CutSuffix(tail, "/access-policies"); ok {
+		principalARN := before
 		if method == http.MethodPost {
 			return eksRoute{operation: "AssociateAccessPolicy", clusterName: clusterName, principalARN: principalARN}
 		}
@@ -153,8 +156,7 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 	}
 
 	// plain principalArn
-	switch method {
-	case http.MethodDelete:
+	if method == http.MethodDelete {
 		return eksRoute{operation: "DeleteAccessEntry", clusterName: clusterName, principalARN: tail}
 	}
 
@@ -191,21 +193,78 @@ func parseFargateProfileRoute(method, clusterName string, parts []string) eksRou
 	return eksRoute{operation: "Unknown"}
 }
 
+// parseClusterSubPath handles /clusters/{name}/... paths after extracting clusterName.
+func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
+	const maxPathParts = 3
+
+	// /clusters/{name}
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodGet:
+			return eksRoute{operation: "DescribeCluster", clusterName: clusterName}
+		case http.MethodDelete:
+			return eksRoute{operation: "DeleteCluster", clusterName: clusterName}
+		}
+
+		return eksRoute{operation: "Unknown"}
+	}
+
+	switch parts[1] {
+	case "node-groups":
+		return parseNodegroupRoute(method, clusterName, parts)
+	case "access-entries":
+		return parseAccessEntryRoute(method, clusterName, parts)
+	case "addons":
+		return parseAddonRoute(method, clusterName, parts)
+	case "fargate-profiles":
+		return parseFargateProfileRoute(method, clusterName, parts)
+	}
+
+	return parseClusterAssocPath(method, clusterName, parts, maxPathParts)
+}
+
+// parseClusterAssocPath handles associate paths and pod-identity-associations.
+func parseClusterAssocPath(method, clusterName string, parts []string, maxParts int) eksRoute {
+	if parts[1] == "encryption-config" && len(parts) == maxParts && parts[2] == "associate" {
+		if method == http.MethodPost {
+			return eksRoute{operation: "AssociateEncryptionConfig", clusterName: clusterName}
+		}
+
+		return eksRoute{operation: "Unknown"}
+	}
+
+	if parts[1] == "identity-provider-configs" && len(parts) == maxParts && parts[2] == "associate" {
+		if method == http.MethodPost {
+			return eksRoute{operation: "AssociateIdentityProviderConfig", clusterName: clusterName}
+		}
+
+		return eksRoute{operation: "Unknown"}
+	}
+
+	if parts[1] == "pod-identity-associations" {
+		if method == http.MethodPost {
+			return eksRoute{operation: "CreatePodIdentityAssociation", clusterName: clusterName}
+		}
+
+		return eksRoute{operation: "Unknown"}
+	}
+
+	return eksRoute{operation: "Unknown"}
+}
+
 // parseEKSPath maps HTTP method + path to an operation name and resource identifiers.
 func parseEKSPath(method, rawPath string) eksRoute {
 	path, _ := url.PathUnescape(rawPath)
 
 	// /tags/{resourceArn}
 	if after, ok := strings.CutPrefix(path, pathEKSTags); ok {
-		resourceARN := after
-
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "TagResource", resourceARN: resourceARN}
+			return eksRoute{operation: "TagResource", resourceARN: after}
 		case http.MethodDelete:
-			return eksRoute{operation: "UntagResource", resourceARN: resourceARN}
+			return eksRoute{operation: "UntagResource", resourceARN: after}
 		case http.MethodGet:
-			return eksRoute{operation: "ListTagsForResource", resourceARN: resourceARN}
+			return eksRoute{operation: "ListTagsForResource", resourceARN: after}
 		}
 
 		return eksRoute{operation: "Unknown"}
@@ -254,68 +313,8 @@ func parseEKSPath(method, rawPath string) eksRoute {
 	const maxPathParts = 3
 
 	parts := strings.SplitN(rest, "/", maxPathParts)
-	clusterName := parts[0]
 
-	// /clusters/{name}
-	if len(parts) == 1 {
-		switch method {
-		case http.MethodGet:
-			return eksRoute{operation: "DescribeCluster", clusterName: clusterName}
-		case http.MethodDelete:
-			return eksRoute{operation: "DeleteCluster", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /clusters/{name}/node-groups[/{nodegroupName}]
-	if parts[1] == "node-groups" {
-		return parseNodegroupRoute(method, clusterName, parts)
-	}
-
-	// /clusters/{name}/access-entries[/{principalArn}[/access-policies]]
-	if parts[1] == "access-entries" {
-		return parseAccessEntryRoute(method, clusterName, parts)
-	}
-
-	// /clusters/{name}/encryption-config/associate
-	if parts[1] == "encryption-config" && len(parts) == maxPathParts && parts[2] == "associate" {
-		if method == http.MethodPost {
-			return eksRoute{operation: "AssociateEncryptionConfig", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /clusters/{name}/identity-provider-configs/associate
-	if parts[1] == "identity-provider-configs" && len(parts) == maxPathParts && parts[2] == "associate" {
-		if method == http.MethodPost {
-			return eksRoute{operation: "AssociateIdentityProviderConfig", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /clusters/{name}/addons[/{addonName}]
-	if parts[1] == "addons" {
-		return parseAddonRoute(method, clusterName, parts)
-	}
-
-	// /clusters/{name}/fargate-profiles[/{profileName}]
-	if parts[1] == "fargate-profiles" {
-		return parseFargateProfileRoute(method, clusterName, parts)
-	}
-
-	// /clusters/{name}/pod-identity-associations
-	if parts[1] == "pod-identity-associations" {
-		if method == http.MethodPost {
-			return eksRoute{operation: "CreatePodIdentityAssociation", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	return eksRoute{operation: "Unknown"}
+	return parseClusterSubPath(method, parts[0], parts)
 }
 
 // ExtractOperation extracts the EKS operation name from the REST path.
@@ -357,54 +356,87 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
+	if handled, err := h.dispatchClusterAndTagOps(c, route, body); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchNodegroupAndEntryOps(c, route, body); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchNewOps(c, route, body); handled {
+		return err
+	}
+
+	return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+}
+
+// dispatchClusterAndTagOps handles cluster CRUD and tag operations.
+func (h *Handler) dispatchClusterAndTagOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case "CreateCluster":
-		return h.handleCreateCluster(c, body)
+		return true, h.handleCreateCluster(c, body)
 	case "DescribeCluster":
-		return h.handleDescribeCluster(c, route.clusterName)
+		return true, h.handleDescribeCluster(c, route.clusterName)
 	case "ListClusters":
-		return h.handleListClusters(c)
+		return true, h.handleListClusters(c)
 	case "DeleteCluster":
-		return h.handleDeleteCluster(c, route.clusterName)
-	case "CreateNodegroup":
-		return h.handleCreateNodegroup(c, route.clusterName, body)
-	case "DescribeNodegroup":
-		return h.handleDescribeNodegroup(c, route.clusterName, route.nodegroupName)
-	case "ListNodegroups":
-		return h.handleListNodegroups(c, route.clusterName)
-	case "DeleteNodegroup":
-		return h.handleDeleteNodegroup(c, route.clusterName, route.nodegroupName)
-	case "UpdateNodegroupConfig":
-		return h.handleUpdateNodegroupConfig(c, route.clusterName, route.nodegroupName, body)
+		return true, h.handleDeleteCluster(c, route.clusterName)
 	case "TagResource":
-		return h.handleTagResource(c, route.resourceARN, body)
+		return true, h.handleTagResource(c, route.resourceARN, body)
 	case "UntagResource":
-		return h.handleUntagResource(c, route.resourceARN)
+		return true, h.handleUntagResource(c, route.resourceARN)
 	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, route.resourceARN)
-	case "CreateAccessEntry":
-		return h.handleCreateAccessEntry(c, route.clusterName, body)
-	case "DeleteAccessEntry":
-		return h.handleDeleteAccessEntry(c, route.clusterName, route.principalARN)
-	case "AssociateAccessPolicy":
-		return h.handleAssociateAccessPolicy(c, route.clusterName, route.principalARN, body)
-	case "AssociateEncryptionConfig":
-		return h.handleAssociateEncryptionConfig(c, route.clusterName, body)
-	case "AssociateIdentityProviderConfig":
-		return h.handleAssociateIdentityProviderConfig(c, route.clusterName, body)
-	case "CreateAddon":
-		return h.handleCreateAddon(c, route.clusterName, body)
-	case "CreateCapability":
-		return h.handleCreateCapability(c, body)
-	case "CreateEksAnywhereSubscription":
-		return h.handleCreateEksAnywhereSubscription(c, body)
-	case "CreateFargateProfile":
-		return h.handleCreateFargateProfile(c, route.clusterName, body)
-	case "CreatePodIdentityAssociation":
-		return h.handleCreatePodIdentityAssociation(c, route.clusterName, body)
-	default:
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+		return true, h.handleListTagsForResource(c, route.resourceARN)
 	}
+
+	return false, nil
+}
+
+// dispatchNodegroupAndEntryOps handles nodegroup and access entry operations.
+func (h *Handler) dispatchNodegroupAndEntryOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case "CreateNodegroup":
+		return true, h.handleCreateNodegroup(c, route.clusterName, body)
+	case "DescribeNodegroup":
+		return true, h.handleDescribeNodegroup(c, route.clusterName, route.nodegroupName)
+	case "ListNodegroups":
+		return true, h.handleListNodegroups(c, route.clusterName)
+	case "DeleteNodegroup":
+		return true, h.handleDeleteNodegroup(c, route.clusterName, route.nodegroupName)
+	case "UpdateNodegroupConfig":
+		return true, h.handleUpdateNodegroupConfig(c, route.clusterName, route.nodegroupName, body)
+	case "CreateAccessEntry":
+		return true, h.handleCreateAccessEntry(c, route.clusterName, body)
+	case "DeleteAccessEntry":
+		return true, h.handleDeleteAccessEntry(c, route.clusterName, route.principalARN)
+	case "AssociateAccessPolicy":
+		return true, h.handleAssociateAccessPolicy(c, route.clusterName, route.principalARN, body)
+	}
+
+	return false, nil
+}
+
+// dispatchNewOps handles the newer EKS operations added in the initial implementation.
+func (h *Handler) dispatchNewOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case "AssociateEncryptionConfig":
+		return true, h.handleAssociateEncryptionConfig(c, route.clusterName, body)
+	case "AssociateIdentityProviderConfig":
+		return true, h.handleAssociateIdentityProviderConfig(c, route.clusterName, body)
+	case "CreateAddon":
+		return true, h.handleCreateAddon(c, route.clusterName, body)
+	case "CreateCapability":
+		return true, h.handleCreateCapability(c, body)
+	case "CreateEksAnywhereSubscription":
+		return true, h.handleCreateEksAnywhereSubscription(c, body)
+	case "CreateFargateProfile":
+		return true, h.handleCreateFargateProfile(c, route.clusterName, body)
+	case "CreatePodIdentityAssociation":
+		return true, h.handleCreatePodIdentityAssociation(c, route.clusterName, body)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -413,6 +445,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
@@ -792,7 +826,7 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 
 	configs := make([]EncryptionConfig, len(in.EncryptionConfig))
 	for i, ec := range in.EncryptionConfig {
-		configs[i] = EncryptionConfig{Provider: ec.Provider, Resources: ec.Resources}
+		configs[i] = EncryptionConfig(ec)
 	}
 
 	result, err := h.Backend.AssociateEncryptionConfig(clusterName, configs)
@@ -814,17 +848,17 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 }
 
 type oidcConfigJSON struct {
-	ClientID                           string `json:"clientId"`
-	GroupsClaim                        string `json:"groupsClaim,omitempty"`
-	GroupsPrefix                       string `json:"groupsPrefix,omitempty"`
-	IssuerURL                          string `json:"issuerUrl"`
-	UsernameClaim                      string `json:"usernameClaim,omitempty"`
-	UsernamePrefix                     string `json:"usernamePrefix,omitempty"`
+	ClientID       string `json:"clientId"`
+	GroupsClaim    string `json:"groupsClaim,omitempty"`
+	GroupsPrefix   string `json:"groupsPrefix,omitempty"`
+	IssuerURL      string `json:"issuerUrl"`
+	UsernameClaim  string `json:"usernameClaim,omitempty"`
+	UsernamePrefix string `json:"usernamePrefix,omitempty"`
 }
 
 type associateIdentityProviderConfigBody struct {
-	Tags map[string]string  `json:"tags"`
-	Oidc *oidcConfigJSON    `json:"oidc"`
+	Tags map[string]string `json:"tags"`
+	Oidc *oidcConfigJSON   `json:"oidc"`
 }
 
 func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -921,16 +955,16 @@ func (h *Handler) handleCreateCapability(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "name is required"))
 	}
 
-	cap, err := h.Backend.CreateCapability(in.Name, in.Version)
+	capa, err := h.Backend.CreateCapability(in.Name, in.Version)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"capability": map[string]any{
-			"name":    cap.Name,
-			"version": cap.Version,
-			"status":  cap.Status,
+			"name":    capa.Name,
+			"version": capa.Version,
+			"status":  capa.Status,
 		},
 	})
 }
@@ -971,8 +1005,8 @@ func (h *Handler) handleCreateEksAnywhereSubscription(c *echo.Context, body []by
 }
 
 type fargateProfileSelectorJSON struct {
-	Namespace string            `json:"namespace"`
 	Labels    map[string]string `json:"labels,omitempty"`
+	Namespace string            `json:"namespace"`
 }
 
 type createFargateProfileBody struct {
@@ -994,10 +1028,16 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 
 	selectors := make([]FargateProfileSelector, len(in.Selectors))
 	for i, s := range in.Selectors {
-		selectors[i] = FargateProfileSelector{Namespace: s.Namespace, Labels: s.Labels}
+		selectors[i] = FargateProfileSelector(s)
 	}
 
-	profile, err := h.Backend.CreateFargateProfile(clusterName, in.FargateProfileName, in.PodExecutionRoleArn, selectors, in.Tags)
+	profile, err := h.Backend.CreateFargateProfile(
+		clusterName,
+		in.FargateProfileName,
+		in.PodExecutionRoleArn,
+		selectors,
+		in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1036,7 +1076,13 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "serviceAccount is required"))
 	}
 
-	assoc, err := h.Backend.CreatePodIdentityAssociation(clusterName, in.Namespace, in.ServiceAccount, in.RoleArn, in.Tags)
+	assoc, err := h.Backend.CreatePodIdentityAssociation(
+		clusterName,
+		in.Namespace,
+		in.ServiceAccount,
+		in.RoleArn,
+		in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}

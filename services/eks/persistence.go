@@ -2,24 +2,25 @@ package eks
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
-	Clusters                map[string]*Cluster                                  `json:"clusters"`
-	Nodegroups              map[string]map[string]*Nodegroup                     `json:"nodegroups"`
-	AccessEntries           map[string]map[string]*AccessEntry                   `json:"accessEntries,omitempty"`
-	AccessPolicies          map[string]map[string][]*AccessPolicyAssociation     `json:"accessPolicies,omitempty"`
-	EncryptionConfigs       map[string][]EncryptionConfig                        `json:"encryptionConfigs,omitempty"`
-	IdentityProviderConfigs map[string]map[string]*IdentityProviderConfig        `json:"identityProviderConfigs,omitempty"`
-	Addons                  map[string]map[string]*Addon                         `json:"addons,omitempty"`
-	FargateProfiles         map[string]map[string]*FargateProfile                `json:"fargateProfiles,omitempty"`
-	PodIdentityAssociations map[string]map[string]*PodIdentityAssociation        `json:"podIdentityAssociations,omitempty"`
-	Capabilities            map[string]*Capability                               `json:"capabilities,omitempty"`
-	Subscriptions           map[string]*EksAnywhereSubscription                  `json:"subscriptions,omitempty"`
-	AccountID               string                                               `json:"accountId"`
-	Region                  string                                               `json:"region"`
+	Clusters                map[string]*Cluster                              `json:"clusters"`
+	Nodegroups              map[string]map[string]*Nodegroup                 `json:"nodegroups"`
+	AccessEntries           map[string]map[string]*AccessEntry               `json:"accessEntries,omitempty"`
+	AccessPolicies          map[string]map[string][]*AccessPolicyAssociation `json:"accessPolicies,omitempty"`
+	EncryptionConfigs       map[string][]EncryptionConfig                    `json:"encryptionConfigs,omitempty"`
+	IdentityProviderConfigs map[string]map[string]*IdentityProviderConfig    `json:"identityProviderConfigs,omitempty"`
+	Addons                  map[string]map[string]*Addon                     `json:"addons,omitempty"`
+	FargateProfiles         map[string]map[string]*FargateProfile            `json:"fargateProfiles,omitempty"`
+	PodIdentityAssociations map[string]map[string]*PodIdentityAssociation    `json:"podIdentityAssociations,omitempty"`
+	Capabilities            map[string]*Capability                           `json:"capabilities,omitempty"`
+	Subscriptions           map[string]*AnywhereSubscription                 `json:"subscriptions,omitempty"`
+	AccountID               string                                           `json:"accountId"`
+	Region                  string                                           `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -43,22 +44,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                  b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("eks: Snapshot marshal failed", "error", err)
+
+		return nil
+	}
 
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
-	var snap backendSnapshot
-
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
+// ensureNonNilSnap initialises any nil map fields in the snapshot to empty maps
+// so that subsequent range iterations are safe.
+func (snap *backendSnapshot) ensureNonNilSnap() {
 	if snap.Clusters == nil {
 		snap.Clusters = make(map[string]*Cluster)
 	}
@@ -100,11 +98,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	if snap.Subscriptions == nil {
-		snap.Subscriptions = make(map[string]*EksAnywhereSubscription)
+		snap.Subscriptions = make(map[string]*AnywhereSubscription)
 	}
+}
 
-	// Rebuild tags with proper Prometheus lock names. Tags deserialized from
-	// JSON use the generic "json.tags" name; we reassign to named instances.
+// restorePrimaryTagsLocked rebuilds Prometheus-named tag instances for clusters,
+// nodegroups, access entries, and addons.
+func restorePrimaryTagsLocked(snap *backendSnapshot) {
 	for name, c := range snap.Clusters {
 		rawTags := c.Tags.Clone()
 		c.Tags.Close()
@@ -152,7 +152,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			a.Tags = tags.FromMap("eks.addon."+clusterName+"."+addonName+".tags", rawTags)
 		}
 	}
+}
 
+// restoreNewOpsTagsLocked rebuilds Prometheus-named tag instances for fargate
+// profiles, pod identity associations, identity provider configs, and subscriptions.
+func restoreNewOpsTagsLocked(snap *backendSnapshot) {
 	for clusterName, profiles := range snap.FargateProfiles {
 		if profiles == nil {
 			snap.FargateProfiles[clusterName] = make(map[string]*FargateProfile)
@@ -200,6 +204,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		sub.Tags.Close()
 		sub.Tags = tags.FromMap("eks.subscription."+id+".tags", rawTags)
 	}
+}
+
+// Restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	snap.ensureNonNilSnap()
+
+	// Rebuild tags with proper Prometheus lock names. Tags deserialized from
+	// JSON use the generic "json.tags" name; we reassign to named instances.
+	restorePrimaryTagsLocked(&snap)
+	restoreNewOpsTagsLocked(&snap)
 
 	b.clusters = snap.Clusters
 	b.nodegroups = snap.Nodegroups
@@ -223,4 +246,3 @@ func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
 
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
-
