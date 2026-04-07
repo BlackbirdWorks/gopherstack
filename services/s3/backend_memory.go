@@ -753,7 +753,12 @@ func findLatestVersion(versions map[string]*StoredObjectVersion) *StoredObjectVe
 
 // checkObjectLockForDelete returns ErrObjectLocked if the target version is under
 // a legal hold or an active retention policy. Must be called with bucket.mu held.
+// obj.mu is acquired internally to guard against concurrent PutObject calls that
+// update LatestVersionID / Versions under obj.mu after releasing bucket.mu.
 func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
+	obj.mu.RLock("checkObjectLockForDelete")
+	defer obj.mu.RUnlock()
+
 	var ver *StoredObjectVersion
 
 	switch {
@@ -784,7 +789,11 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 // when versioning is not enabled) is under a legal hold or an active retention
 // policy. This prevents PutObject from silently overwriting a protected object.
 // Must be called with bucket.mu held.
+// obj.mu is acquired internally to guard against concurrent PutObject calls.
 func checkObjectLockForOverwrite(obj *StoredObject) error {
+	obj.mu.RLock("checkObjectLockForOverwrite")
+	defer obj.mu.RUnlock()
+
 	var ver *StoredObjectVersion
 
 	if obj.LatestVersionID != "" {

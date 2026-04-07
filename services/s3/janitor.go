@@ -165,7 +165,16 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 // Run runs the janitor loop until ctx is cancelled.
 // Each tick, sweepAndDrain spawns one goroutine per pending bucket so that
 // thousands of large buckets are drained in parallel rather than serially.
+//
+// A deferred recover() protects the loop from panics in sweep functions.
 func (j *Janitor) Run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(ctx).Error("S3 janitor: panic recovered, loop exiting",
+				"panic", fmt.Sprintf("%v", r))
+		}
+	}()
+
 	ticker := time.NewTicker(j.Interval)
 	defer ticker.Stop()
 
@@ -245,6 +254,10 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 				defer func() {
 					<-j.drainSem
 					j.activeDrains.Delete(n)
+					if r := recover(); r != nil {
+						logger.Load(ctx).Error("S3 janitor: panic in drain goroutine",
+							"bucket", n, "panic", fmt.Sprintf("%v", r))
+					}
 				}()
 				j.processBucket(ctx, n)
 			}(name)

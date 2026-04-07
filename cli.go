@@ -58,6 +58,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -1718,7 +1719,15 @@ func run(ctx context.Context, cli CLI) error {
 	startBackgroundWorkers(janitorCtx, services)
 
 	// Start automatic purge background worker. It dynamically checks for TTL updates from the config.
-	go startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("purge worker: panic recovered",
+					"panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+	}()
 
 	inMemMux.Handle("/", e)
 
@@ -1866,7 +1875,31 @@ func buildEchoServer(
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 
+	// Custom HTTP error handler: logs errors via slog so they are not silently
+	// swallowed under high concurrency, then writes the standard JSON response.
+	e.HTTPErrorHandler = func(c *echo.Context, err error) {
+		var httpErr *echo.HTTPError
+		if !errors.As(err, &httpErr) {
+			httpErr = echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+
+		if httpErr.Code >= http.StatusInternalServerError {
+			logger.Load(c.Request().Context()).Error("HTTP error",
+				"status", httpErr.Code,
+				"error", httpErr.Message,
+				"path", c.Request().URL.Path,
+				"method", c.Request().Method,
+			)
+		}
+
+		// Echo's default JSON response format.
+		if resp, _ := echo.UnwrapResponse(c.Response()); resp == nil || !resp.Committed {
+			_ = c.JSON(httpErr.Code, map[string]any{"message": httpErr.Message})
+		}
+	}
+
 	// Health endpoint: build service name list dynamically from registered services.
+	// Also exposes runtime goroutine count and memory stats for observability.
 	e.GET("/_gopherstack/health", func(c *echo.Context) error {
 		names := make([]string, 0, len(services))
 		for _, svc := range services {
@@ -1875,9 +1908,16 @@ func buildEchoServer(
 
 		sort.Strings(names)
 
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+
 		return c.JSON(http.StatusOK, healthResponse{
-			Status:   "ok",
-			Services: names,
+			Status:      "ok",
+			Services:    names,
+			Goroutines:  runtime.NumGoroutine(),
+			HeapAllocB:  ms.HeapAlloc,
+			HeapInuseB:  ms.HeapInuse,
+			NumGC:       ms.NumGC,
 		})
 	})
 
@@ -3856,6 +3896,15 @@ type healthResponse struct {
 	Status string `json:"status"`
 	// Services lists all registered mock AWS services.
 	Services []string `json:"services"`
+	// Goroutines is the current number of live goroutines (runtime.NumGoroutine).
+	// A sustained upward trend indicates a goroutine leak.
+	Goroutines int `json:"goroutines"`
+	// HeapAllocB is the number of heap bytes currently allocated (runtime.MemStats.HeapAlloc).
+	HeapAllocB uint64 `json:"heap_alloc_bytes"`
+	// HeapInuseB is the number of heap bytes in use (runtime.MemStats.HeapInuse).
+	HeapInuseB uint64 `json:"heap_inuse_bytes"`
+	// NumGC is the total number of completed GC cycles (runtime.MemStats.NumGC).
+	NumGC uint32 `json:"num_gc"`
 }
 
 func setupChaosAndRegistry(
@@ -4379,6 +4428,9 @@ func panicRecoveryMiddleware() echo.MiddlewareFunc {
 					n := runtime.Stack(stack, false)
 					logger.Load(c.Request().Context()).Error("panic recovered in HTTP handler",
 						"error", panicErr, "stack", string(stack[:n]))
+
+					// Record a metric so dashboards can alert on panic spikes.
+					telemetry.RecordWorkerTask("http", "PanicRecovery", "error")
 
 					err = c.JSON(http.StatusInternalServerError, map[string]string{
 						"message": "internal server error",

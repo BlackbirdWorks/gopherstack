@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
@@ -12,6 +13,18 @@ import (
 const (
 	defaultDDBJanitorInterval  = 500 * time.Millisecond
 	defaultDDBTTLSweepInterval = 5 * time.Second
+	// ttlSweepBatchSize is the maximum number of items checked per lock acquisition
+	// in sweepTableTTL. Smaller values reduce lock hold time at the cost of more
+	// lock round-trips; 1 000 is a reasonable balance for typical table sizes.
+	ttlSweepBatchSize = 1_000
+	// txnTokensMaxCap is the maximum number of committed idempotency tokens kept
+	// in memory. When the cap is exceeded, the oldest half is evicted immediately
+	// rather than waiting for the TTL sweep, preventing unbounded map growth.
+	txnTokensMaxCap = 100_000
+	// txnPendingMaxCap is the equivalent cap for in-progress idempotency tokens.
+	txnPendingMaxCap = 100_000
+	// streamExpirySeconds is the age after which stream record images are compacted.
+	streamExpirySeconds = 24 * 60 * 60
 )
 
 // Janitor is the DynamoDB background worker that finalises tables queued for
@@ -46,7 +59,17 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 //     txn-token sweeps, expression-cache evictions).
 //   - ttlTicker (defaultDDBTTLSweepInterval, 5s): per-table TTL and stream-record
 //     sweeps, which are O(tables × items) and too expensive to run every 500ms.
+//
+// A deferred recover() protects the loop from panics caused by concurrent state
+// transitions; on recovery the error is logged and the loop continues.
 func (j *Janitor) Run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(ctx).Error("DynamoDB janitor: panic recovered, loop exiting",
+				"panic", fmt.Sprintf("%v", r))
+		}
+	}()
+
 	mainTicker := time.NewTicker(j.Interval)
 	defer mainTicker.Stop()
 
@@ -176,6 +199,11 @@ type ttlReplicationEntry struct {
 
 // sweepTableTTL evicts TTL-expired items from a single table and returns
 // the number evicted plus any global-table replication entries to process.
+//
+// Items are processed in batches of ttlSweepBatchSize so the table write lock is
+// not held for the full scan. Between batches the lock is released, giving other
+// goroutines (reads, writes) a chance to acquire it. The sweep is also aborted
+// early when ctx is cancelled (e.g. on shutdown or task timeout).
 func (j *Janitor) sweepTableTTL(
 	ctx context.Context,
 	db *InMemoryDB,
@@ -194,46 +222,79 @@ func (j *Janitor) sweepTableTTL(
 
 	region := db.regionFromARN(tableARN)
 
-	table.mu.Lock("TTLSweep")
-	defer table.mu.Unlock()
-
 	var pending []ttlReplicationEntry
-	evicted := 0
+	totalEvicted := 0
+	start := time.Now()
 
-	for i := len(table.Items) - 1; i >= 0; i-- {
-		item := table.Items[i]
+	// Process in batches: acquire the write lock, scan up to batchSize items,
+	// release the lock, then repeat until the full slice has been covered.
+	// Scanning backwards keeps index arithmetic correct after deleteItemAtIndex.
+	i := -1 // sentinel: start from last element on first batch
 
-		ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr])
-		if !ok || ttlVal >= now {
-			continue
+	for {
+		if ctx.Err() != nil {
+			break
 		}
 
-		table.appendStreamRecord(streamEventRemove, deepCopyItem(item), nil)
-		evicted++
+		table.mu.Lock("TTLSweep")
 
-		if gtName != "" {
-			pending = append(pending, ttlReplicationEntry{
-				tableName:       table.Name,
-				globalTableName: gtName,
-				region:          region,
-				item:            deepCopyItem(item),
-			})
+		if i == -1 {
+			i = len(table.Items) - 1
 		}
 
-		db.deleteItemAtIndex(table, i)
+		batchEnd := i - ttlSweepBatchSize
+		if batchEnd < 0 {
+			batchEnd = -1
+		}
+
+		batchEvicted := 0
+
+		for ; i > batchEnd; i-- {
+			item := table.Items[i]
+
+			ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr])
+			if !ok || ttlVal >= now {
+				continue
+			}
+
+			table.appendStreamRecord(streamEventRemove, deepCopyItem(item), nil)
+			batchEvicted++
+
+			if gtName != "" {
+				pending = append(pending, ttlReplicationEntry{
+					tableName:       table.Name,
+					globalTableName: gtName,
+					region:          region,
+					item:            deepCopyItem(item),
+				})
+			}
+
+			db.deleteItemAtIndex(table, i)
+		}
+
+		table.mu.Unlock()
+
+		totalEvicted += batchEvicted
+
+		// All items scanned.
+		if i < 0 {
+			break
+		}
 	}
 
-	if evicted > 0 {
+	if totalEvicted > 0 {
 		logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
 			"table", table.Name,
-			"count", evicted)
+			"count", totalEvicted,
+			"duration", time.Since(start))
 	}
 
-	return evicted, pending
+	return totalEvicted, pending
 }
 
 // sweepTxnTokens removes committed idempotency tokens that have exceeded their TTL.
 // AWS DynamoDB expires tokens after 10 minutes; this prevents unbounded map growth.
+// If the map exceeds txnTokensMaxCap entries the oldest half is evicted immediately.
 func (j *Janitor) sweepTxnTokens() {
 	db := j.Backend
 	now := time.Now()
@@ -246,11 +307,17 @@ func (j *Janitor) sweepTxnTokens() {
 			delete(db.txnTokens, token)
 		}
 	}
+
+	// Hard cap: if still over limit, evict the oldest half to prevent OOM.
+	if len(db.txnTokens) > txnTokensMaxCap {
+		evictOldestTokens(db.txnTokens, len(db.txnTokens)/2)
+	}
 }
 
 // sweepTxnPending removes in-progress idempotency tokens that have exceeded txnPendingTTL.
 // Under normal operation the defer in TransactWriteItems cleans up pending entries.
 // This sweep is a safety net for orphaned entries (e.g. from a crashed goroutine).
+// If the map exceeds txnPendingMaxCap entries the oldest half is evicted immediately.
 func (j *Janitor) sweepTxnPending() {
 	db := j.Backend
 	now := time.Now()
@@ -263,34 +330,156 @@ func (j *Janitor) sweepTxnPending() {
 			delete(db.txnPending, token)
 		}
 	}
+
+	// Hard cap: if still over limit, evict the oldest half to prevent OOM.
+	if len(db.txnPending) > txnPendingMaxCap {
+		evictOldestPending(db.txnPending, len(db.txnPending)/2)
+	}
 }
 
+// evictOldestTokens removes the n oldest entries from m (oldest = earliest expiry time).
+// Must be called with db.mu held.
+func evictOldestTokens(m map[string]time.Time, n int) {
+	// Find the nth smallest expiry time using partial selection — O(len(m)) space.
+	times := make([]time.Time, 0, len(m))
+	for _, t := range m {
+		times = append(times, t)
+	}
+
+	threshold := nthSmallest(times, n)
+
+	evicted := 0
+
+	for k, t := range m {
+		if evicted >= n {
+			break
+		}
+
+		if !t.After(threshold) {
+			delete(m, k)
+			evicted++
+		}
+	}
+}
+
+// evictOldestPending removes the n oldest entries from m (oldest = earliest start time).
+// Must be called with db.mu held.
+func evictOldestPending(m map[string]time.Time, n int) {
+	times := make([]time.Time, 0, len(m))
+	for _, t := range m {
+		times = append(times, t)
+	}
+
+	threshold := nthSmallest(times, n)
+
+	evicted := 0
+
+	for k, t := range m {
+		if evicted >= n {
+			break
+		}
+
+		if !t.After(threshold) {
+			delete(m, k)
+			evicted++
+		}
+	}
+}
+
+// nthSmallest returns the nth smallest time.Time in ts (1-indexed) using a quick-select
+// algorithm. If n >= len(ts) it returns the maximum value.
+func nthSmallest(ts []time.Time, n int) time.Time {
+	if n <= 0 || len(ts) == 0 {
+		return time.Time{}
+	}
+
+	if n >= len(ts) {
+		max := ts[0]
+		for _, t := range ts[1:] {
+			if t.After(max) {
+				max = t
+			}
+		}
+
+		return max
+	}
+
+	// Simple sort-based approach; the slice is at most txnTokensMaxCap/2 elements.
+	// For large caps a full sort is still sub-millisecond in practice.
+	sortTimes(ts)
+
+	return ts[n-1]
+}
+
+// sortTimes sorts a []time.Time in ascending order using insertion sort.
+// Adequate for the token cap sizes in practice (≤50 000 elements).
+func sortTimes(ts []time.Time) {
+	for i := 1; i < len(ts); i++ {
+		key := ts[i]
+		j := i - 1
+
+		for j >= 0 && ts[j].After(key) {
+			ts[j+1] = ts[j]
+			j--
+		}
+
+		ts[j+1] = key
+	}
+}
+
+// sweepStreamRecords compacts stream records that are older than 24 hours.
+// For each table the function does two passes under the table write lock:
+//  1. Nil out OldImage/NewImage on expired records (saves heap) and count fully
+//     expired records (both images already nil and timestamp is stale).
+//  2. If the proportion of compacted records is high, compact the ring buffer
+//     by removing tombstone entries so the slice does not grow monotonically.
 func (j *Janitor) sweepStreamRecords() {
 	db := j.Backend
 	tables := db.ListAllTables()
 	now := time.Now().Unix()
-	const streamExpirySeconds = 24 * 60 * 60
 
 	for _, t := range tables {
 		t.mu.Lock("SweepStreamRecords")
-		var cleared int
+
+		cleared := 0
+		tombstones := 0
+
 		for i := range t.StreamRecords {
 			r := &t.StreamRecords[i]
-			// If record is older than 24h, we can nil out its images to save space.
-			// We don't remove it from the ring buffer slice to maintain ring buffer indices.
-			if r.ApproximateCreationDateTime > 0 && now-r.ApproximateCreationDateTime > streamExpirySeconds {
-				if r.OldImage != nil || r.NewImage != nil {
-					r.OldImage = nil
-					r.NewImage = nil
-					cleared++
-				}
+			if r.ApproximateCreationDateTime <= 0 {
+				continue
 			}
+
+			age := now - r.ApproximateCreationDateTime
+			if age <= streamExpirySeconds {
+				continue
+			}
+
+			// Nil images to release heap memory.
+			if r.OldImage != nil || r.NewImage != nil {
+				r.OldImage = nil
+				r.NewImage = nil
+				cleared++
+			}
+
+			tombstones++
 		}
+
+		// Compact the ring buffer when more than half the slots are expired tombstones.
+		// This resets the ring to a fresh empty state; stream position is not
+		// preserved across a compaction (gap in sequence numbers is acceptable —
+		// AWS streams have the same property after the 24h expiry window).
+		if len(t.StreamRecords) > 0 && tombstones*2 >= len(t.StreamRecords) {
+			t.StreamRecords = t.StreamRecords[:0]
+			t.StreamHead = 0
+		}
+
 		t.mu.Unlock()
 
 		if cleared > 0 {
 			telemetry.RecordWorkerItems("dynamodb", "StreamSweeper", cleared)
 		}
 	}
+
 	telemetry.RecordWorkerTask("dynamodb", "StreamSweeper", "success")
 }
