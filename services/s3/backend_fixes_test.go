@@ -321,6 +321,96 @@ func TestS3Janitor_DrainSemaphoreCapacity(t *testing.T) {
 		"drain semaphore capacity should equal maxConcurrentDrains")
 }
 
+// TestObjectLockRace_ConcurrentPutAndDelete verifies that checkObjectLockForDelete
+// and checkObjectLockForOverwrite are safe to call concurrently with PutObject
+// by running many parallel PutObject + DeleteObject calls against the same key.
+// The test would produce a race-detector failure if obj.mu were not held correctly.
+func TestObjectLockRace_ConcurrentPutAndDelete(t *testing.T) {
+	t.Parallel()
+
+	const goroutines = 20
+
+	tests := []struct {
+		name string
+	}{
+		{name: "concurrent_put_and_delete_same_key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newTestBackend(t)
+			mustCreateBucket(t, backend, "race-bkt")
+			mustPutObject(t, backend, "race-bkt", "shared-key", []byte("initial"))
+
+			done := make(chan struct{})
+
+			for range goroutines {
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							// panic = race in obj.mu not held properly
+							t.Errorf("unexpected panic in concurrent access: %v", r)
+						}
+
+						done <- struct{}{}
+					}()
+
+					_, _ = backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+						Bucket: aws.String("race-bkt"),
+						Key:    aws.String("shared-key"),
+						Body:   bytes.NewReader([]byte("concurrent-data")),
+					})
+				}()
+
+				go func() {
+					defer func() {
+						recover()
+						done <- struct{}{}
+					}()
+
+					_, _ = backend.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+						Bucket: aws.String("race-bkt"),
+						Key:    aws.String("shared-key"),
+					})
+				}()
+			}
+
+			for range goroutines * 2 {
+				<-done
+			}
+		})
+	}
+}
+
+// TestS3JanitorRun_ExitsOnContextCancel verifies that the S3 janitor Run loop
+// exits cleanly when the context is cancelled (no panic, no goroutine leak).
+func TestS3JanitorRun_ExitsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	j := s3.NewJanitor(backend, s3.Settings{})
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		j.Run(ctx)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+		// clean exit
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("S3 janitor Run did not exit after context cancellation")
+	}
+}
+
 // TestListObjectsV2_ContextPropagation verifies that ListObjectsV2 passes the
 // caller's context to the underlying ListObjects call rather than using
 // [context.TODO]. The in-memory backend completes synchronously regardless of

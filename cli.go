@@ -1884,7 +1884,7 @@ func buildEchoServer(
 		}
 
 		if httpErr.Code >= http.StatusInternalServerError {
-			logger.Load(c.Request().Context()).Error("HTTP error",
+			logger.Load(c.Request().Context()).ErrorContext(c.Request().Context(), "HTTP error",
 				"status", httpErr.Code,
 				"error", httpErr.Message,
 				"path", c.Request().URL.Path,
@@ -1912,12 +1912,12 @@ func buildEchoServer(
 		runtime.ReadMemStats(&ms)
 
 		return c.JSON(http.StatusOK, healthResponse{
-			Status:      "ok",
-			Services:    names,
-			Goroutines:  runtime.NumGoroutine(),
-			HeapAllocB:  ms.HeapAlloc,
-			HeapInuseB:  ms.HeapInuse,
-			NumGC:       ms.NumGC,
+			Status:     "ok",
+			Services:   names,
+			Goroutines: runtime.NumGoroutine(),
+			HeapAllocB: ms.HeapAlloc,
+			HeapInuseB: ms.HeapInuse,
+			NumGC:      ms.NumGC,
 		})
 	})
 

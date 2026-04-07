@@ -25,6 +25,10 @@ const (
 	txnPendingMaxCap = 100_000
 	// streamExpirySeconds is the age after which stream record images are compacted.
 	streamExpirySeconds = 24 * 60 * 60
+	// txnCapEvictionFraction is the divisor used to compute how many entries to evict
+	// when the hard cap is exceeded. Evicting half (len/2) ensures the map drops
+	// well below the cap in one pass.
+	txnCapEvictionFraction = 2
 )
 
 // Janitor is the DynamoDB background worker that finalises tables queued for
@@ -231,10 +235,7 @@ func (j *Janitor) sweepTableTTL(
 	// Scanning backwards keeps index arithmetic correct after deleteItemAtIndex.
 	i := -1 // sentinel: start from last element on first batch
 
-	for {
-		if ctx.Err() != nil {
-			break
-		}
+	for ctx.Err() == nil {
 
 		table.mu.Lock("TTLSweep")
 
@@ -310,7 +311,7 @@ func (j *Janitor) sweepTxnTokens() {
 
 	// Hard cap: if still over limit, evict the oldest half to prevent OOM.
 	if len(db.txnTokens) > txnTokensMaxCap {
-		evictOldestTokens(db.txnTokens, len(db.txnTokens)/2)
+		evictOldestTokens(db.txnTokens, len(db.txnTokens)/txnCapEvictionFraction)
 	}
 }
 
@@ -333,7 +334,7 @@ func (j *Janitor) sweepTxnPending() {
 
 	// Hard cap: if still over limit, evict the oldest half to prevent OOM.
 	if len(db.txnPending) > txnPendingMaxCap {
-		evictOldestPending(db.txnPending, len(db.txnPending)/2)
+		evictOldestPending(db.txnPending, len(db.txnPending)/txnCapEvictionFraction)
 	}
 }
 
@@ -394,14 +395,14 @@ func nthSmallest(ts []time.Time, n int) time.Time {
 	}
 
 	if n >= len(ts) {
-		max := ts[0]
+		latest := ts[0]
 		for _, t := range ts[1:] {
-			if t.After(max) {
-				max = t
+			if t.After(latest) {
+				latest = t
 			}
 		}
 
-		return max
+		return latest
 	}
 
 	// Simple sort-based approach; the slice is at most txnTokensMaxCap/2 elements.
