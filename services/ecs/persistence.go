@@ -1,0 +1,272 @@
+package ecs
+
+import (
+	"encoding/json"
+)
+
+// Snapshottable is an optional interface that a Backend may implement to
+// support snapshot/restore for persistence or test isolation.
+type Snapshottable interface {
+	Snapshot() []byte
+	Restore([]byte) error
+}
+
+type backendSnapshot struct {
+	Clusters               map[string]*Cluster                      `json:"clusters"`
+	TaskDefinitions        map[string][]*TaskDefinition             `json:"taskDefinitions"`
+	Services               map[string]map[string]*Service           `json:"services"`
+	Tasks                  map[string]map[string]*Task              `json:"tasks"`
+	ContainerInstances     map[string]map[string]*ContainerInstance `json:"containerInstances"`
+	TaskSets               map[string]map[string]*TaskSet           `json:"taskSets"`
+	CapacityProviders      map[string]*CapacityProvider             `json:"capacityProviders"`
+	AccountSettings        map[string]*AccountSetting               `json:"accountSettings"`
+	Attributes             map[string]map[string]*Attribute         `json:"attributes"`
+	ServiceDeployments     map[string]*ServiceDeployment            `json:"serviceDeployments"`
+	ExpressGatewayServices map[string]*ExpressGatewayService        `json:"expressGatewayServices"`
+}
+
+func snapshotClusters(src map[string]*Cluster) map[string]*Cluster {
+	dst := make(map[string]*Cluster, len(src))
+	for k, v := range src {
+		cp := *v
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
+func snapshotTaskDefinitions(src map[string][]*TaskDefinition) map[string][]*TaskDefinition {
+	dst := make(map[string][]*TaskDefinition, len(src))
+	for family, revs := range src {
+		revsCp := make([]*TaskDefinition, len(revs))
+		for i, td := range revs {
+			cp := *td
+			revsCp[i] = &cp
+		}
+		dst[family] = revsCp
+	}
+
+	return dst
+}
+
+func snapshotServices(src map[string]map[string]*Service) map[string]map[string]*Service {
+	dst := make(map[string]map[string]*Service, len(src))
+	for cluster, svcMap := range src {
+		cp := make(map[string]*Service, len(svcMap))
+		for name, svc := range svcMap {
+			s := *svc
+			cp[name] = &s
+		}
+		dst[cluster] = cp
+	}
+
+	return dst
+}
+
+func snapshotTasks(src map[string]map[string]*Task) map[string]map[string]*Task {
+	dst := make(map[string]map[string]*Task, len(src))
+	for cluster, taskMap := range src {
+		cp := make(map[string]*Task, len(taskMap))
+		for arn, task := range taskMap {
+			t := *task
+			cp[arn] = &t
+		}
+		dst[cluster] = cp
+	}
+
+	return dst
+}
+
+func snapshotContainerInstances(
+	src map[string]map[string]*ContainerInstance,
+) map[string]map[string]*ContainerInstance {
+	dst := make(map[string]map[string]*ContainerInstance, len(src))
+	for cluster, ciMap := range src {
+		cp := make(map[string]*ContainerInstance, len(ciMap))
+		for arn, ci := range ciMap {
+			c := *ci
+			cp[arn] = &c
+		}
+		dst[cluster] = cp
+	}
+
+	return dst
+}
+
+func snapshotTaskSets(src map[string]map[string]*TaskSet) map[string]map[string]*TaskSet {
+	dst := make(map[string]map[string]*TaskSet, len(src))
+	for key, tsMap := range src {
+		cp := make(map[string]*TaskSet, len(tsMap))
+		for arn, ts := range tsMap {
+			t := *ts
+			cp[arn] = &t
+		}
+		dst[key] = cp
+	}
+
+	return dst
+}
+
+func snapshotCapacityProviders(src map[string]*CapacityProvider) map[string]*CapacityProvider {
+	dst := make(map[string]*CapacityProvider, len(src))
+	for k, v := range src {
+		cp := *v
+		cp.Tags = copyTags(v.Tags)
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
+func snapshotAttributes(src map[string]map[string]*Attribute) map[string]map[string]*Attribute {
+	dst := make(map[string]map[string]*Attribute, len(src))
+	for cluster, attrMap := range src {
+		cp := make(map[string]*Attribute, len(attrMap))
+		for key, attr := range attrMap {
+			a := *attr
+			cp[key] = &a
+		}
+		dst[cluster] = cp
+	}
+
+	return dst
+}
+
+func snapshotExpressGatewayServices(src map[string]*ExpressGatewayService) map[string]*ExpressGatewayService {
+	dst := make(map[string]*ExpressGatewayService, len(src))
+	for k, v := range src {
+		cp := *v
+		cp.Tags = copyTags(v.Tags)
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
+// Snapshot serialises the backend state to JSON.
+func (b *InMemoryBackend) Snapshot() []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	accountSettings := make(map[string]*AccountSetting, len(b.accountSettings))
+	for k, v := range b.accountSettings {
+		cp := *v
+		accountSettings[k] = &cp
+	}
+
+	serviceDeployments := make(map[string]*ServiceDeployment, len(b.serviceDeployments))
+	for k, v := range b.serviceDeployments {
+		cp := *v
+		serviceDeployments[k] = &cp
+	}
+
+	snap := backendSnapshot{
+		Clusters:               snapshotClusters(b.clusters),
+		TaskDefinitions:        snapshotTaskDefinitions(b.taskDefinitions),
+		Services:               snapshotServices(b.services),
+		Tasks:                  snapshotTasks(b.tasks),
+		ContainerInstances:     snapshotContainerInstances(b.containerInstances),
+		TaskSets:               snapshotTaskSets(b.taskSets),
+		CapacityProviders:      snapshotCapacityProviders(b.capacityProviders),
+		AccountSettings:        accountSettings,
+		Attributes:             snapshotAttributes(b.attributes),
+		ServiceDeployments:     serviceDeployments,
+		ExpressGatewayServices: snapshotExpressGatewayServices(b.expressGatewayServices),
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil
+	}
+
+	return data
+}
+
+// Restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	if snap.Clusters == nil {
+		snap.Clusters = make(map[string]*Cluster)
+	}
+
+	if snap.TaskDefinitions == nil {
+		snap.TaskDefinitions = make(map[string][]*TaskDefinition)
+	}
+
+	if snap.Services == nil {
+		snap.Services = make(map[string]map[string]*Service)
+	}
+
+	if snap.Tasks == nil {
+		snap.Tasks = make(map[string]map[string]*Task)
+	}
+
+	if snap.ContainerInstances == nil {
+		snap.ContainerInstances = make(map[string]map[string]*ContainerInstance)
+	}
+
+	if snap.TaskSets == nil {
+		snap.TaskSets = make(map[string]map[string]*TaskSet)
+	}
+
+	if snap.CapacityProviders == nil {
+		snap.CapacityProviders = make(map[string]*CapacityProvider)
+	}
+
+	if snap.AccountSettings == nil {
+		snap.AccountSettings = make(map[string]*AccountSetting)
+	}
+
+	if snap.Attributes == nil {
+		snap.Attributes = make(map[string]map[string]*Attribute)
+	}
+
+	if snap.ServiceDeployments == nil {
+		snap.ServiceDeployments = make(map[string]*ServiceDeployment)
+	}
+
+	if snap.ExpressGatewayServices == nil {
+		snap.ExpressGatewayServices = make(map[string]*ExpressGatewayService)
+	}
+
+	b.clusters = snap.Clusters
+	b.taskDefinitions = snap.TaskDefinitions
+	b.services = snap.Services
+	b.tasks = snap.Tasks
+	b.containerInstances = snap.ContainerInstances
+	b.taskSets = snap.TaskSets
+	b.capacityProviders = snap.CapacityProviders
+	b.accountSettings = snap.AccountSettings
+	b.attributes = snap.Attributes
+	b.serviceDeployments = snap.ServiceDeployments
+	b.expressGatewayServices = snap.ExpressGatewayServices
+
+	return nil
+}
+
+// Snapshot implements Snapshottable by delegating to the backend when it
+// supports snapshotting. Returns nil for non-snapshottable backends.
+func (h *Handler) Snapshot() []byte {
+	if s, ok := h.Backend.(Snapshottable); ok {
+		return s.Snapshot()
+	}
+
+	return nil
+}
+
+// Restore implements Snapshottable by delegating to the backend when it
+// supports snapshotting. Non-snapshottable backends are skipped.
+func (h *Handler) Restore(data []byte) error {
+	if s, ok := h.Backend.(Snapshottable); ok {
+		return s.Restore(data)
+	}
+
+	return nil
+}

@@ -210,6 +210,24 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 	}
 }
 
+// Reset zeroes all backend state for test isolation.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.clusters = make(map[string]*Cluster)
+	b.taskDefinitions = make(map[string][]*TaskDefinition)
+	b.services = make(map[string]map[string]*Service)
+	b.tasks = make(map[string]map[string]*Task)
+	b.containerInstances = make(map[string]map[string]*ContainerInstance)
+	b.taskSets = make(map[string]map[string]*TaskSet)
+	b.capacityProviders = make(map[string]*CapacityProvider)
+	b.accountSettings = make(map[string]*AccountSetting)
+	b.attributes = make(map[string]map[string]*Attribute)
+	b.serviceDeployments = make(map[string]*ServiceDeployment)
+	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
+}
+
 // resolveCluster returns the cluster ARN/name to use, defaulting to "default".
 func (b *InMemoryBackend) resolveCluster(cluster string) string {
 	if cluster == "" {

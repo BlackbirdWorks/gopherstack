@@ -102,6 +102,18 @@ type CreateExpressGatewayServiceInput struct {
 	Tags                  []Tag
 }
 
+// copyTags returns a deep copy of the given tag slice.
+func copyTags(tags []Tag) []Tag {
+	if tags == nil {
+		return nil
+	}
+
+	out := make([]Tag, len(tags))
+	copy(out, tags)
+
+	return out
+}
+
 // AddAccountSettingInternal adds an account setting directly (seed helper for tests).
 func (b *InMemoryBackend) AddAccountSettingInternal(key string, setting *AccountSetting) {
 	b.mu.Lock("AddAccountSettingInternal")
@@ -128,7 +140,8 @@ func (b *InMemoryBackend) AddServiceDeploymentInternal(sd *ServiceDeployment) {
 	b.mu.Lock("AddServiceDeploymentInternal")
 	defer b.mu.Unlock()
 
-	b.serviceDeployments[sd.ServiceDeploymentArn] = sd
+	c := *sd
+	b.serviceDeployments[sd.ServiceDeploymentArn] = &c
 }
 
 // AddCapacityProviderInternal adds a capacity provider directly (seed helper for tests).
@@ -136,7 +149,9 @@ func (b *InMemoryBackend) AddCapacityProviderInternal(cp *CapacityProvider) {
 	b.mu.Lock("AddCapacityProviderInternal")
 	defer b.mu.Unlock()
 
-	b.capacityProviders[cp.Name] = cp
+	c := *cp
+	c.Tags = copyTags(cp.Tags)
+	b.capacityProviders[cp.Name] = &c
 }
 
 // accountSettingKey builds the map key for an account setting.
@@ -171,12 +186,13 @@ func (b *InMemoryBackend) CreateCapacityProvider(input CreateCapacityProviderInp
 		),
 		Name:   input.Name,
 		Status: statusActive,
-		Tags:   input.Tags,
+		Tags:   copyTags(input.Tags),
 	}
 
 	b.capacityProviders[input.Name] = cp
 
 	out := *cp
+	out.Tags = copyTags(cp.Tags)
 
 	return &out, nil
 }
@@ -206,7 +222,9 @@ func (b *InMemoryBackend) DescribeCapacityProviders(nameOrArns []string) ([]Capa
 	if len(nameOrArns) == 0 {
 		out := make([]CapacityProvider, 0, len(b.capacityProviders))
 		for _, cp := range b.capacityProviders {
-			out = append(out, *cp)
+			c := *cp
+			c.Tags = copyTags(cp.Tags)
+			out = append(out, c)
 		}
 
 		return out, nil
@@ -220,7 +238,9 @@ func (b *InMemoryBackend) DescribeCapacityProviders(nameOrArns []string) ([]Capa
 			return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, ref)
 		}
 
-		out = append(out, *cp)
+		c := *cp
+		c.Tags = copyTags(cp.Tags)
+		out = append(out, c)
 	}
 
 	return out, nil
@@ -419,12 +439,13 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 		Status:                statusActive,
 		ExecutionRoleArn:      input.ExecutionRoleArn,
 		InfrastructureRoleArn: input.InfrastructureRoleArn,
-		Tags:                  input.Tags,
+		Tags:                  copyTags(input.Tags),
 	}
 
 	b.expressGatewayServices[serviceArn] = svc
 
 	out := *svc
+	out.Tags = copyTags(svc.Tags)
 
 	return &out, nil
 }

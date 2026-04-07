@@ -29,11 +29,15 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for ECS operations.
 type Handler struct {
 	Backend Backend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new ECS handler.
 func NewHandler(backend Backend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // Name returns the service name.
@@ -170,7 +174,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateCluster":            service.WrapOp(h.handleCreateCluster),
 		"DescribeClusters":         service.WrapOp(h.handleDescribeClusters),
@@ -222,7 +226,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -233,6 +237,13 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	}
 
 	return json.Marshal(result)
+}
+
+// Reset clears the backend state.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
