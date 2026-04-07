@@ -28,11 +28,50 @@ const (
 // Handler is the Echo HTTP handler for Classic ELB operations.
 type Handler struct {
 	Backend StorageBackend
+	// ops is the pre-built dispatch table mapping action names to handler functions.
+	ops map[string]func(url.Values) (any, error)
 }
 
 // NewHandler creates a new ELB handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// buildOps returns the action-to-handler dispatch table.
+func (h *Handler) buildOps() map[string]func(url.Values) (any, error) {
+	return map[string]func(url.Values) (any, error){
+		"CreateLoadBalancer":                  h.handleCreateLoadBalancer,
+		"DeleteLoadBalancer":                  h.handleDeleteLoadBalancer,
+		"DescribeLoadBalancers":               h.handleDescribeLoadBalancers,
+		"CreateLoadBalancerListeners":         h.handleCreateLoadBalancerListeners,
+		"DeleteLoadBalancerListeners":         h.handleDeleteLoadBalancerListeners,
+		"RegisterInstancesWithLoadBalancer":   h.handleRegisterInstances,
+		"DeregisterInstancesFromLoadBalancer": h.handleDeregisterInstances,
+		"ConfigureHealthCheck":                h.handleConfigureHealthCheck,
+		"ModifyLoadBalancerAttributes":        h.handleModifyLoadBalancerAttributes,
+		"DescribeLoadBalancerAttributes":      h.handleDescribeLoadBalancerAttributes,
+		"AddTags":                             h.handleAddTags,
+		"DescribeTags":                        h.handleDescribeTags,
+		"RemoveTags":                          h.handleRemoveTags,
+		"ApplySecurityGroupsToLoadBalancer":   h.handleApplySecurityGroupsToLoadBalancer,
+		"AttachLoadBalancerToSubnets":         h.handleAttachLoadBalancerToSubnets,
+		"CreateAppCookieStickinessPolicy":     h.handleCreateAppCookieStickinessPolicy,
+		"CreateLBCookieStickinessPolicy":      h.handleCreateLBCookieStickinessPolicy,
+		"CreateLoadBalancerPolicy":            h.handleCreateLoadBalancerPolicy,
+		"DeleteLoadBalancerPolicy":            h.handleDeleteLoadBalancerPolicy,
+		"DescribeAccountLimits":               h.handleDescribeAccountLimits,
+		"DescribeInstanceHealth":              h.handleDescribeInstanceHealth,
+		"DescribeLoadBalancerPolicies":        h.handleDescribeLoadBalancerPolicies,
+		"DescribeLoadBalancerPolicyTypes":     h.handleDescribeLoadBalancerPolicyTypes,
+	}
+}
+
+// Reset clears the backend state, delegating to the underlying StorageBackend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -54,6 +93,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddTags",
 		"DescribeTags",
 		"RemoveTags",
+		"ApplySecurityGroupsToLoadBalancer",
+		"AttachLoadBalancerToSubnets",
+		"CreateAppCookieStickinessPolicy",
+		"CreateLBCookieStickinessPolicy",
+		"CreateLoadBalancerPolicy",
+		"DeleteLoadBalancerPolicy",
+		"DescribeAccountLimits",
+		"DescribeInstanceHealth",
+		"DescribeLoadBalancerPolicies",
+		"DescribeLoadBalancerPolicyTypes",
 	}
 }
 
@@ -159,36 +208,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the ELB action to the appropriate handler.
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	switch action {
-	case "CreateLoadBalancer":
-		return h.handleCreateLoadBalancer(vals)
-	case "DeleteLoadBalancer":
-		return h.handleDeleteLoadBalancer(vals)
-	case "DescribeLoadBalancers":
-		return h.handleDescribeLoadBalancers(vals)
-	case "CreateLoadBalancerListeners":
-		return h.handleCreateLoadBalancerListeners(vals)
-	case "DeleteLoadBalancerListeners":
-		return h.handleDeleteLoadBalancerListeners(vals)
-	case "RegisterInstancesWithLoadBalancer":
-		return h.handleRegisterInstances(vals)
-	case "DeregisterInstancesFromLoadBalancer":
-		return h.handleDeregisterInstances(vals)
-	case "ConfigureHealthCheck":
-		return h.handleConfigureHealthCheck(vals)
-	case "ModifyLoadBalancerAttributes":
-		return h.handleModifyLoadBalancerAttributes(vals)
-	case "DescribeLoadBalancerAttributes":
-		return h.handleDescribeLoadBalancerAttributes(vals)
-	case "AddTags":
-		return h.handleAddTags(vals)
-	case "DescribeTags":
-		return h.handleDescribeTags(vals)
-	case "RemoveTags":
-		return h.handleRemoveTags(vals)
-	default:
+	fn, ok := h.ops[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 	}
+
+	return fn(vals)
 }
 
 func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
@@ -514,6 +539,273 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 	}, nil
 }
 
+func (h *Handler) handleApplySecurityGroupsToLoadBalancer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	sgs := parseMembers(vals, "SecurityGroups.member")
+
+	result, err := h.Backend.ApplySecurityGroupsToLoadBalancer(name, sgs)
+	if err != nil {
+		return nil, err
+	}
+
+	sgMembers := make([]xmlStringValue, 0, len(result))
+	for _, sg := range result {
+		sgMembers = append(sgMembers, xmlStringValue{Value: sg})
+	}
+
+	return &applySecurityGroupsResponse{
+		Xmlns: elbXMLNS,
+		Result: applySecurityGroupsResult{
+			SecurityGroups: xmlStringValueList{Members: sgMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-applysg-" + name},
+	}, nil
+}
+
+func (h *Handler) handleAttachLoadBalancerToSubnets(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	subnets := parseMembers(vals, "Subnets.member")
+
+	result, err := h.Backend.AttachLoadBalancerToSubnets(name, subnets)
+	if err != nil {
+		return nil, err
+	}
+
+	subnetMembers := make([]xmlStringValue, 0, len(result))
+	for _, s := range result {
+		subnetMembers = append(subnetMembers, xmlStringValue{Value: s})
+	}
+
+	return &attachLoadBalancerToSubnetsResponse{
+		Xmlns: elbXMLNS,
+		Result: attachLoadBalancerToSubnetsResult{
+			Subnets: xmlStringValueList{Members: subnetMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-attachsubnets-" + name},
+	}, nil
+}
+
+func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	policyName := vals.Get("PolicyName")
+	if policyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	cookieName := vals.Get("CookieName")
+
+	if err := h.Backend.CreateAppCookieStickinessPolicy(name, policyName, cookieName); err != nil {
+		return nil, err
+	}
+
+	return &createAppCookieStickinessPolicyResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-appcookie-" + name},
+	}, nil
+}
+
+func (h *Handler) handleCreateLBCookieStickinessPolicy(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	policyName := vals.Get("PolicyName")
+	if policyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	var cookieExpiration int64
+	if v := vals.Get("CookieExpirationPeriod"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid CookieExpirationPeriod", ErrInvalidParameter)
+		}
+
+		cookieExpiration = n
+	}
+
+	if err := h.Backend.CreateLBCookieStickinessPolicy(name, policyName, cookieExpiration); err != nil {
+		return nil, err
+	}
+
+	return &createLBCookieStickinessPolicyResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-lbcookie-" + name},
+	}, nil
+}
+
+func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	policyName := vals.Get("PolicyName")
+	if policyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	policyTypeName := vals.Get("PolicyTypeName")
+	if policyTypeName == "" {
+		return nil, fmt.Errorf("%w: PolicyTypeName is required", ErrInvalidParameter)
+	}
+
+	attrs := parsePolicyAttributes(vals)
+
+	if err := h.Backend.CreateLoadBalancerPolicy(name, policyName, policyTypeName, attrs); err != nil {
+		return nil, err
+	}
+
+	return &createLoadBalancerPolicyResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-createpolicy-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDeleteLoadBalancerPolicy(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	policyName := vals.Get("PolicyName")
+	if policyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteLoadBalancerPolicy(name, policyName); err != nil {
+		return nil, err
+	}
+
+	return &deleteLoadBalancerPolicyResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-deletepolicy-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
+	limits, err := h.Backend.DescribeAccountLimits()
+	if err != nil {
+		return nil, err
+	}
+
+	xmlLimits := make([]xmlAccountLimit, 0, len(limits))
+	for _, l := range limits {
+		xmlLimits = append(xmlLimits, xmlAccountLimit(l))
+	}
+
+	return &describeAccountLimitsResponse{
+		Xmlns: elbXMLNS,
+		Result: describeAccountLimitsResult{
+			Limits: xmlAccountLimitList{Members: xmlLimits},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-acctlimits"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeInstanceHealth(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	instances := parseInstances(vals)
+
+	states, err := h.Backend.DescribeInstanceHealth(name, instances)
+	if err != nil {
+		return nil, err
+	}
+
+	xmlStates := make([]xmlInstanceState, 0, len(states))
+	for _, s := range states {
+		xmlStates = append(xmlStates, xmlInstanceState(s))
+	}
+
+	return &describeInstanceHealthResponse{
+		Xmlns: elbXMLNS,
+		Result: describeInstanceHealthResult{
+			InstanceStates: xmlInstanceStateList{Members: xmlStates},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-instancehealth-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLoadBalancerPolicies(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	policyNames := parseMembers(vals, "PolicyNames.member")
+
+	policies, err := h.Backend.DescribeLoadBalancerPolicies(name, policyNames)
+	if err != nil {
+		return nil, err
+	}
+
+	xmlPolicies := make([]xmlPolicyDescription, 0, len(policies))
+	for _, p := range policies {
+		xmlAttrs := make([]xmlPolicyAttributeDescription, 0, len(p.PolicyAttributeDescriptions))
+		for _, a := range p.PolicyAttributeDescriptions {
+			xmlAttrs = append(xmlAttrs, xmlPolicyAttributeDescription(a))
+		}
+
+		xmlPolicies = append(xmlPolicies, xmlPolicyDescription{
+			PolicyName:                  p.PolicyName,
+			PolicyTypeName:              p.PolicyTypeName,
+			PolicyAttributeDescriptions: xmlPolicyAttributeDescriptionList{Members: xmlAttrs},
+		})
+	}
+
+	return &describeLoadBalancerPoliciesResponse{
+		Xmlns: elbXMLNS,
+		Result: describeLoadBalancerPoliciesResult{
+			PolicyDescriptions: xmlPolicyDescriptionList{Members: xmlPolicies},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-policies"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLoadBalancerPolicyTypes(vals url.Values) (any, error) {
+	typeNames := parseMembers(vals, "PolicyTypeNames.member")
+
+	types, err := h.Backend.DescribeLoadBalancerPolicyTypes(typeNames)
+	if err != nil {
+		return nil, err
+	}
+
+	xmlTypes := make([]xmlPolicyTypeDescription, 0, len(types))
+	for _, t := range types {
+		xmlAttrTypes := make([]xmlPolicyAttributeTypeDescription, 0, len(t.PolicyAttributeTypeDescriptions))
+		for _, at := range t.PolicyAttributeTypeDescriptions {
+			xmlAttrTypes = append(xmlAttrTypes, xmlPolicyAttributeTypeDescription(at))
+		}
+
+		xmlTypes = append(xmlTypes, xmlPolicyTypeDescription{
+			PolicyTypeName:                  t.PolicyTypeName,
+			Description:                     t.Description,
+			PolicyAttributeTypeDescriptions: xmlPolicyAttributeTypeDescriptionList{Members: xmlAttrTypes},
+		})
+	}
+
+	return &describeLoadBalancerPolicyTypesResponse{
+		Xmlns: elbXMLNS,
+		Result: describeLoadBalancerPolicyTypesResult{
+			PolicyTypeDescriptions: xmlPolicyTypeDescriptionList{Members: xmlTypes},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-policytypes"},
+	}, nil
+}
+
 // handleOpError translates an operation error into an HTTP response.
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	code, statusCode := elbErrorCode(opErr)
@@ -534,9 +826,12 @@ func elbErrorCode(opErr error) (string, int) {
 		httpCode int
 	}
 
+	// Order matters: more-specific sentinels must come before generic ones.
 	mappings := []errorMapping{
-		{awserr.ErrNotFound, "LoadBalancerNotFound", http.StatusNotFound},
-		{awserr.ErrAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
+		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
+		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
+		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
+		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
@@ -753,6 +1048,25 @@ func parseLoadBalancerAttributes(vals url.Values) LoadBalancerAttributes {
 	}
 
 	return attrs
+}
+
+// parsePolicyAttributes extracts policy attribute pairs from PolicyAttributes.member.N.* form values.
+func parsePolicyAttributes(vals url.Values) []PolicyAttribute {
+	result := make([]PolicyAttribute, 0)
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("PolicyAttributes.member.%d.AttributeName", i))
+		if k == "" {
+			break
+		}
+
+		result = append(result, PolicyAttribute{
+			AttributeName:  k,
+			AttributeValue: vals.Get(fmt.Sprintf("PolicyAttributes.member.%d.AttributeValue", i)),
+		})
+	}
+
+	return result
 }
 
 // toXMLLoadBalancerAttributes converts a LoadBalancerAttributes to its XML wire representation.
@@ -1117,4 +1431,175 @@ type describeLoadBalancerAttributesResponse struct {
 	Xmlns            string                               `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata                  `xml:"ResponseMetadata"`
 	Result           describeLoadBalancerAttributesResult `xml:"DescribeLoadBalancerAttributesResult"`
+}
+
+// ApplySecurityGroupsToLoadBalancer response.
+
+type applySecurityGroupsResult struct {
+	SecurityGroups xmlStringValueList `xml:"SecurityGroups"`
+}
+
+type applySecurityGroupsResponse struct {
+	XMLName          xml.Name                  `xml:"ApplySecurityGroupsToLoadBalancerResponse"`
+	Xmlns            string                    `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata       `xml:"ResponseMetadata"`
+	Result           applySecurityGroupsResult `xml:"ApplySecurityGroupsToLoadBalancerResult"`
+}
+
+// AttachLoadBalancerToSubnets response.
+
+type attachLoadBalancerToSubnetsResult struct {
+	Subnets xmlStringValueList `xml:"Subnets"`
+}
+
+type attachLoadBalancerToSubnetsResponse struct {
+	XMLName          xml.Name                          `xml:"AttachLoadBalancerToSubnetsResponse"`
+	Xmlns            string                            `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
+	Result           attachLoadBalancerToSubnetsResult `xml:"AttachLoadBalancerToSubnetsResult"`
+}
+
+// CreateAppCookieStickinessPolicy response.
+
+type createAppCookieStickinessPolicyResponse struct {
+	XMLName          xml.Name            `xml:"CreateAppCookieStickinessPolicyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// CreateLBCookieStickinessPolicy response.
+
+type createLBCookieStickinessPolicyResponse struct {
+	XMLName          xml.Name            `xml:"CreateLBCookieStickinessPolicyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// CreateLoadBalancerPolicy response.
+
+type createLoadBalancerPolicyResponse struct {
+	XMLName          xml.Name            `xml:"CreateLoadBalancerPolicyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// DeleteLoadBalancerPolicy response.
+
+type deleteLoadBalancerPolicyResponse struct {
+	XMLName          xml.Name            `xml:"DeleteLoadBalancerPolicyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// DescribeAccountLimits response.
+
+type xmlAccountLimit struct {
+	Name string `xml:"Name"`
+	Max  string `xml:"Max"`
+}
+
+type xmlAccountLimitList struct {
+	Members []xmlAccountLimit `xml:"member"`
+}
+
+type describeAccountLimitsResult struct {
+	Limits xmlAccountLimitList `xml:"Limits"`
+}
+
+type describeAccountLimitsResponse struct {
+	XMLName          xml.Name                    `xml:"DescribeAccountLimitsResponse"`
+	Xmlns            string                      `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata         `xml:"ResponseMetadata"`
+	Result           describeAccountLimitsResult `xml:"DescribeAccountLimitsResult"`
+}
+
+// DescribeInstanceHealth response.
+
+type xmlInstanceState struct {
+	InstanceID  string `xml:"InstanceId"`
+	State       string `xml:"State"`
+	ReasonCode  string `xml:"ReasonCode"`
+	Description string `xml:"Description"`
+}
+
+type xmlInstanceStateList struct {
+	Members []xmlInstanceState `xml:"member"`
+}
+
+type describeInstanceHealthResult struct {
+	InstanceStates xmlInstanceStateList `xml:"InstanceStates"`
+}
+
+type describeInstanceHealthResponse struct {
+	XMLName          xml.Name                     `xml:"DescribeInstanceHealthResponse"`
+	Xmlns            string                       `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata          `xml:"ResponseMetadata"`
+	Result           describeInstanceHealthResult `xml:"DescribeInstanceHealthResult"`
+}
+
+// DescribeLoadBalancerPolicies response.
+
+type xmlPolicyAttributeDescription struct {
+	AttributeName  string `xml:"AttributeName"`
+	AttributeValue string `xml:"AttributeValue"`
+}
+
+type xmlPolicyAttributeDescriptionList struct {
+	Members []xmlPolicyAttributeDescription `xml:"member"`
+}
+
+type xmlPolicyDescription struct {
+	PolicyName                  string                            `xml:"PolicyName"`
+	PolicyTypeName              string                            `xml:"PolicyTypeName"`
+	PolicyAttributeDescriptions xmlPolicyAttributeDescriptionList `xml:"PolicyAttributeDescriptions"`
+}
+
+type xmlPolicyDescriptionList struct {
+	Members []xmlPolicyDescription `xml:"member"`
+}
+
+type describeLoadBalancerPoliciesResult struct {
+	PolicyDescriptions xmlPolicyDescriptionList `xml:"PolicyDescriptions"`
+}
+
+type describeLoadBalancerPoliciesResponse struct {
+	XMLName          xml.Name                           `xml:"DescribeLoadBalancerPoliciesResponse"`
+	Xmlns            string                             `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                `xml:"ResponseMetadata"`
+	Result           describeLoadBalancerPoliciesResult `xml:"DescribeLoadBalancerPoliciesResult"`
+}
+
+// DescribeLoadBalancerPolicyTypes response.
+
+type xmlPolicyAttributeTypeDescription struct {
+	AttributeName string `xml:"AttributeName"`
+	AttributeType string `xml:"AttributeType"`
+	Cardinality   string `xml:"Cardinality"`
+	DefaultValue  string `xml:"DefaultValue,omitempty"`
+	Description   string `xml:"Description,omitempty"`
+}
+
+type xmlPolicyAttributeTypeDescriptionList struct {
+	Members []xmlPolicyAttributeTypeDescription `xml:"member"`
+}
+
+type xmlPolicyTypeDescription struct {
+	PolicyTypeName                  string                                `xml:"PolicyTypeName"`
+	Description                     string                                `xml:"Description"`
+	PolicyAttributeTypeDescriptions xmlPolicyAttributeTypeDescriptionList `xml:"PolicyAttributeTypeDescriptions"`
+}
+
+type xmlPolicyTypeDescriptionList struct {
+	Members []xmlPolicyTypeDescription `xml:"member"`
+}
+
+type describeLoadBalancerPolicyTypesResult struct {
+	PolicyTypeDescriptions xmlPolicyTypeDescriptionList `xml:"PolicyTypeDescriptions"`
+}
+
+type describeLoadBalancerPolicyTypesResponse struct {
+	XMLName          xml.Name                              `xml:"DescribeLoadBalancerPolicyTypesResponse"`
+	Xmlns            string                                `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                   `xml:"ResponseMetadata"`
+	Result           describeLoadBalancerPolicyTypesResult `xml:"DescribeLoadBalancerPolicyTypesResult"`
 }

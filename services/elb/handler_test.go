@@ -1259,3 +1259,912 @@ func TestDescribeLoadBalancerAttributes(t *testing.T) {
 		})
 	}
 }
+
+// TestApplySecurityGroupsToLoadBalancer tests replacing security groups on a VPC LB.
+func TestApplySecurityGroupsToLoadBalancer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantSGLen  int
+		wantStatus int
+	}{
+		{
+			name: "applies_security_groups",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "sg-lb")
+			},
+			vals: url.Values{
+				"Action":                  {"ApplySecurityGroupsToLoadBalancer"},
+				"Version":                 {"2012-06-01"},
+				"LoadBalancerName":        {"sg-lb"},
+				"SecurityGroups.member.1": {"sg-aaa"},
+				"SecurityGroups.member.2": {"sg-bbb"},
+			},
+			wantStatus: http.StatusOK,
+			wantSGLen:  2,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":                  {"ApplySecurityGroupsToLoadBalancer"},
+				"Version":                 {"2012-06-01"},
+				"LoadBalancerName":        {"no-lb"},
+				"SecurityGroups.member.1": {"sg-aaa"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"ApplySecurityGroupsToLoadBalancer"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantSGLen > 0 {
+				var resp struct {
+					XMLName xml.Name `xml:"ApplySecurityGroupsToLoadBalancerResponse"`
+					Result  struct {
+						SecurityGroups struct {
+							Members []struct {
+								Value string `xml:",chardata"`
+							} `xml:"member"`
+						} `xml:"SecurityGroups"`
+					} `xml:"ApplySecurityGroupsToLoadBalancerResult"`
+				}
+				parseXMLBody(t, rec, &resp)
+				assert.Len(t, resp.Result.SecurityGroups.Members, tt.wantSGLen)
+			}
+		})
+	}
+}
+
+// TestAttachLoadBalancerToSubnets tests attaching subnets to an existing LB.
+func TestAttachLoadBalancerToSubnets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(t *testing.T, h *elb.Handler)
+		vals          url.Values
+		name          string
+		wantSubnetLen int
+		wantStatus    int
+	}{
+		{
+			name: "attaches_subnets",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "subnet-lb")
+			},
+			vals: url.Values{
+				"Action":           {"AttachLoadBalancerToSubnets"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"subnet-lb"},
+				"Subnets.member.1": {"subnet-aaa"},
+				"Subnets.member.2": {"subnet-bbb"},
+			},
+			wantStatus:    http.StatusOK,
+			wantSubnetLen: 2,
+		},
+		{
+			name: "idempotent_attach",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "subnet-idem-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"AttachLoadBalancerToSubnets"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"subnet-idem-lb"},
+					"Subnets.member.1": {"subnet-aaa"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"AttachLoadBalancerToSubnets"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"subnet-idem-lb"},
+				"Subnets.member.1": {"subnet-aaa"},
+			},
+			wantStatus:    http.StatusOK,
+			wantSubnetLen: 1,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"AttachLoadBalancerToSubnets"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+				"Subnets.member.1": {"subnet-aaa"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"AttachLoadBalancerToSubnets"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantSubnetLen > 0 {
+				var resp struct {
+					XMLName xml.Name `xml:"AttachLoadBalancerToSubnetsResponse"`
+					Result  struct {
+						Subnets struct {
+							Members []struct {
+								Value string `xml:",chardata"`
+							} `xml:"member"`
+						} `xml:"Subnets"`
+					} `xml:"AttachLoadBalancerToSubnetsResult"`
+				}
+				parseXMLBody(t, rec, &resp)
+				assert.Len(t, resp.Result.Subnets.Members, tt.wantSubnetLen)
+			}
+		})
+	}
+}
+
+// TestCreateAppCookieStickinessPolicy tests app cookie stickiness policy creation.
+func TestCreateAppCookieStickinessPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "creates_app_cookie_policy",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "appcookie-lb")
+			},
+			vals: url.Values{
+				"Action":           {"CreateAppCookieStickinessPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"appcookie-lb"},
+				"PolicyName":       {"my-app-cookie-policy"},
+				"CookieName":       {"JSESSIONID"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "duplicate_policy_returns_conflict",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "appcookie-dup-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateAppCookieStickinessPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"appcookie-dup-lb"},
+					"PolicyName":       {"dup-policy"},
+					"CookieName":       {"SESSION"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"CreateAppCookieStickinessPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"appcookie-dup-lb"},
+				"PolicyName":       {"dup-policy"},
+				"CookieName":       {"SESSION"},
+			},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"CreateAppCookieStickinessPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+				"PolicyName":       {"my-policy"},
+				"CookieName":       {"SESSION"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":     {"CreateAppCookieStickinessPolicy"},
+				"Version":    {"2012-06-01"},
+				"PolicyName": {"my-policy"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_policy_name",
+			vals: url.Values{
+				"Action":           {"CreateAppCookieStickinessPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"some-lb"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestCreateLBCookieStickinessPolicy tests LB cookie stickiness policy creation.
+func TestCreateLBCookieStickinessPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "creates_lb_cookie_policy_with_expiration",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "lbcookie-lb")
+			},
+			vals: url.Values{
+				"Action":                 {"CreateLBCookieStickinessPolicy"},
+				"Version":                {"2012-06-01"},
+				"LoadBalancerName":       {"lbcookie-lb"},
+				"PolicyName":             {"my-lb-cookie-policy"},
+				"CookieExpirationPeriod": {"86400"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "creates_lb_cookie_policy_without_expiration",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "lbcookie2-lb")
+			},
+			vals: url.Values{
+				"Action":           {"CreateLBCookieStickinessPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"lbcookie2-lb"},
+				"PolicyName":       {"browser-session-policy"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "invalid_expiration_period",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "lbcookie3-lb")
+			},
+			vals: url.Values{
+				"Action":                 {"CreateLBCookieStickinessPolicy"},
+				"Version":                {"2012-06-01"},
+				"LoadBalancerName":       {"lbcookie3-lb"},
+				"PolicyName":             {"bad-expiry-policy"},
+				"CookieExpirationPeriod": {"not-a-number"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"CreateLBCookieStickinessPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+				"PolicyName":       {"my-policy"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":     {"CreateLBCookieStickinessPolicy"},
+				"Version":    {"2012-06-01"},
+				"PolicyName": {"my-policy"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestCreateLoadBalancerPolicy tests custom LB policy creation.
+func TestCreateLoadBalancerPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "creates_policy_with_attributes",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "policy-lb")
+			},
+			vals: url.Values{
+				"Action":           {"CreateLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"policy-lb"},
+				"PolicyName":       {"my-proxy-policy"},
+				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				"PolicyAttributes.member.1.AttributeName":  {"ProxyProtocol"},
+				"PolicyAttributes.member.1.AttributeValue": {"true"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "duplicate_policy_returns_conflict",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "policy-dup-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"policy-dup-lb"},
+					"PolicyName":       {"dup-policy"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"CreateLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"policy-dup-lb"},
+				"PolicyName":       {"dup-policy"},
+				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+			},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"CreateLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+				"PolicyName":       {"my-policy"},
+				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":         {"CreateLoadBalancerPolicy"},
+				"Version":        {"2012-06-01"},
+				"PolicyName":     {"my-policy"},
+				"PolicyTypeName": {"ProxyProtocolPolicyType"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_policy_name",
+			vals: url.Values{
+				"Action":           {"CreateLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"some-lb"},
+				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_policy_type_name",
+			vals: url.Values{
+				"Action":           {"CreateLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"some-lb"},
+				"PolicyName":       {"my-policy"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestDeleteLoadBalancerPolicy tests deleting a policy from a load balancer.
+func TestDeleteLoadBalancerPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "deletes_existing_policy",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "delpol-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"delpol-lb"},
+					"PolicyName":       {"policy-to-delete"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"DeleteLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"delpol-lb"},
+				"PolicyName":       {"policy-to-delete"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "policy_not_found",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "delpol2-lb")
+			},
+			vals: url.Values{
+				"Action":           {"DeleteLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"delpol2-lb"},
+				"PolicyName":       {"nonexistent-policy"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"DeleteLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+				"PolicyName":       {"some-policy"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":     {"DeleteLoadBalancerPolicy"},
+				"Version":    {"2012-06-01"},
+				"PolicyName": {"some-policy"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_policy_name",
+			vals: url.Values{
+				"Action":           {"DeleteLoadBalancerPolicy"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"some-lb"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestDescribeAccountLimits tests returning account limits.
+func TestDescribeAccountLimits(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	rec := doELB(t, h, url.Values{
+		"Action":  {"DescribeAccountLimits"},
+		"Version": {"2012-06-01"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"DescribeAccountLimitsResponse"`
+		Result  struct {
+			Limits struct {
+				Members []struct {
+					Name string `xml:"Name"`
+					Max  string `xml:"Max"`
+				} `xml:"member"`
+			} `xml:"Limits"`
+		} `xml:"DescribeAccountLimitsResult"`
+	}
+	parseXMLBody(t, rec, &resp)
+	assert.NotEmpty(t, resp.Result.Limits.Members)
+
+	names := make([]string, 0, len(resp.Result.Limits.Members))
+	for _, m := range resp.Result.Limits.Members {
+		names = append(names, m.Name)
+	}
+
+	assert.Contains(t, names, "classic-load-balancers")
+	assert.Contains(t, names, "classic-listeners")
+}
+
+// TestDescribeInstanceHealth tests the health state of registered instances.
+func TestDescribeInstanceHealth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *elb.Handler)
+		vals         url.Values
+		name         string
+		wantStatus   int
+		wantStateLen int
+	}{
+		{
+			name: "all_instances_inservice",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "health-lb")
+				doELB(t, h, url.Values{
+					"Action":                        {"RegisterInstancesWithLoadBalancer"},
+					"Version":                       {"2012-06-01"},
+					"LoadBalancerName":              {"health-lb"},
+					"Instances.member.1.InstanceId": {"i-aaa"},
+					"Instances.member.2.InstanceId": {"i-bbb"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"DescribeInstanceHealth"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"health-lb"},
+			},
+			wantStatus:   http.StatusOK,
+			wantStateLen: 2,
+		},
+		{
+			name: "specific_instance_health",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "health2-lb")
+				doELB(t, h, url.Values{
+					"Action":                        {"RegisterInstancesWithLoadBalancer"},
+					"Version":                       {"2012-06-01"},
+					"LoadBalancerName":              {"health2-lb"},
+					"Instances.member.1.InstanceId": {"i-xxx"},
+				})
+			},
+			vals: url.Values{
+				"Action":                        {"DescribeInstanceHealth"},
+				"Version":                       {"2012-06-01"},
+				"LoadBalancerName":              {"health2-lb"},
+				"Instances.member.1.InstanceId": {"i-xxx"},
+			},
+			wantStatus:   http.StatusOK,
+			wantStateLen: 1,
+		},
+		{
+			name: "unregistered_instance_out_of_service",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "health3-lb")
+			},
+			vals: url.Values{
+				"Action":                        {"DescribeInstanceHealth"},
+				"Version":                       {"2012-06-01"},
+				"LoadBalancerName":              {"health3-lb"},
+				"Instances.member.1.InstanceId": {"i-notregistered"},
+			},
+			wantStatus:   http.StatusOK,
+			wantStateLen: 1,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"DescribeInstanceHealth"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"DescribeInstanceHealth"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStateLen > 0 {
+				var resp struct {
+					XMLName xml.Name `xml:"DescribeInstanceHealthResponse"`
+					Result  struct {
+						InstanceStates struct {
+							Members []struct {
+								InstanceID string `xml:"InstanceId"`
+								State      string `xml:"State"`
+							} `xml:"member"`
+						} `xml:"InstanceStates"`
+					} `xml:"DescribeInstanceHealthResult"`
+				}
+				parseXMLBody(t, rec, &resp)
+				assert.Len(t, resp.Result.InstanceStates.Members, tt.wantStateLen)
+			}
+		})
+	}
+}
+
+// TestDescribeLoadBalancerPolicies tests retrieving LB policies.
+func TestDescribeLoadBalancerPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(t *testing.T, h *elb.Handler)
+		vals          url.Values
+		name          string
+		wantPolicyLen int
+		wantStatus    int
+	}{
+		{
+			name: "describe_all_policies_for_lb",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "pol-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"pol-lb"},
+					"PolicyName":       {"pol-a"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"pol-lb"},
+					"PolicyName":       {"pol-b"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"DescribeLoadBalancerPolicies"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"pol-lb"},
+			},
+			wantStatus:    http.StatusOK,
+			wantPolicyLen: 2,
+		},
+		{
+			name: "describe_policies_by_name",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "pol2-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"pol2-lb"},
+					"PolicyName":       {"target-pol"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"pol2-lb"},
+					"PolicyName":       {"other-pol"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+			},
+			vals: url.Values{
+				"Action":               {"DescribeLoadBalancerPolicies"},
+				"Version":              {"2012-06-01"},
+				"LoadBalancerName":     {"pol2-lb"},
+				"PolicyNames.member.1": {"target-pol"},
+			},
+			wantStatus:    http.StatusOK,
+			wantPolicyLen: 1,
+		},
+		{
+			name: "describe_no_lb_name_returns_all",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "pol3-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"pol3-lb"},
+					"PolicyName":       {"global-pol"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+			},
+			vals: url.Values{
+				"Action":  {"DescribeLoadBalancerPolicies"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus:    http.StatusOK,
+			wantPolicyLen: 1,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"DescribeLoadBalancerPolicies"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-lb"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantPolicyLen >= 0 && tt.wantStatus == http.StatusOK {
+				var resp struct {
+					XMLName xml.Name `xml:"DescribeLoadBalancerPoliciesResponse"`
+					Result  struct {
+						PolicyDescriptions struct {
+							Members []struct {
+								PolicyName string `xml:"PolicyName"`
+							} `xml:"member"`
+						} `xml:"PolicyDescriptions"`
+					} `xml:"DescribeLoadBalancerPoliciesResult"`
+				}
+				parseXMLBody(t, rec, &resp)
+				assert.Len(t, resp.Result.PolicyDescriptions.Members, tt.wantPolicyLen)
+			}
+		})
+	}
+}
+
+// TestDescribeLoadBalancerPolicyTypes tests retrieving policy type descriptions.
+func TestDescribeLoadBalancerPolicyTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantTypeName string
+		wantTypeLen  int
+		wantStatus   int
+	}{
+		{
+			name: "returns_all_policy_types",
+			vals: url.Values{
+				"Action":  {"DescribeLoadBalancerPolicyTypes"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus:  http.StatusOK,
+			wantTypeLen: 6,
+		},
+		{
+			name: "filters_by_type_name",
+			vals: url.Values{
+				"Action":                   {"DescribeLoadBalancerPolicyTypes"},
+				"Version":                  {"2012-06-01"},
+				"PolicyTypeNames.member.1": {"AppCookieStickinessPolicyType"},
+			},
+			wantStatus:   http.StatusOK,
+			wantTypeLen:  1,
+			wantTypeName: "AppCookieStickinessPolicyType",
+		},
+		{
+			name: "returns_lb_cookie_type",
+			vals: url.Values{
+				"Action":                   {"DescribeLoadBalancerPolicyTypes"},
+				"Version":                  {"2012-06-01"},
+				"PolicyTypeNames.member.1": {"LBCookieStickinessPolicyType"},
+			},
+			wantStatus:   http.StatusOK,
+			wantTypeLen:  1,
+			wantTypeName: "LBCookieStickinessPolicyType",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doELB(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp struct {
+				XMLName xml.Name `xml:"DescribeLoadBalancerPolicyTypesResponse"`
+				Result  struct {
+					PolicyTypeDescriptions struct {
+						Members []struct {
+							PolicyTypeName string `xml:"PolicyTypeName"`
+						} `xml:"member"`
+					} `xml:"PolicyTypeDescriptions"`
+				} `xml:"DescribeLoadBalancerPolicyTypesResult"`
+			}
+			parseXMLBody(t, rec, &resp)
+			assert.Len(t, resp.Result.PolicyTypeDescriptions.Members, tt.wantTypeLen)
+
+			if tt.wantTypeName != "" {
+				require.NotEmpty(t, resp.Result.PolicyTypeDescriptions.Members)
+				assert.Equal(t, tt.wantTypeName, resp.Result.PolicyTypeDescriptions.Members[0].PolicyTypeName)
+			}
+		})
+	}
+}

@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := elb.NewInMemoryBackend("000000000000", "us-east-1")
 	h := elb.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &elbsdk.Client{}, h.GetSupportedOperations(), []string{
-		"ApplySecurityGroupsToLoadBalancer",
-		"AttachLoadBalancerToSubnets",
-		"CreateAppCookieStickinessPolicy",
-		"CreateLBCookieStickinessPolicy",
-		"CreateLoadBalancerPolicy",
-		"DeleteLoadBalancerPolicy",
-		"DescribeAccountLimits",
-		"DescribeInstanceHealth",
-		"DescribeLoadBalancerPolicies",
-		"DescribeLoadBalancerPolicyTypes",
 		"DetachLoadBalancerFromSubnets",
 		"DisableAvailabilityZonesForLoadBalancer",
 		"EnableAvailabilityZonesForLoadBalancer",
