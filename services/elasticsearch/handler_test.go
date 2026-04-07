@@ -705,7 +705,7 @@ func TestElasticsearchHandler_Metadata(t *testing.T) {
 	assert.Equal(t, "es", h.ChaosServiceName())
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
-	assert.Len(t, h.GetSupportedOperations(), 7)
+	assert.Len(t, h.GetSupportedOperations(), 17)
 
 	c := newEchoContext(http.MethodGet, "/2015-01-01/es/domain/my-domain")
 	assert.Equal(t, "my-domain", h.ExtractResource(c))
@@ -820,6 +820,718 @@ func TestElasticsearchProvider_Init(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotNil(t, handler)
+		})
+	}
+}
+
+func TestElasticsearchHandler_CreatePackage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *elasticsearch.Handler)
+		name         string
+		packageName  string
+		packageType  string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "success",
+			packageName:  "my-dict",
+			packageType:  "TXT-DICTIONARY",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PackageID", "my-dict", "TXT-DICTIONARY", "AVAILABLE"},
+		},
+		{
+			name:        "no_name",
+			packageType: "TXT-DICTIONARY",
+			wantCode:    http.StatusBadRequest,
+		},
+		{
+			name:        "duplicate_name",
+			packageName: "dup-pkg",
+			packageType: "TXT-DICTIONARY",
+			setup: func(t *testing.T, h *elasticsearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", map[string]any{
+					"PackageName": "dup-pkg",
+					"PackageType": "TXT-DICTIONARY",
+				})
+				r.Body.Close()
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "invalid_json",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(http.MethodPost, "/2015-01-01/packages", strings.NewReader("not-json"))
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				assert.Equal(t, tt.wantCode, rw.Code)
+
+				return
+			}
+
+			body := map[string]any{}
+			if tt.packageName != "" {
+				body["PackageName"] = tt.packageName
+			}
+
+			if tt.packageType != "" {
+				body["PackageType"] = tt.packageType
+			}
+
+			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_AssociatePackage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		setup        func(t *testing.T, h *elasticsearch.Handler) (packageID, domainName string)
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *elasticsearch.Handler) (string, string) {
+				t.Helper()
+
+				pkgResp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", map[string]any{
+					"PackageName": "assoc-dict",
+					"PackageType": "TXT-DICTIONARY",
+				})
+				defer pkgResp.Body.Close()
+
+				var pkgOut map[string]any
+				require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+				pkgID := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
+
+				domResp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "assoc-domain",
+				})
+				domResp.Body.Close()
+
+				return pkgID, "assoc-domain"
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DomainPackageDetails", "ACTIVE"},
+		},
+		{
+			name: "package_not_found",
+			setup: func(t *testing.T, h *elasticsearch.Handler) (string, string) {
+				t.Helper()
+
+				domResp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "another-domain",
+				})
+				domResp.Body.Close()
+
+				return "nonexistent-pkg", "another-domain"
+			},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			packageID, domainName := tt.setup(t, h)
+
+			resp := doRequest(t, h, http.MethodPost,
+				"/2015-01-01/packages/associate/"+packageID+"/"+domainName, nil)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_AcceptInboundCrossClusterSearchConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		seed         *elasticsearch.InboundConnection
+		name         string
+		connectionID string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "success",
+			connectionID: "conn-001",
+			seed: &elasticsearch.InboundConnection{
+				ConnectionID:     "conn-001",
+				ConnectionStatus: "PENDING_ACCEPTANCE",
+				SourceDomainInfo: elasticsearch.CrossClusterDomainInfo{
+					OwnerID:    "111111111111",
+					DomainName: "source-domain",
+					Region:     "us-west-2",
+				},
+				DestDomainInfo: elasticsearch.CrossClusterDomainInfo{
+					OwnerID:    "123456789012",
+					DomainName: "dest-domain",
+					Region:     "us-east-1",
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CrossClusterSearchConnectionId", "conn-001", "ACTIVE"},
+		},
+		{
+			name:         "not_found",
+			connectionID: "nonexistent-conn",
+			wantCode:     http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+			h := elasticsearch.NewHandler(b)
+
+			if tt.seed != nil {
+				b.AddInboundConnectionInternal(*tt.seed)
+			}
+
+			resp := doRequest(t, h, http.MethodPut,
+				"/2015-01-01/es/ccs/inboundConnection/"+tt.connectionID+"/accept", nil)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_CreateOutboundCrossClusterSearchConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         map[string]any
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"ConnectionAlias": "my-connection",
+				"LocalDomainInfo": map[string]any{
+					"OwnerId":    "123456789012",
+					"DomainName": "local-domain",
+					"Region":     "us-east-1",
+				},
+				"RemoteDomainInfo": map[string]any{
+					"OwnerId":    "999999999999",
+					"DomainName": "remote-domain",
+					"Region":     "eu-west-1",
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CrossClusterSearchConnectionId", "my-connection", "VALIDATING"},
+		},
+		{
+			name: "no_alias",
+			body: map[string]any{
+				"LocalDomainInfo":  map[string]any{"DomainName": "local"},
+				"RemoteDomainInfo": map[string]any{"DomainName": "remote"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid_json",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(http.MethodPost, "/2015-01-01/es/ccs/outboundConnection",
+					strings.NewReader("not-json"))
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				assert.Equal(t, tt.wantCode, rw.Code)
+
+				return
+			}
+
+			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/ccs/outboundConnection", tt.body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_CreateVpcEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         map[string]any
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"DomainArn":  "arn:aws:es:us-east-1:123456789012:domain/my-domain",
+				"VpcOptions": map[string]any{"VpcId": "vpc-12345"},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"VpcEndpointId", "VpcEndpointOwner", "CREATING"},
+		},
+		{
+			name:     "no_domain_arn",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid_json",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(http.MethodPost, "/2015-01-01/es/vpcEndpoints",
+					strings.NewReader("not-json"))
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				assert.Equal(t, tt.wantCode, rw.Code)
+
+				return
+			}
+
+			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/vpcEndpoints", tt.body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_AuthorizeVpcEndpointAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *elasticsearch.Handler)
+		name         string
+		domainName   string
+		account      string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			account:    "111111111111",
+			setup: func(t *testing.T, h *elasticsearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "my-domain",
+				})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AuthorizedPrincipal", "111111111111", "AWS_ACCOUNT"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			account:    "111111111111",
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "no_account",
+			domainName: "my-domain",
+			setup: func(t *testing.T, h *elasticsearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "my-domain",
+				})
+				r.Body.Close()
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{}
+			if tt.account != "" {
+				body["Account"] = tt.account
+			}
+
+			resp := doRequest(t, h, http.MethodPost,
+				"/2015-01-01/es/domain/"+tt.domainName+"/authorizeVpcEndpointAccess", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_CancelDomainConfigChange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *elasticsearch.Handler)
+		name         string
+		domainName   string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			setup: func(t *testing.T, h *elasticsearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "my-domain",
+				})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DomainConfig", "ElasticsearchVersion"},
+		},
+		{
+			name:       "not_found",
+			domainName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			resp := doRequest(t, h, http.MethodPost,
+				"/2015-01-01/es/domain/"+tt.domainName+"/config/cancel", nil)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_CancelElasticsearchServiceSoftwareUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *elasticsearch.Handler)
+		name         string
+		domainName   string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			setup: func(t *testing.T, h *elasticsearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "my-domain",
+				})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ServiceSoftwareOptions", "NOT_ELIGIBLE"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:     "invalid_json",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(http.MethodPost,
+					"/2015-01-01/es/serviceSoftwareUpdate/cancel",
+					strings.NewReader("not-json"))
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				assert.Equal(t, tt.wantCode, rw.Code)
+
+				return
+			}
+
+			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/serviceSoftwareUpdate/cancel",
+				map[string]any{"DomainName": tt.domainName})
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestElasticsearchHandler_DeleteElasticsearchServiceRole(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	resp := doRequest(t, h, http.MethodDelete, "/2015-01-01/es/role", nil)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestElasticsearchHandler_NewOps_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{
+			name:   "add_tags",
+			method: http.MethodPost,
+			path:   "/2015-01-01/tags",
+			want:   "AddTags",
+		},
+		{
+			name:   "list_tags",
+			method: http.MethodGet,
+			path:   "/2015-01-01/tags",
+			want:   "ListTags",
+		},
+		{
+			name:   "remove_tags",
+			method: http.MethodPost,
+			path:   "/2015-01-01/tags-removal",
+			want:   "RemoveTags",
+		},
+		{
+			name:   "delete_service_role",
+			method: http.MethodDelete,
+			path:   "/2015-01-01/es/role",
+			want:   "DeleteElasticsearchServiceRole",
+		},
+		{
+			name:   "cancel_software_update",
+			method: http.MethodPost,
+			path:   "/2015-01-01/es/serviceSoftwareUpdate/cancel",
+			want:   "CancelElasticsearchServiceSoftwareUpdate",
+		},
+		{
+			name:   "accept_inbound_connection",
+			method: http.MethodPut,
+			path:   "/2015-01-01/es/ccs/inboundConnection/conn-001/accept",
+			want:   "AcceptInboundCrossClusterSearchConnection",
+		},
+		{
+			name:   "create_outbound_connection",
+			method: http.MethodPost,
+			path:   "/2015-01-01/es/ccs/outboundConnection",
+			want:   "CreateOutboundCrossClusterSearchConnection",
+		},
+		{
+			name:   "create_vpc_endpoint",
+			method: http.MethodPost,
+			path:   "/2015-01-01/es/vpcEndpoints",
+			want:   "CreateVpcEndpoint",
+		},
+		{
+			name:   "associate_package",
+			method: http.MethodPost,
+			path:   "/2015-01-01/packages/associate/F0000000001/my-domain",
+			want:   "AssociatePackage",
+		},
+		{
+			name:   "create_package",
+			method: http.MethodPost,
+			path:   "/2015-01-01/packages",
+			want:   "CreatePackage",
+		},
+		{
+			name:   "cancel_domain_config_change",
+			method: http.MethodPost,
+			path:   "/2015-01-01/es/domain/my-domain/config/cancel",
+			want:   "CancelDomainConfigChange",
+		},
+		{
+			name:   "authorize_vpc_endpoint_access",
+			method: http.MethodPost,
+			path:   "/2015-01-01/es/domain/my-domain/authorizeVpcEndpointAccess",
+			want:   "AuthorizeVpcEndpointAccess",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			c := newEchoContext(tt.method, tt.path)
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestElasticsearchHandler_NewOps_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "service_role", path: "/2015-01-01/es/role", want: true},
+		{name: "software_update_cancel", path: "/2015-01-01/es/serviceSoftwareUpdate/cancel", want: true},
+		{name: "ccs_inbound", path: "/2015-01-01/es/ccs/inboundConnection/conn-001/accept", want: true},
+		{name: "ccs_outbound", path: "/2015-01-01/es/ccs/outboundConnection", want: true},
+		{name: "vpc_endpoints", path: "/2015-01-01/es/vpcEndpoints", want: true},
+		{name: "packages", path: "/2015-01-01/packages", want: true},
+		{name: "packages_associate", path: "/2015-01-01/packages/associate/F001/my-domain", want: true},
+		{name: "unrelated", path: "/2015-01-01/other/path", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			matcher := h.RouteMatcher()
+			c := newEchoContext(http.MethodGet, tt.path)
+			assert.Equal(t, tt.want, matcher(c))
 		})
 	}
 }

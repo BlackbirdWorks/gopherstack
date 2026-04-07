@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -14,7 +15,54 @@ var (
 	ErrDomainNotFound      = errors.New("ResourceNotFoundException")
 	ErrDomainAlreadyExists = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidParameter    = errors.New("ValidationException")
+	ErrConnectionNotFound  = errors.New("ResourceNotFoundException")
+	ErrPackageNotFound     = errors.New("ResourceNotFoundException")
+	ErrVpcEndpointNotFound = errors.New("ResourceNotFoundException")
 )
+
+// Package represents an Elasticsearch package (e.g., a custom dictionary or synonym file).
+type Package struct {
+	ID          string `json:"packageID"`
+	Name        string `json:"packageName"`
+	PackageType string `json:"packageType"`
+	Description string `json:"packageDescription"`
+	Status      string `json:"packageStatus"`
+}
+
+// CrossClusterDomainInfo holds domain endpoint info used in cross-cluster connections.
+type CrossClusterDomainInfo struct {
+	OwnerID    string `json:"OwnerId"`
+	DomainName string `json:"DomainName"`
+	Region     string `json:"Region"`
+}
+
+// InboundConnection represents an inbound cross-cluster search connection.
+type InboundConnection struct {
+	ConnectionID     string                 `json:"connectionID"`
+	ConnectionStatus string                 `json:"connectionStatus"`
+	SourceDomainInfo CrossClusterDomainInfo `json:"sourceDomainInfo"`
+	DestDomainInfo   CrossClusterDomainInfo `json:"destDomainInfo"`
+}
+
+// OutboundConnection represents an outbound cross-cluster search connection.
+type OutboundConnection struct {
+	ConnectionID     string                 `json:"connectionID"`
+	ConnectionAlias  string                 `json:"connectionAlias"`
+	ConnectionStatus string                 `json:"connectionStatus"`
+	LocalDomainInfo  CrossClusterDomainInfo `json:"localDomainInfo"`
+	RemoteDomainInfo CrossClusterDomainInfo `json:"remoteDomainInfo"`
+}
+
+// VpcEndpoint represents a managed VPC endpoint for an Elasticsearch domain.
+type VpcEndpoint struct {
+	ID              string            `json:"vpcEndpointID"`
+	OwnerAccountID  string            `json:"ownerAccountID"`
+	DomainARN       string            `json:"domainARN"`
+	Endpoint        string            `json:"endpoint"`
+	Status          string            `json:"status"`
+	VpcOptions      map[string]string `json:"vpcOptions"`
+	AuthorizedAccts []string          `json:"authorizedAccounts"`
+}
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
 type DNSRegistrar interface {
@@ -56,22 +104,35 @@ type UpdateConfig struct {
 
 // InMemoryBackend is the in-memory store for Elasticsearch domains.
 type InMemoryBackend struct {
-	dnsRegistrar DNSRegistrar
-	domains      map[string]*Domain
-	arnIndex     map[string]string // ARN → domain name
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	dnsRegistrar        DNSRegistrar
+	domains             map[string]*Domain
+	arnIndex            map[string]string // ARN → domain name
+	packages            map[string]*Package
+	packagesByName      map[string]string   // package name → package ID
+	packageAssociations map[string][]string // package ID → []domain names
+	inboundConnections  map[string]*InboundConnection
+	outboundConnections map[string]*OutboundConnection
+	vpcEndpoints        map[string]*VpcEndpoint
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
+	nextID              int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		domains:   make(map[string]*Domain),
-		arnIndex:  make(map[string]string),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("elasticsearch"),
+		domains:             make(map[string]*Domain),
+		arnIndex:            make(map[string]string),
+		packages:            make(map[string]*Package),
+		packagesByName:      make(map[string]string),
+		packageAssociations: make(map[string][]string),
+		inboundConnections:  make(map[string]*InboundConnection),
+		outboundConnections: make(map[string]*OutboundConnection),
+		vpcEndpoints:        make(map[string]*VpcEndpoint),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("elasticsearch"),
 	}
 }
 
@@ -277,4 +338,201 @@ func (b *InMemoryBackend) Reset() {
 
 	b.domains = make(map[string]*Domain)
 	b.arnIndex = make(map[string]string)
+	b.packages = make(map[string]*Package)
+	b.packagesByName = make(map[string]string)
+	b.packageAssociations = make(map[string][]string)
+	b.inboundConnections = make(map[string]*InboundConnection)
+	b.outboundConnections = make(map[string]*OutboundConnection)
+	b.vpcEndpoints = make(map[string]*VpcEndpoint)
+	b.nextID = 0
+}
+
+// nextIDLocked returns the next unique integer ID and increments the counter.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) nextIDLocked() int {
+	b.nextID++
+
+	return b.nextID
+}
+
+// CreatePackage creates a new Elasticsearch package (e.g., a dictionary file).
+func (b *InMemoryBackend) CreatePackage(name, packageType, description string) (*Package, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: PackageName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreatePackage")
+	defer b.mu.Unlock()
+
+	if _, exists := b.packagesByName[name]; exists {
+		return nil, fmt.Errorf("%w: package %s already exists", ErrDomainAlreadyExists, name)
+	}
+
+	id := fmt.Sprintf("F%010d", b.nextIDLocked())
+	pkg := &Package{
+		ID:          id,
+		Name:        name,
+		PackageType: packageType,
+		Description: description,
+		Status:      "AVAILABLE",
+	}
+	b.packages[id] = pkg
+	b.packagesByName[name] = id
+
+	cp := *pkg
+
+	return &cp, nil
+}
+
+// AssociatePackage associates an Elasticsearch package with a domain.
+func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) error {
+	b.mu.Lock("AssociatePackage")
+	defer b.mu.Unlock()
+
+	if _, exists := b.packages[packageID]; !exists {
+		return fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	if slices.Contains(b.packageAssociations[packageID], domainName) {
+		return nil // already associated
+	}
+
+	b.packageAssociations[packageID] = append(b.packageAssociations[packageID], domainName)
+
+	return nil
+}
+
+// AcceptInboundCrossClusterSearchConnection accepts a pending inbound cross-cluster
+// search connection.
+func (b *InMemoryBackend) AcceptInboundCrossClusterSearchConnection(connectionID string) (*InboundConnection, error) {
+	b.mu.Lock("AcceptInboundCrossClusterSearchConnection")
+	defer b.mu.Unlock()
+
+	conn, exists := b.inboundConnections[connectionID]
+	if !exists {
+		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
+	}
+
+	conn.ConnectionStatus = "ACTIVE"
+	cp := *conn
+
+	return &cp, nil
+}
+
+// AddInboundConnectionInternal seeds an inbound connection for testing.
+func (b *InMemoryBackend) AddInboundConnectionInternal(conn InboundConnection) {
+	b.mu.Lock("AddInboundConnectionInternal")
+	defer b.mu.Unlock()
+
+	cp := conn
+	b.inboundConnections[conn.ConnectionID] = &cp
+}
+
+// CreateOutboundCrossClusterSearchConnection creates a new outbound cross-cluster
+// search connection request.
+func (b *InMemoryBackend) CreateOutboundCrossClusterSearchConnection(
+	localDomain, remoteDomain CrossClusterDomainInfo,
+	alias string,
+) (*OutboundConnection, error) {
+	if alias == "" {
+		return nil, fmt.Errorf("%w: ConnectionAlias is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateOutboundCrossClusterSearchConnection")
+	defer b.mu.Unlock()
+
+	id := fmt.Sprintf("out-%010d", b.nextIDLocked())
+	conn := &OutboundConnection{
+		ConnectionID:     id,
+		ConnectionAlias:  alias,
+		ConnectionStatus: "VALIDATING",
+		LocalDomainInfo:  localDomain,
+		RemoteDomainInfo: remoteDomain,
+	}
+	b.outboundConnections[id] = conn
+	cp := *conn
+
+	return &cp, nil
+}
+
+// CreateVpcEndpoint creates a managed VPC endpoint for an Elasticsearch domain.
+func (b *InMemoryBackend) CreateVpcEndpoint(domainARN string, vpcOptions map[string]string) (*VpcEndpoint, error) {
+	if domainARN == "" {
+		return nil, fmt.Errorf("%w: DomainArn is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateVpcEndpoint")
+	defer b.mu.Unlock()
+
+	id := fmt.Sprintf("vpc-endpoint-%010d", b.nextIDLocked())
+	endpoint := &VpcEndpoint{
+		ID:             id,
+		OwnerAccountID: b.accountID,
+		DomainARN:      domainARN,
+		Endpoint:       fmt.Sprintf("vpc-%s.%s.es.amazonaws.com", id, b.region),
+		Status:         "CREATING",
+		VpcOptions:     vpcOptions,
+	}
+	b.vpcEndpoints[id] = endpoint
+	cp := *endpoint
+
+	return &cp, nil
+}
+
+// AuthorizeVpcEndpointAccess grants an account or service access to the domain's VPC endpoint.
+func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(domainName, account string) error {
+	if account == "" {
+		return fmt.Errorf("%w: account principal is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AuthorizeVpcEndpointAccess")
+	defer b.mu.Unlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return nil
+}
+
+// CancelDomainConfigChange cancels any in-progress configuration change for a domain.
+// Because the in-memory backend applies changes synchronously this is a no-op.
+func (b *InMemoryBackend) CancelDomainConfigChange(domainName string) (*Domain, error) {
+	b.mu.RLock("CancelDomainConfigChange")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	cp := *d
+
+	return &cp, nil
+}
+
+// CancelElasticsearchServiceSoftwareUpdate cancels a scheduled software update.
+// Because the in-memory backend never schedules updates this is a no-op.
+func (b *InMemoryBackend) CancelElasticsearchServiceSoftwareUpdate(domainName string) (*Domain, error) {
+	b.mu.RLock("CancelElasticsearchServiceSoftwareUpdate")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	cp := *d
+
+	return &cp, nil
+}
+
+// DeleteElasticsearchServiceRole deletes the Elasticsearch service-linked IAM role.
+// The in-memory backend has no IAM state so this is always a no-op success.
+func (b *InMemoryBackend) DeleteElasticsearchServiceRole() error {
+	return nil
 }
