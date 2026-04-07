@@ -1136,6 +1136,18 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "CancelJobRun",
 		},
 		{
+			name:   "GetDashboardForJobRun",
+			method: http.MethodGet,
+			path:   "/applications/abc/jobruns/jr1/dashboard",
+			wantOp: "GetDashboardForJobRun",
+		},
+		{
+			name:   "ListJobRunAttempts",
+			method: http.MethodGet,
+			path:   "/applications/abc/jobruns/jr1/attempts",
+			wantOp: "ListJobRunAttempts",
+		},
+		{
 			name:   "ListTagsForResource",
 			method: http.MethodGet,
 			path:   "/tags/arn:aws:emr-serverless:us-east-1:000:x",
@@ -1230,10 +1242,12 @@ func TestHandler_ServiceMeta(t *testing.T) {
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 
 	ops := h.GetSupportedOperations()
-	assert.Len(t, ops, 14)
+	assert.Len(t, ops, 16)
 	assert.Contains(t, ops, "CreateApplication")
 	assert.Contains(t, ops, "CancelJobRun")
 	assert.Contains(t, ops, "UntagResource")
+	assert.Contains(t, ops, "GetDashboardForJobRun")
+	assert.Contains(t, ops, "ListJobRunAttempts")
 
 	chaosOps := h.ChaosOperations()
 	assert.Equal(t, ops, chaosOps)
@@ -1291,4 +1305,172 @@ func TestHandler_TagsOnJobRun(t *testing.T) {
 	finalTags := final["tags"].(map[string]any)
 	assert.NotContains(t, finalTags, "key1")
 	assert.Equal(t, "val2", finalTags["key2"])
+}
+
+// startJobRun is a test helper that starts a job run and returns its ID.
+func startJobRun(t *testing.T, h *emrserverless.Handler, appID string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
+		"executionRoleArn": "arn:aws:iam::000000000000:role/test-role",
+		"name":             "test-job",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]string
+	mustUnmarshal(t, rec, &out)
+	require.NotEmpty(t, out["jobRunId"])
+
+	return out["jobRunId"]
+}
+
+// --- GetDashboardForJobRun ---
+
+func TestHandler_GetDashboardForJobRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *emrserverless.Handler) (appID, jobRunID string)
+		name       string
+		wantStatus int
+		wantURL    bool
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+			wantURL:    true,
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createApp(t, h, "dash-app")
+				jobRunID := startJobRun(t, h, appID)
+
+				return appID, jobRunID
+			},
+		},
+		{
+			name:       "app_not_found",
+			wantStatus: http.StatusNotFound,
+			setup: func(_ *emrserverless.Handler) (string, string) {
+				return "nonexistent-app", "nonexistent-run"
+			},
+		},
+		{
+			name:       "job_run_not_found",
+			wantStatus: http.StatusNotFound,
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createApp(t, h, "dash-app-2")
+
+				return appID, "nonexistent-run"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID, jobRunID := tt.setup(h)
+
+			rec := doRequest(t, h, http.MethodGet,
+				"/applications/"+appID+"/jobruns/"+jobRunID+"/dashboard", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantURL {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				u, ok := out["url"].(string)
+				assert.True(t, ok, "url should be a string")
+				assert.NotEmpty(t, u, "url should not be empty")
+				assert.Contains(t, u, appID)
+				assert.Contains(t, u, jobRunID)
+			}
+		})
+	}
+}
+
+// --- ListJobRunAttempts ---
+
+func TestHandler_ListJobRunAttempts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *emrserverless.Handler) (appID, jobRunID string)
+		name       string
+		query      string
+		wantStatus int
+		wantCount  int
+		wantAppID  bool
+	}{
+		{
+			name:       "success_returns_single_attempt",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+			wantAppID:  true,
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createApp(t, h, "attempts-app")
+				jobRunID := startJobRun(t, h, appID)
+
+				return appID, jobRunID
+			},
+		},
+		{
+			name:       "app_not_found",
+			wantStatus: http.StatusNotFound,
+			wantCount:  0,
+			setup: func(_ *emrserverless.Handler) (string, string) {
+				return "nonexistent-app", "nonexistent-run"
+			},
+		},
+		{
+			name:       "job_run_not_found",
+			wantStatus: http.StatusNotFound,
+			wantCount:  0,
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createApp(t, h, "attempts-app-2")
+
+				return appID, "nonexistent-run"
+			},
+		},
+		{
+			name:       "pagination_max_results",
+			query:      "?maxResults=1",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+			wantAppID:  true,
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createApp(t, h, "attempts-app-3")
+				jobRunID := startJobRun(t, h, appID)
+
+				return appID, jobRunID
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID, jobRunID := tt.setup(h)
+
+			rec := doRequest(t, h, http.MethodGet,
+				"/applications/"+appID+"/jobruns/"+jobRunID+"/attempts"+tt.query, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				attempts, ok := out["jobRunAttempts"].([]any)
+				require.True(t, ok, "jobRunAttempts should be an array")
+				assert.Len(t, attempts, tt.wantCount)
+
+				if tt.wantAppID && len(attempts) > 0 {
+					attempt := attempts[0].(map[string]any)
+					assert.Equal(t, appID, attempt["applicationId"])
+					assert.Equal(t, jobRunID, attempt["id"])
+					assert.NotEmpty(t, attempt["state"])
+				}
+			}
+		})
+	}
 }
