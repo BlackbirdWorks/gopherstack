@@ -92,7 +92,7 @@ func (f *lifecycleFilter) andPrefix() string {
 
 type lifecycleExpiration struct {
 	Date string `xml:"Date"`
-	Days int    `xml:"Days"`
+	Days *int   `xml:"Days"`
 }
 
 // lifecycleNoncurrentVersionExpiration specifies when noncurrent object versions expire.
@@ -251,13 +251,17 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 			}
 
 			go func(n string) {
+				// recover() must be deferred FIRST (last to execute) so it catches panics
+				// from processBucket. Cleanup (semaphore release) runs after recovery.
 				defer func() {
-					<-j.drainSem
-					j.activeDrains.Delete(n)
 					if r := recover(); r != nil {
 						logger.Load(ctx).Error("S3 janitor: panic in drain goroutine",
 							"bucket", n, "panic", fmt.Sprintf("%v", r))
 					}
+				}()
+				defer func() {
+					<-j.drainSem
+					j.activeDrains.Delete(n)
 				}()
 				j.processBucket(ctx, n)
 			}(name)
@@ -469,10 +473,11 @@ func (j *Janitor) applyLifecycleRules(
 		tagFilters := rule.Filter.tags()
 
 		// Days-based expiration of current versions.
-		// Days >= 0 triggers expiration (Days=0 means expire immediately).
-		// Days < 0 is invalid and skipped.
-		if rule.Expiration.Days >= 0 && rule.Expiration.Date == "" {
-			expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
+		// Days must be explicitly set (non-nil) to trigger expiration.
+		// An absent Days element (nil pointer) must not delete objects even though
+		// the Go zero value for int would be 0 (which would incorrectly match all objects).
+		if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
+			expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
 			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
 		}
 
@@ -570,6 +575,8 @@ func (j *Janitor) collectExpiredKeys(
 
 // isExpiredAndMatches returns true when the object's latest version has expired
 // before expireBefore and satisfies the tag filters (if any).
+// Returns false if the latest version is protected by object lock (legal hold or
+// active retention period) — lifecycle rules must not override WORM protection.
 // obj.mu is acquired internally so callers need not hold it.
 func isExpiredAndMatches(
 	obj *StoredObject,
@@ -583,9 +590,15 @@ func isExpiredAndMatches(
 	// (PutObject/DeleteObject) that update it under obj.mu.Lock.
 	obj.mu.RLock("isExpiredAndMatches")
 	latestMod, latestVID := latestVersionModAndID(obj)
+	locked := isLatestVersionLocked(obj)
 	obj.mu.RUnlock()
 
 	if latestMod.IsZero() || latestMod.After(expireBefore) {
+		return false
+	}
+
+	// Object lock (WORM) takes precedence over lifecycle rules.
+	if locked {
 		return false
 	}
 
@@ -600,6 +613,25 @@ func isExpiredAndMatches(
 	objTags := tagsByKey[bucketName+"/"+key+"/"+latestVID]
 
 	return objectMatchesTags(objTags, tagFilters)
+}
+
+// isLatestVersionLocked reports whether the latest non-deleted version of obj has
+// an active legal hold or an unexpired retention period.
+// Must be called with obj.mu held (at least RLock).
+func isLatestVersionLocked(obj *StoredObject) bool {
+	for _, ver := range obj.Versions {
+		if !ver.IsLatest || ver.Deleted {
+			continue
+		}
+		if ver.LegalHold {
+			return true
+		}
+		if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // latestVersionModAndID returns the LastModified time and VersionID of the latest
@@ -709,10 +741,10 @@ func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag
 		}
 
 		var expiry time.Time
-		if rule.Expiration.Days >= 0 && (rule.Expiration.Date == "") {
+		if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
 			// S3 rounds up to the next midnight UTC
 			const hoursInDay = 24
-			expiry = lastModified.Add(time.Duration(rule.Expiration.Days) * hoursInDay * time.Hour)
+			expiry = lastModified.Add(time.Duration(*rule.Expiration.Days) * hoursInDay * time.Hour)
 			expiry = time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 0, 0, 0, 0, time.UTC).
 				Add(hoursInDay * time.Hour)
 		} else if rule.Expiration.Date != "" {
@@ -767,6 +799,15 @@ func (j *Janitor) evictNoncurrentVersions(bucket *StoredBucket, prefix string, n
 
 		for vid, ver := range obj.Versions {
 			if ver.IsLatest {
+				continue
+			}
+
+			// Object lock protects non-current versions too.
+			if ver.LegalHold {
+				continue
+			}
+
+			if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
 				continue
 			}
 

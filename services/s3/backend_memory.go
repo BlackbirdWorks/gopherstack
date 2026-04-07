@@ -3240,6 +3240,10 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 				return
 			}
 			if bucket.CreationDate.Before(cutoff) {
+				// Close per-object mutexes to avoid Prometheus metric leaks.
+				for _, obj := range bucket.Objects {
+					obj.mu.Close()
+				}
 				bucket.mu.Close()
 				delete(regionBuckets, bucketName)
 				delete(b.bucketIndex, bucketName)
@@ -3261,6 +3265,16 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	// Close all bucket and object mutexes to prevent Prometheus metric leaks.
+	for _, regionBuckets := range b.buckets {
+		for _, bucket := range regionBuckets {
+			for _, obj := range bucket.Objects {
+				obj.mu.Close()
+			}
+			bucket.mu.Close()
+		}
+	}
 
 	b.buckets = make(map[string]map[string]*StoredBucket)
 	b.bucketIndex = make(map[string]string)

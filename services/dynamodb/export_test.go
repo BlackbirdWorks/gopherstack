@@ -164,13 +164,13 @@ func (db *InMemoryDB) LookupStreamARNIndex(streamARN string) (*Table, bool) {
 }
 
 // SweepTxnTokens exposes sweepTxnTokens for tests.
-func (j *Janitor) SweepTxnTokens() {
-	j.sweepTxnTokens()
+func (j *Janitor) SweepTxnTokens(ctx context.Context) {
+	j.sweepTxnTokens(ctx)
 }
 
 // SweepTxnPending exposes sweepTxnPending for tests.
-func (j *Janitor) SweepTxnPending() {
-	j.sweepTxnPending()
+func (j *Janitor) SweepTxnPending(ctx context.Context) {
+	j.sweepTxnPending(ctx)
 }
 
 // TxnPendingCount returns the number of in-progress idempotency tokens.

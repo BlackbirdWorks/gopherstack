@@ -2570,6 +2570,8 @@ func purgeAllServices(
 	cutoff time.Time,
 	timeout time.Duration,
 ) {
+	const goroutineGracePeriod = 5 * time.Second
+
 	for _, svc := range svcs {
 		p, ok := svc.(service.Purgeable)
 		if !ok {
@@ -2583,12 +2585,21 @@ func purgeAllServices(
 		}()
 		select {
 		case <-done:
+			cancel()
 		case <-purgeCtx.Done():
+			cancel()
 			if ctx.Err() == nil {
 				log.WarnContext(ctx, "purge timed out", "service", svc.Name(), "timeout", timeout)
 			}
+			// Drain the goroutine with a grace period so it does not accumulate
+			// across repeated purge cycles.
+			select {
+			case <-done:
+			case <-time.After(goroutineGracePeriod):
+				log.WarnContext(ctx, "purge goroutine did not exit after grace period",
+					"service", svc.Name())
+			}
 		}
-		cancel()
 	}
 }
 
