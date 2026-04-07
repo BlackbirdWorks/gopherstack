@@ -62,21 +62,39 @@ type Nodegroup struct {
 
 // InMemoryBackend is the in-memory store for EKS resources.
 type InMemoryBackend struct {
-	clusters   map[string]*Cluster
-	nodegroups map[string]map[string]*Nodegroup // clusterName -> nodegroupName -> nodegroup
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	clusters                map[string]*Cluster
+	nodegroups              map[string]map[string]*Nodegroup // clusterName -> nodegroupName -> nodegroup
+	accessEntries           map[string]map[string]*AccessEntry
+	accessPolicies          map[string]map[string][]*AccessPolicyAssociation
+	encryptionConfigs       map[string][]EncryptionConfig
+	identityProviderConfigs map[string]map[string]*IdentityProviderConfig
+	addons                  map[string]map[string]*Addon
+	fargateProfiles         map[string]map[string]*FargateProfile
+	podIdentityAssociations map[string]map[string]*PodIdentityAssociation
+	capabilities            map[string]*Capability
+	subscriptions           map[string]*EksAnywhereSubscription
+	mu                      *lockmetrics.RWMutex
+	accountID               string
+	region                  string
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:   make(map[string]*Cluster),
-		nodegroups: make(map[string]map[string]*Nodegroup),
-		accountID:  accountID,
-		region:     region,
-		mu:         lockmetrics.New("eks"),
+		clusters:                make(map[string]*Cluster),
+		nodegroups:              make(map[string]map[string]*Nodegroup),
+		accessEntries:           make(map[string]map[string]*AccessEntry),
+		accessPolicies:          make(map[string]map[string][]*AccessPolicyAssociation),
+		encryptionConfigs:       make(map[string][]EncryptionConfig),
+		identityProviderConfigs: make(map[string]map[string]*IdentityProviderConfig),
+		addons:                  make(map[string]map[string]*Addon),
+		fargateProfiles:         make(map[string]map[string]*FargateProfile),
+		podIdentityAssociations: make(map[string]map[string]*PodIdentityAssociation),
+		capabilities:            make(map[string]*Capability),
+		subscriptions:           make(map[string]*EksAnywhereSubscription),
+		accountID:               accountID,
+		region:                  region,
+		mu:                      lockmetrics.New("eks"),
 	}
 }
 
@@ -164,6 +182,40 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	ngs := b.nodegroups[name]
 	delete(b.clusters, name)
 	delete(b.nodegroups, name)
+	delete(b.encryptionConfigs, name)
+	delete(b.addons, name)
+	delete(b.fargateProfiles, name)
+
+	// Close access entry tags.
+	if entries := b.accessEntries[name]; entries != nil {
+		for _, e := range entries {
+			if e.Tags != nil {
+				e.Tags.Close()
+			}
+		}
+	}
+	delete(b.accessEntries, name)
+	delete(b.accessPolicies, name)
+
+	// Close identity provider config tags.
+	if idpCfgs := b.identityProviderConfigs[name]; idpCfgs != nil {
+		for _, cfg := range idpCfgs {
+			if cfg.Tags != nil {
+				cfg.Tags.Close()
+			}
+		}
+	}
+	delete(b.identityProviderConfigs, name)
+
+	// Close pod identity association tags.
+	if assocs := b.podIdentityAssociations[name]; assocs != nil {
+		for _, a := range assocs {
+			if a.Tags != nil {
+				a.Tags.Close()
+			}
+		}
+	}
+	delete(b.podIdentityAssociations, name)
 
 	// Release tag resources outside the map but still inside the lock since
 	// Tags.Close only unregisters Prometheus labels (cheap and non-blocking).
@@ -381,6 +433,54 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 		}
 	}
 
+	for _, entries := range b.accessEntries {
+		for _, e := range entries {
+			if e.ARN == resourceARN {
+				e.Tags.Merge(kv)
+
+				return nil
+			}
+		}
+	}
+
+	for _, clusterAddons := range b.addons {
+		for _, a := range clusterAddons {
+			if a.ARN == resourceARN {
+				a.Tags.Merge(kv)
+
+				return nil
+			}
+		}
+	}
+
+	for _, profiles := range b.fargateProfiles {
+		for _, p := range profiles {
+			if p.ARN == resourceARN {
+				p.Tags.Merge(kv)
+
+				return nil
+			}
+		}
+	}
+
+	for _, assocs := range b.podIdentityAssociations {
+		for _, a := range assocs {
+			if a.ARN == resourceARN {
+				a.Tags.Merge(kv)
+
+				return nil
+			}
+		}
+	}
+
+	for _, sub := range b.subscriptions {
+		if sub.ARN == resourceARN {
+			sub.Tags.Merge(kv)
+
+			return nil
+		}
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
@@ -407,6 +507,54 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		}
 	}
 
+	for _, entries := range b.accessEntries {
+		for _, e := range entries {
+			if e.ARN == resourceARN {
+				e.Tags.DeleteKeys(tagKeys)
+
+				return nil
+			}
+		}
+	}
+
+	for _, clusterAddons := range b.addons {
+		for _, a := range clusterAddons {
+			if a.ARN == resourceARN {
+				a.Tags.DeleteKeys(tagKeys)
+
+				return nil
+			}
+		}
+	}
+
+	for _, profiles := range b.fargateProfiles {
+		for _, p := range profiles {
+			if p.ARN == resourceARN {
+				p.Tags.DeleteKeys(tagKeys)
+
+				return nil
+			}
+		}
+	}
+
+	for _, assocs := range b.podIdentityAssociations {
+		for _, a := range assocs {
+			if a.ARN == resourceARN {
+				a.Tags.DeleteKeys(tagKeys)
+
+				return nil
+			}
+		}
+	}
+
+	for _, sub := range b.subscriptions {
+		if sub.ARN == resourceARN {
+			sub.Tags.DeleteKeys(tagKeys)
+
+			return nil
+		}
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
@@ -426,6 +574,44 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 			if ng.ARN == resourceARN {
 				return ng.Tags.Clone(), nil
 			}
+		}
+	}
+
+	for _, entries := range b.accessEntries {
+		for _, e := range entries {
+			if e.ARN == resourceARN {
+				return e.Tags.Clone(), nil
+			}
+		}
+	}
+
+	for _, clusterAddons := range b.addons {
+		for _, a := range clusterAddons {
+			if a.ARN == resourceARN {
+				return a.Tags.Clone(), nil
+			}
+		}
+	}
+
+	for _, profiles := range b.fargateProfiles {
+		for _, p := range profiles {
+			if p.ARN == resourceARN {
+				return p.Tags.Clone(), nil
+			}
+		}
+	}
+
+	for _, assocs := range b.podIdentityAssociations {
+		for _, a := range assocs {
+			if a.ARN == resourceARN {
+				return a.Tags.Clone(), nil
+			}
+		}
+	}
+
+	for _, sub := range b.subscriptions {
+		if sub.ARN == resourceARN {
+			return sub.Tags.Clone(), nil
 		}
 	}
 
