@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -27,6 +28,8 @@ var (
 	ErrPolicyNotFound = awserr.New("PolicyNotFound", awserr.ErrNotFound)
 	// ErrPolicyAlreadyExists is returned when a policy with that name already exists.
 	ErrPolicyAlreadyExists = awserr.New("DuplicatePolicyName", awserr.ErrAlreadyExists)
+	// ErrValidation is a generic validation error sentinel mapped to HTTP 400.
+	ErrValidation = awserr.New("ValidationError", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -38,19 +41,19 @@ const (
 
 // Listener is a single protocol/port mapping on a load balancer.
 type Listener struct {
-	Protocol         string
-	InstanceProtocol string
-	LoadBalancerPort int32
-	InstancePort     int32
+	Protocol         string `json:"protocol"`
+	InstanceProtocol string `json:"instanceProtocol"`
+	LoadBalancerPort int32  `json:"loadBalancerPort"`
+	InstancePort     int32  `json:"instancePort"`
 }
 
 // LoadBalancerAttributes holds tunable attributes for a Classic ELB.
 type LoadBalancerAttributes struct {
-	DesyncMitigationMode      string
-	ConnectionDrainingTimeout int32
-	IdleTimeout               int32
-	CrossZoneLoadBalancing    bool
-	ConnectionDraining        bool
+	DesyncMitigationMode      string `json:"desyncMitigationMode"`
+	ConnectionDrainingTimeout int32  `json:"connectionDrainingTimeout"`
+	IdleTimeout               int32  `json:"idleTimeout"`
+	CrossZoneLoadBalancing    bool   `json:"crossZoneLoadBalancing"`
+	ConnectionDraining        bool   `json:"connectionDraining"`
 }
 
 // defaultLBAttributes returns the default LoadBalancerAttributes used at
@@ -67,16 +70,16 @@ func defaultLBAttributes() LoadBalancerAttributes {
 
 // HealthCheck holds health-check configuration for a load balancer.
 type HealthCheck struct {
-	Target             string
-	Interval           int32
-	Timeout            int32
-	UnhealthyThreshold int32
-	HealthyThreshold   int32
+	Target             string `json:"target"`
+	Interval           int32  `json:"interval"`
+	Timeout            int32  `json:"timeout"`
+	UnhealthyThreshold int32  `json:"unhealthyThreshold"`
+	HealthyThreshold   int32  `json:"healthyThreshold"`
 }
 
 // Instance is an EC2 instance registered with a load balancer.
 type Instance struct {
-	InstanceID string
+	InstanceID string `json:"instanceId"`
 }
 
 // LoadBalancer represents a Classic ELB load balancer.
@@ -84,6 +87,7 @@ type LoadBalancer struct {
 	CreatedTime               time.Time
 	HealthCheck               *HealthCheck
 	Tags                      *tags.Tags
+	ARN                       string
 	VPCId                     string
 	Region                    string
 	CanonicalHostedZoneName   string
@@ -112,16 +116,16 @@ type CreateLoadBalancerInput struct {
 
 // PolicyAttribute is a single attribute for a load balancer policy.
 type PolicyAttribute struct {
-	AttributeName  string
-	AttributeValue string
+	AttributeName  string `json:"attributeName"`
+	AttributeValue string `json:"attributeValue"`
 }
 
 // LoadBalancerPolicy represents a Classic ELB policy.
 type LoadBalancerPolicy struct {
-	PolicyName                  string
-	PolicyTypeName              string
-	LoadBalancerName            string
-	PolicyAttributeDescriptions []PolicyAttribute
+	PolicyName                  string            `json:"policyName"`
+	PolicyTypeName              string            `json:"policyTypeName"`
+	LoadBalancerName            string            `json:"loadBalancerName"`
+	PolicyAttributeDescriptions []PolicyAttribute `json:"policyAttributeDescriptions"`
 }
 
 // InstanceState represents the health state of a registered instance.
@@ -156,6 +160,8 @@ type PolicyTypeDescription struct {
 
 // StorageBackend is the interface for the ELB in-memory store.
 type StorageBackend interface {
+	Reset()
+
 	CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error)
 	DeleteLoadBalancer(name string) error
 	DescribeLoadBalancers(names []string) ([]LoadBalancer, error)
@@ -210,6 +216,83 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all backend state. All Tags registries are closed to avoid metric leaks.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, lb := range b.lbs {
+		if lb.Tags != nil {
+			lb.Tags.Close()
+		}
+	}
+
+	b.lbs = make(map[string]*LoadBalancer)
+	b.policies = make(map[string]*LoadBalancerPolicy)
+}
+
+// lbCopy returns a deep copy of a LoadBalancer, excluding the Tags pointer (which is
+// shared and safe for concurrent reads through its own sync primitives).
+func lbCopy(lb *LoadBalancer) LoadBalancer {
+	cp := *lb
+
+	cp.Listeners = make([]Listener, len(lb.Listeners))
+	copy(cp.Listeners, lb.Listeners)
+
+	cp.Instances = make([]Instance, len(lb.Instances))
+	copy(cp.Instances, lb.Instances)
+
+	cp.AvailabilityZones = make([]string, len(lb.AvailabilityZones))
+	copy(cp.AvailabilityZones, lb.AvailabilityZones)
+
+	cp.SecurityGroups = make([]string, len(lb.SecurityGroups))
+	copy(cp.SecurityGroups, lb.SecurityGroups)
+
+	cp.Subnets = make([]string, len(lb.Subnets))
+	copy(cp.Subnets, lb.Subnets)
+
+	if lb.HealthCheck != nil {
+		hc := *lb.HealthCheck
+		cp.HealthCheck = &hc
+	}
+
+	return cp
+}
+
+// AddLoadBalancerInternal inserts a pre-built LoadBalancer for seeding test state.
+// The lb is deep-copied on insertion. Tags is initialised if nil.
+func (b *InMemoryBackend) AddLoadBalancerInternal(lb LoadBalancer) {
+	b.mu.Lock("AddLoadBalancerInternal")
+	defer b.mu.Unlock()
+
+	if lb.Tags == nil {
+		lb.Tags = tags.New("elb." + lb.LoadBalancerName)
+	}
+
+	if lb.Listeners == nil {
+		lb.Listeners = []Listener{}
+	}
+
+	if lb.Instances == nil {
+		lb.Instances = []Instance{}
+	}
+
+	if lb.AvailabilityZones == nil {
+		lb.AvailabilityZones = []string{}
+	}
+
+	if lb.SecurityGroups == nil {
+		lb.SecurityGroups = []string{}
+	}
+
+	if lb.Subnets == nil {
+		lb.Subnets = []string{}
+	}
+
+	cp := lbCopy(&lb)
+	b.lbs[lb.LoadBalancerName] = &cp
+}
+
 // CreateLoadBalancer creates a new Classic ELB load balancer.
 func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error) {
 	b.mu.Lock("CreateLoadBalancer")
@@ -231,17 +314,46 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	dnsName := input.LoadBalancerName + "." + b.region + ".elb.amazonaws.com"
 	lbARN := arn.Build("elasticloadbalancing", b.region, b.accountID, "loadbalancer/"+input.LoadBalancerName)
 
+	// Ensure non-nil slices so callers never have to nil-check.
+	azs := input.AvailabilityZones
+	if azs == nil {
+		azs = []string{}
+	}
+
+	sgs := input.SecurityGroups
+	if sgs == nil {
+		sgs = []string{}
+	}
+
+	subnets := input.Subnets
+	if subnets == nil {
+		subnets = []string{}
+	}
+
+	listeners := input.Listeners
+	if listeners == nil {
+		listeners = []Listener{}
+	}
+
+	// Derive VPCId: if subnets are provided (VPC-mode LB) use a stable synthetic ID.
+	vpcID := ""
+	if len(subnets) > 0 {
+		vpcID = "vpc-" + b.accountID[:8]
+	}
+
 	lb := &LoadBalancer{
 		LoadBalancerName:          input.LoadBalancerName,
+		ARN:                       lbARN,
 		DNSName:                   dnsName,
 		CanonicalHostedZoneName:   dnsName,
 		CanonicalHostedZoneNameID: lbARN,
 		CreatedTime:               time.Now(),
 		Scheme:                    scheme,
-		AvailabilityZones:         input.AvailabilityZones,
-		SecurityGroups:            input.SecurityGroups,
-		Subnets:                   input.Subnets,
-		Listeners:                 input.Listeners,
+		AvailabilityZones:         azs,
+		SecurityGroups:            sgs,
+		Subnets:                   subnets,
+		VPCId:                     vpcID,
+		Listeners:                 listeners,
 		Instances:                 []Instance{},
 		Tags:                      tags.New("elb." + input.LoadBalancerName),
 		AccountID:                 b.accountID,
@@ -251,12 +363,12 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 
 	b.lbs[input.LoadBalancerName] = lb
 
-	cp := *lb
+	cp := lbCopy(lb)
 
 	return &cp, nil
 }
 
-// DeleteLoadBalancer removes a load balancer by name.
+// DeleteLoadBalancer removes a load balancer by name and all of its policies.
 func (b *InMemoryBackend) DeleteLoadBalancer(name string) error {
 	b.mu.Lock("DeleteLoadBalancer")
 	defer b.mu.Unlock()
@@ -268,6 +380,14 @@ func (b *InMemoryBackend) DeleteLoadBalancer(name string) error {
 
 	lb.Tags.Close()
 	delete(b.lbs, name)
+
+	// Cascade-delete all policies that belong to this load balancer.
+	prefix := name + "/"
+	for k := range b.policies {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.policies, k)
+		}
+	}
 
 	return nil
 }
@@ -286,8 +406,7 @@ func (b *InMemoryBackend) DescribeLoadBalancers(names []string) ([]LoadBalancer,
 				return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 			}
 
-			cp := *lb
-			result = append(result, cp)
+			result = append(result, lbCopy(lb))
 		}
 
 		return result, nil
@@ -295,8 +414,7 @@ func (b *InMemoryBackend) DescribeLoadBalancers(names []string) ([]LoadBalancer,
 
 	result := make([]LoadBalancer, 0, len(b.lbs))
 	for _, lb := range b.lbs {
-		cp := *lb
-		result = append(result, cp)
+		result = append(result, lbCopy(lb))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -688,6 +806,9 @@ func (b *InMemoryBackend) DeleteLoadBalancerPolicy(name, policyName string) erro
 
 // DescribeAccountLimits returns the current ELB account limits.
 func (b *InMemoryBackend) DescribeAccountLimits() ([]AccountLimit, error) {
+	b.mu.RLock("DescribeAccountLimits")
+	defer b.mu.RUnlock()
+
 	return []AccountLimit{
 		{Name: "classic-load-balancers", Max: "20"},
 		{Name: "classic-listeners", Max: "100"},
@@ -851,6 +972,7 @@ func builtinPolicyTypes() []PolicyTypeDescription {
 }
 
 // DescribeLoadBalancerPolicyTypes returns the specified policy type descriptions.
+// If policyTypeNames is non-empty, an error is returned for any unknown type name.
 func (b *InMemoryBackend) DescribeLoadBalancerPolicyTypes(policyTypeNames []string) ([]PolicyTypeDescription, error) {
 	all := builtinPolicyTypes()
 
@@ -858,16 +980,20 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicyTypes(policyTypeNames []stri
 		return all, nil
 	}
 
-	filter := make(map[string]bool, len(policyTypeNames))
-	for _, n := range policyTypeNames {
-		filter[n] = true
+	byName := make(map[string]PolicyTypeDescription, len(all))
+	for _, pt := range all {
+		byName[pt.PolicyTypeName] = pt
 	}
 
 	result := make([]PolicyTypeDescription, 0, len(policyTypeNames))
-	for _, pt := range all {
-		if filter[pt.PolicyTypeName] {
-			result = append(result, pt)
+
+	for _, typeName := range policyTypeNames {
+		pt, ok := byName[typeName]
+		if !ok {
+			return nil, fmt.Errorf("%w: policy type %q not found", ErrPolicyNotFound, typeName)
 		}
+
+		result = append(result, pt)
 	}
 
 	return result, nil

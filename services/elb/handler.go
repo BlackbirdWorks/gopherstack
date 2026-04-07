@@ -69,6 +69,11 @@ func (h *Handler) buildOps() map[string]func(url.Values) (any, error) {
 	}
 }
 
+// Reset clears the backend state, delegating to the underlying StorageBackend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "ELB" }
 
@@ -821,7 +826,12 @@ func elbErrorCode(opErr error) (string, int) {
 		httpCode int
 	}
 
+	// Order matters: more-specific sentinels must come before generic ones.
 	mappings := []errorMapping{
+		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
+		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
+		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
+		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{awserr.ErrNotFound, "LoadBalancerNotFound", http.StatusNotFound},
 		{awserr.ErrAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
