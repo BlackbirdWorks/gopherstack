@@ -1704,10 +1704,6 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
-	// Record the service count so the metrics dashboard (and Prometheus scrape)
-	// can surface it alongside the health endpoint's "services" field.
-	telemetry.SetServiceCount(len(services))
-
 	setupPersistence(ctx, persistManager, services, cli.Persist)
 
 	if dnsSrv != nil {
@@ -2376,6 +2372,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		return nil, fmt.Errorf("failed to init Dashboard: %w", err)
 	}
 	services = append(services, dashSvc)
+
+	// Record the service count so the metrics dashboard (and Prometheus scrape)
+	// can surface it alongside the health endpoint's "services" field.
+	telemetry.SetServiceCount(len(services))
 
 	// The router sorts services by MatchPriority() at startup, so registration order
 	// does not affect routing correctness.

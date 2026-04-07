@@ -92,8 +92,8 @@ func (f *lifecycleFilter) andPrefix() string {
 }
 
 type lifecycleExpiration struct {
-	Date string `xml:"Date"`
 	Days *int   `xml:"Days"`
+	Date string `xml:"Date"`
 }
 
 // lifecycleNoncurrentVersionExpiration specifies when noncurrent object versions expire.
@@ -782,6 +782,16 @@ func deleteBatch(objects map[string]*StoredObject, maxCount int) int {
 	return count
 }
 
+// isNoncurrentVersionLocked reports whether a noncurrent object version is
+// protected by an active object-lock (legal hold or retention mode).
+func isNoncurrentVersionLocked(ver *StoredObjectVersion) bool {
+	if ver.LegalHold {
+		return true
+	}
+
+	return ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil)
+}
+
 // evictNoncurrentVersions deletes non-latest object versions (noncurrent versions)
 // from the bucket that match the prefix and were superseded before noncurrentBefore.
 // Returns the number of noncurrent versions deleted.
@@ -799,16 +809,7 @@ func (j *Janitor) evictNoncurrentVersions(bucket *StoredBucket, prefix string, n
 		obj.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
 
 		for vid, ver := range obj.Versions {
-			if ver.IsLatest {
-				continue
-			}
-
-			// Object lock protects non-current versions too.
-			if ver.LegalHold {
-				continue
-			}
-
-			if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+			if ver.IsLatest || isNoncurrentVersionLocked(ver) {
 				continue
 			}
 

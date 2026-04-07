@@ -3,12 +3,13 @@ package dynamodb_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -43,7 +44,7 @@ func TestRefinement2_TTLSweep_ConcurrentDeleteNoOOB(t *testing.T) {
 
 	// Insert more than one TTL sweep batch worth of items with past expiry.
 	batchSize := dynamodb.TTLSweepBatchSize
-	pastTS := fmt.Sprintf("%d", time.Now().Add(-time.Hour).Unix())
+	pastTS := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
 
 	for i := range batchSize + 10 {
 		_, putErr := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
@@ -150,7 +151,7 @@ func TestRefinement2_SweepStreamRecords_AcceptsContext(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRefinement2_NthSmallest_LargeSlice verifies nthSmallest works correctly
-// with a large slice (exercising the sort.Slice path).
+// with a large slice (exercising the [sort.Slice] path).
 func TestRefinement2_NthSmallest_LargeSlice(t *testing.T) {
 	t.Parallel()
 

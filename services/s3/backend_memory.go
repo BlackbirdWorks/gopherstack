@@ -3226,6 +3226,31 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 	return sessionXML, nil
 }
 
+// purgeBucketLocked removes a single bucket and its associated data from the
+// backend. Caller must hold b.mu.
+func (b *InMemoryBackend) purgeBucketLocked(
+	regionBuckets map[string]*StoredBucket,
+	bucketName string,
+	bucket *StoredBucket,
+) {
+	// Close per-object mutexes to avoid Prometheus metric leaks.
+	for _, obj := range bucket.Objects {
+		obj.mu.Close()
+	}
+
+	bucket.mu.Close()
+	delete(regionBuckets, bucketName)
+	delete(b.bucketIndex, bucketName)
+
+	for tagKey := range b.tags {
+		if strings.HasPrefix(tagKey, bucketName+"/") {
+			delete(b.tags, tagKey)
+		}
+	}
+
+	delete(b.uploads, bucketName)
+}
+
 // Purge removes all buckets created before the given cutoff time.
 func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	if ctx.Err() != nil {
@@ -3240,22 +3265,9 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			if ctx.Err() != nil {
 				return
 			}
-			if bucket.CreationDate.Before(cutoff) {
-				// Close per-object mutexes to avoid Prometheus metric leaks.
-				for _, obj := range bucket.Objects {
-					obj.mu.Close()
-				}
-				bucket.mu.Close()
-				delete(regionBuckets, bucketName)
-				delete(b.bucketIndex, bucketName)
 
-				// Clean up associated tags and uploads
-				for tagKey := range b.tags {
-					if strings.HasPrefix(tagKey, bucketName+"/") {
-						delete(b.tags, tagKey)
-					}
-				}
-				delete(b.uploads, bucketName)
+			if bucket.CreationDate.Before(cutoff) {
+				b.purgeBucketLocked(regionBuckets, bucketName, bucket)
 			}
 		}
 	}

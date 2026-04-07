@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	sdk_s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -93,7 +93,7 @@ func TestRefinement2_Lifecycle_SkipsLockedObjects(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var keys []string
+	keys := make([]string, 0, len(out.Contents))
 	for _, obj := range out.Contents {
 		keys = append(keys, aws.ToString(obj.Key))
 	}
@@ -136,7 +136,7 @@ func TestRefinement2_Lifecycle_SkipsLegalHoldObjects(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var keys []string
+	keys := make([]string, 0, len(out.Contents))
 	for _, obj := range out.Contents {
 		keys = append(keys, aws.ToString(obj.Key))
 	}
@@ -189,6 +189,7 @@ func TestRefinement2_NoncurrentVersionEviction_SkipsLockedVersions(t *testing.T)
 	for _, v := range versions.Versions {
 		if !aws.ToBool(v.IsLatest) {
 			ncVersionID = aws.ToString(v.VersionId)
+
 			break
 		}
 	}
@@ -225,6 +226,7 @@ func TestRefinement2_NoncurrentVersionEviction_SkipsLockedVersions(t *testing.T)
 	for _, v := range versions2.Versions {
 		if aws.ToString(v.VersionId) == ncVersionID {
 			found = true
+
 			break
 		}
 	}

@@ -10,10 +10,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-// serviceCount stores the number of registered services so collectRuntimeMetrics
-// can surface it alongside the health endpoint's "services" field.
-var serviceCount atomic.Int64
-
 // SetServiceCount records the number of registered services. Call this once at
 // startup after all services have been initialised. The value is exposed via the
 // "gopherstack_registered_services" Prometheus gauge and included in the
@@ -25,6 +21,10 @@ func SetServiceCount(n int) {
 
 //nolint:gochecknoglobals // Prometheus collectors are global for registration.
 var (
+	// serviceCount stores the number of registered services so collectRuntimeMetrics
+	// can surface it alongside the health endpoint's "services" field.
+	serviceCount atomic.Int64
+
 	// Generic operation latencies (seconds) - works for any backend.
 	// Prometheus requires these to be global for automatic registration with the global registry.
 	operationLatency = promauto.NewHistogramVec(
