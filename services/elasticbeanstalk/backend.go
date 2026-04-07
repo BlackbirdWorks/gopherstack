@@ -53,18 +53,39 @@ type ApplicationVersion struct {
 	Status                string            `json:"status"`
 }
 
+// ConfigurationTemplate represents an Elastic Beanstalk configuration template.
+type ConfigurationTemplate struct {
+	Tags              map[string]string `json:"tags,omitempty"`
+	ApplicationName   string            `json:"applicationName"`
+	TemplateName      string            `json:"templateName"`
+	Description       string            `json:"description,omitempty"`
+	SolutionStackName string            `json:"solutionStackName,omitempty"`
+}
+
+// PlatformVersion represents an Elastic Beanstalk platform version.
+type PlatformVersion struct {
+	Tags            map[string]string `json:"tags,omitempty"`
+	PlatformArn     string            `json:"platformArn"`
+	PlatformName    string            `json:"platformName"`
+	PlatformVersion string            `json:"platformVersion"`
+	PlatformStatus  string            `json:"platformStatus"`
+}
+
 // InMemoryBackend stores AWS Elastic Beanstalk state in memory.
 type InMemoryBackend struct {
-	applications map[string]*Application
-	environments map[string]*Environment
-	appVersions  map[string]*ApplicationVersion
-	appARNIndex  map[string]string // ARN → app name
-	envARNIndex  map[string]string // ARN → envKey
-	verARNIndex  map[string]string // ARN → appVersionKey
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
-	envCounter   int
+	applications     map[string]*Application
+	environments     map[string]*Environment
+	appVersions      map[string]*ApplicationVersion
+	configTemplates  map[string]*ConfigurationTemplate // configTemplateKey → template
+	platformVersions map[string]*PlatformVersion       // platformARN → version
+	appARNIndex      map[string]string                 // ARN → app name
+	envARNIndex      map[string]string                 // ARN → envKey
+	verARNIndex      map[string]string                 // ARN → appVersionKey
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
+	storageLocation  string
+	envCounter       int
 }
 
 // copyTags creates a shallow copy of the given tags map.
@@ -99,18 +120,42 @@ func cloneApplicationVersion(ver *ApplicationVersion) *ApplicationVersion {
 	return &cp
 }
 
+// cloneConfigurationTemplate returns a deep copy of the given ConfigurationTemplate.
+func cloneConfigurationTemplate(tmpl *ConfigurationTemplate) *ConfigurationTemplate {
+	cp := *tmpl
+	cp.Tags = copyTags(tmpl.Tags)
+
+	return &cp
+}
+
+// clonePlatformVersion returns a deep copy of the given PlatformVersion.
+func clonePlatformVersion(pv *PlatformVersion) *PlatformVersion {
+	cp := *pv
+	cp.Tags = copyTags(pv.Tags)
+
+	return &cp
+}
+
+// configTemplateKey returns the map key for a configuration template.
+func configTemplateKey(appName, templateName string) string {
+	return appName + ":" + templateName
+}
+
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications: make(map[string]*Application),
-		environments: make(map[string]*Environment),
-		appVersions:  make(map[string]*ApplicationVersion),
-		appARNIndex:  make(map[string]string),
-		envARNIndex:  make(map[string]string),
-		verARNIndex:  make(map[string]string),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("elasticbeanstalk"),
+		applications:     make(map[string]*Application),
+		environments:     make(map[string]*Environment),
+		appVersions:      make(map[string]*ApplicationVersion),
+		configTemplates:  make(map[string]*ConfigurationTemplate),
+		platformVersions: make(map[string]*PlatformVersion),
+		appARNIndex:      make(map[string]string),
+		envARNIndex:      make(map[string]string),
+		verARNIndex:      make(map[string]string),
+		accountID:        accountID,
+		region:           region,
+		storageLocation:  "elasticbeanstalk-" + region + "-" + accountID,
+		mu:               lockmetrics.New("elasticbeanstalk"),
 	}
 }
 
@@ -481,8 +526,156 @@ func (b *InMemoryBackend) Reset() {
 	b.applications = make(map[string]*Application)
 	b.environments = make(map[string]*Environment)
 	b.appVersions = make(map[string]*ApplicationVersion)
+	b.configTemplates = make(map[string]*ConfigurationTemplate)
+	b.platformVersions = make(map[string]*PlatformVersion)
 	b.appARNIndex = make(map[string]string)
 	b.envARNIndex = make(map[string]string)
 	b.verARNIndex = make(map[string]string)
 	b.envCounter = 0
+}
+
+// --- New operations ---
+
+// AbortEnvironmentUpdate aborts an in-progress environment configuration update.
+// This is a no-op in the in-memory backend since updates complete instantly.
+func (b *InMemoryBackend) AbortEnvironmentUpdate(_ string) error {
+	return nil
+}
+
+// ApplyEnvironmentManagedAction applies a scheduled managed action immediately.
+// This is a no-op stub that succeeds unconditionally.
+func (b *InMemoryBackend) ApplyEnvironmentManagedAction(_, _ string) error {
+	return nil
+}
+
+// AssociateEnvironmentOperationsRole associates an operations IAM role with an environment.
+func (b *InMemoryBackend) AssociateEnvironmentOperationsRole(envName, _ string) error {
+	b.mu.RLock("AssociateEnvironmentOperationsRole")
+	defer b.mu.RUnlock()
+
+	for _, env := range b.environments {
+		if env.EnvironmentName == envName {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+}
+
+// CheckDNSAvailability checks whether the specified CNAME prefix is available.
+// Returns available=true when no existing environment uses that prefix as its CNAME.
+func (b *InMemoryBackend) CheckDNSAvailability(cnamePrefix string) (bool, string) {
+	b.mu.RLock("CheckDNSAvailability")
+	defer b.mu.RUnlock()
+
+	fqcname := cnamePrefix + "." + b.region + ".elasticbeanstalk.com"
+
+	for _, env := range b.environments {
+		if env.EnvironmentName == cnamePrefix {
+			return false, fqcname
+		}
+	}
+
+	return true, fqcname
+}
+
+// ComposeEnvironments returns existing environments for an application.
+// In a real deployment this would create multiple environments; the stub
+// returns the already-running environments for the given application.
+func (b *InMemoryBackend) ComposeEnvironments(appName string) []*Environment {
+	b.mu.RLock("ComposeEnvironments")
+	defer b.mu.RUnlock()
+
+	list := make([]*Environment, 0)
+
+	for _, env := range b.environments {
+		if env.ApplicationName == appName {
+			list = append(list, cloneEnvironment(env))
+		}
+	}
+
+	return list
+}
+
+// CreateConfigurationTemplate creates a new configuration template for an application.
+func (b *InMemoryBackend) CreateConfigurationTemplate(
+	appName, templateName, description, solutionStack string,
+	tags map[string]string,
+) (*ConfigurationTemplate, error) {
+	b.mu.Lock("CreateConfigurationTemplate")
+	defer b.mu.Unlock()
+
+	key := configTemplateKey(appName, templateName)
+	if _, ok := b.configTemplates[key]; ok {
+		return nil, fmt.Errorf("%w: configuration template %s already exists", ErrAlreadyExists, templateName)
+	}
+
+	tmpl := &ConfigurationTemplate{
+		ApplicationName:   appName,
+		TemplateName:      templateName,
+		Description:       description,
+		SolutionStackName: solutionStack,
+		Tags:              copyTags(tags),
+	}
+	b.configTemplates[key] = tmpl
+
+	return cloneConfigurationTemplate(tmpl), nil
+}
+
+// CreatePlatformVersion creates a new custom platform version.
+func (b *InMemoryBackend) CreatePlatformVersion(
+	platformName, platformVersion string,
+	tags map[string]string,
+) (*PlatformVersion, error) {
+	b.mu.Lock("CreatePlatformVersion")
+	defer b.mu.Unlock()
+
+	platformARN := arn.Build("elasticbeanstalk", b.region, "", "platform/"+platformName+"/"+platformVersion)
+
+	if _, ok := b.platformVersions[platformARN]; ok {
+		return nil, fmt.Errorf(
+			"%w: platform version %s/%s already exists",
+			ErrAlreadyExists,
+			platformName,
+			platformVersion,
+		)
+	}
+
+	pv := &PlatformVersion{
+		PlatformArn:     platformARN,
+		PlatformName:    platformName,
+		PlatformVersion: platformVersion,
+		PlatformStatus:  "Ready",
+		Tags:            copyTags(tags),
+	}
+	b.platformVersions[platformARN] = pv
+
+	return clonePlatformVersion(pv), nil
+}
+
+// CreateStorageLocation returns the S3 bucket used for storing Elastic Beanstalk data.
+// The bucket name is fixed per region and account, and creation is idempotent.
+func (b *InMemoryBackend) CreateStorageLocation() string {
+	return b.storageLocation
+}
+
+// DeleteConfigurationTemplate removes a configuration template.
+func (b *InMemoryBackend) DeleteConfigurationTemplate(appName, templateName string) error {
+	b.mu.Lock("DeleteConfigurationTemplate")
+	defer b.mu.Unlock()
+
+	key := configTemplateKey(appName, templateName)
+	if _, ok := b.configTemplates[key]; !ok {
+		return fmt.Errorf("%w: configuration template %s not found", ErrNotFound, templateName)
+	}
+
+	delete(b.configTemplates, key)
+
+	return nil
+}
+
+// DeleteEnvironmentConfiguration deletes the draft configuration associated with an environment.
+// This is a no-op in the in-memory backend.
+func (b *InMemoryBackend) DeleteEnvironmentConfiguration(_, _ string) error {
+	return nil
 }
