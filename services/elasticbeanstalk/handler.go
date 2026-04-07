@@ -21,14 +21,56 @@ const (
 	ebXMLNS = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
 )
 
+// formOpFunc is the function type for a dispatched form-encoded operation.
+type formOpFunc func(url.Values) (any, error)
+
 // Handler is the Echo HTTP handler for Elastic Beanstalk operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]formOpFunc
 }
 
 // NewHandler creates a new Elastic Beanstalk handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// buildOps constructs the dispatch table mapping action names to handlers.
+// It is called once in NewHandler and the result is cached on h.ops.
+func (h *Handler) buildOps() map[string]formOpFunc {
+	return map[string]formOpFunc{
+		"AbortEnvironmentUpdate":             h.handleAbortEnvironmentUpdate,
+		"ApplyEnvironmentManagedAction":      h.handleApplyEnvironmentManagedAction,
+		"AssociateEnvironmentOperationsRole": h.handleAssociateEnvironmentOperationsRole,
+		"CheckDNSAvailability":               h.handleCheckDNSAvailability,
+		"ComposeEnvironments":                h.handleComposeEnvironments,
+		"CreateApplication":                  h.handleCreateApplication,
+		"CreateConfigurationTemplate":        h.handleCreateConfigurationTemplate,
+		"CreateEnvironment":                  h.handleCreateEnvironment,
+		"CreateApplicationVersion":           h.handleCreateApplicationVersion,
+		"CreatePlatformVersion":              h.handleCreatePlatformVersion,
+		"CreateStorageLocation":              h.handleCreateStorageLocation,
+		"DeleteApplication":                  h.handleDeleteApplication,
+		"DeleteApplicationVersion":           h.handleDeleteApplicationVersion,
+		"DeleteConfigurationTemplate":        h.handleDeleteConfigurationTemplate,
+		"DeleteEnvironmentConfiguration":     h.handleDeleteEnvironmentConfiguration,
+		"DescribeApplications":               h.handleDescribeApplications,
+		"DescribeApplicationVersions":        h.handleDescribeApplicationVersions,
+		"DescribeConfigurationSettings":      h.handleDescribeConfigurationSettings,
+		"DescribeEnvironmentResources":       h.handleDescribeEnvironmentResources,
+		"DescribeEnvironments":               h.handleDescribeEnvironments,
+		"DescribeEvents":                     h.handleDescribeEvents,
+		"ListTagsForResource":                h.handleListTagsForResource,
+		"RebuildEnvironment":                 h.handleRebuildEnvironment,
+		"RestartAppServer":                   h.handleRestartAppServer,
+		"TerminateEnvironment":               h.handleTerminateEnvironment,
+		"UpdateApplication":                  h.handleUpdateApplication,
+		"UpdateEnvironment":                  h.handleUpdateEnvironment,
+		"UpdateTagsForResource":              h.handleUpdateTagsForResource,
+	}
 }
 
 // Name returns the service name.
@@ -191,40 +233,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the Elastic Beanstalk action to the appropriate handler.
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	type handlerFn func(url.Values) (any, error)
-
-	handlers := map[string]handlerFn{
-		"AbortEnvironmentUpdate":             h.handleAbortEnvironmentUpdate,
-		"ApplyEnvironmentManagedAction":      h.handleApplyEnvironmentManagedAction,
-		"AssociateEnvironmentOperationsRole": h.handleAssociateEnvironmentOperationsRole,
-		"CheckDNSAvailability":               h.handleCheckDNSAvailability,
-		"ComposeEnvironments":                h.handleComposeEnvironments,
-		"CreateApplication":                  h.handleCreateApplication,
-		"CreateConfigurationTemplate":        h.handleCreateConfigurationTemplate,
-		"CreateEnvironment":                  h.handleCreateEnvironment,
-		"CreateApplicationVersion":           h.handleCreateApplicationVersion,
-		"CreatePlatformVersion":              h.handleCreatePlatformVersion,
-		"CreateStorageLocation":              h.handleCreateStorageLocation,
-		"DeleteApplication":                  h.handleDeleteApplication,
-		"DeleteApplicationVersion":           h.handleDeleteApplicationVersion,
-		"DeleteConfigurationTemplate":        h.handleDeleteConfigurationTemplate,
-		"DeleteEnvironmentConfiguration":     h.handleDeleteEnvironmentConfiguration,
-		"DescribeApplications":               h.handleDescribeApplications,
-		"DescribeApplicationVersions":        h.handleDescribeApplicationVersions,
-		"DescribeConfigurationSettings":      h.handleDescribeConfigurationSettings,
-		"DescribeEnvironmentResources":       h.handleDescribeEnvironmentResources,
-		"DescribeEnvironments":               h.handleDescribeEnvironments,
-		"DescribeEvents":                     h.handleDescribeEvents,
-		"ListTagsForResource":                h.handleListTagsForResource,
-		"RebuildEnvironment":                 h.handleRebuildEnvironment,
-		"RestartAppServer":                   h.handleRestartAppServer,
-		"TerminateEnvironment":               h.handleTerminateEnvironment,
-		"UpdateApplication":                  h.handleUpdateApplication,
-		"UpdateEnvironment":                  h.handleUpdateEnvironment,
-		"UpdateTagsForResource":              h.handleUpdateTagsForResource,
-	}
-
-	if fn, ok := handlers[action]; ok {
+	if fn, ok := h.ops[action]; ok {
 		return fn(vals)
 	}
 
@@ -486,6 +495,22 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 	description := vals.Get("Description")
 	solutionStack := vals.Get("SolutionStackName")
 
+	// If no app name provided, search across all environments for this name.
+	if appName == "" {
+		envs := h.Backend.DescribeEnvironments("", []string{envName}, nil)
+
+		if len(envs) == 1 {
+			appName = envs[0].ApplicationName
+		} else if len(envs) > 1 {
+			return nil, fmt.Errorf(
+				"%w: multiple environments named %s; please specify ApplicationName",
+				ErrInvalidParameter,
+				envName,
+			)
+		}
+		// len(envs) == 0: let the backend return a not-found error below.
+	}
+
 	env, err := h.Backend.UpdateEnvironment(appName, envName, description, solutionStack)
 	if err != nil {
 		return nil, err
@@ -687,10 +712,11 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]tagDescType, 0, len(tags))
+	keys := sortedTagKeys(tags)
+	members := make([]tagDescType, 0, len(keys))
 
-	for k, v := range tags {
-		members = append(members, tagDescType{Key: k, Value: v})
+	for _, k := range keys {
+		members = append(members, tagDescType{Key: k, Value: tags[k]})
 	}
 
 	return &listTagsForResourceResponse{
@@ -840,21 +866,27 @@ func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, err
 
 	solutionStack := ""
 
-	envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
-	if len(envs) > 0 {
-		solutionStack = envs[0].SolutionStackName
+	if envName != "" {
+		envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
+		if len(envs) > 0 {
+			solutionStack = envs[0].SolutionStackName
+		}
+	}
+
+	settings := make([]configurationSettingsDescType, 0)
+
+	if envName != "" || appName != "" {
+		settings = append(settings, configurationSettingsDescType{
+			ApplicationName:   appName,
+			EnvironmentName:   envName,
+			SolutionStackName: solutionStack,
+		})
 	}
 
 	return &describeConfigurationSettingsResponse{
 		Xmlns: ebXMLNS,
 		DescribeConfigurationSettingsResult: describeConfigurationSettingsResult{
-			ConfigurationSettings: []configurationSettingsDescType{
-				{
-					ApplicationName:   appName,
-					EnvironmentName:   envName,
-					SolutionStackName: solutionStack,
-				},
-			},
+			ConfigurationSettings: settings,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-config-settings"},
 	}, nil
@@ -885,6 +917,7 @@ func (h *Handler) handleOpError(c *echo.Context, opErr error) error {
 		{ErrNotFound, "InvalidParameterValue"},
 		{ErrAlreadyExists, "InvalidParameterValue"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
+		{ErrValidation, "ValidationException"},
 		{ErrUnknownAction, "UnknownOperationException"},
 	}
 

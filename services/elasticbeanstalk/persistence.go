@@ -1,6 +1,9 @@
 package elasticbeanstalk
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	Applications     map[string]*Application           `json:"applications"`
@@ -33,6 +36,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("elasticbeanstalk: failed to snapshot backend state", "error", err)
+
 		return nil
 	}
 
