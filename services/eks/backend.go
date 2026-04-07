@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -17,6 +18,8 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when an EKS resource already exists.
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
 )
 
 // Cluster represents an EKS cluster.
@@ -62,26 +65,144 @@ type Nodegroup struct {
 
 // InMemoryBackend is the in-memory store for EKS resources.
 type InMemoryBackend struct {
-	clusters   map[string]*Cluster
-	nodegroups map[string]map[string]*Nodegroup // clusterName -> nodegroupName -> nodegroup
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	clusters                map[string]*Cluster
+	nodegroups              map[string]map[string]*Nodegroup // clusterName -> nodegroupName -> nodegroup
+	accessEntries           map[string]map[string]*AccessEntry
+	accessPolicies          map[string]map[string][]*AccessPolicyAssociation
+	encryptionConfigs       map[string][]EncryptionConfig
+	identityProviderConfigs map[string]map[string]*IdentityProviderConfig
+	addons                  map[string]map[string]*Addon
+	fargateProfiles         map[string]map[string]*FargateProfile
+	podIdentityAssociations map[string]map[string]*PodIdentityAssociation
+	capabilities            map[string]*Capability
+	subscriptions           map[string]*AnywhereSubscription
+	mu                      *lockmetrics.RWMutex
+	accountID               string
+	region                  string
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:   make(map[string]*Cluster),
-		nodegroups: make(map[string]map[string]*Nodegroup),
-		accountID:  accountID,
-		region:     region,
-		mu:         lockmetrics.New("eks"),
+		clusters:                make(map[string]*Cluster),
+		nodegroups:              make(map[string]map[string]*Nodegroup),
+		accessEntries:           make(map[string]map[string]*AccessEntry),
+		accessPolicies:          make(map[string]map[string][]*AccessPolicyAssociation),
+		encryptionConfigs:       make(map[string][]EncryptionConfig),
+		identityProviderConfigs: make(map[string]map[string]*IdentityProviderConfig),
+		addons:                  make(map[string]map[string]*Addon),
+		fargateProfiles:         make(map[string]map[string]*FargateProfile),
+		podIdentityAssociations: make(map[string]map[string]*PodIdentityAssociation),
+		capabilities:            make(map[string]*Capability),
+		subscriptions:           make(map[string]*AnywhereSubscription),
+		accountID:               accountID,
+		region:                  region,
+		mu:                      lockmetrics.New("eks"),
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// Reset clears all state, returning the backend to a fresh empty state.
+// closeClusterTagsLocked closes tag objects for clusters and nodegroups.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) closeClusterTagsLocked() {
+	for _, c := range b.clusters {
+		if c.Tags != nil {
+			c.Tags.Close()
+		}
+	}
+
+	for _, ngs := range b.nodegroups {
+		for _, ng := range ngs {
+			if ng.Tags != nil {
+				ng.Tags.Close()
+			}
+		}
+	}
+}
+
+// closeEntryTagsLocked closes tag objects for access entries and addons.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) closeEntryTagsLocked() {
+	for _, entries := range b.accessEntries {
+		for _, e := range entries {
+			if e.Tags != nil {
+				e.Tags.Close()
+			}
+		}
+	}
+
+	for _, clusterAddons := range b.addons {
+		for _, a := range clusterAddons {
+			if a.Tags != nil {
+				a.Tags.Close()
+			}
+		}
+	}
+}
+
+// closeProfileTagsLocked closes tag objects for fargate profiles, pod identity
+// associations, identity provider configs, and subscriptions.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) closeProfileTagsLocked() {
+	for _, profiles := range b.fargateProfiles {
+		for _, p := range profiles {
+			if p.Tags != nil {
+				p.Tags.Close()
+			}
+		}
+	}
+
+	for _, assocs := range b.podIdentityAssociations {
+		for _, a := range assocs {
+			if a.Tags != nil {
+				a.Tags.Close()
+			}
+		}
+	}
+
+	b.closeIDPAndSubscriptionTagsLocked()
+}
+
+func (b *InMemoryBackend) closeIDPAndSubscriptionTagsLocked() {
+	for _, idpCfgs := range b.identityProviderConfigs {
+		for _, cfg := range idpCfgs {
+			if cfg.Tags != nil {
+				cfg.Tags.Close()
+			}
+		}
+	}
+
+	for _, sub := range b.subscriptions {
+		if sub.Tags != nil {
+			sub.Tags.Close()
+		}
+	}
+}
+
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	// Close all tag resources to deregister Prometheus labels.
+	b.closeClusterTagsLocked()
+	b.closeEntryTagsLocked()
+	b.closeProfileTagsLocked()
+
+	b.clusters = make(map[string]*Cluster)
+	b.nodegroups = make(map[string]map[string]*Nodegroup)
+	b.accessEntries = make(map[string]map[string]*AccessEntry)
+	b.accessPolicies = make(map[string]map[string][]*AccessPolicyAssociation)
+	b.encryptionConfigs = make(map[string][]EncryptionConfig)
+	b.identityProviderConfigs = make(map[string]map[string]*IdentityProviderConfig)
+	b.addons = make(map[string]map[string]*Addon)
+	b.fargateProfiles = make(map[string]map[string]*FargateProfile)
+	b.podIdentityAssociations = make(map[string]map[string]*PodIdentityAssociation)
+	b.capabilities = make(map[string]*Capability)
+	b.subscriptions = make(map[string]*AnywhereSubscription)
+}
 
 // CreateCluster creates a new EKS cluster.
 func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[string]string) (*Cluster, error) {
@@ -117,6 +238,13 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)
+	b.accessEntries[name] = make(map[string]*AccessEntry)
+	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
+	b.encryptionConfigs[name] = nil
+	b.identityProviderConfigs[name] = make(map[string]*IdentityProviderConfig)
+	b.addons[name] = make(map[string]*Addon)
+	b.fargateProfiles[name] = make(map[string]*FargateProfile)
+	b.podIdentityAssociations[name] = make(map[string]*PodIdentityAssociation)
 	cp := *c
 
 	return &cp, nil
@@ -136,7 +264,7 @@ func (b *InMemoryBackend) DescribeCluster(name string) (*Cluster, error) {
 	return &cp, nil
 }
 
-// ListClusters returns all cluster names.
+// ListClusters returns all cluster names sorted alphabetically.
 func (b *InMemoryBackend) ListClusters() []string {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
@@ -146,7 +274,43 @@ func (b *InMemoryBackend) ListClusters() []string {
 		names = append(names, name)
 	}
 
+	sort.Strings(names)
+
 	return names
+}
+
+// closeAccessEntryTagsForCluster closes tag objects for all access entries in
+// a cluster and removes them from the maps. Must be called with b.mu held.
+func (b *InMemoryBackend) closeAccessEntryTagsForCluster(clusterName string) {
+	for _, e := range b.accessEntries[clusterName] {
+		if e.Tags != nil {
+			e.Tags.Close()
+		}
+	}
+
+	delete(b.accessEntries, clusterName)
+	delete(b.accessPolicies, clusterName)
+}
+
+// closeIDPAndPodTagsForCluster closes tag objects for identity provider configs
+// and pod identity associations in a cluster, then removes them from the maps.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) closeIDPAndPodTagsForCluster(clusterName string) {
+	for _, cfg := range b.identityProviderConfigs[clusterName] {
+		if cfg.Tags != nil {
+			cfg.Tags.Close()
+		}
+	}
+
+	delete(b.identityProviderConfigs, clusterName)
+
+	for _, a := range b.podIdentityAssociations[clusterName] {
+		if a.Tags != nil {
+			a.Tags.Close()
+		}
+	}
+
+	delete(b.podIdentityAssociations, clusterName)
 }
 
 // DeleteCluster deletes a cluster by name.
@@ -164,9 +328,14 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	ngs := b.nodegroups[name]
 	delete(b.clusters, name)
 	delete(b.nodegroups, name)
+	delete(b.encryptionConfigs, name)
+	delete(b.addons, name)
+	delete(b.fargateProfiles, name)
 
-	// Release tag resources outside the map but still inside the lock since
-	// Tags.Close only unregisters Prometheus labels (cheap and non-blocking).
+	b.closeAccessEntryTagsForCluster(name)
+	b.closeIDPAndPodTagsForCluster(name)
+
+	// Release cluster and nodegroup tag resources.
 	if c.Tags != nil {
 		c.Tags.Close()
 	}
@@ -275,7 +444,7 @@ func (b *InMemoryBackend) DescribeNodegroup(clusterName, nodegroupName string) (
 	return &cp, nil
 }
 
-// ListNodegroups returns all node group names in a cluster.
+// ListNodegroups returns all node group names in a cluster sorted alphabetically.
 func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 	b.mu.RLock("ListNodegroups")
 	defer b.mu.RUnlock()
@@ -288,6 +457,8 @@ func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 	for name := range b.nodegroups[clusterName] {
 		names = append(names, name)
 	}
+
+	sort.Strings(names)
 
 	return names, nil
 }
@@ -358,30 +529,102 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 	return &cp, nil
 }
 
+// findTagInNodegroupsLocked searches nodegroupsfor a resource with the given ARN.
+func (b *InMemoryBackend) findTagInNodegroupsLocked(resourceARN string) *tags.Tags {
+	for _, ngs := range b.nodegroups {
+		for _, ng := range ngs {
+			if ng.ARN == resourceARN {
+				return ng.Tags
+			}
+		}
+	}
+
+	return nil
+}
+
+// findTagInAccessEntriesAndAddonsLocked searches access entries and addons.
+func (b *InMemoryBackend) findTagInAccessEntriesAndAddonsLocked(resourceARN string) *tags.Tags {
+	for _, entries := range b.accessEntries {
+		for _, e := range entries {
+			if e.ARN == resourceARN {
+				return e.Tags
+			}
+		}
+	}
+
+	for _, clusterAddons := range b.addons {
+		for _, a := range clusterAddons {
+			if a.ARN == resourceARN {
+				return a.Tags
+			}
+		}
+	}
+
+	return nil
+}
+
+// findTagInProfilesAndAssocLocked searches fargate profiles, pod identity
+// associations, and subscriptions.
+func (b *InMemoryBackend) findTagInProfilesAndAssocLocked(resourceARN string) *tags.Tags {
+	for _, profiles := range b.fargateProfiles {
+		for _, p := range profiles {
+			if p.ARN == resourceARN {
+				return p.Tags
+			}
+		}
+	}
+
+	for _, assocs := range b.podIdentityAssociations {
+		for _, a := range assocs {
+			if a.ARN == resourceARN {
+				return a.Tags
+			}
+		}
+	}
+
+	for _, sub := range b.subscriptions {
+		if sub.ARN == resourceARN {
+			return sub.Tags
+		}
+	}
+
+	return nil
+}
+
+// findTagsForARNLocked returns a pointer to the tags.Tags for the resource
+// identified by resourceARN. Must be called with b.mu held (read or write).
+// Returns nil if the resource is not found.
+func (b *InMemoryBackend) findTagsForARNLocked(resourceARN string) *tags.Tags {
+	for _, c := range b.clusters {
+		if c.ARN == resourceARN {
+			return c.Tags
+		}
+	}
+
+	if t := b.findTagInNodegroupsLocked(resourceARN); t != nil {
+		return t
+	}
+
+	if t := b.findTagInAccessEntriesAndAddonsLocked(resourceARN); t != nil {
+		return t
+	}
+
+	return b.findTagInProfilesAndAssocLocked(resourceARN)
+}
+
 // TagResource adds tags to a resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
-		if c.ARN == resourceARN {
-			c.Tags.Merge(kv)
-
-			return nil
-		}
+	t := b.findTagsForARNLocked(resourceARN)
+	if t == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	for _, ngs := range b.nodegroups {
-		for _, ng := range ngs {
-			if ng.ARN == resourceARN {
-				ng.Tags.Merge(kv)
+	t.Merge(kv)
 
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil
 }
 
 // UntagResource removes specific tag keys from a resource by ARN.
@@ -389,25 +632,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
-		if c.ARN == resourceARN {
-			c.Tags.DeleteKeys(tagKeys)
-
-			return nil
-		}
+	t := b.findTagsForARNLocked(resourceARN)
+	if t == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	for _, ngs := range b.nodegroups {
-		for _, ng := range ngs {
-			if ng.ARN == resourceARN {
-				ng.Tags.DeleteKeys(tagKeys)
+	t.DeleteKeys(tagKeys)
 
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil
 }
 
 // ListTagsForResource returns tags for a resource by ARN.
@@ -415,24 +647,145 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, c := range b.clusters {
-		if c.ARN == resourceARN {
-			return c.Tags.Clone(), nil
-		}
+	t := b.findTagsForARNLocked(resourceARN)
+	if t == nil {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	for _, ngs := range b.nodegroups {
-		for _, ng := range ngs {
-			if ng.ARN == resourceARN {
-				return ng.Tags.Clone(), nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return t.Clone(), nil
 }
 
-// ListAllClusters returns all clusters as a slice (for dashboard use).
+// AddClusterInternal inserts a pre-built cluster directly into the backend.
+// Intended only for test seeding; not safe for production use.
+func (b *InMemoryBackend) AddClusterInternal(c *Cluster) {
+	b.mu.Lock("AddClusterInternal")
+	defer b.mu.Unlock()
+
+	if c.Tags == nil {
+		c.Tags = tags.New("eks.cluster." + c.Name + ".tags")
+	}
+
+	b.clusters[c.Name] = c
+
+	if b.nodegroups[c.Name] == nil {
+		b.nodegroups[c.Name] = make(map[string]*Nodegroup)
+	}
+
+	if b.accessEntries[c.Name] == nil {
+		b.accessEntries[c.Name] = make(map[string]*AccessEntry)
+	}
+
+	if b.accessPolicies[c.Name] == nil {
+		b.accessPolicies[c.Name] = make(map[string][]*AccessPolicyAssociation)
+	}
+
+	if b.identityProviderConfigs[c.Name] == nil {
+		b.identityProviderConfigs[c.Name] = make(map[string]*IdentityProviderConfig)
+	}
+
+	if b.addons[c.Name] == nil {
+		b.addons[c.Name] = make(map[string]*Addon)
+	}
+
+	if b.fargateProfiles[c.Name] == nil {
+		b.fargateProfiles[c.Name] = make(map[string]*FargateProfile)
+	}
+
+	if b.podIdentityAssociations[c.Name] == nil {
+		b.podIdentityAssociations[c.Name] = make(map[string]*PodIdentityAssociation)
+	}
+}
+
+// AddNodegroupInternal inserts a pre-built node group into the backend.
+// Intended only for test seeding.
+func (b *InMemoryBackend) AddNodegroupInternal(ng *Nodegroup) {
+	b.mu.Lock("AddNodegroupInternal")
+	defer b.mu.Unlock()
+
+	if ng.Tags == nil {
+		ng.Tags = tags.New("eks.nodegroup." + ng.ClusterName + "." + ng.NodegroupName + ".tags")
+	}
+
+	if b.nodegroups[ng.ClusterName] == nil {
+		b.nodegroups[ng.ClusterName] = make(map[string]*Nodegroup)
+	}
+
+	b.nodegroups[ng.ClusterName][ng.NodegroupName] = ng
+}
+
+// AddAccessEntryInternal inserts a pre-built access entry into the backend.
+// Intended only for test seeding.
+func (b *InMemoryBackend) AddAccessEntryInternal(e *AccessEntry) {
+	b.mu.Lock("AddAccessEntryInternal")
+	defer b.mu.Unlock()
+
+	if e.Tags == nil {
+		e.Tags = tags.New("eks.access-entry." + e.ClusterName + "." + stableID(e.PrincipalARN) + ".tags")
+	}
+
+	if b.accessEntries[e.ClusterName] == nil {
+		b.accessEntries[e.ClusterName] = make(map[string]*AccessEntry)
+	}
+
+	b.accessEntries[e.ClusterName][e.PrincipalARN] = e
+}
+
+// AddAddonInternal inserts a pre-built add-on into the backend.
+// Intended only for test seeding.
+func (b *InMemoryBackend) AddAddonInternal(a *Addon) {
+	b.mu.Lock("AddAddonInternal")
+	defer b.mu.Unlock()
+
+	if a.Tags == nil {
+		a.Tags = tags.New("eks.addon." + a.ClusterName + "." + a.AddonName + ".tags")
+	}
+
+	if b.addons[a.ClusterName] == nil {
+		b.addons[a.ClusterName] = make(map[string]*Addon)
+	}
+
+	b.addons[a.ClusterName][a.AddonName] = a
+}
+
+// AddFargateProfileInternal inserts a pre-built Fargate profile into the backend.
+// Intended only for test seeding.
+func (b *InMemoryBackend) AddFargateProfileInternal(p *FargateProfile) {
+	b.mu.Lock("AddFargateProfileInternal")
+	defer b.mu.Unlock()
+
+	if p.Tags == nil {
+		p.Tags = tags.New("eks.fargate." + p.ClusterName + "." + p.FargateProfileName + ".tags")
+	}
+
+	if b.fargateProfiles[p.ClusterName] == nil {
+		b.fargateProfiles[p.ClusterName] = make(map[string]*FargateProfile)
+	}
+
+	b.fargateProfiles[p.ClusterName][p.FargateProfileName] = p
+}
+
+// AddCapabilityInternal inserts a pre-built capability into the backend.
+// Intended only for test seeding.
+func (b *InMemoryBackend) AddCapabilityInternal(capa *Capability) {
+	b.mu.Lock("AddCapabilityInternal")
+	defer b.mu.Unlock()
+
+	b.capabilities[capa.Name] = capa
+}
+
+// AddSubscriptionInternal inserts a pre-built EKS Anywhere subscription into the backend.
+// Intended only for test seeding.
+func (b *InMemoryBackend) AddSubscriptionInternal(sub *AnywhereSubscription) {
+	b.mu.Lock("AddSubscriptionInternal")
+	defer b.mu.Unlock()
+
+	if sub.Tags == nil {
+		sub.Tags = tags.New("eks.subscription." + sub.ID + ".tags")
+	}
+
+	b.subscriptions[sub.ID] = sub
+}
+
 func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	b.mu.RLock("ListAllClusters")
 	defer b.mu.RUnlock()
