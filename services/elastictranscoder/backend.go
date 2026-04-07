@@ -1,6 +1,7 @@
 package elastictranscoder
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"time"
@@ -17,21 +18,38 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	// ErrValidation is returned when request parameters fail validation.
+	ErrValidation = errors.New("ValidationException")
 )
+
+// PipelineNotifications holds SNS topic ARNs for pipeline event notifications.
+type PipelineNotifications struct {
+	Completed   string `json:"Completed,omitempty"`
+	Error       string `json:"Error,omitempty"`
+	Progressing string `json:"Progressing,omitempty"`
+	Warning     string `json:"Warning,omitempty"`
+}
 
 // Pipeline represents an Elastic Transcoder pipeline.
 type Pipeline struct {
-	CreationTime time.Time         `json:"creationTime,omitzero"`
-	Tags         map[string]string `json:"Tags,omitempty"`
-	Name         string            `json:"Name"`
-	ID           string            `json:"Id"`
-	ARN          string            `json:"Arn"`
-	InputBucket  string            `json:"InputBucket"`
-	OutputBucket string            `json:"OutputBucket,omitempty"`
-	Role         string            `json:"Role"`
-	Status       string            `json:"Status"`
-	AccountID    string            `json:"accountId,omitempty"`
-	Region       string            `json:"region,omitempty"`
+	CreationTime  time.Time              `json:"creationTime,omitzero"`
+	Tags          map[string]string      `json:"Tags,omitempty"`
+	Notifications *PipelineNotifications `json:"Notifications,omitempty"`
+	Name          string                 `json:"Name"`
+	ID            string                 `json:"Id"`
+	ARN           string                 `json:"Arn"`
+	InputBucket   string                 `json:"InputBucket"`
+	OutputBucket  string                 `json:"OutputBucket,omitempty"`
+	Role          string                 `json:"Role"`
+	Status        string                 `json:"Status"`
+	AccountID     string                 `json:"accountId,omitempty"`
+	Region        string                 `json:"region,omitempty"`
+}
+
+// TestRoleResult holds the result of a TestRole operation.
+type TestRoleResult struct {
+	Success  string   `json:"Success"`
+	Messages []string `json:"Messages"`
 }
 
 // Preset represents an Elastic Transcoder preset.
@@ -409,6 +427,73 @@ func (b *InMemoryBackend) RemoveTagsFromResource(resourceARN string, tagKeys []s
 	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
+// ListJobsByStatus returns all jobs with the given status.
+func (b *InMemoryBackend) ListJobsByStatus(status string) []*Job {
+	b.mu.RLock("ListJobsByStatus")
+	defer b.mu.RUnlock()
+
+	list := make([]*Job, 0)
+	for _, j := range b.jobs {
+		if j.Status == status {
+			cp := *j
+			cp.Tags = maps.Clone(j.Tags)
+			list = append(list, &cp)
+		}
+	}
+
+	return list
+}
+
+// TestRole verifies that the given role can access the specified buckets.
+// In this in-memory implementation it always returns success.
+func (b *InMemoryBackend) TestRole(role, inputBucket, _ string) (*TestRoleResult, error) {
+	if role == "" || inputBucket == "" {
+		return nil, fmt.Errorf("%w: Role and InputBucket are required", ErrValidation)
+	}
+
+	return &TestRoleResult{
+		Messages: []string{},
+		Success:  "true",
+	}, nil
+}
+
+// UpdatePipelineNotifications updates the SNS notification settings for a pipeline.
+func (b *InMemoryBackend) UpdatePipelineNotifications(
+	id string,
+	notifications *PipelineNotifications,
+) (*Pipeline, error) {
+	b.mu.Lock("UpdatePipelineNotifications")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
+	}
+
+	p.Notifications = notifications
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp, nil
+}
+
+// UpdatePipelineStatus updates the active/paused status of a pipeline.
+func (b *InMemoryBackend) UpdatePipelineStatus(id, status string) (*Pipeline, error) {
+	b.mu.Lock("UpdatePipelineStatus")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
+	}
+
+	p.Status = status
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp, nil
 }
 
 // ListTagsForResource returns the tags for a resource identified by ARN.

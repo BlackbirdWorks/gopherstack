@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := elastictranscoder.NewInMemoryBackend("000000000000", "us-east-1")
 	h := elastictranscoder.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &elastictranscodersdk.Client{}, h.GetSupportedOperations(), []string{
-		"ListJobsByStatus",
-		"TestRole",
-		"UpdatePipelineNotifications",
-		"UpdatePipelineStatus",
-	})
+	sdkcheck.CheckCompleteness(t, &elastictranscodersdk.Client{}, h.GetSupportedOperations(), []string{})
 }
