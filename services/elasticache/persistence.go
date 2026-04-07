@@ -26,15 +26,21 @@ type clusterSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Clusters          map[string]*clusterSnapshot     `json:"clusters"`
-	ReplicationGroups map[string]*ReplicationGroup    `json:"replicationGroups"`
-	ParameterGroups   map[string]*CacheParameterGroup `json:"parameterGroups"`
-	SubnetGroups      map[string]*CacheSubnetGroup    `json:"subnetGroups"`
-	Snapshots         map[string]*CacheSnapshot       `json:"snapshots"`
-	EngineMode        string                          `json:"engineMode"`
-	AccountID         string                          `json:"accountID"`
-	Region            string                          `json:"region"`
-	Events            []CacheEvent                    `json:"events,omitempty"`
+	Clusters                  map[string]*clusterSnapshot             `json:"clusters"`
+	ReplicationGroups         map[string]*ReplicationGroup            `json:"replicationGroups"`
+	ParameterGroups           map[string]*CacheParameterGroup         `json:"parameterGroups"`
+	SubnetGroups              map[string]*CacheSubnetGroup            `json:"subnetGroups"`
+	Snapshots                 map[string]*CacheSnapshot               `json:"snapshots"`
+	CacheSecurityGroups       map[string]*CacheSecurityGroup          `json:"cacheSecurityGroups,omitempty"`
+	CacheSecurityGroupIngress map[string][]EC2SecurityGroupMembership `json:"cacheSecurityGroupIngress,omitempty"`
+	GlobalReplicationGroups   map[string]*GlobalReplicationGroup      `json:"globalReplicationGroups,omitempty"`
+	ServerlessCaches          map[string]*ServerlessCache             `json:"serverlessCaches,omitempty"`
+	ServerlessCacheSnapshots  map[string]*ServerlessCacheSnapshot     `json:"serverlessCacheSnapshots,omitempty"`
+	Users                     map[string]*ElastiCacheUser             `json:"users,omitempty"`
+	EngineMode                string                                  `json:"engineMode"`
+	AccountID                 string                                  `json:"accountID"`
+	Region                    string                                  `json:"region"`
+	Events                    []CacheEvent                            `json:"events,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -64,15 +70,21 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		Clusters:          clusters,
-		ReplicationGroups: b.replicationGroups,
-		ParameterGroups:   b.parameterGroups,
-		SubnetGroups:      b.subnetGroups,
-		Snapshots:         b.snapshots,
-		Events:            b.events,
-		EngineMode:        b.engineMode,
-		AccountID:         b.accountID,
-		Region:            b.region,
+		Clusters:                  clusters,
+		ReplicationGroups:         b.replicationGroups,
+		ParameterGroups:           b.parameterGroups,
+		SubnetGroups:              b.subnetGroups,
+		Snapshots:                 b.snapshots,
+		CacheSecurityGroups:       b.cacheSecurityGroups,
+		CacheSecurityGroupIngress: b.cacheSecurityGroupIngress,
+		GlobalReplicationGroups:   b.globalReplicationGroups,
+		ServerlessCaches:          b.serverlessCaches,
+		ServerlessCacheSnapshots:  b.serverlessCacheSnapshots,
+		Users:                     b.users,
+		Events:                    b.events,
+		EngineMode:                b.engineMode,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -81,6 +93,70 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	return data
+}
+
+// restoreClusters converts the snapshot's clusterSnapshot map into Cluster objects.
+func restoreClusters(snap map[string]*clusterSnapshot) map[string]*Cluster {
+	clusters := make(map[string]*Cluster, len(snap))
+	for k, cs := range snap {
+		clusters[k] = &Cluster{
+			CreatedAt:                  cs.CreatedAt,
+			Tags:                       cs.Tags,
+			ClusterID:                  cs.ClusterID,
+			Engine:                     cs.Engine,
+			EngineVersion:              cs.EngineVersion,
+			Status:                     cs.Status,
+			Endpoint:                   cs.Endpoint,
+			NodeType:                   cs.NodeType,
+			ARN:                        cs.ARN,
+			CacheParameterGroupName:    cs.CacheParameterGroupName,
+			PreferredMaintenanceWindow: cs.PreferredMaintenanceWindow,
+			SnapshotWindow:             cs.SnapshotWindow,
+			Port:                       cs.Port,
+			NumCacheNodes:              cs.NumCacheNodes,
+		}
+	}
+
+	return clusters
+}
+
+// restoreNewOpMaps assigns the new-ops maps from the snapshot into the backend.
+func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
+	if snap.CacheSecurityGroups != nil {
+		b.cacheSecurityGroups = snap.CacheSecurityGroups
+	} else {
+		b.cacheSecurityGroups = make(map[string]*CacheSecurityGroup)
+	}
+
+	if snap.CacheSecurityGroupIngress != nil {
+		b.cacheSecurityGroupIngress = snap.CacheSecurityGroupIngress
+	} else {
+		b.cacheSecurityGroupIngress = make(map[string][]EC2SecurityGroupMembership)
+	}
+
+	if snap.GlobalReplicationGroups != nil {
+		b.globalReplicationGroups = snap.GlobalReplicationGroups
+	} else {
+		b.globalReplicationGroups = make(map[string]*GlobalReplicationGroup)
+	}
+
+	if snap.ServerlessCaches != nil {
+		b.serverlessCaches = snap.ServerlessCaches
+	} else {
+		b.serverlessCaches = make(map[string]*ServerlessCache)
+	}
+
+	if snap.ServerlessCacheSnapshots != nil {
+		b.serverlessCacheSnapshots = snap.ServerlessCacheSnapshots
+	} else {
+		b.serverlessCacheSnapshots = make(map[string]*ServerlessCacheSnapshot)
+	}
+
+	if snap.Users != nil {
+		b.users = snap.Users
+	} else {
+		b.users = make(map[string]*ElastiCacheUser)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -115,31 +191,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Snapshots = make(map[string]*CacheSnapshot)
 	}
 
-	clusters := make(map[string]*Cluster, len(snap.Clusters))
-	for k, cs := range snap.Clusters {
-		clusters[k] = &Cluster{
-			CreatedAt:                  cs.CreatedAt,
-			Tags:                       cs.Tags,
-			ClusterID:                  cs.ClusterID,
-			Engine:                     cs.Engine,
-			EngineVersion:              cs.EngineVersion,
-			Status:                     cs.Status,
-			Endpoint:                   cs.Endpoint,
-			NodeType:                   cs.NodeType,
-			ARN:                        cs.ARN,
-			CacheParameterGroupName:    cs.CacheParameterGroupName,
-			PreferredMaintenanceWindow: cs.PreferredMaintenanceWindow,
-			SnapshotWindow:             cs.SnapshotWindow,
-			Port:                       cs.Port,
-			NumCacheNodes:              cs.NumCacheNodes,
-		}
-	}
-
-	b.clusters = clusters
+	b.clusters = restoreClusters(snap.Clusters)
 	b.replicationGroups = snap.ReplicationGroups
 	b.parameterGroups = snap.ParameterGroups
 	b.subnetGroups = snap.SubnetGroups
 	b.snapshots = snap.Snapshots
+
+	b.restoreNewOpMaps(&snap)
 
 	if snap.Events != nil {
 		b.events = snap.Events

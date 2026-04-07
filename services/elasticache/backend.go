@@ -174,6 +174,27 @@ type StorageBackend interface {
 	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
 	DescribeEvents(sourceIdentifier, sourceType, marker string, maxRecords int) (page.Page[CacheEvent], error)
+	// New ops
+	CreateCacheSecurityGroup(name, description string) (*CacheSecurityGroup, error)
+	AuthorizeCacheSecurityGroupIngress(
+		name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
+	) (*CacheSecurityGroup, error)
+	CreateGlobalReplicationGroup(
+		globalReplicationGroupIDSuffix, description, primaryReplicationGroupID string,
+	) (*GlobalReplicationGroup, error)
+	CreateServerlessCache(name, description, engine string) (*ServerlessCache, error)
+	CreateServerlessCacheSnapshot(snapshotName, serverlessCacheName string) (*ServerlessCacheSnapshot, error)
+	CopyServerlessCacheSnapshot(sourceSnapshotName, targetSnapshotName string) (*ServerlessCacheSnapshot, error)
+	CreateUser(userID, userName, accessString, engine string, noPasswordRequired bool) (*ElastiCacheUser, error)
+	BatchApplyUpdateAction(
+		replicationGroupIDs, cacheClusterIDs []string,
+		serviceUpdateName string,
+	) (*BatchUpdateResult, error)
+	BatchStopUpdateAction(
+		replicationGroupIDs, cacheClusterIDs []string,
+		serviceUpdateName string,
+	) (*BatchUpdateResult, error)
+	CompleteMigration(replicationGroupID string, force bool) (*ReplicationGroup, error)
 }
 
 // CacheParameter represents a single cache parameter (for DescribeParameters response).
@@ -208,17 +229,23 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
-	dnsRegistrar      DNSRegistrar
-	clusters          map[string]*Cluster
-	replicationGroups map[string]*ReplicationGroup
-	parameterGroups   map[string]*CacheParameterGroup
-	subnetGroups      map[string]*CacheSubnetGroup
-	snapshots         map[string]*CacheSnapshot
-	mu                *lockmetrics.RWMutex
-	engineMode        string
-	accountID         string
-	region            string
-	events            []CacheEvent
+	dnsRegistrar              DNSRegistrar
+	clusters                  map[string]*Cluster
+	replicationGroups         map[string]*ReplicationGroup
+	parameterGroups           map[string]*CacheParameterGroup
+	subnetGroups              map[string]*CacheSubnetGroup
+	snapshots                 map[string]*CacheSnapshot
+	cacheSecurityGroups       map[string]*CacheSecurityGroup
+	cacheSecurityGroupIngress map[string][]EC2SecurityGroupMembership
+	globalReplicationGroups   map[string]*GlobalReplicationGroup
+	serverlessCaches          map[string]*ServerlessCache
+	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
+	users                     map[string]*ElastiCacheUser
+	mu                        *lockmetrics.RWMutex
+	engineMode                string
+	accountID                 string
+	region                    string
+	events                    []CacheEvent
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -228,16 +255,22 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 	}
 
 	b := &InMemoryBackend{
-		clusters:          make(map[string]*Cluster),
-		replicationGroups: make(map[string]*ReplicationGroup),
-		parameterGroups:   make(map[string]*CacheParameterGroup),
-		subnetGroups:      make(map[string]*CacheSubnetGroup),
-		snapshots:         make(map[string]*CacheSnapshot),
-		events:            make([]CacheEvent, 0),
-		engineMode:        engineMode,
-		accountID:         accountID,
-		region:            region,
-		mu:                lockmetrics.New("elasticache"),
+		clusters:                  make(map[string]*Cluster),
+		replicationGroups:         make(map[string]*ReplicationGroup),
+		parameterGroups:           make(map[string]*CacheParameterGroup),
+		subnetGroups:              make(map[string]*CacheSubnetGroup),
+		snapshots:                 make(map[string]*CacheSnapshot),
+		cacheSecurityGroups:       make(map[string]*CacheSecurityGroup),
+		cacheSecurityGroupIngress: make(map[string][]EC2SecurityGroupMembership),
+		globalReplicationGroups:   make(map[string]*GlobalReplicationGroup),
+		serverlessCaches:          make(map[string]*ServerlessCache),
+		serverlessCacheSnapshots:  make(map[string]*ServerlessCacheSnapshot),
+		users:                     make(map[string]*ElastiCacheUser),
+		events:                    make([]CacheEvent, 0),
+		engineMode:                engineMode,
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("elasticache"),
 	}
 
 	b.initDefaultParameterGroups()
@@ -472,31 +505,58 @@ type tagEntry struct {
 	initName string
 }
 
-// findTagsByARNLocked returns the tagEntry for the resource with the given ARN, or nil if not found.
-func (b *InMemoryBackend) findTagsByARNLocked(arn string) *tagEntry {
+// tagCandidate bundles an ARN with the tagEntry to return when it matches.
+type tagCandidate struct {
+	arn   string
+	entry tagEntry
+}
+
+// collectTagCandidatesLocked builds a flat list of all taggable resources for ARN lookup.
+func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
+	candidates := make([]tagCandidate, 0, 16)
 	for _, c := range b.clusters {
-		if c.ARN == arn {
-			return &tagEntry{&c.Tags, "elasticache.cluster." + c.ClusterID + ".tags"}
-		}
+		candidates = append(candidates, tagCandidate{c.ARN, tagEntry{&c.Tags, "elasticache.cluster." + c.ClusterID + ".tags"}})
 	}
 	for _, rg := range b.replicationGroups {
-		if rg.ARN == arn {
-			return &tagEntry{&rg.Tags, "elasticache.rg." + rg.ReplicationGroupID + ".tags"}
-		}
+		candidates = append(candidates, tagCandidate{rg.ARN, tagEntry{&rg.Tags, "elasticache.rg." + rg.ReplicationGroupID + ".tags"}})
 	}
 	for _, pg := range b.parameterGroups {
-		if pg.ARN == arn {
-			return &tagEntry{&pg.Tags, "elasticache.pg." + pg.Name + ".tags"}
-		}
+		candidates = append(candidates, tagCandidate{pg.ARN, tagEntry{&pg.Tags, "elasticache.pg." + pg.Name + ".tags"}})
 	}
 	for _, sg := range b.subnetGroups {
-		if sg.ARN == arn {
-			return &tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}
-		}
+		candidates = append(candidates, tagCandidate{sg.ARN, tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}})
 	}
 	for _, snap := range b.snapshots {
-		if snap.ARN == arn {
-			return &tagEntry{&snap.Tags, "elasticache.snapshot." + snap.SnapshotName + ".tags"}
+		candidates = append(candidates, tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.snapshot." + snap.SnapshotName + ".tags"}})
+	}
+	for _, sg := range b.cacheSecurityGroups {
+		candidates = append(candidates, tagCandidate{sg.ARN, tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}})
+	}
+	for _, grg := range b.globalReplicationGroups {
+		candidates = append(candidates,
+			tagCandidate{grg.ARN, tagEntry{&grg.Tags, "elasticache.grg." + grg.GlobalReplicationGroupID + ".tags"}})
+	}
+	for _, sc := range b.serverlessCaches {
+		candidates = append(candidates, tagCandidate{sc.ARN, tagEntry{&sc.Tags, "elasticache.serverless." + sc.Name + ".tags"}})
+	}
+	for _, snap := range b.serverlessCacheSnapshots {
+		candidates = append(candidates,
+			tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.serverlesssnap." + snap.Name + ".tags"}})
+	}
+	for _, u := range b.users {
+		candidates = append(candidates, tagCandidate{u.ARN, tagEntry{&u.Tags, "elasticache.user." + u.UserID + ".tags"}})
+	}
+
+	return candidates
+}
+
+// findTagsByARNLocked returns the tagEntry for the resource with the given ARN, or nil if not found.
+func (b *InMemoryBackend) findTagsByARNLocked(arn string) *tagEntry {
+	for _, c := range b.collectTagCandidatesLocked() {
+		if c.arn == arn {
+			entry := c.entry
+
+			return &entry
 		}
 	}
 
@@ -1178,6 +1238,12 @@ func (b *InMemoryBackend) Reset() {
 	b.parameterGroups = make(map[string]*CacheParameterGroup)
 	b.subnetGroups = make(map[string]*CacheSubnetGroup)
 	b.snapshots = make(map[string]*CacheSnapshot)
+	b.cacheSecurityGroups = make(map[string]*CacheSecurityGroup)
+	b.cacheSecurityGroupIngress = make(map[string][]EC2SecurityGroupMembership)
+	b.globalReplicationGroups = make(map[string]*GlobalReplicationGroup)
+	b.serverlessCaches = make(map[string]*ServerlessCache)
+	b.serverlessCacheSnapshots = make(map[string]*ServerlessCacheSnapshot)
+	b.users = make(map[string]*ElastiCacheUser)
 	b.events = make([]CacheEvent, 0)
 	b.initDefaultParameterGroups()
 }

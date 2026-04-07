@@ -1,0 +1,494 @@
+package elasticache
+
+import (
+	"errors"
+	"sort"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
+
+// ----------------------------------------
+// Sentinel errors for new op types
+// ----------------------------------------
+
+var (
+	ErrCacheSecurityGroupNotFound      = errors.New("CacheSecurityGroupNotFound")
+	ErrCacheSecurityGroupAlreadyExists = errors.New("CacheSecurityGroupAlreadyExists")
+	ErrGlobalReplicationGroupNotFound  = errors.New("GlobalReplicationGroupNotFound")
+	ErrGlobalReplicationGroupExists    = errors.New("GlobalReplicationGroupAlreadyExistsFault")
+	ErrServerlessCacheNotFound         = errors.New("ServerlessCacheNotFound")
+	ErrServerlessCacheAlreadyExists    = errors.New("ServerlessCacheAlreadyExistsFault")
+	ErrServerlessCacheSnapshotNotFound = errors.New("ServerlessCacheSnapshotNotFoundFault")
+	ErrServerlessCacheSnapshotExists   = errors.New("ServerlessCacheSnapshotAlreadyExistsFault")
+	ErrUserNotFound                    = errors.New("UserNotFound")
+	ErrUserAlreadyExists               = errors.New("UserAlreadyExists")
+)
+
+// ----------------------------------------
+// New model types
+// ----------------------------------------
+
+// CacheSecurityGroup represents an ElastiCache cache security group (EC2-Classic).
+type CacheSecurityGroup struct {
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	ARN         string     `json:"arn"`
+	OwnerID     string     `json:"ownerId"`
+}
+
+// EC2SecurityGroupMembership is a single EC2 security group authorization on a cache security group.
+type EC2SecurityGroupMembership struct {
+	EC2SecurityGroupName    string `json:"ec2SecurityGroupName"`
+	EC2SecurityGroupOwnerID string `json:"ec2SecurityGroupOwnerId"`
+	Status                  string `json:"status"`
+}
+
+// GlobalReplicationGroup represents an ElastiCache global replication group.
+type GlobalReplicationGroup struct {
+	CreatedAt                time.Time  `json:"createdAt"`
+	Tags                     *tags.Tags `json:"tags,omitempty"`
+	GlobalReplicationGroupID string     `json:"globalReplicationGroupId"`
+	Description              string     `json:"description"`
+	Status                   string     `json:"status"`
+	ARN                      string     `json:"arn"`
+	Engine                   string     `json:"engine"`
+	EngineVersion            string     `json:"engineVersion"`
+}
+
+// ServerlessCache represents an ElastiCache serverless cache.
+type ServerlessCache struct {
+	CreatedAt   time.Time  `json:"createdAt"`
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	ARN         string     `json:"arn"`
+	Engine      string     `json:"engine"`
+	SubnetIDs   []string   `json:"subnetIds,omitempty"`
+}
+
+// ServerlessCacheSnapshot represents a snapshot of a serverless cache.
+type ServerlessCacheSnapshot struct {
+	CreatedAt           time.Time  `json:"createdAt"`
+	Tags                *tags.Tags `json:"tags,omitempty"`
+	Name                string     `json:"name"`
+	Status              string     `json:"status"`
+	ARN                 string     `json:"arn"`
+	ServerlessCacheName string     `json:"serverlessCacheName"`
+	SnapshotType        string     `json:"snapshotType"` // "manual" or "automated"
+}
+
+// ElastiCacheUser represents an ElastiCache user.
+type ElastiCacheUser struct {
+	CreatedAt          time.Time  `json:"createdAt"`
+	Tags               *tags.Tags `json:"tags,omitempty"`
+	UserID             string     `json:"userId"`
+	UserName           string     `json:"userName"`
+	Status             string     `json:"status"`
+	ARN                string     `json:"arn"`
+	Engine             string     `json:"engine"`
+	AccessString       string     `json:"accessString"`
+	NoPasswordRequired bool       `json:"noPasswordRequired"`
+}
+
+// UpdateActionResult represents the outcome of a single update action.
+type UpdateActionResult struct {
+	ReplicationGroupID string `json:"replicationGroupId,omitempty"`
+	CacheClusterID     string `json:"cacheClusterId,omitempty"`
+	ServiceUpdateName  string `json:"serviceUpdateName"`
+	UpdateActionStatus string `json:"updateActionStatus"`
+}
+
+// BatchUpdateResult holds the results of a BatchApplyUpdateAction / BatchStopUpdateAction call.
+type BatchUpdateResult struct {
+	ProcessedUpdateActions   []UpdateActionResult `json:"processedUpdateActions"`
+	UnprocessedUpdateActions []UpdateActionResult `json:"unprocessedUpdateActions"`
+}
+
+// ----------------------------------------
+// ARN builders
+// ----------------------------------------
+
+func (b *InMemoryBackend) cacheSecurityGroupARN(name string) string {
+	return arn.Build("elasticache", b.region, b.accountID, "securitygroup:"+name)
+}
+
+func (b *InMemoryBackend) globalReplicationGroupARN(id string) string {
+	return arn.Build("elasticache", b.region, b.accountID, "globalreplicationgroup:"+id)
+}
+
+func (b *InMemoryBackend) serverlessCacheARN(name string) string {
+	return arn.Build("elasticache", b.region, b.accountID, "serverlesscache:"+name)
+}
+
+func (b *InMemoryBackend) serverlessCacheSnapshotARN(name string) string {
+	return arn.Build("elasticache", b.region, b.accountID, "serverlesssnapshot:"+name)
+}
+
+func (b *InMemoryBackend) userARN(userID string) string {
+	return arn.Build("elasticache", b.region, b.accountID, "user:"+userID)
+}
+
+// ----------------------------------------
+// CreateCacheSecurityGroup
+// ----------------------------------------
+
+// CreateCacheSecurityGroup creates a new cache security group.
+func (b *InMemoryBackend) CreateCacheSecurityGroup(name, description string) (*CacheSecurityGroup, error) {
+	b.mu.Lock("CreateCacheSecurityGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.cacheSecurityGroups[name]; exists {
+		return nil, ErrCacheSecurityGroupAlreadyExists
+	}
+
+	sg := &CacheSecurityGroup{
+		Name:        name,
+		Description: description,
+		ARN:         b.cacheSecurityGroupARN(name),
+		OwnerID:     b.accountID,
+		Tags:        tags.New("elasticache.sg." + name + ".tags"),
+	}
+	b.cacheSecurityGroups[name] = sg
+
+	return sg, nil
+}
+
+// AuthorizeCacheSecurityGroupIngress adds an EC2 security group authorization to the named cache security group.
+func (b *InMemoryBackend) AuthorizeCacheSecurityGroupIngress(
+	name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
+) (*CacheSecurityGroup, error) {
+	b.mu.Lock("AuthorizeCacheSecurityGroupIngress")
+	defer b.mu.Unlock()
+
+	sg, ok := b.cacheSecurityGroups[name]
+	if !ok {
+		return nil, ErrCacheSecurityGroupNotFound
+	}
+
+	b.cacheSecurityGroupIngress[name] = append(b.cacheSecurityGroupIngress[name], EC2SecurityGroupMembership{
+		EC2SecurityGroupName:    ec2SecurityGroupName,
+		EC2SecurityGroupOwnerID: ec2SecurityGroupOwnerID,
+		Status:                  "authorized",
+	})
+
+	result := *sg
+
+	return &result, nil
+}
+
+// ----------------------------------------
+// CreateGlobalReplicationGroup
+// ----------------------------------------
+
+// CreateGlobalReplicationGroup creates a new global replication group.
+func (b *InMemoryBackend) CreateGlobalReplicationGroup(
+	globalReplicationGroupIDSuffix, description, primaryReplicationGroupID string,
+) (*GlobalReplicationGroup, error) {
+	b.mu.Lock("CreateGlobalReplicationGroup")
+	defer b.mu.Unlock()
+
+	id := "ldgnf-" + globalReplicationGroupIDSuffix
+	if _, exists := b.globalReplicationGroups[id]; exists {
+		return nil, ErrGlobalReplicationGroupExists
+	}
+
+	engine := "redis"
+	engineVersion := "7.1.0"
+	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok {
+		if rg.EngineVersion != "" {
+			engineVersion = rg.EngineVersion
+		}
+	}
+
+	grg := &GlobalReplicationGroup{
+		GlobalReplicationGroupID: id,
+		Description:              description,
+		Status:                   "available",
+		ARN:                      b.globalReplicationGroupARN(id),
+		Engine:                   engine,
+		EngineVersion:            engineVersion,
+		CreatedAt:                time.Now(),
+		Tags:                     tags.New("elasticache.grg." + id + ".tags"),
+	}
+	b.globalReplicationGroups[id] = grg
+
+	return grg, nil
+}
+
+// ----------------------------------------
+// CreateServerlessCache
+// ----------------------------------------
+
+// CreateServerlessCache creates a new serverless cache.
+func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string) (*ServerlessCache, error) {
+	b.mu.Lock("CreateServerlessCache")
+	defer b.mu.Unlock()
+
+	if _, exists := b.serverlessCaches[name]; exists {
+		return nil, ErrServerlessCacheAlreadyExists
+	}
+
+	if engine == "" {
+		engine = "redis"
+	}
+
+	sc := &ServerlessCache{
+		Name:        name,
+		Description: description,
+		Status:      "available",
+		ARN:         b.serverlessCacheARN(name),
+		Engine:      engine,
+		CreatedAt:   time.Now(),
+		Tags:        tags.New("elasticache.serverless." + name + ".tags"),
+	}
+	b.serverlessCaches[name] = sc
+
+	return sc, nil
+}
+
+// ----------------------------------------
+// CreateServerlessCacheSnapshot
+// ----------------------------------------
+
+// CreateServerlessCacheSnapshot creates a manual snapshot of a serverless cache.
+func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
+	snapshotName, serverlessCacheName string,
+) (*ServerlessCacheSnapshot, error) {
+	b.mu.Lock("CreateServerlessCacheSnapshot")
+	defer b.mu.Unlock()
+
+	if _, exists := b.serverlessCacheSnapshots[snapshotName]; exists {
+		return nil, ErrServerlessCacheSnapshotExists
+	}
+
+	if _, ok := b.serverlessCaches[serverlessCacheName]; !ok {
+		return nil, ErrServerlessCacheNotFound
+	}
+
+	snap := &ServerlessCacheSnapshot{
+		Name:                snapshotName,
+		Status:              "available",
+		ARN:                 b.serverlessCacheSnapshotARN(snapshotName),
+		ServerlessCacheName: serverlessCacheName,
+		SnapshotType:        "manual",
+		CreatedAt:           time.Now(),
+		Tags:                tags.New("elasticache.serverlesssnap." + snapshotName + ".tags"),
+	}
+	b.serverlessCacheSnapshots[snapshotName] = snap
+
+	return snap, nil
+}
+
+// ----------------------------------------
+// CopyServerlessCacheSnapshot
+// ----------------------------------------
+
+// CopyServerlessCacheSnapshot copies a serverless cache snapshot to a new name.
+func (b *InMemoryBackend) CopyServerlessCacheSnapshot(
+	sourceSnapshotName, targetSnapshotName string,
+) (*ServerlessCacheSnapshot, error) {
+	b.mu.Lock("CopyServerlessCacheSnapshot")
+	defer b.mu.Unlock()
+
+	src, ok := b.serverlessCacheSnapshots[sourceSnapshotName]
+	if !ok {
+		return nil, ErrServerlessCacheSnapshotNotFound
+	}
+
+	if _, exists := b.serverlessCacheSnapshots[targetSnapshotName]; exists {
+		return nil, ErrServerlessCacheSnapshotExists
+	}
+
+	cp := *src
+	cp.Name = targetSnapshotName
+	cp.ARN = b.serverlessCacheSnapshotARN(targetSnapshotName)
+	cp.CreatedAt = time.Now()
+	cp.Tags = tags.New("elasticache.serverlesssnap." + targetSnapshotName + ".tags")
+	b.serverlessCacheSnapshots[targetSnapshotName] = &cp
+
+	result := cp
+
+	return &result, nil
+}
+
+// ----------------------------------------
+// CreateUser
+// ----------------------------------------
+
+// CreateUser creates a new ElastiCache user.
+func (b *InMemoryBackend) CreateUser(
+	userID, userName, accessString, engine string,
+	noPasswordRequired bool,
+) (*ElastiCacheUser, error) {
+	b.mu.Lock("CreateUser")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userID]; exists {
+		return nil, ErrUserAlreadyExists
+	}
+
+	if engine == "" {
+		engine = "redis"
+	}
+
+	u := &ElastiCacheUser{
+		UserID:             userID,
+		UserName:           userName,
+		Status:             "active",
+		ARN:                b.userARN(userID),
+		Engine:             engine,
+		AccessString:       accessString,
+		NoPasswordRequired: noPasswordRequired,
+		CreatedAt:          time.Now(),
+		Tags:               tags.New("elasticache.user." + userID + ".tags"),
+	}
+	b.users[userID] = u
+
+	return u, nil
+}
+
+// batchUpdateActions processes a list of replication groups and clusters for a service update,
+// returning processed (found) and unprocessed (not found) update action results.
+func (b *InMemoryBackend) batchUpdateActions(
+	replicationGroupIDs, cacheClusterIDs []string,
+	serviceUpdateName, matchedStatus string,
+) *BatchUpdateResult {
+	result := &BatchUpdateResult{
+		ProcessedUpdateActions:   []UpdateActionResult{},
+		UnprocessedUpdateActions: []UpdateActionResult{},
+	}
+
+	for _, rgID := range replicationGroupIDs {
+		if _, ok := b.replicationGroups[rgID]; ok {
+			result.ProcessedUpdateActions = append(result.ProcessedUpdateActions, UpdateActionResult{
+				ReplicationGroupID: rgID,
+				ServiceUpdateName:  serviceUpdateName,
+				UpdateActionStatus: matchedStatus,
+			})
+		} else {
+			result.UnprocessedUpdateActions = append(result.UnprocessedUpdateActions, UpdateActionResult{
+				ReplicationGroupID: rgID,
+				ServiceUpdateName:  serviceUpdateName,
+				UpdateActionStatus: "not-applicable",
+			})
+		}
+	}
+
+	for _, clusterID := range cacheClusterIDs {
+		if _, ok := b.clusters[clusterID]; ok {
+			result.ProcessedUpdateActions = append(result.ProcessedUpdateActions, UpdateActionResult{
+				CacheClusterID:     clusterID,
+				ServiceUpdateName:  serviceUpdateName,
+				UpdateActionStatus: matchedStatus,
+			})
+		} else {
+			result.UnprocessedUpdateActions = append(result.UnprocessedUpdateActions, UpdateActionResult{
+				CacheClusterID:     clusterID,
+				ServiceUpdateName:  serviceUpdateName,
+				UpdateActionStatus: "not-applicable",
+			})
+		}
+	}
+
+	sort.Slice(result.ProcessedUpdateActions, func(i, j int) bool {
+		ki := result.ProcessedUpdateActions[i].ReplicationGroupID + result.ProcessedUpdateActions[i].CacheClusterID
+		kj := result.ProcessedUpdateActions[j].ReplicationGroupID + result.ProcessedUpdateActions[j].CacheClusterID
+
+		return ki < kj
+	})
+
+	return result
+}
+
+// ----------------------------------------
+// BatchApplyUpdateAction
+// ----------------------------------------
+
+// BatchApplyUpdateAction schedules a service update for the given replication groups and clusters.
+func (b *InMemoryBackend) BatchApplyUpdateAction(
+	replicationGroupIDs, cacheClusterIDs []string,
+	serviceUpdateName string,
+) (*BatchUpdateResult, error) {
+	b.mu.RLock("BatchApplyUpdateAction")
+	defer b.mu.RUnlock()
+
+	return b.batchUpdateActions(replicationGroupIDs, cacheClusterIDs, serviceUpdateName, "scheduling"), nil
+}
+
+// ----------------------------------------
+// BatchStopUpdateAction
+// ----------------------------------------
+
+// BatchStopUpdateAction stops a pending service update for the given replication groups and clusters.
+func (b *InMemoryBackend) BatchStopUpdateAction(
+	replicationGroupIDs, cacheClusterIDs []string,
+	serviceUpdateName string,
+) (*BatchUpdateResult, error) {
+	b.mu.RLock("BatchStopUpdateAction")
+	defer b.mu.RUnlock()
+
+	return b.batchUpdateActions(replicationGroupIDs, cacheClusterIDs, serviceUpdateName, "stopped"), nil
+}
+
+// ----------------------------------------
+// CompleteMigration
+// ----------------------------------------
+
+// CompleteMigration completes an online data migration from an external Redis server to this replication group.
+func (b *InMemoryBackend) CompleteMigration(replicationGroupID string, force bool) (*ReplicationGroup, error) {
+	b.mu.Lock("CompleteMigration")
+	defer b.mu.Unlock()
+
+	rg, ok := b.replicationGroups[replicationGroupID]
+	if !ok {
+		return nil, ErrReplicationGroupNotFound
+	}
+
+	rg.Status = "available"
+	result := *rg
+
+	return &result, nil
+}
+
+// ----------------------------------------
+// Seed helpers (for test isolation)
+// ----------------------------------------
+
+// AddCacheSecurityGroupInternal seeds a cache security group for testing.
+func (b *InMemoryBackend) AddCacheSecurityGroupInternal(sg *CacheSecurityGroup) {
+	b.mu.Lock("AddCacheSecurityGroupInternal")
+	defer b.mu.Unlock()
+	b.cacheSecurityGroups[sg.Name] = sg
+}
+
+// AddGlobalReplicationGroupInternal seeds a global replication group for testing.
+func (b *InMemoryBackend) AddGlobalReplicationGroupInternal(grg *GlobalReplicationGroup) {
+	b.mu.Lock("AddGlobalReplicationGroupInternal")
+	defer b.mu.Unlock()
+	b.globalReplicationGroups[grg.GlobalReplicationGroupID] = grg
+}
+
+// AddServerlessCacheInternal seeds a serverless cache for testing.
+func (b *InMemoryBackend) AddServerlessCacheInternal(sc *ServerlessCache) {
+	b.mu.Lock("AddServerlessCacheInternal")
+	defer b.mu.Unlock()
+	b.serverlessCaches[sc.Name] = sc
+}
+
+// AddServerlessCacheSnapshotInternal seeds a serverless cache snapshot for testing.
+func (b *InMemoryBackend) AddServerlessCacheSnapshotInternal(snap *ServerlessCacheSnapshot) {
+	b.mu.Lock("AddServerlessCacheSnapshotInternal")
+	defer b.mu.Unlock()
+	b.serverlessCacheSnapshots[snap.Name] = snap
+}
+
+// AddUserInternal seeds a user for testing.
+func (b *InMemoryBackend) AddUserInternal(u *ElastiCacheUser) {
+	b.mu.Lock("AddUserInternal")
+	defer b.mu.Unlock()
+	b.users[u.UserID] = u
+}
