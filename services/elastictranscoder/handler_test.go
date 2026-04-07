@@ -964,8 +964,7 @@ func TestElasticTranscoder_ListJobsByStatus(t *testing.T) {
 			pipelineID := pipelineOut.Pipeline.ID
 
 			// Create 2 jobs (they default to "Progressing").
-			for i := range 2 {
-				_ = i
+			for range 2 {
 				rec = doRequest(t, h, http.MethodPost, "/2012-09-25/jobs", map[string]any{
 					"PipelineId": pipelineID,
 				})
