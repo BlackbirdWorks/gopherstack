@@ -36,7 +36,7 @@ type backendSnapshot struct {
 	GlobalReplicationGroups   map[string]*GlobalReplicationGroup      `json:"globalReplicationGroups,omitempty"`
 	ServerlessCaches          map[string]*ServerlessCache             `json:"serverlessCaches,omitempty"`
 	ServerlessCacheSnapshots  map[string]*ServerlessCacheSnapshot     `json:"serverlessCacheSnapshots,omitempty"`
-	Users                     map[string]*ElastiCacheUser             `json:"users,omitempty"`
+	Users                     map[string]*User                        `json:"users,omitempty"`
 	EngineMode                string                                  `json:"engineMode"`
 	AccountID                 string                                  `json:"accountID"`
 	Region                    string                                  `json:"region"`
@@ -155,7 +155,7 @@ func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
 	if snap.Users != nil {
 		b.users = snap.Users
 	} else {
-		b.users = make(map[string]*ElastiCacheUser)
+		b.users = make(map[string]*User)
 	}
 }
 

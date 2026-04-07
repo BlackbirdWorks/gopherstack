@@ -20,7 +20,9 @@ import (
 )
 
 const (
-	randomSuffixLen = 3
+	randomSuffixLen     = 3
+	engineRedis         = "redis"
+	tagCandidateInitCap = 16
 )
 
 // Engine mode constants.
@@ -185,7 +187,7 @@ type StorageBackend interface {
 	CreateServerlessCache(name, description, engine string) (*ServerlessCache, error)
 	CreateServerlessCacheSnapshot(snapshotName, serverlessCacheName string) (*ServerlessCacheSnapshot, error)
 	CopyServerlessCacheSnapshot(sourceSnapshotName, targetSnapshotName string) (*ServerlessCacheSnapshot, error)
-	CreateUser(userID, userName, accessString, engine string, noPasswordRequired bool) (*ElastiCacheUser, error)
+	CreateUser(userID, userName, accessString, engine string, noPasswordRequired bool) (*User, error)
 	BatchApplyUpdateAction(
 		replicationGroupIDs, cacheClusterIDs []string,
 		serviceUpdateName string,
@@ -240,7 +242,7 @@ type InMemoryBackend struct {
 	globalReplicationGroups   map[string]*GlobalReplicationGroup
 	serverlessCaches          map[string]*ServerlessCache
 	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
-	users                     map[string]*ElastiCacheUser
+	users                     map[string]*User
 	mu                        *lockmetrics.RWMutex
 	engineMode                string
 	accountID                 string
@@ -265,7 +267,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		globalReplicationGroups:   make(map[string]*GlobalReplicationGroup),
 		serverlessCaches:          make(map[string]*ServerlessCache),
 		serverlessCacheSnapshots:  make(map[string]*ServerlessCacheSnapshot),
-		users:                     make(map[string]*ElastiCacheUser),
+		users:                     make(map[string]*User),
 		events:                    make([]CacheEvent, 0),
 		engineMode:                engineMode,
 		accountID:                 accountID,
@@ -363,7 +365,7 @@ func (b *InMemoryBackend) createClusterLocked(
 	port int,
 ) (*Cluster, error) {
 	if engine == "" {
-		engine = "redis"
+		engine = engineRedis
 	}
 	if nodeType == "" {
 		nodeType = "cache.t3.micro"
@@ -513,12 +515,18 @@ type tagCandidate struct {
 
 // collectTagCandidatesLocked builds a flat list of all taggable resources for ARN lookup.
 func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
-	candidates := make([]tagCandidate, 0, 16)
+	candidates := make([]tagCandidate, 0, tagCandidateInitCap)
 	for _, c := range b.clusters {
-		candidates = append(candidates, tagCandidate{c.ARN, tagEntry{&c.Tags, "elasticache.cluster." + c.ClusterID + ".tags"}})
+		candidates = append(
+			candidates,
+			tagCandidate{c.ARN, tagEntry{&c.Tags, "elasticache.cluster." + c.ClusterID + ".tags"}},
+		)
 	}
 	for _, rg := range b.replicationGroups {
-		candidates = append(candidates, tagCandidate{rg.ARN, tagEntry{&rg.Tags, "elasticache.rg." + rg.ReplicationGroupID + ".tags"}})
+		candidates = append(
+			candidates,
+			tagCandidate{rg.ARN, tagEntry{&rg.Tags, "elasticache.rg." + rg.ReplicationGroupID + ".tags"}},
+		)
 	}
 	for _, pg := range b.parameterGroups {
 		candidates = append(candidates, tagCandidate{pg.ARN, tagEntry{&pg.Tags, "elasticache.pg." + pg.Name + ".tags"}})
@@ -527,7 +535,10 @@ func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 		candidates = append(candidates, tagCandidate{sg.ARN, tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}})
 	}
 	for _, snap := range b.snapshots {
-		candidates = append(candidates, tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.snapshot." + snap.SnapshotName + ".tags"}})
+		candidates = append(
+			candidates,
+			tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.snapshot." + snap.SnapshotName + ".tags"}},
+		)
 	}
 	for _, sg := range b.cacheSecurityGroups {
 		candidates = append(candidates, tagCandidate{sg.ARN, tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}})
@@ -537,14 +548,20 @@ func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 			tagCandidate{grg.ARN, tagEntry{&grg.Tags, "elasticache.grg." + grg.GlobalReplicationGroupID + ".tags"}})
 	}
 	for _, sc := range b.serverlessCaches {
-		candidates = append(candidates, tagCandidate{sc.ARN, tagEntry{&sc.Tags, "elasticache.serverless." + sc.Name + ".tags"}})
+		candidates = append(
+			candidates,
+			tagCandidate{sc.ARN, tagEntry{&sc.Tags, "elasticache.serverless." + sc.Name + ".tags"}},
+		)
 	}
 	for _, snap := range b.serverlessCacheSnapshots {
 		candidates = append(candidates,
 			tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.serverlesssnap." + snap.Name + ".tags"}})
 	}
 	for _, u := range b.users {
-		candidates = append(candidates, tagCandidate{u.ARN, tagEntry{&u.Tags, "elasticache.user." + u.UserID + ".tags"}})
+		candidates = append(
+			candidates,
+			tagCandidate{u.ARN, tagEntry{&u.Tags, "elasticache.user." + u.UserID + ".tags"}},
+		)
 	}
 
 	return candidates
@@ -1114,7 +1131,7 @@ func (b *InMemoryBackend) CreateSnapshot(snapshotName, clusterID, replicationGro
 		if !ok {
 			return nil, ErrReplicationGroupNotFound
 		}
-		snap.Engine = "redis"
+		snap.Engine = engineRedis
 		snap.EngineVersion = "7.1.0"
 		snap.ReplicationGroupID = rg.ReplicationGroupID
 	}
@@ -1243,7 +1260,7 @@ func (b *InMemoryBackend) Reset() {
 	b.globalReplicationGroups = make(map[string]*GlobalReplicationGroup)
 	b.serverlessCaches = make(map[string]*ServerlessCache)
 	b.serverlessCacheSnapshots = make(map[string]*ServerlessCacheSnapshot)
-	b.users = make(map[string]*ElastiCacheUser)
+	b.users = make(map[string]*User)
 	b.events = make([]CacheEvent, 0)
 	b.initDefaultParameterGroups()
 }

@@ -76,7 +76,7 @@ func TestNewOps_SeedHelpers(t *testing.T) {
 			name: "AddUserInternal",
 			run: func(t *testing.T, b *elasticache.InMemoryBackend) {
 				t.Helper()
-				b.AddUserInternal(&elasticache.ElastiCacheUser{
+				b.AddUserInternal(&elasticache.User{
 					UserID:       "seeded-user",
 					UserName:     "seeded",
 					Status:       "active",
@@ -121,7 +121,7 @@ func TestNewOps_Reset_ClearsNewMaps(t *testing.T) {
 	)
 	backend.AddServerlessCacheInternal(&elasticache.ServerlessCache{Name: "sc1", ARN: "arn:sc1"})
 	backend.AddServerlessCacheSnapshotInternal(&elasticache.ServerlessCacheSnapshot{Name: "snap1", ARN: "arn:snap1"})
-	backend.AddUserInternal(&elasticache.ElastiCacheUser{UserID: "u1", ARN: "arn:u1"})
+	backend.AddUserInternal(&elasticache.User{UserID: "u1", ARN: "arn:u1"})
 
 	assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(backend))
 	assert.Equal(t, 1, elasticache.GlobalReplicationGroupCount(backend))
@@ -261,7 +261,7 @@ func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 		ARN:    "arn:snap1",
 		Status: "available",
 	})
-	backend.AddUserInternal(&elasticache.ElastiCacheUser{UserID: "u1", ARN: "arn:u1", Status: "active"})
+	backend.AddUserInternal(&elasticache.User{UserID: "u1", ARN: "arn:u1", Status: "active"})
 
 	snap := backend.Snapshot()
 	require.NotNil(t, snap)

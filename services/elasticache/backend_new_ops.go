@@ -81,8 +81,8 @@ type ServerlessCacheSnapshot struct {
 	SnapshotType        string     `json:"snapshotType"` // "manual" or "automated"
 }
 
-// ElastiCacheUser represents an ElastiCache user.
-type ElastiCacheUser struct {
+// User represents an ElastiCache user.
+type User struct {
 	CreatedAt          time.Time  `json:"createdAt"`
 	Tags               *tags.Tags `json:"tags,omitempty"`
 	UserID             string     `json:"userId"`
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		return nil, ErrGlobalReplicationGroupExists
 	}
 
-	engine := "redis"
+	engine := engineRedis
 	engineVersion := "7.1.0"
 	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok {
 		if rg.EngineVersion != "" {
@@ -233,7 +233,7 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 	}
 
 	if engine == "" {
-		engine = "redis"
+		engine = engineRedis
 	}
 
 	sc := &ServerlessCache{
@@ -323,7 +323,7 @@ func (b *InMemoryBackend) CopyServerlessCacheSnapshot(
 func (b *InMemoryBackend) CreateUser(
 	userID, userName, accessString, engine string,
 	noPasswordRequired bool,
-) (*ElastiCacheUser, error) {
+) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -332,10 +332,10 @@ func (b *InMemoryBackend) CreateUser(
 	}
 
 	if engine == "" {
-		engine = "redis"
+		engine = engineRedis
 	}
 
-	u := &ElastiCacheUser{
+	u := &User{
 		UserID:             userID,
 		UserName:           userName,
 		Status:             "active",
@@ -439,7 +439,7 @@ func (b *InMemoryBackend) BatchStopUpdateAction(
 // ----------------------------------------
 
 // CompleteMigration completes an online data migration from an external Redis server to this replication group.
-func (b *InMemoryBackend) CompleteMigration(replicationGroupID string, force bool) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) CompleteMigration(replicationGroupID string, _ bool) (*ReplicationGroup, error) {
 	b.mu.Lock("CompleteMigration")
 	defer b.mu.Unlock()
 
@@ -487,7 +487,7 @@ func (b *InMemoryBackend) AddServerlessCacheSnapshotInternal(snap *ServerlessCac
 }
 
 // AddUserInternal seeds a user for testing.
-func (b *InMemoryBackend) AddUserInternal(u *ElastiCacheUser) {
+func (b *InMemoryBackend) AddUserInternal(u *User) {
 	b.mu.Lock("AddUserInternal")
 	defer b.mu.Unlock()
 	b.users[u.UserID] = u

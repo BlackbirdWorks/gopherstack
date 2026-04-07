@@ -19,7 +19,7 @@ type cacheSecurityGroupXML struct {
 	ARN                    string `xml:"ARN"`
 	CacheSecurityGroupName string `xml:"CacheSecurityGroupName"`
 	Description            string `xml:"Description"`
-	OwnerId                string `xml:"OwnerId"`
+	OwnerID                string `xml:"OwnerId"`
 }
 
 func cacheSecurityGroupToXML(sg *CacheSecurityGroup) cacheSecurityGroupXML {
@@ -27,7 +27,7 @@ func cacheSecurityGroupToXML(sg *CacheSecurityGroup) cacheSecurityGroupXML {
 		ARN:                    sg.ARN,
 		CacheSecurityGroupName: sg.Name,
 		Description:            sg.Description,
-		OwnerId:                sg.OwnerID,
+		OwnerID:                sg.OwnerID,
 	}
 }
 
@@ -96,7 +96,7 @@ func (h *Handler) authorizeCacheSecurityGroupIngress(c *echo.Context, form url.V
 // ----------------------------------------
 
 type globalReplicationGroupXML struct {
-	GlobalReplicationGroupId          string `xml:"GlobalReplicationGroupId"`
+	GlobalReplicationGroupID          string `xml:"GlobalReplicationGroupId"`
 	GlobalReplicationGroupDescription string `xml:"GlobalReplicationGroupDescription,omitempty"`
 	Status                            string `xml:"Status"`
 	ARN                               string `xml:"ARN"`
@@ -106,7 +106,7 @@ type globalReplicationGroupXML struct {
 
 func globalRGToXML(grg *GlobalReplicationGroup) globalReplicationGroupXML {
 	return globalReplicationGroupXML{
-		GlobalReplicationGroupId:          grg.GlobalReplicationGroupID,
+		GlobalReplicationGroupID:          grg.GlobalReplicationGroupID,
 		GlobalReplicationGroupDescription: grg.Description,
 		Status:                            grg.Status,
 		ARN:                               grg.ARN,
@@ -321,7 +321,7 @@ func (h *Handler) createUser(c *echo.Context, form url.Values) error {
 		XMLName            xml.Name `xml:"CreateUserResponse"`
 		Xmlns              string   `xml:"xmlns,attr"`
 		ARN                string   `xml:"CreateUserResult>ARN"`
-		UserId             string   `xml:"CreateUserResult>UserId"`
+		UserID             string   `xml:"CreateUserResult>UserId"`
 		UserName           string   `xml:"CreateUserResult>UserName"`
 		Status             string   `xml:"CreateUserResult>Status"`
 		Engine             string   `xml:"CreateUserResult>Engine,omitempty"`
@@ -332,7 +332,7 @@ func (h *Handler) createUser(c *echo.Context, form url.Values) error {
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:              elasticacheNS,
 		ARN:                u.ARN,
-		UserId:             u.UserID,
+		UserID:             u.UserID,
 		UserName:           u.UserName,
 		Status:             u.Status,
 		Engine:             u.Engine,
@@ -364,22 +364,12 @@ type unprocessedUpdateActionsXML struct {
 func toBatchUpdateActionXMLLists(result *BatchUpdateResult) (processedUpdateActionsXML, unprocessedUpdateActionsXML) {
 	processed := make([]updateActionResultXML, 0, len(result.ProcessedUpdateActions))
 	for _, a := range result.ProcessedUpdateActions {
-		processed = append(processed, updateActionResultXML{
-			ReplicationGroupID: a.ReplicationGroupID,
-			CacheClusterID:     a.CacheClusterID,
-			ServiceUpdateName:  a.ServiceUpdateName,
-			UpdateActionStatus: a.UpdateActionStatus,
-		})
+		processed = append(processed, updateActionResultXML(a))
 	}
 
 	unprocessed := make([]updateActionResultXML, 0, len(result.UnprocessedUpdateActions))
 	for _, a := range result.UnprocessedUpdateActions {
-		unprocessed = append(unprocessed, updateActionResultXML{
-			ReplicationGroupID: a.ReplicationGroupID,
-			CacheClusterID:     a.CacheClusterID,
-			ServiceUpdateName:  a.ServiceUpdateName,
-			UpdateActionStatus: a.UpdateActionStatus,
-		})
+		unprocessed = append(unprocessed, updateActionResultXML(a))
 	}
 
 	return processedUpdateActionsXML{ProcessedUpdateAction: processed},
