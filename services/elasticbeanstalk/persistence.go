@@ -1,14 +1,20 @@
 package elasticbeanstalk
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
-	Applications map[string]*Application        `json:"applications"`
-	Environments map[string]*Environment        `json:"environments"`
-	AppVersions  map[string]*ApplicationVersion `json:"appVersions"`
-	AccountID    string                         `json:"accountID"`
-	Region       string                         `json:"region"`
-	EnvCounter   int                            `json:"envCounter"`
+	Applications     map[string]*Application           `json:"applications"`
+	Environments     map[string]*Environment           `json:"environments"`
+	AppVersions      map[string]*ApplicationVersion    `json:"appVersions"`
+	ConfigTemplates  map[string]*ConfigurationTemplate `json:"configTemplates"`
+	PlatformVersions map[string]*PlatformVersion       `json:"platformVersions"`
+	AccountID        string                            `json:"accountID"`
+	Region           string                            `json:"region"`
+	StorageLocation  string                            `json:"storageLocation"`
+	EnvCounter       int                               `json:"envCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -17,16 +23,21 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Applications: b.applications,
-		Environments: b.environments,
-		AppVersions:  b.appVersions,
-		AccountID:    b.accountID,
-		Region:       b.region,
-		EnvCounter:   b.envCounter,
+		Applications:     b.applications,
+		Environments:     b.environments,
+		AppVersions:      b.appVersions,
+		ConfigTemplates:  b.configTemplates,
+		PlatformVersions: b.platformVersions,
+		AccountID:        b.accountID,
+		Region:           b.region,
+		StorageLocation:  b.storageLocation,
+		EnvCounter:       b.envCounter,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("elasticbeanstalk: failed to snapshot backend state", "error", err)
+
 		return nil
 	}
 
@@ -56,11 +67,22 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.AppVersions = make(map[string]*ApplicationVersion)
 	}
 
+	if snap.ConfigTemplates == nil {
+		snap.ConfigTemplates = make(map[string]*ConfigurationTemplate)
+	}
+
+	if snap.PlatformVersions == nil {
+		snap.PlatformVersions = make(map[string]*PlatformVersion)
+	}
+
 	b.applications = snap.Applications
 	b.environments = snap.Environments
 	b.appVersions = snap.AppVersions
+	b.configTemplates = snap.ConfigTemplates
+	b.platformVersions = snap.PlatformVersions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.storageLocation = snap.StorageLocation
 	b.envCounter = snap.EnvCounter
 
 	b.appARNIndex = make(map[string]string, len(b.applications))

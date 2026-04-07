@@ -21,14 +21,56 @@ const (
 	ebXMLNS = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
 )
 
+// formOpFunc is the function type for a dispatched form-encoded operation.
+type formOpFunc func(url.Values) (any, error)
+
 // Handler is the Echo HTTP handler for Elastic Beanstalk operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	ops     map[string]formOpFunc
 }
 
 // NewHandler creates a new Elastic Beanstalk handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// buildOps constructs the dispatch table mapping action names to handlers.
+// It is called once in NewHandler and the result is cached on h.ops.
+func (h *Handler) buildOps() map[string]formOpFunc {
+	return map[string]formOpFunc{
+		"AbortEnvironmentUpdate":             h.handleAbortEnvironmentUpdate,
+		"ApplyEnvironmentManagedAction":      h.handleApplyEnvironmentManagedAction,
+		"AssociateEnvironmentOperationsRole": h.handleAssociateEnvironmentOperationsRole,
+		"CheckDNSAvailability":               h.handleCheckDNSAvailability,
+		"ComposeEnvironments":                h.handleComposeEnvironments,
+		"CreateApplication":                  h.handleCreateApplication,
+		"CreateConfigurationTemplate":        h.handleCreateConfigurationTemplate,
+		"CreateEnvironment":                  h.handleCreateEnvironment,
+		"CreateApplicationVersion":           h.handleCreateApplicationVersion,
+		"CreatePlatformVersion":              h.handleCreatePlatformVersion,
+		"CreateStorageLocation":              h.handleCreateStorageLocation,
+		"DeleteApplication":                  h.handleDeleteApplication,
+		"DeleteApplicationVersion":           h.handleDeleteApplicationVersion,
+		"DeleteConfigurationTemplate":        h.handleDeleteConfigurationTemplate,
+		"DeleteEnvironmentConfiguration":     h.handleDeleteEnvironmentConfiguration,
+		"DescribeApplications":               h.handleDescribeApplications,
+		"DescribeApplicationVersions":        h.handleDescribeApplicationVersions,
+		"DescribeConfigurationSettings":      h.handleDescribeConfigurationSettings,
+		"DescribeEnvironmentResources":       h.handleDescribeEnvironmentResources,
+		"DescribeEnvironments":               h.handleDescribeEnvironments,
+		"DescribeEvents":                     h.handleDescribeEvents,
+		"ListTagsForResource":                h.handleListTagsForResource,
+		"RebuildEnvironment":                 h.handleRebuildEnvironment,
+		"RestartAppServer":                   h.handleRestartAppServer,
+		"TerminateEnvironment":               h.handleTerminateEnvironment,
+		"UpdateApplication":                  h.handleUpdateApplication,
+		"UpdateEnvironment":                  h.handleUpdateEnvironment,
+		"UpdateTagsForResource":              h.handleUpdateTagsForResource,
+	}
 }
 
 // Name returns the service name.
@@ -37,24 +79,34 @@ func (h *Handler) Name() string { return "Elasticbeanstalk" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AbortEnvironmentUpdate",
+		"ApplyEnvironmentManagedAction",
+		"AssociateEnvironmentOperationsRole",
+		"CheckDNSAvailability",
+		"ComposeEnvironments",
 		"CreateApplication",
-		"DescribeApplications",
-		"UpdateApplication",
-		"DeleteApplication",
+		"CreateConfigurationTemplate",
 		"CreateEnvironment",
-		"DescribeEnvironments",
-		"UpdateEnvironment",
-		"TerminateEnvironment",
 		"CreateApplicationVersion",
-		"DescribeApplicationVersions",
+		"CreatePlatformVersion",
+		"CreateStorageLocation",
+		"DeleteApplication",
 		"DeleteApplicationVersion",
-		"DescribeEvents",
-		"DescribeEnvironmentResources",
+		"DeleteConfigurationTemplate",
+		"DeleteEnvironmentConfiguration",
+		"DescribeApplications",
+		"DescribeApplicationVersions",
 		"DescribeConfigurationSettings",
+		"DescribeEnvironmentResources",
+		"DescribeEnvironments",
+		"DescribeEvents",
 		"ListTagsForResource",
-		"UpdateTagsForResource",
-		"RestartAppServer",
 		"RebuildEnvironment",
+		"RestartAppServer",
+		"TerminateEnvironment",
+		"UpdateApplication",
+		"UpdateEnvironment",
+		"UpdateTagsForResource",
 	}
 }
 
@@ -181,30 +233,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the Elastic Beanstalk action to the appropriate handler.
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	type handlerFn func(url.Values) (any, error)
-
-	handlers := map[string]handlerFn{
-		"CreateApplication":             h.handleCreateApplication,
-		"DescribeApplications":          h.handleDescribeApplications,
-		"UpdateApplication":             h.handleUpdateApplication,
-		"DeleteApplication":             h.handleDeleteApplication,
-		"CreateEnvironment":             h.handleCreateEnvironment,
-		"DescribeEnvironments":          h.handleDescribeEnvironments,
-		"UpdateEnvironment":             h.handleUpdateEnvironment,
-		"TerminateEnvironment":          h.handleTerminateEnvironment,
-		"CreateApplicationVersion":      h.handleCreateApplicationVersion,
-		"DescribeApplicationVersions":   h.handleDescribeApplicationVersions,
-		"DeleteApplicationVersion":      h.handleDeleteApplicationVersion,
-		"ListTagsForResource":           h.handleListTagsForResource,
-		"UpdateTagsForResource":         h.handleUpdateTagsForResource,
-		"DescribeEvents":                h.handleDescribeEvents,
-		"DescribeEnvironmentResources":  h.handleDescribeEnvironmentResources,
-		"DescribeConfigurationSettings": h.handleDescribeConfigurationSettings,
-		"RestartAppServer":              h.handleRestartAppServer,
-		"RebuildEnvironment":            h.handleRebuildEnvironment,
-	}
-
-	if fn, ok := handlers[action]; ok {
+	if fn, ok := h.ops[action]; ok {
 		return fn(vals)
 	}
 
@@ -466,6 +495,22 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 	description := vals.Get("Description")
 	solutionStack := vals.Get("SolutionStackName")
 
+	// If no app name provided, search across all environments for this name.
+	if appName == "" {
+		envs := h.Backend.DescribeEnvironments("", []string{envName}, nil)
+
+		if len(envs) == 1 {
+			appName = envs[0].ApplicationName
+		} else if len(envs) > 1 {
+			return nil, fmt.Errorf(
+				"%w: multiple environments named %s; please specify ApplicationName",
+				ErrInvalidParameter,
+				envName,
+			)
+		}
+		// len(envs) == 0: let the backend return a not-found error below.
+	}
+
 	env, err := h.Backend.UpdateEnvironment(appName, envName, description, solutionStack)
 	if err != nil {
 		return nil, err
@@ -667,10 +712,11 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]tagDescType, 0, len(tags))
+	keys := sortedTagKeys(tags)
+	members := make([]tagDescType, 0, len(keys))
 
-	for k, v := range tags {
-		members = append(members, tagDescType{Key: k, Value: v})
+	for _, k := range keys {
+		members = append(members, tagDescType{Key: k, Value: tags[k]})
 	}
 
 	return &listTagsForResourceResponse{
@@ -820,21 +866,27 @@ func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, err
 
 	solutionStack := ""
 
-	envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
-	if len(envs) > 0 {
-		solutionStack = envs[0].SolutionStackName
+	if envName != "" {
+		envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
+		if len(envs) > 0 {
+			solutionStack = envs[0].SolutionStackName
+		}
+	}
+
+	settings := make([]configurationSettingsDescType, 0)
+
+	if envName != "" || appName != "" {
+		settings = append(settings, configurationSettingsDescType{
+			ApplicationName:   appName,
+			EnvironmentName:   envName,
+			SolutionStackName: solutionStack,
+		})
 	}
 
 	return &describeConfigurationSettingsResponse{
 		Xmlns: ebXMLNS,
 		DescribeConfigurationSettingsResult: describeConfigurationSettingsResult{
-			ConfigurationSettings: []configurationSettingsDescType{
-				{
-					ApplicationName:   appName,
-					EnvironmentName:   envName,
-					SolutionStackName: solutionStack,
-				},
-			},
+			ConfigurationSettings: settings,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-config-settings"},
 	}, nil
@@ -865,6 +917,7 @@ func (h *Handler) handleOpError(c *echo.Context, opErr error) error {
 		{ErrNotFound, "InvalidParameterValue"},
 		{ErrAlreadyExists, "InvalidParameterValue"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
+		{ErrValidation, "ValidationException"},
 		{ErrUnknownAction, "UnknownOperationException"},
 	}
 
@@ -989,5 +1042,346 @@ func (h *Handler) handleRebuildEnvironment(_ url.Values) (any, error) {
 	return &rebuildEnvironmentResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-rebuild-environment"},
+	}, nil
+}
+
+// --- New operations ---
+
+// abortEnvironmentUpdateResponse is the XML response for AbortEnvironmentUpdate.
+type abortEnvironmentUpdateResponse struct {
+	XMLName          xml.Name         `xml:"AbortEnvironmentUpdateResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
+}
+
+// handleAbortEnvironmentUpdate aborts an in-progress environment configuration update.
+func (h *Handler) handleAbortEnvironmentUpdate(_ url.Values) (any, error) {
+	return &abortEnvironmentUpdateResponse{
+		Xmlns:            ebXMLNS,
+		ResponseMetadata: responseMetadata{RequestID: "eb-abort-env-update"},
+	}, nil
+}
+
+// applyEnvironmentManagedActionResponse is the XML response for ApplyEnvironmentManagedAction.
+type applyEnvironmentManagedActionResult struct {
+	ActionID          string `xml:"ActionId"`
+	ActionDescription string `xml:"ActionDescription"`
+	ActionType        string `xml:"ActionType"`
+	Status            string `xml:"Status"`
+}
+
+type applyEnvironmentManagedActionResponse struct {
+	XMLName                             xml.Name                            `xml:"ApplyEnvironmentManagedActionResponse"`
+	Xmlns                               string                              `xml:"xmlns,attr"`
+	ApplyEnvironmentManagedActionResult applyEnvironmentManagedActionResult `xml:"ApplyEnvironmentManagedActionResult"`
+	ResponseMetadata                    responseMetadata                    `xml:"ResponseMetadata"`
+}
+
+// handleApplyEnvironmentManagedAction applies a scheduled managed action immediately.
+func (h *Handler) handleApplyEnvironmentManagedAction(vals url.Values) (any, error) {
+	actionID := vals.Get("ActionId")
+	if actionID == "" {
+		return nil, fmt.Errorf("%w: ActionId is required", ErrInvalidParameter)
+	}
+
+	_ = h.Backend.ApplyEnvironmentManagedAction(vals.Get("EnvironmentName"), actionID)
+
+	return &applyEnvironmentManagedActionResponse{
+		Xmlns: ebXMLNS,
+		ApplyEnvironmentManagedActionResult: applyEnvironmentManagedActionResult{
+			ActionID:          actionID,
+			ActionDescription: "Managed action applied",
+			ActionType:        "InstanceRefresh",
+			Status:            "Scheduled",
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-apply-managed-action"},
+	}, nil
+}
+
+// associateEnvironmentOperationsRoleResponse is the XML response for AssociateEnvironmentOperationsRole.
+type associateEnvironmentOperationsRoleResponse struct {
+	XMLName          xml.Name         `xml:"AssociateEnvironmentOperationsRoleResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
+}
+
+// handleAssociateEnvironmentOperationsRole associates an operations role with an environment.
+func (h *Handler) handleAssociateEnvironmentOperationsRole(vals url.Values) (any, error) {
+	envName := vals.Get("EnvironmentName")
+	if envName == "" {
+		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
+	}
+
+	operationsRole := vals.Get("OperationsRole")
+	if operationsRole == "" {
+		return nil, fmt.Errorf("%w: OperationsRole is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.AssociateEnvironmentOperationsRole(envName, operationsRole); err != nil {
+		return nil, err
+	}
+
+	return &associateEnvironmentOperationsRoleResponse{
+		Xmlns:            ebXMLNS,
+		ResponseMetadata: responseMetadata{RequestID: "eb-assoc-ops-role"},
+	}, nil
+}
+
+// checkDNSAvailabilityResult is the result body for CheckDNSAvailability.
+type checkDNSAvailabilityResult struct {
+	FullyQualifiedCNAME string `xml:"FullyQualifiedCNAME"`
+	Available           bool   `xml:"Available"`
+}
+
+// checkDNSAvailabilityResponse is the XML response for CheckDNSAvailability.
+type checkDNSAvailabilityResponse struct {
+	XMLName                    xml.Name                   `xml:"CheckDNSAvailabilityResponse"`
+	Xmlns                      string                     `xml:"xmlns,attr"`
+	ResponseMetadata           responseMetadata           `xml:"ResponseMetadata"`
+	CheckDNSAvailabilityResult checkDNSAvailabilityResult `xml:"CheckDNSAvailabilityResult"`
+}
+
+// handleCheckDNSAvailability checks whether a CNAME prefix is available.
+func (h *Handler) handleCheckDNSAvailability(vals url.Values) (any, error) {
+	cnamePrefix := vals.Get("CNAMEPrefix")
+	if cnamePrefix == "" {
+		return nil, fmt.Errorf("%w: CNAMEPrefix is required", ErrInvalidParameter)
+	}
+
+	available, fqcname := h.Backend.CheckDNSAvailability(cnamePrefix)
+
+	return &checkDNSAvailabilityResponse{
+		Xmlns: ebXMLNS,
+		CheckDNSAvailabilityResult: checkDNSAvailabilityResult{
+			Available:           available,
+			FullyQualifiedCNAME: fqcname,
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-check-dns"},
+	}, nil
+}
+
+// composeEnvironmentsResult is the result body for ComposeEnvironments.
+type composeEnvironmentsResult struct {
+	Environments []environmentDescType `xml:"Environments>member"`
+}
+
+// composeEnvironmentsResponse is the XML response for ComposeEnvironments.
+type composeEnvironmentsResponse struct {
+	XMLName                   xml.Name                  `xml:"ComposeEnvironmentsResponse"`
+	Xmlns                     string                    `xml:"xmlns,attr"`
+	ResponseMetadata          responseMetadata          `xml:"ResponseMetadata"`
+	ComposeEnvironmentsResult composeEnvironmentsResult `xml:"ComposeEnvironmentsResult"`
+}
+
+// handleComposeEnvironments composes a group of environments for an application.
+func (h *Handler) handleComposeEnvironments(vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	if appName == "" {
+		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
+	}
+
+	envs := h.Backend.ComposeEnvironments(appName)
+
+	members := make([]environmentDescType, 0, len(envs))
+
+	for _, env := range envs {
+		members = append(members, toEnvironmentDesc(env, h.Backend.Region()))
+	}
+
+	return &composeEnvironmentsResponse{
+		Xmlns:                     ebXMLNS,
+		ComposeEnvironmentsResult: composeEnvironmentsResult{Environments: members},
+		ResponseMetadata:          responseMetadata{RequestID: "eb-compose-envs"},
+	}, nil
+}
+
+// configurationTemplateDescType is used in XML responses for configuration templates.
+type configurationTemplateDescType struct {
+	ApplicationName   string `xml:"ApplicationName"`
+	TemplateName      string `xml:"TemplateName"`
+	SolutionStackName string `xml:"SolutionStackName,omitempty"`
+	Description       string `xml:"Description,omitempty"`
+}
+
+func toConfigTemplateDesc(tmpl *ConfigurationTemplate) configurationTemplateDescType {
+	return configurationTemplateDescType{
+		ApplicationName:   tmpl.ApplicationName,
+		TemplateName:      tmpl.TemplateName,
+		SolutionStackName: tmpl.SolutionStackName,
+		Description:       tmpl.Description,
+	}
+}
+
+// createConfigurationTemplateResponse is the XML response for CreateConfigurationTemplate.
+type createConfigurationTemplateResponse struct {
+	XMLName                           xml.Name                      `xml:"CreateConfigurationTemplateResponse"`
+	Xmlns                             string                        `xml:"xmlns,attr"`
+	CreateConfigurationTemplateResult configurationTemplateDescType `xml:"CreateConfigurationTemplateResult"`
+	ResponseMetadata                  responseMetadata              `xml:"ResponseMetadata"`
+}
+
+// handleCreateConfigurationTemplate creates a new configuration template.
+func (h *Handler) handleCreateConfigurationTemplate(vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	if appName == "" {
+		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
+	}
+
+	templateName := vals.Get("TemplateName")
+	if templateName == "" {
+		return nil, fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
+	}
+
+	description := vals.Get("Description")
+	solutionStack := vals.Get("SolutionStackName")
+	tags := parseTagList(vals, "Tags.member")
+
+	tmpl, err := h.Backend.CreateConfigurationTemplate(appName, templateName, description, solutionStack, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createConfigurationTemplateResponse{
+		Xmlns:                             ebXMLNS,
+		CreateConfigurationTemplateResult: toConfigTemplateDesc(tmpl),
+		ResponseMetadata:                  responseMetadata{RequestID: "eb-create-config-tmpl"},
+	}, nil
+}
+
+// platformVersionDescType is used in XML responses for platform versions.
+type platformVersionDescType struct {
+	PlatformArn     string `xml:"PlatformArn"`
+	PlatformName    string `xml:"PlatformName"`
+	PlatformVersion string `xml:"PlatformVersion"`
+	PlatformStatus  string `xml:"PlatformStatus"`
+}
+
+func toPlatformVersionDesc(pv *PlatformVersion) platformVersionDescType {
+	return platformVersionDescType{
+		PlatformArn:     pv.PlatformArn,
+		PlatformName:    pv.PlatformName,
+		PlatformVersion: pv.PlatformVersion,
+		PlatformStatus:  pv.PlatformStatus,
+	}
+}
+
+// createPlatformVersionResult is the result body for CreatePlatformVersion.
+type createPlatformVersionResult struct {
+	PlatformSummary platformVersionDescType `xml:"PlatformSummary"`
+}
+
+// createPlatformVersionResponse is the XML response for CreatePlatformVersion.
+type createPlatformVersionResponse struct {
+	XMLName                     xml.Name                    `xml:"CreatePlatformVersionResponse"`
+	Xmlns                       string                      `xml:"xmlns,attr"`
+	CreatePlatformVersionResult createPlatformVersionResult `xml:"CreatePlatformVersionResult"`
+	ResponseMetadata            responseMetadata            `xml:"ResponseMetadata"`
+}
+
+// handleCreatePlatformVersion creates a new custom platform version.
+func (h *Handler) handleCreatePlatformVersion(vals url.Values) (any, error) {
+	platformName := vals.Get("PlatformName")
+	if platformName == "" {
+		return nil, fmt.Errorf("%w: PlatformName is required", ErrInvalidParameter)
+	}
+
+	platformVersion := vals.Get("PlatformVersion")
+	if platformVersion == "" {
+		return nil, fmt.Errorf("%w: PlatformVersion is required", ErrInvalidParameter)
+	}
+
+	tags := parseTagList(vals, "Tags.member")
+
+	pv, err := h.Backend.CreatePlatformVersion(platformName, platformVersion, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createPlatformVersionResponse{
+		Xmlns: ebXMLNS,
+		CreatePlatformVersionResult: createPlatformVersionResult{
+			PlatformSummary: toPlatformVersionDesc(pv),
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-create-platform-ver"},
+	}, nil
+}
+
+// createStorageLocationResult is the result body for CreateStorageLocation.
+type createStorageLocationResult struct {
+	S3Bucket string `xml:"S3Bucket"`
+}
+
+// createStorageLocationResponse is the XML response for CreateStorageLocation.
+type createStorageLocationResponse struct {
+	XMLName                     xml.Name                    `xml:"CreateStorageLocationResponse"`
+	Xmlns                       string                      `xml:"xmlns,attr"`
+	CreateStorageLocationResult createStorageLocationResult `xml:"CreateStorageLocationResult"`
+	ResponseMetadata            responseMetadata            `xml:"ResponseMetadata"`
+}
+
+// handleCreateStorageLocation creates (or returns) the S3 storage bucket.
+func (h *Handler) handleCreateStorageLocation(_ url.Values) (any, error) {
+	bucket := h.Backend.CreateStorageLocation()
+
+	return &createStorageLocationResponse{
+		Xmlns:                       ebXMLNS,
+		CreateStorageLocationResult: createStorageLocationResult{S3Bucket: bucket},
+		ResponseMetadata:            responseMetadata{RequestID: "eb-create-storage"},
+	}, nil
+}
+
+// deleteConfigurationTemplateResponse is the XML response for DeleteConfigurationTemplate.
+type deleteConfigurationTemplateResponse struct {
+	XMLName          xml.Name         `xml:"DeleteConfigurationTemplateResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
+}
+
+// handleDeleteConfigurationTemplate deletes a configuration template.
+func (h *Handler) handleDeleteConfigurationTemplate(vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	if appName == "" {
+		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
+	}
+
+	templateName := vals.Get("TemplateName")
+	if templateName == "" {
+		return nil, fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteConfigurationTemplate(appName, templateName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationTemplateResponse{
+		Xmlns:            ebXMLNS,
+		ResponseMetadata: responseMetadata{RequestID: "eb-delete-config-tmpl"},
+	}, nil
+}
+
+// deleteEnvironmentConfigurationResponse is the XML response for DeleteEnvironmentConfiguration.
+type deleteEnvironmentConfigurationResponse struct {
+	XMLName          xml.Name         `xml:"DeleteEnvironmentConfigurationResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
+}
+
+// handleDeleteEnvironmentConfiguration deletes the draft configuration for an environment.
+func (h *Handler) handleDeleteEnvironmentConfiguration(vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	if appName == "" {
+		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
+	}
+
+	envName := vals.Get("EnvironmentName")
+	if envName == "" {
+		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
+	}
+
+	_ = h.Backend.DeleteEnvironmentConfiguration(appName, envName)
+
+	return &deleteEnvironmentConfigurationResponse{
+		Xmlns:            ebXMLNS,
+		ResponseMetadata: responseMetadata{RequestID: "eb-delete-env-config"},
 	}, nil
 }
