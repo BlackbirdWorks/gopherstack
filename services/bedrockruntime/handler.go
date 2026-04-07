@@ -1,6 +1,7 @@
 package bedrockruntime
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -785,6 +786,6 @@ func handleError(c *echo.Context, err error) error {
 }
 
 // Purge implements service.Purgeable by removing all Bedrock Runtime invocation records older than cutoff.
-func (h *Handler) Purge(cutoff time.Time) {
-	h.Backend.Purge(cutoff)
+func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
+	h.Backend.Purge(ctx, cutoff)
 }

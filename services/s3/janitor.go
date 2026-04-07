@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -91,8 +92,8 @@ func (f *lifecycleFilter) andPrefix() string {
 }
 
 type lifecycleExpiration struct {
+	Days *int   `xml:"Days"`
 	Date string `xml:"Date"`
-	Days int    `xml:"Days"`
 }
 
 // lifecycleNoncurrentVersionExpiration specifies when noncurrent object versions expire.
@@ -128,18 +129,22 @@ const (
 	// starved. 10 000 is fast enough (sub-millisecond in practice) while keeping
 	// the critical section short.
 	drainChunkSize = 10_000
+
+	// maxConcurrentDrains is the maximum number of bucket drain goroutines that
+	// may run simultaneously. Without a cap, thousands of pending-delete buckets
+	// would each spawn a goroutine, all competing for the same locks and
+	// exhausting goroutine and memory budgets.
+	maxConcurrentDrains = 32
 )
 
 // Janitor is the S3 background worker that drains buckets queued for async
 // deletion and records queue-depth metrics for the live dashboard.
 type Janitor struct {
 	Backend      *InMemoryBackend
+	drainSem     chan struct{}
 	activeDrains sync.Map
 	Interval     time.Duration
-	// TaskTimeout bounds each individual janitor task. When non-zero, each task
-	// runs with a child context that expires after this duration, preventing a
-	// stalled operation from blocking the janitor loop indefinitely.
-	TaskTimeout time.Duration
+	TaskTimeout  time.Duration
 }
 
 // NewJanitor creates a new S3 Janitor for the given backend.
@@ -154,13 +159,23 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 	return &Janitor{
 		Backend:  backend,
 		Interval: interval,
+		drainSem: make(chan struct{}, maxConcurrentDrains),
 	}
 }
 
 // Run runs the janitor loop until ctx is cancelled.
 // Each tick, sweepAndDrain spawns one goroutine per pending bucket so that
 // thousands of large buckets are drained in parallel rather than serially.
+//
+// A deferred recover() protects the loop from panics in sweep functions.
 func (j *Janitor) Run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(ctx).Error("S3 janitor: panic recovered, loop exiting",
+				"panic", fmt.Sprintf("%v", r))
+		}
+	}()
+
 	ticker := time.NewTicker(j.Interval)
 	defer ticker.Stop()
 
@@ -223,8 +238,32 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 
 	for _, name := range pending {
 		if _, loaded := j.activeDrains.LoadOrStore(name, struct{}{}); !loaded {
+			// Acquire the semaphore slot before spawning. If the channel is full
+			// (maxConcurrentDrains goroutines already running), skip this tick;
+			// the bucket will be picked up on the next janitor tick.
+			select {
+			case j.drainSem <- struct{}{}:
+			default:
+				// All semaphore slots are taken; release the activeDrains entry
+				// so the bucket can be picked up in a future tick.
+				j.activeDrains.Delete(name)
+
+				continue
+			}
+
 			go func(n string) {
-				defer j.activeDrains.Delete(n)
+				// recover() must be deferred FIRST (last to execute) so it catches panics
+				// from processBucket. Cleanup (semaphore release) runs after recovery.
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Load(ctx).Error("S3 janitor: panic in drain goroutine",
+							"bucket", n, "panic", fmt.Sprintf("%v", r))
+					}
+				}()
+				defer func() {
+					<-j.drainSem
+					j.activeDrains.Delete(n)
+				}()
 				j.processBucket(ctx, n)
 			}(name)
 		}
@@ -379,7 +418,7 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 			pfx := name + "/"
 			for k, v := range b.tags {
 				if strings.HasPrefix(k, pfx) {
-					tagsByKey[k] = v
+					tagsByKey[k] = slices.Clone(v)
 				}
 			}
 
@@ -435,10 +474,11 @@ func (j *Janitor) applyLifecycleRules(
 		tagFilters := rule.Filter.tags()
 
 		// Days-based expiration of current versions.
-		// Days >= 0 triggers expiration (Days=0 means expire immediately).
-		// Days < 0 is invalid and skipped.
-		if rule.Expiration.Days >= 0 && rule.Expiration.Date == "" {
-			expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
+		// Days must be explicitly set (non-nil) to trigger expiration.
+		// An absent Days element (nil pointer) must not delete objects even though
+		// the Go zero value for int would be 0 (which would incorrectly match all objects).
+		if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
+			expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
 			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
 		}
 
@@ -536,6 +576,8 @@ func (j *Janitor) collectExpiredKeys(
 
 // isExpiredAndMatches returns true when the object's latest version has expired
 // before expireBefore and satisfies the tag filters (if any).
+// Returns false if the latest version is protected by object lock (legal hold or
+// active retention period) — lifecycle rules must not override WORM protection.
 // obj.mu is acquired internally so callers need not hold it.
 func isExpiredAndMatches(
 	obj *StoredObject,
@@ -549,9 +591,15 @@ func isExpiredAndMatches(
 	// (PutObject/DeleteObject) that update it under obj.mu.Lock.
 	obj.mu.RLock("isExpiredAndMatches")
 	latestMod, latestVID := latestVersionModAndID(obj)
+	locked := isLatestVersionLocked(obj)
 	obj.mu.RUnlock()
 
 	if latestMod.IsZero() || latestMod.After(expireBefore) {
+		return false
+	}
+
+	// Object lock (WORM) takes precedence over lifecycle rules.
+	if locked {
 		return false
 	}
 
@@ -566,6 +614,25 @@ func isExpiredAndMatches(
 	objTags := tagsByKey[bucketName+"/"+key+"/"+latestVID]
 
 	return objectMatchesTags(objTags, tagFilters)
+}
+
+// isLatestVersionLocked reports whether the latest non-deleted version of obj has
+// an active legal hold or an unexpired retention period.
+// Must be called with obj.mu held (at least RLock).
+func isLatestVersionLocked(obj *StoredObject) bool {
+	for _, ver := range obj.Versions {
+		if !ver.IsLatest || ver.Deleted {
+			continue
+		}
+		if ver.LegalHold {
+			return true
+		}
+		if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // latestVersionModAndID returns the LastModified time and VersionID of the latest
@@ -675,10 +742,10 @@ func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag
 		}
 
 		var expiry time.Time
-		if rule.Expiration.Days >= 0 && (rule.Expiration.Date == "") {
+		if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
 			// S3 rounds up to the next midnight UTC
 			const hoursInDay = 24
-			expiry = lastModified.Add(time.Duration(rule.Expiration.Days) * hoursInDay * time.Hour)
+			expiry = lastModified.Add(time.Duration(*rule.Expiration.Days) * hoursInDay * time.Hour)
 			expiry = time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 0, 0, 0, 0, time.UTC).
 				Add(hoursInDay * time.Hour)
 		} else if rule.Expiration.Date != "" {
@@ -715,6 +782,16 @@ func deleteBatch(objects map[string]*StoredObject, maxCount int) int {
 	return count
 }
 
+// isNoncurrentVersionLocked reports whether a noncurrent object version is
+// protected by an active object-lock (legal hold or retention mode).
+func isNoncurrentVersionLocked(ver *StoredObjectVersion) bool {
+	if ver.LegalHold {
+		return true
+	}
+
+	return ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil)
+}
+
 // evictNoncurrentVersions deletes non-latest object versions (noncurrent versions)
 // from the bucket that match the prefix and were superseded before noncurrentBefore.
 // Returns the number of noncurrent versions deleted.
@@ -732,7 +809,7 @@ func (j *Janitor) evictNoncurrentVersions(bucket *StoredBucket, prefix string, n
 		obj.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
 
 		for vid, ver := range obj.Versions {
-			if ver.IsLatest {
+			if ver.IsLatest || isNoncurrentVersionLocked(ver) {
 				continue
 			}
 

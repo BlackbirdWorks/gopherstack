@@ -763,6 +763,10 @@ func applyGlobalTableLimit(list []types.GlobalTable, limit *int32) ([]types.Glob
 	}
 
 	n := int(*limit)
+	if n <= 0 {
+		return []types.GlobalTable{}, nil
+	}
+
 	last := *list[n-1].GlobalTableName
 
 	return list[:n], &last

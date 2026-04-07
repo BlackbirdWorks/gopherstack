@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -162,13 +164,13 @@ func (db *InMemoryDB) LookupStreamARNIndex(streamARN string) (*Table, bool) {
 }
 
 // SweepTxnTokens exposes sweepTxnTokens for tests.
-func (j *Janitor) SweepTxnTokens() {
-	j.sweepTxnTokens()
+func (j *Janitor) SweepTxnTokens(ctx context.Context) {
+	j.sweepTxnTokens(ctx)
 }
 
 // SweepTxnPending exposes sweepTxnPending for tests.
-func (j *Janitor) SweepTxnPending() {
-	j.sweepTxnPending()
+func (j *Janitor) SweepTxnPending(ctx context.Context) {
+	j.sweepTxnPending(ctx)
 }
 
 // TxnPendingCount returns the number of in-progress idempotency tokens.
@@ -325,3 +327,51 @@ func (t *Table) GetItems() []map[string]any {
 
 	return snapshot
 }
+
+// ApplyGlobalTableLimit exposes applyGlobalTableLimit for testing.
+// In particular it lets tests verify that a zero limit does not cause a panic.
+func ApplyGlobalTableLimit(list []types.GlobalTable, limit *int32) ([]types.GlobalTable, *string) {
+	return applyGlobalTableLimit(list, limit)
+}
+
+// TxnTokensCount returns the number of committed idempotency tokens in the backend.
+// (Alias that uses the plural 'Tokens' for readability alongside TxnTokensMaxCap.)
+func (db *InMemoryDB) TxnTokensCount() int {
+	return db.TxnTokenCount()
+}
+
+// AddTxnToken inserts a committed idempotency token with the given expiry.
+// Used by tests to pre-populate the map without going through the full TransactWriteItems path.
+func (db *InMemoryDB) AddTxnToken(token string, expiry time.Time) {
+	db.mu.Lock("AddTxnToken")
+	defer db.mu.Unlock()
+
+	db.txnTokens[token] = expiry
+}
+
+// StreamRecordCount returns the number of stream record slots currently allocated
+// for the named table (including zero-value / compacted entries).
+func (db *InMemoryDB) StreamRecordCount(tableName string) int {
+	db.mu.RLock("StreamRecordCount")
+	regionTables := db.Tables[db.defaultRegion]
+	tbl := regionTables[tableName]
+	db.mu.RUnlock()
+
+	if tbl == nil {
+		return -1
+	}
+
+	tbl.mu.RLock("StreamRecordCountTable")
+	defer tbl.mu.RUnlock()
+
+	return len(tbl.StreamRecords)
+}
+
+// TxnTokensMaxCap exposes the package-level cap constant for testing.
+const TxnTokensMaxCap = txnTokensMaxCap
+
+// TxnPendingMaxCap exposes the package-level cap constant for testing.
+const TxnPendingMaxCap = txnPendingMaxCap
+
+// TTLSweepBatchSize exposes the package-level batch size constant for testing.
+const TTLSweepBatchSize = ttlSweepBatchSize

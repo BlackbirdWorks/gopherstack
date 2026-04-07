@@ -537,7 +537,7 @@ func TestHandler_Purge_DelegatesToBackend(t *testing.T) {
 	createTableHelper(t, db, "Purgeable", "pk")
 
 	require.NotPanics(t, func() {
-		handler.Purge(time.Now().Add(24 * time.Hour))
+		handler.Purge(t.Context(), time.Now().Add(24*time.Hour))
 	})
 }
 
@@ -951,7 +951,7 @@ func TestInMemoryDB_Purge_WithOldEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	// Purge with a future cutoff — should delete the table and backup.
-	db.Purge(time.Now().Add(24 * time.Hour))
+	db.Purge(t.Context(), time.Now().Add(24*time.Hour))
 
 	// Table should now be gone.
 	_, err = db.DescribeTable(t.Context(), &sdk.DescribeTableInput{

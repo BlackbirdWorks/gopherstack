@@ -226,7 +226,7 @@ func TestSweepTxnTokens_RemovesExpiredTokens(t *testing.T) {
 			assert.Equal(t, tt.injectExpired+tt.injectFresh, db.TxnTokenCount(), "total before sweep")
 
 			janitor := dynamodb.NewJanitor(db, dynamodb.Settings{})
-			janitor.SweepTxnTokens()
+			janitor.SweepTxnTokens(t.Context())
 
 			assert.Equal(t, tt.wantAfterSweep, db.TxnTokenCount(), "total after sweep")
 		})
@@ -263,7 +263,7 @@ func TestTransactWriteItems_ExpiredTokenAllowsReuse(t *testing.T) {
 
 	// Sweep — token should be removed.
 	janitor := dynamodb.NewJanitor(db, dynamodb.Settings{})
-	janitor.SweepTxnTokens()
+	janitor.SweepTxnTokens(t.Context())
 	require.Equal(t, 0, db.TxnTokenCount())
 
 	// Second commit with the same token — should succeed (not treated as duplicate).

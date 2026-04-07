@@ -79,7 +79,7 @@ type StorageBackend interface {
 	DeleteFunction(name string) error
 	UpdateFunction(fn *FunctionConfiguration) error
 	InvokeFunction(ctx context.Context, name string, invocationType InvocationType, payload []byte) ([]byte, int, error)
-	Purge(cutoff time.Time)
+	Purge(ctx context.Context, cutoff time.Time)
 }
 
 // QualifierInvoker is an optional extension of StorageBackend that supports qualified invocations.
@@ -2851,7 +2851,10 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Purge removes all functions older than the given cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
 	purgedFunctions, urlServers, rts := b.collectAndDeleteFunctions(cutoff)
 
 	if len(purgedFunctions) == 0 {

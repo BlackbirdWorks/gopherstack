@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -1717,7 +1719,15 @@ func run(ctx context.Context, cli CLI) error {
 	startBackgroundWorkers(janitorCtx, services)
 
 	// Start automatic purge background worker. It dynamically checks for TTL updates from the config.
-	go startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("purge worker: panic recovered",
+					"panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+	}()
 
 	inMemMux.Handle("/", e)
 
@@ -1860,12 +1870,52 @@ func buildEchoServer(
 	cli CLI,
 ) *echo.Echo {
 	e := echo.New()
+	e.Use(panicRecoveryMiddleware())
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 
-	// Health endpoint: build service name list dynamically from registered services.
-	e.GET("/_gopherstack/health", func(c *echo.Context) error {
+	e.HTTPErrorHandler = buildHTTPErrorHandler()
+	e.GET("/_gopherstack/health", buildHealthHandler(services))
+	e.POST("/_gopherstack/reset", buildResetHandler(services))
+
+	registerWebsiteRoutes(e, services)
+
+	if cli.Persist {
+		e.Use(persistenceMiddleware(persistManager, services))
+	}
+
+	return e
+}
+
+// buildHTTPErrorHandler returns an Echo error handler that logs 5xx errors via
+// slog and writes the standard JSON error response.
+func buildHTTPErrorHandler() func(*echo.Context, error) {
+	return func(c *echo.Context, err error) {
+		var httpErr *echo.HTTPError
+		if !errors.As(err, &httpErr) {
+			httpErr = echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+
+		if httpErr.Code >= http.StatusInternalServerError {
+			logger.Load(c.Request().Context()).ErrorContext(c.Request().Context(), "HTTP error",
+				"status", httpErr.Code,
+				"error", httpErr.Message,
+				"path", c.Request().URL.Path,
+				"method", c.Request().Method,
+			)
+		}
+
+		if resp, _ := echo.UnwrapResponse(c.Response()); resp == nil || !resp.Committed {
+			_ = c.JSON(httpErr.Code, map[string]any{"message": httpErr.Message})
+		}
+	}
+}
+
+// buildHealthHandler returns the /_gopherstack/health handler. It reports service
+// names and runtime memory/goroutine stats.
+func buildHealthHandler(services []service.Registerable) echo.HandlerFunc {
+	return func(c *echo.Context) error {
 		names := make([]string, 0, len(services))
 		for _, svc := range services {
 			names = append(names, svc.Name())
@@ -1873,14 +1923,24 @@ func buildEchoServer(
 
 		sort.Strings(names)
 
-		return c.JSON(http.StatusOK, healthResponse{
-			Status:   "ok",
-			Services: names,
-		})
-	})
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
 
-	// Reset endpoint: clear all in-memory state for every service that supports it.
-	e.POST("/_gopherstack/reset", func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, healthResponse{
+			Status:     "ok",
+			Services:   names,
+			Goroutines: runtime.NumGoroutine(),
+			HeapAllocB: ms.HeapAlloc,
+			HeapInuseB: ms.HeapInuse,
+			NumGC:      ms.NumGC,
+		})
+	}
+}
+
+// buildResetHandler returns the /_gopherstack/reset handler that clears all
+// in-memory state for every service that supports it.
+func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
+	return func(c *echo.Context) error {
 		reset := 0
 		reqService := c.QueryParam("service")
 
@@ -1899,28 +1959,27 @@ func buildEchoServer(
 			"reset":   reset,
 			"message": fmt.Sprintf("reset %d service(s)", reset),
 		})
-	})
+	}
+}
 
-	// Website serving endpoint: serve static files from S3 buckets configured
-	// for website hosting. Pattern: GET /_gopherstack/website/{bucket}/*
+// registerWebsiteRoutes registers the S3 website-serving routes on e.
+// It finds the S3 handler from the registered services list.
+func registerWebsiteRoutes(e *echo.Echo, services []service.Registerable) {
 	for _, svc := range services {
-		if s3H, ok := svc.(*s3backend.S3Handler); ok {
-			e.GET("/_gopherstack/website/:bucket/*", s3H.ServeWebsite)
-			e.GET("/_gopherstack/website/:bucket", func(c *echo.Context) error {
-				bucket := c.Param("bucket")
-
-				return c.Redirect(http.StatusMovedPermanently, "/_gopherstack/website/"+bucket+"/")
-			})
-
-			break
+		s3H, ok := svc.(*s3backend.S3Handler)
+		if !ok {
+			continue
 		}
-	}
 
-	if cli.Persist {
-		e.Use(persistenceMiddleware(persistManager, services))
-	}
+		e.GET("/_gopherstack/website/:bucket/*", s3H.ServeWebsite)
+		e.GET("/_gopherstack/website/:bucket", func(c *echo.Context) error {
+			bucket := c.Param("bucket")
 
-	return e
+			return c.Redirect(http.StatusMovedPermanently, "/_gopherstack/website/"+bucket+"/")
+		})
+
+		break
+	}
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
@@ -2314,6 +2373,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	}
 	services = append(services, dashSvc)
 
+	// Record the service count so the metrics dashboard (and Prometheus scrape)
+	// can surface it alongside the health endpoint's "services" field.
+	telemetry.SetServiceCount(len(services))
+
 	// The router sorts services by MatchPriority() at startup, so registration order
 	// does not affect routing correctness.
 	return services, nil
@@ -2511,6 +2574,8 @@ func purgeAllServices(
 	cutoff time.Time,
 	timeout time.Duration,
 ) {
+	const goroutineGracePeriod = 5 * time.Second
+
 	for _, svc := range svcs {
 		p, ok := svc.(service.Purgeable)
 		if !ok {
@@ -2520,16 +2585,25 @@ func purgeAllServices(
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			p.Purge(cutoff)
+			p.Purge(purgeCtx, cutoff)
 		}()
 		select {
 		case <-done:
+			cancel()
 		case <-purgeCtx.Done():
+			cancel()
 			if ctx.Err() == nil {
 				log.WarnContext(ctx, "purge timed out", "service", svc.Name(), "timeout", timeout)
 			}
+			// Drain the goroutine with a grace period so it does not accumulate
+			// across repeated purge cycles.
+			select {
+			case <-done:
+			case <-time.After(goroutineGracePeriod):
+				log.WarnContext(ctx, "purge goroutine did not exit after grace period",
+					"service", svc.Name())
+			}
 		}
-		cancel()
 	}
 }
 
@@ -3854,6 +3928,15 @@ type healthResponse struct {
 	Status string `json:"status"`
 	// Services lists all registered mock AWS services.
 	Services []string `json:"services"`
+	// Goroutines is the current number of live goroutines (runtime.NumGoroutine).
+	// A sustained upward trend indicates a goroutine leak.
+	Goroutines int `json:"goroutines"`
+	// HeapAllocB is the number of heap bytes currently allocated (runtime.MemStats.HeapAlloc).
+	HeapAllocB uint64 `json:"heap_alloc_bytes"`
+	// HeapInuseB is the number of heap bytes in use (runtime.MemStats.HeapInuse).
+	HeapInuseB uint64 `json:"heap_inuse_bytes"`
+	// NumGC is the total number of completed GC cycles (runtime.MemStats.NumGC).
+	NumGC uint32 `json:"num_gc"`
 }
 
 func setupChaosAndRegistry(
@@ -4349,6 +4432,56 @@ func seedBedrockRuntimeDemoInvocations(ctx context.Context, h service.Registerab
 	)
 
 	log.InfoContext(ctx, "Seeded BedrockRuntime demo invocations")
+}
+
+// panicRecoveryMiddleware returns an Echo middleware that recovers from panics
+// in HTTP handlers, logs the panic and stack trace via slog, and returns an
+// HTTP 500 response. Without this middleware, a single unhandled panic in any
+// handler goroutine kills the entire server process immediately.
+func panicRecoveryMiddleware() echo.MiddlewareFunc {
+	const stackSize = 4 << 10 // 4 KB
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					// Re-panic for http.ErrAbortHandler — it is not a real error
+					// and must propagate to signal the transport layer.
+					if rErr, ok := r.(error); ok && errors.Is(rErr, http.ErrAbortHandler) {
+						panic(r)
+					}
+
+					panicErr, ok := r.(error)
+					if !ok {
+						panicErr = recoveredPanicError{val: r}
+					}
+
+					stack := make([]byte, stackSize)
+					n := runtime.Stack(stack, false)
+					logger.Load(c.Request().Context()).Error("panic recovered in HTTP handler",
+						"error", panicErr, "stack", string(stack[:n]))
+
+					// Record a metric so dashboards can alert on panic spikes.
+					telemetry.RecordWorkerTask("http", "PanicRecovery", "error")
+
+					err = c.JSON(http.StatusInternalServerError, map[string]string{
+						"message": "internal server error",
+					})
+				}
+			}()
+
+			return next(c)
+		}
+	}
+}
+
+// recoveredPanicError wraps a non-error panic value recovered by panicRecoveryMiddleware.
+type recoveredPanicError struct {
+	val any
+}
+
+func (e recoveredPanicError) Error() string {
+	return fmt.Sprintf("panic: %v", e.val)
 }
 
 // persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot

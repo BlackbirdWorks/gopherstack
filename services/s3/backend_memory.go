@@ -14,6 +14,7 @@ import (
 	"hash"
 	"hash/crc32"
 	"io"
+	"maps"
 	"net/url"
 	"slices"
 	"sort"
@@ -373,7 +374,7 @@ func (b *InMemoryBackend) PutObject(
 		ContentType:        aws.ToString(input.ContentType),
 		ContentEncoding:    aws.ToString(input.ContentEncoding),
 		ContentDisposition: aws.ToString(input.ContentDisposition),
-		Metadata:           input.Metadata,
+		Metadata:           maps.Clone(input.Metadata),
 		ChecksumCRC32:      checksums.crc32,
 		ChecksumCRC32C:     checksums.crc32c,
 		ChecksumSHA1:       checksums.sha1,
@@ -562,7 +563,7 @@ func (b *InMemoryBackend) GetObject(
 	contentDisposition := ver.ContentDisposition
 	etag := ver.ETag
 	lastModified := ver.LastModified
-	metadata := ver.Metadata
+	metadata := maps.Clone(ver.Metadata)
 	versionIDStr := ver.VersionID
 	checksumCRC32 := ver.ChecksumCRC32
 	checksumCRC32C := ver.ChecksumCRC32C
@@ -667,7 +668,7 @@ func (b *InMemoryBackend) HeadObject(
 		ContentDisposition: nilStringIfEmpty(ver.ContentDisposition),
 		ETag:               aws.String(ver.ETag),
 		LastModified:       aws.Time(ver.LastModified),
-		Metadata:           ver.Metadata,
+		Metadata:           maps.Clone(ver.Metadata),
 		VersionId:          aws.String(ver.VersionID),
 		ChecksumCRC32:      ver.ChecksumCRC32,
 		ChecksumCRC32C:     ver.ChecksumCRC32C,
@@ -753,7 +754,12 @@ func findLatestVersion(versions map[string]*StoredObjectVersion) *StoredObjectVe
 
 // checkObjectLockForDelete returns ErrObjectLocked if the target version is under
 // a legal hold or an active retention policy. Must be called with bucket.mu held.
+// obj.mu is acquired internally to guard against concurrent PutObject calls that
+// update LatestVersionID / Versions under obj.mu after releasing bucket.mu.
 func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
+	obj.mu.RLock("checkObjectLockForDelete")
+	defer obj.mu.RUnlock()
+
 	var ver *StoredObjectVersion
 
 	switch {
@@ -784,7 +790,11 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 // when versioning is not enabled) is under a legal hold or an active retention
 // policy. This prevents PutObject from silently overwriting a protected object.
 // Must be called with bucket.mu held.
+// obj.mu is acquired internally to guard against concurrent PutObject calls.
 func checkObjectLockForOverwrite(obj *StoredObject) error {
+	obj.mu.RLock("checkObjectLockForOverwrite")
+	defer obj.mu.RUnlock()
+
 	var ver *StoredObjectVersion
 
 	if obj.LatestVersionID != "" {
@@ -1132,7 +1142,7 @@ func (b *InMemoryBackend) ListObjects(
 }
 
 func (b *InMemoryBackend) ListObjectsV2(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.ListObjectsV2Input,
 ) (*s3.ListObjectsV2Output, error) {
 	// Re-use ListObjects logic but handle V2 specific params
@@ -1143,7 +1153,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 		marker = *input.StartAfter
 	}
 
-	listOut, err := b.ListObjects(context.TODO(), &s3.ListObjectsInput{
+	listOut, err := b.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket:    input.Bucket,
 		Prefix:    input.Prefix,
 		MaxKeys:   input.MaxKeys,
@@ -1366,7 +1376,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 		b.tags = make(map[string][]types.Tag)
 	}
 
-	b.tags[tagKey] = input.Tagging.TagSet
+	b.tags[tagKey] = slices.Clone(input.Tagging.TagSet)
 
 	return &s3.PutObjectTaggingOutput{}, nil
 }
@@ -1421,7 +1431,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 	defer b.mu.RUnlock()
 
 	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, vid)
-	tags := b.tags[tagKey]
+	tags := slices.Clone(b.tags[tagKey])
 
 	return &s3.GetObjectTaggingOutput{
 		TagSet: tags,
@@ -3216,25 +3226,48 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 	return sessionXML, nil
 }
 
+// purgeBucketLocked removes a single bucket and its associated data from the
+// backend. Caller must hold b.mu.
+func (b *InMemoryBackend) purgeBucketLocked(
+	regionBuckets map[string]*StoredBucket,
+	bucketName string,
+	bucket *StoredBucket,
+) {
+	// Close per-object mutexes to avoid Prometheus metric leaks.
+	for _, obj := range bucket.Objects {
+		obj.mu.Close()
+	}
+
+	bucket.mu.Close()
+	delete(regionBuckets, bucketName)
+	delete(b.bucketIndex, bucketName)
+
+	for tagKey := range b.tags {
+		if strings.HasPrefix(tagKey, bucketName+"/") {
+			delete(b.tags, tagKey)
+		}
+	}
+
+	delete(b.uploads, bucketName)
+}
+
 // Purge removes all buckets created before the given cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	for _, regionBuckets := range b.buckets {
 		for bucketName, bucket := range regionBuckets {
-			if bucket.CreationDate.Before(cutoff) {
-				bucket.mu.Close()
-				delete(regionBuckets, bucketName)
-				delete(b.bucketIndex, bucketName)
+			if ctx.Err() != nil {
+				return
+			}
 
-				// Clean up associated tags and uploads
-				for tagKey := range b.tags {
-					if strings.HasPrefix(tagKey, bucketName+"/") {
-						delete(b.tags, tagKey)
-					}
-				}
-				delete(b.uploads, bucketName)
+			if bucket.CreationDate.Before(cutoff) {
+				b.purgeBucketLocked(regionBuckets, bucketName, bucket)
 			}
 		}
 	}
@@ -3245,6 +3278,16 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	// Close all bucket and object mutexes to prevent Prometheus metric leaks.
+	for _, regionBuckets := range b.buckets {
+		for _, bucket := range regionBuckets {
+			for _, obj := range bucket.Objects {
+				obj.mu.Close()
+			}
+			bucket.mu.Close()
+		}
+	}
 
 	b.buckets = make(map[string]map[string]*StoredBucket)
 	b.bucketIndex = make(map[string]string)
@@ -3471,6 +3514,11 @@ func (b *InMemoryBackend) truncateListResults(
 	cpList []types.CommonPrefix,
 	maxKeys int32,
 ) ([]types.Object, []types.CommonPrefix, bool, string) {
+	// AWS clamps MaxKeys to [0, 1000]; a zero value means return no objects.
+	if maxKeys <= 0 {
+		return nil, nil, len(contents)+len(cpList) > 0, ""
+	}
+
 	totalCount64 := int64(len(contents)) + int64(len(cpList))
 	if totalCount64 <= int64(maxKeys) {
 		return contents, cpList, false, ""

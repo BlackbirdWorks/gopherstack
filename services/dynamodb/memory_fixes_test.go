@@ -293,7 +293,7 @@ func TestSweepTxnPending_RemovesStalePendingTokens(t *testing.T) {
 			require.Equal(t, tt.injectStale, db.TxnPendingCount(), "pre-sweep count")
 
 			janitor := dynamodb.NewJanitor(db, dynamodb.Settings{})
-			janitor.SweepTxnPending()
+			janitor.SweepTxnPending(t.Context())
 
 			assert.Equal(t, tt.wantAfterSweep, db.TxnPendingCount(), "post-sweep count")
 		})
@@ -332,7 +332,7 @@ func TestSweepTxnPending_FreshTokensNotRemoved(t *testing.T) {
 
 	// Sweep should be a no-op.
 	janitor := dynamodb.NewJanitor(db, dynamodb.Settings{})
-	janitor.SweepTxnPending()
+	janitor.SweepTxnPending(t.Context())
 	assert.Equal(t, 0, db.TxnPendingCount(), "pending count should still be 0 after sweep")
 }
 

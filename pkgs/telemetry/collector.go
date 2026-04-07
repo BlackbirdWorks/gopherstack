@@ -50,10 +50,12 @@ type WorkerStats struct {
 type RuntimeMetrics struct {
 	Goroutines   int     `json:"goroutines"`
 	HeapAllocMB  float64 `json:"heap_alloc_mb"`
+	HeapInuseMB  float64 `json:"heap_inuse_mb"`
 	HeapSysMB    float64 `json:"heap_sys_mb"`
 	NumGC        uint32  `json:"num_gc"`
 	LastGCPause  float64 `json:"last_gc_pause_ms"`
 	TotalAllocMB float64 `json:"total_alloc_mb"`
+	NumServices  int     `json:"num_services"`
 }
 
 // Dashboard holds all metrics for dashboard display.
@@ -258,10 +260,12 @@ func collectRuntimeMetrics() *RuntimeMetrics {
 	return &RuntimeMetrics{
 		Goroutines:   runtime.NumGoroutine(),
 		HeapAllocMB:  float64(m.HeapAlloc) / bytesToMB,
+		HeapInuseMB:  float64(m.HeapInuse) / bytesToMB,
 		HeapSysMB:    float64(m.HeapSys) / bytesToMB,
 		NumGC:        m.NumGC,
 		LastGCPause:  lastGCPause,
 		TotalAllocMB: float64(m.TotalAlloc) / bytesToMB,
+		NumServices:  int(serviceCount.Load()),
 	}
 }
 

@@ -1336,8 +1336,8 @@ func (h *Handler) Reset() {
 }
 
 // Purge implements service.Purgeable by removing all Kinesis streams older than cutoff.
-func (h *Handler) Purge(cutoff time.Time) {
+func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Purge(cutoff)
+		b.Purge(ctx, cutoff)
 	}
 }

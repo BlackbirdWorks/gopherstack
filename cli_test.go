@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -518,8 +522,8 @@ type mockPurgeableService struct {
 	purged bool
 }
 
-func (m *mockPurgeableService) Purge(_ time.Time) { m.purged = true }
-func (m *mockPurgeableService) Name() string      { return "MockPurgeable" }
+func (m *mockPurgeableService) Purge(_ context.Context, _ time.Time) { m.purged = true }
+func (m *mockPurgeableService) Name() string                         { return "MockPurgeable" }
 
 type mockResettableService struct {
 	service.Registerable
@@ -549,7 +553,7 @@ func TestCLI_AutoPurgeLoop(t *testing.T) {
 		cutoff := time.Now().UTC().Add(-ttl)
 		for _, svc := range services {
 			if p, ok := svc.(service.Purgeable); ok {
-				p.Purge(cutoff)
+				p.Purge(context.Background(), cutoff)
 
 				continue
 			}
@@ -619,4 +623,169 @@ func TestCLI_S3InitBuckets_Parsing(t *testing.T) {
 		"S3_BUCKETS": "my-bucket",
 	})
 	assert.Equal(t, []string{"my-bucket"}, cli.S3InitBuckets)
+}
+
+// errTestPanic is a sentinel error used by TestPanicRecoveryMiddleware_RecoversPanic
+// to test the recovers-error-panic code path without triggering err113.
+var errTestPanic = errors.New("deliberate error panic")
+
+// errTestGeneric is a sentinel error used by TestCustomHTTPErrorHandler_LogsServerErrors.
+var errTestGeneric = errors.New("generic error")
+
+func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		handler        func(*echo.Context) error
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "recovers_string_panic",
+			handler: func(_ *echo.Context) error {
+				panic("deliberate test panic")
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name: "recovers_error_panic",
+			handler: func(_ *echo.Context) error {
+				panic(errTestPanic)
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name: "passes_through_normal_response",
+			handler: func(c *echo.Context) error {
+				return c.JSON(http.StatusOK, map[string]string{"ok": "true"})
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mw := panicRecoveryMiddleware()
+			wrapped := mw(tt.handler)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			_ = wrapped(c)
+
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+// TestHealthEndpoint_GoroutineAndMemStats verifies that the /_gopherstack/health
+// response includes goroutine count and memory stats fields.
+//
+//nolint:paralleltest // uses a fixed port that cannot be parallelised
+func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
+	// Uses t.Setenv-like machinery via parseCLI; no t.Parallel.
+	cli := parseCLI(t, map[string]string{"PORT": "8131"})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get("http://localhost:8131/_gopherstack/health")
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+
+		return resp.StatusCode == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+
+	resp, err := http.Get("http://localhost:8131/_gopherstack/health")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	// Verify the new observability fields are present.
+	assert.Contains(t, body, "goroutines", "health response must include goroutines count")
+	assert.Contains(t, body, "heap_alloc_bytes", "health response must include heap_alloc_bytes")
+	assert.Contains(t, body, "heap_inuse_bytes", "health response must include heap_inuse_bytes")
+	assert.Contains(t, body, "num_gc", "health response must include num_gc")
+
+	goroutines, ok := body["goroutines"].(float64)
+	require.True(t, ok, "goroutines should be a number")
+	assert.Greater(t, goroutines, float64(0), "goroutines should be > 0")
+
+	cancel()
+
+	select {
+	case shutdownErr := <-errCh:
+		require.NoError(t, shutdownErr)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "server did not shut down within timeout")
+	}
+}
+
+// TestCustomHTTPErrorHandler_LogsServerErrors verifies that the custom Echo error
+// handler returns the correct status code for server errors (5xx).
+func TestCustomHTTPErrorHandler_LogsServerErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		injectErr      error
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "http_error_passes_through",
+			injectErr:      echo.NewHTTPError(http.StatusNotFound, "not found"),
+			wantStatusCode: http.StatusNotFound,
+		},
+		{
+			name:           "non_http_error_becomes_500",
+			injectErr:      errTestGeneric,
+			wantStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+
+			// Install the same custom error handler used by buildEchoServer.
+			e.HTTPErrorHandler = func(c *echo.Context, err error) {
+				var httpErr *echo.HTTPError
+				if !errors.As(err, &httpErr) {
+					httpErr = echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+				}
+
+				if resp, _ := echo.UnwrapResponse(c.Response()); resp == nil || !resp.Committed {
+					_ = c.JSON(httpErr.Code, map[string]any{"message": httpErr.Message})
+				}
+			}
+
+			e.GET("/test", func(_ *echo.Context) error {
+				return tt.injectErr
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
 }

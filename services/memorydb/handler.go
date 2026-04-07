@@ -1,6 +1,7 @@
 package memorydb
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -823,8 +824,8 @@ func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
 }
 
 // Purge implements service.Purgeable by removing all MemoryDB resources older than cutoff.
-func (h *Handler) Purge(cutoff time.Time) {
+func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Purge(cutoff)
+		b.Purge(ctx, cutoff)
 	}
 }

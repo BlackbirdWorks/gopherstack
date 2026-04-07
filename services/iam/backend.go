@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -184,7 +185,7 @@ type StorageBackend interface {
 	GetUserByAccessKeyID(accessKeyID string) (*User, error)
 	GetPoliciesForUser(userName string) ([]string, error)
 
-	Purge(cutoff time.Time)
+	Purge(ctx context.Context, cutoff time.Time)
 }
 
 // iamDefaultMaxItems is the default page size for IAM list operations.
@@ -1880,7 +1881,11 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Purge removes all resources older than the given cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 

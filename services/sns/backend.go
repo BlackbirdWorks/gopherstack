@@ -1722,11 +1722,26 @@ func (b *InMemoryBackend) WaitDeliveries() {
 }
 
 // Purge removes all SNS resources created before the given cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
+	b.purgeTopics(ctx, cutoff)
+	b.purgeSubscriptions(ctx, cutoff)
+	b.purgePlatformApplications(ctx, cutoff)
+	b.purgePlatformEndpoints(ctx, cutoff)
+	b.purgeSMSSandbox(ctx, cutoff)
+}
+
+func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
 	for arn, topic := range b.topics {
+		if ctx.Err() != nil {
+			return
+		}
 		if topic.CreationTimestamp.Before(cutoff) {
 			delete(b.topics, arn)
 			if t := b.topicTags[arn]; t != nil {
@@ -1735,26 +1750,46 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 			}
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgeSubscriptions(ctx context.Context, cutoff time.Time) {
 	for arn, sub := range b.subscriptions {
+		if ctx.Err() != nil {
+			return
+		}
 		if sub.CreationTimestamp.Before(cutoff) {
 			delete(b.subscriptions, arn)
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgePlatformApplications(ctx context.Context, cutoff time.Time) {
 	for arn, app := range b.platformApplications {
+		if ctx.Err() != nil {
+			return
+		}
 		if app.CreationTimestamp.Before(cutoff) {
 			delete(b.platformApplications, arn)
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgePlatformEndpoints(ctx context.Context, cutoff time.Time) {
 	for arn, ep := range b.platformEndpoints {
+		if ctx.Err() != nil {
+			return
+		}
 		if ep.CreationTimestamp.Before(cutoff) {
 			delete(b.platformEndpoints, arn)
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgeSMSSandbox(ctx context.Context, cutoff time.Time) {
 	for phone, entry := range b.smsSandbox {
+		if ctx.Err() != nil {
+			return
+		}
 		if entry.CreationTimestamp.Before(cutoff) {
 			delete(b.smsSandbox, phone)
 		}

@@ -53,3 +53,12 @@ func (h *S3Handler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
+
+// DrainSemCapacity returns the capacity of the janitor's drain semaphore.
+// Used in tests to verify that maxConcurrentDrains is respected.
+func (j *Janitor) DrainSemCapacity() int {
+	return cap(j.drainSem)
+}
+
+// MaxConcurrentDrains exposes the package constant for external tests.
+const MaxConcurrentDrains = maxConcurrentDrains
