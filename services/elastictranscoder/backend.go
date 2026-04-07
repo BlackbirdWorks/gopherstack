@@ -554,16 +554,16 @@ func (b *InMemoryBackend) UpdatePipelineNotifications(
 // UpdatePipelineStatus updates the active/paused status of a pipeline.
 // Valid values are "Active" and "Paused".
 func (b *InMemoryBackend) UpdatePipelineStatus(id, status string) (*Pipeline, error) {
-	if status != "Active" && status != "Paused" {
-		return nil, fmt.Errorf("%w: Status must be Active or Paused, got %q", ErrValidation, status)
-	}
-
 	b.mu.Lock("UpdatePipelineStatus")
 	defer b.mu.Unlock()
 
 	p, ok := b.pipelines[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
+	}
+
+	if status != "Active" && status != "Paused" {
+		return nil, fmt.Errorf("%w: Status must be Active or Paused, got %q", ErrValidation, status)
 	}
 
 	p.Status = status

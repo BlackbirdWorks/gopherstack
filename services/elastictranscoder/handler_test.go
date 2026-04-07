@@ -1163,7 +1163,7 @@ func TestElasticTranscoder_UpdatePipelineStatus(t *testing.T) {
 			h := newTestHandler(t)
 			pipelineID := tt.pipelineID
 
-			if pipelineID == "" && !tt.wantErr {
+			if pipelineID == "" {
 				rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
 					"Name": "status-pipeline", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
 				})
@@ -1175,9 +1175,6 @@ func TestElasticTranscoder_UpdatePipelineStatus(t *testing.T) {
 				}
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&pipelineOut))
 				pipelineID = pipelineOut.Pipeline.ID
-			} else if pipelineID == "" {
-				// Use a fake ID for missing_status test - it will fail at validation before hitting backend.
-				pipelineID = "fake-id"
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines/"+pipelineID+"/status", map[string]any{

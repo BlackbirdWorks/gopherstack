@@ -612,13 +612,19 @@ func TestRefinement1_PipelineName_Uniqueness(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	for range 2 {
-		doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
-			"Name": "unique-pipe", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
-		})
-	}
+	// First create succeeds.
+	rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+		"Name": "unique-pipe", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
+	})
+	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	// Only one pipeline should exist (second create is deduplicated).
+	// Second create with same name is rejected with 409.
+	rec = doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]any{
+		"Name": "unique-pipe", "InputBucket": "in", "OutputBucket": "out", "Role": "r",
+	})
+	assert.Equal(t, http.StatusConflict, rec.Code)
+
+	// Only one pipeline should exist.
 	assert.Equal(t, 1, h.Backend.PipelineCount())
 }
 
