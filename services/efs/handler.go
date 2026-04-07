@@ -141,23 +141,20 @@ func parseFileSystemRoute(method, suffix string) efsRoute {
 		case http.MethodGet:
 			return efsRoute{operation: "DescribeFileSystems"}
 		}
+	case id == "replication-configurations":
+		if method == http.MethodGet {
+			return efsRoute{operation: "DescribeReplicationConfigurations"}
+		}
 	case !strings.Contains(id, "/"):
-		return parseFileSystemSimpleRoute(method, id)
+		// Treat the single segment as a file system ID.
+		switch method {
+		case http.MethodGet:
+			return efsRoute{operation: "DescribeFileSystems", resource: id}
+		case http.MethodDelete:
+			return efsRoute{operation: "DeleteFileSystem", resource: id}
+		}
 	default:
 		return parseFileSystemSubRoute(method, id)
-	}
-
-	return efsRoute{operation: "Unknown"}
-}
-
-func parseFileSystemSimpleRoute(method, id string) efsRoute {
-	switch {
-	case id == "replication-configurations" && method == http.MethodGet:
-		return efsRoute{operation: "DescribeReplicationConfigurations"}
-	case method == http.MethodGet:
-		return efsRoute{operation: "DescribeFileSystems", resource: id}
-	case method == http.MethodDelete:
-		return efsRoute{operation: "DeleteFileSystem", resource: id}
 	}
 
 	return efsRoute{operation: "Unknown"}
