@@ -49,6 +49,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeTaskDefinition",
 		"DeregisterTaskDefinition",
 		"ListTaskDefinitions",
+		"DeleteTaskDefinitions",
 		"CreateService",
 		"DescribeServices",
 		"UpdateService",
@@ -69,6 +70,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateTaskSet",
 		"UpdateServicePrimaryTaskSet",
 		"ExecuteCommand",
+		"CreateCapacityProvider",
+		"DeleteCapacityProvider",
+		"DescribeCapacityProviders",
+		"DeleteAccountSetting",
+		"DeleteAttributes",
+		"DescribeServiceDeployments",
+		"CreateExpressGatewayService",
+		"DeleteExpressGatewayService",
+		"DescribeExpressGatewayService",
 	}
 }
 
@@ -192,6 +202,22 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"UpdateServicePrimaryTaskSet": service.WrapOp(h.handleUpdateServicePrimaryTaskSet),
 		// ECS Exec
 		"ExecuteCommand": service.WrapOp(h.handleExecuteCommand),
+		// Capacity providers
+		"CreateCapacityProvider":    service.WrapOp(h.handleCreateCapacityProvider),
+		"DeleteCapacityProvider":    service.WrapOp(h.handleDeleteCapacityProvider),
+		"DescribeCapacityProviders": service.WrapOp(h.handleDescribeCapacityProviders),
+		// Account settings
+		"DeleteAccountSetting": service.WrapOp(h.handleDeleteAccountSetting),
+		// Attributes
+		"DeleteAttributes": service.WrapOp(h.handleDeleteAttributes),
+		// Task definitions (batch delete)
+		"DeleteTaskDefinitions": service.WrapOp(h.handleDeleteTaskDefinitions),
+		// Service deployments
+		"DescribeServiceDeployments": service.WrapOp(h.handleDescribeServiceDeployments),
+		// Express gateway services
+		"CreateExpressGatewayService":   service.WrapOp(h.handleCreateExpressGatewayService),
+		"DeleteExpressGatewayService":   service.WrapOp(h.handleDeleteExpressGatewayService),
+		"DescribeExpressGatewayService": service.WrapOp(h.handleDescribeExpressGatewayService),
 	}
 }
 
