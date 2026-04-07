@@ -176,6 +176,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		// Marshalling a pure in-memory struct should never fail.
+		// Return nil so callers can detect and skip persistence.
 		return nil
 	}
 

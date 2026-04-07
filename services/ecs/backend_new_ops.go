@@ -486,6 +486,7 @@ func (b *InMemoryBackend) DescribeExpressGatewayService(serviceArn string) (*Exp
 	}
 
 	out := *svc
+	out.Tags = copyTags(svc.Tags)
 
 	return &out, nil
 }
