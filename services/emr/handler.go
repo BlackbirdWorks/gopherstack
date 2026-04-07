@@ -84,6 +84,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListBootstrapActions",
 		"GetAutoTerminationPolicy",
 		"GetManagedScalingPolicy",
+		"AddInstanceFleet",
+		"AddInstanceGroups",
+		"CancelSteps",
+		"CreatePersistentAppUI",
+		"CreateSecurityConfiguration",
+		"CreateStudio",
+		"CreateStudioSessionMapping",
+		"DeleteSecurityConfiguration",
+		"DeleteStudio",
+		"DeleteStudioSessionMapping",
 	}
 }
 
@@ -128,9 +138,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		ClusterID  string `json:"ClusterId"`
-		JobFlowID  string `json:"JobFlowId"`
-		ResourceID string `json:"ResourceId"`
+		ClusterID         string `json:"ClusterId"`
+		JobFlowID         string `json:"JobFlowId"`
+		ResourceID        string `json:"ResourceId"`
+		StudioID          string `json:"StudioId"`
+		TargetResourceArn string `json:"TargetResourceArn"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -142,6 +154,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return req.JobFlowID
 	case req.ResourceID != "":
 		return req.ResourceID
+	case req.StudioID != "":
+		return req.StudioID
+	case req.TargetResourceArn != "":
+		return req.TargetResourceArn
 	}
 
 	return ""
@@ -162,20 +178,30 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RunJobFlow":               service.WrapOp(h.handleRunJobFlow),
-		"DescribeCluster":          service.WrapOp(h.handleDescribeCluster),
-		"ListClusters":             service.WrapOp(h.handleListClusters),
-		"TerminateJobFlows":        service.WrapOp(h.handleTerminateJobFlows),
-		"AddTags":                  service.WrapOp(h.handleAddTags),
-		"RemoveTags":               service.WrapOp(h.handleRemoveTags),
-		"ListTagsForResource":      service.WrapOp(h.handleListTagsForResource),
-		"ListSteps":                service.WrapOp(h.handleListSteps),
-		"AddJobFlowSteps":          service.WrapOp(h.handleAddJobFlowSteps),
-		"ListInstanceGroups":       service.WrapOp(h.handleListInstanceGroups),
-		"ListInstanceFleets":       service.WrapOp(h.handleListInstanceFleets),
-		"ListBootstrapActions":     service.WrapOp(h.handleListBootstrapActions),
-		"GetAutoTerminationPolicy": service.WrapOp(h.handleGetAutoTerminationPolicy),
-		"GetManagedScalingPolicy":  service.WrapOp(h.handleGetManagedScalingPolicy),
+		"RunJobFlow":                  service.WrapOp(h.handleRunJobFlow),
+		"DescribeCluster":             service.WrapOp(h.handleDescribeCluster),
+		"ListClusters":                service.WrapOp(h.handleListClusters),
+		"TerminateJobFlows":           service.WrapOp(h.handleTerminateJobFlows),
+		"AddTags":                     service.WrapOp(h.handleAddTags),
+		"RemoveTags":                  service.WrapOp(h.handleRemoveTags),
+		"ListTagsForResource":         service.WrapOp(h.handleListTagsForResource),
+		"ListSteps":                   service.WrapOp(h.handleListSteps),
+		"AddJobFlowSteps":             service.WrapOp(h.handleAddJobFlowSteps),
+		"ListInstanceGroups":          service.WrapOp(h.handleListInstanceGroups),
+		"ListInstanceFleets":          service.WrapOp(h.handleListInstanceFleets),
+		"ListBootstrapActions":        service.WrapOp(h.handleListBootstrapActions),
+		"GetAutoTerminationPolicy":    service.WrapOp(h.handleGetAutoTerminationPolicy),
+		"GetManagedScalingPolicy":     service.WrapOp(h.handleGetManagedScalingPolicy),
+		"AddInstanceFleet":            service.WrapOp(h.handleAddInstanceFleet),
+		"AddInstanceGroups":           service.WrapOp(h.handleAddInstanceGroups),
+		"CancelSteps":                 service.WrapOp(h.handleCancelSteps),
+		"CreatePersistentAppUI":       service.WrapOp(h.handleCreatePersistentAppUI),
+		"CreateSecurityConfiguration": service.WrapOp(h.handleCreateSecurityConfiguration),
+		"CreateStudio":                service.WrapOp(h.handleCreateStudio),
+		"CreateStudioSessionMapping":  service.WrapOp(h.handleCreateStudioSessionMapping),
+		"DeleteSecurityConfiguration": service.WrapOp(h.handleDeleteSecurityConfiguration),
+		"DeleteStudio":                service.WrapOp(h.handleDeleteStudio),
+		"DeleteStudioSessionMapping":  service.WrapOp(h.handleDeleteStudioSessionMapping),
 	}
 }
 
@@ -199,6 +225,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", err.Error()))
 	default:
@@ -394,9 +422,19 @@ type listInstanceFleetsOutput struct {
 
 func (h *Handler) handleListInstanceFleets(
 	_ context.Context,
-	_ *listInstanceFleetsInput,
+	in *listInstanceFleetsInput,
 ) (*listInstanceFleetsOutput, error) {
-	return &listInstanceFleetsOutput{InstanceFleets: []any{}}, nil
+	fleets, err := h.Backend.ListInstanceFleets(in.ClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]any, 0, len(fleets))
+	for _, f := range fleets {
+		out = append(out, f)
+	}
+
+	return &listInstanceFleetsOutput{InstanceFleets: out}, nil
 }
 
 type listBootstrapActionsInput struct {
@@ -448,4 +486,264 @@ func (h *Handler) handleGetManagedScalingPolicy(
 	_ *getManagedScalingPolicyInput,
 ) (*getManagedScalingPolicyOutput, error) {
 	return &getManagedScalingPolicyOutput{ManagedScalingPolicy: managedScalingPolicy{}}, nil
+}
+
+// --- AddInstanceFleet ---
+
+type addInstanceFleetInput struct {
+	ClusterID     string            `json:"ClusterId"`
+	InstanceFleet InstanceFleetSpec `json:"InstanceFleet"`
+}
+
+type addInstanceFleetOutput struct {
+	ClusterArn      string `json:"ClusterArn"`
+	ClusterID       string `json:"ClusterId"`
+	InstanceFleetID string `json:"InstanceFleetId"`
+}
+
+func (h *Handler) handleAddInstanceFleet(
+	_ context.Context,
+	in *addInstanceFleetInput,
+) (*addInstanceFleetOutput, error) {
+	fleet, clusterARN, err := h.Backend.AddInstanceFleet(in.ClusterID, in.InstanceFleet)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addInstanceFleetOutput{
+		ClusterArn:      clusterARN,
+		ClusterID:       in.ClusterID,
+		InstanceFleetID: fleet.ID,
+	}, nil
+}
+
+// --- AddInstanceGroups ---
+
+type addInstanceGroupsInput struct {
+	JobFlowID      string              `json:"JobFlowId"`
+	InstanceGroups []InstanceGroupSpec `json:"InstanceGroups"`
+}
+
+type addInstanceGroupsOutput struct {
+	ClusterArn       string   `json:"ClusterArn"`
+	JobFlowID        string   `json:"JobFlowId"`
+	InstanceGroupIDs []string `json:"InstanceGroupIds"`
+}
+
+func (h *Handler) handleAddInstanceGroups(
+	_ context.Context,
+	in *addInstanceGroupsInput,
+) (*addInstanceGroupsOutput, error) {
+	groupIDs, clusterARN, err := h.Backend.AddInstanceGroups(in.JobFlowID, in.InstanceGroups)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addInstanceGroupsOutput{
+		ClusterArn:       clusterARN,
+		InstanceGroupIDs: groupIDs,
+		JobFlowID:        in.JobFlowID,
+	}, nil
+}
+
+// --- CancelSteps ---
+
+type cancelStepsInput struct {
+	ClusterID string   `json:"ClusterId"`
+	StepIDs   []string `json:"StepIds"`
+}
+
+type cancelStepsOutput struct {
+	CancelStepsInfoList []any `json:"CancelStepsInfoList"`
+}
+
+func (h *Handler) handleCancelSteps(
+	_ context.Context,
+	in *cancelStepsInput,
+) (*cancelStepsOutput, error) {
+	if err := h.Backend.CancelSteps(in.ClusterID, in.StepIDs); err != nil {
+		return nil, err
+	}
+
+	return &cancelStepsOutput{CancelStepsInfoList: []any{}}, nil
+}
+
+// --- CreatePersistentAppUI ---
+
+type createPersistentAppUIInput struct {
+	TargetResourceArn string `json:"TargetResourceArn"`
+}
+
+type createPersistentAppUIOutput struct {
+	PersistentAppUIID         string `json:"PersistentAppUIId"`
+	RuntimeRoleEnabledCluster bool   `json:"RuntimeRoleEnabledCluster"`
+}
+
+func (h *Handler) handleCreatePersistentAppUI(
+	_ context.Context,
+	in *createPersistentAppUIInput,
+) (*createPersistentAppUIOutput, error) {
+	ui, err := h.Backend.CreatePersistentAppUI(in.TargetResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createPersistentAppUIOutput{
+		PersistentAppUIID:         ui.ID,
+		RuntimeRoleEnabledCluster: ui.RuntimeRoleEnabledCluster,
+	}, nil
+}
+
+// --- CreateSecurityConfiguration ---
+
+type createSecurityConfigurationInput struct {
+	Name                  string `json:"Name"`
+	SecurityConfiguration string `json:"SecurityConfiguration"`
+}
+
+type createSecurityConfigurationOutput struct {
+	CreationDateTime string `json:"CreationDateTime"`
+	Name             string `json:"Name"`
+}
+
+func (h *Handler) handleCreateSecurityConfiguration(
+	_ context.Context,
+	in *createSecurityConfigurationInput,
+) (*createSecurityConfigurationOutput, error) {
+	sc, err := h.Backend.CreateSecurityConfiguration(in.Name, in.SecurityConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSecurityConfigurationOutput{
+		Name:             sc.Name,
+		CreationDateTime: sc.CreationDateTime.UTC().Format("2006-01-02T15:04:05Z"),
+	}, nil
+}
+
+// --- DeleteSecurityConfiguration ---
+
+type deleteSecurityConfigurationInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleDeleteSecurityConfiguration(
+	_ context.Context,
+	in *deleteSecurityConfigurationInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteSecurityConfiguration(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- CreateStudio ---
+
+type createStudioInput struct {
+	Name                     string   `json:"Name"`
+	AuthMode                 string   `json:"AuthMode"`
+	DefaultS3Location        string   `json:"DefaultS3Location"`
+	EngineSecurityGroupID    string   `json:"EngineSecurityGroupId"`
+	ServiceRole              string   `json:"ServiceRole"`
+	VpcID                    string   `json:"VpcId"`
+	WorkspaceSecurityGroupID string   `json:"WorkspaceSecurityGroupId"`
+	SubnetIDs                []string `json:"SubnetIds"`
+}
+
+type createStudioOutput struct {
+	StudioID string `json:"StudioId"`
+	URL      string `json:"Url"`
+}
+
+func (h *Handler) handleCreateStudio(
+	_ context.Context,
+	in *createStudioInput,
+) (*createStudioOutput, error) {
+	studio, err := h.Backend.CreateStudio(
+		in.Name,
+		in.AuthMode,
+		in.DefaultS3Location,
+		in.EngineSecurityGroupID,
+		in.ServiceRole,
+		in.VpcID,
+		in.WorkspaceSecurityGroupID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createStudioOutput{
+		StudioID: studio.StudioID,
+		URL:      studio.URL,
+	}, nil
+}
+
+// --- DeleteStudio ---
+
+type deleteStudioInput struct {
+	StudioID string `json:"StudioId"`
+}
+
+func (h *Handler) handleDeleteStudio(
+	_ context.Context,
+	in *deleteStudioInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteStudio(in.StudioID); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- CreateStudioSessionMapping ---
+
+type createStudioSessionMappingInput struct {
+	StudioID         string `json:"StudioId"`
+	IdentityType     string `json:"IdentityType"`
+	IdentityID       string `json:"IdentityId,omitempty"`
+	IdentityName     string `json:"IdentityName,omitempty"`
+	SessionPolicyArn string `json:"SessionPolicyArn"`
+}
+
+func (h *Handler) handleCreateStudioSessionMapping(
+	_ context.Context,
+	in *createStudioSessionMappingInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.CreateStudioSessionMapping(
+		in.StudioID,
+		in.IdentityType,
+		in.IdentityID,
+		in.IdentityName,
+		in.SessionPolicyArn,
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- DeleteStudioSessionMapping ---
+
+type deleteStudioSessionMappingInput struct {
+	StudioID     string `json:"StudioId"`
+	IdentityType string `json:"IdentityType"`
+	IdentityID   string `json:"IdentityId,omitempty"`
+	IdentityName string `json:"IdentityName,omitempty"`
+}
+
+func (h *Handler) handleDeleteStudioSessionMapping(
+	_ context.Context,
+	in *deleteStudioSessionMappingInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteStudioSessionMapping(
+		in.StudioID,
+		in.IdentityType,
+		in.IdentityID,
+		in.IdentityName,
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
 }

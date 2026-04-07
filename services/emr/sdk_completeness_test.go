@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := emr.NewInMemoryBackend("000000000000", "us-east-1")
 	h := emr.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &emrsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddInstanceFleet",
-		"AddInstanceGroups",
-		"CancelSteps",
-		"CreatePersistentAppUI",
-		"CreateSecurityConfiguration",
-		"CreateStudio",
-		"CreateStudioSessionMapping",
-		"DeleteSecurityConfiguration",
-		"DeleteStudio",
-		"DeleteStudioSessionMapping",
 		"DescribeJobFlows",
 		"DescribeNotebookExecution",
 		"DescribePersistentAppUI",
