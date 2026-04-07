@@ -447,10 +447,28 @@ func (db *InMemoryDB) Purge(ctx context.Context, cutoff time.Time) {
 	db.mu.Lock("Purge")
 	defer db.mu.Unlock()
 
+	if !db.purgeActiveTables(ctx, cutoff) {
+		return
+	}
+
+	if !db.purgeStreamARNIndex(ctx, cutoff) {
+		return
+	}
+
+	if !db.purgeBackups(ctx, cutoff) {
+		return
+	}
+
+	db.purgeGlobalTables(ctx, cutoff)
+}
+
+// purgeActiveTables removes active tables created before cutoff.
+// Returns false if ctx is cancelled mid-loop.
+func (db *InMemoryDB) purgeActiveTables(ctx context.Context, cutoff time.Time) bool {
 	for _, regionTables := range db.Tables {
 		for n, table := range regionTables {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			if table.CreationDateTime.Before(cutoff) {
 				stopTableTimers(table)
@@ -463,24 +481,41 @@ func (db *InMemoryDB) Purge(ctx context.Context, cutoff time.Time) {
 		}
 	}
 
+	return true
+}
+
+// purgeStreamARNIndex removes stream ARN index entries for tables deleted before cutoff.
+// Returns false if ctx is cancelled mid-loop.
+func (db *InMemoryDB) purgeStreamARNIndex(ctx context.Context, cutoff time.Time) bool {
 	for arn, table := range db.streamARNIndex {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if table.CreationDateTime.Before(cutoff) {
 			delete(db.streamARNIndex, arn)
 		}
 	}
 
+	return true
+}
+
+// purgeBackups removes backups created before cutoff.
+// Returns false if ctx is cancelled mid-loop.
+func (db *InMemoryDB) purgeBackups(ctx context.Context, cutoff time.Time) bool {
 	for n, backup := range db.Backups {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if backup.CreationDateTime.Before(cutoff) {
 			delete(db.Backups, n)
 		}
 	}
 
+	return true
+}
+
+// purgeGlobalTables removes global tables created before cutoff.
+func (db *InMemoryDB) purgeGlobalTables(ctx context.Context, cutoff time.Time) {
 	for n, gt := range db.GlobalTables {
 		if ctx.Err() != nil {
 			return

@@ -1875,9 +1875,23 @@ func buildEchoServer(
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 
-	// Custom HTTP error handler: logs errors via slog so they are not silently
-	// swallowed under high concurrency, then writes the standard JSON response.
-	e.HTTPErrorHandler = func(c *echo.Context, err error) {
+	e.HTTPErrorHandler = buildHTTPErrorHandler()
+	e.GET("/_gopherstack/health", buildHealthHandler(services))
+	e.POST("/_gopherstack/reset", buildResetHandler(services))
+
+	registerWebsiteRoutes(e, services)
+
+	if cli.Persist {
+		e.Use(persistenceMiddleware(persistManager, services))
+	}
+
+	return e
+}
+
+// buildHTTPErrorHandler returns an Echo error handler that logs 5xx errors via
+// slog and writes the standard JSON error response.
+func buildHTTPErrorHandler() func(*echo.Context, error) {
+	return func(c *echo.Context, err error) {
 		var httpErr *echo.HTTPError
 		if !errors.As(err, &httpErr) {
 			httpErr = echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -1892,15 +1906,16 @@ func buildEchoServer(
 			)
 		}
 
-		// Echo's default JSON response format.
 		if resp, _ := echo.UnwrapResponse(c.Response()); resp == nil || !resp.Committed {
 			_ = c.JSON(httpErr.Code, map[string]any{"message": httpErr.Message})
 		}
 	}
+}
 
-	// Health endpoint: build service name list dynamically from registered services.
-	// Also exposes runtime goroutine count and memory stats for observability.
-	e.GET("/_gopherstack/health", func(c *echo.Context) error {
+// buildHealthHandler returns the /_gopherstack/health handler. It reports service
+// names and runtime memory/goroutine stats.
+func buildHealthHandler(services []service.Registerable) echo.HandlerFunc {
+	return func(c *echo.Context) error {
 		names := make([]string, 0, len(services))
 		for _, svc := range services {
 			names = append(names, svc.Name())
@@ -1919,10 +1934,13 @@ func buildEchoServer(
 			HeapInuseB: ms.HeapInuse,
 			NumGC:      ms.NumGC,
 		})
-	})
+	}
+}
 
-	// Reset endpoint: clear all in-memory state for every service that supports it.
-	e.POST("/_gopherstack/reset", func(c *echo.Context) error {
+// buildResetHandler returns the /_gopherstack/reset handler that clears all
+// in-memory state for every service that supports it.
+func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
+	return func(c *echo.Context) error {
 		reset := 0
 		reqService := c.QueryParam("service")
 
@@ -1941,28 +1959,27 @@ func buildEchoServer(
 			"reset":   reset,
 			"message": fmt.Sprintf("reset %d service(s)", reset),
 		})
-	})
+	}
+}
 
-	// Website serving endpoint: serve static files from S3 buckets configured
-	// for website hosting. Pattern: GET /_gopherstack/website/{bucket}/*
+// registerWebsiteRoutes registers the S3 website-serving routes on e.
+// It finds the S3 handler from the registered services list.
+func registerWebsiteRoutes(e *echo.Echo, services []service.Registerable) {
 	for _, svc := range services {
-		if s3H, ok := svc.(*s3backend.S3Handler); ok {
-			e.GET("/_gopherstack/website/:bucket/*", s3H.ServeWebsite)
-			e.GET("/_gopherstack/website/:bucket", func(c *echo.Context) error {
-				bucket := c.Param("bucket")
-
-				return c.Redirect(http.StatusMovedPermanently, "/_gopherstack/website/"+bucket+"/")
-			})
-
-			break
+		s3H, ok := svc.(*s3backend.S3Handler)
+		if !ok {
+			continue
 		}
-	}
 
-	if cli.Persist {
-		e.Use(persistenceMiddleware(persistManager, services))
-	}
+		e.GET("/_gopherstack/website/:bucket/*", s3H.ServeWebsite)
+		e.GET("/_gopherstack/website/:bucket", func(c *echo.Context) error {
+			bucket := c.Param("bucket")
 
-	return e
+			return c.Redirect(http.StatusMovedPermanently, "/_gopherstack/website/"+bucket+"/")
+		})
+
+		break
+	}
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.

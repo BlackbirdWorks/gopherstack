@@ -236,7 +236,6 @@ func (j *Janitor) sweepTableTTL(
 	i := -1 // sentinel: start from last element on first batch
 
 	for ctx.Err() == nil {
-
 		table.mu.Lock("TTLSweep")
 
 		if i == -1 {
@@ -387,7 +386,7 @@ func evictOldestPending(m map[string]time.Time, n int) {
 	}
 }
 
-// nthSmallest returns the nth smallest time.Time in ts (1-indexed) using a quick-select
+// nthSmallest returns the nth smallest [time.Time] in ts (1-indexed) using a quick-select
 // algorithm. If n >= len(ts) it returns the maximum value.
 func nthSmallest(ts []time.Time, n int) time.Time {
 	if n <= 0 || len(ts) == 0 {

@@ -1730,6 +1730,14 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
+	b.purgeTopics(ctx, cutoff)
+	b.purgeSubscriptions(ctx, cutoff)
+	b.purgePlatformApplications(ctx, cutoff)
+	b.purgePlatformEndpoints(ctx, cutoff)
+	b.purgeSMSSandbox(ctx, cutoff)
+}
+
+func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
 	for arn, topic := range b.topics {
 		if ctx.Err() != nil {
 			return
@@ -1742,7 +1750,9 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			}
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgeSubscriptions(ctx context.Context, cutoff time.Time) {
 	for arn, sub := range b.subscriptions {
 		if ctx.Err() != nil {
 			return
@@ -1751,7 +1761,9 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			delete(b.subscriptions, arn)
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgePlatformApplications(ctx context.Context, cutoff time.Time) {
 	for arn, app := range b.platformApplications {
 		if ctx.Err() != nil {
 			return
@@ -1760,7 +1772,9 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			delete(b.platformApplications, arn)
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgePlatformEndpoints(ctx context.Context, cutoff time.Time) {
 	for arn, ep := range b.platformEndpoints {
 		if ctx.Err() != nil {
 			return
@@ -1769,7 +1783,9 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			delete(b.platformEndpoints, arn)
 		}
 	}
+}
 
+func (b *InMemoryBackend) purgeSMSSandbox(ctx context.Context, cutoff time.Time) {
 	for phone, entry := range b.smsSandbox {
 		if ctx.Err() != nil {
 			return

@@ -947,61 +947,72 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// 1. Purge Clusters
-	for name, c := range b.clusters {
+	purgeMemoryDBMap(ctx, b.clusters, cutoff,
+		func(c *Cluster) time.Time { return c.CreatedAt },
+		func(_ string, c *Cluster) { delete(b.arnToResource, c.ARN) },
+	)
+
+	purgeMemoryDBMapFiltered(ctx, b.acls, cutoff,
+		func(name string, _ *ACL) bool { return name == openAccessACL },
+		func(a *ACL) time.Time { return a.CreatedAt },
+		func(_ string, a *ACL) { delete(b.arnToResource, a.ARN) },
+	)
+
+	purgeMemoryDBMap(ctx, b.subnetGroups, cutoff,
+		func(sg *SubnetGroup) time.Time { return sg.CreatedAt },
+		func(_ string, sg *SubnetGroup) { delete(b.arnToResource, sg.ARN) },
+	)
+
+	purgeMemoryDBMap(ctx, b.users, cutoff,
+		func(u *User) time.Time { return u.CreatedAt },
+		func(_ string, u *User) { delete(b.arnToResource, u.ARN) },
+	)
+
+	purgeMemoryDBMap(ctx, b.parameterGroups, cutoff,
+		func(pg *ParameterGroup) time.Time { return pg.CreatedAt },
+		func(_ string, pg *ParameterGroup) { delete(b.arnToResource, pg.ARN) },
+	)
+}
+
+// purgeMemoryDBMap deletes entries from m that were created before cutoff,
+// calling cleanup for each deleted entry.
+func purgeMemoryDBMap[V any](
+	ctx context.Context,
+	m map[string]V,
+	cutoff time.Time,
+	getTime func(V) time.Time,
+	cleanup func(string, V),
+) {
+	for k, v := range m {
 		if ctx.Err() != nil {
 			return
 		}
-		if c.CreatedAt.Before(cutoff) {
-			delete(b.clusters, name)
-			delete(b.arnToResource, c.ARN)
+		if getTime(v).Before(cutoff) {
+			cleanup(k, v)
+			delete(m, k)
 		}
 	}
+}
 
-	// 2. Purge ACLs (except the default open-access ACL)
-	for name, a := range b.acls {
+// purgeMemoryDBMapFiltered is like purgeMemoryDBMap but skips entries where skip returns true.
+func purgeMemoryDBMapFiltered[V any](
+	ctx context.Context,
+	m map[string]V,
+	cutoff time.Time,
+	skip func(string, V) bool,
+	getTime func(V) time.Time,
+	cleanup func(string, V),
+) {
+	for k, v := range m {
 		if ctx.Err() != nil {
 			return
 		}
-		if name == openAccessACL {
+		if skip(k, v) {
 			continue
 		}
-		if a.CreatedAt.Before(cutoff) {
-			delete(b.acls, name)
-			delete(b.arnToResource, a.ARN)
-		}
-	}
-
-	// 3. Purge Subnet Groups
-	for name, sg := range b.subnetGroups {
-		if ctx.Err() != nil {
-			return
-		}
-		if sg.CreatedAt.Before(cutoff) {
-			delete(b.subnetGroups, name)
-			delete(b.arnToResource, sg.ARN)
-		}
-	}
-
-	// 4. Purge Users
-	for name, u := range b.users {
-		if ctx.Err() != nil {
-			return
-		}
-		if u.CreatedAt.Before(cutoff) {
-			delete(b.users, name)
-			delete(b.arnToResource, u.ARN)
-		}
-	}
-
-	// 5. Purge Parameter Groups
-	for name, pg := range b.parameterGroups {
-		if ctx.Err() != nil {
-			return
-		}
-		if pg.CreatedAt.Before(cutoff) {
-			delete(b.parameterGroups, name)
-			delete(b.arnToResource, pg.ARN)
+		if getTime(v).Before(cutoff) {
+			cleanup(k, v)
+			delete(m, k)
 		}
 	}
 }

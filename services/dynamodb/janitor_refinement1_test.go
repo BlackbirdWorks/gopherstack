@@ -153,6 +153,10 @@ func TestRefinement1_TxnTokensCap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			if testing.Short() && tt.insertTokens > 1000 {
+				t.Skip("skipping heavy token-insertion test in short mode")
+			}
+
 			db := dynamodb.NewInMemoryDB()
 
 			// Insert tokens with a far-future expiry so normal TTL sweep ignores them.
@@ -175,6 +179,10 @@ func TestRefinement1_TxnTokensCap(t *testing.T) {
 // exceeded, the entries with the earliest expiry are evicted (not arbitrary ones).
 func TestRefinement1_TxnTokensCap_OldestEvictedFirst(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping heavy token-insertion test in short mode")
+	}
 
 	db := dynamodb.NewInMemoryDB()
 
@@ -248,7 +256,7 @@ func TestRefinement1_JanitorRunExitsOnContextCancel(t *testing.T) {
 // Purgeable context propagation
 // ---------------------------------------------------------------------------
 
-// TestRefinement1_PurgeableContext verifies that Purge now accepts context.Context
+// TestRefinement1_PurgeableContext verifies that Purge now accepts [context.Context]
 // and respects it (cancelled context should stop the Purge loop early).
 func TestRefinement1_PurgeableContext(t *testing.T) {
 	t.Parallel()

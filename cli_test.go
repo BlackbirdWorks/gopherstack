@@ -682,9 +682,10 @@ func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // uses a fixed port that cannot be parallelised
 // TestHealthEndpoint_GoroutineAndMemStats verifies that the /_gopherstack/health
 // response includes goroutine count and memory stats fields.
+//
+//nolint:paralleltest // uses a fixed port that cannot be parallelised
 func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	// Uses t.Setenv-like machinery via parseCLI; no t.Parallel.
 	cli := parseCLI(t, map[string]string{"PORT": "8131"})
@@ -729,8 +730,8 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	cancel()
 
 	select {
-	case err := <-errCh:
-		require.NoError(t, err)
+	case shutdownErr := <-errCh:
+		require.NoError(t, shutdownErr)
 	case <-time.After(5 * time.Second):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
@@ -742,9 +743,9 @@ func TestCustomHTTPErrorHandler_LogsServerErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		injectErr      error
 		name           string
 		wantStatusCode int
-		injectErr      error
 	}{
 		{
 			name:           "http_error_passes_through",
