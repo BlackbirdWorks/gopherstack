@@ -165,16 +165,21 @@ var _ Backend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend stores ECS state in memory.
 type InMemoryBackend struct {
-	runner             TaskRunner
-	clusters           map[string]*Cluster
-	taskDefinitions    map[string][]*TaskDefinition
-	services           map[string]map[string]*Service
-	tasks              map[string]map[string]*Task
-	containerInstances map[string]map[string]*ContainerInstance
-	taskSets           map[string]map[string]*TaskSet
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	region             string
+	runner                 TaskRunner
+	clusters               map[string]*Cluster
+	taskDefinitions        map[string][]*TaskDefinition
+	services               map[string]map[string]*Service
+	tasks                  map[string]map[string]*Task
+	containerInstances     map[string]map[string]*ContainerInstance
+	taskSets               map[string]map[string]*TaskSet
+	capacityProviders      map[string]*CapacityProvider
+	accountSettings        map[string]*AccountSetting
+	attributes             map[string]map[string]*Attribute // clusterName → attributeKey → Attribute
+	serviceDeployments     map[string]*ServiceDeployment
+	expressGatewayServices map[string]*ExpressGatewayService
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
 }
 
 // TaskRunner is the interface for launching container tasks.
@@ -187,17 +192,40 @@ type TaskRunner interface {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:           make(map[string]*Cluster),
-		taskDefinitions:    make(map[string][]*TaskDefinition),
-		services:           make(map[string]map[string]*Service),
-		tasks:              make(map[string]map[string]*Task),
-		containerInstances: make(map[string]map[string]*ContainerInstance),
-		taskSets:           make(map[string]map[string]*TaskSet),
-		mu:                 lockmetrics.New("ecs"),
-		accountID:          accountID,
-		region:             region,
-		runner:             runner,
+		clusters:               make(map[string]*Cluster),
+		taskDefinitions:        make(map[string][]*TaskDefinition),
+		services:               make(map[string]map[string]*Service),
+		tasks:                  make(map[string]map[string]*Task),
+		containerInstances:     make(map[string]map[string]*ContainerInstance),
+		taskSets:               make(map[string]map[string]*TaskSet),
+		capacityProviders:      make(map[string]*CapacityProvider),
+		accountSettings:        make(map[string]*AccountSetting),
+		attributes:             make(map[string]map[string]*Attribute),
+		serviceDeployments:     make(map[string]*ServiceDeployment),
+		expressGatewayServices: make(map[string]*ExpressGatewayService),
+		mu:                     lockmetrics.New("ecs"),
+		accountID:              accountID,
+		region:                 region,
+		runner:                 runner,
 	}
+}
+
+// Reset zeroes all backend state for test isolation.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.clusters = make(map[string]*Cluster)
+	b.taskDefinitions = make(map[string][]*TaskDefinition)
+	b.services = make(map[string]map[string]*Service)
+	b.tasks = make(map[string]map[string]*Task)
+	b.containerInstances = make(map[string]map[string]*ContainerInstance)
+	b.taskSets = make(map[string]map[string]*TaskSet)
+	b.capacityProviders = make(map[string]*CapacityProvider)
+	b.accountSettings = make(map[string]*AccountSetting)
+	b.attributes = make(map[string]map[string]*Attribute)
+	b.serviceDeployments = make(map[string]*ServiceDeployment)
+	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
 }
 
 // resolveCluster returns the cluster ARN/name to use, defaulting to "default".

@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ecs.NewInMemoryBackend("000000000000", "us-east-1", ecs.NewNoopRunner())
 	h := ecs.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ecssdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCapacityProvider",
-		"CreateExpressGatewayService",
-		"DeleteAccountSetting",
-		"DeleteAttributes",
-		"DeleteCapacityProvider",
-		"DeleteExpressGatewayService",
-		"DeleteTaskDefinitions",
-		"DescribeCapacityProviders",
-		"DescribeExpressGatewayService",
-		"DescribeServiceDeployments",
 		"DescribeServiceRevisions",
 		"DiscoverPollEndpoint",
 		"GetTaskProtection",

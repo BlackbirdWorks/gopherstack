@@ -16,6 +16,7 @@ type Backend interface {
 	DescribeTaskDefinition(family string) (*TaskDefinition, error)
 	DeregisterTaskDefinition(taskDefinitionArn string) (*TaskDefinition, error)
 	ListTaskDefinitions(familyPrefix string) ([]string, error)
+	DeleteTaskDefinitions(taskDefinitionArns []string) ([]TaskDefinition, []Failure, error)
 
 	// Services
 
@@ -55,4 +56,28 @@ type Backend interface {
 	// ECS Exec
 
 	ExecuteCommand(cluster, task, container, command string, interactive bool) (*ExecuteCommandOutput, error)
+
+	// Capacity providers
+
+	CreateCapacityProvider(input CreateCapacityProviderInput) (*CapacityProvider, error)
+	DeleteCapacityProvider(nameOrArn string) (*CapacityProvider, error)
+	DescribeCapacityProviders(nameOrArns []string) ([]CapacityProvider, error)
+
+	// Account settings
+
+	DeleteAccountSetting(name, principalArn string) (*AccountSetting, error)
+
+	// Attributes
+
+	DeleteAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
+
+	// Service deployments
+
+	DescribeServiceDeployments(serviceDeploymentArns []string) ([]ServiceDeployment, []Failure, error)
+
+	// Express gateway services
+
+	CreateExpressGatewayService(input CreateExpressGatewayServiceInput) (*ExpressGatewayService, error)
+	DeleteExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
+	DescribeExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
 }
