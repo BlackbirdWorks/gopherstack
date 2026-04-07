@@ -1704,6 +1704,10 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
+	// Record the service count so the metrics dashboard (and Prometheus scrape)
+	// can surface it alongside the health endpoint's "services" field.
+	telemetry.SetServiceCount(len(services))
+
 	setupPersistence(ctx, persistManager, services, cli.Persist)
 
 	if dnsSrv != nil {

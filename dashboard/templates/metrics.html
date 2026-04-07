@@ -107,6 +107,20 @@
                         </div>
                         <div class="text-xs text-slate-500 dark:text-slate-400">Lifetime total</div>
                     </div>
+                    <div
+                        class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                        <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Heap In-Use</div>
+                        <div id="runtime-heap-inuse" class="text-3xl font-bold py-1 text-teal-600 dark:text-teal-400">0MB
+                        </div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Actively referenced spans</div>
+                    </div>
+                    <div
+                        class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                        <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Services</div>
+                        <div id="runtime-num-services" class="text-3xl font-bold py-1 text-indigo-600 dark:text-indigo-400">0
+                        </div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Registered AWS emulators</div>
+                    </div>
                 </div>
             </section>
 
@@ -480,6 +494,12 @@
             document.getElementById('runtime-gc-pause').textContent = `Last pause: ${data.runtime.last_gc_pause_ms.toFixed(2)} ms`;
             const pct = (data.runtime.heap_alloc_mb / data.runtime.heap_sys_mb * 100).toFixed(1);
             document.getElementById('runtime-heap-pct').textContent = `${pct}% of ${data.runtime.heap_sys_mb.toFixed(2)} MB total`;
+            if (data.runtime.heap_inuse_mb !== undefined) {
+                document.getElementById('runtime-heap-inuse').textContent = data.runtime.heap_inuse_mb.toFixed(2) + ' MB';
+            }
+            if (data.runtime.num_services !== undefined) {
+                document.getElementById('runtime-num-services').textContent = data.runtime.num_services;
+            }
         }
         const deadlockSection = document.getElementById('deadlock-section');
         const deadlockList = document.getElementById('deadlock-list');

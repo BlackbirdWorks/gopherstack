@@ -1,12 +1,14 @@
 package s3_test
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	sdk_s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,15 +40,8 @@ func TestRefinement2_Lifecycle_NoExpirationElement(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	_, err := b.PutBucketLifecycleConfiguration(t.Context(), &sdk_s3.PutBucketLifecycleConfigurationInput{
-		Bucket: aws.String("no-expiry-bucket"),
-		LifecycleConfiguration: &sdk_s3types.BucketLifecycleConfiguration{
-			Rules: []sdk_s3types.LifecycleRule{},
-		},
-	})
+	err := b.PutBucketLifecycleConfiguration(t.Context(), "no-expiry-bucket", lc)
 	require.NoError(t, err)
-
-	_ = b.SetRawLifecycleXML("no-expiry-bucket", lc)
 
 	j := newFastJanitor(b)
 	j.SweepOnce(t.Context())
@@ -74,15 +69,8 @@ func TestRefinement2_Lifecycle_SkipsLockedObjects(t *testing.T) {
 	mustPutObject(t, b, "locked-bucket", "free.txt", []byte("free"))
 
 	// Put retention on locked.txt.
-	_, err := b.PutObjectRetention(t.Context(), &sdk_s3.PutObjectRetentionInput{
-		Bucket: aws.String("locked-bucket"),
-		Key:    aws.String("locked.txt"),
-		Retention: &sdk_s3types.ObjectLockRetention{
-			Mode:            sdk_s3types.ObjectLockRetentionModeCompliance,
-			RetainUntilDate: aws.Time(time.Now().Add(24 * time.Hour)),
-		},
-		BypassGovernanceRetention: aws.Bool(false),
-	})
+	err := b.PutObjectRetention(t.Context(), "locked-bucket", "locked.txt", nil,
+		string(sdk_s3types.ObjectLockRetentionModeCompliance), time.Now().Add(24*time.Hour))
 	require.NoError(t, err)
 
 	lc := `<LifecycleConfiguration>
@@ -94,7 +82,8 @@ func TestRefinement2_Lifecycle_SkipsLockedObjects(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	_ = b.SetRawLifecycleXML("locked-bucket", lc)
+	err = b.PutBucketLifecycleConfiguration(t.Context(), "locked-bucket", lc)
+	require.NoError(t, err)
 
 	j := newFastJanitor(b)
 	j.SweepOnce(t.Context())
@@ -123,11 +112,8 @@ func TestRefinement2_Lifecycle_SkipsLegalHoldObjects(t *testing.T) {
 	mustCreateBucket(t, b, "legal-hold-bucket")
 	mustPutObject(t, b, "legal-hold-bucket", "held.txt", []byte("evidence"))
 
-	_, err := b.PutObjectLegalHold(t.Context(), &sdk_s3.PutObjectLegalHoldInput{
-		Bucket:    aws.String("legal-hold-bucket"),
-		Key:       aws.String("held.txt"),
-		LegalHold: &sdk_s3types.ObjectLockLegalHold{Status: sdk_s3types.ObjectLockLegalHoldStatusOn},
-	})
+	err := b.PutObjectLegalHold(t.Context(), "legal-hold-bucket", "held.txt", nil,
+		string(sdk_s3types.ObjectLockLegalHoldStatusOn))
 	require.NoError(t, err)
 
 	lc := `<LifecycleConfiguration>
@@ -139,7 +125,8 @@ func TestRefinement2_Lifecycle_SkipsLegalHoldObjects(t *testing.T) {
 </Rule>
 </LifecycleConfiguration>`
 
-	_ = b.SetRawLifecycleXML("legal-hold-bucket", lc)
+	err = b.PutBucketLifecycleConfiguration(t.Context(), "legal-hold-bucket", lc)
+	require.NoError(t, err)
 
 	j := newFastJanitor(b)
 	j.SweepOnce(t.Context())
@@ -178,7 +165,7 @@ func TestRefinement2_NoncurrentVersionEviction_SkipsLockedVersions(t *testing.T)
 	_, err = b.PutObject(t.Context(), &sdk_s3.PutObjectInput{
 		Bucket: aws.String("nc-lock-bucket"),
 		Key:    aws.String("obj.txt"),
-		Body:   bodyFromBytes([]byte("v1")),
+		Body:   bytes.NewReader([]byte("v1")),
 	})
 	require.NoError(t, err)
 
@@ -186,7 +173,7 @@ func TestRefinement2_NoncurrentVersionEviction_SkipsLockedVersions(t *testing.T)
 	_, err = b.PutObject(t.Context(), &sdk_s3.PutObjectInput{
 		Bucket: aws.String("nc-lock-bucket"),
 		Key:    aws.String("obj.txt"),
-		Body:   bodyFromBytes([]byte("v2")),
+		Body:   bytes.NewReader([]byte("v2")),
 	})
 	require.NoError(t, err)
 
@@ -207,15 +194,8 @@ func TestRefinement2_NoncurrentVersionEviction_SkipsLockedVersions(t *testing.T)
 	}
 	require.NotEmpty(t, ncVersionID, "must have a noncurrent version")
 
-	_, err = b.PutObjectRetention(t.Context(), &sdk_s3.PutObjectRetentionInput{
-		Bucket:    aws.String("nc-lock-bucket"),
-		Key:       aws.String("obj.txt"),
-		VersionId: aws.String(ncVersionID),
-		Retention: &sdk_s3types.ObjectLockRetention{
-			Mode:            sdk_s3types.ObjectLockRetentionModeCompliance,
-			RetainUntilDate: aws.Time(time.Now().Add(24 * time.Hour)),
-		},
-	})
+	err = b.PutObjectRetention(t.Context(), "nc-lock-bucket", "obj.txt", &ncVersionID,
+		string(sdk_s3types.ObjectLockRetentionModeCompliance), time.Now().Add(24*time.Hour))
 	require.NoError(t, err)
 
 	// Run a noncurrent lifecycle rule.
@@ -228,7 +208,8 @@ func TestRefinement2_NoncurrentVersionEviction_SkipsLockedVersions(t *testing.T)
 </Rule>
 </LifecycleConfiguration>`
 
-	_ = b.SetRawLifecycleXML("nc-lock-bucket", lc)
+	err = b.PutBucketLifecycleConfiguration(t.Context(), "nc-lock-bucket", lc)
+	require.NoError(t, err)
 
 	j := newFastJanitor(b)
 	j.SweepOnce(t.Context())

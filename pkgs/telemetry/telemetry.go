@@ -2,12 +2,26 @@ package telemetry
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// serviceCount stores the number of registered services so collectRuntimeMetrics
+// can surface it alongside the health endpoint's "services" field.
+var serviceCount atomic.Int64
+
+// SetServiceCount records the number of registered services. Call this once at
+// startup after all services have been initialised. The value is exposed via the
+// "gopherstack_registered_services" Prometheus gauge and included in the
+// RuntimeMetrics.NumServices field returned by CollectMetrics.
+func SetServiceCount(n int) {
+	serviceCount.Store(int64(n))
+	registeredServicesGauge.Set(float64(n))
+}
 
 //nolint:gochecknoglobals // Prometheus collectors are global for registration.
 var (
@@ -105,6 +119,15 @@ var (
 			Help: "Current queue depth for background workers",
 		},
 		[]string{"service", "worker"},
+	)
+
+	// registeredServicesGauge records the total number of services initialised at
+	// startup. Mirrors the "services" array length from the health endpoint.
+	registeredServicesGauge = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "gopherstack_registered_services",
+			Help: "Number of AWS service emulators registered at startup",
+		},
 	)
 
 	// mu protects access to metrics data structures.
