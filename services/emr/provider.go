@@ -1,9 +1,14 @@
 package emr
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Init is called with a nil AppContext.
+var ErrNilAppContext = errors.New("EMR provider: nil AppContext")
 
 // ConfigProvider is a private interface to extract EMR configuration
 // from the abstract AppContext Config.
@@ -21,6 +26,10 @@ func (p *Provider) Name() string { return "EMR" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 
