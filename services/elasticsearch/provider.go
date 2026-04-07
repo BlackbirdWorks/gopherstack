@@ -1,9 +1,15 @@
 package elasticsearch
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when appCtx is nil.
+var ErrNilAppContext = errors.New("AppContext is required")
 
 // EngineConfig is the interface for accessing the Elasticsearch engine mode configuration.
 type EngineConfig interface {
@@ -26,6 +32,10 @@ func (p *Provider) Name() string { return "Elasticsearch" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("%w", ErrNilAppContext)
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 	engineMode := EngineStub
@@ -34,6 +44,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		cfg := cp.GetGlobalConfig()
 		accountID = cfg.GetAccountID()
 		region = cfg.GetRegion()
+	}
+
+	if accountID == "" {
+		accountID = config.DefaultAccountID
+	}
+
+	if region == "" {
+		region = config.DefaultRegion
 	}
 
 	if ec, ok := ctx.Config.(EngineConfig); ok {

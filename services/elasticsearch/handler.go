@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -33,13 +34,34 @@ const (
 // Handler is the HTTP handler for Elasticsearch operations.
 type Handler struct {
 	Backend   *InMemoryBackend
+	ops       map[string]http.HandlerFunc
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new Elasticsearch Handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// buildOps builds the cached dispatch table for fixed-path Elasticsearch routes.
+// Routes with dynamic path segments (e.g., domain name, connection ID) are
+// handled separately via the domain and prefix routers.
+func (h *Handler) buildOps() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		http.MethodPost + " " + elasticsearchDomainInfo:                 h.handleDescribeElasticsearchDomains,
+		http.MethodGet + " " + elasticsearchTagsPath:                    h.handleListTags,
+		http.MethodPost + " " + elasticsearchTagsPath:                   h.handleAddTags,
+		http.MethodPost + " " + elasticsearchTagsRemove:                 h.handleRemoveTags,
+		http.MethodDelete + " " + elasticsearchServiceRole:              h.handleDeleteElasticsearchServiceRole,
+		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/cancel": h.handleCancelElasticsearchServiceSoftwareUpdate,
+		http.MethodPost + " " + elasticsearchCCSOutbound:                h.handleCreateOutboundCrossClusterSearchConnection,
+		http.MethodPost + " " + elasticsearchVpcEndpoints:               h.handleCreateVpcEndpoint,
+		http.MethodPost + " " + elasticsearchPackages:                   h.handleCreatePackage,
+	}
 }
 
 // Name returns the service name.
@@ -69,23 +91,25 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // GetSupportedOperations returns supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateElasticsearchDomain",
-		"DescribeElasticsearchDomain",
-		"DeleteElasticsearchDomain",
-		"ListDomainNames",
-		"DescribeElasticsearchDomains",
-		"UpdateElasticsearchDomainConfig",
-		"DescribeElasticsearchDomainConfig",
 		"AcceptInboundCrossClusterSearchConnection",
 		"AddTags",
 		"AssociatePackage",
 		"AuthorizeVpcEndpointAccess",
 		"CancelDomainConfigChange",
 		"CancelElasticsearchServiceSoftwareUpdate",
+		"CreateElasticsearchDomain",
 		"CreateOutboundCrossClusterSearchConnection",
 		"CreatePackage",
 		"CreateVpcEndpoint",
+		"DeleteElasticsearchDomain",
 		"DeleteElasticsearchServiceRole",
+		"DescribeElasticsearchDomain",
+		"DescribeElasticsearchDomainConfig",
+		"DescribeElasticsearchDomains",
+		"ListDomainNames",
+		"ListTags",
+		"RemoveTags",
+		"UpdateElasticsearchDomainConfig",
 	}
 }
 
@@ -305,80 +329,35 @@ type updateDomainConfigRequest struct {
 
 // ServeHTTP implements [http.Handler] for the Elasticsearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.handleTagRoutes(w, r) {
-		return
-	}
-
-	// Handle domain-info (DescribeElasticsearchDomains) separately since it
-	// shares the /2015-01-01/es/domain prefix but is not a single-domain path.
-	if r.URL.Path == elasticsearchDomainInfo && r.Method == http.MethodPost {
-		h.handleDescribeElasticsearchDomains(w, r)
+	// Fast O(1) lookup for fixed-path routes.
+	key := r.Method + " " + r.URL.Path
+	if fn, ok := h.ops[key]; ok {
+		fn(w, r)
 
 		return
 	}
 
-	if h.handleNewOpRoutes(w, r) {
+	if h.handlePrefixRoutes(w, r) {
 		return
 	}
 
 	h.handleDomainRoutes(w, r)
 }
 
-// handleNewOpRoutes dispatches the 10 new operations added in this release.
+// handlePrefixRoutes handles routes that require prefix matching with path params.
 // Returns true if the request was handled.
-func (h *Handler) handleNewOpRoutes(w http.ResponseWriter, r *http.Request) bool {
-	if h.handleServiceAndSoftwareRoutes(w, r) {
-		return true
-	}
-
-	return h.handleCCSVpcPackageRoutes(w, r)
-}
-
-// handleServiceAndSoftwareRoutes handles DELETE /es/role and POST /es/serviceSoftwareUpdate/cancel.
-func (h *Handler) handleServiceAndSoftwareRoutes(w http.ResponseWriter, r *http.Request) bool {
+func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
-	method := r.Method
-
-	switch {
-	case path == elasticsearchServiceRole && method == http.MethodDelete:
-		h.handleDeleteElasticsearchServiceRole(w, r)
-
-		return true
-	case path == elasticsearchSoftwareUpdate+"/cancel" && method == http.MethodPost:
-		h.handleCancelElasticsearchServiceSoftwareUpdate(w, r)
-
-		return true
-	}
-
-	return false
-}
-
-// handleCCSVpcPackageRoutes handles CCS connection, VPC endpoint, and package routes.
-func (h *Handler) handleCCSVpcPackageRoutes(w http.ResponseWriter, r *http.Request) bool {
-	path := r.URL.Path
-	method := r.Method
 
 	switch {
 	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
 		strings.HasSuffix(path, "/accept") &&
-		method == http.MethodPut:
+		r.Method == http.MethodPut:
 		h.handleAcceptInboundCrossClusterSearchConnection(w, r)
 
 		return true
-	case path == elasticsearchCCSOutbound && method == http.MethodPost:
-		h.handleCreateOutboundCrossClusterSearchConnection(w, r)
-
-		return true
-	case path == elasticsearchVpcEndpoints && method == http.MethodPost:
-		h.handleCreateVpcEndpoint(w, r)
-
-		return true
-	case strings.HasPrefix(path, elasticsearchPackages+"/associate/") && method == http.MethodPost:
+	case strings.HasPrefix(path, elasticsearchPackages+"/associate/") && r.Method == http.MethodPost:
 		h.handleAssociatePackage(w, r)
-
-		return true
-	case path == elasticsearchPackages && method == http.MethodPost:
-		h.handleCreatePackage(w, r)
 
 		return true
 	}
@@ -438,29 +417,6 @@ func domainNameFromRest(rest string) string {
 	return strings.TrimSuffix(name, "/")
 }
 
-// handleTagRoutes processes /2015-01-01/tags and /2015-01-01/tags-removal requests.
-// Returns true if the request was handled.
-func (h *Handler) handleTagRoutes(w http.ResponseWriter, r *http.Request) bool {
-	path := r.URL.Path
-
-	switch {
-	case path == elasticsearchTagsPath && r.Method == http.MethodGet:
-		h.handleListTags(w, r)
-
-		return true
-	case path == elasticsearchTagsPath && r.Method == http.MethodPost:
-		h.handleAddTags(w, r)
-
-		return true
-	case path == elasticsearchTagsRemove && r.Method == http.MethodPost:
-		h.handleRemoveTags(w, r)
-
-		return true
-	}
-
-	return false
-}
-
 // Handle satisfies the Echo handler interface.
 func (h *Handler) Handle(c *echo.Context) error {
 	h.ServeHTTP(c.Response(), c.Request())
@@ -488,12 +444,6 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.DomainName == "" {
-		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "DomainName is required")
-
-		return
-	}
-
 	var cfg ClusterConfig
 	if req.ClusterConfig != nil {
 		cfg.InstanceType = req.ClusterConfig.InstanceType
@@ -509,11 +459,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 
 	domain, err := h.Backend.CreateDomain(req.DomainName, req.ElasticsearchVersion, cfg, ebsOpts)
 	if err != nil {
-		if errors.Is(err, ErrDomainAlreadyExists) {
-			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
-		} else {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
-		}
+		h.handleDomainError(r, w, err)
 
 		return
 	}
@@ -521,6 +467,20 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(r, w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
+}
+
+// handleDomainError maps backend domain errors to HTTP responses.
+func (h *Handler) handleDomainError(r *http.Request, w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrDomainAlreadyExists):
+		h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
+	case errors.Is(err, ErrValidation):
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+	case errors.Is(err, ErrDomainNotFound):
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	default:
+		h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
+	}
 }
 
 func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, name string) {
@@ -571,6 +531,11 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) 
 			DomainName:           name,
 			ElasticsearchVersion: d.ElasticsearchVersion,
 		})
+	}
+
+	// Ensure the slice is non-nil so JSON marshals as [] not null.
+	if entries == nil {
+		entries = []domainNameEntry{}
 	}
 
 	h.writeJSON(r, w, domainListJSON{DomainNames: entries})
@@ -748,6 +713,10 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 	for k, v := range tags {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
+
+	slices.SortFunc(tagList, func(a, b svcTags.KV) int {
+		return strings.Compare(a.Key, b.Key)
+	})
 
 	h.writeJSON(r, w, &listTagsOutput{TagList: tagList})
 }

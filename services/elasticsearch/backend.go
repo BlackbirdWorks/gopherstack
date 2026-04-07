@@ -3,6 +3,8 @@ package elasticsearch
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"regexp"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -14,11 +16,18 @@ import (
 var (
 	ErrDomainNotFound      = errors.New("ResourceNotFoundException")
 	ErrDomainAlreadyExists = errors.New("ResourceAlreadyExistsException")
-	ErrInvalidParameter    = errors.New("ValidationException")
+	// ErrValidation is returned for invalid or missing input parameters.
+	ErrValidation = errors.New("ValidationException")
+	// ErrInvalidParameter is an alias for ErrValidation kept for compatibility.
+	ErrInvalidParameter    = ErrValidation
 	ErrConnectionNotFound  = errors.New("ResourceNotFoundException")
 	ErrPackageNotFound     = errors.New("ResourceNotFoundException")
 	ErrVpcEndpointNotFound = errors.New("ResourceNotFoundException")
 )
+
+// domainNameRe validates Elasticsearch domain names:
+// 3–28 lowercase alphanumeric characters or hyphens, must start with a letter.
+var domainNameRe = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
 
 // Package represents an Elasticsearch package (e.g., a custom dictionary or synonym file).
 type Package struct {
@@ -150,7 +159,14 @@ func (b *InMemoryBackend) CreateDomain(
 	ebsOpts EBSOptions,
 ) (*Domain, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: DomainName is required", ErrValidation)
+	}
+
+	if !domainNameRe.MatchString(name) {
+		return nil, fmt.Errorf(
+			"%w: DomainName must be 3-28 lowercase alphanumeric characters or hyphens and start with a letter",
+			ErrValidation,
+		)
 	}
 
 	b.mu.Lock("CreateDomain")
@@ -194,9 +210,7 @@ func (b *InMemoryBackend) CreateDomain(
 		b.dnsRegistrar.Register(endpoint)
 	}
 
-	cp := *d
-
-	return &cp, nil
+	return domainCopy(d), nil
 }
 
 // DeleteDomain removes a domain by name.
@@ -209,7 +223,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
-	cp := *d
+	cp := domainCopy(d)
 	d.Tags.Close()
 	delete(b.arnIndex, d.ARN)
 	delete(b.domains, name)
@@ -218,7 +232,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
 	}
 
-	return &cp, nil
+	return cp, nil
 }
 
 // DescribeDomain returns details about a domain.
@@ -231,12 +245,10 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
-	cp := *d
-
-	return &cp, nil
+	return domainCopy(d), nil
 }
 
-// ListDomainNames returns the names of all domains.
+// ListDomainNames returns the sorted names of all domains.
 func (b *InMemoryBackend) ListDomainNames() []string {
 	b.mu.RLock("ListDomainNames")
 	defer b.mu.RUnlock()
@@ -245,6 +257,8 @@ func (b *InMemoryBackend) ListDomainNames() []string {
 	for name := range b.domains {
 		names = append(names, name)
 	}
+
+	slices.Sort(names)
 
 	return names
 }
@@ -267,9 +281,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, cfg UpdateConfig) (*Do
 		d.EBSOptions = *cfg.EBSOptions
 	}
 
-	cp := *d
-
-	return &cp, nil
+	return domainCopy(d), nil
 }
 
 // findDomainByARN returns the domain matching the given ARN, or nil if not found.
@@ -358,7 +370,7 @@ func (b *InMemoryBackend) nextIDLocked() int {
 // CreatePackage creates a new Elasticsearch package (e.g., a dictionary file).
 func (b *InMemoryBackend) CreatePackage(name, packageType, description string) (*Package, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: PackageName is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: PackageName is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreatePackage")
@@ -439,7 +451,7 @@ func (b *InMemoryBackend) CreateOutboundCrossClusterSearchConnection(
 	alias string,
 ) (*OutboundConnection, error) {
 	if alias == "" {
-		return nil, fmt.Errorf("%w: ConnectionAlias is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: ConnectionAlias is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateOutboundCrossClusterSearchConnection")
@@ -462,11 +474,15 @@ func (b *InMemoryBackend) CreateOutboundCrossClusterSearchConnection(
 // CreateVpcEndpoint creates a managed VPC endpoint for an Elasticsearch domain.
 func (b *InMemoryBackend) CreateVpcEndpoint(domainARN string, vpcOptions map[string]string) (*VpcEndpoint, error) {
 	if domainARN == "" {
-		return nil, fmt.Errorf("%w: DomainArn is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: DomainArn is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateVpcEndpoint")
 	defer b.mu.Unlock()
+
+	// Deep-copy vpcOptions so the stored map is independent of the caller's map.
+	optsCopy := make(map[string]string, len(vpcOptions))
+	maps.Copy(optsCopy, vpcOptions)
 
 	id := fmt.Sprintf("vpc-endpoint-%010d", b.nextIDLocked())
 	endpoint := &VpcEndpoint{
@@ -474,11 +490,16 @@ func (b *InMemoryBackend) CreateVpcEndpoint(domainARN string, vpcOptions map[str
 		OwnerAccountID: b.accountID,
 		DomainARN:      domainARN,
 		Endpoint:       fmt.Sprintf("vpc-%s.%s.es.amazonaws.com", id, b.region),
-		Status:         "CREATING",
-		VpcOptions:     vpcOptions,
+		Status:         "ACTIVE",
+		VpcOptions:     optsCopy,
 	}
 	b.vpcEndpoints[id] = endpoint
+
+	// Return a copy with its own VpcOptions map to prevent aliasing.
+	retOpts := make(map[string]string, len(optsCopy))
+	maps.Copy(retOpts, optsCopy)
 	cp := *endpoint
+	cp.VpcOptions = retOpts
 
 	return &cp, nil
 }
@@ -486,7 +507,7 @@ func (b *InMemoryBackend) CreateVpcEndpoint(domainARN string, vpcOptions map[str
 // AuthorizeVpcEndpointAccess grants an account or service access to the domain's VPC endpoint.
 func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(domainName, account string) error {
 	if account == "" {
-		return fmt.Errorf("%w: account principal is required", ErrInvalidParameter)
+		return fmt.Errorf("%w: account principal is required", ErrValidation)
 	}
 
 	b.mu.Lock("AuthorizeVpcEndpointAccess")
@@ -510,9 +531,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(domainName string) (*Domain, 
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	cp := *d
-
-	return &cp, nil
+	return domainCopy(d), nil
 }
 
 // CancelElasticsearchServiceSoftwareUpdate cancels a scheduled software update.
@@ -526,13 +545,38 @@ func (b *InMemoryBackend) CancelElasticsearchServiceSoftwareUpdate(domainName st
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	cp := *d
-
-	return &cp, nil
+	return domainCopy(d), nil
 }
 
 // DeleteElasticsearchServiceRole deletes the Elasticsearch service-linked IAM role.
 // The in-memory backend has no IAM state so this is always a no-op success.
 func (b *InMemoryBackend) DeleteElasticsearchServiceRole() error {
 	return nil
+}
+
+// domainCopy returns a shallow copy of d with Tags set to nil so that callers
+// cannot accidentally mutate or close the stored Tags collection.
+func domainCopy(d *Domain) *Domain {
+	cp := *d
+	cp.Tags = nil
+
+	return &cp
+}
+
+// AddDomainInternal seeds a domain directly into the backend for testing.
+// Tags are initialised fresh for the seeded domain.
+func (b *InMemoryBackend) AddDomainInternal(d Domain) {
+	b.mu.Lock("AddDomainInternal")
+	defer b.mu.Unlock()
+
+	cp := d
+	if cp.Tags == nil {
+		cp.Tags = tags.New("elasticsearch." + cp.Name + ".tags")
+	}
+
+	b.domains[cp.Name] = &cp
+
+	if cp.ARN != "" {
+		b.arnIndex[cp.ARN] = cp.Name
+	}
 }

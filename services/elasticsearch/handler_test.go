@@ -482,15 +482,18 @@ func TestElasticsearchHandler_Tags(t *testing.T) {
 	tests := []struct {
 		name      string
 		operation string
+		domain    string
 		wantCount int
 	}{
 		{
 			name:      "add_and_list_tags",
+			domain:    "tag-domain-al",
 			operation: "add_list",
 			wantCount: 2,
 		},
 		{
 			name:      "remove_tag",
+			domain:    "tag-domain-rm",
 			operation: "remove",
 			wantCount: 1,
 		},
@@ -500,7 +503,7 @@ func TestElasticsearchHandler_Tags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler()
-			domainARN := createDomainAndGetARN(t, h, "tag-domain-"+tt.name)
+			domainARN := createDomainAndGetARN(t, h, tt.domain)
 
 			addResp := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 				"ARN": domainARN,
@@ -705,7 +708,7 @@ func TestElasticsearchHandler_Metadata(t *testing.T) {
 	assert.Equal(t, "es", h.ChaosServiceName())
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
-	assert.Len(t, h.GetSupportedOperations(), 17)
+	assert.Len(t, h.GetSupportedOperations(), 19)
 
 	c := newEchoContext(http.MethodGet, "/2015-01-01/es/domain/my-domain")
 	assert.Equal(t, "my-domain", h.ExtractResource(c))
@@ -1145,7 +1148,7 @@ func TestElasticsearchHandler_CreateVpcEndpoint(t *testing.T) {
 				"VpcOptions": map[string]any{"VpcId": "vpc-12345"},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"VpcEndpointId", "VpcEndpointOwner", "CREATING"},
+			wantContains: []string{"VpcEndpointId", "VpcEndpointOwner", "ACTIVE"},
 		},
 		{
 			name:     "no_domain_arn",
