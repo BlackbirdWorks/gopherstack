@@ -832,8 +832,6 @@ func elbErrorCode(opErr error) (string, int) {
 		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
 		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
-		{awserr.ErrNotFound, "LoadBalancerNotFound", http.StatusNotFound},
-		{awserr.ErrAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}

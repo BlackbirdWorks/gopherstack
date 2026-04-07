@@ -336,9 +336,17 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	}
 
 	// Derive VPCId: if subnets are provided (VPC-mode LB) use a stable synthetic ID.
+	// The first 8 characters of the account ID make a reasonably unique VPC identifier.
+	const vpcSuffixLen = 8
+
 	vpcID := ""
 	if len(subnets) > 0 {
-		vpcID = "vpc-" + b.accountID[:8]
+		acctSuffix := b.accountID
+		if len(acctSuffix) > vpcSuffixLen {
+			acctSuffix = acctSuffix[:vpcSuffixLen]
+		}
+
+		vpcID = "vpc-" + acctSuffix
 	}
 
 	lb := &LoadBalancer{
