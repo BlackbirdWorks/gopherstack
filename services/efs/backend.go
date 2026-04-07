@@ -69,15 +69,44 @@ type AccessPoint struct {
 	OwnerID        string     `json:"ownerId"`
 }
 
+// ReplicationDestination represents a destination in an EFS replication configuration.
+type ReplicationDestination struct {
+	FileSystemID         string `json:"FileSystemId,omitempty"`
+	Region               string `json:"Region,omitempty"`
+	AvailabilityZoneName string `json:"AvailabilityZoneName,omitempty"`
+	KmsKeyID             string `json:"KmsKeyId,omitempty"`
+	Status               string `json:"Status,omitempty"`
+}
+
+// ReplicationConfiguration represents an EFS replication configuration.
+type ReplicationConfiguration struct {
+	OriginalSourceFileSystemARN string                   `json:"OriginalSourceFileSystemArn"`
+	SourceFileSystemARN         string                   `json:"SourceFileSystemArn"`
+	SourceFileSystemID          string                   `json:"SourceFileSystemId"`
+	SourceFileSystemRegion      string                   `json:"SourceFileSystemRegion"`
+	Destinations                []ReplicationDestination `json:"Destinations"`
+	CreationTime                int64                    `json:"CreationTime"`
+}
+
+// AccountPreferences represents EFS account preferences.
+type AccountPreferences struct {
+	ResourceIDType string `json:"ResourceIdType"`
+}
+
 // InMemoryBackend is the in-memory store for EFS resources.
 type InMemoryBackend struct {
-	fileSystems       map[string]*FileSystem
-	mountTargets      map[string]*MountTarget
-	accessPoints      map[string]*AccessPoint
-	lifecyclePolicies map[string][]LifecyclePolicy
-	mu                *lockmetrics.RWMutex
-	accountID         string
-	region            string
+	fileSystems               map[string]*FileSystem
+	mountTargets              map[string]*MountTarget
+	accessPoints              map[string]*AccessPoint
+	lifecyclePolicies         map[string][]LifecyclePolicy
+	replicationConfigs        map[string]*ReplicationConfiguration
+	backupPolicies            map[string]string
+	fileSystemPolicies        map[string]string
+	mountTargetSecurityGroups map[string][]string
+	accountPreferences        AccountPreferences
+	mu                        *lockmetrics.RWMutex
+	accountID                 string
+	region                    string
 }
 
 // LifecyclePolicy represents an EFS lifecycle management policy.
@@ -90,13 +119,18 @@ type LifecyclePolicy struct {
 // NewInMemoryBackend creates a new in-memory EFS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		fileSystems:       make(map[string]*FileSystem),
-		mountTargets:      make(map[string]*MountTarget),
-		accessPoints:      make(map[string]*AccessPoint),
-		lifecyclePolicies: make(map[string][]LifecyclePolicy),
-		accountID:         accountID,
-		region:            region,
-		mu:                lockmetrics.New("efs"),
+		fileSystems:               make(map[string]*FileSystem),
+		mountTargets:              make(map[string]*MountTarget),
+		accessPoints:              make(map[string]*AccessPoint),
+		lifecyclePolicies:         make(map[string][]LifecyclePolicy),
+		replicationConfigs:        make(map[string]*ReplicationConfiguration),
+		backupPolicies:            make(map[string]string),
+		fileSystemPolicies:        make(map[string]string),
+		mountTargetSecurityGroups: make(map[string][]string),
+		accountPreferences:        AccountPreferences{ResourceIDType: "LONG_ID"},
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("efs"),
 	}
 }
 
@@ -447,6 +481,205 @@ func (b *InMemoryBackend) PutLifecycleConfiguration(
 
 	result := make([]LifecyclePolicy, len(stored))
 	copy(result, stored)
+
+	return result, nil
+}
+
+// CreateReplicationConfiguration creates a replication configuration for a file system.
+func (b *InMemoryBackend) CreateReplicationConfiguration(
+	sourceFileSystemID string,
+	destinations []ReplicationDestination,
+) (*ReplicationConfiguration, error) {
+	b.mu.Lock("CreateReplicationConfiguration")
+	defer b.mu.Unlock()
+
+	fs, ok := b.fileSystems[sourceFileSystemID]
+	if !ok {
+		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
+	}
+
+	if _, exists := b.replicationConfigs[sourceFileSystemID]; exists {
+		return nil, fmt.Errorf(
+			"%w: replication configuration already exists for file system %s",
+			ErrAlreadyExists,
+			sourceFileSystemID,
+		)
+	}
+
+	dests := make([]ReplicationDestination, len(destinations))
+	copy(dests, destinations)
+	for i := range dests {
+		if dests[i].Status == "" {
+			dests[i].Status = "ENABLED"
+		}
+	}
+
+	rc := &ReplicationConfiguration{
+		OriginalSourceFileSystemARN: fs.FileSystemArn,
+		SourceFileSystemARN:         fs.FileSystemArn,
+		SourceFileSystemID:          sourceFileSystemID,
+		SourceFileSystemRegion:      b.region,
+		CreationTime:                time.Now().UTC().Unix(),
+		Destinations:                dests,
+	}
+	b.replicationConfigs[sourceFileSystemID] = rc
+
+	cp := *rc
+	cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+	copy(cp.Destinations, rc.Destinations)
+
+	return &cp, nil
+}
+
+// DeleteReplicationConfiguration deletes the replication configuration for a file system.
+func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID string) error {
+	b.mu.Lock("DeleteReplicationConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.fileSystems[sourceFileSystemID]; !ok {
+		return fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
+	}
+
+	if _, exists := b.replicationConfigs[sourceFileSystemID]; !exists {
+		return fmt.Errorf("%w: replication configuration not found for file system %s", ErrNotFound, sourceFileSystemID)
+	}
+
+	delete(b.replicationConfigs, sourceFileSystemID)
+
+	return nil
+}
+
+// DescribeReplicationConfigurations returns replication configurations, optionally filtered by file system ID.
+func (b *InMemoryBackend) DescribeReplicationConfigurations(fileSystemID string) ([]*ReplicationConfiguration, error) {
+	b.mu.RLock("DescribeReplicationConfigurations")
+	defer b.mu.RUnlock()
+
+	if fileSystemID != "" {
+		rc, ok := b.replicationConfigs[fileSystemID]
+		if !ok {
+			return []*ReplicationConfiguration{}, nil
+		}
+
+		cp := *rc
+		cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+		copy(cp.Destinations, rc.Destinations)
+
+		return []*ReplicationConfiguration{&cp}, nil
+	}
+
+	list := make([]*ReplicationConfiguration, 0, len(b.replicationConfigs))
+	for _, rc := range b.replicationConfigs {
+		cp := *rc
+		cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+		copy(cp.Destinations, rc.Destinations)
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// CreateTags adds tags to a file system (legacy operation, delegates to TagResource).
+func (b *InMemoryBackend) CreateTags(fileSystemID string, kv map[string]string) error {
+	b.mu.Lock("CreateTags")
+	defer b.mu.Unlock()
+
+	fs, ok := b.fileSystems[fileSystemID]
+	if !ok {
+		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	fs.Tags.Merge(kv)
+
+	return nil
+}
+
+// DeleteTags removes tags from a file system by key (legacy operation).
+func (b *InMemoryBackend) DeleteTags(fileSystemID string, tagKeys []string) error {
+	b.mu.Lock("DeleteTags")
+	defer b.mu.Unlock()
+
+	fs, ok := b.fileSystems[fileSystemID]
+	if !ok {
+		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	fs.Tags.DeleteKeys(tagKeys)
+
+	return nil
+}
+
+// DescribeFileSystemPolicy returns the resource-based policy for a file system.
+func (b *InMemoryBackend) DescribeFileSystemPolicy(fileSystemID string) (string, error) {
+	b.mu.RLock("DescribeFileSystemPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.fileSystems[fileSystemID]; !ok {
+		return "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	policy, ok := b.fileSystemPolicies[fileSystemID]
+	if !ok {
+		return "", fmt.Errorf("%w: no policy found for file system %s", ErrNotFound, fileSystemID)
+	}
+
+	return policy, nil
+}
+
+// DeleteFileSystemPolicy removes the resource-based policy from a file system.
+func (b *InMemoryBackend) DeleteFileSystemPolicy(fileSystemID string) error {
+	b.mu.Lock("DeleteFileSystemPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.fileSystems[fileSystemID]; !ok {
+		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	delete(b.fileSystemPolicies, fileSystemID)
+
+	return nil
+}
+
+// DescribeAccountPreferences returns the current account preferences.
+func (b *InMemoryBackend) DescribeAccountPreferences() AccountPreferences {
+	b.mu.RLock("DescribeAccountPreferences")
+	defer b.mu.RUnlock()
+
+	return b.accountPreferences
+}
+
+// DescribeBackupPolicy returns the backup policy for a file system.
+func (b *InMemoryBackend) DescribeBackupPolicy(fileSystemID string) (string, error) {
+	b.mu.RLock("DescribeBackupPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.fileSystems[fileSystemID]; !ok {
+		return "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	status, ok := b.backupPolicies[fileSystemID]
+	if !ok {
+		return "DISABLED", nil
+	}
+
+	return status, nil
+}
+
+// DescribeMountTargetSecurityGroups returns the security groups for a mount target.
+func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(mountTargetID string) ([]string, error) {
+	b.mu.RLock("DescribeMountTargetSecurityGroups")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.mountTargets[mountTargetID]; !ok {
+		return nil, fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
+	}
+
+	groups := b.mountTargetSecurityGroups[mountTargetID]
+	if groups == nil {
+		return []string{}, nil
+	}
+
+	result := make([]string, len(groups))
+	copy(result, groups)
 
 	return result, nil
 }

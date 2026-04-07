@@ -875,3 +875,429 @@ func TestLifecycleConfiguration(t *testing.T) {
 		})
 	}
 }
+
+// TestReplicationConfiguration exercises CreateReplicationConfiguration,
+// DescribeReplicationConfigurations and DeleteReplicationConfiguration.
+func TestReplicationConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *efs.Handler)
+		name string
+	}{
+		{
+			name: "create_describe_delete",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "repl-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				// Create replication configuration.
+				rec2 := doREST(t, h, http.MethodPost,
+					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
+					map[string]any{
+						"Destinations": []map[string]any{
+							{"Region": "us-west-2"},
+						},
+					},
+				)
+				assert.Equal(t, http.StatusOK, rec2.Code)
+				resp := parseResp(t, rec2)
+				assert.Equal(t, fsID, resp["SourceFileSystemId"])
+				assert.Equal(t, "us-east-1", resp["SourceFileSystemRegion"])
+				dests := resp["Destinations"].([]any)
+				assert.Len(t, dests, 1)
+
+				// Describe by filesystem ID.
+				rec3 := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/replication-configurations?FileSystemId="+fsID,
+					nil,
+				)
+				assert.Equal(t, http.StatusOK, rec3.Code)
+				desc := parseResp(t, rec3)
+				replications := desc["Replications"].([]any)
+				assert.Len(t, replications, 1)
+
+				// Delete.
+				rec4 := doREST(t, h, http.MethodDelete,
+					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
+					nil,
+				)
+				assert.Equal(t, http.StatusNoContent, rec4.Code)
+
+				// Describe after delete returns empty.
+				rec5 := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/replication-configurations?FileSystemId="+fsID,
+					nil,
+				)
+				assert.Equal(t, http.StatusOK, rec5.Code)
+				desc2 := parseResp(t, rec5)
+				replications2 := desc2["Replications"].([]any)
+				assert.Empty(t, replications2)
+			},
+		},
+		{
+			name: "create_on_missing_fs_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost,
+					"/2015-02-01/file-systems/fs-notexist/replication-configuration",
+					map[string]any{"Destinations": []map[string]any{}},
+				)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "create_duplicate_returns_409",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "repl-dup-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				body := map[string]any{"Destinations": []map[string]any{{"Region": "us-west-2"}}}
+				rec2 := doREST(t, h, http.MethodPost,
+					"/2015-02-01/file-systems/"+fsID+"/replication-configuration", body)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				rec3 := doREST(t, h, http.MethodPost,
+					"/2015-02-01/file-systems/"+fsID+"/replication-configuration", body)
+				assert.Equal(t, http.StatusConflict, rec3.Code)
+			},
+		},
+		{
+			name: "delete_non_existent_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "repl-del-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				rec2 := doREST(t, h, http.MethodDelete,
+					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
+					nil,
+				)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
+			},
+		},
+		{
+			name: "describe_all_without_filter",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				for _, token := range []string{"repl-all-1", "repl-all-2"} {
+					r := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+						"CreationToken": token,
+					})
+					require.Equal(t, http.StatusCreated, r.Code)
+					fsID := parseResp(t, r)["FileSystemId"].(string)
+
+					doREST(t, h, http.MethodPost,
+						"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
+						map[string]any{"Destinations": []map[string]any{{"Region": "eu-west-1"}}},
+					)
+				}
+
+				rec := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/replication-configurations", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				replications := parseResp(t, rec)["Replications"].([]any)
+				assert.Len(t, replications, 2)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestEFSHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestLegacyTagOperations exercises CreateTags and DeleteTags (legacy operations).
+func TestLegacyTagOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *efs.Handler)
+		name string
+	}{
+		{
+			name: "create_and_delete_tags",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "legacy-tag-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				// CreateTags.
+				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/create-tags/"+fsID, map[string]any{
+					"Tags": []map[string]string{
+						{"Key": "Env", "Value": "prod"},
+						{"Key": "Team", "Value": "platform"},
+					},
+				})
+				assert.Equal(t, http.StatusNoContent, rec2.Code)
+
+				// Verify tags were applied via ListTagsForResource.
+				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+fsID, nil)
+				assert.Equal(t, http.StatusOK, rec3.Code)
+				tagsRaw := parseResp(t, rec3)["Tags"].([]any)
+				assert.Len(t, tagsRaw, 2)
+
+				// DeleteTags.
+				rec4 := doREST(t, h, http.MethodPost, "/2015-02-01/delete-tags/"+fsID, map[string]any{
+					"TagKeys": []string{"Env"},
+				})
+				assert.Equal(t, http.StatusNoContent, rec4.Code)
+
+				// Only 1 tag should remain.
+				rec5 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+fsID, nil)
+				assert.Equal(t, http.StatusOK, rec5.Code)
+				tagsRaw2 := parseResp(t, rec5)["Tags"].([]any)
+				assert.Len(t, tagsRaw2, 1)
+			},
+		},
+		{
+			name: "create_tags_on_missing_fs_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/create-tags/fs-notexist", map[string]any{
+					"Tags": []map[string]string{{"Key": "k", "Value": "v"}},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "delete_tags_on_missing_fs_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/delete-tags/fs-notexist", map[string]any{
+					"TagKeys": []string{"k"},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestEFSHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestFileSystemPolicy exercises DescribeFileSystemPolicy and DeleteFileSystemPolicy.
+func TestFileSystemPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *efs.Handler)
+		name string
+	}{
+		{
+			name: "describe_policy_not_set_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "policy-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				rec2 := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/"+fsID+"/policy", nil)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
+			},
+		},
+		{
+			name: "delete_policy_is_idempotent",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "policy-del-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				// Delete when no policy exists - should succeed (idempotent).
+				rec2 := doREST(t, h, http.MethodDelete,
+					"/2015-02-01/file-systems/"+fsID+"/policy", nil)
+				assert.Equal(t, http.StatusNoContent, rec2.Code)
+			},
+		},
+		{
+			name: "describe_policy_on_missing_fs_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/fs-notexist/policy", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "delete_policy_on_missing_fs_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodDelete,
+					"/2015-02-01/file-systems/fs-notexist/policy", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestEFSHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestDescribeAccountPreferences exercises DescribeAccountPreferences.
+func TestDescribeAccountPreferences(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEFSHandler()
+
+	rec := doREST(t, h, http.MethodGet, "/2015-02-01/account-preferences", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	pref, ok := resp["ResourceIdPreference"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, pref["ResourceIdType"])
+	resources := pref["Resources"].([]any)
+	assert.NotEmpty(t, resources)
+}
+
+// TestDescribeBackupPolicy exercises DescribeBackupPolicy.
+func TestDescribeBackupPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *efs.Handler)
+		name string
+	}{
+		{
+			name: "returns_disabled_by_default",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "backup-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				rec2 := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/"+fsID+"/backup-policy", nil)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				resp := parseResp(t, rec2)
+				bp, ok := resp["BackupPolicy"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "DISABLED", bp["Status"])
+			},
+		},
+		{
+			name: "missing_fs_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/fs-notexist/backup-policy", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestEFSHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestDescribeMountTargetSecurityGroups exercises DescribeMountTargetSecurityGroups.
+func TestDescribeMountTargetSecurityGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *efs.Handler)
+		name string
+	}{
+		{
+			name: "returns_empty_groups_for_new_mount_target",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "sg-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
+					"FileSystemId": fsID,
+					"SubnetId":     "subnet-sg-test",
+				})
+				require.Equal(t, http.StatusOK, rec2.Code)
+				mtID := parseResp(t, rec2)["MountTargetId"].(string)
+
+				rec3 := doREST(t, h, http.MethodGet,
+					"/2015-02-01/mount-targets/"+mtID+"/security-groups", nil)
+				require.Equal(t, http.StatusOK, rec3.Code)
+
+				resp := parseResp(t, rec3)
+				groups := resp["SecurityGroups"].([]any)
+				assert.Empty(t, groups)
+			},
+		},
+		{
+			name: "missing_mount_target_returns_404",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodGet,
+					"/2015-02-01/mount-targets/fsmt-notexist/security-groups", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestEFSHandler()
+			tt.ops(t, h)
+		})
+	}
+}
