@@ -3217,12 +3217,19 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 }
 
 // Purge removes all buckets created before the given cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	for _, regionBuckets := range b.buckets {
 		for bucketName, bucket := range regionBuckets {
+			if ctx.Err() != nil {
+				return
+			}
 			if bucket.CreationDate.Before(cutoff) {
 				bucket.mu.Close()
 				delete(regionBuckets, bucketName)

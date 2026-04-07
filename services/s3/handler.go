@@ -492,9 +492,9 @@ func findBucketInParts(parts []string) string {
 // parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
 
 // Purge removes resources created before the given cutoff time.
-func (h *S3Handler) Purge(cutoff time.Time) {
+func (h *S3Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Purge(cutoff)
+		b.Purge(ctx, cutoff)
 	}
 }
 

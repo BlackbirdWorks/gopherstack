@@ -283,9 +283,9 @@ func (h *DynamoDBHandler) Name() string {
 }
 
 // Purge implements service.Purgeable by deleting resources older than cutoff.
-func (h *DynamoDBHandler) Purge(cutoff time.Time) {
+func (h *DynamoDBHandler) Purge(ctx context.Context, cutoff time.Time) {
 	if db, ok := h.Backend.(*InMemoryDB); ok {
-		db.Purge(cutoff)
+		db.Purge(ctx, cutoff)
 	}
 }
 

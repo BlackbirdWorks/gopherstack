@@ -1,6 +1,7 @@
 package autoscaling
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -547,12 +548,19 @@ func (b *InMemoryBackend) DescribeScalingActivities(groupName string) ([]Scaling
 }
 
 // Purge removes all AutoScaling groups and launch configurations created before the cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	// 1. Purge groups
 	for name, g := range b.groups {
+		if ctx.Err() != nil {
+			return
+		}
 		if g.CreatedTime.Before(cutoff) {
 			delete(b.groups, name)
 			delete(b.activities, name)
@@ -564,6 +572,9 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 
 	// 2. Purge launch configurations
 	for name, lc := range b.launchConfigurations {
+		if ctx.Err() != nil {
+			return
+		}
 		if lc.CreatedTime.Before(cutoff) {
 			delete(b.launchConfigurations, name)
 		}

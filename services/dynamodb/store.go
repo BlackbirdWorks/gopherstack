@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -438,12 +439,19 @@ func stopTableTimers(table *Table) {
 }
 
 // Purge removes tables and backups created before the cutoff time.
-func (db *InMemoryDB) Purge(cutoff time.Time) {
+func (db *InMemoryDB) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	db.mu.Lock("Purge")
 	defer db.mu.Unlock()
 
 	for _, regionTables := range db.Tables {
 		for n, table := range regionTables {
+			if ctx.Err() != nil {
+				return
+			}
 			if table.CreationDateTime.Before(cutoff) {
 				stopTableTimers(table)
 				if table.Tags != nil {
@@ -456,18 +464,27 @@ func (db *InMemoryDB) Purge(cutoff time.Time) {
 	}
 
 	for arn, table := range db.streamARNIndex {
+		if ctx.Err() != nil {
+			return
+		}
 		if table.CreationDateTime.Before(cutoff) {
 			delete(db.streamARNIndex, arn)
 		}
 	}
 
 	for n, backup := range db.Backups {
+		if ctx.Err() != nil {
+			return
+		}
 		if backup.CreationDateTime.Before(cutoff) {
 			delete(db.Backups, n)
 		}
 	}
 
 	for n, gt := range db.GlobalTables {
+		if ctx.Err() != nil {
+			return
+		}
 		if gt.CreationDateTime.Before(cutoff) {
 			delete(db.GlobalTables, n)
 		}

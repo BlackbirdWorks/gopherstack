@@ -139,7 +139,7 @@ func (m *mockBackend) InvokeFunction(
 	return result, http.StatusOK, nil
 }
 
-func (m *mockBackend) Purge(_ time.Time) {}
+func (m *mockBackend) Purge(_ context.Context, _ time.Time) {}
 
 // ---- helpers ----
 

@@ -1,6 +1,7 @@
 package memorydb
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -938,12 +939,19 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 }
 
 // Purge removes all MemoryDB resources created before the cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	// 1. Purge Clusters
 	for name, c := range b.clusters {
+		if ctx.Err() != nil {
+			return
+		}
 		if c.CreatedAt.Before(cutoff) {
 			delete(b.clusters, name)
 			delete(b.arnToResource, c.ARN)
@@ -952,6 +960,9 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 
 	// 2. Purge ACLs (except the default open-access ACL)
 	for name, a := range b.acls {
+		if ctx.Err() != nil {
+			return
+		}
 		if name == openAccessACL {
 			continue
 		}
@@ -963,6 +974,9 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 
 	// 3. Purge Subnet Groups
 	for name, sg := range b.subnetGroups {
+		if ctx.Err() != nil {
+			return
+		}
 		if sg.CreatedAt.Before(cutoff) {
 			delete(b.subnetGroups, name)
 			delete(b.arnToResource, sg.ARN)
@@ -971,6 +985,9 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 
 	// 4. Purge Users
 	for name, u := range b.users {
+		if ctx.Err() != nil {
+			return
+		}
 		if u.CreatedAt.Before(cutoff) {
 			delete(b.users, name)
 			delete(b.arnToResource, u.ARN)
@@ -979,6 +996,9 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 
 	// 5. Purge Parameter Groups
 	for name, pg := range b.parameterGroups {
+		if ctx.Err() != nil {
+			return
+		}
 		if pg.CreatedAt.Before(cutoff) {
 			delete(b.parameterGroups, name)
 			delete(b.arnToResource, pg.ARN)

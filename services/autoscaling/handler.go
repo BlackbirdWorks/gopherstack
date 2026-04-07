@@ -1,6 +1,7 @@
 package autoscaling
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -1547,8 +1548,8 @@ func parseTagFilters(vals url.Values) []TagFilter {
 }
 
 // Purge implements service.Purgeable by removing all Auto Scaling resources older than cutoff.
-func (h *Handler) Purge(cutoff time.Time) {
+func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Purge(cutoff)
+		b.Purge(ctx, cutoff)
 	}
 }

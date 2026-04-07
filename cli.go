@@ -2522,7 +2522,7 @@ func purgeAllServices(
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			p.Purge(cutoff)
+			p.Purge(purgeCtx, cutoff)
 		}()
 		select {
 		case <-done:

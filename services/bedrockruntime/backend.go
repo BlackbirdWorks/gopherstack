@@ -1,6 +1,7 @@
 package bedrockruntime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -138,12 +139,19 @@ func (b *InMemoryBackend) ListInvocations() []*Invocation {
 }
 
 // Purge removes all model invocations recorded before the cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	n := 0
 	for _, inv := range b.invocations {
+		if ctx.Err() != nil {
+			return
+		}
 		if !inv.CreatedAt.Before(cutoff) {
 			b.invocations[n] = inv
 			n++

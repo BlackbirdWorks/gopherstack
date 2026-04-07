@@ -2329,9 +2329,9 @@ func (h *Handler) handleListProvisionedConcurrencyConfigs(c *echo.Context, name 
 }
 
 // Purge removes all resources older than the given cutoff time.
-func (h *Handler) Purge(cutoff time.Time) {
+func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Purge(cutoff)
+		b.Purge(ctx, cutoff)
 	}
 
 	// Build the set of function ARNs that still exist in the backend after purge.

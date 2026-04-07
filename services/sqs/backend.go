@@ -1225,11 +1225,19 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 }
 
 // Purge removes all queues created before the given cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	for k, q := range b.queues {
+		if ctx.Err() != nil {
+			return
+		}
+
 		createdStr, ok := q.Attributes[attrCreatedTimestamp]
 		if !ok {
 			continue

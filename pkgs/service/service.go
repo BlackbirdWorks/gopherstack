@@ -133,7 +133,7 @@ type Resettable interface {
 // Purgeable is an optional interface for services that support automatically removing
 // resources older than a specific cutoff time (used by AUTO_PURGE_TTL).
 type Purgeable interface {
-	Purge(cutoff time.Time)
+	Purge(ctx context.Context, cutoff time.Time)
 }
 
 // FISParamDef describes a single parameter accepted by a FIS action.

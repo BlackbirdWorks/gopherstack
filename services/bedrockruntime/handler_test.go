@@ -2,6 +2,7 @@ package bedrockruntime_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1359,7 +1360,7 @@ func TestHandler_Purge(t *testing.T) {
 	require.Len(t, h.Backend.ListInvocations(), 1)
 
 	// Purge with future cutoff removes all.
-	h.Purge(time.Now().Add(time.Hour))
+	h.Purge(context.Background(), time.Now().Add(time.Hour))
 
 	assert.Empty(t, h.Backend.ListInvocations())
 }

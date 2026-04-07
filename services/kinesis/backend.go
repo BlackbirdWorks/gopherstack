@@ -1,6 +1,7 @@
 package kinesis
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -1058,12 +1059,19 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Purge removes all Kinesis streams and consumers created before the cutoff time.
-func (b *InMemoryBackend) Purge(cutoff time.Time) {
+func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	// 1. Purge streams
 	for name, s := range b.streams {
+		if ctx.Err() != nil {
+			return
+		}
 		if s.CreatedAt.Before(cutoff) {
 			if s.Tags != nil {
 				s.Tags.Close()
@@ -1076,6 +1084,9 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 
 		// 2. Purge consumers within active streams
 		for cName, c := range s.Consumers {
+			if ctx.Err() != nil {
+				return
+			}
 			if c.ConsumerCreationTimestamp.Before(cutoff) {
 				delete(s.Consumers, cName)
 			}

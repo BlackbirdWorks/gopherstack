@@ -521,7 +521,7 @@ type mockPurgeableService struct {
 	purged bool
 }
 
-func (m *mockPurgeableService) Purge(_ time.Time) { m.purged = true }
+func (m *mockPurgeableService) Purge(_ context.Context, _ time.Time) { m.purged = true }
 func (m *mockPurgeableService) Name() string      { return "MockPurgeable" }
 
 type mockResettableService struct {
@@ -552,7 +552,7 @@ func TestCLI_AutoPurgeLoop(t *testing.T) {
 		cutoff := time.Now().UTC().Add(-ttl)
 		for _, svc := range services {
 			if p, ok := svc.(service.Purgeable); ok {
-				p.Purge(cutoff)
+				p.Purge(context.Background(), cutoff)
 
 				continue
 			}
