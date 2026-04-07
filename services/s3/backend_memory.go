@@ -14,6 +14,7 @@ import (
 	"hash"
 	"hash/crc32"
 	"io"
+	"maps"
 	"net/url"
 	"slices"
 	"sort"
@@ -373,7 +374,7 @@ func (b *InMemoryBackend) PutObject(
 		ContentType:        aws.ToString(input.ContentType),
 		ContentEncoding:    aws.ToString(input.ContentEncoding),
 		ContentDisposition: aws.ToString(input.ContentDisposition),
-		Metadata:           input.Metadata,
+		Metadata:           maps.Clone(input.Metadata),
 		ChecksumCRC32:      checksums.crc32,
 		ChecksumCRC32C:     checksums.crc32c,
 		ChecksumSHA1:       checksums.sha1,
@@ -562,7 +563,7 @@ func (b *InMemoryBackend) GetObject(
 	contentDisposition := ver.ContentDisposition
 	etag := ver.ETag
 	lastModified := ver.LastModified
-	metadata := ver.Metadata
+	metadata := maps.Clone(ver.Metadata)
 	versionIDStr := ver.VersionID
 	checksumCRC32 := ver.ChecksumCRC32
 	checksumCRC32C := ver.ChecksumCRC32C
@@ -667,7 +668,7 @@ func (b *InMemoryBackend) HeadObject(
 		ContentDisposition: nilStringIfEmpty(ver.ContentDisposition),
 		ETag:               aws.String(ver.ETag),
 		LastModified:       aws.Time(ver.LastModified),
-		Metadata:           ver.Metadata,
+		Metadata:           maps.Clone(ver.Metadata),
 		VersionId:          aws.String(ver.VersionID),
 		ChecksumCRC32:      ver.ChecksumCRC32,
 		ChecksumCRC32C:     ver.ChecksumCRC32C,
@@ -1375,7 +1376,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 		b.tags = make(map[string][]types.Tag)
 	}
 
-	b.tags[tagKey] = input.Tagging.TagSet
+	b.tags[tagKey] = slices.Clone(input.Tagging.TagSet)
 
 	return &s3.PutObjectTaggingOutput{}, nil
 }
@@ -1430,7 +1431,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 	defer b.mu.RUnlock()
 
 	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, vid)
-	tags := b.tags[tagKey]
+	tags := slices.Clone(b.tags[tagKey])
 
 	return &s3.GetObjectTaggingOutput{
 		TagSet: tags,
@@ -3501,6 +3502,11 @@ func (b *InMemoryBackend) truncateListResults(
 	cpList []types.CommonPrefix,
 	maxKeys int32,
 ) ([]types.Object, []types.CommonPrefix, bool, string) {
+	// AWS clamps MaxKeys to [0, 1000]; a zero value means return no objects.
+	if maxKeys <= 0 {
+		return nil, nil, len(contents)+len(cpList) > 0, ""
+	}
+
 	totalCount64 := int64(len(contents)) + int64(len(cpList))
 	if totalCount64 <= int64(maxKeys) {
 		return contents, cpList, false, ""

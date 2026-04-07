@@ -356,6 +356,10 @@ func (j *Janitor) sweepTxnPending(ctx context.Context) {
 // evictOldestTokens removes the n oldest entries from m (oldest = earliest expiry time).
 // Must be called with db.mu held.
 func evictOldestTokens(m map[string]time.Time, n int) {
+	if n <= 0 {
+		return
+	}
+
 	// Find the nth smallest expiry time using partial selection — O(len(m)) space.
 	times := make([]time.Time, 0, len(m))
 	for _, t := range m {
@@ -381,6 +385,10 @@ func evictOldestTokens(m map[string]time.Time, n int) {
 // evictOldestPending removes the n oldest entries from m (oldest = earliest start time).
 // Must be called with db.mu held.
 func evictOldestPending(m map[string]time.Time, n int) {
+	if n <= 0 {
+		return
+	}
+
 	times := make([]time.Time, 0, len(m))
 	for _, t := range m {
 		times = append(times, t)

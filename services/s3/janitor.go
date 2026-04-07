@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -417,7 +418,7 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 			pfx := name + "/"
 			for k, v := range b.tags {
 				if strings.HasPrefix(k, pfx) {
-					tagsByKey[k] = v
+					tagsByKey[k] = slices.Clone(v)
 				}
 			}
 
