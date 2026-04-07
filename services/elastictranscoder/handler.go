@@ -32,6 +32,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears all backend state. It is used for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "ElasticTranscoder" }
 
@@ -560,10 +565,11 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		return h.writeError(c, err)
 	}
 
-	out := tagsListOutput{Tags: make([]tagEntry, 0, len(tags))}
+	keys := sortedTagKeys(tags)
+	out := tagsListOutput{Tags: make([]tagEntry, 0, len(keys))}
 
-	for k, v := range tags {
-		out.Tags = append(out.Tags, tagEntry{Key: k, Value: v})
+	for _, k := range keys {
+		out.Tags = append(out.Tags, tagEntry{Key: k, Value: tags[k]})
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -618,10 +624,6 @@ func (h *Handler) handleUpdatePipelineStatus(c *echo.Context, id string, body []
 	var in updatePipelineStatusInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
-	}
-
-	if in.Status == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "Status is required"))
 	}
 
 	p, err := h.Backend.UpdatePipelineStatus(id, in.Status)
