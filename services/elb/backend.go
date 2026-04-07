@@ -191,7 +191,8 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	lbs       map[string]*LoadBalancer
+	lbs map[string]*LoadBalancer
+	// policies stores load balancer policies keyed by "loadBalancerName/policyName".
 	policies  map[string]*LoadBalancerPolicy
 	mu        *lockmetrics.RWMutex
 	accountID string

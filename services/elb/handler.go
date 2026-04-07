@@ -28,7 +28,8 @@ const (
 // Handler is the Echo HTTP handler for Classic ELB operations.
 type Handler struct {
 	Backend StorageBackend
-	ops     map[string]func(url.Values) (any, error)
+	// ops is the pre-built dispatch table mapping action names to handler functions.
+	ops map[string]func(url.Values) (any, error)
 }
 
 // NewHandler creates a new ELB handler.
