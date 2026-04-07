@@ -101,6 +101,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeSnapshots",
 		"CopySnapshot",
 		"DescribeEvents",
+		// New ops
+		"CreateCacheSecurityGroup",
+		"AuthorizeCacheSecurityGroupIngress",
+		"CreateGlobalReplicationGroup",
+		"CreateServerlessCache",
+		"CreateServerlessCacheSnapshot",
+		"CopyServerlessCacheSnapshot",
+		"CreateUser",
+		"BatchApplyUpdateAction",
+		"BatchStopUpdateAction",
+		"CompleteMigration",
 	}
 }
 
@@ -176,6 +187,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		"CacheSubnetGroupName",
 		"SnapshotName",
 		"ResourceName",
+		"CacheSecurityGroupName",
+		"GlobalReplicationGroupIdSuffix",
+		"ServerlessCacheName",
+		"ServerlessCacheSnapshotName",
+		"UserId",
 	} {
 		if v := vals.Get(key); v != "" {
 			return v
@@ -216,6 +232,17 @@ func (h *Handler) dispatchTable() map[string]elasticacheActionFn {
 		"DescribeSnapshots":            h.describeSnapshots,
 		"CopySnapshot":                 h.copySnapshot,
 		"DescribeEvents":               h.describeEvents,
+		// New ops
+		"CreateCacheSecurityGroup":           h.createCacheSecurityGroup,
+		"AuthorizeCacheSecurityGroupIngress": h.authorizeCacheSecurityGroupIngress,
+		"CreateGlobalReplicationGroup":       h.createGlobalReplicationGroup,
+		"CreateServerlessCache":              h.createServerlessCache,
+		"CreateServerlessCacheSnapshot":      h.createServerlessCacheSnapshot,
+		"CopyServerlessCacheSnapshot":        h.copyServerlessCacheSnapshot,
+		"CreateUser":                         h.createUser,
+		"BatchApplyUpdateAction":             h.batchApplyUpdateAction,
+		"BatchStopUpdateAction":              h.batchStopUpdateAction,
+		"CompleteMigration":                  h.completeMigration,
 	}
 }
 
@@ -1283,13 +1310,23 @@ func (h *Handler) removeTagsFromResource(c *echo.Context, form url.Values) error
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	type tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	type tagList struct {
+		Tag []tag `xml:"Tag"`
+	}
 	type result struct {
-		XMLName   xml.Name `xml:"RemoveTagsFromResourceResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName xml.Name `xml:"RemoveTagsFromResourceResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+		TagList tagList  `xml:"RemoveTagsFromResourceResult>TagList"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: "elasticache-stub"})
+	return xmlResp(c, http.StatusOK, result{
+		Xmlns:   elasticacheNS,
+		TagList: tagList{Tag: []tag{}},
+	})
 }
 
 func (h *Handler) testFailoverReplicationGroup(c *echo.Context, form url.Values) error {

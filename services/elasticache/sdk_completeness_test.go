@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
 	h := elasticache.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &elasticachesdk.Client{}, h.GetSupportedOperations(), []string{
-		"AuthorizeCacheSecurityGroupIngress",
-		"BatchApplyUpdateAction",
-		"BatchStopUpdateAction",
-		"CompleteMigration",
-		"CopyServerlessCacheSnapshot",
-		"CreateCacheSecurityGroup",
-		"CreateGlobalReplicationGroup",
-		"CreateServerlessCache",
-		"CreateServerlessCacheSnapshot",
-		"CreateUser",
 		"CreateUserGroup",
 		"DecreaseNodeGroupsInGlobalReplicationGroup",
 		"DecreaseReplicaCount",
