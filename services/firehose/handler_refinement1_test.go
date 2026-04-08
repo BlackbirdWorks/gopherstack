@@ -295,8 +295,12 @@ func TestHandlerUpdateDestination_VersionMismatch(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// indexOf returns the byte offset of substr in s.
+// indexOf returns the byte offset of substr in s, or -1 if not found.
 func indexOf(s, substr string) int {
+	if len(substr) > len(s) {
+		return -1
+	}
+
 	for i := range len(s) - len(substr) + 1 {
 		if s[i:i+len(substr)] == substr {
 			return i

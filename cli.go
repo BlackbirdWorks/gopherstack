@@ -3306,6 +3306,9 @@ func wireCWLogsSubscriptionFilters(cwlogsReg, lambdaReg, kinesisReg, firehoseReg
 	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
 		if fhBk, fhBkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhBkOk {
 			d.firehose = fhBk
+		} else {
+			slog.Default().
+				Warn("cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
 		}
 	}
 

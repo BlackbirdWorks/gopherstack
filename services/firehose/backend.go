@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -343,9 +344,14 @@ func (b *InMemoryBackend) UpdateDestination(streamName, currentVersionID string,
 
 	s.S3Destination = dest
 
-	// VersionID is always a valid integer (initialized to "1", incremented only here),
-	// so strconv.Atoi will not error for well-formed data.
-	v, _ := strconv.Atoi(s.VersionID)
+	v, err := strconv.Atoi(s.VersionID)
+	if err != nil {
+		slog.Default().Warn("firehose: unexpected non-integer VersionID; resetting to 1",
+			"stream", streamName, "versionID", s.VersionID, "error", err)
+
+		v = 0
+	}
+
 	s.VersionID = strconv.Itoa(v + 1)
 
 	return nil
@@ -801,6 +807,8 @@ const recordIDBytes = 16
 func newRecordID() string {
 	b := make([]byte, recordIDBytes)
 	if _, err := rand.Read(b); err != nil {
+		slog.Default().Warn("firehose: rand.Read failed; falling back to timestamp-based record ID", "error", err)
+
 		return fmt.Sprintf("rec-%d", time.Now().UnixNano())
 	}
 
