@@ -1,9 +1,14 @@
 package eventbridge
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when called with a nil AppContext.
+var ErrNilAppContext = errors.New("nil AppContext passed to EventBridge provider Init")
 
 // Provider implements service.Provider for the EventBridge service.
 type Provider struct{}
@@ -15,6 +20,10 @@ func (p *Provider) Name() string { return "EventBridge" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	var backend *InMemoryBackend
 
 	if cp, ok := ctx.Config.(config.Provider); ok {

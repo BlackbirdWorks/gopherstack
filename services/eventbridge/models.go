@@ -83,4 +83,159 @@ type EventLogEntry struct {
 	EventBusName string    `json:"eventBusName"`
 }
 
-// FailedEntry describes a target or event that failed to process.
+// EventSource represents a partner event source.
+type EventSource struct {
+	Arn            string    `json:"Arn"`
+	CreatedBy      string    `json:"CreatedBy"`
+	CreationTime   time.Time `json:"CreationTime"`
+	ExpirationTime time.Time `json:"ExpirationTime,omitzero"`
+	Name           string    `json:"Name"`
+	State          string    `json:"State"` // PENDING, ACTIVE, DELETED
+}
+
+// Replay represents an EventBridge replay.
+type Replay struct {
+	EventStartTime  time.Time `json:"EventStartTime,omitzero"`
+	EventEndTime    time.Time `json:"EventEndTime,omitzero"`
+	ReplayStartTime time.Time `json:"ReplayStartTime,omitzero"`
+	ReplayEndTime   time.Time `json:"ReplayEndTime,omitzero"`
+	ReplayName      string    `json:"ReplayName"`
+	ReplayArn       string    `json:"ReplayArn"`
+	EventSourceArn  string    `json:"EventSourceArn"`
+	State           string    `json:"State"` // STARTING, RUNNING, CANCELLING, COMPLETED, CANCELLED, FAILED
+	StateReason     string    `json:"StateReason,omitempty"`
+}
+
+// APIDestination represents an EventBridge API destination.
+type APIDestination struct {
+	CreationTime                 time.Time `json:"CreationTime"`
+	LastModifiedTime             time.Time `json:"LastModifiedTime"`
+	APIDestinationArn            string    `json:"ApiDestinationArn"`
+	APIDestinationState          string    `json:"ApiDestinationState"`
+	ConnectionArn                string    `json:"ConnectionArn"`
+	Description                  string    `json:"Description,omitempty"`
+	HTTPMethod                   string    `json:"HttpMethod"`
+	InvocationEndpoint           string    `json:"InvocationEndpoint"`
+	Name                         string    `json:"Name"`
+	InvocationRateLimitPerSecond int       `json:"InvocationRateLimitPerSecond,omitempty"`
+}
+
+// Archive represents an EventBridge archive.
+type Archive struct {
+	CreationTime   time.Time `json:"CreationTime"`
+	ArchiveName    string    `json:"ArchiveName"`
+	ArchiveArn     string    `json:"ArchiveArn"`
+	Description    string    `json:"Description,omitempty"`
+	EventPattern   string    `json:"EventPattern,omitempty"`
+	EventSourceArn string    `json:"EventSourceArn"`
+	State          string    `json:"State"`
+	StateReason    string    `json:"StateReason,omitempty"`
+	EventCount     int64     `json:"EventCount"`
+	RetentionDays  int       `json:"RetentionDays,omitempty"`
+	SizeBytes      int64     `json:"SizeBytes"`
+}
+
+// Connection represents an EventBridge connection.
+type Connection struct {
+	ConnectionArn      string    `json:"ConnectionArn"`
+	AuthorizationType  string    `json:"AuthorizationType"`
+	ConnectionState    string    `json:"ConnectionState"`
+	CreationTime       time.Time `json:"CreationTime"`
+	Description        string    `json:"Description,omitempty"`
+	LastAuthorizedTime time.Time `json:"LastAuthorizedTime,omitzero"`
+	LastModifiedTime   time.Time `json:"LastModifiedTime"`
+	Name               string    `json:"Name"`
+	SecretArn          string    `json:"SecretArn,omitempty"`
+	StateReason        string    `json:"StateReason,omitempty"`
+}
+
+// Endpoint represents an EventBridge global endpoint.
+type Endpoint struct {
+	CreationTime      time.Time          `json:"CreationTime"`
+	LastModifiedTime  time.Time          `json:"LastModifiedTime"`
+	ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
+	RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
+	RoleArn           string             `json:"RoleArn,omitempty"`
+	EndpointURL       string             `json:"EndpointUrl"`
+	Name              string             `json:"Name"`
+	EndpointID        string             `json:"EndpointId"`
+	Description       string             `json:"Description,omitempty"`
+	Arn               string             `json:"Arn"`
+	State             string             `json:"State"`
+	StateReason       string             `json:"StateReason,omitempty"`
+	EventBuses        []EndpointEventBus `json:"EventBuses,omitempty"`
+}
+
+// EndpointEventBus associates an event bus with an endpoint.
+type EndpointEventBus struct {
+	EventBusArn string `json:"EventBusArn"`
+}
+
+// ReplicationConfig defines replication settings for an endpoint.
+type ReplicationConfig struct {
+	State string `json:"State"` // ENABLED, DISABLED
+}
+
+// RoutingConfig defines routing configuration for an endpoint.
+type RoutingConfig struct {
+	FailoverConfig *FailoverConfig `json:"FailoverConfig"`
+}
+
+// FailoverConfig defines failover settings.
+type FailoverConfig struct {
+	Primary   *Primary   `json:"Primary"`
+	Secondary *Secondary `json:"Secondary"`
+}
+
+// Primary defines the primary region health check.
+type Primary struct {
+	HealthCheck string `json:"HealthCheck"`
+}
+
+// Secondary defines the secondary region route.
+type Secondary struct {
+	Route string `json:"Route"`
+}
+
+// PartnerEventSource represents a partner event source.
+type PartnerEventSource struct {
+	Arn     string `json:"Arn"`
+	Name    string `json:"Name"`
+	Account string `json:"Account,omitempty"`
+}
+
+// CreateAPIDestinationInput is the input for CreateAPIDestination.
+type CreateAPIDestinationInput struct {
+	ConnectionArn                string `json:"ConnectionArn"`
+	Description                  string `json:"Description,omitempty"`
+	HTTPMethod                   string `json:"HttpMethod"`
+	InvocationEndpoint           string `json:"InvocationEndpoint"`
+	Name                         string `json:"Name"`
+	InvocationRateLimitPerSecond int    `json:"InvocationRateLimitPerSecond,omitempty"`
+}
+
+// CreateArchiveInput is the input for CreateArchive.
+type CreateArchiveInput struct {
+	ArchiveName    string `json:"ArchiveName"`
+	Description    string `json:"Description,omitempty"`
+	EventPattern   string `json:"EventPattern,omitempty"`
+	EventSourceArn string `json:"EventSourceArn"`
+	RetentionDays  int    `json:"RetentionDays,omitempty"`
+}
+
+// CreateConnectionInput is the input for CreateConnection.
+type CreateConnectionInput struct {
+	AuthorizationType string `json:"AuthorizationType"`
+	Description       string `json:"Description,omitempty"`
+	Name              string `json:"Name"`
+}
+
+// CreateEndpointInput is the input for CreateEndpoint.
+type CreateEndpointInput struct {
+	ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
+	RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
+	Description       string             `json:"Description,omitempty"`
+	Name              string             `json:"Name"`
+	RoleArn           string             `json:"RoleArn,omitempty"`
+	EventBuses        []EndpointEventBus `json:"EventBuses"`
+}

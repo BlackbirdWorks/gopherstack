@@ -24,6 +24,9 @@ var (
 	ErrRuleNotFound           = errors.New("ResourceNotFoundException")
 	ErrCannotDeleteDefaultBus = errors.New("IllegalArgumentException")
 	ErrInvalidParameter       = errors.New("InvalidParameterException")
+	ErrNotFound               = errors.New("ResourceNotFoundException")
+	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
+	ErrInvalidState           = errors.New("InvalidStateException")
 )
 
 const (
@@ -56,6 +59,16 @@ type StorageBackend interface {
 	ListTargetsByRule(ruleName, eventBusName, nextToken string) ([]Target, string, error)
 	PutEvents(entries []EventEntry) []EventResultEntry
 	GetEventLog() []EventLogEntry
+	ActivateEventSource(name string) error
+	DeactivateEventSource(name string) error
+	CreatePartnerEventSource(name, account string) (*PartnerEventSource, error)
+	CancelReplay(replayName string) (*Replay, error)
+	CreateAPIDestination(input CreateAPIDestinationInput) (*APIDestination, error)
+	CreateArchive(input CreateArchiveInput) (*Archive, error)
+	CreateConnection(input CreateConnectionInput) (*Connection, error)
+	CreateEndpoint(input CreateEndpointInput) (*Endpoint, error)
+	DeauthorizeConnection(name string) (*Connection, error)
+	DeleteAPIDestination(name string) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -65,6 +78,13 @@ type InMemoryBackend struct {
 	buses           map[string]*EventBus
 	rules           map[string]map[string]*Rule
 	targets         map[string]map[string]*Target
+	eventSources    map[string]*EventSource
+	replays         map[string]*Replay
+	apiDestinations map[string]*APIDestination
+	archives        map[string]*Archive
+	connections     map[string]*Connection
+	endpoints       map[string]*Endpoint
+	partnerSources  map[string]*PartnerEventSource
 	mu              *lockmetrics.RWMutex
 	cancel          context.CancelFunc
 	workerSem       chan struct{}
@@ -105,6 +125,13 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		buses:           make(map[string]*EventBus),
 		rules:           make(map[string]map[string]*Rule),
 		targets:         make(map[string]map[string]*Target),
+		eventSources:    make(map[string]*EventSource),
+		replays:         make(map[string]*Replay),
+		apiDestinations: make(map[string]*APIDestination),
+		archives:        make(map[string]*Archive),
+		connections:     make(map[string]*Connection),
+		endpoints:       make(map[string]*Endpoint),
+		partnerSources:  make(map[string]*PartnerEventSource),
 		deliveryTargets: &DeliveryTargets{},
 		mu:              lockmetrics.New("eventbridge"),
 		ctx:             ctx,
@@ -184,6 +211,30 @@ func (b *InMemoryBackend) busARN(name string) string {
 
 func (b *InMemoryBackend) ruleARN(busName, ruleName string) string {
 	return arn.Build("events", b.region, b.accountID, "rule/"+busName+"/"+ruleName)
+}
+
+func (b *InMemoryBackend) apiDestinationARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "api-destination/"+name)
+}
+
+func (b *InMemoryBackend) archiveARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "archive/"+name)
+}
+
+func (b *InMemoryBackend) connectionARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "connection/"+name)
+}
+
+func (b *InMemoryBackend) endpointARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "endpoint/"+name)
+}
+
+func (b *InMemoryBackend) partnerSourceARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "event-source/aws.partner/"+name)
+}
+
+func (b *InMemoryBackend) replayARN(name string) string {
+	return arn.Build("events", b.region, b.accountID, "replay/"+name)
 }
 
 func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
@@ -649,6 +700,13 @@ func (b *InMemoryBackend) Reset() {
 	b.rules = make(map[string]map[string]*Rule)
 	b.targets = make(map[string]map[string]*Target)
 	b.eventLog = nil
+	b.eventSources = make(map[string]*EventSource)
+	b.replays = make(map[string]*Replay)
+	b.apiDestinations = make(map[string]*APIDestination)
+	b.archives = make(map[string]*Archive)
+	b.connections = make(map[string]*Connection)
+	b.endpoints = make(map[string]*Endpoint)
+	b.partnerSources = make(map[string]*PartnerEventSource)
 
 	// Re-create the default event bus so it is always available after reset.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -656,4 +714,356 @@ func (b *InMemoryBackend) Reset() {
 		Arn:         b.busARN(defaultEventBusName),
 		CreatedTime: time.Now(),
 	}
+}
+
+// ActivateEventSource activates a partner event source.
+func (b *InMemoryBackend) ActivateEventSource(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ActivateEventSource")
+	defer b.mu.Unlock()
+
+	src, exists := b.eventSources[name]
+	if !exists {
+		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
+	}
+
+	src.State = "ACTIVE"
+
+	return nil
+}
+
+// DeactivateEventSource deactivates a partner event source.
+func (b *InMemoryBackend) DeactivateEventSource(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeactivateEventSource")
+	defer b.mu.Unlock()
+
+	src, exists := b.eventSources[name]
+	if !exists {
+		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
+	}
+
+	src.State = "INACTIVE"
+
+	return nil
+}
+
+// CreatePartnerEventSource creates a new partner event source.
+func (b *InMemoryBackend) CreatePartnerEventSource(name, account string) (*PartnerEventSource, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreatePartnerEventSource")
+	defer b.mu.Unlock()
+
+	if _, exists := b.partnerSources[name]; exists {
+		return nil, fmt.Errorf("%w: partner event source %s already exists", ErrAlreadyExists, name)
+	}
+
+	src := &PartnerEventSource{
+		Arn:     b.partnerSourceARN(name),
+		Name:    name,
+		Account: account,
+	}
+	b.partnerSources[name] = src
+
+	cp := *src
+
+	return &cp, nil
+}
+
+// CancelReplay cancels a running or starting replay.
+func (b *InMemoryBackend) CancelReplay(replayName string) (*Replay, error) {
+	if replayName == "" {
+		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CancelReplay")
+	defer b.mu.Unlock()
+
+	replay, exists := b.replays[replayName]
+	if !exists {
+		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, replayName)
+	}
+
+	if replay.State != "RUNNING" && replay.State != "STARTING" {
+		return nil, fmt.Errorf(
+			"%w: replay %s is not in a cancellable state (current: %s)",
+			ErrInvalidState,
+			replayName,
+			replay.State,
+		)
+	}
+
+	replay.State = "CANCELLING"
+
+	cp := *replay
+
+	return &cp, nil
+}
+
+// CreateAPIDestination creates a new API destination.
+func (b *InMemoryBackend) CreateAPIDestination(input CreateAPIDestinationInput) (*APIDestination, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if input.ConnectionArn == "" {
+		return nil, fmt.Errorf("%w: ConnectionArn is required", ErrInvalidParameter)
+	}
+
+	if input.InvocationEndpoint == "" {
+		return nil, fmt.Errorf("%w: InvocationEndpoint is required", ErrInvalidParameter)
+	}
+
+	if input.HTTPMethod == "" {
+		return nil, fmt.Errorf("%w: HttpMethod is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateAPIDestination")
+	defer b.mu.Unlock()
+
+	if _, exists := b.apiDestinations[input.Name]; exists {
+		return nil, fmt.Errorf("%w: API destination %s already exists", ErrAlreadyExists, input.Name)
+	}
+
+	now := time.Now()
+	dst := &APIDestination{
+		APIDestinationArn:            b.apiDestinationARN(input.Name),
+		APIDestinationState:          "ACTIVE",
+		ConnectionArn:                input.ConnectionArn,
+		CreationTime:                 now,
+		Description:                  input.Description,
+		HTTPMethod:                   input.HTTPMethod,
+		InvocationEndpoint:           input.InvocationEndpoint,
+		InvocationRateLimitPerSecond: input.InvocationRateLimitPerSecond,
+		LastModifiedTime:             now,
+		Name:                         input.Name,
+	}
+	b.apiDestinations[input.Name] = dst
+
+	cp := *dst
+
+	return &cp, nil
+}
+
+// CreateArchive creates a new event archive.
+func (b *InMemoryBackend) CreateArchive(input CreateArchiveInput) (*Archive, error) {
+	if input.ArchiveName == "" {
+		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+	}
+
+	if input.EventSourceArn == "" {
+		return nil, fmt.Errorf("%w: EventSourceArn is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateArchive")
+	defer b.mu.Unlock()
+
+	if _, exists := b.archives[input.ArchiveName]; exists {
+		return nil, fmt.Errorf("%w: archive %s already exists", ErrAlreadyExists, input.ArchiveName)
+	}
+
+	archive := &Archive{
+		ArchiveName:    input.ArchiveName,
+		ArchiveArn:     b.archiveARN(input.ArchiveName),
+		CreationTime:   time.Now(),
+		Description:    input.Description,
+		EventPattern:   input.EventPattern,
+		EventSourceArn: input.EventSourceArn,
+		RetentionDays:  input.RetentionDays,
+		State:          "ENABLED",
+	}
+	b.archives[input.ArchiveName] = archive
+
+	cp := *archive
+
+	return &cp, nil
+}
+
+// CreateConnection creates a new connection.
+func (b *InMemoryBackend) CreateConnection(input CreateConnectionInput) (*Connection, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if input.AuthorizationType == "" {
+		return nil, fmt.Errorf("%w: AuthorizationType is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateConnection")
+	defer b.mu.Unlock()
+
+	if _, exists := b.connections[input.Name]; exists {
+		return nil, fmt.Errorf("%w: connection %s already exists", ErrAlreadyExists, input.Name)
+	}
+
+	now := time.Now()
+	conn := &Connection{
+		ConnectionArn:     b.connectionARN(input.Name),
+		AuthorizationType: input.AuthorizationType,
+		ConnectionState:   "AUTHORIZED",
+		CreationTime:      now,
+		Description:       input.Description,
+		LastModifiedTime:  now,
+		Name:              input.Name,
+	}
+	b.connections[input.Name] = conn
+
+	cp := *conn
+
+	return &cp, nil
+}
+
+// CreateEndpoint creates a new global endpoint.
+func (b *InMemoryBackend) CreateEndpoint(input CreateEndpointInput) (*Endpoint, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateEndpoint")
+	defer b.mu.Unlock()
+
+	if _, exists := b.endpoints[input.Name]; exists {
+		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, input.Name)
+	}
+
+	now := time.Now()
+	buses := input.EventBuses
+	if buses == nil {
+		buses = []EndpointEventBus{}
+	}
+
+	ep := &Endpoint{
+		Arn:               b.endpointARN(input.Name),
+		CreationTime:      now,
+		Description:       input.Description,
+		EndpointID:        input.Name + "-" + b.region,
+		EndpointURL:       "https://" + input.Name + ".endpoint.events." + b.region + ".amazonaws.com",
+		EventBuses:        buses,
+		LastModifiedTime:  now,
+		Name:              input.Name,
+		ReplicationConfig: input.ReplicationConfig,
+		RoleArn:           input.RoleArn,
+		RoutingConfig:     input.RoutingConfig,
+		State:             "ACTIVE",
+	}
+	b.endpoints[input.Name] = ep
+
+	cp := *ep
+
+	return &cp, nil
+}
+
+// DeauthorizeConnection deauthorizes a connection.
+func (b *InMemoryBackend) DeauthorizeConnection(name string) (*Connection, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeauthorizeConnection")
+	defer b.mu.Unlock()
+
+	conn, exists := b.connections[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
+	}
+
+	conn.ConnectionState = "DEAUTHORIZED"
+
+	cp := *conn
+
+	return &cp, nil
+}
+
+// DeleteAPIDestination deletes an API destination.
+func (b *InMemoryBackend) DeleteAPIDestination(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteAPIDestination")
+	defer b.mu.Unlock()
+
+	if _, exists := b.apiDestinations[name]; !exists {
+		return fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
+	}
+
+	delete(b.apiDestinations, name)
+
+	return nil
+}
+
+// AddEventSourceInternal adds an event source directly for testing.
+func (b *InMemoryBackend) AddEventSourceInternal(src *EventSource) {
+	b.mu.Lock("AddEventSourceInternal")
+	defer b.mu.Unlock()
+
+	cp := *src
+	b.eventSources[src.Name] = &cp
+}
+
+// AddReplayInternal adds a replay directly for testing.
+func (b *InMemoryBackend) AddReplayInternal(replay *Replay) {
+	b.mu.Lock("AddReplayInternal")
+	defer b.mu.Unlock()
+
+	if replay.ReplayArn == "" {
+		replay.ReplayArn = b.replayARN(replay.ReplayName)
+	}
+
+	cp := *replay
+	b.replays[replay.ReplayName] = &cp
+}
+
+// AddAPIDestinationInternal adds an API destination directly for testing.
+func (b *InMemoryBackend) AddAPIDestinationInternal(dst *APIDestination) {
+	b.mu.Lock("AddAPIDestinationInternal")
+	defer b.mu.Unlock()
+
+	cp := *dst
+	b.apiDestinations[dst.Name] = &cp
+}
+
+// AddArchiveInternal adds an archive directly for testing.
+func (b *InMemoryBackend) AddArchiveInternal(archive *Archive) {
+	b.mu.Lock("AddArchiveInternal")
+	defer b.mu.Unlock()
+
+	cp := *archive
+	b.archives[archive.ArchiveName] = &cp
+}
+
+// AddConnectionInternal adds a connection directly for testing.
+func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
+	b.mu.Lock("AddConnectionInternal")
+	defer b.mu.Unlock()
+
+	cp := *conn
+	b.connections[conn.Name] = &cp
+}
+
+// AddEndpointInternal adds an endpoint directly for testing.
+func (b *InMemoryBackend) AddEndpointInternal(ep *Endpoint) {
+	b.mu.Lock("AddEndpointInternal")
+	defer b.mu.Unlock()
+
+	cp := *ep
+	b.endpoints[ep.Name] = &cp
+}
+
+// AddPartnerSourceInternal adds a partner event source directly for testing.
+func (b *InMemoryBackend) AddPartnerSourceInternal(src *PartnerEventSource) {
+	b.mu.Lock("AddPartnerSourceInternal")
+	defer b.mu.Unlock()
+
+	cp := *src
+	b.partnerSources[src.Name] = &cp
 }
