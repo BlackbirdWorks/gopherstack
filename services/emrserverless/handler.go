@@ -33,6 +33,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears all backend state. Used for test isolation.
+func (h *Handler) Reset() { h.Backend.Reset() }
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "EmrServerless" }
 
@@ -315,6 +318,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	case errors.Is(err, ErrInvalidState):
+		return c.JSON(http.StatusBadRequest, errResp("RequestFailedException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
@@ -333,8 +340,9 @@ func epochSeconds(ts interface{ Unix() int64 }) float64 {
 // applicationToMap converts an Application to a map with float64 timestamps
 // for correct AWS REST-JSON serialization. Returns a map representation with
 // createdAt/updatedAt as float64 Unix epoch seconds values.
+// Tags are always included (as an empty map if none are set).
 func applicationToMap(app *Application) map[string]any {
-	m := map[string]any{
+	return map[string]any{
 		"applicationId": app.ApplicationID,
 		"arn":           app.Arn,
 		"name":          app.Name,
@@ -343,20 +351,16 @@ func applicationToMap(app *Application) map[string]any {
 		"state":         app.State,
 		"createdAt":     epochSeconds(app.CreatedAt),
 		"updatedAt":     epochSeconds(app.UpdatedAt),
+		"tags":          app.Tags,
 	}
-
-	if len(app.Tags) > 0 {
-		m["tags"] = app.Tags
-	}
-
-	return m
 }
 
 // jobRunToMap converts a JobRun to a map with float64 timestamps
 // for correct AWS REST-JSON serialization. Returns a map representation with
 // createdAt/updatedAt as float64 Unix epoch seconds values.
+// Tags are always included (as an empty map if none are set).
 func jobRunToMap(jr *JobRun) map[string]any {
-	m := map[string]any{
+	return map[string]any{
 		"applicationId":    jr.ApplicationID,
 		"jobRunId":         jr.JobRunID,
 		"arn":              jr.Arn,
@@ -365,13 +369,8 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		"executionRoleArn": jr.ExecutionRoleArn,
 		"createdAt":        epochSeconds(jr.CreatedAt),
 		"updatedAt":        epochSeconds(jr.UpdatedAt),
+		"tags":             jr.Tags,
 	}
-
-	if len(jr.Tags) > 0 {
-		m["tags"] = jr.Tags
-	}
-
-	return m
 }
 
 // --- Application handlers ---

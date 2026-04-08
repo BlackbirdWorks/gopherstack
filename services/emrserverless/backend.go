@@ -72,6 +72,10 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrInvalidState is returned when an operation is not valid for the resource's current state.
+	ErrInvalidState = awserr.New("RequestFailedException", awserr.ErrInvalidParameter)
 )
 
 // Application represents an EMR Serverless application.
@@ -125,6 +129,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all backend state, returning it to the initial empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.applications = make(map[string]*Application)
+	b.applicationARNs = make(map[string]string)
+	b.jobRunARNs = make(map[string][2]string)
+	b.jobRuns = make(map[string]map[string]*JobRun)
+}
+
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
@@ -159,6 +174,14 @@ func (b *InMemoryBackend) CreateApplication(
 ) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if appType == "" {
+		return nil, fmt.Errorf("%w: type is required", ErrValidation)
+	}
 
 	for _, app := range b.applications {
 		if app.Name == name {
@@ -237,6 +260,7 @@ func (b *InMemoryBackend) UpdateApplication(id string, update func(*Application)
 }
 
 // DeleteApplication removes an application.
+// It rejects the request if the application is in STARTED or STARTING state.
 func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
@@ -244,6 +268,13 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	app, ok := b.applications[id]
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
+	}
+
+	if app.State == ApplicationStateStarted || app.State == ApplicationStateStarting {
+		return fmt.Errorf(
+			"%w: application %s must be stopped before deletion (current state: %s)",
+			ErrInvalidState, id, app.State,
+		)
 	}
 
 	delete(b.applicationARNs, app.Arn)
@@ -298,6 +329,10 @@ func (b *InMemoryBackend) StartJobRun(
 ) (*JobRun, error) {
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
+
+	if executionRoleArn == "" {
+		return nil, fmt.Errorf("%w: executionRoleArn is required", ErrValidation)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
@@ -376,6 +411,11 @@ func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResult
 	return page, token, nil
 }
 
+// isTerminalJobRunState returns true if the given state prevents cancellation.
+func isTerminalJobRunState(state string) bool {
+	return state == JobRunStateSuccess || state == JobRunStateFailed || state == JobRunStateCancelled
+}
+
 // CancelJobRun cancels a job run.
 func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun, error) {
 	b.mu.Lock("CancelJobRun")
@@ -393,6 +433,13 @@ func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun,
 	jr, ok := runs[jobRunID]
 	if !ok {
 		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
+	}
+
+	if isTerminalJobRunState(jr.State) {
+		return nil, fmt.Errorf(
+			"%w: job run %s cannot be cancelled from state %s",
+			ErrInvalidState, jobRunID, jr.State,
+		)
 	}
 
 	jr.State = JobRunStateCancelled
@@ -567,23 +614,59 @@ func (b *InMemoryBackend) ListJobRunAttempts(
 }
 
 // cloneApplication returns a deep copy of an Application with its Tags map cloned.
+// The returned copy always has a non-nil Tags map.
 func cloneApplication(app *Application) *Application {
 	cp := *app
-	if app.Tags != nil {
-		cp.Tags = maps.Clone(app.Tags)
-	}
+	cp.Tags = make(map[string]string, len(app.Tags))
+	maps.Copy(cp.Tags, app.Tags)
 
 	return &cp
 }
 
 // cloneJobRun returns a deep copy of a JobRun with its Tags map cloned.
+// The returned copy always has a non-nil Tags map.
 func cloneJobRun(jr *JobRun) *JobRun {
 	cp := *jr
-	if jr.Tags != nil {
-		cp.Tags = maps.Clone(jr.Tags)
-	}
+	cp.Tags = make(map[string]string, len(jr.Tags))
+	maps.Copy(cp.Tags, jr.Tags)
 
 	return &cp
+}
+
+// AddApplicationInternal directly inserts an Application into the backend without
+// going through the HTTP layer.  Intended for test seeding only.
+func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
+	b.mu.Lock("AddApplicationInternal")
+	defer b.mu.Unlock()
+
+	if app.Tags == nil {
+		app.Tags = make(map[string]string)
+	}
+
+	b.applications[app.ApplicationID] = app
+	b.applicationARNs[app.Arn] = app.ApplicationID
+
+	if b.jobRuns[app.ApplicationID] == nil {
+		b.jobRuns[app.ApplicationID] = make(map[string]*JobRun)
+	}
+}
+
+// AddJobRunInternal directly inserts a JobRun into the backend without going through
+// the HTTP layer.  The application must already exist.  Intended for test seeding only.
+func (b *InMemoryBackend) AddJobRunInternal(jr *JobRun) {
+	b.mu.Lock("AddJobRunInternal")
+	defer b.mu.Unlock()
+
+	if jr.Tags == nil {
+		jr.Tags = make(map[string]string)
+	}
+
+	if b.jobRuns[jr.ApplicationID] == nil {
+		b.jobRuns[jr.ApplicationID] = make(map[string]*JobRun)
+	}
+
+	b.jobRuns[jr.ApplicationID][jr.JobRunID] = jr
+	b.jobRunARNs[jr.Arn] = [2]string{jr.ApplicationID, jr.JobRunID}
 }
 
 // emrPaginate applies token-based pagination to a sorted slice of pointers.
