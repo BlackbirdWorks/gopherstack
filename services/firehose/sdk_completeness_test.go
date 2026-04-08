@@ -17,8 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	h := firehose.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &firehosesdk.Client{}, h.GetSupportedOperations(), []string{
-		"StartDeliveryStreamEncryption",
-		"StopDeliveryStreamEncryption",
-	})
+	sdkcheck.CheckCompleteness(t, &firehosesdk.Client{}, h.GetSupportedOperations(), []string{})
 }
