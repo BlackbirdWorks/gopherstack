@@ -74,6 +74,19 @@ type ProcessingConfiguration struct {
 	Enabled    bool        `json:"Enabled"`
 }
 
+// EncryptionConfigInput holds the optional SSE configuration for a delivery stream.
+type EncryptionConfigInput struct {
+	KeyARN  string `json:"KeyARN,omitempty"`
+	KeyType string `json:"KeyType"`
+}
+
+// EncryptionConfig holds the effective SSE configuration for a delivery stream.
+type EncryptionConfig struct {
+	KeyARN  string `json:"keyARN,omitempty"`
+	KeyType string `json:"keyType"`
+	Status  string `json:"status"`
+}
+
 // S3DestinationDescription holds the effective S3 destination config stored on the stream.
 type S3DestinationDescription struct {
 	BufferingHints          *BufferingHints          `json:"BufferingHints,omitempty"`
@@ -90,6 +103,7 @@ type DeliveryStream struct {
 	lastFlush       time.Time
 	Tags            *tags.Tags                `json:"tags,omitempty"`
 	S3Destination   *S3DestinationDescription `json:"s3Destination,omitempty"`
+	Encryption      *EncryptionConfig         `json:"encryption,omitempty"`
 	Name            string                    `json:"name"`
 	ARN             string                    `json:"arn"`
 	Status          string                    `json:"status"`
@@ -111,6 +125,8 @@ type InMemoryBackend struct {
 	accountID string
 	region    string
 }
+
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
@@ -668,6 +684,46 @@ func (b *InMemoryBackend) UntagDeliveryStream(name string, keys []string) error 
 	}
 
 	s.Tags.DeleteKeys(keys)
+
+	return nil
+}
+
+// StartDeliveryStreamEncryption enables server-side encryption for a delivery stream.
+// In this in-memory implementation the status transitions directly to ENABLED.
+func (b *InMemoryBackend) StartDeliveryStreamEncryption(_ context.Context, name string, input *EncryptionConfigInput) error {
+	b.mu.Lock("StartDeliveryStreamEncryption")
+	defer b.mu.Unlock()
+
+	s, ok := b.streams[name]
+	if !ok {
+		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	cfg := &EncryptionConfig{Status: "ENABLED", KeyType: "AWS_OWNED_CMK"}
+	if input != nil {
+		if input.KeyType != "" {
+			cfg.KeyType = input.KeyType
+		}
+		cfg.KeyARN = input.KeyARN
+	}
+
+	s.Encryption = cfg
+
+	return nil
+}
+
+// StopDeliveryStreamEncryption disables server-side encryption for a delivery stream.
+// In this in-memory implementation the status transitions directly to DISABLED.
+func (b *InMemoryBackend) StopDeliveryStreamEncryption(_ context.Context, name string) error {
+	b.mu.Lock("StopDeliveryStreamEncryption")
+	defer b.mu.Unlock()
+
+	s, ok := b.streams[name]
+	if !ok {
+		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	s.Encryption = &EncryptionConfig{Status: "DISABLED"}
 
 	return nil
 }

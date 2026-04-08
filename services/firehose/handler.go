@@ -85,6 +85,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagDeliveryStream",
 		"UntagDeliveryStream",
 		"UpdateDestination",
+		"StartDeliveryStreamEncryption",
+		"StopDeliveryStreamEncryption",
 	}
 }
 
@@ -150,16 +152,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateDeliveryStream":      service.WrapOp(h.handleCreateDeliveryStream),
-		"DeleteDeliveryStream":      service.WrapOp(h.handleDeleteDeliveryStream),
-		"DescribeDeliveryStream":    service.WrapOp(h.handleDescribeDeliveryStream),
-		"ListDeliveryStreams":       service.WrapOp(h.handleListDeliveryStreams),
-		"PutRecord":                 service.WrapOp(h.handlePutRecord),
-		"PutRecordBatch":            service.WrapOp(h.handlePutRecordBatch),
-		"ListTagsForDeliveryStream": service.WrapOp(h.handleListTagsForDeliveryStream),
-		"TagDeliveryStream":         service.WrapOp(h.handleTagDeliveryStream),
-		"UntagDeliveryStream":       service.WrapOp(h.handleUntagDeliveryStream),
-		"UpdateDestination":         service.WrapOp(h.handleUpdateDestination),
+		"CreateDeliveryStream":          service.WrapOp(h.handleCreateDeliveryStream),
+		"DeleteDeliveryStream":          service.WrapOp(h.handleDeleteDeliveryStream),
+		"DescribeDeliveryStream":        service.WrapOp(h.handleDescribeDeliveryStream),
+		"ListDeliveryStreams":           service.WrapOp(h.handleListDeliveryStreams),
+		"PutRecord":                     service.WrapOp(h.handlePutRecord),
+		"PutRecordBatch":                service.WrapOp(h.handlePutRecordBatch),
+		"ListTagsForDeliveryStream":     service.WrapOp(h.handleListTagsForDeliveryStream),
+		"TagDeliveryStream":             service.WrapOp(h.handleTagDeliveryStream),
+		"UntagDeliveryStream":           service.WrapOp(h.handleUntagDeliveryStream),
+		"UpdateDestination":             service.WrapOp(h.handleUpdateDestination),
+		"StartDeliveryStreamEncryption": service.WrapOp(h.handleStartDeliveryStreamEncryption),
+		"StopDeliveryStreamEncryption":  service.WrapOp(h.handleStopDeliveryStreamEncryption),
 	}
 }
 
@@ -481,4 +485,35 @@ func (h *Handler) handleUpdateDestination(
 	}
 
 	return &updateDestinationOutput{}, nil
+}
+
+type startDeliveryStreamEncryptionInput struct {
+	DeliveryStreamEncryptionConfigurationInput *EncryptionConfigInput `json:"DeliveryStreamEncryptionConfigurationInput,omitempty"`
+	DeliveryStreamName                         string                 `json:"DeliveryStreamName"`
+}
+
+type startDeliveryStreamEncryptionOutput struct{}
+
+func (h *Handler) handleStartDeliveryStreamEncryption(
+	ctx context.Context,
+	in *startDeliveryStreamEncryptionInput,
+) (*startDeliveryStreamEncryptionOutput, error) {
+	if err := h.Backend.StartDeliveryStreamEncryption(ctx, in.DeliveryStreamName, in.DeliveryStreamEncryptionConfigurationInput); err != nil {
+		return nil, err
+	}
+
+	return &startDeliveryStreamEncryptionOutput{}, nil
+}
+
+type stopDeliveryStreamEncryptionOutput struct{}
+
+func (h *Handler) handleStopDeliveryStreamEncryption(
+	ctx context.Context,
+	in *deliveryStreamNameInput,
+) (*stopDeliveryStreamEncryptionOutput, error) {
+	if err := h.Backend.StopDeliveryStreamEncryption(ctx, in.DeliveryStreamName); err != nil {
+		return nil, err
+	}
+
+	return &stopDeliveryStreamEncryptionOutput{}, nil
 }

@@ -800,3 +800,147 @@ func TestHandler_Shutdown_FlushesBufferedRecords(t *testing.T) {
 		})
 	}
 }
+
+func TestFirehoseHandler_StartDeliveryStreamEncryption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *firehose.Handler)
+		name         string
+		streamName   string
+		body         map[string]any
+		wantCode     int
+		wantContains []string
+	}{
+		{
+			name:       "success_default_key_type",
+			streamName: "my-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			body:     map[string]any{"DeliveryStreamName": "my-stream"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "success_customer_managed_cmk",
+			streamName: "encrypted-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "encrypted-stream"})
+			},
+			body: map[string]any{
+				"DeliveryStreamName": "encrypted-stream",
+				"DeliveryStreamEncryptionConfigurationInput": map[string]any{
+					"KeyType": "CUSTOMER_MANAGED_CMK",
+					"KeyARN":  "arn:aws:kms:us-east-1:000000000000:key/test-key-id",
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			body:       map[string]any{"DeliveryStreamName": "nonexistent"},
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestFirehoseHandler_StopDeliveryStreamEncryption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *firehose.Handler)
+		name       string
+		streamName string
+		wantCode   int
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+				doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "stop_without_start_succeeds",
+			streamName: "plain-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "plain-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "StopDeliveryStreamEncryption", map[string]any{
+				"DeliveryStreamName": tt.streamName,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestFirehoseHandler_EncryptionRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+
+	// Create a stream.
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "enc-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Enable encryption with a customer managed key.
+	rec = doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", map[string]any{
+		"DeliveryStreamName": "enc-stream",
+		"DeliveryStreamEncryptionConfigurationInput": map[string]any{
+			"KeyType": "CUSTOMER_MANAGED_CMK",
+			"KeyARN":  "arn:aws:kms:us-east-1:000000000000:key/abc123",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Disable encryption.
+	rec = doFirehoseRequest(t, h, "StopDeliveryStreamEncryption", map[string]any{"DeliveryStreamName": "enc-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestFirehoseHandler_GetSupportedOperations_EncryptionOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "StartDeliveryStreamEncryption")
+	assert.Contains(t, ops, "StopDeliveryStreamEncryption")
+}
