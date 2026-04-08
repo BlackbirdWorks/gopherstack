@@ -1,9 +1,10 @@
 package iotanalytics
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -55,7 +56,15 @@ type StorageBackend interface {
 	PutLoggingOptions(options *LoggingOptions) error
 
 	RunPipelineActivity(payloads [][]byte) ([][]byte, error)
+
+	Reset()
 }
+
+// Compile-time assertion that InMemoryBackend implements StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
+
+// maxChannelMessages caps the number of messages stored per channel to prevent unbounded memory growth.
+const maxChannelMessages = 1000
 
 // InMemoryBackend is the in-memory backend for IoT Analytics.
 type InMemoryBackend struct {
@@ -83,6 +92,21 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// Reset clears all backend state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.channels = make(map[string]*Channel)
+	b.datastores = make(map[string]*Datastore)
+	b.datasets = make(map[string]*Dataset)
+	b.pipelines = make(map[string]*Pipeline)
+	b.tags = make(map[string]map[string]string)
+	b.channelMessages = make(map[string][][]byte)
+	b.datasetContents = make(map[string][]*DatasetContent)
+	b.loggingOptions = nil
+}
+
 // channelARN returns the ARN for an IoT Analytics channel.
 func channelARN(name string) string {
 	return fmt.Sprintf("arn:aws:iotanalytics:us-east-1:000000000000:channel/%s", name)
@@ -103,6 +127,18 @@ func pipelineARN(name string) string {
 	return fmt.Sprintf("arn:aws:iotanalytics:us-east-1:000000000000:pipeline/%s", name)
 }
 
+// sortedKeys returns the keys of map m in sorted order.
+func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	return keys
+}
+
 // tagsToMap converts a slice of tagDTO to a map.
 func tagsToMap(tags []TagDTO) map[string]string {
 	m := make(map[string]string, len(tags))
@@ -113,14 +149,63 @@ func tagsToMap(tags []TagDTO) map[string]string {
 	return m
 }
 
-// mapToTags converts a map to a slice of tagDTO.
-func mapToTags(m map[string]string) []TagDTO {
-	result := make([]TagDTO, 0, len(m))
-	for k, v := range m {
-		result = append(result, TagDTO{Key: k, Value: v})
+// mapToTagsSorted converts a map to a slice of tagDTO sorted by key.
+func mapToTagsSorted(m map[string]string) []tagDTO {
+	keys := sortedKeys(m)
+	result := make([]tagDTO, 0, len(m))
+
+	for _, k := range keys {
+		result = append(result, tagDTO{Key: k, Value: m[k]})
 	}
 
 	return result
+}
+
+// cloneChannel returns a deep copy of c.
+func cloneChannel(c *Channel) *Channel {
+	cp := *c
+	cp.Tags = make(map[string]string, len(c.Tags))
+	maps.Copy(cp.Tags, c.Tags)
+
+	return &cp
+}
+
+// cloneDatastore returns a deep copy of d.
+func cloneDatastore(d *Datastore) *Datastore {
+	cp := *d
+	cp.Tags = make(map[string]string, len(d.Tags))
+	maps.Copy(cp.Tags, d.Tags)
+
+	return &cp
+}
+
+// cloneDataset returns a deep copy of d.
+func cloneDataset(d *Dataset) *Dataset {
+	cp := *d
+	cp.Tags = make(map[string]string, len(d.Tags))
+	maps.Copy(cp.Tags, d.Tags)
+
+	return &cp
+}
+
+// clonePipeline returns a deep copy of p.
+func clonePipeline(p *Pipeline) *Pipeline {
+	cp := *p
+	cp.Tags = make(map[string]string, len(p.Tags))
+	maps.Copy(cp.Tags, p.Tags)
+
+	if p.ReprocessingSummaries != nil {
+		cp.ReprocessingSummaries = make([]string, len(p.ReprocessingSummaries))
+		copy(cp.ReprocessingSummaries, p.ReprocessingSummaries)
+	}
+
+	cp.Reprocessings = make(map[string]*PipelineReprocessing, len(p.Reprocessings))
+	for k, v := range p.Reprocessings {
+		rpCp := *v
+		cp.Reprocessings[k] = &rpCp
+	}
+
+	return &cp
 }
 
 // CreateChannel creates a new IoT Analytics channel.
@@ -129,7 +214,7 @@ func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*C
 	defer b.mu.Unlock()
 
 	if _, ok := b.channels[name]; ok {
-		return b.channels[name], nil
+		return nil, ErrAlreadyExists
 	}
 
 	now := epochSeconds(time.Now())
@@ -147,7 +232,7 @@ func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*C
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
-	return c, nil
+	return cloneChannel(c), nil
 }
 
 // DescribeChannel returns channel metadata.
@@ -160,7 +245,7 @@ func (b *InMemoryBackend) DescribeChannel(name string) (*Channel, error) {
 		return nil, ErrChannelNotFound
 	}
 
-	return c, nil
+	return cloneChannel(c), nil
 }
 
 // UpdateChannel updates a channel's last update time.
@@ -194,17 +279,26 @@ func (b *InMemoryBackend) DeleteChannel(name string) error {
 	return nil
 }
 
-// ListChannels returns all channels.
+// ListChannels returns all channels sorted by name.
 func (b *InMemoryBackend) ListChannels() []*Channel {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	keys := sortedKeys(b.channels)
 	result := make([]*Channel, 0, len(b.channels))
-	for _, c := range b.channels {
-		result = append(result, c)
+
+	for _, k := range keys {
+		result = append(result, cloneChannel(b.channels[k]))
 	}
 
 	return result
+}
+
+// AddChannelInternal seeds a channel by name (test helper).
+func (b *InMemoryBackend) AddChannelInternal(name string) *Channel {
+	c, _ := b.CreateChannel(name, nil)
+
+	return c
 }
 
 // CreateDatastore creates a new IoT Analytics datastore.
@@ -213,7 +307,7 @@ func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (
 	defer b.mu.Unlock()
 
 	if _, ok := b.datastores[name]; ok {
-		return b.datastores[name], nil
+		return nil, ErrAlreadyExists
 	}
 
 	now := epochSeconds(time.Now())
@@ -231,7 +325,7 @@ func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
-	return d, nil
+	return cloneDatastore(d), nil
 }
 
 // DescribeDatastore returns datastore metadata.
@@ -244,7 +338,7 @@ func (b *InMemoryBackend) DescribeDatastore(name string) (*Datastore, error) {
 		return nil, ErrDatastoreNotFound
 	}
 
-	return d, nil
+	return cloneDatastore(d), nil
 }
 
 // UpdateDatastore updates a datastore's last update time.
@@ -278,17 +372,26 @@ func (b *InMemoryBackend) DeleteDatastore(name string) error {
 	return nil
 }
 
-// ListDatastores returns all datastores.
+// ListDatastores returns all datastores sorted by name.
 func (b *InMemoryBackend) ListDatastores() []*Datastore {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	keys := sortedKeys(b.datastores)
 	result := make([]*Datastore, 0, len(b.datastores))
-	for _, d := range b.datastores {
-		result = append(result, d)
+
+	for _, k := range keys {
+		result = append(result, cloneDatastore(b.datastores[k]))
 	}
 
 	return result
+}
+
+// AddDatastoreInternal seeds a datastore by name (test helper).
+func (b *InMemoryBackend) AddDatastoreInternal(name string) *Datastore {
+	d, _ := b.CreateDatastore(name, nil)
+
+	return d
 }
 
 // CreateDataset creates a new IoT Analytics dataset.
@@ -297,7 +400,7 @@ func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*D
 	defer b.mu.Unlock()
 
 	if _, ok := b.datasets[name]; ok {
-		return b.datasets[name], nil
+		return nil, ErrAlreadyExists
 	}
 
 	now := epochSeconds(time.Now())
@@ -315,7 +418,7 @@ func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*D
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
-	return d, nil
+	return cloneDataset(d), nil
 }
 
 // DescribeDataset returns dataset metadata.
@@ -328,7 +431,7 @@ func (b *InMemoryBackend) DescribeDataset(name string) (*Dataset, error) {
 		return nil, ErrDatasetNotFound
 	}
 
-	return d, nil
+	return cloneDataset(d), nil
 }
 
 // UpdateDataset updates a dataset's last update time.
@@ -362,17 +465,26 @@ func (b *InMemoryBackend) DeleteDataset(name string) error {
 	return nil
 }
 
-// ListDatasets returns all datasets.
+// ListDatasets returns all datasets sorted by name.
 func (b *InMemoryBackend) ListDatasets() []*Dataset {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	keys := sortedKeys(b.datasets)
 	result := make([]*Dataset, 0, len(b.datasets))
-	for _, d := range b.datasets {
-		result = append(result, d)
+
+	for _, k := range keys {
+		result = append(result, cloneDataset(b.datasets[k]))
 	}
 
 	return result
+}
+
+// AddDatasetInternal seeds a dataset by name (test helper).
+func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
+	d, _ := b.CreateDataset(name, nil)
+
+	return d
 }
 
 // CreatePipeline creates a new IoT Analytics pipeline.
@@ -381,25 +493,26 @@ func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string) (*
 	defer b.mu.Unlock()
 
 	if _, ok := b.pipelines[name]; ok {
-		return b.pipelines[name], nil
+		return nil, ErrAlreadyExists
 	}
 
 	now := epochSeconds(time.Now())
 	arn := pipelineARN(name)
 	p := &Pipeline{
-		Name:          name,
-		ARN:           arn,
-		CreationTime:  now,
-		LastUpdate:    now,
-		Tags:          make(map[string]string),
-		Reprocessings: make(map[string]*PipelineReprocessing),
+		Name:                  name,
+		ARN:                   arn,
+		CreationTime:          now,
+		LastUpdate:            now,
+		Tags:                  make(map[string]string),
+		Reprocessings:         make(map[string]*PipelineReprocessing),
+		ReprocessingSummaries: []string{},
 	}
 	maps.Copy(p.Tags, tags)
 	b.pipelines[name] = p
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
-	return p, nil
+	return clonePipeline(p), nil
 }
 
 // DescribePipeline returns pipeline metadata.
@@ -412,7 +525,7 @@ func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
 		return nil, ErrPipelineNotFound
 	}
 
-	return p, nil
+	return clonePipeline(p), nil
 }
 
 // UpdatePipeline updates a pipeline's last update time.
@@ -446,30 +559,39 @@ func (b *InMemoryBackend) DeletePipeline(name string) error {
 	return nil
 }
 
-// ListPipelines returns all pipelines.
+// ListPipelines returns all pipelines sorted by name.
 func (b *InMemoryBackend) ListPipelines() []*Pipeline {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	keys := sortedKeys(b.pipelines)
 	result := make([]*Pipeline, 0, len(b.pipelines))
-	for _, p := range b.pipelines {
-		result = append(result, p)
+
+	for _, k := range keys {
+		result = append(result, clonePipeline(b.pipelines[k]))
 	}
 
 	return result
 }
 
-// ListTagsForResource returns tags for a resource ARN.
+// AddPipelineInternal seeds a pipeline by name (test helper).
+func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
+	p, _ := b.CreatePipeline(name, nil)
+
+	return p
+}
+
+// ListTagsForResource returns tags for a resource ARN, sorted by key.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]TagDTO, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	m, ok := b.tags[resourceARN]
 	if !ok {
-		return nil, ErrChannelNotFound
+		return nil, ErrResourceNotFound
 	}
 
-	return mapToTags(m), nil
+	return mapToTagsSorted(m), nil
 }
 
 // TagResource adds or updates tags on a resource.
@@ -479,7 +601,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []TagDTO) error {
 
 	m, ok := b.tags[resourceARN]
 	if !ok {
-		return ErrChannelNotFound
+		return ErrResourceNotFound
 	}
 
 	for _, t := range tags {
@@ -496,7 +618,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	m, ok := b.tags[resourceARN]
 	if !ok {
-		return ErrChannelNotFound
+		return ErrResourceNotFound
 	}
 
 	for _, k := range tagKeys {
@@ -506,7 +628,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	return nil
 }
 
-// BatchPutMessage ingests messages into a channel and returns per-message errors.
+// BatchPutMessage ingests messages into a channel, capping at maxChannelMessages per channel.
 func (b *InMemoryBackend) BatchPutMessage(
 	channelName string,
 	messages []messageInput,
@@ -534,7 +656,10 @@ func (b *InMemoryBackend) BatchPutMessage(
 	}
 
 	for _, msg := range messages {
-		b.channelMessages[channelName] = append(b.channelMessages[channelName], msg.Payload)
+		current := b.channelMessages[channelName]
+		if len(current) < maxChannelMessages {
+			b.channelMessages[channelName] = append(current, msg.Payload)
+		}
 	}
 
 	return []BatchPutMessageErrorEntry{}, nil
@@ -676,8 +801,8 @@ func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetCon
 	result := make([]*DatasetContent, len(contents))
 	copy(result, contents)
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreationTime > result[j].CreationTime
+	slices.SortFunc(result, func(a, b *DatasetContent) int {
+		return cmp.Compare(b.CreationTime, a.CreationTime)
 	})
 
 	return result, nil

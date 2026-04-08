@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
+	//nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
+	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics"
 	iotanalyticstype "github.com/aws/aws-sdk-go-v2/service/iotanalytics/types"
 )
 
@@ -298,7 +299,7 @@ func TestIntegration_IoTAnalytics_DatasetContent(t *testing.T) {
 				{
 					ActionName: aws.String("myaction"),
 					QueryAction: &iotanalyticstype.SqlQueryDatasetAction{
-						SqlQuery: aws.String("SELECT * FROM my_datastore"),
+						SqlQuery: aws.String("SELECT name, value FROM my_datastore"),
 					},
 				},
 			},

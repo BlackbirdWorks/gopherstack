@@ -1,6 +1,9 @@
 package iotanalytics
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // Sentinel errors for IoT Analytics backend operations.
 var (
@@ -18,6 +21,12 @@ var (
 	ErrLoggingOptionsNotFound = newNotFoundError("logging options not found")
 	// ErrReprocessingNotFound is returned when a pipeline reprocessing job does not exist.
 	ErrReprocessingNotFound = newNotFoundError("reprocessing not found")
+	// ErrResourceNotFound is returned when a tagged resource ARN does not match any known resource.
+	ErrResourceNotFound = newNotFoundError("resource not found")
+	// ErrAlreadyExists is returned when a resource with the given name already exists.
+	ErrAlreadyExists = errors.New("resource already exists")
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = errors.New("validation error")
 )
 
 // notFoundError represents a resource-not-found error.
@@ -41,66 +50,66 @@ func isNotFound(err error) bool {
 
 // Channel stores all metadata and state for a single IoT Analytics channel.
 type Channel struct {
-	Tags         map[string]string
-	Name         string
-	ARN          string
-	Status       string
-	CreationTime float64
-	LastUpdate   float64
+	Tags         map[string]string `json:"tags"`
+	Name         string            `json:"name"`
+	ARN          string            `json:"arn"`
+	Status       string            `json:"status"`
+	CreationTime float64           `json:"creationTime"`
+	LastUpdate   float64           `json:"lastUpdate"`
 }
 
 // Datastore stores all metadata and state for a single IoT Analytics datastore.
 type Datastore struct {
-	Tags         map[string]string
-	Name         string
-	ARN          string
-	Status       string
-	CreationTime float64
-	LastUpdate   float64
+	Tags         map[string]string `json:"tags"`
+	Name         string            `json:"name"`
+	ARN          string            `json:"arn"`
+	Status       string            `json:"status"`
+	CreationTime float64           `json:"creationTime"`
+	LastUpdate   float64           `json:"lastUpdate"`
 }
 
 // Dataset stores all metadata and state for a single IoT Analytics dataset.
 type Dataset struct {
-	Tags         map[string]string
-	Name         string
-	ARN          string
-	Status       string
-	CreationTime float64
-	LastUpdate   float64
+	Tags         map[string]string `json:"tags"`
+	Name         string            `json:"name"`
+	ARN          string            `json:"arn"`
+	Status       string            `json:"status"`
+	CreationTime float64           `json:"creationTime"`
+	LastUpdate   float64           `json:"lastUpdate"`
 }
 
 // Pipeline stores all metadata and state for a single IoT Analytics pipeline.
 type Pipeline struct {
-	Tags                  map[string]string
-	Reprocessings         map[string]*PipelineReprocessing
-	Name                  string
-	ARN                   string
-	ReprocessingSummaries []string
-	CreationTime          float64
-	LastUpdate            float64
+	Tags                  map[string]string                `json:"tags"`
+	Reprocessings         map[string]*PipelineReprocessing `json:"reprocessings"`
+	Name                  string                           `json:"name"`
+	ARN                   string                           `json:"arn"`
+	ReprocessingSummaries []string                         `json:"reprocessingSummaries"`
+	CreationTime          float64                          `json:"creationTime"`
+	LastUpdate            float64                          `json:"lastUpdate"`
 }
 
 // LoggingOptions stores the IoT Analytics logging configuration.
 type LoggingOptions struct {
-	RoleARN string
-	Level   string
-	Enabled bool
+	RoleARN string `json:"roleArn"`
+	Level   string `json:"level"`
+	Enabled bool   `json:"enabled"`
 }
 
 // DatasetContent stores a single content version of an IoT Analytics dataset.
 type DatasetContent struct {
-	VersionID      string
-	Status         string
-	CreationTime   float64
-	CompletionTime float64
+	VersionID      string  `json:"versionId"`
+	Status         string  `json:"status"`
+	CreationTime   float64 `json:"creationTime"`
+	CompletionTime float64 `json:"completionTime"`
 }
 
 // PipelineReprocessing stores state for a single pipeline reprocessing job.
 type PipelineReprocessing struct {
-	ID           string
-	Status       string
-	CreationTime float64
-	EndTime      float64
+	ID           string  `json:"id"`
+	Status       string  `json:"status"`
+	CreationTime float64 `json:"creationTime"`
+	EndTime      float64 `json:"endTime"`
 }
 
 // ChannelMessage stores a single message ingested into a channel.
@@ -150,11 +159,12 @@ type describeChannelResponse struct {
 
 // channelDetail is a detailed view of a channel.
 type channelDetail struct {
-	Name           string  `json:"name"`
-	ARN            string  `json:"arn"`
-	Status         string  `json:"status"`
-	CreationTime   float64 `json:"creationTime"`
-	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
+	Name           string   `json:"name"`
+	ARN            string   `json:"arn"`
+	Status         string   `json:"status"`
+	Tags           []tagDTO `json:"tags,omitempty"`
+	CreationTime   float64  `json:"creationTime"`
+	LastUpdateTime float64  `json:"lastUpdateTime,omitempty"`
 }
 
 // createDatastoreRequest is the request body for CreateDatastore.
@@ -191,11 +201,12 @@ type describeDatastoreResponse struct {
 
 // datastoreDetail is a detailed view of a datastore.
 type datastoreDetail struct {
-	Name           string  `json:"name"`
-	ARN            string  `json:"arn"`
-	Status         string  `json:"status"`
-	CreationTime   float64 `json:"creationTime"`
-	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
+	Name           string   `json:"name"`
+	ARN            string   `json:"arn"`
+	Status         string   `json:"status"`
+	Tags           []tagDTO `json:"tags,omitempty"`
+	CreationTime   float64  `json:"creationTime"`
+	LastUpdateTime float64  `json:"lastUpdateTime,omitempty"`
 }
 
 // createDatasetRequest is the request body for CreateDataset.
@@ -233,11 +244,12 @@ type describeDatasetResponse struct {
 
 // datasetDetail is a detailed view of a dataset.
 type datasetDetail struct {
-	Name           string  `json:"name"`
-	ARN            string  `json:"arn"`
-	Status         string  `json:"status"`
-	CreationTime   float64 `json:"creationTime"`
-	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
+	Name           string   `json:"name"`
+	ARN            string   `json:"arn"`
+	Status         string   `json:"status"`
+	Tags           []tagDTO `json:"tags,omitempty"`
+	CreationTime   float64  `json:"creationTime"`
+	LastUpdateTime float64  `json:"lastUpdateTime,omitempty"`
 }
 
 // createPipelineRequest is the request body for CreatePipeline.
@@ -275,6 +287,7 @@ type describePipelineResponse struct {
 
 // pipelineDetail is a detailed view of a pipeline.
 type pipelineDetail struct {
+	Tags                  []tagDTO `json:"tags,omitempty"`
 	Name                  string   `json:"name"`
 	ARN                   string   `json:"arn"`
 	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
