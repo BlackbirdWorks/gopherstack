@@ -3,8 +3,11 @@ package iotanalytics
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // StorageBackend is the interface for the IoT Analytics backend.
@@ -36,26 +39,47 @@ type StorageBackend interface {
 	ListTagsForResource(resourceARN string) ([]TagDTO, error)
 	TagResource(resourceARN string, tags []TagDTO) error
 	UntagResource(resourceARN string, tagKeys []string) error
+
+	BatchPutMessage(channelName string, messages []messageInput) ([]BatchPutMessageErrorEntry, error)
+	SampleChannelData(channelName string) ([][]byte, error)
+
+	StartPipelineReprocessing(pipelineName string) (string, error)
+	CancelPipelineReprocessing(pipelineName, reprocessingID string) error
+
+	CreateDatasetContent(datasetName string) (*DatasetContent, error)
+	GetDatasetContent(datasetName, versionID string) (*DatasetContent, error)
+	ListDatasetContents(datasetName string) ([]*DatasetContent, error)
+	DeleteDatasetContent(datasetName, versionID string) error
+
+	DescribeLoggingOptions() (*LoggingOptions, error)
+	PutLoggingOptions(options *LoggingOptions) error
+
+	RunPipelineActivity(payloads [][]byte) ([][]byte, error)
 }
 
 // InMemoryBackend is the in-memory backend for IoT Analytics.
 type InMemoryBackend struct {
-	channels   map[string]*Channel
-	datastores map[string]*Datastore
-	datasets   map[string]*Dataset
-	pipelines  map[string]*Pipeline
-	tags       map[string]map[string]string
-	mu         sync.RWMutex
+	loggingOptions  *LoggingOptions
+	channelMessages map[string][][]byte
+	datasetContents map[string][]*DatasetContent
+	channels        map[string]*Channel
+	datastores      map[string]*Datastore
+	datasets        map[string]*Dataset
+	pipelines       map[string]*Pipeline
+	tags            map[string]map[string]string
+	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Analytics backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		channels:   make(map[string]*Channel),
-		datastores: make(map[string]*Datastore),
-		datasets:   make(map[string]*Dataset),
-		pipelines:  make(map[string]*Pipeline),
-		tags:       make(map[string]map[string]string),
+		channels:        make(map[string]*Channel),
+		datastores:      make(map[string]*Datastore),
+		datasets:        make(map[string]*Dataset),
+		pipelines:       make(map[string]*Pipeline),
+		tags:            make(map[string]map[string]string),
+		channelMessages: make(map[string][][]byte),
+		datasetContents: make(map[string][]*DatasetContent),
 	}
 }
 
@@ -363,11 +387,12 @@ func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string) (*
 	now := epochSeconds(time.Now())
 	arn := pipelineARN(name)
 	p := &Pipeline{
-		Name:         name,
-		ARN:          arn,
-		CreationTime: now,
-		LastUpdate:   now,
-		Tags:         make(map[string]string),
+		Name:          name,
+		ARN:           arn,
+		CreationTime:  now,
+		LastUpdate:    now,
+		Tags:          make(map[string]string),
+		Reprocessings: make(map[string]*PipelineReprocessing),
 	}
 	maps.Copy(p.Tags, tags)
 	b.pipelines[name] = p
@@ -479,4 +504,243 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	}
 
 	return nil
+}
+
+// BatchPutMessage ingests messages into a channel and returns per-message errors.
+func (b *InMemoryBackend) BatchPutMessage(
+	channelName string,
+	messages []messageInput,
+) ([]BatchPutMessageErrorEntry, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var errs []BatchPutMessageErrorEntry
+
+	if _, ok := b.channels[channelName]; !ok {
+		for _, msg := range messages {
+			errs = append(errs, BatchPutMessageErrorEntry{
+				ChannelName:  channelName,
+				ErrorCode:    "ResourceNotFoundException",
+				ErrorMessage: "channel not found: " + channelName,
+				MessageID:    msg.MessageID,
+			})
+		}
+
+		if errs == nil {
+			errs = []BatchPutMessageErrorEntry{}
+		}
+
+		return errs, nil
+	}
+
+	for _, msg := range messages {
+		b.channelMessages[channelName] = append(b.channelMessages[channelName], msg.Payload)
+	}
+
+	return []BatchPutMessageErrorEntry{}, nil
+}
+
+// SampleChannelData returns up to 10 sample messages from a channel.
+func (b *InMemoryBackend) SampleChannelData(channelName string) ([][]byte, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.channels[channelName]; !ok {
+		return nil, ErrChannelNotFound
+	}
+
+	msgs := b.channelMessages[channelName]
+	if len(msgs) == 0 {
+		return [][]byte{}, nil
+	}
+
+	const maxSamples = 10
+
+	end := min(len(msgs), maxSamples)
+
+	result := make([][]byte, end)
+	copy(result, msgs[:end])
+
+	return result, nil
+}
+
+// StartPipelineReprocessing creates a new reprocessing job for a pipeline.
+func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[pipelineName]
+	if !ok {
+		return "", ErrPipelineNotFound
+	}
+
+	id := uuid.NewString()
+	now := epochSeconds(time.Now())
+
+	rp := &PipelineReprocessing{
+		ID:           id,
+		Status:       "RUNNING",
+		CreationTime: now,
+	}
+
+	if p.Reprocessings == nil {
+		p.Reprocessings = make(map[string]*PipelineReprocessing)
+	}
+
+	p.Reprocessings[id] = rp
+	p.ReprocessingSummaries = append(p.ReprocessingSummaries, id)
+
+	return id, nil
+}
+
+// CancelPipelineReprocessing cancels a running pipeline reprocessing job.
+func (b *InMemoryBackend) CancelPipelineReprocessing(pipelineName, reprocessingID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[pipelineName]
+	if !ok {
+		return ErrPipelineNotFound
+	}
+
+	rp, ok := p.Reprocessings[reprocessingID]
+	if !ok {
+		return ErrReprocessingNotFound
+	}
+
+	rp.Status = "CANCELLED"
+	rp.EndTime = epochSeconds(time.Now())
+
+	return nil
+}
+
+// CreateDatasetContent creates a new content version for a dataset.
+func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetContent, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.datasets[datasetName]; !ok {
+		return nil, ErrDatasetNotFound
+	}
+
+	now := epochSeconds(time.Now())
+	content := &DatasetContent{
+		VersionID:      uuid.NewString(),
+		Status:         "SUCCEEDED",
+		CreationTime:   now,
+		CompletionTime: now,
+	}
+
+	b.datasetContents[datasetName] = append(b.datasetContents[datasetName], content)
+
+	return content, nil
+}
+
+// GetDatasetContent retrieves a specific or the latest content version of a dataset.
+func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*DatasetContent, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.datasets[datasetName]; !ok {
+		return nil, ErrDatasetNotFound
+	}
+
+	contents := b.datasetContents[datasetName]
+	if len(contents) == 0 {
+		return nil, ErrDatasetContentNotFound
+	}
+
+	if versionID == "" || versionID == "$latest" {
+		return contents[len(contents)-1], nil
+	}
+
+	for _, c := range contents {
+		if c.VersionID == versionID {
+			return c, nil
+		}
+	}
+
+	return nil, ErrDatasetContentNotFound
+}
+
+// ListDatasetContents returns all content versions for a dataset, sorted by creation time descending.
+func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetContent, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.datasets[datasetName]; !ok {
+		return nil, ErrDatasetNotFound
+	}
+
+	contents := b.datasetContents[datasetName]
+	result := make([]*DatasetContent, len(contents))
+	copy(result, contents)
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreationTime > result[j].CreationTime
+	})
+
+	return result, nil
+}
+
+// DeleteDatasetContent deletes a specific content version (or all if versionID is empty).
+func (b *InMemoryBackend) DeleteDatasetContent(datasetName, versionID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.datasets[datasetName]; !ok {
+		return ErrDatasetNotFound
+	}
+
+	if versionID == "" {
+		b.datasetContents[datasetName] = nil
+
+		return nil
+	}
+
+	contents := b.datasetContents[datasetName]
+
+	for i, c := range contents {
+		if c.VersionID == versionID {
+			b.datasetContents[datasetName] = append(contents[:i], contents[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return ErrDatasetContentNotFound
+}
+
+// DescribeLoggingOptions returns the current IoT Analytics logging options.
+func (b *InMemoryBackend) DescribeLoggingOptions() (*LoggingOptions, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.loggingOptions == nil {
+		return nil, ErrLoggingOptionsNotFound
+	}
+
+	opts := *b.loggingOptions
+
+	return &opts, nil
+}
+
+// PutLoggingOptions sets the IoT Analytics logging options.
+func (b *InMemoryBackend) PutLoggingOptions(options *LoggingOptions) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	opts := *options
+	b.loggingOptions = &opts
+
+	return nil
+}
+
+// RunPipelineActivity runs payloads through a pipeline activity and returns the results.
+// For the in-memory backend this is a pass-through; payloads are returned unchanged.
+func (b *InMemoryBackend) RunPipelineActivity(payloads [][]byte) ([][]byte, error) {
+	result := make([][]byte, len(payloads))
+	copy(result, payloads)
+
+	return result, nil
 }

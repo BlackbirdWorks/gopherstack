@@ -12,6 +12,12 @@ var (
 	ErrDatasetNotFound = newNotFoundError("dataset not found")
 	// ErrPipelineNotFound is returned when a pipeline does not exist.
 	ErrPipelineNotFound = newNotFoundError("pipeline not found")
+	// ErrDatasetContentNotFound is returned when a dataset content version does not exist.
+	ErrDatasetContentNotFound = newNotFoundError("dataset content not found")
+	// ErrLoggingOptionsNotFound is returned when logging options have not been configured.
+	ErrLoggingOptionsNotFound = newNotFoundError("logging options not found")
+	// ErrReprocessingNotFound is returned when a pipeline reprocessing job does not exist.
+	ErrReprocessingNotFound = newNotFoundError("reprocessing not found")
 )
 
 // notFoundError represents a resource-not-found error.
@@ -66,11 +72,41 @@ type Dataset struct {
 // Pipeline stores all metadata and state for a single IoT Analytics pipeline.
 type Pipeline struct {
 	Tags                  map[string]string
+	Reprocessings         map[string]*PipelineReprocessing
 	Name                  string
 	ARN                   string
 	ReprocessingSummaries []string
 	CreationTime          float64
 	LastUpdate            float64
+}
+
+// LoggingOptions stores the IoT Analytics logging configuration.
+type LoggingOptions struct {
+	RoleARN string
+	Level   string
+	Enabled bool
+}
+
+// DatasetContent stores a single content version of an IoT Analytics dataset.
+type DatasetContent struct {
+	VersionID      string
+	Status         string
+	CreationTime   float64
+	CompletionTime float64
+}
+
+// PipelineReprocessing stores state for a single pipeline reprocessing job.
+type PipelineReprocessing struct {
+	ID           string
+	Status       string
+	CreationTime float64
+	EndTime      float64
+}
+
+// ChannelMessage stores a single message ingested into a channel.
+type ChannelMessage struct {
+	MessageID string
+	Payload   []byte
 }
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value.
@@ -268,4 +304,123 @@ type tagResourceRequest struct {
 // errorResponse is the standard IoT Analytics error response.
 type errorResponse struct {
 	Message string `json:"message"`
+}
+
+// ----------------------------------------
+// BatchPutMessage DTOs
+// ----------------------------------------
+
+// messageInput is a single message to ingest.
+type messageInput struct {
+	MessageID string `json:"messageId"`
+	Payload   []byte `json:"payload"`
+}
+
+// batchPutMessageRequest is the request body for BatchPutMessage.
+type batchPutMessageRequest struct {
+	ChannelName string         `json:"channelName"`
+	Messages    []messageInput `json:"messages"`
+}
+
+// BatchPutMessageErrorEntry is a per-message error in BatchPutMessage.
+type BatchPutMessageErrorEntry struct {
+	ChannelName  string `json:"channelName,omitempty"`
+	ErrorCode    string `json:"errorCode,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	MessageID    string `json:"messageId,omitempty"`
+}
+
+// batchPutMessageResponse is the response for BatchPutMessage.
+type batchPutMessageResponse struct {
+	BatchPutMessageErrorEntries []BatchPutMessageErrorEntry `json:"batchPutMessageErrorEntries"`
+}
+
+// ----------------------------------------
+// SampleChannelData DTOs
+// ----------------------------------------
+
+// sampleChannelDataResponse is the response for SampleChannelData.
+type sampleChannelDataResponse struct {
+	Payloads [][]byte `json:"payloads"`
+}
+
+// ----------------------------------------
+// StartPipelineReprocessing DTOs
+// ----------------------------------------
+
+// startPipelineReprocessingResponse is the response for StartPipelineReprocessing.
+type startPipelineReprocessingResponse struct {
+	ReprocessingID string `json:"reprocessingId"`
+}
+
+// ----------------------------------------
+// DatasetContent DTOs
+// ----------------------------------------
+
+// datasetContentStatusDTO is the nested status object in dataset content responses.
+type datasetContentStatusDTO struct {
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// createDatasetContentResponse is the response for CreateDatasetContent.
+type createDatasetContentResponse struct {
+	VersionID string `json:"versionId"`
+}
+
+// getDatasetContentResponse is the response for GetDatasetContent.
+type getDatasetContentResponse struct {
+	Status    *datasetContentStatusDTO `json:"status"`
+	Timestamp float64                  `json:"timestamp,omitempty"`
+}
+
+// datasetContentSummary is a summary entry for ListDatasetContents.
+type datasetContentSummary struct {
+	Status         *datasetContentStatusDTO `json:"status"`
+	Version        string                   `json:"version"`
+	CreationTime   float64                  `json:"creationTime,omitempty"`
+	CompletionTime float64                  `json:"completionTime,omitempty"`
+}
+
+// listDatasetContentsResponse is the response for ListDatasetContents.
+type listDatasetContentsResponse struct {
+	NextToken               *string                 `json:"nextToken,omitempty"`
+	DatasetContentSummaries []datasetContentSummary `json:"datasetContentSummaries"`
+}
+
+// ----------------------------------------
+// LoggingOptions DTOs
+// ----------------------------------------
+
+// loggingOptionsDTO is the serialized form of IoT Analytics logging options.
+type loggingOptionsDTO struct {
+	RoleARN string `json:"roleArn"`
+	Level   string `json:"level"`
+	Enabled bool   `json:"enabled"`
+}
+
+// putLoggingOptionsRequest is the request body for PutLoggingOptions.
+type putLoggingOptionsRequest struct {
+	LoggingOptions loggingOptionsDTO `json:"loggingOptions"`
+}
+
+// describeLoggingOptionsResponse is the response for DescribeLoggingOptions.
+type describeLoggingOptionsResponse struct {
+	LoggingOptions loggingOptionsDTO `json:"loggingOptions"`
+}
+
+// ----------------------------------------
+// RunPipelineActivity DTOs
+// ----------------------------------------
+
+// runPipelineActivityRequest is the request body for RunPipelineActivity.
+type runPipelineActivityRequest struct {
+	PipelineActivity map[string]any `json:"pipelineActivity"`
+	Payloads         [][]byte       `json:"payloads"`
+}
+
+// runPipelineActivityResponse is the response for RunPipelineActivity.
+type runPipelineActivityResponse struct {
+	LogResult string   `json:"logResult"`
+	Payloads  [][]byte `json:"payloads"`
 }
