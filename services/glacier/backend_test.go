@@ -224,7 +224,8 @@ func TestInMemoryBackend_JobCRUD(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, j.JobID, got.JobID)
 
-			jobs := bk.ListJobs(testAccountID, testRegion, "vault")
+			jobs, listErr := bk.ListJobs(testAccountID, testRegion, "vault")
+			require.NoError(t, listErr)
 			assert.Len(t, jobs, 1)
 		})
 	}

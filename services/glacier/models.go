@@ -27,20 +27,21 @@ type Archive struct {
 
 // Job stores state for a single Glacier retrieval or inventory job.
 type Job struct {
-	VaultARN           string `json:"vaultARN"`
-	VaultName          string `json:"vaultName"`
-	JobID              string `json:"jobID"`
-	JobDescription     string `json:"jobDescription,omitempty"`
-	Action             string `json:"action"`
-	ArchiveID          string `json:"archiveID,omitempty"`
-	StatusCode         string `json:"statusCode"`
-	StatusMessage      string `json:"statusMessage,omitempty"`
-	CreationDate       string `json:"creationDate"`
-	CompletionDate     string `json:"completionDate,omitempty"`
-	Tier               string `json:"tier,omitempty"`
-	SHA256TreeHash     string `json:"sha256TreeHash,omitempty"`
-	ArchiveSizeInBytes int64  `json:"archiveSizeInBytes,omitempty"`
-	Completed          bool   `json:"completed"`
+	VaultARN             string `json:"vaultARN"`
+	VaultName            string `json:"vaultName"`
+	JobID                string `json:"jobID"`
+	JobDescription       string `json:"jobDescription,omitempty"`
+	Action               string `json:"action"`
+	ArchiveID            string `json:"archiveID,omitempty"`
+	StatusCode           string `json:"statusCode"`
+	StatusMessage        string `json:"statusMessage,omitempty"`
+	CreationDate         string `json:"creationDate"`
+	CompletionDate       string `json:"completionDate,omitempty"`
+	Tier                 string `json:"tier,omitempty"`
+	SHA256TreeHash       string `json:"sha256TreeHash,omitempty"`
+	ArchiveSizeInBytes   int64  `json:"archiveSizeInBytes,omitempty"`
+	InventorySizeInBytes int64  `json:"inventorySizeInBytes,omitempty"`
+	Completed            bool   `json:"completed"`
 }
 
 // vaultLockPolicyRequest is the request body for InitiateVaultLock.

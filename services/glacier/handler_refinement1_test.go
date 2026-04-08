@@ -357,7 +357,8 @@ func TestRefinement1_SortedListJobs(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			jobs := b.ListJobs(testAccountID, testRegion, "vault")
+			jobs, listErr := b.ListJobs(testAccountID, testRegion, "vault")
+			require.NoError(t, listErr)
 			require.Len(t, jobs, tt.jobCount)
 
 			for i := 1; i < len(jobs); i++ {
@@ -420,7 +421,8 @@ func TestRefinement1_NonNilListJobs(t *testing.T) {
 			_, err := b.CreateVault(testAccountID, testRegion, tt.vaultName)
 			require.NoError(t, err)
 
-			jobs := b.ListJobs(testAccountID, testRegion, tt.vaultName)
+			jobs, listErr := b.ListJobs(testAccountID, testRegion, tt.vaultName)
+			require.NoError(t, listErr)
 
 			assert.NotNil(t, jobs)
 			assert.Empty(t, jobs)

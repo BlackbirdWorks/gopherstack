@@ -3,6 +3,7 @@ package glacier
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -609,7 +610,39 @@ func (h *Handler) handleListVaults(c *echo.Context) error {
 		items = append(items, toDescribeVaultResponse(v))
 	}
 
+	// Support `marker` pagination: start listing after this vault name.
+	marker := c.QueryParam("marker")
+
+	if marker != "" {
+		start := 0
+
+		for start < len(items) && items[start].VaultName != marker {
+			start++
+		}
+
+		if start < len(items) {
+			items = items[start+1:]
+		} else {
+			items = nil
+		}
+	}
+
+	// Support `limit` to cap the number of results returned.
+	limitStr := c.QueryParam("limit")
+
+	var nextMarker *string
+
+	if limitStr != "" {
+		n, err := strconv.Atoi(limitStr)
+		if err == nil && n > 0 && n < len(items) {
+			last := items[n-1].VaultName
+			nextMarker = &last
+			items = items[:n]
+		}
+	}
+
 	return c.JSON(http.StatusOK, listVaultsResponse{
+		Marker:    nextMarker,
 		VaultList: items,
 	})
 }
@@ -707,10 +740,29 @@ func (h *Handler) handleDescribeJob(c *echo.Context, vaultName, jobID string) er
 }
 
 func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
-	jobs := h.Backend.ListJobs(h.AccountID, h.DefaultRegion, vaultName)
+	jobs, err := h.Backend.ListJobs(h.AccountID, h.DefaultRegion, vaultName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	// Optional query filters: ?completed=true|false and ?statuscode=InProgress|Succeeded|Failed
+	completedFilter := c.QueryParam("completed")
+	statuscodeFilter := c.QueryParam("statuscode")
+
 	items := make([]describeJobResponse, 0, len(jobs))
 
 	for _, j := range jobs {
+		if completedFilter != "" {
+			want := completedFilter == "true"
+			if j.Completed != want {
+				continue
+			}
+		}
+
+		if statuscodeFilter != "" && j.StatusCode != statuscodeFilter {
+			continue
+		}
+
 		items = append(items, toDescribeJobResponse(j))
 	}
 
@@ -730,14 +782,23 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 	}
 
 	// Return a minimal inventory JSON for InventoryRetrieval jobs, empty body for ArchiveRetrieval.
-	if j.Action == "InventoryRetrieval" {
+	if j.Action == jobTypeInventoryRetrieval {
 		inventoryJSON := `{"VaultARN":"` + j.VaultARN + `","InventoryDate":"` + j.CompletionDate + `","ArchiveList":[]}`
 		c.Response().Header().Set("Content-Type", "application/json")
+
+		if j.InventorySizeInBytes > 0 {
+			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", j.InventorySizeInBytes-1, j.InventorySizeInBytes))
+		}
 
 		return c.String(http.StatusOK, inventoryJSON)
 	}
 
+	// ArchiveRetrieval: set Content-Range if we know the archive size.
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
+
+	if j.ArchiveSizeInBytes > 0 {
+		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes))
+	}
 
 	return c.String(http.StatusOK, "")
 }
@@ -760,6 +821,11 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 	if j.ArchiveSizeInBytes > 0 {
 		size := j.ArchiveSizeInBytes
 		resp.ArchiveSizeInBytes = &size
+	}
+
+	if j.InventorySizeInBytes > 0 {
+		size := j.InventorySizeInBytes
+		resp.InventorySizeInBytes = &size
 	}
 
 	if j.SHA256TreeHash != "" {
@@ -1036,6 +1102,11 @@ func (h *Handler) handleInitiateMultipartUpload(c *echo.Context, vaultName strin
 	c.Response().Header().Set("Location", location)
 	c.Response().Header().Set("X-Amz-Multipart-Upload-Id", up.MultipartUploadID)
 
+	// AWS returns the chosen part size in the response so clients can verify.
+	if up.PartSizeInBytes > 0 {
+		c.Response().Header().Set("X-Amz-Part-Size", strconv.FormatInt(up.PartSizeInBytes, 10))
+	}
+
 	return c.JSON(http.StatusCreated, initiateMultipartUploadResponse{
 		Location:          location,
 		MultipartUploadID: up.MultipartUploadID,
@@ -1193,6 +1264,10 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrLockConflict):
 		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrLockAlreadyLocked):
+		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrTooManyTags):
+		return h.writeError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
 	case errors.Is(err, ErrValidation):
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}

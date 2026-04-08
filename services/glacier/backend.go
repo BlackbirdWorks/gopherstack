@@ -27,6 +27,10 @@ var (
 	ErrVaultNotEmpty = errors.New("InvalidParameterValueException: Vault not empty")
 	// ErrLockConflict is returned when a vault lock is already in progress.
 	ErrLockConflict = errors.New("InvalidParameterValueException: Vault lock already in progress")
+	// ErrLockAlreadyLocked is returned when attempting to initiate a lock on an already-locked vault.
+	ErrLockAlreadyLocked = errors.New("InvalidParameterValueException: Vault is already locked")
+	// ErrTooManyTags is returned when adding tags would exceed the per-vault limit.
+	ErrTooManyTags = errors.New("InvalidParameterValueException: too many tags on vault")
 )
 
 const (
@@ -48,6 +52,18 @@ const (
 	jobInputArchiveRetrieval = "archive-retrieval"
 	// jobInputInventoryRetrieval is the type value sent by SDK/clients for inventory retrieval (request).
 	jobInputInventoryRetrieval = "inventory-retrieval"
+	// maxVaultTags is the maximum number of tags allowed on a single vault.
+	maxVaultTags = 10
+	// maxTagKeyLen is the maximum byte length of a tag key.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the maximum byte length of a tag value.
+	maxTagValueLen = 256
+	// minMultipartPartSize is the minimum part size for multipart uploads (1 MiB).
+	minMultipartPartSize = 1 << 20
+	// maxMultipartPartSize is the maximum part size for multipart uploads (4 GiB).
+	maxMultipartPartSize = 4 << 30
+	// vaultLockExpirationHours is the number of hours before an InProgress vault lock expires.
+	vaultLockExpirationHours = 24
 )
 
 // StorageBackend is the interface for the Glacier backend.
@@ -62,7 +78,7 @@ type StorageBackend interface {
 
 	InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error)
 	DescribeJob(accountID, region, vaultName, jobID string) (*Job, error)
-	ListJobs(accountID, region, vaultName string) []*Job
+	ListJobs(accountID, region, vaultName string) ([]*Job, error)
 
 	SetVaultNotifications(accountID, region, vaultName, snsTopic string, events []string) error
 	GetVaultNotifications(accountID, region, vaultName string) (string, []string, error)
@@ -160,6 +176,13 @@ func cloneVault(v *Vault) *Vault {
 // cloneJob returns a shallow copy of a Job.
 func cloneJob(j *Job) *Job {
 	cp := *j
+
+	return &cp
+}
+
+// cloneArchive returns a shallow copy of an Archive.
+func cloneArchive(a *Archive) *Archive {
+	cp := *a
 
 	return &cp
 }
@@ -444,15 +467,20 @@ func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string
 }
 
 // ListJobs returns all jobs for the given vault.
-func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) []*Job {
+// Returns ErrVaultNotFound if the vault does not exist.
+func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
+	if _, ok := b.vaults[key]; !ok {
+		return nil, ErrVaultNotFound
+	}
+
 	jobs := b.jobs[key]
 	if jobs == nil {
-		return []*Job{}
+		return []*Job{}, nil
 	}
 
 	result := make([]*Job, 0, len(jobs))
@@ -463,7 +491,7 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) []*Job {
 
 	sort.Slice(result, func(i, j int) bool { return result[i].JobID < result[j].JobID })
 
-	return result
+	return result, nil
 }
 
 // SetVaultNotifications sets the notification configuration for a vault.
@@ -578,8 +606,32 @@ func (b *InMemoryBackend) AddTagsToVault(accountID, region, vaultName string, ta
 		return ErrVaultNotFound
 	}
 
+	// Validate individual key/value lengths before applying.
+	for k, val := range tags {
+		if len(k) > maxTagKeyLen {
+			return ErrValidation
+		}
+
+		if len(val) > maxTagValueLen {
+			return ErrValidation
+		}
+	}
+
 	if v.Tags == nil {
 		v.Tags = make(map[string]string)
+	}
+
+	// Check that adding these tags would not exceed the per-vault limit.
+	merged := len(v.Tags)
+
+	for k := range tags {
+		if _, exists := v.Tags[k]; !exists {
+			merged++
+		}
+	}
+
+	if merged > maxVaultTags {
+		return ErrTooManyTags
 	}
 
 	maps.Copy(v.Tags, tags)
@@ -644,6 +696,11 @@ func (b *InMemoryBackend) Reset() {
 // Multipart upload operations
 // ----------------------------------------
 
+// isPowerOfTwo reports whether n is a power of two (n > 0).
+func isPowerOfTwo(n int64) bool {
+	return n > 0 && (n&(n-1)) == 0
+}
+
 // InitiateMultipartUpload begins a multipart upload for a vault.
 func (b *InMemoryBackend) InitiateMultipartUpload(
 	accountID, region, vaultName, description string,
@@ -657,6 +714,11 @@ func (b *InMemoryBackend) InitiateMultipartUpload(
 	v, ok := b.vaults[key]
 	if !ok {
 		return nil, ErrVaultNotFound
+	}
+
+	// Part size must be a power of 2 between 1 MiB and 4 GiB (inclusive).
+	if partSize != 0 && (!isPowerOfTwo(partSize) || partSize < minMultipartPartSize || partSize > maxMultipartPartSize) {
+		return nil, ErrValidation
 	}
 
 	uploadID := generateID(multipartUploadIDLength)
@@ -810,6 +872,11 @@ func (b *InMemoryBackend) ListParts(
 	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
 	parts := append([]MultipartPart(nil), b.multipartParts[uKey]...)
 
+	// Sort parts by their byte-range start value for deterministic output.
+	sort.Slice(parts, func(i, j int) bool {
+		return rangeStart(parts[i].RangeInBytes) < rangeStart(parts[j].RangeInBytes)
+	})
+
 	return &ListPartsOutput{
 		MultipartUploadID:  uploadID,
 		VaultARN:           up.VaultARN,
@@ -818,6 +885,27 @@ func (b *InMemoryBackend) ListParts(
 		CreationDate:       up.CreationDate,
 		Parts:              parts,
 	}, nil
+}
+
+// rangeStart parses the byte start from a Content-Range header value (e.g. "0-1048575/*").
+// Returns 0 on parse failure to maintain stable sort behaviour.
+func rangeStart(rangeHeader string) int64 {
+	for i := 0; i < len(rangeHeader); i++ {
+		if rangeHeader[i] == '-' || rangeHeader[i] == '/' {
+			n := int64(0)
+			for j := 0; j < i; j++ {
+				if rangeHeader[j] < '0' || rangeHeader[j] > '9' {
+					return 0
+				}
+
+				n = n*10 + int64(rangeHeader[j]-'0') //nolint:mnd // decimal digit extraction
+			}
+
+			return n
+		}
+	}
+
+	return 0
 }
 
 // ----------------------------------------
@@ -857,15 +945,23 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 		return ErrVaultNotFound
 	}
 
-	if existing, ok := b.vaultLocks[key]; ok && existing.State == "InProgress" {
-		return ErrLockConflict
+	if existing, ok := b.vaultLocks[key]; ok {
+		if existing.State == "InProgress" {
+			return ErrLockConflict
+		}
+
+		if existing.State == "Locked" {
+			return ErrLockAlreadyLocked
+		}
 	}
 
+	now := time.Now().UTC()
 	b.vaultLocks[key] = &VaultLock{
-		Policy:       policy,
-		LockID:       lockID,
-		State:        "InProgress",
-		CreationDate: formatDate(time.Now()),
+		Policy:         policy,
+		LockID:         lockID,
+		State:          "InProgress",
+		CreationDate:   formatDate(now),
+		ExpirationDate: formatDate(now.Add(vaultLockExpirationHours * time.Hour)),
 	}
 
 	return nil
@@ -938,6 +1034,8 @@ func (b *InMemoryBackend) AddVaultInternal(accountID, region string, v *Vault) {
 }
 
 // AddArchiveInternal adds an archive directly to the backend for testing.
+// It does not update the vault's NumberOfArchives or SizeInBytes counters;
+// callers that need accounting to be correct should update the vault via AddVaultInternal.
 func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string, a *Archive) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -948,8 +1046,22 @@ func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string
 		b.archives[key] = make(map[string]*Archive)
 	}
 
-	cp := *a
-	b.archives[key][a.ArchiveID] = &cp
+	b.archives[key][a.ArchiveID] = cloneArchive(a)
+}
+
+// AddMultipartUploadInternal adds an in-progress multipart upload directly to the backend for testing.
+func (b *InMemoryBackend) AddMultipartUploadInternal(accountID, region, vaultName string, up *MultipartUpload) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if b.multipartUploads[key] == nil {
+		b.multipartUploads[key] = make(map[string]*MultipartUpload)
+	}
+
+	cp := *up
+	b.multipartUploads[key][up.MultipartUploadID] = &cp
 }
 
 // AbortVaultLock removes an in-progress vault lock.
