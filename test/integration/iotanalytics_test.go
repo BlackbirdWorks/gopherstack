@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
 	iotanalyticstype "github.com/aws/aws-sdk-go-v2/service/iotanalytics/types"
 )
 
@@ -39,14 +39,14 @@ func TestIntegration_IoTAnalytics_ChannelLifecycle(t *testing.T) {
 	client := createIoTAnalyticsClient(t)
 	channelName := "integration-channel-" + t.Name()
 
-	createOut, err := client.CreateChannel( //nolint:staticcheck // AWS deprecated
+	createOut, err := client.CreateChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateChannelInput{ChannelName: aws.String(channelName)},
 	)
 	require.NoError(t, err, "CreateChannel should succeed")
 	assert.Equal(t, channelName, aws.ToString(createOut.ChannelName)) //nolint:staticcheck // deprecated field
 	assert.NotEmpty(t, createOut.ChannelArn)                          //nolint:staticcheck // deprecated field
 
-	listOut, err := client.ListChannels( //nolint:staticcheck // AWS deprecated
+	listOut, err := client.ListChannels( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.ListChannelsInput{},
 	)
 	require.NoError(t, err, "ListChannels should succeed")
@@ -63,24 +63,24 @@ func TestIntegration_IoTAnalytics_ChannelLifecycle(t *testing.T) {
 
 	assert.True(t, found, "created channel should appear in list")
 
-	descOut, err := client.DescribeChannel( //nolint:staticcheck // AWS deprecated
+	descOut, err := client.DescribeChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.DescribeChannelInput{ChannelName: aws.String(channelName)},
 	)
 	require.NoError(t, err, "DescribeChannel should succeed")
 	ch := descOut.Channel                               //nolint:staticcheck // deprecated field
 	assert.Equal(t, channelName, aws.ToString(ch.Name)) //nolint:staticcheck // deprecated field
 
-	_, err = client.UpdateChannel( //nolint:staticcheck // AWS deprecated
+	_, err = client.UpdateChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.UpdateChannelInput{ChannelName: aws.String(channelName)},
 	)
 	require.NoError(t, err, "UpdateChannel should succeed")
 
-	_, err = client.DeleteChannel( //nolint:staticcheck // AWS deprecated
+	_, err = client.DeleteChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.DeleteChannelInput{ChannelName: aws.String(channelName)},
 	)
 	require.NoError(t, err, "DeleteChannel should succeed")
 
-	_, err = client.DescribeChannel( //nolint:staticcheck // AWS deprecated
+	_, err = client.DescribeChannel( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.DescribeChannelInput{ChannelName: aws.String(channelName)},
 	)
 	require.Error(t, err, "DescribeChannel after delete should return error")
@@ -94,13 +94,13 @@ func TestIntegration_IoTAnalytics_DatastoreLifecycle(t *testing.T) {
 	client := createIoTAnalyticsClient(t)
 	datastoreName := "integration-datastore-" + t.Name()
 
-	createOut, err := client.CreateDatastore( //nolint:staticcheck // AWS deprecated
+	createOut, err := client.CreateDatastore( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreateDatastoreInput{DatastoreName: aws.String(datastoreName)},
 	)
 	require.NoError(t, err, "CreateDatastore should succeed")
 	assert.Equal(t, datastoreName, aws.ToString(createOut.DatastoreName)) //nolint:staticcheck // deprecated field
 
-	listOut, err := client.ListDatastores( //nolint:staticcheck // AWS deprecated
+	listOut, err := client.ListDatastores( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.ListDatastoresInput{},
 	)
 	require.NoError(t, err, "ListDatastores should succeed")
@@ -117,7 +117,7 @@ func TestIntegration_IoTAnalytics_DatastoreLifecycle(t *testing.T) {
 
 	assert.True(t, found, "created datastore should appear in list")
 
-	_, err = client.DeleteDatastore( //nolint:staticcheck // AWS deprecated
+	_, err = client.DeleteDatastore( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.DeleteDatastoreInput{DatastoreName: aws.String(datastoreName)},
 	)
 	require.NoError(t, err, "DeleteDatastore should succeed")
@@ -131,7 +131,7 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 	client := createIoTAnalyticsClient(t)
 	pipelineName := "integration-pipeline-" + t.Name()
 
-	createOut, err := client.CreatePipeline( //nolint:staticcheck // AWS deprecated
+	createOut, err := client.CreatePipeline( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.CreatePipelineInput{
 			PipelineName: aws.String(pipelineName),
 			PipelineActivities: []iotanalyticstype.PipelineActivity{
@@ -147,7 +147,7 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 	require.NoError(t, err, "CreatePipeline should succeed")
 	assert.Equal(t, pipelineName, aws.ToString(createOut.PipelineName)) //nolint:staticcheck // deprecated field
 
-	listOut, err := client.ListPipelines( //nolint:staticcheck // AWS deprecated
+	listOut, err := client.ListPipelines( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.ListPipelinesInput{},
 	)
 	require.NoError(t, err, "ListPipelines should succeed")
@@ -164,14 +164,14 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 
 	assert.True(t, found, "created pipeline should appear in list")
 
-	descOut, err := client.DescribePipeline( //nolint:staticcheck // AWS deprecated
+	descOut, err := client.DescribePipeline( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.DescribePipelineInput{PipelineName: aws.String(pipelineName)},
 	)
 	require.NoError(t, err, "DescribePipeline should succeed")
 	pipeline := descOut.Pipeline                               //nolint:staticcheck // deprecated field
 	assert.Equal(t, pipelineName, aws.ToString(pipeline.Name)) //nolint:staticcheck // deprecated field
 
-	_, err = client.DeletePipeline( //nolint:staticcheck // AWS deprecated
+	_, err = client.DeletePipeline( //nolint:staticcheck // deprecated service
 		ctx, &iotanalyticssdk.DeletePipelineInput{PipelineName: aws.String(pipelineName)},
 	)
 	require.NoError(t, err, "DeletePipeline should succeed")

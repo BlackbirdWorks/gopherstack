@@ -1,6 +1,10 @@
 package glacier
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+	"maps"
+)
 
 type vaultSnapshot struct {
 	Vault *Vault   `json:"vault"`
@@ -17,10 +21,35 @@ type jobSnapshot struct {
 	Key  vaultKey        `json:"key"`
 }
 
+type multipartUploadSnapshot struct {
+	Uploads map[string]*MultipartUpload `json:"uploads"`
+	Key     vaultKey                    `json:"key"`
+}
+
+type multipartPartSnapshot struct {
+	Key   uploadKey       `json:"key"`
+	Parts []MultipartPart `json:"parts"`
+}
+
+type provisionedCapacitySnapshot struct {
+	AccountID string                 `json:"accountID"`
+	Caps      []*ProvisionedCapacity `json:"caps"`
+}
+
+type vaultLockSnapshot struct {
+	Lock *VaultLock `json:"lock"`
+	Key  vaultKey   `json:"key"`
+}
+
 type backendSnapshot struct {
-	Vaults   []vaultSnapshot   `json:"vaults"`
-	Archives []archiveSnapshot `json:"archives"`
-	Jobs     []jobSnapshot     `json:"jobs"`
+	DataRetrievalPolicies map[string]string             `json:"dataRetrievalPolicies,omitempty"`
+	Vaults                []vaultSnapshot               `json:"vaults"`
+	Archives              []archiveSnapshot             `json:"archives"`
+	Jobs                  []jobSnapshot                 `json:"jobs"`
+	MultipartUploads      []multipartUploadSnapshot     `json:"multipartUploads"`
+	MultipartParts        []multipartPartSnapshot       `json:"multipartParts"`
+	VaultLocks            []vaultLockSnapshot           `json:"vaultLocks,omitempty"`
+	ProvisionedCapacity   []provisionedCapacitySnapshot `json:"provisionedCapacity"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -29,9 +58,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Vaults:   make([]vaultSnapshot, 0, len(b.vaults)),
-		Archives: make([]archiveSnapshot, 0, len(b.archives)),
-		Jobs:     make([]jobSnapshot, 0, len(b.jobs)),
+		Vaults:           make([]vaultSnapshot, 0, len(b.vaults)),
+		Archives:         make([]archiveSnapshot, 0, len(b.archives)),
+		Jobs:             make([]jobSnapshot, 0, len(b.jobs)),
+		MultipartUploads: make([]multipartUploadSnapshot, 0, len(b.multipartUploads)),
+		MultipartParts:   make([]multipartPartSnapshot, 0, len(b.multipartParts)),
 	}
 
 	for k, v := range b.vaults {
@@ -46,8 +77,32 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		snap.Jobs = append(snap.Jobs, jobSnapshot{Key: k, Jobs: jobs})
 	}
 
+	for k, uploads := range b.multipartUploads {
+		snap.MultipartUploads = append(snap.MultipartUploads, multipartUploadSnapshot{Key: k, Uploads: uploads})
+	}
+
+	for k, parts := range b.multipartParts {
+		snap.MultipartParts = append(snap.MultipartParts, multipartPartSnapshot{Key: k, Parts: parts})
+	}
+
+	for accountID, caps := range b.provisionedCapacity {
+		snap.ProvisionedCapacity = append(snap.ProvisionedCapacity, provisionedCapacitySnapshot{
+			AccountID: accountID,
+			Caps:      caps,
+		})
+	}
+
+	for k, lock := range b.vaultLocks {
+		snap.VaultLocks = append(snap.VaultLocks, vaultLockSnapshot{Key: k, Lock: lock})
+	}
+
+	snap.DataRetrievalPolicies = make(map[string]string, len(b.dataRetrievalPolicies))
+	maps.Copy(snap.DataRetrievalPolicies, b.dataRetrievalPolicies)
+
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("glacier: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -68,6 +123,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.vaults = make(map[vaultKey]*Vault)
 	b.archives = make(map[vaultKey]map[string]*Archive)
 	b.jobs = make(map[vaultKey]map[string]*Job)
+	b.multipartUploads = make(map[vaultKey]map[string]*MultipartUpload)
+	b.multipartParts = make(map[uploadKey][]MultipartPart)
+	b.vaultLocks = make(map[vaultKey]*VaultLock)
+	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
 
 	for _, vs := range snap.Vaults {
 		b.vaults[vs.Key] = vs.Vault
@@ -87,6 +146,30 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 
 		b.jobs[js.Key] = js.Jobs
+	}
+
+	for _, us := range snap.MultipartUploads {
+		if us.Uploads == nil {
+			us.Uploads = make(map[string]*MultipartUpload)
+		}
+
+		b.multipartUploads[us.Key] = us.Uploads
+	}
+
+	for _, ps := range snap.MultipartParts {
+		b.multipartParts[ps.Key] = ps.Parts
+	}
+
+	for _, cs := range snap.ProvisionedCapacity {
+		b.provisionedCapacity[cs.AccountID] = cs.Caps
+	}
+
+	for _, ls := range snap.VaultLocks {
+		b.vaultLocks[ls.Key] = ls.Lock
+	}
+
+	if snap.DataRetrievalPolicies != nil {
+		b.dataRetrievalPolicies = snap.DataRetrievalPolicies
 	}
 
 	return nil

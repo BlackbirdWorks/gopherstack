@@ -27,18 +27,26 @@ type Archive struct {
 
 // Job stores state for a single Glacier retrieval or inventory job.
 type Job struct {
-	VaultARN       string `json:"vaultARN"`
-	VaultName      string `json:"vaultName"`
-	JobID          string `json:"jobID"`
-	JobDescription string `json:"jobDescription,omitempty"`
-	Action         string `json:"action"`
-	ArchiveID      string `json:"archiveID,omitempty"`
-	StatusCode     string `json:"statusCode"`
-	StatusMessage  string `json:"statusMessage,omitempty"`
-	CreationDate   string `json:"creationDate"`
-	CompletionDate string `json:"completionDate,omitempty"`
-	Tier           string `json:"tier,omitempty"`
-	Completed      bool   `json:"completed"`
+	VaultARN             string `json:"vaultARN"`
+	VaultName            string `json:"vaultName"`
+	JobID                string `json:"jobID"`
+	JobDescription       string `json:"jobDescription,omitempty"`
+	Action               string `json:"action"`
+	ArchiveID            string `json:"archiveID,omitempty"`
+	StatusCode           string `json:"statusCode"`
+	StatusMessage        string `json:"statusMessage,omitempty"`
+	CreationDate         string `json:"creationDate"`
+	CompletionDate       string `json:"completionDate,omitempty"`
+	Tier                 string `json:"tier,omitempty"`
+	SHA256TreeHash       string `json:"sha256TreeHash,omitempty"`
+	ArchiveSizeInBytes   int64  `json:"archiveSizeInBytes,omitempty"`
+	InventorySizeInBytes int64  `json:"inventorySizeInBytes,omitempty"`
+	Completed            bool   `json:"completed"`
+}
+
+// vaultLockPolicyRequest is the request body for InitiateVaultLock.
+type vaultLockPolicyRequest struct {
+	Policy string `json:"Policy"`
 }
 
 // vaultNotificationConfig holds the SNS configuration for a vault.
@@ -139,6 +147,85 @@ type errorResponse struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Type    string `json:"type"`
+}
+
+// MultipartUpload holds metadata for an in-progress multipart upload.
+type MultipartUpload struct {
+	MultipartUploadID  string `json:"MultipartUploadId"`
+	VaultARN           string `json:"VaultARN"`
+	ArchiveDescription string `json:"ArchiveDescription,omitempty"`
+	CreationDate       string `json:"CreationDate"`
+	PartSizeInBytes    int64  `json:"PartSizeInBytes"`
+}
+
+// MultipartPart holds metadata for a single uploaded part.
+type MultipartPart struct {
+	RangeInBytes   string `json:"RangeInBytes"`
+	SHA256TreeHash string `json:"SHA256TreeHash,omitempty"`
+}
+
+// VaultLock holds the state of a vault lock policy.
+type VaultLock struct {
+	Policy         string `json:"Policy"`
+	LockID         string `json:"LockId,omitempty"`
+	State          string `json:"State"`
+	CreationDate   string `json:"CreationDate,omitempty"`
+	ExpirationDate string `json:"ExpirationDate,omitempty"`
+}
+
+// ProvisionedCapacity holds a single provisioned capacity unit.
+type ProvisionedCapacity struct {
+	CapacityID     string `json:"CapacityId"`
+	StartDate      string `json:"StartDate"`
+	ExpirationDate string `json:"ExpirationDate"`
+}
+
+// initiateMultipartUploadResponse is the response for InitiateMultipartUpload.
+type initiateMultipartUploadResponse struct {
+	Location          string `json:"location"`
+	MultipartUploadID string `json:"uploadId"`
+}
+
+// completeMultipartUploadResponse is the response for CompleteMultipartUpload.
+type completeMultipartUploadResponse struct {
+	ArchiveID string `json:"archiveId"`
+	Checksum  string `json:"checksum"`
+	Location  string `json:"location"`
+}
+
+// listMultipartUploadsResponse is the response for ListMultipartUploads.
+type listMultipartUploadsResponse struct {
+	Marker      *string           `json:"Marker,omitempty"`
+	UploadsList []MultipartUpload `json:"UploadsList"`
+}
+
+// ListPartsOutput is the response for ListParts.
+type ListPartsOutput struct {
+	Marker             *string         `json:"Marker,omitempty"`
+	MultipartUploadID  string          `json:"MultipartUploadId"`
+	VaultARN           string          `json:"VaultARN"`
+	ArchiveDescription string          `json:"ArchiveDescription,omitempty"`
+	CreationDate       string          `json:"CreationDate"`
+	Parts              []MultipartPart `json:"Parts"`
+	PartSizeInBytes    int64           `json:"PartSizeInBytes"`
+}
+
+// getVaultLockResponse is the response for GetVaultLock.
+type getVaultLockResponse struct {
+	CreationDate   string `json:"CreationDate,omitempty"`
+	ExpirationDate string `json:"ExpirationDate,omitempty"`
+	Policy         string `json:"Policy,omitempty"`
+	State          string `json:"State"`
+}
+
+// listProvisionedCapacityResponse is the response for ListProvisionedCapacity.
+type listProvisionedCapacityResponse struct {
+	ProvisionedCapacityList []ProvisionedCapacity `json:"ProvisionedCapacityList"`
+}
+
+// purchaseProvisionedCapacityResponse is the response for PurchaseProvisionedCapacity.
+type purchaseProvisionedCapacityResponse struct {
+	CapacityID string `json:"capacityId"`
 }
 
 // formatDate formats a [time.Time] as an ISO 8601 timestamp.

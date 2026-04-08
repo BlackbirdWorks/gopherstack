@@ -17,15 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := glacier.NewInMemoryBackend()
 	h := glacier.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &glaciersdk.Client{}, h.GetSupportedOperations(), []string{
-		"AbortMultipartUpload",
-		"CompleteMultipartUpload",
-		"GetVaultLock",
-		"InitiateMultipartUpload",
-		"ListMultipartUploads",
-		"ListParts",
-		"ListProvisionedCapacity",
-		"PurchaseProvisionedCapacity",
-		"UploadMultipartPart",
-	})
+	sdkcheck.CheckCompleteness(t, &glaciersdk.Client{}, h.GetSupportedOperations(), []string{})
 }

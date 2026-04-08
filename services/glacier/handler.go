@@ -3,7 +3,9 @@ package glacier
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -39,6 +41,8 @@ const (
 	opAbortVaultLock = "AbortVaultLock"
 	// opCompleteVaultLock is the operation name for CompleteVaultLock.
 	opCompleteVaultLock = "CompleteVaultLock"
+	// opGetVaultLock is the operation name for GetVaultLock.
+	opGetVaultLock = "GetVaultLock"
 )
 
 // Handler is the HTTP handler for the Glacier REST API.
@@ -81,8 +85,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"InitiateVaultLock",
 		"AbortVaultLock",
 		"CompleteVaultLock",
+		"GetVaultLock",
 		"GetDataRetrievalPolicy",
 		"SetDataRetrievalPolicy",
+		"InitiateMultipartUpload",
+		"UploadMultipartPart",
+		"CompleteMultipartUpload",
+		"AbortMultipartUpload",
+		"ListMultipartUploads",
+		"ListParts",
+		"ListProvisionedCapacity",
+		"PurchaseProvisionedCapacity",
 	}
 }
 
@@ -106,9 +119,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		// Check that the second segment is "vaults" or "policies"
-		// Glacier paths: /{accountId}/vaults or /{accountId}/policies
-		return segs[1] == "vaults" || segs[1] == "policies"
+		// Check that the second segment is "vaults", "policies", or "provisioned-capacity"
+		// Glacier paths: /{accountId}/vaults, /{accountId}/policies, /{accountId}/provisioned-capacity
+		return segs[1] == "vaults" || segs[1] == "policies" || segs[1] == "provisioned-capacity"
 	}
 }
 
@@ -183,6 +196,10 @@ func parseGlacierPath(method, path, query string) (string, string) {
 		return parsePoliciesPath(method, segs)
 	}
 
+	if topLevel == "provisioned-capacity" {
+		return parseProvisionedCapacityPath(method, accountID)
+	}
+
 	if topLevel != "vaults" {
 		return "", ""
 	}
@@ -235,6 +252,18 @@ func parsePoliciesPath(method string, segs []string) (string, string) {
 	return "", ""
 }
 
+// parseProvisionedCapacityPath handles /{accountId}/provisioned-capacity.
+func parseProvisionedCapacityPath(method, accountID string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return "ListProvisionedCapacity", accountID
+	case http.MethodPost:
+		return "PurchaseProvisionedCapacity", accountID
+	}
+
+	return "", ""
+}
+
 // parseVaultSubPath handles paths beyond /{accountId}/vaults/{vaultName}/.
 //
 
@@ -244,6 +273,8 @@ func parseVaultSubPath(method string, segs []string, vaultName, subPath, query s
 		return parseArchivesPath(method, segs, vaultName)
 	case "jobs":
 		return parseJobsPath(method, segs, vaultName)
+	case "multipart-uploads":
+		return parseMultipartUploadsPath(method, segs, vaultName)
 	case "tags":
 		return parseTagsPath(method, query, vaultName)
 	case "notification-configuration":
@@ -308,6 +339,35 @@ func parseJobsPath(method string, segs []string, vaultName string) (string, stri
 	return "", ""
 }
 
+// parseMultipartUploadsPath handles /{accountId}/vaults/{vaultName}/multipart-uploads[/{uploadId}].
+func parseMultipartUploadsPath(method string, segs []string, vaultName string) (string, string) {
+	if len(segs) == 4 { //nolint:mnd // 4 segs = /account/vaults/name/multipart-uploads
+		switch method {
+		case http.MethodPost:
+			return "InitiateMultipartUpload", vaultName
+		case http.MethodGet:
+			return "ListMultipartUploads", vaultName
+		}
+
+		return "", ""
+	}
+
+	uploadID := segs[4]
+
+	switch method {
+	case http.MethodPut:
+		return "UploadMultipartPart", vaultName + "/" + uploadID
+	case http.MethodPost:
+		return "CompleteMultipartUpload", vaultName + "/" + uploadID
+	case http.MethodDelete:
+		return "AbortMultipartUpload", vaultName + "/" + uploadID
+	case http.MethodGet:
+		return "ListParts", vaultName + "/" + uploadID
+	}
+
+	return "", ""
+}
+
 // parseTagsPath handles /{accountId}/vaults/{vaultName}/tags?operation=add|remove.
 func parseTagsPath(method, query, vaultName string) (string, string) {
 	switch method {
@@ -358,6 +418,8 @@ func parseAccessPolicyPath(method, vaultName string) (string, string) {
 func parseLockPolicyPath(method string, segs []string, vaultName string) (string, string) {
 	if len(segs) == 4 { //nolint:mnd // 4 segs = /account/vaults/name/lock-policy
 		switch method {
+		case http.MethodGet:
+			return opGetVaultLock, vaultName
 		case http.MethodPost:
 			return opInitiateVaultLock, vaultName
 		case http.MethodDelete:
@@ -368,7 +430,7 @@ func parseLockPolicyPath(method string, segs []string, vaultName string) (string
 	}
 
 	if len(segs) >= 5 && method == http.MethodPost {
-		return opCompleteVaultLock, vaultName
+		return opCompleteVaultLock, vaultName + "/" + segs[4]
 	}
 
 	return "", ""
@@ -391,53 +453,115 @@ func extractSubID(resource string) string {
 	return parts[1]
 }
 
-// dispatch routes a parsed operation to the appropriate handler.
-//
-//nolint:cyclop // dispatch table has necessary branches for each operation
-func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
+// dispatchVaultOps routes vault CRUD operations.
+func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, error) {
 	switch op {
 	case "CreateVault":
-		return h.handleCreateVault(c, resource)
+		return true, h.handleCreateVault(c, resource)
 	case "DescribeVault":
-		return h.handleDescribeVault(c, resource)
+		return true, h.handleDescribeVault(c, resource)
 	case "DeleteVault":
-		return h.handleDeleteVault(c, resource)
+		return true, h.handleDeleteVault(c, resource)
 	case "ListVaults":
-		return h.handleListVaults(c)
+		return true, h.handleListVaults(c)
+	}
+
+	return false, nil
+}
+
+// dispatchArchiveAndJobOps routes archive and job operations.
+func (h *Handler) dispatchArchiveAndJobOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
 	case "UploadArchive":
-		return h.handleUploadArchive(c, resource, body)
+		return true, h.handleUploadArchive(c, resource, body)
 	case "DeleteArchive":
-		return h.handleDeleteArchive(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleDeleteArchive(c, extractVaultName(resource), extractSubID(resource))
 	case "InitiateJob":
-		return h.handleInitiateJob(c, resource, body)
+		return true, h.handleInitiateJob(c, resource, body)
 	case "DescribeJob":
-		return h.handleDescribeJob(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleDescribeJob(c, extractVaultName(resource), extractSubID(resource))
 	case "ListJobs":
-		return h.handleListJobs(c, resource)
+		return true, h.handleListJobs(c, resource)
 	case "GetJobOutput":
-		return h.handleGetJobOutput(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleGetJobOutput(c, extractVaultName(resource), extractSubID(resource))
+	}
+
+	return false, nil
+}
+
+// dispatchTagsAndPoliciesOps routes tag, notification, and access-policy operations.
+func (h *Handler) dispatchTagsAndPoliciesOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
 	case "SetVaultNotifications":
-		return h.handleSetVaultNotifications(c, resource, body)
+		return true, h.handleSetVaultNotifications(c, resource, body)
 	case "GetVaultNotifications":
-		return h.handleGetVaultNotifications(c, resource)
+		return true, h.handleGetVaultNotifications(c, resource)
 	case "DeleteVaultNotifications":
-		return h.handleDeleteVaultNotifications(c, resource)
+		return true, h.handleDeleteVaultNotifications(c, resource)
 	case "SetVaultAccessPolicy":
-		return h.handleSetVaultAccessPolicy(c, resource, body)
+		return true, h.handleSetVaultAccessPolicy(c, resource, body)
 	case "GetVaultAccessPolicy":
-		return h.handleGetVaultAccessPolicy(c, resource)
+		return true, h.handleGetVaultAccessPolicy(c, resource)
 	case "DeleteVaultAccessPolicy":
-		return h.handleDeleteVaultAccessPolicy(c, resource)
+		return true, h.handleDeleteVaultAccessPolicy(c, resource)
 	case "AddTagsToVault":
-		return h.handleAddTagsToVault(c, resource, body)
+		return true, h.handleAddTagsToVault(c, resource, body)
 	case "ListTagsForVault":
-		return h.handleListTagsForVault(c, resource)
+		return true, h.handleListTagsForVault(c, resource)
 	case "RemoveTagsFromVault":
-		return h.handleRemoveTagsFromVault(c, resource, body)
-	case opInitiateVaultLock, opAbortVaultLock, opCompleteVaultLock:
-		return h.handleVaultLock(c, op, resource)
+		return true, h.handleRemoveTagsFromVault(c, resource, body)
+	}
+
+	return false, nil
+}
+
+// dispatchMultipartAndCapacityOps routes multipart upload and provisioned capacity operations.
+func (h *Handler) dispatchMultipartAndCapacityOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case "InitiateMultipartUpload":
+		return true, h.handleInitiateMultipartUpload(c, resource, body)
+	case "UploadMultipartPart":
+		return true, h.handleUploadMultipartPart(c, extractVaultName(resource), extractSubID(resource), body)
+	case "CompleteMultipartUpload":
+		return true, h.handleCompleteMultipartUpload(c, extractVaultName(resource), extractSubID(resource), body)
+	case "AbortMultipartUpload":
+		return true, h.handleAbortMultipartUpload(c, extractVaultName(resource), extractSubID(resource))
+	case "ListMultipartUploads":
+		return true, h.handleListMultipartUploads(c, resource)
+	case "ListParts":
+		return true, h.handleListParts(c, extractVaultName(resource), extractSubID(resource))
+	case "ListProvisionedCapacity":
+		return true, h.handleListProvisionedCapacity(c, resource)
+	case "PurchaseProvisionedCapacity":
+		return true, h.handlePurchaseProvisionedCapacity(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatch routes a parsed operation to the appropriate handler.
+func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
+	if handled, err := h.dispatchVaultOps(c, op, resource); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchArchiveAndJobOps(c, op, resource, body); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchTagsAndPoliciesOps(c, op, resource, body); handled {
+		return err
+	}
+
+	switch op {
+	case opInitiateVaultLock, opAbortVaultLock, opCompleteVaultLock, opGetVaultLock:
+		return h.handleVaultLock(c, op, resource, body)
 	case opGetDataRetrievalPolicy, "SetDataRetrievalPolicy":
 		return h.handleDataRetrievalPolicy(c, op, body)
+	}
+
+	if handled, err := h.dispatchMultipartAndCapacityOps(c, op, resource, body); handled {
+		return err
 	}
 
 	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "unknown operation: "+op)
@@ -486,7 +610,39 @@ func (h *Handler) handleListVaults(c *echo.Context) error {
 		items = append(items, toDescribeVaultResponse(v))
 	}
 
+	// Support `marker` pagination: start listing after this vault name.
+	marker := c.QueryParam("marker")
+
+	if marker != "" {
+		start := 0
+
+		for start < len(items) && items[start].VaultName != marker {
+			start++
+		}
+
+		if start < len(items) {
+			items = items[start+1:]
+		} else {
+			items = nil
+		}
+	}
+
+	// Support `limit` to cap the number of results returned.
+	limitStr := c.QueryParam("limit")
+
+	var nextMarker *string
+
+	if limitStr != "" {
+		n, err := strconv.Atoi(limitStr)
+		if err == nil && n > 0 && n < len(items) {
+			last := items[n-1].VaultName
+			nextMarker = &last
+			items = items[:n]
+		}
+	}
+
 	return c.JSON(http.StatusOK, listVaultsResponse{
+		Marker:    nextMarker,
 		VaultList: items,
 	})
 }
@@ -584,10 +740,29 @@ func (h *Handler) handleDescribeJob(c *echo.Context, vaultName, jobID string) er
 }
 
 func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
-	jobs := h.Backend.ListJobs(h.AccountID, h.DefaultRegion, vaultName)
+	jobs, err := h.Backend.ListJobs(h.AccountID, h.DefaultRegion, vaultName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	// Optional query filters: ?completed=true|false and ?statuscode=InProgress|Succeeded|Failed
+	completedFilter := c.QueryParam("completed")
+	statuscodeFilter := c.QueryParam("statuscode")
+
 	items := make([]describeJobResponse, 0, len(jobs))
 
 	for _, j := range jobs {
+		if completedFilter != "" {
+			want := completedFilter == "true"
+			if j.Completed != want {
+				continue
+			}
+		}
+
+		if statuscodeFilter != "" && j.StatusCode != statuscodeFilter {
+			continue
+		}
+
 		items = append(items, toDescribeJobResponse(j))
 	}
 
@@ -602,15 +777,34 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 		return h.writeBackendError(c, err)
 	}
 
+	if j.SHA256TreeHash != "" {
+		c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", j.SHA256TreeHash)
+	}
+
 	// Return a minimal inventory JSON for InventoryRetrieval jobs, empty body for ArchiveRetrieval.
-	if j.Action == "InventoryRetrieval" {
+	if j.Action == jobTypeInventoryRetrieval {
 		inventoryJSON := `{"VaultARN":"` + j.VaultARN + `","InventoryDate":"` + j.CompletionDate + `","ArchiveList":[]}`
 		c.Response().Header().Set("Content-Type", "application/json")
+
+		if j.InventorySizeInBytes > 0 {
+			c.Response().Header().Set(
+				"Content-Range",
+				fmt.Sprintf("bytes 0-%d/%d", j.InventorySizeInBytes-1, j.InventorySizeInBytes),
+			)
+		}
 
 		return c.String(http.StatusOK, inventoryJSON)
 	}
 
+	// ArchiveRetrieval: set Content-Range if we know the archive size.
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
+
+	if j.ArchiveSizeInBytes > 0 {
+		c.Response().Header().Set(
+			"Content-Range",
+			fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes),
+		)
+	}
 
 	return c.String(http.StatusOK, "")
 }
@@ -628,6 +822,20 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 		StatusCode:     j.StatusCode,
 		StatusMessage:  j.StatusMessage,
 		Tier:           j.Tier,
+	}
+
+	if j.ArchiveSizeInBytes > 0 {
+		size := j.ArchiveSizeInBytes
+		resp.ArchiveSizeInBytes = &size
+	}
+
+	if j.InventorySizeInBytes > 0 {
+		size := j.InventorySizeInBytes
+		resp.InventorySizeInBytes = &size
+	}
+
+	if j.SHA256TreeHash != "" {
+		resp.SHA256TreeHash = j.SHA256TreeHash
 	}
 
 	if j.Completed {
@@ -787,35 +995,251 @@ func (h *Handler) handleRemoveTagsFromVault(c *echo.Context, vaultName string, b
 }
 
 // ----------------------------------------
-// Vault lock handlers (stub)
+// Vault lock handlers
 // ----------------------------------------
 
-func (h *Handler) handleVaultLock(c *echo.Context, op, _ string) error {
+func (h *Handler) handleVaultLock(c *echo.Context, op, resource string, body []byte) error {
+	vaultName := extractVaultName(resource)
+
 	switch op {
 	case opAbortVaultLock:
+		if err := h.Backend.AbortVaultLock(h.AccountID, h.DefaultRegion, vaultName); err != nil {
+			return h.writeBackendError(c, err)
+		}
+
 		return c.NoContent(http.StatusNoContent)
 	case opInitiateVaultLock:
-		return c.JSON(http.StatusCreated, map[string]string{"lockId": generateID(lockIDLength)})
+		var req vaultLockPolicyRequest
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+
+		lockID := generateID(lockIDLength)
+		if err := h.Backend.SetVaultLock(h.AccountID, h.DefaultRegion, vaultName, req.Policy, lockID); err != nil {
+			return h.writeBackendError(c, err)
+		}
+
+		return c.JSON(http.StatusCreated, map[string]string{"lockId": lockID})
 	case opCompleteVaultLock:
+		lockID := extractSubID(resource)
+		if err := h.Backend.CompleteVaultLock(h.AccountID, h.DefaultRegion, vaultName, lockID); err != nil {
+			return h.writeBackendError(c, err)
+		}
+
 		return c.NoContent(http.StatusNoContent)
+	case opGetVaultLock:
+		return h.handleGetVaultLock(c, vaultName)
 	}
 
 	return c.NoContent(http.StatusNoContent)
 }
 
-// handleDataRetrievalPolicy handles GetDataRetrievalPolicy and SetDataRetrievalPolicy (stubs).
-func (h *Handler) handleDataRetrievalPolicy(c *echo.Context, op string, _ []byte) error {
+func (h *Handler) handleGetVaultLock(c *echo.Context, vaultName string) error {
+	lock, err := h.Backend.GetVaultLock(h.AccountID, h.DefaultRegion, vaultName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getVaultLockResponse{
+		Policy:         lock.Policy,
+		State:          lock.State,
+		CreationDate:   lock.CreationDate,
+		ExpirationDate: lock.ExpirationDate,
+	})
+}
+
+// handleDataRetrievalPolicy handles GetDataRetrievalPolicy and SetDataRetrievalPolicy.
+func (h *Handler) handleDataRetrievalPolicy(c *echo.Context, op string, body []byte) error {
 	if op == opGetDataRetrievalPolicy {
-		return c.JSON(http.StatusOK, map[string]any{
-			"Policy": map[string]any{
-				"Rules": []map[string]string{
-					{"Strategy": "FreeTier"},
+		policy := h.Backend.GetDataRetrievalPolicy(h.AccountID)
+		if policy == "" {
+			return c.JSON(http.StatusOK, map[string]any{
+				"Policy": map[string]any{
+					"Rules": []map[string]string{
+						{"Strategy": "FreeTier"},
+					},
 				},
-			},
-		})
+			})
+		}
+
+		var parsed any
+		if err := json.Unmarshal([]byte(policy), &parsed); err == nil {
+			return c.JSON(http.StatusOK, parsed)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"Policy": policy})
+	}
+
+	h.Backend.SetDataRetrievalPolicy(h.AccountID, body)
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// ----------------------------------------
+// Multipart upload handlers
+// ----------------------------------------
+
+func (h *Handler) handleInitiateMultipartUpload(c *echo.Context, vaultName string, _ []byte) error {
+	description := c.Request().Header.Get("X-Amz-Archive-Description")
+	partSizeStr := c.Request().Header.Get("X-Amz-Part-Size")
+
+	var partSize int64
+
+	if partSizeStr != "" {
+		n, err := parseInt64Header(partSizeStr)
+		if err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValueException",
+				"invalid X-Amz-Part-Size header",
+			)
+		}
+
+		partSize = n
+	}
+
+	up, err := h.Backend.InitiateMultipartUpload(h.AccountID, h.DefaultRegion, vaultName, description, partSize)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	location := "/" + h.AccountID + "/vaults/" + vaultName + "/multipart-uploads/" + up.MultipartUploadID
+	c.Response().Header().Set("Location", location)
+	c.Response().Header().Set("X-Amz-Multipart-Upload-Id", up.MultipartUploadID)
+
+	// AWS returns the chosen part size in the response so clients can verify.
+	if up.PartSizeInBytes > 0 {
+		c.Response().Header().Set("X-Amz-Part-Size", strconv.FormatInt(up.PartSizeInBytes, 10))
+	}
+
+	return c.JSON(http.StatusCreated, initiateMultipartUploadResponse{
+		Location:          location,
+		MultipartUploadID: up.MultipartUploadID,
+	})
+}
+
+func (h *Handler) handleUploadMultipartPart(c *echo.Context, vaultName, uploadID string, _ []byte) error {
+	rangeHeader := c.Request().Header.Get("Content-Range")
+	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
+
+	if err := h.Backend.UploadMultipartPart(
+		h.AccountID, h.DefaultRegion, vaultName, uploadID, rangeHeader, checksum,
+	); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", checksum)
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleCompleteMultipartUpload(
+	c *echo.Context,
+	vaultName, uploadID string,
+	_ []byte,
+) error {
+	archiveSizeStr := c.Request().Header.Get("X-Amz-Archive-Size")
+	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
+
+	var archiveSize int64
+
+	if archiveSizeStr != "" {
+		n, err := parseInt64Header(archiveSizeStr)
+		if err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValueException",
+				"invalid X-Amz-Archive-Size header",
+			)
+		}
+
+		archiveSize = n
+	}
+
+	a, err := h.Backend.CompleteMultipartUpload(
+		h.AccountID, h.DefaultRegion, vaultName, uploadID, checksum, archiveSize,
+	)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	location := "/" + h.AccountID + "/vaults/" + vaultName + "/archives/" + a.ArchiveID
+	c.Response().Header().Set("X-Amz-Archive-Id", a.ArchiveID)
+	c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", a.SHA256TreeHash)
+	c.Response().Header().Set("Location", location)
+
+	return c.JSON(http.StatusCreated, completeMultipartUploadResponse{
+		ArchiveID: a.ArchiveID,
+		Checksum:  a.SHA256TreeHash,
+		Location:  location,
+	})
+}
+
+func (h *Handler) handleAbortMultipartUpload(c *echo.Context, vaultName, uploadID string) error {
+	if err := h.Backend.AbortMultipartUpload(h.AccountID, h.DefaultRegion, vaultName, uploadID); err != nil {
+		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListMultipartUploads(c *echo.Context, vaultName string) error {
+	ups := h.Backend.ListMultipartUploads(h.AccountID, h.DefaultRegion, vaultName)
+	items := make([]MultipartUpload, 0, len(ups))
+
+	for _, up := range ups {
+		items = append(items, *up)
+	}
+
+	return c.JSON(http.StatusOK, listMultipartUploadsResponse{
+		UploadsList: items,
+	})
+}
+
+func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) error {
+	resp, err := h.Backend.ListParts(h.AccountID, h.DefaultRegion, vaultName, uploadID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// ----------------------------------------
+// Provisioned capacity handlers
+// ----------------------------------------
+
+func (h *Handler) handleListProvisionedCapacity(c *echo.Context, accountID string) error {
+	caps := h.Backend.ListProvisionedCapacity(accountID)
+	items := make([]ProvisionedCapacity, 0, len(caps))
+
+	for _, item := range caps {
+		items = append(items, *item)
+	}
+
+	return c.JSON(http.StatusOK, listProvisionedCapacityResponse{
+		ProvisionedCapacityList: items,
+	})
+}
+
+func (h *Handler) handlePurchaseProvisionedCapacity(c *echo.Context, accountID string) error {
+	provCap, err := h.Backend.PurchaseProvisionedCapacity(accountID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	c.Response().Header().Set("X-Amz-Capacity-Id", provCap.CapacityID)
+
+	return c.JSON(http.StatusCreated, purchaseProvisionedCapacityResponse{
+		CapacityID: provCap.CapacityID,
+	})
+}
+
+// parseInt64Header parses an integer value from a header string.
+func parseInt64Header(s string) (int64, error) {
+	return strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 }
 
 // ----------------------------------------
@@ -840,6 +1264,18 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrJobNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	case errors.Is(err, ErrUploadNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	case errors.Is(err, ErrVaultNotEmpty):
+		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrLockConflict):
+		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrLockAlreadyLocked):
+		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrTooManyTags):
+		return h.writeError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
+	case errors.Is(err, ErrValidation):
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceUnavailableException", err.Error())
