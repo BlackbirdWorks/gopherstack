@@ -82,9 +82,9 @@ type EncryptionConfigInput struct {
 
 // EncryptionConfig holds the effective SSE configuration for a delivery stream.
 type EncryptionConfig struct {
-	KeyARN  string `json:"keyARN,omitempty"`
-	KeyType string `json:"keyType"`
-	Status  string `json:"status"`
+	KeyARN  string `json:"KeyARN,omitempty"`
+	KeyType string `json:"KeyType"`
+	Status  string `json:"Status"`
 }
 
 // S3DestinationDescription holds the effective S3 destination config stored on the stream.
