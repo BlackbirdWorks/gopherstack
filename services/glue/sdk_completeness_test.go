@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")
 	h := glue.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &gluesdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchCreatePartition",
-		"BatchDeleteConnection",
-		"BatchDeletePartition",
-		"BatchDeleteTable",
-		"BatchDeleteTableVersion",
-		"BatchGetBlueprints",
-		"BatchGetCrawlers",
-		"BatchGetCustomEntityTypes",
-		"BatchGetDataQualityResult",
-		"BatchGetDevEndpoints",
 		"BatchGetJobs",
 		"BatchGetPartition",
 		"BatchGetTableOptimizer",

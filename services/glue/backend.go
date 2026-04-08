@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -15,6 +16,8 @@ var (
 	ErrNotFound = awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
@@ -125,28 +128,140 @@ type Job struct {
 	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
 }
 
+// ErrorDetail holds an error code and message for batch operation failures.
+type ErrorDetail struct {
+	ErrorCode    string `json:"ErrorCode"`
+	ErrorMessage string `json:"ErrorMessage"`
+}
+
+// PartitionValueList identifies a partition by its values.
+type PartitionValueList struct {
+	Values []string `json:"Values"`
+}
+
+// PartitionInput is the input for creating a partition.
+type PartitionInput struct {
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Values            []string          `json:"Values"`
+}
+
+// Partition represents a Glue table partition.
+type Partition struct {
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	DatabaseName      string            `json:"DatabaseName"`
+	TableName         string            `json:"TableName"`
+	Values            []string          `json:"Values"`
+}
+
+// PartitionError represents an error for a single partition operation.
+type PartitionError struct {
+	ErrorDetail     ErrorDetail `json:"ErrorDetail"`
+	PartitionValues []string    `json:"PartitionValues"`
+}
+
+// TableError represents an error for a single table operation.
+type TableError struct {
+	TableName   string      `json:"TableName"`
+	ErrorDetail ErrorDetail `json:"ErrorDetail"`
+}
+
+// TableVersion represents a version of a Glue table.
+type TableVersion struct {
+	Table     *Table `json:"Table,omitempty"`
+	VersionID string `json:"VersionId"`
+}
+
+// TableVersionError represents an error for a table version operation.
+type TableVersionError struct {
+	TableName   string      `json:"TableName"`
+	VersionID   string      `json:"VersionId"`
+	ErrorDetail ErrorDetail `json:"ErrorDetail"`
+}
+
+// Connection represents a Glue connection.
+type Connection struct {
+	Name string `json:"Name"`
+}
+
+// Blueprint represents a Glue blueprint.
+type Blueprint struct {
+	Name   string `json:"Name"`
+	Status string `json:"Status,omitempty"`
+}
+
+// CustomEntityType represents a Glue custom entity type.
+type CustomEntityType struct {
+	Name         string   `json:"Name"`
+	RegexString  string   `json:"RegexString,omitempty"`
+	ContextWords []string `json:"ContextWords,omitempty"`
+}
+
+// DataQualityResult represents a Glue data quality result.
+type DataQualityResult struct {
+	ResultID string  `json:"ResultId"`
+	Score    float64 `json:"Score,omitempty"`
+}
+
+// DevEndpoint represents a Glue development endpoint.
+type DevEndpoint struct {
+	EndpointName string `json:"EndpointName"`
+	Status       string `json:"Status,omitempty"`
+}
+
 // InMemoryBackend stores Glue state in memory.
 type InMemoryBackend struct {
-	databases map[string]*Database // key: databaseName
-	tables    map[string]*Table    // key: "databaseName|tableName"
-	crawlers  map[string]*Crawler  // key: crawlerName
-	jobs      map[string]*Job      // key: jobName
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	databases         map[string]*Database          // key: databaseName
+	tables            map[string]*Table             // key: "databaseName|tableName"
+	crawlers          map[string]*Crawler           // key: crawlerName
+	jobs              map[string]*Job               // key: jobName
+	partitions        map[string]*Partition         // key: partitionKey(db, table, values)
+	tableVersions     map[string]*TableVersion      // key: tableVersionKey(db, table, versionID)
+	connections       map[string]*Connection        // key: connectionName
+	blueprints        map[string]*Blueprint         // key: blueprintName
+	customEntityTypes map[string]*CustomEntityType  // key: name
+	dataQualityResult map[string]*DataQualityResult // key: resultID
+	devEndpoints      map[string]*DevEndpoint       // key: endpointName
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		databases: make(map[string]*Database),
-		tables:    make(map[string]*Table),
-		crawlers:  make(map[string]*Crawler),
-		jobs:      make(map[string]*Job),
-		mu:        lockmetrics.New("glue"),
-		accountID: accountID,
-		region:    region,
+		databases:         make(map[string]*Database),
+		tables:            make(map[string]*Table),
+		crawlers:          make(map[string]*Crawler),
+		jobs:              make(map[string]*Job),
+		partitions:        make(map[string]*Partition),
+		tableVersions:     make(map[string]*TableVersion),
+		connections:       make(map[string]*Connection),
+		blueprints:        make(map[string]*Blueprint),
+		customEntityTypes: make(map[string]*CustomEntityType),
+		dataQualityResult: make(map[string]*DataQualityResult),
+		devEndpoints:      make(map[string]*DevEndpoint),
+		mu:                lockmetrics.New("glue"),
+		accountID:         accountID,
+		region:            region,
 	}
+}
+
+// Reset clears all backend state, returning it to the initial empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.databases = make(map[string]*Database)
+	b.tables = make(map[string]*Table)
+	b.crawlers = make(map[string]*Crawler)
+	b.jobs = make(map[string]*Job)
+	b.partitions = make(map[string]*Partition)
+	b.tableVersions = make(map[string]*TableVersion)
+	b.connections = make(map[string]*Connection)
+	b.blueprints = make(map[string]*Blueprint)
+	b.customEntityTypes = make(map[string]*CustomEntityType)
+	b.dataQualityResult = make(map[string]*DataQualityResult)
+	b.devEndpoints = make(map[string]*DevEndpoint)
 }
 
 // Region returns the backend region.
@@ -226,6 +341,28 @@ func tableKey(dbName, tableName string) string {
 	return fmt.Sprintf("%s|%s", dbName, tableName)
 }
 
+// partitionKey returns a map key for a partition.
+func partitionKey(dbName, tableName string, values []string) string {
+	return fmt.Sprintf("%s|%s|%s", dbName, tableName, strings.Join(values, "#"))
+}
+
+// tableVersionKey returns a map key for a table version.
+func tableVersionKey(dbName, tableName, versionID string) string {
+	return fmt.Sprintf("%s|%s|%s", dbName, tableName, versionID)
+}
+
+// sortedKeys returns the keys of a map in sorted order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
 // --- Database operations ---
 
 // CreateDatabase creates a new Glue database.
@@ -262,20 +399,20 @@ func (b *InMemoryBackend) GetDatabase(name string) (*Database, error) {
 	return cloneDatabase(db), nil
 }
 
-// GetDatabases returns all Glue databases.
+// GetDatabases returns all Glue databases sorted by name.
 func (b *InMemoryBackend) GetDatabases() []*Database {
 	b.mu.RLock("GetDatabases")
 	defer b.mu.RUnlock()
 
 	out := make([]*Database, 0, len(b.databases))
-	for _, db := range b.databases {
-		out = append(out, cloneDatabase(db))
+	for _, k := range sortedKeys(b.databases) {
+		out = append(out, cloneDatabase(b.databases[k]))
 	}
 
 	return out
 }
 
-// DeleteDatabase deletes a Glue database by name, also removing all its tables.
+// DeleteDatabase deletes a Glue database by name, also removing all its tables and partitions.
 func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	b.mu.Lock("DeleteDatabase")
 	defer b.mu.Unlock()
@@ -290,6 +427,18 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	for k := range b.tables {
 		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
 			delete(b.tables, k)
+		}
+	}
+
+	for k := range b.partitions {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			delete(b.partitions, k)
+		}
+	}
+
+	for k := range b.tableVersions {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			delete(b.tableVersions, k)
 		}
 	}
 
@@ -354,7 +503,7 @@ func (b *InMemoryBackend) GetTable(dbName, tableName string) (*Table, error) {
 	return t, nil
 }
 
-// GetTables returns all tables in a database.
+// GetTables returns all tables in a database sorted by name.
 func (b *InMemoryBackend) GetTables(dbName string) ([]*Table, error) {
 	b.mu.RLock("GetTables")
 	defer b.mu.RUnlock()
@@ -364,11 +513,11 @@ func (b *InMemoryBackend) GetTables(dbName string) ([]*Table, error) {
 	}
 
 	prefix := dbName + "|"
-	var out []*Table
+	out := make([]*Table, 0, len(b.tables))
 
-	for k, t := range b.tables {
+	for _, k := range sortedKeys(b.tables) {
 		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			out = append(out, t)
+			out = append(out, b.tables[k])
 		}
 	}
 
@@ -395,7 +544,7 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	return nil
 }
 
-// DeleteTable deletes a Glue table.
+// DeleteTable deletes a Glue table and all its partitions.
 func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 	b.mu.Lock("DeleteTable")
 	defer b.mu.Unlock()
@@ -406,8 +555,26 @@ func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 	}
 
 	delete(b.tables, key)
+	b.deleteTablePartitionsLocked(dbName, tableName)
 
 	return nil
+}
+
+// deleteTablePartitionsLocked removes all partitions and versions for a table.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) {
+	prefix := dbName + "|" + tableName + "|"
+	for k := range b.partitions {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.partitions, k)
+		}
+	}
+
+	for k := range b.tableVersions {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.tableVersions, k)
+		}
+	}
 }
 
 // --- Crawler operations ---
@@ -456,14 +623,14 @@ func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
 	return cloneCrawler(c), nil
 }
 
-// GetCrawlers returns all Glue crawlers.
+// GetCrawlers returns all Glue crawlers sorted by name.
 func (b *InMemoryBackend) GetCrawlers() []*Crawler {
 	b.mu.RLock("GetCrawlers")
 	defer b.mu.RUnlock()
 
 	out := make([]*Crawler, 0, len(b.crawlers))
-	for _, c := range b.crawlers {
-		out = append(out, cloneCrawler(c))
+	for _, k := range sortedKeys(b.crawlers) {
+		out = append(out, cloneCrawler(b.crawlers[k]))
 	}
 
 	return out
@@ -545,14 +712,14 @@ func (b *InMemoryBackend) GetJob(name string) (*Job, error) {
 	return cloneJob(j), nil
 }
 
-// GetJobs returns all Glue jobs.
+// GetJobs returns all Glue jobs sorted by name.
 func (b *InMemoryBackend) GetJobs() []*Job {
 	b.mu.RLock("GetJobs")
 	defer b.mu.RUnlock()
 
 	out := make([]*Job, 0, len(b.jobs))
-	for _, j := range b.jobs {
-		out = append(out, cloneJob(j))
+	for _, k := range sortedKeys(b.jobs) {
+		out = append(out, cloneJob(b.jobs[k]))
 	}
 
 	return out
@@ -730,4 +897,328 @@ func (b *InMemoryBackend) findJobByARN(resourceARN string) *Job {
 	}
 
 	return j
+}
+
+// --- Batch operations ---
+
+// BatchCreatePartition creates multiple partitions for a table.
+func (b *InMemoryBackend) BatchCreatePartition(
+	dbName, tableName string,
+	inputs []PartitionInput,
+) ([]*Partition, []PartitionError) {
+	b.mu.Lock("BatchCreatePartition")
+	defer b.mu.Unlock()
+
+	created := make([]*Partition, 0, len(inputs))
+	errs := make([]PartitionError, 0)
+
+	for _, input := range inputs {
+		key := partitionKey(dbName, tableName, input.Values)
+		if _, exists := b.partitions[key]; exists {
+			errs = append(errs, PartitionError{
+				PartitionValues: input.Values,
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    "AlreadyExistsException",
+					ErrorMessage: "partition already exists",
+				},
+			})
+
+			continue
+		}
+
+		p := &Partition{
+			DatabaseName:      dbName,
+			TableName:         tableName,
+			Values:            append([]string(nil), input.Values...),
+			StorageDescriptor: input.StorageDescriptor,
+		}
+		b.partitions[key] = p
+		created = append(created, p)
+	}
+
+	return created, errs
+}
+
+// BatchDeletePartition deletes multiple partitions for a table.
+func (b *InMemoryBackend) BatchDeletePartition(dbName, tableName string, values []PartitionValueList) []PartitionError {
+	b.mu.Lock("BatchDeletePartition")
+	defer b.mu.Unlock()
+
+	errs := make([]PartitionError, 0)
+
+	for _, pvl := range values {
+		key := partitionKey(dbName, tableName, pvl.Values)
+		if _, ok := b.partitions[key]; !ok {
+			errs = append(errs, PartitionError{
+				PartitionValues: pvl.Values,
+				ErrorDetail:     ErrorDetail{ErrorCode: "EntityNotFoundException", ErrorMessage: "partition not found"},
+			})
+
+			continue
+		}
+
+		delete(b.partitions, key)
+	}
+
+	return errs
+}
+
+// BatchDeleteTable deletes multiple tables and cascades to partitions and versions.
+func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) []TableError {
+	b.mu.Lock("BatchDeleteTable")
+	defer b.mu.Unlock()
+
+	errs := make([]TableError, 0)
+
+	for _, name := range tableNames {
+		key := tableKey(dbName, name)
+		if _, ok := b.tables[key]; !ok {
+			errs = append(errs, TableError{
+				TableName:   name,
+				ErrorDetail: ErrorDetail{ErrorCode: "EntityNotFoundException", ErrorMessage: "table not found"},
+			})
+
+			continue
+		}
+
+		delete(b.tables, key)
+		b.deleteTablePartitionsLocked(dbName, name)
+	}
+
+	return errs
+}
+
+// BatchDeleteTableVersion deletes multiple table versions.
+func (b *InMemoryBackend) BatchDeleteTableVersion(dbName, tableName string, versionIDs []string) []TableVersionError {
+	b.mu.Lock("BatchDeleteTableVersion")
+	defer b.mu.Unlock()
+
+	errs := make([]TableVersionError, 0)
+
+	for _, vid := range versionIDs {
+		key := tableVersionKey(dbName, tableName, vid)
+		if _, ok := b.tableVersions[key]; !ok {
+			errs = append(errs, TableVersionError{
+				TableName:   tableName,
+				VersionID:   vid,
+				ErrorDetail: ErrorDetail{ErrorCode: "EntityNotFoundException", ErrorMessage: "table version not found"},
+			})
+
+			continue
+		}
+
+		delete(b.tableVersions, key)
+	}
+
+	return errs
+}
+
+// BatchDeleteConnection deletes multiple connections.
+func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []ErrorDetail) {
+	b.mu.Lock("BatchDeleteConnection")
+	defer b.mu.Unlock()
+
+	succeeded := make([]string, 0, len(names))
+	errs := make([]ErrorDetail, 0)
+
+	for _, name := range names {
+		if _, ok := b.connections[name]; !ok {
+			errs = append(errs, ErrorDetail{
+				ErrorCode:    "EntityNotFoundException",
+				ErrorMessage: fmt.Sprintf("connection not found: %s", name),
+			})
+
+			continue
+		}
+
+		delete(b.connections, name)
+		succeeded = append(succeeded, name)
+	}
+
+	return succeeded, errs
+}
+
+// BatchGetBlueprints retrieves multiple blueprints by name.
+func (b *InMemoryBackend) BatchGetBlueprints(names []string) ([]*Blueprint, []string) {
+	b.mu.RLock("BatchGetBlueprints")
+	defer b.mu.RUnlock()
+
+	found := make([]*Blueprint, 0, len(names))
+	missing := make([]string, 0)
+
+	for _, name := range names {
+		bp, ok := b.blueprints[name]
+		if !ok {
+			missing = append(missing, name)
+
+			continue
+		}
+
+		cp := *bp
+		found = append(found, &cp)
+	}
+
+	return found, missing
+}
+
+// BatchGetCrawlers retrieves multiple crawlers by name.
+func (b *InMemoryBackend) BatchGetCrawlers(names []string) ([]*Crawler, []string) {
+	b.mu.RLock("BatchGetCrawlers")
+	defer b.mu.RUnlock()
+
+	found := make([]*Crawler, 0, len(names))
+	missing := make([]string, 0)
+
+	for _, name := range names {
+		c, ok := b.crawlers[name]
+		if !ok {
+			missing = append(missing, name)
+
+			continue
+		}
+
+		found = append(found, cloneCrawler(c))
+	}
+
+	return found, missing
+}
+
+// BatchGetCustomEntityTypes retrieves multiple custom entity types by name.
+func (b *InMemoryBackend) BatchGetCustomEntityTypes(names []string) ([]*CustomEntityType, []string) {
+	b.mu.RLock("BatchGetCustomEntityTypes")
+	defer b.mu.RUnlock()
+
+	found := make([]*CustomEntityType, 0, len(names))
+	missing := make([]string, 0)
+
+	for _, name := range names {
+		cet, ok := b.customEntityTypes[name]
+		if !ok {
+			missing = append(missing, name)
+
+			continue
+		}
+
+		cp := *cet
+		cp.ContextWords = append([]string(nil), cet.ContextWords...)
+		found = append(found, &cp)
+	}
+
+	return found, missing
+}
+
+// BatchGetDataQualityResult retrieves multiple data quality results by ID.
+func (b *InMemoryBackend) BatchGetDataQualityResult(resultIDs []string) ([]*DataQualityResult, []ErrorDetail) {
+	b.mu.RLock("BatchGetDataQualityResult")
+	defer b.mu.RUnlock()
+
+	found := make([]*DataQualityResult, 0, len(resultIDs))
+	errs := make([]ErrorDetail, 0)
+
+	for _, id := range resultIDs {
+		dqr, ok := b.dataQualityResult[id]
+		if !ok {
+			errs = append(errs, ErrorDetail{
+				ErrorCode:    "EntityNotFoundException",
+				ErrorMessage: fmt.Sprintf("data quality result not found: %s", id),
+			})
+
+			continue
+		}
+
+		cp := *dqr
+		found = append(found, &cp)
+	}
+
+	return found, errs
+}
+
+// BatchGetDevEndpoints retrieves multiple dev endpoints by name.
+func (b *InMemoryBackend) BatchGetDevEndpoints(names []string) ([]*DevEndpoint, []string) {
+	b.mu.RLock("BatchGetDevEndpoints")
+	defer b.mu.RUnlock()
+
+	found := make([]*DevEndpoint, 0, len(names))
+	missing := make([]string, 0)
+
+	for _, name := range names {
+		dep, ok := b.devEndpoints[name]
+		if !ok {
+			missing = append(missing, name)
+
+			continue
+		}
+
+		cp := *dep
+		found = append(found, &cp)
+	}
+
+	return found, missing
+}
+
+// --- Seed helpers (for testing) ---
+
+// AddConnectionInternal adds a connection directly to the backend without validation.
+func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
+	b.mu.Lock("AddConnectionInternal")
+	defer b.mu.Unlock()
+
+	cp := *conn
+	b.connections[conn.Name] = &cp
+}
+
+// AddBlueprintInternal adds a blueprint directly to the backend without validation.
+func (b *InMemoryBackend) AddBlueprintInternal(bp *Blueprint) {
+	b.mu.Lock("AddBlueprintInternal")
+	defer b.mu.Unlock()
+
+	cp := *bp
+	b.blueprints[bp.Name] = &cp
+}
+
+// AddCustomEntityTypeInternal adds a custom entity type directly to the backend without validation.
+func (b *InMemoryBackend) AddCustomEntityTypeInternal(cet *CustomEntityType) {
+	b.mu.Lock("AddCustomEntityTypeInternal")
+	defer b.mu.Unlock()
+
+	cp := *cet
+	cp.ContextWords = append([]string(nil), cet.ContextWords...)
+	b.customEntityTypes[cet.Name] = &cp
+}
+
+// AddDataQualityResultInternal adds a data quality result directly to the backend without validation.
+func (b *InMemoryBackend) AddDataQualityResultInternal(dqr *DataQualityResult) {
+	b.mu.Lock("AddDataQualityResultInternal")
+	defer b.mu.Unlock()
+
+	cp := *dqr
+	b.dataQualityResult[dqr.ResultID] = &cp
+}
+
+// AddDevEndpointInternal adds a dev endpoint directly to the backend without validation.
+func (b *InMemoryBackend) AddDevEndpointInternal(dep *DevEndpoint) {
+	b.mu.Lock("AddDevEndpointInternal")
+	defer b.mu.Unlock()
+
+	cp := *dep
+	b.devEndpoints[dep.EndpointName] = &cp
+}
+
+// AddTableVersionInternal adds a table version directly to the backend without validation.
+func (b *InMemoryBackend) AddTableVersionInternal(dbName, tableName string, tv *TableVersion) {
+	b.mu.Lock("AddTableVersionInternal")
+	defer b.mu.Unlock()
+
+	cp := *tv
+	b.tableVersions[tableVersionKey(dbName, tableName, tv.VersionID)] = &cp
+}
+
+// AddPartitionInternal adds a partition directly to the backend without validation.
+func (b *InMemoryBackend) AddPartitionInternal(dbName, tableName string, p *Partition) {
+	b.mu.Lock("AddPartitionInternal")
+	defer b.mu.Unlock()
+
+	cp := *p
+	cp.Values = append([]string(nil), p.Values...)
+	b.partitions[partitionKey(dbName, tableName, p.Values)] = &cp
 }

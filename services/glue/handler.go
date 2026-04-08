@@ -25,13 +25,22 @@ var errUnknownAction = errors.New("UnknownOperationException")
 
 // Handler is the Echo HTTP handler for AWS Glue operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	// ops is the pre-built dispatch table mapping operation names to handler
+	// functions, initialized in NewHandler.
+	ops map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Glue handler backed by backend.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
+
+// Reset clears all backend state. Used for test isolation.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Glue" }
@@ -39,6 +48,16 @@ func (h *Handler) Name() string { return "Glue" }
 // GetSupportedOperations returns the list of supported Glue operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"BatchCreatePartition",
+		"BatchDeleteConnection",
+		"BatchDeletePartition",
+		"BatchDeleteTable",
+		"BatchDeleteTableVersion",
+		"BatchGetBlueprints",
+		"BatchGetCrawlers",
+		"BatchGetCustomEntityTypes",
+		"BatchGetDataQualityResult",
+		"BatchGetDevEndpoints",
 		"CreateDatabase",
 		"GetDatabase",
 		"GetDatabases",
@@ -138,36 +157,46 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateDatabase": service.WrapOp(h.handleCreateDatabase),
-		"GetDatabase":    service.WrapOp(h.handleGetDatabase),
-		"GetDatabases":   service.WrapOp(h.handleGetDatabases),
-		"UpdateDatabase": service.WrapOp(h.handleUpdateDatabase),
-		"DeleteDatabase": service.WrapOp(h.handleDeleteDatabase),
-		"CreateTable":    service.WrapOp(h.handleCreateTable),
-		"GetTable":       service.WrapOp(h.handleGetTable),
-		"GetTables":      service.WrapOp(h.handleGetTables),
-		"UpdateTable":    service.WrapOp(h.handleUpdateTable),
-		"DeleteTable":    service.WrapOp(h.handleDeleteTable),
-		"CreateCrawler":  service.WrapOp(h.handleCreateCrawler),
-		"GetCrawler":     service.WrapOp(h.handleGetCrawler),
-		"GetCrawlers":    service.WrapOp(h.handleGetCrawlers),
-		"UpdateCrawler":  service.WrapOp(h.handleUpdateCrawler),
-		"DeleteCrawler":  service.WrapOp(h.handleDeleteCrawler),
-		"CreateJob":      service.WrapOp(h.handleCreateJob),
-		"GetJob":         service.WrapOp(h.handleGetJob),
-		"GetJobs":        service.WrapOp(h.handleGetJobs),
-		"UpdateJob":      service.WrapOp(h.handleUpdateJob),
-		"DeleteJob":      service.WrapOp(h.handleDeleteJob),
-		"TagResource":    service.WrapOp(h.handleTagResource),
-		"UntagResource":  service.WrapOp(h.handleUntagResource),
-		"GetTags":        service.WrapOp(h.handleGetTags),
+		"BatchCreatePartition":      service.WrapOp(h.handleBatchCreatePartition),
+		"BatchDeleteConnection":     service.WrapOp(h.handleBatchDeleteConnection),
+		"BatchDeletePartition":      service.WrapOp(h.handleBatchDeletePartition),
+		"BatchDeleteTable":          service.WrapOp(h.handleBatchDeleteTable),
+		"BatchDeleteTableVersion":   service.WrapOp(h.handleBatchDeleteTableVersion),
+		"BatchGetBlueprints":        service.WrapOp(h.handleBatchGetBlueprints),
+		"BatchGetCrawlers":          service.WrapOp(h.handleBatchGetCrawlers),
+		"BatchGetCustomEntityTypes": service.WrapOp(h.handleBatchGetCustomEntityTypes),
+		"BatchGetDataQualityResult": service.WrapOp(h.handleBatchGetDataQualityResult),
+		"BatchGetDevEndpoints":      service.WrapOp(h.handleBatchGetDevEndpoints),
+		"CreateDatabase":            service.WrapOp(h.handleCreateDatabase),
+		"GetDatabase":               service.WrapOp(h.handleGetDatabase),
+		"GetDatabases":              service.WrapOp(h.handleGetDatabases),
+		"UpdateDatabase":            service.WrapOp(h.handleUpdateDatabase),
+		"DeleteDatabase":            service.WrapOp(h.handleDeleteDatabase),
+		"CreateTable":               service.WrapOp(h.handleCreateTable),
+		"GetTable":                  service.WrapOp(h.handleGetTable),
+		"GetTables":                 service.WrapOp(h.handleGetTables),
+		"UpdateTable":               service.WrapOp(h.handleUpdateTable),
+		"DeleteTable":               service.WrapOp(h.handleDeleteTable),
+		"CreateCrawler":             service.WrapOp(h.handleCreateCrawler),
+		"GetCrawler":                service.WrapOp(h.handleGetCrawler),
+		"GetCrawlers":               service.WrapOp(h.handleGetCrawlers),
+		"UpdateCrawler":             service.WrapOp(h.handleUpdateCrawler),
+		"DeleteCrawler":             service.WrapOp(h.handleDeleteCrawler),
+		"CreateJob":                 service.WrapOp(h.handleCreateJob),
+		"GetJob":                    service.WrapOp(h.handleGetJob),
+		"GetJobs":                   service.WrapOp(h.handleGetJobs),
+		"UpdateJob":                 service.WrapOp(h.handleUpdateJob),
+		"DeleteJob":                 service.WrapOp(h.handleDeleteJob),
+		"TagResource":               service.WrapOp(h.handleTagResource),
+		"UntagResource":             service.WrapOp(h.handleUntagResource),
+		"GetTags":                   service.WrapOp(h.handleGetTags),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -186,6 +215,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusBadRequest, errorResponse("EntityNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errorResponse("AlreadyExistsException", err.Error()))
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", err.Error()))
 	default:
@@ -596,4 +627,207 @@ func (h *Handler) handleGetTags(_ context.Context, in *getTagsInput) (*getTagsOu
 	}
 
 	return &getTagsOutput{Tags: tags}, nil
+}
+
+// --- Batch partition handlers ---
+
+type batchCreatePartitionInput struct {
+	DatabaseName       string           `json:"DatabaseName"`
+	TableName          string           `json:"TableName"`
+	PartitionInputList []PartitionInput `json:"PartitionInputList"`
+}
+
+type batchCreatePartitionOutput struct {
+	Errors     []PartitionError `json:"Errors"`
+	Partitions []*Partition     `json:"Partitions"`
+}
+
+func (h *Handler) handleBatchCreatePartition(
+	_ context.Context,
+	in *batchCreatePartitionInput,
+) (*batchCreatePartitionOutput, error) {
+	created, errs := h.Backend.BatchCreatePartition(in.DatabaseName, in.TableName, in.PartitionInputList)
+
+	return &batchCreatePartitionOutput{Partitions: created, Errors: errs}, nil
+}
+
+type batchDeletePartitionInput struct {
+	DatabaseName       string               `json:"DatabaseName"`
+	TableName          string               `json:"TableName"`
+	PartitionsToDelete []PartitionValueList `json:"PartitionsToDelete"`
+}
+
+type batchDeletePartitionOutput struct {
+	Errors []PartitionError `json:"Errors"`
+}
+
+func (h *Handler) handleBatchDeletePartition(
+	_ context.Context,
+	in *batchDeletePartitionInput,
+) (*batchDeletePartitionOutput, error) {
+	errs := h.Backend.BatchDeletePartition(in.DatabaseName, in.TableName, in.PartitionsToDelete)
+
+	return &batchDeletePartitionOutput{Errors: errs}, nil
+}
+
+type batchDeleteTableInput struct {
+	DatabaseName   string   `json:"DatabaseName"`
+	TablesToDelete []string `json:"TablesToDelete"`
+}
+
+type batchDeleteTableOutput struct {
+	Errors []TableError `json:"Errors"`
+}
+
+func (h *Handler) handleBatchDeleteTable(
+	_ context.Context,
+	in *batchDeleteTableInput,
+) (*batchDeleteTableOutput, error) {
+	errs := h.Backend.BatchDeleteTable(in.DatabaseName, in.TablesToDelete)
+
+	return &batchDeleteTableOutput{Errors: errs}, nil
+}
+
+type batchDeleteTableVersionInput struct {
+	DatabaseName string   `json:"DatabaseName"`
+	TableName    string   `json:"TableName"`
+	VersionIDs   []string `json:"VersionIds"`
+}
+
+type batchDeleteTableVersionOutput struct {
+	Errors []TableVersionError `json:"Errors"`
+}
+
+func (h *Handler) handleBatchDeleteTableVersion(
+	_ context.Context,
+	in *batchDeleteTableVersionInput,
+) (*batchDeleteTableVersionOutput, error) {
+	errs := h.Backend.BatchDeleteTableVersion(in.DatabaseName, in.TableName, in.VersionIDs)
+
+	return &batchDeleteTableVersionOutput{Errors: errs}, nil
+}
+
+// --- Batch connection handlers ---
+
+type batchDeleteConnectionInput struct {
+	ConnectionNameList []string `json:"ConnectionNameList"`
+}
+
+type batchDeleteConnectionOutput struct {
+	Errors    []ErrorDetail `json:"Errors"`
+	Succeeded []string      `json:"Succeeded"`
+}
+
+func (h *Handler) handleBatchDeleteConnection(
+	_ context.Context,
+	in *batchDeleteConnectionInput,
+) (*batchDeleteConnectionOutput, error) {
+	succeeded, errs := h.Backend.BatchDeleteConnection(in.ConnectionNameList)
+
+	return &batchDeleteConnectionOutput{Succeeded: succeeded, Errors: errs}, nil
+}
+
+// --- Batch blueprint handlers ---
+
+type batchGetBlueprintsInput struct {
+	Names []string `json:"Names"`
+}
+
+type batchGetBlueprintsOutput struct {
+	Blueprints        []*Blueprint `json:"Blueprints"`
+	MissingBlueprints []string     `json:"MissingBlueprints"`
+}
+
+func (h *Handler) handleBatchGetBlueprints(
+	_ context.Context,
+	in *batchGetBlueprintsInput,
+) (*batchGetBlueprintsOutput, error) {
+	found, missing := h.Backend.BatchGetBlueprints(in.Names)
+
+	return &batchGetBlueprintsOutput{Blueprints: found, MissingBlueprints: missing}, nil
+}
+
+// --- Batch crawler handlers ---
+
+type batchGetCrawlersInput struct {
+	CrawlerNames []string `json:"CrawlerNames"`
+}
+
+type batchGetCrawlersOutput struct {
+	Crawlers         []*Crawler `json:"Crawlers"`
+	CrawlersNotFound []string   `json:"CrawlersNotFound"`
+}
+
+func (h *Handler) handleBatchGetCrawlers(
+	_ context.Context,
+	in *batchGetCrawlersInput,
+) (*batchGetCrawlersOutput, error) {
+	found, missing := h.Backend.BatchGetCrawlers(in.CrawlerNames)
+
+	return &batchGetCrawlersOutput{Crawlers: found, CrawlersNotFound: missing}, nil
+}
+
+// --- Batch custom entity type handlers ---
+
+type batchGetCustomEntityTypesInput struct {
+	Names []string `json:"Names"`
+}
+
+type batchGetCustomEntityTypesOutput struct {
+	CustomEntityTypes         []*CustomEntityType `json:"CustomEntityTypes"`
+	CustomEntityTypesNotFound []string            `json:"CustomEntityTypesNotFound"`
+}
+
+func (h *Handler) handleBatchGetCustomEntityTypes(
+	_ context.Context,
+	in *batchGetCustomEntityTypesInput,
+) (*batchGetCustomEntityTypesOutput, error) {
+	found, missing := h.Backend.BatchGetCustomEntityTypes(in.Names)
+
+	return &batchGetCustomEntityTypesOutput{CustomEntityTypes: found, CustomEntityTypesNotFound: missing}, nil
+}
+
+// --- Batch data quality handlers ---
+
+type batchGetDataQualityResultInput struct {
+	ResultIDs []string `json:"ResultIds"`
+}
+
+type batchGetDataQualityResultOutput struct {
+	Results         []DataQualityResult `json:"Results"`
+	ResultsNotFound []ErrorDetail       `json:"ResultsNotFound"`
+}
+
+func (h *Handler) handleBatchGetDataQualityResult(
+	_ context.Context,
+	in *batchGetDataQualityResultInput,
+) (*batchGetDataQualityResultOutput, error) {
+	found, errs := h.Backend.BatchGetDataQualityResult(in.ResultIDs)
+	results := make([]DataQualityResult, 0, len(found))
+
+	for _, r := range found {
+		results = append(results, *r)
+	}
+
+	return &batchGetDataQualityResultOutput{Results: results, ResultsNotFound: errs}, nil
+}
+
+// --- Batch dev endpoint handlers ---
+
+type batchGetDevEndpointsInput struct {
+	DevEndpointNames []string `json:"DevEndpointNames"`
+}
+
+type batchGetDevEndpointsOutput struct {
+	DevEndpoints         []*DevEndpoint `json:"DevEndpoints"`
+	DevEndpointsNotFound []string       `json:"DevEndpointsNotFound"`
+}
+
+func (h *Handler) handleBatchGetDevEndpoints(
+	_ context.Context,
+	in *batchGetDevEndpointsInput,
+) (*batchGetDevEndpointsOutput, error) {
+	found, missing := h.Backend.BatchGetDevEndpoints(in.DevEndpointNames)
+
+	return &batchGetDevEndpointsOutput{DevEndpoints: found, DevEndpointsNotFound: missing}, nil
 }
