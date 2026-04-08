@@ -195,3 +195,49 @@ func (h *Handler) GetJanitorExperimentTTL() time.Duration {
 
 	return h.janitor.ExperimentTTL
 }
+
+// AddTemplateInternal inserts a pre-built experiment template with a deep copy.
+// Used only in tests as a seed helper.
+func (b *InMemoryBackend) AddTemplateInternal(tpl *ExperimentTemplate) {
+	b.mu.Lock("AddTemplateInternal")
+	defer b.mu.Unlock()
+
+	cp := cloneTemplate(tpl)
+	b.templates[cp.ID] = cp
+	b.templateARNIndex[cp.Arn] = cp.ID
+}
+
+// AddTargetAccountConfigInternal inserts a target account configuration for a template.
+// The template must already exist. Used only in tests as a seed helper.
+func (b *InMemoryBackend) AddTargetAccountConfigInternal(cfg *TargetAccountConfiguration) {
+	b.mu.Lock("AddTargetAccountConfigInternal")
+	defer b.mu.Unlock()
+
+	if b.targetAccountConfigs[cfg.ExperimentTemplateID] == nil {
+		b.targetAccountConfigs[cfg.ExperimentTemplateID] = make(map[string]*TargetAccountConfiguration)
+	}
+
+	cp := *cfg
+	b.targetAccountConfigs[cfg.ExperimentTemplateID][cfg.AccountID] = &cp
+}
+
+// TargetAccountConfigCount returns the total number of target account configurations across all templates.
+// Used only in tests.
+func (b *InMemoryBackend) TargetAccountConfigCount() int {
+	b.mu.RLock("TargetAccountConfigCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+
+	for _, cfgs := range b.targetAccountConfigs {
+		total += len(cfgs)
+	}
+
+	return total
+}
+
+// HandlerOpsLen returns 0 because the FIS handler uses a switch-based dispatch, not a map.
+// Used in tests to maintain consistency with other services.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}

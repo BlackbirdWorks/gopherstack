@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,6 +47,15 @@ var ErrSafetyLeverEngaged = errors.New("SafetyLeverEngaged")
 
 // ErrTooManyExperiments is returned when the experiment count would exceed the cap.
 var ErrTooManyExperiments = errors.New("ServiceQuotaExceededException")
+
+// ErrValidation is returned when a required field is missing or has an invalid value.
+var ErrValidation = errors.New("ValidationException")
+
+// ----------------------------------------
+// Compile-time interface check
+// ----------------------------------------
+
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // ----------------------------------------
 // Status constants
@@ -372,7 +382,7 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 	return cloneTemplate(tpl), nil
 }
 
-// DeleteExperimentTemplate deletes an experiment template by ID.
+// DeleteExperimentTemplate deletes an experiment template by ID, including its target account configurations.
 func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 	b.mu.Lock("DeleteExperimentTemplate")
 	defer b.mu.Unlock()
@@ -383,11 +393,12 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 
 	delete(b.templateARNIndex, b.templates[id].Arn)
 	delete(b.templates, id)
+	delete(b.targetAccountConfigs, id)
 
 	return nil
 }
 
-// ListExperimentTemplates returns all experiment templates.
+// ListExperimentTemplates returns all experiment templates sorted by ID.
 func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, error) {
 	b.mu.RLock("ListExperimentTemplates")
 	defer b.mu.RUnlock()
@@ -396,6 +407,8 @@ func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, erro
 	for _, tpl := range b.templates {
 		result = append(result, cloneTemplate(tpl))
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
 	return result, nil
 }
@@ -585,7 +598,7 @@ func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 	return snap, nil
 }
 
-// ListExperiments returns all experiments.
+// ListExperiments returns all experiments sorted by ID.
 func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 	b.mu.RLock("ListExperiments")
 	defer b.mu.RUnlock()
@@ -594,6 +607,8 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 	for _, exp := range b.experiments {
 		result = append(result, cloneExperiment(exp))
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 
 	return result, nil
 }
@@ -635,6 +650,8 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 			TargetResourcesCount: len(tgt.ResourceArns),
 		})
 	}
+
+	sort.Slice(resolved, func(i, j int) bool { return resolved[i].TargetName < resolved[j].TargetName })
 
 	return resolved, nil
 }
@@ -685,7 +702,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 // Action / target resource type discovery
 // ----------------------------------------
 
-// ListActions returns all available FIS actions: built-in + service-provided.
+// ListActions returns all available FIS actions: built-in + service-provided, sorted by ID.
 func (b *InMemoryBackend) ListActions() []ActionSummary {
 	b.mu.RLock("ListActions")
 	providers := b.actionProviders
@@ -698,6 +715,8 @@ func (b *InMemoryBackend) ListActions() []ActionSummary {
 			all = append(all, actionDefToSummary(def, b.accountID, b.region))
 		}
 	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
 	return all
 }
@@ -749,6 +768,8 @@ func (b *InMemoryBackend) ListTargetResourceTypes() []TargetResourceTypeSummary 
 	for _, rt := range seen {
 		result = append(result, rt)
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ResourceType < result[j].ResourceType })
 
 	return result
 }
@@ -885,6 +906,10 @@ var ErrTargetAccountConfigNotFound = errors.New("TargetAccountConfigurationNotFo
 func (b *InMemoryBackend) CreateTargetAccountConfiguration(
 	templateID, accountID, roleArn, description string,
 ) (*TargetAccountConfiguration, error) {
+	if strings.TrimSpace(roleArn) == "" {
+		return nil, fmt.Errorf("%w: roleArn is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateTargetAccountConfiguration")
 	defer b.mu.Unlock()
 
@@ -992,7 +1017,7 @@ func (b *InMemoryBackend) UpdateTargetAccountConfiguration(
 	return &cp, nil
 }
 
-// ListTargetAccountConfigurations returns all target account configurations for a template.
+// ListTargetAccountConfigurations returns all target account configurations for a template, sorted by account ID.
 func (b *InMemoryBackend) ListTargetAccountConfigurations(templateID string) ([]*TargetAccountConfiguration, error) {
 	b.mu.RLock("ListTargetAccountConfigurations")
 	defer b.mu.RUnlock()
@@ -1008,6 +1033,8 @@ func (b *InMemoryBackend) ListTargetAccountConfigurations(templateID string) ([]
 		cp := *cfg
 		result = append(result, &cp)
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].AccountID < result[j].AccountID })
 
 	return result, nil
 }
@@ -1043,8 +1070,8 @@ func (b *InMemoryBackend) GetExperimentTargetAccountConfiguration(
 	}, nil
 }
 
-// ListExperimentTargetAccountConfigurations lists all target account configurations for a running experiment.
-// It resolves configurations from the experiment's source template.
+// ListExperimentTargetAccountConfigurations lists all target account configurations for a running experiment,
+// sorted by account ID. It resolves configurations from the experiment's source template.
 func (b *InMemoryBackend) ListExperimentTargetAccountConfigurations(
 	experimentID string,
 ) ([]*ExperimentTargetAccountConfiguration, error) {
@@ -1067,6 +1094,8 @@ func (b *InMemoryBackend) ListExperimentTargetAccountConfigurations(
 			RoleArn:      cfg.RoleArn,
 		})
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].AccountID < result[j].AccountID })
 
 	return result, nil
 }

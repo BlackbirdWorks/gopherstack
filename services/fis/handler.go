@@ -382,14 +382,7 @@ func (h *Handler) handleStartExperiment(ctx context.Context, c *echo.Context, bo
 
 	exp, err := h.Backend.StartExperiment(ctx, &input, h.AccountID, h.DefaultRegion)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrTemplateNotFound):
-			return h.writeError(c, http.StatusNotFound, err.Error(), input.ExperimentTemplateID)
-		case errors.Is(err, ErrSafetyLeverEngaged):
-			return h.writeError(c, http.StatusConflict, err.Error(), "")
-		default:
-			return h.writeError(c, http.StatusInternalServerError, err.Error(), "")
-		}
+		return h.writeBackendError(c, err, input.ExperimentTemplateID)
 	}
 
 	return c.JSON(http.StatusCreated, experimentResponseDTO{
@@ -718,6 +711,10 @@ func (h *Handler) writeError(c *echo.Context, status int, message, resourceID st
 
 func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error {
 	switch {
+	case errors.Is(err, ErrValidation):
+		return h.writeError(c, http.StatusBadRequest, err.Error(), id)
+	case errors.Is(err, ErrTooManyExperiments):
+		return h.writeError(c, http.StatusTooManyRequests, err.Error(), id)
 	case errors.Is(err, ErrTemplateNotFound):
 		return h.writeError(c, http.StatusNotFound, err.Error(), id)
 	case errors.Is(err, ErrExperimentNotFound):
