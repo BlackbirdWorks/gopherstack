@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := iam.NewInMemoryBackend()
 	h := iam.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &iamsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AcceptDelegationRequest",
-		"AddClientIDToOpenIDConnectProvider",
-		"AssociateDelegationRequest",
-		"ChangePassword",
-		"CreateAccountAlias",
-		"CreateDelegationRequest",
-		"CreatePolicyVersion",
-		"CreateServiceLinkedRole",
-		"CreateServiceSpecificCredential",
-		"CreateVirtualMFADevice",
 		"DeactivateMFADevice",
 		"DeleteAccountAlias",
 		"DeleteAccountPasswordPolicy",

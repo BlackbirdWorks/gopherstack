@@ -5,23 +5,28 @@ import (
 )
 
 type backendSnapshot struct {
-	Users               map[string]User              `json:"users"`
-	Roles               map[string]Role              `json:"roles"`
-	Policies            map[string]Policy            `json:"policies"`
-	Groups              map[string]Group             `json:"groups"`
-	AccessKeys          map[string]AccessKey         `json:"accessKeys"`
-	InstanceProfiles    map[string]InstanceProfile   `json:"instanceProfiles"`
-	SAMLProviders       map[string]SAMLProvider      `json:"samlProviders"`
-	OIDCProviders       map[string]OIDCProvider      `json:"oidcProviders"`
-	LoginProfiles       map[string]LoginProfile      `json:"loginProfiles"`
-	UserPolicies        map[string][]string          `json:"userPolicies"`
-	RolePolicies        map[string][]string          `json:"rolePolicies"`
-	GroupPolicies       map[string][]string          `json:"groupPolicies"`
-	GroupMembers        map[string][]string          `json:"groupMembers"`
-	UserInlinePolicies  map[string]map[string]string `json:"userInlinePolicies"`
-	RoleInlinePolicies  map[string]map[string]string `json:"roleInlinePolicies"`
-	GroupInlinePolicies map[string]map[string]string `json:"groupInlinePolicies"`
-	AccountID           string                       `json:"accountID"`
+	RolePolicies         map[string][]string                  `json:"rolePolicies"`
+	GroupPolicies        map[string][]string                  `json:"groupPolicies"`
+	Policies             map[string]Policy                    `json:"policies"`
+	Groups               map[string]Group                     `json:"groups"`
+	AccessKeys           map[string]AccessKey                 `json:"accessKeys"`
+	InstanceProfiles     map[string]InstanceProfile           `json:"instanceProfiles"`
+	SAMLProviders        map[string]SAMLProvider              `json:"samlProviders"`
+	OIDCProviders        map[string]OIDCProvider              `json:"oidcProviders"`
+	LoginProfiles        map[string]LoginProfile              `json:"loginProfiles"`
+	GroupMembers         map[string][]string                  `json:"groupMembers"`
+	Roles                map[string]Role                      `json:"roles"`
+	Users                map[string]User                      `json:"users"`
+	UserPolicies         map[string][]string                  `json:"userPolicies"`
+	UserInlinePolicies   map[string]map[string]string         `json:"userInlinePolicies"`
+	RoleInlinePolicies   map[string]map[string]string         `json:"roleInlinePolicies"`
+	GroupInlinePolicies  map[string]map[string]string         `json:"groupInlinePolicies"`
+	DelegationRequests   map[string]DelegationRequest         `json:"delegationRequests"`
+	PolicyVersions       map[string][]StoredPolicyVersion     `json:"policyVersions"`
+	ServiceSpecificCreds map[string]ServiceSpecificCredential `json:"serviceSpecificCreds"`
+	VirtualMFADevices    map[string]VirtualMFADevice          `json:"virtualMFADevices"`
+	AccountID            string                               `json:"accountID"`
+	AccountAliases       []string                             `json:"accountAliases"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -31,23 +36,28 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Users:               b.users,
-		Roles:               b.roles,
-		Policies:            b.policies,
-		Groups:              b.groups,
-		AccessKeys:          b.accessKeys,
-		InstanceProfiles:    b.instanceProfiles,
-		SAMLProviders:       b.samlProviders,
-		OIDCProviders:       b.oidcProviders,
-		LoginProfiles:       b.loginProfiles,
-		UserPolicies:        b.userPolicies,
-		RolePolicies:        b.rolePolicies,
-		GroupPolicies:       b.groupPolicies,
-		GroupMembers:        b.groupMembers,
-		UserInlinePolicies:  b.userInlinePolicies,
-		RoleInlinePolicies:  b.roleInlinePolicies,
-		GroupInlinePolicies: b.groupInlinePolicies,
-		AccountID:           b.accountID,
+		Users:                b.users,
+		Roles:                b.roles,
+		Policies:             b.policies,
+		Groups:               b.groups,
+		AccessKeys:           b.accessKeys,
+		InstanceProfiles:     b.instanceProfiles,
+		SAMLProviders:        b.samlProviders,
+		OIDCProviders:        b.oidcProviders,
+		LoginProfiles:        b.loginProfiles,
+		UserPolicies:         b.userPolicies,
+		RolePolicies:         b.rolePolicies,
+		GroupPolicies:        b.groupPolicies,
+		GroupMembers:         b.groupMembers,
+		UserInlinePolicies:   b.userInlinePolicies,
+		RoleInlinePolicies:   b.roleInlinePolicies,
+		GroupInlinePolicies:  b.groupInlinePolicies,
+		AccountAliases:       b.accountAliases,
+		PolicyVersions:       b.policyVersions,
+		ServiceSpecificCreds: b.serviceSpecificCreds,
+		VirtualMFADevices:    b.virtualMFADevices,
+		DelegationRequests:   b.delegationRequests,
+		AccountID:            b.accountID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -88,6 +98,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.userInlinePolicies = snap.UserInlinePolicies
 	b.roleInlinePolicies = snap.RoleInlinePolicies
 	b.groupInlinePolicies = snap.GroupInlinePolicies
+	b.accountAliases = snap.AccountAliases
+	b.policyVersions = snap.PolicyVersions
+	b.serviceSpecificCreds = snap.ServiceSpecificCreds
+	b.virtualMFADevices = snap.VirtualMFADevices
+	b.delegationRequests = snap.DelegationRequests
 	b.accountID = snap.AccountID
 
 	return nil
@@ -98,6 +113,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 func normalizeSnapshot(snap *backendSnapshot) {
 	normalizeSnapshotEntities(snap)
 	normalizeSnapshotPolicies(snap)
+	normalizeSnapshotNewOps(snap)
 }
 
 // normalizeSnapshotEntities initialises entity maps in snap to non-nil empty maps.
@@ -167,6 +183,25 @@ func normalizeSnapshotPolicies(snap *backendSnapshot) {
 
 	if snap.GroupInlinePolicies == nil {
 		snap.GroupInlinePolicies = make(map[string]map[string]string)
+	}
+}
+
+// normalizeSnapshotNewOps initialises new-ops maps in snap to non-nil empty values.
+func normalizeSnapshotNewOps(snap *backendSnapshot) {
+	if snap.PolicyVersions == nil {
+		snap.PolicyVersions = make(map[string][]StoredPolicyVersion)
+	}
+
+	if snap.ServiceSpecificCreds == nil {
+		snap.ServiceSpecificCreds = make(map[string]ServiceSpecificCredential)
+	}
+
+	if snap.VirtualMFADevices == nil {
+		snap.VirtualMFADevices = make(map[string]VirtualMFADevice)
+	}
+
+	if snap.DelegationRequests == nil {
+		snap.DelegationRequests = make(map[string]DelegationRequest)
 	}
 }
 

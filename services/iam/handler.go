@@ -122,6 +122,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		// Miscellaneous
 		"GetServiceLastAccessedDetails", "SetSecurityTokenServicePreferences",
 		"GetAccountSummary",
+		// New operations
+		"AcceptDelegationRequest",
+		"AddClientIDToOpenIDConnectProvider",
+		"AssociateDelegationRequest",
+		"ChangePassword",
+		"CreateAccountAlias",
+		"CreateDelegationRequest",
+		"CreatePolicyVersion",
+		"CreateServiceLinkedRole",
+		"CreateServiceSpecificCredential",
+		"CreateVirtualMFADevice",
 	}
 }
 
@@ -306,6 +317,7 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamOIDCProviderDispatchTable(),
 		h.iamLoginProfileDispatchTable(),
 		h.iamMiscDispatchTable(),
+		h.iamNewOpsDispatchTable(),
 	}
 
 	combined := make(map[string]iamActionFn)
