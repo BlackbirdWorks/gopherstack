@@ -5,20 +5,29 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// ErrThingNotFound is returned when a Thing does not exist.
-var ErrThingNotFound = errors.New("thing not found")
+var (
+	// ErrThingNotFound is returned when a Thing does not exist.
+	ErrThingNotFound = errors.New("thing not found")
 
-// ErrRuleNotFound is returned when a TopicRule does not exist.
-var ErrRuleNotFound = errors.New("topic rule not found")
+	// ErrRuleNotFound is returned when a TopicRule does not exist.
+	ErrRuleNotFound = errors.New("topic rule not found")
 
-// ErrPolicyNotFound is returned when a Policy does not exist.
-var ErrPolicyNotFound = errors.New("policy not found")
+	// ErrPolicyNotFound is returned when a Policy does not exist.
+	ErrPolicyNotFound = errors.New("policy not found")
+
+	// ErrValidation is returned when an input fails validation.
+	ErrValidation = errors.New("validation error")
+
+	// ErrAlreadyExists is returned when a resource already exists.
+	ErrAlreadyExists = errors.New("resource already exists")
+)
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
 type RuleDispatcher interface {
@@ -47,6 +56,9 @@ type InMemoryBackend struct {
 	mqttPort               int
 	mu                     sync.RWMutex
 }
+
+// Compile-time assertion that InMemoryBackend implements StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // mqttDefaultPort is the default TCP port for the embedded MQTT broker.
 const mqttDefaultPort = 1883
@@ -82,6 +94,26 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return b
 }
 
+// Reset clears all backend state. Useful for test isolation.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.things = make(map[string]*Thing)
+	b.policies = make(map[string]*Policy)
+	b.rules = make(map[string]*TopicRule)
+	b.certificateTransfers = make(map[string]string)
+	b.thingBillingGroups = make(map[string]string)
+	b.thingThingGroups = make(map[string][]string)
+	b.packageVersionSboms = make(map[string]*SbomDocument)
+	b.jobTargets = make(map[string][]string)
+	b.policyTargets = make(map[string][]string)
+	b.securityProfileTargets = make(map[string][]string)
+	b.thingPrincipals = make(map[string][]string)
+	b.auditMitigationTasks = make(map[string]string)
+	b.auditTasks = make(map[string]string)
+}
+
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.
 func (b *InMemoryBackend) SetRuleDispatcher(d RuleDispatcher) {
 	b.mu.Lock()
@@ -112,33 +144,84 @@ func (b *InMemoryBackend) GetRules() []*TopicRule {
 	return out
 }
 
+// cloneThing creates a deep copy of a Thing.
+func cloneThing(t *Thing) *Thing {
+	attrs := make(map[string]string, len(t.Attributes))
+	maps.Copy(attrs, t.Attributes)
+
+	return &Thing{
+		ThingName:  t.ThingName,
+		ThingType:  t.ThingType,
+		ThingID:    t.ThingID,
+		ARN:        t.ARN,
+		Attributes: attrs,
+		Version:    t.Version,
+		CreatedAt:  t.CreatedAt,
+	}
+}
+
 // cloneTopicRule creates a deep copy of a TopicRule.
 func cloneTopicRule(r *TopicRule) *TopicRule {
-	clone := &TopicRule{
-		RuleName:    r.RuleName,
-		SQL:         r.SQL,
-		Description: r.Description,
-		Enabled:     r.Enabled,
-		CreatedAt:   r.CreatedAt,
-		Actions:     make([]RuleAction, len(r.Actions)),
-	}
-
+	actions := make([]RuleAction, len(r.Actions))
 	for i, action := range r.Actions {
-		clone.Actions[i] = RuleAction{}
+		actions[i] = RuleAction{}
 		if action.SQS != nil {
-			clone.Actions[i].SQS = &SQSAction{
+			actions[i].SQS = &SQSAction{
 				QueueURL: action.SQS.QueueURL,
 				RoleARN:  action.SQS.RoleARN,
 			}
 		}
 		if action.Lambda != nil {
-			clone.Actions[i].Lambda = &LambdaAction{
+			actions[i].Lambda = &LambdaAction{
 				FunctionARN: action.Lambda.FunctionARN,
 			}
 		}
 	}
 
-	return clone
+	return &TopicRule{
+		RuleName:    r.RuleName,
+		ARN:         r.ARN,
+		SQL:         r.SQL,
+		Description: r.Description,
+		Enabled:     r.Enabled,
+		CreatedAt:   r.CreatedAt,
+		Actions:     actions,
+	}
+}
+
+// clonePolicy creates a deep copy of a Policy.
+func clonePolicy(p *Policy) *Policy {
+	cp := *p
+
+	return &cp
+}
+
+// cloneSbomDocument creates a deep copy of a SbomDocument.
+func cloneSbomDocument(s *SbomDocument) *SbomDocument {
+	if s == nil {
+		return nil
+	}
+
+	cp := SbomDocument{}
+
+	if s.S3Location != nil {
+		loc := *s.S3Location
+		cp.S3Location = &loc
+	}
+
+	return &cp
+}
+
+// sortedKeys returns a sorted slice of the keys in a map.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 // MQTTPort returns the configured TCP port for the MQTT broker.
@@ -148,10 +231,18 @@ func (b *InMemoryBackend) MQTTPort() int {
 
 // CreateThing creates a new IoT Thing.
 func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutput, error) {
+	if input.ThingName == "" {
+		return nil, fmt.Errorf("%w: ThingName is required", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	attrs := map[string]string{}
+	if _, exists := b.things[input.ThingName]; exists {
+		return nil, fmt.Errorf("%w: thing %q already exists", ErrAlreadyExists, input.ThingName)
+	}
+
+	attrs := make(map[string]string)
 
 	if input.AttributePayload != nil && input.AttributePayload.Attributes != nil {
 		maps.Copy(attrs, input.AttributePayload.Attributes)
@@ -163,6 +254,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 	b.things[input.ThingName] = &Thing{
 		ThingName:  input.ThingName,
 		ThingType:  input.ThingTypeName,
+		ThingID:    id,
 		Attributes: attrs,
 		ARN:        arn,
 		Version:    1,
@@ -176,7 +268,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 	}, nil
 }
 
-// DescribeThing returns an existing Thing.
+// DescribeThing returns a deep copy of an existing Thing.
 func (b *InMemoryBackend) DescribeThing(thingName string) (*Thing, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -186,18 +278,19 @@ func (b *InMemoryBackend) DescribeThing(thingName string) (*Thing, error) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
-	return t, nil
+	return cloneThing(t), nil
 }
 
-// ListThings returns all Things.
+// ListThings returns all Things sorted by name.
 func (b *InMemoryBackend) ListThings() []*Thing {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*Thing, 0, len(b.things))
+	keys := sortedKeys(b.things)
+	out := make([]*Thing, 0, len(keys))
 
-	for _, t := range b.things {
-		out = append(out, t)
+	for _, k := range keys {
+		out = append(out, cloneThing(b.things[k]))
 	}
 
 	return out
@@ -219,19 +312,35 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 
 // CreateTopicRule creates a new IoT Topic Rule.
 func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
+	if input.RuleName == "" {
+		return fmt.Errorf("%w: RuleName is required", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if _, exists := b.rules[input.RuleName]; exists {
+		return fmt.Errorf("%w: rule %q already exists", ErrAlreadyExists, input.RuleName)
+	}
 
 	payload := input.TopicRulePayload
 	if payload == nil {
 		payload = &TopicRulePayload{}
 	}
 
+	actions := payload.Actions
+	if actions == nil {
+		actions = []RuleAction{}
+	}
+
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, input.RuleName)
+
 	b.rules[input.RuleName] = &TopicRule{
 		RuleName:    input.RuleName,
+		ARN:         arn,
 		SQL:         payload.SQL,
 		Description: payload.Description,
-		Actions:     payload.Actions,
+		Actions:     actions,
 		Enabled:     !payload.RuleDisabled,
 		CreatedAt:   time.Now(),
 	}
@@ -239,7 +348,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 	return nil
 }
 
-// GetTopicRule returns an existing Topic Rule.
+// GetTopicRule returns a deep copy of an existing Topic Rule.
 func (b *InMemoryBackend) GetTopicRule(ruleName string) (*TopicRule, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -249,18 +358,19 @@ func (b *InMemoryBackend) GetTopicRule(ruleName string) (*TopicRule, error) {
 		return nil, fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
 	}
 
-	return r, nil
+	return cloneTopicRule(r), nil
 }
 
-// ListTopicRules returns all Topic Rules.
+// ListTopicRules returns all Topic Rules sorted by name.
 func (b *InMemoryBackend) ListTopicRules() []*TopicRule {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*TopicRule, 0, len(b.rules))
+	keys := sortedKeys(b.rules)
+	out := make([]*TopicRule, 0, len(keys))
 
-	for _, r := range b.rules {
-		out = append(out, r)
+	for _, k := range keys {
+		out = append(out, cloneTopicRule(b.rules[k]))
 	}
 
 	return out
@@ -280,10 +390,18 @@ func (b *InMemoryBackend) DeleteTopicRule(ruleName string) error {
 	return nil
 }
 
-// CreatePolicy creates a new IoT Policy (stub).
+// CreatePolicy creates a new IoT Policy.
 func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyOutput, error) {
+	if input.PolicyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if _, exists := b.policies[input.PolicyName]; exists {
+		return nil, fmt.Errorf("%w: policy %q already exists", ErrAlreadyExists, input.PolicyName)
+	}
 
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, input.PolicyName)
 
@@ -443,4 +561,52 @@ func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
 	b.auditTasks[input.AuditTaskID] = "CANCELED"
 
 	return nil
+}
+
+// AddThingInternal seeds a Thing directly into the backend for testing.
+func (b *InMemoryBackend) AddThingInternal(t Thing) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if t.ThingID == "" {
+		t.ThingID = uuid.NewString()
+	}
+
+	if t.ARN == "" {
+		t.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, t.ThingName)
+	}
+
+	if t.Attributes == nil {
+		t.Attributes = make(map[string]string)
+	}
+
+	b.things[t.ThingName] = &t
+}
+
+// AddPolicyInternal seeds a Policy directly into the backend for testing.
+func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if p.ARN == "" {
+		p.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, p.PolicyName)
+	}
+
+	b.policies[p.PolicyName] = &p
+}
+
+// AddRuleInternal seeds a TopicRule directly into the backend for testing.
+func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if r.ARN == "" {
+		r.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, r.RuleName)
+	}
+
+	if r.Actions == nil {
+		r.Actions = []RuleAction{}
+	}
+
+	b.rules[r.RuleName] = &r
 }

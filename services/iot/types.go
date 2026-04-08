@@ -6,29 +6,31 @@ import "time"
 
 // Thing represents an AWS IoT Thing.
 type Thing struct {
-	CreatedAt  time.Time
-	Attributes map[string]string
-	ThingName  string
-	ThingType  string
-	ARN        string
-	Version    int64
+	CreatedAt  time.Time         `json:"createdAt"`
+	Attributes map[string]string `json:"attributes"`
+	ThingName  string            `json:"thingName"`
+	ThingType  string            `json:"thingType,omitempty"`
+	ThingID    string            `json:"thingId"`
+	ARN        string            `json:"thingArn"`
+	Version    int64             `json:"version"`
 }
 
 // Policy represents an AWS IoT Policy.
 type Policy struct {
-	PolicyName     string
-	PolicyDocument string
-	ARN            string
+	PolicyName     string `json:"policyName"`
+	PolicyDocument string `json:"policyDocument"`
+	ARN            string `json:"policyArn"`
 }
 
 // TopicRule represents an AWS IoT Topic Rule.
 type TopicRule struct {
-	CreatedAt   time.Time
-	RuleName    string
-	SQL         string
-	Description string
-	Actions     []RuleAction
-	Enabled     bool
+	CreatedAt   time.Time    `json:"createdAt"`
+	RuleName    string       `json:"ruleName"`
+	ARN         string       `json:"arn"`
+	SQL         string       `json:"sql"`
+	Description string       `json:"description,omitempty"`
+	Actions     []RuleAction `json:"actions"`
+	Enabled     bool         `json:"enabled"`
 }
 
 // RuleAction represents an action taken when a rule matches.

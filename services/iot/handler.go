@@ -18,6 +18,10 @@ import (
 const (
 	iotMatchPriority = 90
 	unknownOperation = "Unknown"
+	// headerIoTPrincipal is the HTTP header name for the IoT principal (certificate ARN or Cognito identity).
+	headerIoTPrincipal = "X-Amzn-Principal"
+	// headerIoTThingName is the HTTP header name for the thing name used in AttachPrincipalPolicy.
+	headerIoTThingName = "X-Amzn-Iot-Thingname"
 )
 
 // Handler is the Echo HTTP handler for IoT control-plane operations.
@@ -29,6 +33,13 @@ type Handler struct {
 // NewHandler creates a new IoT Handler.
 func NewHandler(backend StorageBackend, broker *Broker) *Handler {
 	return &Handler{Backend: backend, broker: broker}
+}
+
+// Reset clears all backend state and resets the handler. Used for test isolation.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(Resettable); ok {
+		r.Reset()
+	}
 }
 
 // Broker returns the embedded MQTT broker (used for cross-service wiring).
@@ -323,6 +334,22 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 	return false, nil
 }
 
+// handleError maps backend errors to appropriate HTTP responses.
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrThingNotFound),
+		errors.Is(err, ErrRuleNotFound),
+		errors.Is(err, ErrPolicyNotFound):
+		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	case errors.Is(err, ErrAlreadyExists):
+		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+}
+
 func (h *Handler) handleCreateThing(c *echo.Context) error {
 	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
 
@@ -341,7 +368,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 		AttributePayload: body.AttributePayload,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -356,12 +383,13 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 
 	t, err := h.Backend.DescribeThing(thingName)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"thingName":  t.ThingName,
 		"thingArn":   t.ARN,
+		"thingId":    t.ThingID,
 		"thingType":  t.ThingType,
 		"attributes": t.Attributes,
 		"version":    t.Version,
@@ -372,7 +400,7 @@ func (h *Handler) handleDeleteThing(c *echo.Context) error {
 	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
 
 	if err := h.Backend.DeleteThing(thingName); err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -391,7 +419,7 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 		RuleName:         ruleName,
 		TopicRulePayload: &payload,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -402,16 +430,19 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 
 	r, err := h.Backend.GetTopicRule(ruleName)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ruleName":     r.RuleName,
-		"sql":          r.SQL,
-		"description":  r.Description,
-		"actions":      r.Actions,
-		"ruleDisabled": !r.Enabled,
-		"createdAt":    r.CreatedAt,
+		"ruleArn": r.ARN,
+		"rule": map[string]any{
+			"ruleName":     r.RuleName,
+			"sql":          r.SQL,
+			"description":  r.Description,
+			"actions":      r.Actions,
+			"ruleDisabled": !r.Enabled,
+			"createdAt":    r.CreatedAt,
+		},
 	})
 }
 
@@ -419,7 +450,7 @@ func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
 	if err := h.Backend.DeleteTopicRule(ruleName); err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -427,7 +458,7 @@ func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
 
 func (h *Handler) handleAttachPrincipalPolicy(c *echo.Context) error {
 	policyName := strings.TrimPrefix(c.Request().URL.Path, "/target-policies/")
-	principal := c.Request().Header.Get("X-Amzn-Iot-Thingname")
+	principal := c.Request().Header.Get(headerIoTThingName)
 
 	if err := h.Backend.AttachPrincipalPolicy(&AttachPrincipalPolicyInput{
 		PolicyName: policyName,
@@ -455,7 +486,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 		PolicyDocument: body.PolicyDocument,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -538,6 +569,7 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 	parts := strings.SplitN(strings.TrimPrefix(c.Request().URL.Path, "/packages/"), "/", maxPackagePathSegments)
 
 	var packageName, versionName string
+	// len(parts) >= packageVersionPartsMin guarantees indices 0, 1, 2 are valid.
 	if len(parts) >= packageVersionPartsMin {
 		packageName = parts[0]
 		versionName = parts[2]
@@ -632,7 +664,7 @@ func (h *Handler) handleAttachThingPrincipal(c *echo.Context) error {
 	// Path: /things/{thingName}/principals
 	after := strings.TrimPrefix(c.Request().URL.Path, "/things/")
 	thingName := strings.SplitN(after, "/", maxPathSegments)[0]
-	principal := c.Request().Header.Get("X-Amzn-Principal")
+	principal := c.Request().Header.Get(headerIoTPrincipal)
 
 	if err := h.Backend.AttachThingPrincipal(&AttachThingPrincipalInput{
 		ThingName: thingName,
