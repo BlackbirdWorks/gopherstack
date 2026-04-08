@@ -53,3 +53,25 @@ func ProvisionedCapacityCount(b *InMemoryBackend) int {
 
 	return total
 }
+
+// VaultLockCount returns the number of vault locks (for testing only).
+func VaultLockCount(b *InMemoryBackend) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return len(b.vaultLocks)
+}
+
+// JobCount returns the total number of jobs across all vaults (for testing only).
+func JobCount(b *InMemoryBackend) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	total := 0
+
+	for _, m := range b.jobs {
+		total += len(m)
+	}
+
+	return total
+}

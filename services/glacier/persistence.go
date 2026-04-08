@@ -3,6 +3,7 @@ package glacier
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type vaultSnapshot struct {
@@ -41,13 +42,14 @@ type vaultLockSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Vaults              []vaultSnapshot               `json:"vaults"`
-	Archives            []archiveSnapshot             `json:"archives"`
-	Jobs                []jobSnapshot                 `json:"jobs"`
-	MultipartUploads    []multipartUploadSnapshot     `json:"multipartUploads"`
-	MultipartParts      []multipartPartSnapshot       `json:"multipartParts"`
-	VaultLocks          []vaultLockSnapshot           `json:"vaultLocks,omitempty"`
-	ProvisionedCapacity []provisionedCapacitySnapshot `json:"provisionedCapacity"`
+	DataRetrievalPolicies map[string]string             `json:"dataRetrievalPolicies,omitempty"`
+	Vaults                []vaultSnapshot               `json:"vaults"`
+	Archives              []archiveSnapshot             `json:"archives"`
+	Jobs                  []jobSnapshot                 `json:"jobs"`
+	MultipartUploads      []multipartUploadSnapshot     `json:"multipartUploads"`
+	MultipartParts        []multipartPartSnapshot       `json:"multipartParts"`
+	VaultLocks            []vaultLockSnapshot           `json:"vaultLocks,omitempty"`
+	ProvisionedCapacity   []provisionedCapacitySnapshot `json:"provisionedCapacity"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -93,6 +95,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	for k, lock := range b.vaultLocks {
 		snap.VaultLocks = append(snap.VaultLocks, vaultLockSnapshot{Key: k, Lock: lock})
 	}
+
+	snap.DataRetrievalPolicies = make(map[string]string, len(b.dataRetrievalPolicies))
+	maps.Copy(snap.DataRetrievalPolicies, b.dataRetrievalPolicies)
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -161,6 +166,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	for _, ls := range snap.VaultLocks {
 		b.vaultLocks[ls.Key] = ls.Lock
+	}
+
+	if snap.DataRetrievalPolicies != nil {
+		b.dataRetrievalPolicies = snap.DataRetrievalPolicies
 	}
 
 	return nil

@@ -196,6 +196,13 @@ func TestInMemoryBackend_JobCRUD(t *testing.T) {
 			_, err := bk.CreateVault(testAccountID, testRegion, "vault")
 			require.NoError(t, err)
 
+			if tt.archiveID != "" {
+				bk.AddArchiveInternal(testAccountID, testRegion, "vault", &glacier.Archive{
+					ArchiveID: tt.archiveID,
+					Size:      1024,
+				})
+			}
+
 			req := &glacier.ExportedInitiateJobRequest{
 				Type:      tt.jobType,
 				ArchiveID: tt.archiveID,

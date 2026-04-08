@@ -429,7 +429,7 @@ func parseLockPolicyPath(method string, segs []string, vaultName string) (string
 	}
 
 	if len(segs) >= 5 && method == http.MethodPost {
-		return opCompleteVaultLock, vaultName
+		return opCompleteVaultLock, vaultName + "/" + segs[4]
 	}
 
 	return "", ""
@@ -554,7 +554,7 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 
 	switch op {
 	case opInitiateVaultLock, opAbortVaultLock, opCompleteVaultLock, opGetVaultLock:
-		return h.handleVaultLock(c, op, resource)
+		return h.handleVaultLock(c, op, resource, body)
 	case opGetDataRetrievalPolicy, "SetDataRetrievalPolicy":
 		return h.handleDataRetrievalPolicy(c, op, body)
 	}
@@ -725,6 +725,10 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 		return h.writeBackendError(c, err)
 	}
 
+	if j.SHA256TreeHash != "" {
+		c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", j.SHA256TreeHash)
+	}
+
 	// Return a minimal inventory JSON for InventoryRetrieval jobs, empty body for ArchiveRetrieval.
 	if j.Action == "InventoryRetrieval" {
 		inventoryJSON := `{"VaultARN":"` + j.VaultARN + `","InventoryDate":"` + j.CompletionDate + `","ArchiveList":[]}`
@@ -751,6 +755,15 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 		StatusCode:     j.StatusCode,
 		StatusMessage:  j.StatusMessage,
 		Tier:           j.Tier,
+	}
+
+	if j.ArchiveSizeInBytes > 0 {
+		size := j.ArchiveSizeInBytes
+		resp.ArchiveSizeInBytes = &size
+	}
+
+	if j.SHA256TreeHash != "" {
+		resp.SHA256TreeHash = j.SHA256TreeHash
 	}
 
 	if j.Completed {
@@ -913,20 +926,34 @@ func (h *Handler) handleRemoveTagsFromVault(c *echo.Context, vaultName string, b
 // Vault lock handlers
 // ----------------------------------------
 
-func (h *Handler) handleVaultLock(c *echo.Context, op, resource string) error {
+func (h *Handler) handleVaultLock(c *echo.Context, op, resource string, body []byte) error {
 	vaultName := extractVaultName(resource)
 
 	switch op {
 	case opAbortVaultLock:
+		if err := h.Backend.AbortVaultLock(h.AccountID, h.DefaultRegion, vaultName); err != nil {
+			return h.writeBackendError(c, err)
+		}
+
 		return c.NoContent(http.StatusNoContent)
 	case opInitiateVaultLock:
+		var req vaultLockPolicyRequest
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+
 		lockID := generateID(lockIDLength)
-		if err := h.Backend.SetVaultLock(h.AccountID, h.DefaultRegion, vaultName, "", lockID); err != nil {
+		if err := h.Backend.SetVaultLock(h.AccountID, h.DefaultRegion, vaultName, req.Policy, lockID); err != nil {
 			return h.writeBackendError(c, err)
 		}
 
 		return c.JSON(http.StatusCreated, map[string]string{"lockId": lockID})
 	case opCompleteVaultLock:
+		lockID := extractSubID(resource)
+		if err := h.Backend.CompleteVaultLock(h.AccountID, h.DefaultRegion, vaultName, lockID); err != nil {
+			return h.writeBackendError(c, err)
+		}
+
 		return c.NoContent(http.StatusNoContent)
 	case opGetVaultLock:
 		return h.handleGetVaultLock(c, vaultName)
@@ -949,17 +976,29 @@ func (h *Handler) handleGetVaultLock(c *echo.Context, vaultName string) error {
 	})
 }
 
-// handleDataRetrievalPolicy handles GetDataRetrievalPolicy and SetDataRetrievalPolicy (stubs).
-func (h *Handler) handleDataRetrievalPolicy(c *echo.Context, op string, _ []byte) error {
+// handleDataRetrievalPolicy handles GetDataRetrievalPolicy and SetDataRetrievalPolicy.
+func (h *Handler) handleDataRetrievalPolicy(c *echo.Context, op string, body []byte) error {
 	if op == opGetDataRetrievalPolicy {
-		return c.JSON(http.StatusOK, map[string]any{
-			"Policy": map[string]any{
-				"Rules": []map[string]string{
-					{"Strategy": "FreeTier"},
+		policy := h.Backend.GetDataRetrievalPolicy(h.AccountID)
+		if policy == "" {
+			return c.JSON(http.StatusOK, map[string]any{
+				"Policy": map[string]any{
+					"Rules": []map[string]string{
+						{"Strategy": "FreeTier"},
+					},
 				},
-			},
-		})
+			})
+		}
+
+		var parsed any
+		if err := json.Unmarshal([]byte(policy), &parsed); err == nil {
+			return c.JSON(http.StatusOK, parsed)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"Policy": policy})
 	}
+
+	h.Backend.SetDataRetrievalPolicy(h.AccountID, body)
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -1150,6 +1189,10 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrUploadNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	case errors.Is(err, ErrVaultNotEmpty):
+		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrLockConflict):
+		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrValidation):
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}

@@ -23,6 +23,10 @@ var (
 	ErrUploadNotFound = errors.New("ResourceNotFoundException: Multipart upload not found")
 	// ErrValidation is returned when an invalid parameter is supplied.
 	ErrValidation = errors.New("InvalidParameterValueException: invalid parameter")
+	// ErrVaultNotEmpty is returned when deleting a vault that still has archives.
+	ErrVaultNotEmpty = errors.New("InvalidParameterValueException: Vault not empty")
+	// ErrLockConflict is returned when a vault lock is already in progress.
+	ErrLockConflict = errors.New("InvalidParameterValueException: Vault lock already in progress")
 )
 
 const (
@@ -36,6 +40,10 @@ const (
 	capacityIDLength = 32
 	// idChars are the characters used for generating random IDs.
 	idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	// jobTypeArchiveRetrieval is the Glacier job type for archive retrieval.
+	jobTypeArchiveRetrieval = "ArchiveRetrieval"
+	// jobTypeInventoryRetrieval is the Glacier job type for inventory retrieval.
+	jobTypeInventoryRetrieval = "InventoryRetrieval"
 )
 
 // StorageBackend is the interface for the Glacier backend.
@@ -78,6 +86,12 @@ type StorageBackend interface {
 	// Vault lock operations.
 	GetVaultLock(accountID, region, vaultName string) (*VaultLock, error)
 	SetVaultLock(accountID, region, vaultName, policy, lockID string) error
+	AbortVaultLock(accountID, region, vaultName string) error
+	CompleteVaultLock(accountID, region, vaultName, lockID string) error
+
+	// Data retrieval policy operations.
+	GetDataRetrievalPolicy(accountID string) string
+	SetDataRetrievalPolicy(accountID string, policy []byte)
 
 	// Provisioned capacity operations.
 	ListProvisionedCapacity(accountID string) []*ProvisionedCapacity
@@ -105,26 +119,28 @@ type uploadKey struct {
 
 // InMemoryBackend is the in-memory backend for Glacier.
 type InMemoryBackend struct {
-	vaults              map[vaultKey]*Vault
-	archives            map[vaultKey]map[string]*Archive
-	jobs                map[vaultKey]map[string]*Job
-	multipartUploads    map[vaultKey]map[string]*MultipartUpload
-	multipartParts      map[uploadKey][]MultipartPart
-	vaultLocks          map[vaultKey]*VaultLock
-	provisionedCapacity map[string][]*ProvisionedCapacity
-	mu                  sync.RWMutex
+	vaults                map[vaultKey]*Vault
+	archives              map[vaultKey]map[string]*Archive
+	jobs                  map[vaultKey]map[string]*Job
+	multipartUploads      map[vaultKey]map[string]*MultipartUpload
+	multipartParts        map[uploadKey][]MultipartPart
+	vaultLocks            map[vaultKey]*VaultLock
+	provisionedCapacity   map[string][]*ProvisionedCapacity
+	dataRetrievalPolicies map[string]string
+	mu                    sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Glacier backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		vaults:              make(map[vaultKey]*Vault),
-		archives:            make(map[vaultKey]map[string]*Archive),
-		jobs:                make(map[vaultKey]map[string]*Job),
-		multipartUploads:    make(map[vaultKey]map[string]*MultipartUpload),
-		multipartParts:      make(map[uploadKey][]MultipartPart),
-		vaultLocks:          make(map[vaultKey]*VaultLock),
-		provisionedCapacity: make(map[string][]*ProvisionedCapacity),
+		vaults:                make(map[vaultKey]*Vault),
+		archives:              make(map[vaultKey]map[string]*Archive),
+		jobs:                  make(map[vaultKey]map[string]*Job),
+		multipartUploads:      make(map[vaultKey]map[string]*MultipartUpload),
+		multipartParts:        make(map[uploadKey][]MultipartPart),
+		vaultLocks:            make(map[vaultKey]*VaultLock),
+		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
+		dataRetrievalPolicies: make(map[string]string),
 	}
 }
 
@@ -227,6 +243,10 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 		return ErrVaultNotFound
 	}
 
+	if len(b.archives[key]) > 0 {
+		return ErrVaultNotEmpty
+	}
+
 	delete(b.vaults, key)
 	delete(b.archives, key)
 	delete(b.jobs, key)
@@ -309,8 +329,16 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 		return ErrArchiveNotFound
 	}
 
-	b.vaults[key].NumberOfArchives--
-	b.vaults[key].SizeInBytes -= a.Size
+	if b.vaults[key].NumberOfArchives > 0 {
+		b.vaults[key].NumberOfArchives--
+	}
+
+	if b.vaults[key].SizeInBytes >= a.Size {
+		b.vaults[key].SizeInBytes -= a.Size
+	} else {
+		b.vaults[key].SizeInBytes = 0
+	}
+
 	delete(b.archives[key], archiveID)
 
 	return nil
@@ -321,11 +349,25 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if req.Type != jobTypeArchiveRetrieval && req.Type != jobTypeInventoryRetrieval {
+		return nil, ErrValidation
+	}
+
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
 	v, ok := b.vaults[key]
 	if !ok {
 		return nil, ErrVaultNotFound
+	}
+
+	if req.Type == jobTypeArchiveRetrieval {
+		if req.ArchiveID == "" {
+			return nil, ErrValidation
+		}
+
+		if _, ok := b.archives[key][req.ArchiveID]; !ok {
+			return nil, ErrArchiveNotFound
+		}
 	}
 
 	jobID := generateID(jobIDLength)
@@ -347,6 +389,13 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		CompletionDate: formatDate(time.Now()),
 		Completed:      true,
 		Tier:           tier,
+	}
+
+	if req.Type == jobTypeArchiveRetrieval {
+		if a, ok := b.archives[key][req.ArchiveID]; ok {
+			j.ArchiveSizeInBytes = a.Size
+			j.SHA256TreeHash = a.SHA256TreeHash
+		}
 	}
 
 	b.jobs[key][jobID] = j
@@ -567,6 +616,7 @@ func (b *InMemoryBackend) Reset() {
 	b.multipartParts = make(map[uploadKey][]MultipartPart)
 	b.vaultLocks = make(map[vaultKey]*VaultLock)
 	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
+	b.dataRetrievalPolicies = make(map[string]string)
 }
 
 // ----------------------------------------
@@ -786,6 +836,10 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 		return ErrVaultNotFound
 	}
 
+	if existing, ok := b.vaultLocks[key]; ok && existing.State == "InProgress" {
+		return ErrLockConflict
+	}
+
 	b.vaultLocks[key] = &VaultLock{
 		Policy:       policy,
 		LockID:       lockID,
@@ -875,4 +929,77 @@ func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string
 
 	cp := *a
 	b.archives[key][a.ArchiveID] = &cp
+}
+
+// AbortVaultLock removes an in-progress vault lock.
+func (b *InMemoryBackend) AbortVaultLock(accountID, region, vaultName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return ErrVaultNotFound
+	}
+
+	delete(b.vaultLocks, key)
+
+	return nil
+}
+
+// CompleteVaultLock completes and seals a vault lock.
+func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return ErrVaultNotFound
+	}
+
+	lock, ok := b.vaultLocks[key]
+	if !ok || lock.State != "InProgress" {
+		return ErrValidation
+	}
+
+	if lock.LockID != lockID {
+		return ErrValidation
+	}
+
+	lock.State = "Locked"
+	lock.ExpirationDate = ""
+
+	return nil
+}
+
+// GetDataRetrievalPolicy returns the data retrieval policy for the account.
+func (b *InMemoryBackend) GetDataRetrievalPolicy(accountID string) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.dataRetrievalPolicies[accountID]
+}
+
+// SetDataRetrievalPolicy stores the data retrieval policy for the account.
+func (b *InMemoryBackend) SetDataRetrievalPolicy(accountID string, policy []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.dataRetrievalPolicies[accountID] = string(policy)
+}
+
+// AddJobInternal adds a job directly to the backend for testing.
+func (b *InMemoryBackend) AddJobInternal(accountID, region, vaultName string, j *Job) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if b.jobs[key] == nil {
+		b.jobs[key] = make(map[string]*Job)
+	}
+
+	cp := *j
+	b.jobs[key][j.JobID] = &cp
 }
