@@ -717,7 +717,8 @@ func (b *InMemoryBackend) InitiateMultipartUpload(
 	}
 
 	// Part size must be a power of 2 between 1 MiB and 4 GiB (inclusive).
-	if partSize != 0 && (!isPowerOfTwo(partSize) || partSize < minMultipartPartSize || partSize > maxMultipartPartSize) {
+	if partSize != 0 &&
+		(!isPowerOfTwo(partSize) || partSize < minMultipartPartSize || partSize > maxMultipartPartSize) {
 		return nil, ErrValidation
 	}
 
@@ -890,10 +891,10 @@ func (b *InMemoryBackend) ListParts(
 // rangeStart parses the byte start from a Content-Range header value (e.g. "0-1048575/*").
 // Returns 0 on parse failure to maintain stable sort behaviour.
 func rangeStart(rangeHeader string) int64 {
-	for i := 0; i < len(rangeHeader); i++ {
+	for i := range len(rangeHeader) {
 		if rangeHeader[i] == '-' || rangeHeader[i] == '/' {
 			n := int64(0)
-			for j := 0; j < i; j++ {
+			for j := range i {
 				if rangeHeader[j] < '0' || rangeHeader[j] > '9' {
 					return 0
 				}

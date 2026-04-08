@@ -787,7 +787,10 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 		c.Response().Header().Set("Content-Type", "application/json")
 
 		if j.InventorySizeInBytes > 0 {
-			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", j.InventorySizeInBytes-1, j.InventorySizeInBytes))
+			c.Response().Header().Set(
+				"Content-Range",
+				fmt.Sprintf("bytes 0-%d/%d", j.InventorySizeInBytes-1, j.InventorySizeInBytes),
+			)
 		}
 
 		return c.String(http.StatusOK, inventoryJSON)
