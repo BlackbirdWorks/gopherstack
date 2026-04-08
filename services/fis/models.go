@@ -475,6 +475,81 @@ type errorResponseDTO struct {
 }
 
 // ----------------------------------------
+// Target Account Configuration models
+// ----------------------------------------
+
+// TargetAccountConfiguration is the in-memory representation of a FIS target account configuration
+// associated with an experiment template.
+type TargetAccountConfiguration struct {
+	ExperimentTemplateID string `json:"experimentTemplateId"`
+	AccountID            string `json:"accountId"`
+	Description          string `json:"description"`
+	RoleArn              string `json:"roleArn"`
+}
+
+// ExperimentTargetAccountConfiguration is the in-memory representation of a FIS target account
+// configuration associated with a running experiment.
+type ExperimentTargetAccountConfiguration struct {
+	ExperimentID string `json:"experimentId"`
+	AccountID    string `json:"accountId"`
+	Description  string `json:"description"`
+	RoleArn      string `json:"roleArn"`
+}
+
+// createTargetAccountConfigurationRequest is the JSON body for
+// POST /experimentTemplates/{id}/targetAccountConfigurations/{accountId}.
+type createTargetAccountConfigurationRequest struct {
+	ClientToken string `json:"clientToken"`
+	Description string `json:"description"`
+	RoleArn     string `json:"roleArn"`
+}
+
+// updateTargetAccountConfigurationRequest is the JSON body for
+// PATCH /experimentTemplates/{id}/targetAccountConfigurations/{accountId}.
+type updateTargetAccountConfigurationRequest struct {
+	Description *string `json:"description,omitempty"`
+	RoleArn     *string `json:"roleArn,omitempty"`
+}
+
+// targetAccountConfigurationDTO is the JSON representation of a target account configuration.
+type targetAccountConfigurationDTO struct {
+	AccountID   string `json:"accountId"`
+	Description string `json:"description,omitempty"`
+	RoleArn     string `json:"roleArn,omitempty"`
+}
+
+// targetAccountConfigurationResponseDTO is the outer envelope for single target account configuration responses.
+type targetAccountConfigurationResponseDTO struct {
+	TargetAccountConfiguration targetAccountConfigurationDTO `json:"targetAccountConfiguration"`
+}
+
+// listTargetAccountConfigurationsResponseDTO is the outer envelope for list target account configuration responses.
+type listTargetAccountConfigurationsResponseDTO struct {
+	NextToken                   string                          `json:"nextToken,omitempty"`
+	TargetAccountConfigurations []targetAccountConfigurationDTO `json:"targetAccountConfigurations"`
+}
+
+// experimentTargetAccountConfigurationDTO is the JSON representation of an experiment target account configuration.
+type experimentTargetAccountConfigurationDTO struct {
+	AccountID   string `json:"accountId"`
+	Description string `json:"description,omitempty"`
+	RoleArn     string `json:"roleArn,omitempty"`
+}
+
+// experimentTargetAccountConfigurationResponseDTO is the outer envelope for single experiment target account
+// configuration responses.
+type experimentTargetAccountConfigurationResponseDTO struct {
+	TargetAccountConfiguration experimentTargetAccountConfigurationDTO `json:"targetAccountConfiguration"`
+}
+
+// listExperimentTargetAccountConfigurationsResponseDTO is the outer envelope for list experiment target account
+// configuration responses.
+type listExperimentTargetAccountConfigurationsResponseDTO struct {
+	NextToken                   string                                    `json:"nextToken,omitempty"`
+	TargetAccountConfigurations []experimentTargetAccountConfigurationDTO `json:"targetAccountConfigurations"`
+}
+
+// ----------------------------------------
 // Phase 3 — Resolved Targets models
 // ----------------------------------------
 

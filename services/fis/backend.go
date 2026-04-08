@@ -153,6 +153,24 @@ type StorageBackend interface {
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, keys []string) error
 
+	// Target account configuration operations (template-scoped)
+	CreateTargetAccountConfiguration(
+		templateID, accountID, roleArn, description string,
+	) (*TargetAccountConfiguration, error)
+	DeleteTargetAccountConfiguration(templateID, accountID string) (*TargetAccountConfiguration, error)
+	GetTargetAccountConfiguration(templateID, accountID string) (*TargetAccountConfiguration, error)
+	UpdateTargetAccountConfiguration(
+		templateID, accountID string,
+		roleArn, description *string,
+	) (*TargetAccountConfiguration, error)
+	ListTargetAccountConfigurations(templateID string) ([]*TargetAccountConfiguration, error)
+
+	// Experiment target account configuration operations (experiment-scoped, read-only)
+	GetExperimentTargetAccountConfiguration(
+		experimentID, accountID string,
+	) (*ExperimentTargetAccountConfiguration, error)
+	ListExperimentTargetAccountConfigurations(experimentID string) ([]*ExperimentTargetAccountConfiguration, error)
+
 	// SetFaultStore injects the chaos FaultStore used for inject-api-* actions.
 	SetFaultStore(store *chaos.FaultStore)
 
@@ -166,16 +184,17 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	templates          map[string]*ExperimentTemplate
-	experiments        map[string]*Experiment
-	templateARNIndex   map[string]string // ARN → template ID
-	experimentARNIndex map[string]string // ARN → experiment ID
-	faultStore         *chaos.FaultStore
-	safetyLever        *SafetyLever
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	region             string
-	actionProviders    []service.FISActionProvider
+	templates            map[string]*ExperimentTemplate
+	experiments          map[string]*Experiment
+	templateARNIndex     map[string]string                                 // ARN → template ID
+	experimentARNIndex   map[string]string                                 // ARN → experiment ID
+	targetAccountConfigs map[string]map[string]*TargetAccountConfiguration // templateID → accountID → config
+	faultStore           *chaos.FaultStore
+	safetyLever          *SafetyLever
+	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
+	actionProviders      []service.FISActionProvider
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -183,13 +202,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	safetyLeverARN := arn.Build("fis", region, accountID, fmt.Sprintf("safety-lever/%s", accountID))
 
 	return &InMemoryBackend{
-		templates:          make(map[string]*ExperimentTemplate),
-		experiments:        make(map[string]*Experiment),
-		templateARNIndex:   make(map[string]string),
-		experimentARNIndex: make(map[string]string),
-		accountID:          accountID,
-		region:             region,
-		mu:                 lockmetrics.New("fis"),
+		templates:            make(map[string]*ExperimentTemplate),
+		experiments:          make(map[string]*Experiment),
+		templateARNIndex:     make(map[string]string),
+		experimentARNIndex:   make(map[string]string),
+		targetAccountConfigs: make(map[string]map[string]*TargetAccountConfiguration),
+		accountID:            accountID,
+		region:               region,
+		mu:                   lockmetrics.New("fis"),
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
@@ -217,6 +237,7 @@ func (b *InMemoryBackend) Reset() {
 	b.experiments = make(map[string]*Experiment)
 	b.templateARNIndex = make(map[string]string)
 	b.experimentARNIndex = make(map[string]string)
+	b.targetAccountConfigs = make(map[string]map[string]*TargetAccountConfiguration)
 	b.safetyLever = &SafetyLever{
 		ID:    b.accountID,
 		Arn:   safetyLeverARN,
@@ -851,6 +872,203 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	}
 
 	return fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
+}
+
+// ----------------------------------------
+// Target Account Configuration operations
+// ----------------------------------------
+
+// ErrTargetAccountConfigNotFound is returned when a target account configuration is not found.
+var ErrTargetAccountConfigNotFound = errors.New("TargetAccountConfigurationNotFound")
+
+// CreateTargetAccountConfiguration creates or replaces a target account configuration for the given template.
+func (b *InMemoryBackend) CreateTargetAccountConfiguration(
+	templateID, accountID, roleArn, description string,
+) (*TargetAccountConfiguration, error) {
+	b.mu.Lock("CreateTargetAccountConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.templates[templateID]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, templateID)
+	}
+
+	if b.targetAccountConfigs[templateID] == nil {
+		b.targetAccountConfigs[templateID] = make(map[string]*TargetAccountConfiguration)
+	}
+
+	cfg := &TargetAccountConfiguration{
+		ExperimentTemplateID: templateID,
+		AccountID:            accountID,
+		RoleArn:              roleArn,
+		Description:          description,
+	}
+
+	b.targetAccountConfigs[templateID][accountID] = cfg
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// DeleteTargetAccountConfiguration deletes a target account configuration.
+func (b *InMemoryBackend) DeleteTargetAccountConfiguration(
+	templateID, accountID string,
+) (*TargetAccountConfiguration, error) {
+	b.mu.Lock("DeleteTargetAccountConfiguration")
+	defer b.mu.Unlock()
+
+	cfgs, ok := b.targetAccountConfigs[templateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
+	}
+
+	cfg, ok := cfgs[accountID]
+	if !ok {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
+	}
+
+	cp := *cfg
+
+	delete(cfgs, accountID)
+
+	if len(cfgs) == 0 {
+		delete(b.targetAccountConfigs, templateID)
+	}
+
+	return &cp, nil
+}
+
+// GetTargetAccountConfiguration returns a single target account configuration by template ID and account ID.
+func (b *InMemoryBackend) GetTargetAccountConfiguration(
+	templateID, accountID string,
+) (*TargetAccountConfiguration, error) {
+	b.mu.RLock("GetTargetAccountConfiguration")
+	defer b.mu.RUnlock()
+
+	cfgs, ok := b.targetAccountConfigs[templateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
+	}
+
+	cfg, ok := cfgs[accountID]
+	if !ok {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// UpdateTargetAccountConfiguration updates an existing target account configuration.
+// Only non-nil pointer fields are applied.
+func (b *InMemoryBackend) UpdateTargetAccountConfiguration(
+	templateID, accountID string,
+	roleArn, description *string,
+) (*TargetAccountConfiguration, error) {
+	b.mu.Lock("UpdateTargetAccountConfiguration")
+	defer b.mu.Unlock()
+
+	cfgs, ok := b.targetAccountConfigs[templateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
+	}
+
+	cfg, ok := cfgs[accountID]
+	if !ok {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
+	}
+
+	if roleArn != nil {
+		cfg.RoleArn = *roleArn
+	}
+
+	if description != nil {
+		cfg.Description = *description
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListTargetAccountConfigurations returns all target account configurations for a template.
+func (b *InMemoryBackend) ListTargetAccountConfigurations(templateID string) ([]*TargetAccountConfiguration, error) {
+	b.mu.RLock("ListTargetAccountConfigurations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.templates[templateID]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, templateID)
+	}
+
+	cfgs := b.targetAccountConfigs[templateID]
+	result := make([]*TargetAccountConfiguration, 0, len(cfgs))
+
+	for _, cfg := range cfgs {
+		cp := *cfg
+		result = append(result, &cp)
+	}
+
+	return result, nil
+}
+
+// GetExperimentTargetAccountConfiguration returns the target account configuration for a running experiment.
+// It resolves the configuration from the experiment's source template.
+func (b *InMemoryBackend) GetExperimentTargetAccountConfiguration(
+	experimentID, accountID string,
+) (*ExperimentTargetAccountConfiguration, error) {
+	b.mu.RLock("GetExperimentTargetAccountConfiguration")
+	defer b.mu.RUnlock()
+
+	exp, ok := b.experiments[experimentID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, experimentID)
+	}
+
+	cfgs, ok := b.targetAccountConfigs[exp.ExperimentTemplateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: experiment=%s account=%s", ErrTargetAccountConfigNotFound, experimentID, accountID)
+	}
+
+	cfg, ok := cfgs[accountID]
+	if !ok {
+		return nil, fmt.Errorf("%w: experiment=%s account=%s", ErrTargetAccountConfigNotFound, experimentID, accountID)
+	}
+
+	return &ExperimentTargetAccountConfiguration{
+		ExperimentID: experimentID,
+		AccountID:    cfg.AccountID,
+		Description:  cfg.Description,
+		RoleArn:      cfg.RoleArn,
+	}, nil
+}
+
+// ListExperimentTargetAccountConfigurations lists all target account configurations for a running experiment.
+// It resolves configurations from the experiment's source template.
+func (b *InMemoryBackend) ListExperimentTargetAccountConfigurations(
+	experimentID string,
+) ([]*ExperimentTargetAccountConfiguration, error) {
+	b.mu.RLock("ListExperimentTargetAccountConfigurations")
+	defer b.mu.RUnlock()
+
+	exp, ok := b.experiments[experimentID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, experimentID)
+	}
+
+	cfgs := b.targetAccountConfigs[exp.ExperimentTemplateID]
+	result := make([]*ExperimentTargetAccountConfiguration, 0, len(cfgs))
+
+	for _, cfg := range cfgs {
+		result = append(result, &ExperimentTargetAccountConfiguration{
+			ExperimentID: experimentID,
+			AccountID:    cfg.AccountID,
+			Description:  cfg.Description,
+			RoleArn:      cfg.RoleArn,
+		})
+	}
+
+	return result, nil
 }
 
 // ----------------------------------------

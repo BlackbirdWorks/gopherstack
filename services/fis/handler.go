@@ -20,8 +20,10 @@ import (
 const (
 	// minSegmentsForID is the minimum number of path segments required for a resource ID.
 	minSegmentsForID = 2
-	// maxPathSegments limits how many segments pathSegments returns for tag paths.
-	maxPathSegments = 3
+	// maxPathSegments limits how many segments pathSegments returns.
+	// Five segments is enough to handle the deepest FIS paths:
+	// /experimentTemplates/{id}/targetAccountConfigurations/{accountId}.
+	maxPathSegments = 5
 )
 
 const (
@@ -37,6 +39,8 @@ const (
 	pathTags = "tags"
 	// pathSafetyLevers is the root path for safety levers.
 	pathSafetyLevers = "safetyLevers"
+	// pathTargetAccountConfigurations is the sub-path for target account configurations.
+	pathTargetAccountConfigurations = "targetAccountConfigurations"
 	// subPathResolvedTargets is the sub-path segment for resolved targets.
 	subPathResolvedTargets = "resolvedTargets"
 )
@@ -124,6 +128,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
+		"CreateTargetAccountConfiguration",
+		"DeleteTargetAccountConfiguration",
+		"GetExperimentTargetAccountConfiguration",
+		"GetTargetAccountConfiguration",
+		"ListExperimentTargetAccountConfigurations",
+		"ListTargetAccountConfigurations",
+		"UpdateTargetAccountConfiguration",
 	}
 }
 
@@ -211,6 +222,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 //
 //nolint:cyclop // dispatch table has necessary branches for each operation
 func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, body []byte) error {
+	if handled, err := h.dispatchTargetAccountOps(c, op, id, body); handled {
+		return err
+	}
+
 	switch op {
 	case "CreateExperimentTemplate":
 		return h.handleCreateExperimentTemplate(ctx, c, body)
@@ -255,6 +270,29 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, 
 	}
 
 	return h.writeError(c, http.StatusNotFound, "unknown operation: "+op, "")
+}
+
+// dispatchTargetAccountOps handles the target account configuration operations.
+// Returns (true, err) when the operation was handled, (false, nil) otherwise.
+func (h *Handler) dispatchTargetAccountOps(c *echo.Context, op, id string, body []byte) (bool, error) {
+	switch op {
+	case "CreateTargetAccountConfiguration":
+		return true, h.handleCreateTargetAccountConfiguration(c, id, body)
+	case "DeleteTargetAccountConfiguration":
+		return true, h.handleDeleteTargetAccountConfiguration(c, id)
+	case "GetTargetAccountConfiguration":
+		return true, h.handleGetTargetAccountConfiguration(c, id)
+	case "UpdateTargetAccountConfiguration":
+		return true, h.handleUpdateTargetAccountConfiguration(c, id, body)
+	case "ListTargetAccountConfigurations":
+		return true, h.handleListTargetAccountConfigurations(c, id)
+	case "GetExperimentTargetAccountConfiguration":
+		return true, h.handleGetExperimentTargetAccountConfiguration(c, id)
+	case "ListExperimentTargetAccountConfigurations":
+		return true, h.handleListExperimentTargetAccountConfigurations(c, id)
+	}
+
+	return false, nil
 }
 
 // ----------------------------------------
@@ -551,6 +589,127 @@ func (h *Handler) handleUpdateSafetyLeverState(c *echo.Context, id string, body 
 }
 
 // ----------------------------------------
+// Target Account Configuration handlers
+// ----------------------------------------
+
+// splitCompositeID splits a composite "templateID/accountID" identifier into its two parts.
+func splitCompositeID(compositeID string) (string, string) {
+	before, after, ok := strings.Cut(compositeID, "/")
+	if !ok {
+		return compositeID, ""
+	}
+
+	return before, after
+}
+
+func (h *Handler) handleCreateTargetAccountConfiguration(c *echo.Context, compositeID string, body []byte) error {
+	templateID, accountID := splitCompositeID(compositeID)
+
+	var input createTargetAccountConfigurationRequest
+	if err := json.Unmarshal(body, &input); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), compositeID)
+	}
+
+	cfg, err := h.Backend.CreateTargetAccountConfiguration(templateID, accountID, input.RoleArn, input.Description)
+	if err != nil {
+		return h.writeBackendError(c, err, compositeID)
+	}
+
+	return c.JSON(http.StatusCreated, targetAccountConfigurationResponseDTO{
+		TargetAccountConfiguration: toTargetAccountConfigDTO(cfg),
+	})
+}
+
+func (h *Handler) handleDeleteTargetAccountConfiguration(c *echo.Context, compositeID string) error {
+	templateID, accountID := splitCompositeID(compositeID)
+
+	cfg, err := h.Backend.DeleteTargetAccountConfiguration(templateID, accountID)
+	if err != nil {
+		return h.writeBackendError(c, err, compositeID)
+	}
+
+	return c.JSON(http.StatusOK, targetAccountConfigurationResponseDTO{
+		TargetAccountConfiguration: toTargetAccountConfigDTO(cfg),
+	})
+}
+
+func (h *Handler) handleGetTargetAccountConfiguration(c *echo.Context, compositeID string) error {
+	templateID, accountID := splitCompositeID(compositeID)
+
+	cfg, err := h.Backend.GetTargetAccountConfiguration(templateID, accountID)
+	if err != nil {
+		return h.writeBackendError(c, err, compositeID)
+	}
+
+	return c.JSON(http.StatusOK, targetAccountConfigurationResponseDTO{
+		TargetAccountConfiguration: toTargetAccountConfigDTO(cfg),
+	})
+}
+
+func (h *Handler) handleUpdateTargetAccountConfiguration(c *echo.Context, compositeID string, body []byte) error {
+	templateID, accountID := splitCompositeID(compositeID)
+
+	var input updateTargetAccountConfigurationRequest
+	if err := json.Unmarshal(body, &input); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), compositeID)
+	}
+
+	cfg, err := h.Backend.UpdateTargetAccountConfiguration(templateID, accountID, input.RoleArn, input.Description)
+	if err != nil {
+		return h.writeBackendError(c, err, compositeID)
+	}
+
+	return c.JSON(http.StatusOK, targetAccountConfigurationResponseDTO{
+		TargetAccountConfiguration: toTargetAccountConfigDTO(cfg),
+	})
+}
+
+func (h *Handler) handleListTargetAccountConfigurations(c *echo.Context, templateID string) error {
+	cfgs, err := h.Backend.ListTargetAccountConfigurations(templateID)
+	if err != nil {
+		return h.writeBackendError(c, err, templateID)
+	}
+
+	dtos := make([]targetAccountConfigurationDTO, len(cfgs))
+	for i, cfg := range cfgs {
+		dtos[i] = toTargetAccountConfigDTO(cfg)
+	}
+
+	return c.JSON(http.StatusOK, listTargetAccountConfigurationsResponseDTO{
+		TargetAccountConfigurations: dtos,
+	})
+}
+
+func (h *Handler) handleGetExperimentTargetAccountConfiguration(c *echo.Context, compositeID string) error {
+	experimentID, accountID := splitCompositeID(compositeID)
+
+	cfg, err := h.Backend.GetExperimentTargetAccountConfiguration(experimentID, accountID)
+	if err != nil {
+		return h.writeBackendError(c, err, compositeID)
+	}
+
+	return c.JSON(http.StatusOK, experimentTargetAccountConfigurationResponseDTO{
+		TargetAccountConfiguration: toExperimentTargetAccountConfigDTO(cfg),
+	})
+}
+
+func (h *Handler) handleListExperimentTargetAccountConfigurations(c *echo.Context, experimentID string) error {
+	cfgs, err := h.Backend.ListExperimentTargetAccountConfigurations(experimentID)
+	if err != nil {
+		return h.writeBackendError(c, err, experimentID)
+	}
+
+	dtos := make([]experimentTargetAccountConfigurationDTO, len(cfgs))
+	for i, cfg := range cfgs {
+		dtos[i] = toExperimentTargetAccountConfigDTO(cfg)
+	}
+
+	return c.JSON(http.StatusOK, listExperimentTargetAccountConfigurationsResponseDTO{
+		TargetAccountConfigurations: dtos,
+	})
+}
+
+// ----------------------------------------
 // Error helpers
 // ----------------------------------------
 
@@ -574,6 +733,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error
 		return h.writeError(c, http.StatusNotFound, err.Error(), id)
 	case errors.Is(err, ErrSafetyLeverEngaged):
 		return h.writeError(c, http.StatusConflict, err.Error(), id)
+	case errors.Is(err, ErrTargetAccountConfigNotFound):
+		return h.writeError(c, http.StatusNotFound, err.Error(), id)
 	default:
 		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
 	}
@@ -603,6 +764,25 @@ func parseFISPath(method, path string) (string, string) {
 			return "CreateExperimentTemplate", ""
 		case method == http.MethodGet && !hasID:
 			return "ListExperimentTemplates", ""
+		// Must check 3+ segment paths before generic 2-segment paths.
+		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations && len(segs) >= 4:
+			// /experimentTemplates/{tplId}/targetAccountConfigurations/{accountId}
+			compositeID := segs[1] + "/" + segs[3]
+			switch method {
+			case http.MethodPost:
+				return "CreateTargetAccountConfiguration", compositeID
+			case http.MethodGet:
+				return "GetTargetAccountConfiguration", compositeID
+			case http.MethodPatch:
+				return "UpdateTargetAccountConfiguration", compositeID
+			case http.MethodDelete:
+				return "DeleteTargetAccountConfiguration", compositeID
+			}
+		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations:
+			// /experimentTemplates/{tplId}/targetAccountConfigurations
+			if method == http.MethodGet {
+				return "ListTargetAccountConfigurations", segs[1]
+			}
 		case method == http.MethodGet && hasID:
 			return "GetExperimentTemplate", segs[1]
 		case method == http.MethodPatch && hasID:
@@ -617,9 +797,19 @@ func parseFISPath(method, path string) (string, string) {
 			return "StartExperiment", ""
 		case method == http.MethodGet && !hasID:
 			return "ListExperiments", ""
-		// Must check 3-segment path before generic 2-segment GET.
+		// Must check 3+ segment paths before generic 2-segment GET.
 		case method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets:
 			return "ListExperimentResolvedTargets", segs[1]
+		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations && len(segs) >= 4:
+			// /experiments/{expId}/targetAccountConfigurations/{accountId}
+			if method == http.MethodGet {
+				return "GetExperimentTargetAccountConfiguration", segs[1] + "/" + segs[3]
+			}
+		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations:
+			// /experiments/{expId}/targetAccountConfigurations
+			if method == http.MethodGet {
+				return "ListExperimentTargetAccountConfigurations", segs[1]
+			}
 		case method == http.MethodGet && hasID:
 			return "GetExperiment", segs[1]
 		case method == http.MethodDelete && hasID:
@@ -872,5 +1062,23 @@ func toSafetyLeverDTO(lever *SafetyLever) safetyLeverDTO {
 			Status: lever.State.Status,
 			Reason: lever.State.Reason,
 		},
+	}
+}
+
+func toTargetAccountConfigDTO(cfg *TargetAccountConfiguration) targetAccountConfigurationDTO {
+	return targetAccountConfigurationDTO{
+		AccountID:   cfg.AccountID,
+		Description: cfg.Description,
+		RoleArn:     cfg.RoleArn,
+	}
+}
+
+func toExperimentTargetAccountConfigDTO(
+	cfg *ExperimentTargetAccountConfiguration,
+) experimentTargetAccountConfigurationDTO {
+	return experimentTargetAccountConfigurationDTO{
+		AccountID:   cfg.AccountID,
+		Description: cfg.Description,
+		RoleArn:     cfg.RoleArn,
 	}
 }

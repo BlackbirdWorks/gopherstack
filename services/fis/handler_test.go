@@ -1366,3 +1366,546 @@ func TestFISHandler_StartExperiment_TooManyExperiments(t *testing.T) {
 		})
 	}
 }
+
+// ----------------------------------------
+// Target Account Configuration tests
+// ----------------------------------------
+
+func TestFISHandler_CreateTargetAccountConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		roleArn    string
+		desc       string
+		wantStatus int
+	}{
+		{
+			name:       "create_with_description",
+			roleArn:    "arn:aws:iam::111111111111:role/FISRole",
+			desc:       "target account for testing",
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "create_without_description",
+			roleArn:    "arn:aws:iam::222222222222:role/FISRole",
+			desc:       "",
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+			accountID := "111111111111"
+			path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
+
+			body := map[string]any{
+				"roleArn":     tt.roleArn,
+				"description": tt.desc,
+			}
+
+			rec := doRequest(t, h, http.MethodPost, path, body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp struct {
+				TargetAccountConfiguration struct {
+					AccountID   string `json:"accountId"`
+					RoleArn     string `json:"roleArn"`
+					Description string `json:"description"`
+				} `json:"targetAccountConfiguration"`
+			}
+
+			mustJSON(t, rec, &resp)
+			assert.Equal(t, accountID, resp.TargetAccountConfiguration.AccountID)
+			assert.Equal(t, tt.roleArn, resp.TargetAccountConfiguration.RoleArn)
+			assert.Equal(t, tt.desc, resp.TargetAccountConfiguration.Description)
+		})
+	}
+}
+
+func TestFISHandler_CreateTargetAccountConfiguration_TemplateNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	path := "/experimentTemplates/EXTnonexistent0000000000/targetAccountConfigurations/111111111111"
+
+	body := map[string]any{
+		"roleArn": "arn:aws:iam::111111111111:role/FISRole",
+	}
+
+	rec := doRequest(t, h, http.MethodPost, path, body)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFISHandler_GetTargetAccountConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		accountID  string
+		wantStatus int
+	}{
+		{
+			name:       "existing_config",
+			accountID:  "111111111111",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "nonexistent_config",
+			accountID:  "999999999999",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+
+			// Create a config for accountID 111111111111.
+			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/111111111111", templateID)
+			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
+				"roleArn": "arn:aws:iam::111111111111:role/FISRole",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			// Get.
+			getPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, tt.accountID)
+			rec2 := doRequest(t, h, http.MethodGet, getPath, nil)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+		})
+	}
+}
+
+func TestFISHandler_UpdateTargetAccountConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		updateBody  map[string]any
+		wantRoleArn string
+		wantDesc    string
+		wantStatus  int
+	}{
+		{
+			name:        "update_role_arn",
+			updateBody:  map[string]any{"roleArn": "arn:aws:iam::111111111111:role/NewRole"},
+			wantRoleArn: "arn:aws:iam::111111111111:role/NewRole",
+			wantDesc:    "initial description",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "update_description",
+			updateBody:  map[string]any{"description": "updated description"},
+			wantRoleArn: "arn:aws:iam::111111111111:role/FISRole",
+			wantDesc:    "updated description",
+			wantStatus:  http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+			accountID := "111111111111"
+
+			// Create initial config.
+			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
+			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
+				"roleArn":     "arn:aws:iam::111111111111:role/FISRole",
+				"description": "initial description",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			// Update.
+			updatePath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
+			rec2 := doRequest(t, h, http.MethodPatch, updatePath, tt.updateBody)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+
+			var resp struct {
+				TargetAccountConfiguration struct {
+					AccountID   string `json:"accountId"`
+					RoleArn     string `json:"roleArn"`
+					Description string `json:"description"`
+				} `json:"targetAccountConfiguration"`
+			}
+
+			mustJSON(t, rec2, &resp)
+			assert.Equal(t, tt.wantRoleArn, resp.TargetAccountConfiguration.RoleArn)
+			assert.Equal(t, tt.wantDesc, resp.TargetAccountConfiguration.Description)
+		})
+	}
+}
+
+func TestFISHandler_DeleteTargetAccountConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		accountID  string
+		wantStatus int
+	}{
+		{
+			name:       "delete_existing",
+			accountID:  "111111111111",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete_nonexistent",
+			accountID:  "999999999999",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+
+			// Create a config for accountID 111111111111.
+			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/111111111111", templateID)
+			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
+				"roleArn": "arn:aws:iam::111111111111:role/FISRole",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			// Delete.
+			deletePath := fmt.Sprintf(
+				"/experimentTemplates/%s/targetAccountConfigurations/%s",
+				templateID,
+				tt.accountID,
+			)
+			rec2 := doRequest(t, h, http.MethodDelete, deletePath, nil)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				// Verify it's gone.
+				rec3 := doRequest(t, h, http.MethodGet, deletePath, nil)
+				assert.Equal(t, http.StatusNotFound, rec3.Code)
+			}
+		})
+	}
+}
+
+func TestFISHandler_ListTargetAccountConfigurations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		accountIDs   []string
+		wantCount    int
+		wantStatus   int
+		unknownTplID bool
+	}{
+		{
+			name:       "empty_list",
+			accountIDs: nil,
+			wantCount:  0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "single_config",
+			accountIDs: []string{"111111111111"},
+			wantCount:  1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "multiple_configs",
+			accountIDs: []string{"111111111111", "222222222222", "333333333333"},
+			wantCount:  3,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:         "template_not_found",
+			unknownTplID: true,
+			wantStatus:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+
+			for _, accountID := range tt.accountIDs {
+				path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
+				rec := doRequest(t, h, http.MethodPost, path, map[string]any{
+					"roleArn": "arn:aws:iam::" + accountID + ":role/FISRole",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			listTplID := templateID
+			if tt.unknownTplID {
+				listTplID = "EXTnonexistent0000000000"
+			}
+
+			listPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations", listTplID)
+			rec := doRequest(t, h, http.MethodGet, listPath, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp struct {
+					TargetAccountConfigurations []struct {
+						AccountID string `json:"accountId"`
+					} `json:"targetAccountConfigurations"`
+				}
+
+				mustJSON(t, rec, &resp)
+				assert.Len(t, resp.TargetAccountConfigurations, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestFISHandler_GetExperimentTargetAccountConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		accountID  string
+		wantStatus int
+	}{
+		{
+			name:       "existing_config",
+			accountID:  "111111111111",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "nonexistent_config",
+			accountID:  "999999999999",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+
+			// Create a target account config on the template.
+			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/111111111111", templateID)
+			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
+				"roleArn":     "arn:aws:iam::111111111111:role/FISRole",
+				"description": "multi-account target",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			// Start an experiment from the template.
+			startBody := map[string]any{"experimentTemplateId": templateID}
+			expRec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
+			require.Equal(t, http.StatusCreated, expRec.Code)
+
+			var expResp struct {
+				Experiment struct {
+					ID string `json:"id"`
+				} `json:"experiment"`
+			}
+
+			mustJSON(t, expRec, &expResp)
+			experimentID := expResp.Experiment.ID
+
+			// Get experiment target account config.
+			getPath := fmt.Sprintf("/experiments/%s/targetAccountConfigurations/%s", experimentID, tt.accountID)
+			rec2 := doRequest(t, h, http.MethodGet, getPath, nil)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp struct {
+					TargetAccountConfiguration struct {
+						AccountID   string `json:"accountId"`
+						RoleArn     string `json:"roleArn"`
+						Description string `json:"description"`
+					} `json:"targetAccountConfiguration"`
+				}
+
+				mustJSON(t, rec2, &resp)
+				assert.Equal(t, "111111111111", resp.TargetAccountConfiguration.AccountID)
+				assert.Equal(t, "arn:aws:iam::111111111111:role/FISRole", resp.TargetAccountConfiguration.RoleArn)
+				assert.Equal(t, "multi-account target", resp.TargetAccountConfiguration.Description)
+			}
+		})
+	}
+}
+
+func TestFISHandler_ListExperimentTargetAccountConfigurations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		accountIDs   []string
+		wantCount    int
+		wantStatus   int
+		unknownExpID bool
+	}{
+		{
+			name:       "empty_list",
+			accountIDs: nil,
+			wantCount:  0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "single_config",
+			accountIDs: []string{"111111111111"},
+			wantCount:  1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "multiple_configs",
+			accountIDs: []string{"111111111111", "222222222222"},
+			wantCount:  2,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:         "experiment_not_found",
+			unknownExpID: true,
+			wantStatus:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
+
+			for _, accountID := range tt.accountIDs {
+				createPath := fmt.Sprintf(
+					"/experimentTemplates/%s/targetAccountConfigurations/%s",
+					templateID,
+					accountID,
+				)
+				rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
+					"roleArn": "arn:aws:iam::" + accountID + ":role/FISRole",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			// Start an experiment.
+			startBody := map[string]any{"experimentTemplateId": templateID}
+			expRec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
+			require.Equal(t, http.StatusCreated, expRec.Code)
+
+			var expResp struct {
+				Experiment struct {
+					ID string `json:"id"`
+				} `json:"experiment"`
+			}
+
+			mustJSON(t, expRec, &expResp)
+			experimentID := expResp.Experiment.ID
+
+			if tt.unknownExpID {
+				experimentID = "EXPnonexistent0000000000"
+			}
+
+			listPath := fmt.Sprintf("/experiments/%s/targetAccountConfigurations", experimentID)
+			rec := doRequest(t, h, http.MethodGet, listPath, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp struct {
+					TargetAccountConfigurations []struct {
+						AccountID string `json:"accountId"`
+					} `json:"targetAccountConfigurations"`
+				}
+
+				mustJSON(t, rec, &resp)
+				assert.Len(t, resp.TargetAccountConfigurations, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestFISHandler_TargetAccountConfiguration_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	templateID := createTestTemplate(t, h)
+
+	accountIDs := []string{"111111111111", "222222222222"}
+
+	// Create configs.
+	for _, accountID := range accountIDs {
+		path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
+		rec := doRequest(t, h, http.MethodPost, path, map[string]any{
+			"roleArn":     "arn:aws:iam::" + accountID + ":role/FISRole",
+			"description": "account " + accountID,
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
+	}
+
+	// List verifies both exist.
+	listPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations", templateID)
+	rec := doRequest(t, h, http.MethodGet, listPath, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		TargetAccountConfigurations []struct {
+			AccountID string `json:"accountId"`
+		} `json:"targetAccountConfigurations"`
+	}
+
+	mustJSON(t, rec, &listResp)
+	assert.Len(t, listResp.TargetAccountConfigurations, 2)
+
+	// Delete one.
+	deletePath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountIDs[0])
+	rec2 := doRequest(t, h, http.MethodDelete, deletePath, nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	// List verifies one remains.
+	rec3 := doRequest(t, h, http.MethodGet, listPath, nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	mustJSON(t, rec3, &listResp)
+	assert.Len(t, listResp.TargetAccountConfigurations, 1)
+	assert.Equal(t, accountIDs[1], listResp.TargetAccountConfigurations[0].AccountID)
+}
+
+func TestFISHandler_TargetAccountConfiguration_UpdateNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	templateID := createTestTemplate(t, h)
+
+	path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/999999999999", templateID)
+	rec := doRequest(t, h, http.MethodPatch, path, map[string]any{
+		"description": "updated",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFISHandler_GetSupportedOperations_TargetAccountConfigOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, expected := range []string{
+		"CreateTargetAccountConfiguration",
+		"DeleteTargetAccountConfiguration",
+		"GetExperimentTargetAccountConfiguration",
+		"GetTargetAccountConfiguration",
+		"ListExperimentTargetAccountConfigurations",
+		"ListTargetAccountConfigurations",
+		"UpdateTargetAccountConfiguration",
+	} {
+		assert.Contains(t, ops, expected)
+	}
+}

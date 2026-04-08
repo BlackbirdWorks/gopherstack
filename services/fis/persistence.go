@@ -3,11 +3,12 @@ package fis
 import "encoding/json"
 
 type backendSnapshot struct {
-	Templates   map[string]*ExperimentTemplate `json:"templates"`
-	Experiments map[string]*Experiment         `json:"experiments"`
-	SafetyLever *SafetyLever                   `json:"safetyLever"`
-	AccountID   string                         `json:"accountID"`
-	Region      string                         `json:"region"`
+	Templates            map[string]*ExperimentTemplate                    `json:"templates"`
+	Experiments          map[string]*Experiment                            `json:"experiments"`
+	TargetAccountConfigs map[string]map[string]*TargetAccountConfiguration `json:"targetAccountConfigs"`
+	SafetyLever          *SafetyLever                                      `json:"safetyLever"`
+	AccountID            string                                            `json:"accountID"`
+	Region               string                                            `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,11 +17,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Templates:   b.templates,
-		Experiments: b.experiments,
-		SafetyLever: b.safetyLever,
-		AccountID:   b.accountID,
-		Region:      b.region,
+		Templates:            b.templates,
+		Experiments:          b.experiments,
+		TargetAccountConfigs: b.targetAccountConfigs,
+		SafetyLever:          b.safetyLever,
+		AccountID:            b.accountID,
+		Region:               b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -50,8 +52,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Experiments = make(map[string]*Experiment)
 	}
 
+	if snap.TargetAccountConfigs == nil {
+		snap.TargetAccountConfigs = make(map[string]map[string]*TargetAccountConfiguration)
+	}
+
 	b.templates = snap.Templates
 	b.experiments = snap.Experiments
+	b.targetAccountConfigs = snap.TargetAccountConfigs
 	b.safetyLever = snap.SafetyLever
 	b.accountID = snap.AccountID
 	b.region = snap.Region
