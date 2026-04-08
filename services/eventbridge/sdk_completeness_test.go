@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := eventbridge.NewInMemoryBackend()
 	h := eventbridge.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &eventbridgesdk.Client{}, h.GetSupportedOperations(), []string{
-		"ActivateEventSource",
-		"CancelReplay",
-		"CreateApiDestination",
-		"CreateArchive",
-		"CreateConnection",
-		"CreateEndpoint",
-		"CreatePartnerEventSource",
-		"DeactivateEventSource",
-		"DeauthorizeConnection",
-		"DeleteApiDestination",
 		"DeleteArchive",
 		"DeleteConnection",
 		"DeleteEndpoint",

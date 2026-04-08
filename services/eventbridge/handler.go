@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -107,6 +108,7 @@ type untagResourceInput struct {
 // Handler is the Echo HTTP service handler for EventBridge operations.
 type Handler struct {
 	Backend   StorageBackend
+	ops       map[string]actionFn
 	scheduler *Scheduler
 	tags      map[string]*svcTags.Tags
 	tagsMu    *lockmetrics.RWMutex
@@ -114,11 +116,14 @@ type Handler struct {
 
 // NewHandler creates a new EventBridge handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("eb.tags"),
 	}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
@@ -218,6 +223,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"ActivateEventSource",
+		"CancelReplay",
+		"CreateApiDestination",
+		"CreateArchive",
+		"CreateConnection",
+		"CreateEndpoint",
+		"CreatePartnerEventSource",
+		"DeactivateEventSource",
+		"DeauthorizeConnection",
+		"DeleteApiDestination",
 	}
 }
 
@@ -266,7 +281,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"Name", "Rule", "EventBusName"} {
+	for _, key := range []string{"Name", "Rule", "EventBusName", "ReplayName", "ArchiveName"} {
 		if v, ok := data[key].(string); ok && v != "" {
 			return v
 		}
@@ -581,7 +596,237 @@ func (h *Handler) tagActions() map[string]actionFn {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]actionFn {
+type createAPIDestinationOutput struct {
+	CreationTime        time.Time `json:"CreationTime"`
+	LastModifiedTime    time.Time `json:"LastModifiedTime"`
+	APIDestinationArn   string    `json:"ApiDestinationArn"`
+	APIDestinationState string    `json:"ApiDestinationState"`
+}
+
+type createArchiveOutput struct {
+	ArchiveArn   string    `json:"ArchiveArn"`
+	CreationTime time.Time `json:"CreationTime"`
+	State        string    `json:"State"`
+	StateReason  string    `json:"StateReason,omitempty"`
+}
+
+type createConnectionOutput struct {
+	CreationTime     time.Time `json:"CreationTime"`
+	LastModifiedTime time.Time `json:"LastModifiedTime"`
+	ConnectionArn    string    `json:"ConnectionArn"`
+	ConnectionState  string    `json:"ConnectionState"`
+}
+
+type createEndpointOutput struct {
+	Arn         string `json:"Arn"`
+	EndpointID  string `json:"EndpointId"`
+	EndpointURL string `json:"EndpointUrl"`
+	State       string `json:"State"`
+}
+
+type createPartnerEventSourceOutput struct {
+	EventSourceArn string `json:"EventSourceArn"`
+}
+
+type cancelReplayOutput struct {
+	ReplayArn   string `json:"ReplayArn"`
+	State       string `json:"State"`
+	StateReason string `json:"StateReason,omitempty"`
+}
+
+type deauthorizeConnectionOutput struct {
+	LastModifiedTime time.Time `json:"LastModifiedTime"`
+	ConnectionArn    string    `json:"ConnectionArn"`
+	ConnectionState  string    `json:"ConnectionState"`
+}
+
+type activateEventSourceOutput struct{}
+type deactivateEventSourceOutput struct{}
+type deleteAPIDestinationOutput struct{}
+
+func (h *Handler) eventSourceActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ActivateEventSource": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.ActivateEventSource(input.Name); err != nil {
+				return nil, err
+			}
+
+			return &activateEventSourceOutput{}, nil
+		},
+		"DeactivateEventSource": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.DeactivateEventSource(input.Name); err != nil {
+				return nil, err
+			}
+
+			return &deactivateEventSourceOutput{}, nil
+		},
+		"CreatePartnerEventSource": func(b []byte) (any, error) {
+			var input struct {
+				Name    string `json:"Name"`
+				Account string `json:"Account"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			src, err := h.Backend.CreatePartnerEventSource(input.Name, input.Account)
+			if err != nil {
+				return nil, err
+			}
+
+			return &createPartnerEventSourceOutput{EventSourceArn: src.Arn}, nil
+		},
+	}
+}
+
+func (h *Handler) replayAndConnectionActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CancelReplay": func(b []byte) (any, error) {
+			var input struct {
+				ReplayName string `json:"ReplayName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			replay, err := h.Backend.CancelReplay(input.ReplayName)
+			if err != nil {
+				return nil, err
+			}
+
+			return &cancelReplayOutput{
+				ReplayArn:   replay.ReplayArn,
+				State:       replay.State,
+				StateReason: replay.StateReason,
+			}, nil
+		},
+		"CreateConnection": func(b []byte) (any, error) {
+			var input CreateConnectionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			conn, err := h.Backend.CreateConnection(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &createConnectionOutput{
+				ConnectionArn:    conn.ConnectionArn,
+				ConnectionState:  conn.ConnectionState,
+				CreationTime:     conn.CreationTime,
+				LastModifiedTime: conn.LastModifiedTime,
+			}, nil
+		},
+		"DeauthorizeConnection": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			conn, err := h.Backend.DeauthorizeConnection(input.Name)
+			if err != nil {
+				return nil, err
+			}
+
+			return &deauthorizeConnectionOutput{
+				ConnectionArn:    conn.ConnectionArn,
+				ConnectionState:  conn.ConnectionState,
+				LastModifiedTime: conn.LastModifiedTime,
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateApiDestination": func(b []byte) (any, error) {
+			var input CreateAPIDestinationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			dst, err := h.Backend.CreateAPIDestination(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &createAPIDestinationOutput{
+				APIDestinationArn:   dst.APIDestinationArn,
+				APIDestinationState: dst.APIDestinationState,
+				CreationTime:        dst.CreationTime,
+				LastModifiedTime:    dst.LastModifiedTime,
+			}, nil
+		},
+		"CreateArchive": func(b []byte) (any, error) {
+			var input CreateArchiveInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			archive, err := h.Backend.CreateArchive(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &createArchiveOutput{
+				ArchiveArn:   archive.ArchiveArn,
+				CreationTime: archive.CreationTime,
+				State:        archive.State,
+				StateReason:  archive.StateReason,
+			}, nil
+		},
+		"DeleteApiDestination": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.DeleteAPIDestination(input.Name); err != nil {
+				return nil, err
+			}
+
+			return &deleteAPIDestinationOutput{}, nil
+		},
+		"CreateEndpoint": func(b []byte) (any, error) {
+			var input CreateEndpointInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			ep, err := h.Backend.CreateEndpoint(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &createEndpointOutput{
+				Arn:         ep.Arn,
+				EndpointID:  ep.EndpointID,
+				EndpointURL: ep.EndpointURL,
+				State:       ep.State,
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) newOpsActions() map[string]actionFn {
+	table := make(map[string]actionFn)
+	maps.Copy(table, h.eventSourceActions())
+	maps.Copy(table, h.replayAndConnectionActions())
+	maps.Copy(table, h.apiDestinationAndArchiveActions())
+
+	return table
+}
+
+func (h *Handler) buildOps() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.eventBusActions())
 	maps.Copy(table, h.ruleActions())
@@ -589,13 +834,14 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.targetActions())
 	maps.Copy(table, h.eventsActions())
 	maps.Copy(table, h.tagActions())
+	maps.Copy(table, h.newOpsActions())
 
 	return table
 }
 
 // dispatch routes the action to the correct handler function.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
 	}
@@ -617,10 +863,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	var statusCode int
 
 	switch {
-	case errors.Is(reqErr, ErrEventBusNotFound), errors.Is(reqErr, ErrRuleNotFound):
+	case errors.Is(reqErr, ErrEventBusNotFound), errors.Is(reqErr, ErrRuleNotFound), errors.Is(reqErr, ErrNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
-	case errors.Is(reqErr, ErrEventBusAlreadyExists):
+	case errors.Is(reqErr, ErrEventBusAlreadyExists), errors.Is(reqErr, ErrAlreadyExists):
 		errType = "ResourceAlreadyExistsException"
 		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrCannotDeleteDefaultBus):
@@ -628,6 +874,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidParameter):
 		errType = "InvalidParameterException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidState):
+		errType = "InvalidStateException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		errType = "UnknownOperationException"

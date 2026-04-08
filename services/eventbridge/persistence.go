@@ -8,12 +8,19 @@ import (
 )
 
 type backendSnapshot struct {
-	Buses     map[string]*EventBus          `json:"buses"`
-	Rules     map[string]map[string]*Rule   `json:"rules"`
-	Targets   map[string]map[string]*Target `json:"targets"`
-	AccountID string                        `json:"accountID"`
-	Region    string                        `json:"region"`
-	EventLog  []EventLogEntry               `json:"eventLog"`
+	Buses           map[string]*EventBus           `json:"buses"`
+	Rules           map[string]map[string]*Rule    `json:"rules"`
+	Targets         map[string]map[string]*Target  `json:"targets"`
+	EventSources    map[string]*EventSource        `json:"eventSources,omitempty"`
+	Replays         map[string]*Replay             `json:"replays,omitempty"`
+	APIDestinations map[string]*APIDestination     `json:"apiDestinations,omitempty"`
+	Archives        map[string]*Archive            `json:"archives,omitempty"`
+	Connections     map[string]*Connection         `json:"connections,omitempty"`
+	Endpoints       map[string]*Endpoint           `json:"endpoints,omitempty"`
+	PartnerSources  map[string]*PartnerEventSource `json:"partnerSources,omitempty"`
+	AccountID       string                         `json:"accountID"`
+	Region          string                         `json:"region"`
+	EventLog        []EventLogEntry                `json:"eventLog"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -23,12 +30,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Buses:     b.buses,
-		Rules:     b.rules,
-		Targets:   b.targets,
-		EventLog:  b.eventLog,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Buses:           b.buses,
+		Rules:           b.rules,
+		Targets:         b.targets,
+		EventSources:    b.eventSources,
+		Replays:         b.replays,
+		APIDestinations: b.apiDestinations,
+		Archives:        b.archives,
+		Connections:     b.connections,
+		Endpoints:       b.endpoints,
+		PartnerSources:  b.partnerSources,
+		EventLog:        b.eventLog,
+		AccountID:       b.accountID,
+		Region:          b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -66,9 +80,44 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Targets = make(map[string]map[string]*Target)
 	}
 
+	if snap.EventSources == nil {
+		snap.EventSources = make(map[string]*EventSource)
+	}
+
+	if snap.Replays == nil {
+		snap.Replays = make(map[string]*Replay)
+	}
+
+	if snap.APIDestinations == nil {
+		snap.APIDestinations = make(map[string]*APIDestination)
+	}
+
+	if snap.Archives == nil {
+		snap.Archives = make(map[string]*Archive)
+	}
+
+	if snap.Connections == nil {
+		snap.Connections = make(map[string]*Connection)
+	}
+
+	if snap.Endpoints == nil {
+		snap.Endpoints = make(map[string]*Endpoint)
+	}
+
+	if snap.PartnerSources == nil {
+		snap.PartnerSources = make(map[string]*PartnerEventSource)
+	}
+
 	b.buses = snap.Buses
 	b.rules = snap.Rules
 	b.targets = snap.Targets
+	b.eventSources = snap.EventSources
+	b.replays = snap.Replays
+	b.apiDestinations = snap.APIDestinations
+	b.archives = snap.Archives
+	b.connections = snap.Connections
+	b.endpoints = snap.Endpoints
+	b.partnerSources = snap.PartnerSources
 	b.eventLog = snap.EventLog
 	b.accountID = snap.AccountID
 	b.region = snap.Region
