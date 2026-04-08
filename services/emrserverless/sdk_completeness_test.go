@@ -17,8 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
 	h := emrserverless.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &emrserverlesssdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetDashboardForJobRun",
-		"ListJobRunAttempts",
-	})
+	sdkcheck.CheckCompleteness(t, &emrserverlesssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

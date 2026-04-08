@@ -20,6 +20,7 @@ const (
 	pathTags             = "/tags/"
 	emrServerlessService = "emr-serverless"
 	emrMatchPriority     = 87
+	pathJobRuns          = "jobruns"
 )
 
 // Handler is the Echo HTTP handler for EMR Serverless operations (REST-JSON protocol).
@@ -31,6 +32,9 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
+
+// Reset clears all backend state. Used for test isolation.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EmrServerless" }
@@ -49,6 +53,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetJobRun",
 		"ListJobRuns",
 		"CancelJobRun",
+		"GetDashboardForJobRun",
+		"ListJobRunAttempts",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
@@ -88,9 +94,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 func (h *Handler) MatchPriority() int { return emrMatchPriority }
 
 const (
-	pathPartsApplication = 1
-	pathPartsWithSub     = 2
-	pathPartsWithJobRun  = 3
+	pathPartsApplication   = 1
+	pathPartsWithSub       = 2
+	pathPartsWithJobRun    = 3
+	pathPartsWithJobRunSub = 4
 )
 
 // emrRoute holds the parsed route information.
@@ -114,7 +121,7 @@ func parseEMRPath(method, rawPath string) emrRoute {
 	}
 
 	suffix := strings.TrimPrefix(path, pathApplications+"/")
-	parts := strings.SplitN(suffix, "/", pathPartsWithJobRun)
+	parts := strings.SplitN(suffix, "/", pathPartsWithJobRunSub)
 
 	switch len(parts) {
 	case pathPartsApplication:
@@ -123,6 +130,8 @@ func parseEMRPath(method, rawPath string) emrRoute {
 		return parseAppSubRoute(method, parts[0], parts[1])
 	case pathPartsWithJobRun:
 		return parseJobRunRoute(method, parts[0], parts[1], parts[2])
+	case pathPartsWithJobRunSub:
+		return parseJobRunSubRoute(method, parts[0], parts[1], parts[2], parts[3])
 	}
 
 	return emrRoute{operation: "Unknown"}
@@ -175,7 +184,7 @@ func parseAppSubRoute(method, appID, sub string) emrRoute {
 		if method == http.MethodPost {
 			return emrRoute{operation: "StopApplication", applicationID: appID}
 		}
-	case "jobruns":
+	case pathJobRuns:
 		switch method {
 		case http.MethodPost:
 			return emrRoute{operation: "StartJobRun", applicationID: appID}
@@ -188,7 +197,7 @@ func parseAppSubRoute(method, appID, sub string) emrRoute {
 }
 
 func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
-	if sub != "jobruns" {
+	if sub != pathJobRuns {
 		return emrRoute{operation: "Unknown"}
 	}
 
@@ -197,6 +206,25 @@ func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
 		return emrRoute{operation: "GetJobRun", applicationID: appID, jobRunID: jobRunID}
 	case http.MethodDelete:
 		return emrRoute{operation: "CancelJobRun", applicationID: appID, jobRunID: jobRunID}
+	}
+
+	return emrRoute{operation: "Unknown"}
+}
+
+func parseJobRunSubRoute(method, appID, sub, jobRunID, action string) emrRoute {
+	if sub != pathJobRuns {
+		return emrRoute{operation: "Unknown"}
+	}
+
+	if method != http.MethodGet {
+		return emrRoute{operation: "Unknown"}
+	}
+
+	switch action {
+	case "dashboard":
+		return emrRoute{operation: "GetDashboardForJobRun", applicationID: appID, jobRunID: jobRunID}
+	case "attempts":
+		return emrRoute{operation: "ListJobRunAttempts", applicationID: appID, jobRunID: jobRunID}
 	}
 
 	return emrRoute{operation: "Unknown"}
@@ -244,7 +272,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 14 REST operations is inherently wide
+//nolint:cyclop // dispatch table for 16 REST operations is inherently wide
 func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
 	switch route.operation {
 	case "CreateApplication":
@@ -269,6 +297,10 @@ func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
 		return h.handleListJobRuns(c, route.applicationID)
 	case "CancelJobRun":
 		return h.handleCancelJobRun(c, route.applicationID, route.jobRunID)
+	case "GetDashboardForJobRun":
+		return h.handleGetDashboardForJobRun(c, route.applicationID, route.jobRunID)
+	case "ListJobRunAttempts":
+		return h.handleListJobRunAttempts(c, route.applicationID, route.jobRunID)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c, route.resourceARN)
 	case "TagResource":
@@ -286,6 +318,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	case errors.Is(err, ErrInvalidState):
+		return c.JSON(http.StatusBadRequest, errResp("RequestFailedException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
@@ -304,8 +340,9 @@ func epochSeconds(ts interface{ Unix() int64 }) float64 {
 // applicationToMap converts an Application to a map with float64 timestamps
 // for correct AWS REST-JSON serialization. Returns a map representation with
 // createdAt/updatedAt as float64 Unix epoch seconds values.
+// Tags are always included (as an empty map if none are set).
 func applicationToMap(app *Application) map[string]any {
-	m := map[string]any{
+	return map[string]any{
 		"applicationId": app.ApplicationID,
 		"arn":           app.Arn,
 		"name":          app.Name,
@@ -314,20 +351,16 @@ func applicationToMap(app *Application) map[string]any {
 		"state":         app.State,
 		"createdAt":     epochSeconds(app.CreatedAt),
 		"updatedAt":     epochSeconds(app.UpdatedAt),
+		"tags":          app.Tags,
 	}
-
-	if len(app.Tags) > 0 {
-		m["tags"] = app.Tags
-	}
-
-	return m
 }
 
 // jobRunToMap converts a JobRun to a map with float64 timestamps
 // for correct AWS REST-JSON serialization. Returns a map representation with
 // createdAt/updatedAt as float64 Unix epoch seconds values.
+// Tags are always included (as an empty map if none are set).
 func jobRunToMap(jr *JobRun) map[string]any {
-	m := map[string]any{
+	return map[string]any{
 		"applicationId":    jr.ApplicationID,
 		"jobRunId":         jr.JobRunID,
 		"arn":              jr.Arn,
@@ -336,13 +369,8 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		"executionRoleArn": jr.ExecutionRoleArn,
 		"createdAt":        epochSeconds(jr.CreatedAt),
 		"updatedAt":        epochSeconds(jr.UpdatedAt),
+		"tags":             jr.Tags,
 	}
-
-	if len(jr.Tags) > 0 {
-		m["tags"] = jr.Tags
-	}
-
-	return m
 }
 
 // --- Application handlers ---
@@ -546,6 +574,65 @@ func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID st
 		"applicationId": jr.ApplicationID,
 		"jobRunId":      jr.JobRunID,
 	})
+}
+
+func (h *Handler) handleGetDashboardForJobRun(c *echo.Context, applicationID, jobRunID string) error {
+	dashURL, err := h.Backend.GetDashboardForJobRun(applicationID, jobRunID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"url": dashURL})
+}
+
+// jobRunAttemptToMap converts a JobRunAttemptSummary to a map with float64 timestamps.
+func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
+	return map[string]any{
+		"applicationId": a.ApplicationID,
+		"arn":           a.Arn,
+		"createdAt":     epochSeconds(a.CreatedAt),
+		"updatedAt":     epochSeconds(a.UpdatedAt),
+		"jobCreatedAt":  epochSeconds(a.JobCreatedAt),
+		"createdBy":     a.CreatedBy,
+		"executionRole": a.ExecutionRole,
+		"id":            a.ID,
+		"releaseLabel":  a.ReleaseLabel,
+		"state":         a.State,
+		"stateDetails":  a.StateDetails,
+		"name":          a.Name,
+		"type":          a.Type,
+		"attempt":       a.Attempt,
+	}
+}
+
+func (h *Handler) handleListJobRunAttempts(c *echo.Context, applicationID, jobRunID string) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+
+	maxResults := 0
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	attempts, outToken, err := h.Backend.ListJobRunAttempts(applicationID, jobRunID, nextToken, maxResults)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	list := make([]map[string]any, 0, len(attempts))
+
+	for _, a := range attempts {
+		list = append(list, jobRunAttemptToMap(a))
+	}
+
+	resp := map[string]any{"jobRunAttempts": list}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // --- Tags handlers ---
