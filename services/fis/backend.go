@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -408,7 +408,7 @@ func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, erro
 		result = append(result, cloneTemplate(tpl))
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	slices.SortFunc(result, func(a, b *ExperimentTemplate) int { return strings.Compare(a.ID, b.ID) })
 
 	return result, nil
 }
@@ -608,7 +608,7 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 		result = append(result, cloneExperiment(exp))
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	slices.SortFunc(result, func(a, b *Experiment) int { return strings.Compare(a.ID, b.ID) })
 
 	return result, nil
 }
@@ -651,7 +651,10 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 		})
 	}
 
-	sort.Slice(resolved, func(i, j int) bool { return resolved[i].TargetName < resolved[j].TargetName })
+	slices.SortFunc(
+		resolved,
+		func(a, b ExperimentResolvedTarget) int { return strings.Compare(a.TargetName, b.TargetName) },
+	)
 
 	return resolved, nil
 }
@@ -716,7 +719,7 @@ func (b *InMemoryBackend) ListActions() []ActionSummary {
 		}
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	slices.SortFunc(all, func(a, b ActionSummary) int { return strings.Compare(a.ID, b.ID) })
 
 	return all
 }
@@ -769,7 +772,10 @@ func (b *InMemoryBackend) ListTargetResourceTypes() []TargetResourceTypeSummary 
 		result = append(result, rt)
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].ResourceType < result[j].ResourceType })
+	slices.SortFunc(
+		result,
+		func(a, b TargetResourceTypeSummary) int { return strings.Compare(a.ResourceType, b.ResourceType) },
+	)
 
 	return result
 }
@@ -1034,7 +1040,10 @@ func (b *InMemoryBackend) ListTargetAccountConfigurations(templateID string) ([]
 		result = append(result, &cp)
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].AccountID < result[j].AccountID })
+	slices.SortFunc(
+		result,
+		func(a, b *TargetAccountConfiguration) int { return strings.Compare(a.AccountID, b.AccountID) },
+	)
 
 	return result, nil
 }
@@ -1095,7 +1104,9 @@ func (b *InMemoryBackend) ListExperimentTargetAccountConfigurations(
 		})
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].AccountID < result[j].AccountID })
+	slices.SortFunc(result, func(a, b *ExperimentTargetAccountConfiguration) int {
+		return strings.Compare(a.AccountID, b.AccountID)
+	})
 
 	return result, nil
 }
