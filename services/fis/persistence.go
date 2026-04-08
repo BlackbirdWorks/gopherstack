@@ -1,13 +1,20 @@
 package fis
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
 
 type backendSnapshot struct {
-	Templates   map[string]*ExperimentTemplate `json:"templates"`
-	Experiments map[string]*Experiment         `json:"experiments"`
-	SafetyLever *SafetyLever                   `json:"safetyLever"`
-	AccountID   string                         `json:"accountID"`
-	Region      string                         `json:"region"`
+	Templates            map[string]*ExperimentTemplate                    `json:"templates"`
+	Experiments          map[string]*Experiment                            `json:"experiments"`
+	TargetAccountConfigs map[string]map[string]*TargetAccountConfiguration `json:"targetAccountConfigs"`
+	SafetyLever          *SafetyLever                                      `json:"safetyLever"`
+	AccountID            string                                            `json:"accountID"`
+	Region               string                                            `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,15 +23,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Templates:   b.templates,
-		Experiments: b.experiments,
-		SafetyLever: b.safetyLever,
-		AccountID:   b.accountID,
-		Region:      b.region,
+		Templates:            b.templates,
+		Experiments:          b.experiments,
+		TargetAccountConfigs: b.targetAccountConfigs,
+		SafetyLever:          b.safetyLever,
+		AccountID:            b.accountID,
+		Region:               b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("fis: Snapshot marshal failure", "error", err)
+
 		return nil
 	}
 
@@ -50,11 +60,28 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Experiments = make(map[string]*Experiment)
 	}
 
+	if snap.TargetAccountConfigs == nil {
+		snap.TargetAccountConfigs = make(map[string]map[string]*TargetAccountConfiguration)
+	}
+
 	b.templates = snap.Templates
 	b.experiments = snap.Experiments
-	b.safetyLever = snap.SafetyLever
+	b.targetAccountConfigs = snap.TargetAccountConfigs
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Rebuild or restore safety lever.
+	if snap.SafetyLever != nil {
+		b.safetyLever = snap.SafetyLever
+	} else {
+		safetyLeverARN := arn.Build("fis", b.region, b.accountID, fmt.Sprintf("safety-lever/%s", b.accountID))
+		b.safetyLever = &SafetyLever{
+			ID:    b.accountID,
+			Arn:   safetyLeverARN,
+			Tags:  make(map[string]string),
+			State: SafetyLeverState{Status: "disengaged"},
+		}
+	}
 
 	// Rebuild ARN indexes from restored state.
 	b.templateARNIndex = make(map[string]string, len(b.templates))

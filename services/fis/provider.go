@@ -1,9 +1,14 @@
 package fis
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when appCtx is nil.
+var ErrNilAppContext = errors.New("AppContext is required")
 
 // ConfigProvider is a private interface to extract FIS configuration
 // from the abstract AppContext Config.
@@ -21,6 +26,10 @@ func (p *Provider) Name() string { return "FIS" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 

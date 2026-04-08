@@ -17,13 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := fis.NewInMemoryBackend("000000000000", "us-east-1")
 	h := fis.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &fissdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateTargetAccountConfiguration",
-		"DeleteTargetAccountConfiguration",
-		"GetExperimentTargetAccountConfiguration",
-		"GetTargetAccountConfiguration",
-		"ListExperimentTargetAccountConfigurations",
-		"ListTargetAccountConfigurations",
-		"UpdateTargetAccountConfiguration",
-	})
+	sdkcheck.CheckCompleteness(t, &fissdk.Client{}, h.GetSupportedOperations(), []string{})
 }
