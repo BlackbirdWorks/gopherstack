@@ -1,9 +1,15 @@
 package glue
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when appCtx is nil.
+var ErrNilAppContext = errors.New("glue provider: nil AppContext")
 
 // Provider implements service.Provider for Glue.
 type Provider struct{}
@@ -15,6 +21,10 @@ func (p *Provider) Name() string { return "Glue" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("%w", ErrNilAppContext)
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 
