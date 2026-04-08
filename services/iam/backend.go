@@ -173,6 +173,32 @@ type StorageBackend interface {
 	DeleteLoginProfile(userName string) error
 	GetLoginProfile(userName string) (*LoginProfile, error)
 
+	// Account Aliases
+	CreateAccountAlias(alias string) error
+
+	// Policy Versions
+	CreatePolicyVersion(policyArn, policyDocument string, setAsDefault bool) (*StoredPolicyVersion, error)
+
+	// Service-Linked Roles
+	CreateServiceLinkedRole(awsServiceName, description, customSuffix string) (*Role, error)
+
+	// Service-Specific Credentials
+	CreateServiceSpecificCredential(userName, serviceName string) (*ServiceSpecificCredential, error)
+
+	// Virtual MFA Devices
+	CreateVirtualMFADevice(virtualMFADeviceName, path string) (*VirtualMFADevice, error)
+
+	// Delegation Requests
+	CreateDelegationRequest(targetAccountID string) (*DelegationRequest, error)
+	AcceptDelegationRequest(delegationID string) error
+	AssociateDelegationRequest(delegationID, policyArn string) error
+
+	// Change Password
+	ChangePassword(newPassword string) error
+
+	// OIDC Client IDs
+	AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error
+
 	// Dashboard helpers
 	ListAllUsers() []User
 	ListAllRoles() []Role
@@ -193,25 +219,29 @@ const iamDefaultMaxItems = 100
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	users            map[string]User
-	roles            map[string]Role
-	policies         map[string]Policy
-	groups           map[string]Group
-	accessKeys       map[string]AccessKey
-	instanceProfiles map[string]InstanceProfile
-	samlProviders    map[string]SAMLProvider // ARN → SAMLProvider
-	oidcProviders    map[string]OIDCProvider // ARN → OIDCProvider
-	loginProfiles    map[string]LoginProfile // userName → LoginProfile
-	// userPolicies, rolePolicies, and groupPolicies track attached policy ARNs keyed by entity name.
-	userPolicies        map[string][]string          // userName → []policyArn
-	rolePolicies        map[string][]string          // roleName → []policyArn
-	groupPolicies       map[string][]string          // groupName → []policyArn
-	groupMembers        map[string][]string          // groupName → []userName
-	userInlinePolicies  map[string]map[string]string // userName → policyName → document
-	roleInlinePolicies  map[string]map[string]string // roleName → policyName → document
-	groupInlinePolicies map[string]map[string]string // groupName → policyName → document
-	mu                  *lockmetrics.RWMutex
-	accountID           string
+	rolePolicies         map[string][]string
+	loginProfiles        map[string]LoginProfile
+	policies             map[string]Policy
+	groups               map[string]Group
+	accessKeys           map[string]AccessKey
+	instanceProfiles     map[string]InstanceProfile
+	samlProviders        map[string]SAMLProvider
+	groupMembers         map[string][]string
+	groupPolicies        map[string][]string
+	userPolicies         map[string][]string
+	roles                map[string]Role
+	users                map[string]User
+	oidcProviders        map[string]OIDCProvider
+	userInlinePolicies   map[string]map[string]string
+	roleInlinePolicies   map[string]map[string]string
+	groupInlinePolicies  map[string]map[string]string
+	mu                   *lockmetrics.RWMutex
+	policyVersions       map[string][]StoredPolicyVersion
+	serviceSpecificCreds map[string]ServiceSpecificCredential
+	virtualMFADevices    map[string]VirtualMFADevice
+	delegationRequests   map[string]DelegationRequest
+	accountID            string
+	accountAliases       []string
 }
 
 // NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
@@ -222,24 +252,29 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
 func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
-		users:               make(map[string]User),
-		roles:               make(map[string]Role),
-		policies:            make(map[string]Policy),
-		groups:              make(map[string]Group),
-		accessKeys:          make(map[string]AccessKey),
-		instanceProfiles:    make(map[string]InstanceProfile),
-		samlProviders:       make(map[string]SAMLProvider),
-		oidcProviders:       make(map[string]OIDCProvider),
-		loginProfiles:       make(map[string]LoginProfile),
-		userPolicies:        make(map[string][]string),
-		rolePolicies:        make(map[string][]string),
-		groupPolicies:       make(map[string][]string),
-		groupMembers:        make(map[string][]string),
-		userInlinePolicies:  make(map[string]map[string]string),
-		roleInlinePolicies:  make(map[string]map[string]string),
-		groupInlinePolicies: make(map[string]map[string]string),
-		accountID:           accountID,
-		mu:                  lockmetrics.New("iam"),
+		users:                make(map[string]User),
+		roles:                make(map[string]Role),
+		policies:             make(map[string]Policy),
+		groups:               make(map[string]Group),
+		accessKeys:           make(map[string]AccessKey),
+		instanceProfiles:     make(map[string]InstanceProfile),
+		samlProviders:        make(map[string]SAMLProvider),
+		oidcProviders:        make(map[string]OIDCProvider),
+		loginProfiles:        make(map[string]LoginProfile),
+		userPolicies:         make(map[string][]string),
+		rolePolicies:         make(map[string][]string),
+		groupPolicies:        make(map[string][]string),
+		groupMembers:         make(map[string][]string),
+		userInlinePolicies:   make(map[string]map[string]string),
+		roleInlinePolicies:   make(map[string]map[string]string),
+		groupInlinePolicies:  make(map[string]map[string]string),
+		accountAliases:       nil,
+		policyVersions:       make(map[string][]StoredPolicyVersion),
+		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
+		virtualMFADevices:    make(map[string]VirtualMFADevice),
+		delegationRequests:   make(map[string]DelegationRequest),
+		accountID:            accountID,
+		mu:                   lockmetrics.New("iam"),
 	}
 }
 
@@ -1878,6 +1913,11 @@ func (b *InMemoryBackend) Reset() {
 	b.userInlinePolicies = make(map[string]map[string]string)
 	b.roleInlinePolicies = make(map[string]map[string]string)
 	b.groupInlinePolicies = make(map[string]map[string]string)
+	b.accountAliases = nil
+	b.policyVersions = make(map[string][]StoredPolicyVersion)
+	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
+	b.virtualMFADevices = make(map[string]VirtualMFADevice)
+	b.delegationRequests = make(map[string]DelegationRequest)
 }
 
 // Purge removes all resources older than the given cutoff time.
