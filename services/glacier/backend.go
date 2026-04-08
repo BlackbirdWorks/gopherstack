@@ -40,10 +40,14 @@ const (
 	capacityIDLength = 32
 	// idChars are the characters used for generating random IDs.
 	idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	// jobTypeArchiveRetrieval is the Glacier job type for archive retrieval.
+	// jobTypeArchiveRetrieval is the Glacier job action name for archive retrieval (response).
 	jobTypeArchiveRetrieval = "ArchiveRetrieval"
-	// jobTypeInventoryRetrieval is the Glacier job type for inventory retrieval.
+	// jobTypeInventoryRetrieval is the Glacier job action name for inventory retrieval (response).
 	jobTypeInventoryRetrieval = "InventoryRetrieval"
+	// jobInputArchiveRetrieval is the type value sent by SDK/clients for archive retrieval (request).
+	jobInputArchiveRetrieval = "archive-retrieval"
+	// jobInputInventoryRetrieval is the type value sent by SDK/clients for inventory retrieval (request).
+	jobInputInventoryRetrieval = "inventory-retrieval"
 )
 
 // StorageBackend is the interface for the Glacier backend.
@@ -186,6 +190,19 @@ func vaultARN(accountID, region, vaultName string) string {
 // vaultLocation returns the location path for a vault creation response.
 func vaultLocation(accountID, vaultName string) string {
 	return fmt.Sprintf("/%s/vaults/%s", accountID, vaultName)
+}
+
+// normalizeJobType converts the SDK request type (kebab-case) to the canonical
+// action name (PascalCase) used in job responses. Returns empty string if unknown.
+func normalizeJobType(t string) string {
+	switch t {
+	case jobTypeArchiveRetrieval, jobInputArchiveRetrieval:
+		return jobTypeArchiveRetrieval
+	case jobTypeInventoryRetrieval, jobInputInventoryRetrieval:
+		return jobTypeInventoryRetrieval
+	default:
+		return ""
+	}
 }
 
 // CreateVault creates a new Glacier vault.
@@ -349,23 +366,27 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if req.Type != jobTypeArchiveRetrieval && req.Type != jobTypeInventoryRetrieval {
+	// Normalize the job type: the SDK sends kebab-case ("archive-retrieval",
+	// "inventory-retrieval") but the job action is stored in PascalCase
+	// ("ArchiveRetrieval", "InventoryRetrieval") per the AWS API spec.
+	action := normalizeJobType(req.Type)
+	if action == "" {
 		return nil, ErrValidation
 	}
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
-	v, ok := b.vaults[key]
-	if !ok {
+	v, vaultExists := b.vaults[key]
+	if !vaultExists {
 		return nil, ErrVaultNotFound
 	}
 
-	if req.Type == jobTypeArchiveRetrieval {
+	if action == jobTypeArchiveRetrieval {
 		if req.ArchiveID == "" {
 			return nil, ErrValidation
 		}
 
-		if _, ok := b.archives[key][req.ArchiveID]; !ok {
+		if _, archiveExists := b.archives[key][req.ArchiveID]; !archiveExists {
 			return nil, ErrArchiveNotFound
 		}
 	}
@@ -380,7 +401,7 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		JobID:          jobID,
 		VaultARN:       v.VaultARN,
 		VaultName:      vaultName,
-		Action:         req.Type,
+		Action:         action,
 		ArchiveID:      req.ArchiveID,
 		JobDescription: req.Description,
 		StatusCode:     "Succeeded",
@@ -391,8 +412,8 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		Tier:           tier,
 	}
 
-	if req.Type == jobTypeArchiveRetrieval {
-		if a, ok := b.archives[key][req.ArchiveID]; ok {
+	if action == jobTypeArchiveRetrieval {
+		if a, archiveFound := b.archives[key][req.ArchiveID]; archiveFound {
 			j.ArchiveSizeInBytes = a.Size
 			j.SHA256TreeHash = a.SHA256TreeHash
 		}
