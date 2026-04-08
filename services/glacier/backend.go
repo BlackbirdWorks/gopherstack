@@ -18,6 +18,8 @@ var (
 	ErrArchiveNotFound = errors.New("ResourceNotFoundException: Archive not found")
 	// ErrJobNotFound is returned when a job does not exist.
 	ErrJobNotFound = errors.New("ResourceNotFoundException: Job not found")
+	// ErrUploadNotFound is returned when a multipart upload does not exist.
+	ErrUploadNotFound = errors.New("ResourceNotFoundException: Multipart upload not found")
 )
 
 const (
@@ -25,6 +27,10 @@ const (
 	archiveIDLength = 60
 	// jobIDLength is the length of the random job ID.
 	jobIDLength = 60
+	// multipartUploadIDLength is the length of the random multipart upload ID.
+	multipartUploadIDLength = 60
+	// capacityIDLength is the length of the generated capacity unit ID.
+	capacityIDLength = 32
 	// idChars are the characters used for generating random IDs.
 	idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
@@ -55,6 +61,25 @@ type StorageBackend interface {
 	ListTagsForVault(accountID, region, vaultName string) (map[string]string, error)
 	RemoveTagsFromVault(accountID, region, vaultName string, tagKeys []string) error
 
+	// Multipart upload operations.
+	InitiateMultipartUpload(accountID, region, vaultName, description string, partSize int64) (*MultipartUpload, error)
+	UploadMultipartPart(accountID, region, vaultName, uploadID, rangeHeader, checksum string) error
+	CompleteMultipartUpload(
+		accountID, region, vaultName, uploadID, checksum string,
+		archiveSize int64,
+	) (*Archive, error)
+	AbortMultipartUpload(accountID, region, vaultName, uploadID string) error
+	ListMultipartUploads(accountID, region, vaultName string) []*MultipartUpload
+	ListParts(accountID, region, vaultName, uploadID string) (*ListPartsOutput, error)
+
+	// Vault lock operations.
+	GetVaultLock(accountID, region, vaultName string) (*VaultLock, error)
+	SetVaultLock(accountID, region, vaultName, policy, lockID string) error
+
+	// Provisioned capacity operations.
+	ListProvisionedCapacity(accountID string) []*ProvisionedCapacity
+	PurchaseProvisionedCapacity(accountID string) (*ProvisionedCapacity, error)
+
 	Reset()
 }
 
@@ -65,20 +90,36 @@ type vaultKey struct {
 	VaultName string `json:"vaultName"`
 }
 
+// uploadKey uniquely identifies a multipart upload.
+type uploadKey struct {
+	AccountID string `json:"accountID"`
+	Region    string `json:"region"`
+	VaultName string `json:"vaultName"`
+	UploadID  string `json:"uploadID"`
+}
+
 // InMemoryBackend is the in-memory backend for Glacier.
 type InMemoryBackend struct {
-	vaults   map[vaultKey]*Vault
-	archives map[vaultKey]map[string]*Archive
-	jobs     map[vaultKey]map[string]*Job
-	mu       sync.RWMutex
+	vaults              map[vaultKey]*Vault
+	archives            map[vaultKey]map[string]*Archive
+	jobs                map[vaultKey]map[string]*Job
+	multipartUploads    map[vaultKey]map[string]*MultipartUpload
+	multipartParts      map[uploadKey][]MultipartPart
+	vaultLocks          map[vaultKey]*VaultLock
+	provisionedCapacity map[string][]*ProvisionedCapacity
+	mu                  sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Glacier backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		vaults:   make(map[vaultKey]*Vault),
-		archives: make(map[vaultKey]map[string]*Archive),
-		jobs:     make(map[vaultKey]map[string]*Job),
+		vaults:              make(map[vaultKey]*Vault),
+		archives:            make(map[vaultKey]map[string]*Archive),
+		jobs:                make(map[vaultKey]map[string]*Job),
+		multipartUploads:    make(map[vaultKey]map[string]*MultipartUpload),
+		multipartParts:      make(map[uploadKey][]MultipartPart),
+		vaultLocks:          make(map[vaultKey]*VaultLock),
+		provisionedCapacity: make(map[string][]*ProvisionedCapacity),
 	}
 }
 
@@ -492,4 +533,264 @@ func (b *InMemoryBackend) Reset() {
 	b.vaults = make(map[vaultKey]*Vault)
 	b.archives = make(map[vaultKey]map[string]*Archive)
 	b.jobs = make(map[vaultKey]map[string]*Job)
+	b.multipartUploads = make(map[vaultKey]map[string]*MultipartUpload)
+	b.multipartParts = make(map[uploadKey][]MultipartPart)
+	b.vaultLocks = make(map[vaultKey]*VaultLock)
+	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
+}
+
+// ----------------------------------------
+// Multipart upload operations
+// ----------------------------------------
+
+// InitiateMultipartUpload begins a multipart upload for a vault.
+func (b *InMemoryBackend) InitiateMultipartUpload(
+	accountID, region, vaultName, description string,
+	partSize int64,
+) (*MultipartUpload, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	v, ok := b.vaults[key]
+	if !ok {
+		return nil, ErrVaultNotFound
+	}
+
+	uploadID := generateID(multipartUploadIDLength)
+	up := &MultipartUpload{
+		MultipartUploadID:  uploadID,
+		VaultARN:           v.VaultARN,
+		ArchiveDescription: description,
+		PartSizeInBytes:    partSize,
+		CreationDate:       formatDate(time.Now()),
+	}
+
+	if b.multipartUploads[key] == nil {
+		b.multipartUploads[key] = make(map[string]*MultipartUpload)
+	}
+
+	b.multipartUploads[key][uploadID] = up
+
+	return up, nil
+}
+
+// UploadMultipartPart records a part for an in-progress multipart upload.
+func (b *InMemoryBackend) UploadMultipartPart(
+	accountID, region, vaultName, uploadID, rangeHeader, checksum string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return ErrVaultNotFound
+	}
+
+	if b.multipartUploads[key] == nil || b.multipartUploads[key][uploadID] == nil {
+		return ErrUploadNotFound
+	}
+
+	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
+	b.multipartParts[uKey] = append(b.multipartParts[uKey], MultipartPart{
+		RangeInBytes:   rangeHeader,
+		SHA256TreeHash: checksum,
+	})
+
+	return nil
+}
+
+// CompleteMultipartUpload finalises a multipart upload and creates an archive.
+func (b *InMemoryBackend) CompleteMultipartUpload(
+	accountID, region, vaultName, uploadID, checksum string,
+	archiveSize int64,
+) (*Archive, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return nil, ErrVaultNotFound
+	}
+
+	if b.multipartUploads[key] == nil || b.multipartUploads[key][uploadID] == nil {
+		return nil, ErrUploadNotFound
+	}
+
+	up := b.multipartUploads[key][uploadID]
+	archiveID := generateID(archiveIDLength)
+	a := &Archive{
+		ArchiveID:      archiveID,
+		Description:    up.ArchiveDescription,
+		CreationDate:   formatDate(time.Now()),
+		Size:           archiveSize,
+		SHA256TreeHash: checksum,
+	}
+
+	b.archives[key][archiveID] = a
+	b.vaults[key].NumberOfArchives++
+	b.vaults[key].SizeInBytes += archiveSize
+
+	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
+	delete(b.multipartUploads[key], uploadID)
+	delete(b.multipartParts, uKey)
+
+	return a, nil
+}
+
+// AbortMultipartUpload cancels an in-progress multipart upload.
+func (b *InMemoryBackend) AbortMultipartUpload(accountID, region, vaultName, uploadID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return ErrVaultNotFound
+	}
+
+	if b.multipartUploads[key] == nil || b.multipartUploads[key][uploadID] == nil {
+		return ErrUploadNotFound
+	}
+
+	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
+	delete(b.multipartUploads[key], uploadID)
+	delete(b.multipartParts, uKey)
+
+	return nil
+}
+
+// ListMultipartUploads returns all in-progress multipart uploads for a vault.
+func (b *InMemoryBackend) ListMultipartUploads(accountID, region, vaultName string) []*MultipartUpload {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	ups := b.multipartUploads[key]
+
+	result := make([]*MultipartUpload, 0, len(ups))
+	for _, up := range ups {
+		cp := *up
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// ListParts returns the parts for an in-progress multipart upload.
+func (b *InMemoryBackend) ListParts(
+	accountID, region, vaultName, uploadID string,
+) (*ListPartsOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return nil, ErrVaultNotFound
+	}
+
+	up, ok := b.multipartUploads[key][uploadID]
+	if !ok {
+		return nil, ErrUploadNotFound
+	}
+
+	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
+	parts := append([]MultipartPart(nil), b.multipartParts[uKey]...)
+
+	return &ListPartsOutput{
+		MultipartUploadID:  uploadID,
+		VaultARN:           up.VaultARN,
+		ArchiveDescription: up.ArchiveDescription,
+		PartSizeInBytes:    up.PartSizeInBytes,
+		CreationDate:       up.CreationDate,
+		Parts:              parts,
+	}, nil
+}
+
+// ----------------------------------------
+// Vault lock operations
+// ----------------------------------------
+
+// GetVaultLock returns the vault lock state.  If no lock has been initiated,
+// the returned VaultLock has State "Unlocked".
+func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*VaultLock, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return nil, ErrVaultNotFound
+	}
+
+	lock, ok := b.vaultLocks[key]
+	if !ok {
+		return &VaultLock{State: "Unlocked"}, nil
+	}
+
+	cp := *lock
+
+	return &cp, nil
+}
+
+// SetVaultLock stores a vault lock policy (used by InitiateVaultLock).
+func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, lockID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return ErrVaultNotFound
+	}
+
+	b.vaultLocks[key] = &VaultLock{
+		Policy:       policy,
+		LockID:       lockID,
+		State:        "InProgress",
+		CreationDate: formatDate(time.Now()),
+	}
+
+	return nil
+}
+
+// ----------------------------------------
+// Provisioned capacity operations
+// ----------------------------------------
+
+// ListProvisionedCapacity returns all provisioned capacity units for an account.
+func (b *InMemoryBackend) ListProvisionedCapacity(accountID string) []*ProvisionedCapacity {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	caps := b.provisionedCapacity[accountID]
+	result := make([]*ProvisionedCapacity, 0, len(caps))
+
+	for _, c := range caps {
+		cp := *c
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// PurchaseProvisionedCapacity adds a provisioned capacity unit for an account.
+func (b *InMemoryBackend) PurchaseProvisionedCapacity(accountID string) (*ProvisionedCapacity, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	unit := &ProvisionedCapacity{
+		CapacityID:     generateID(capacityIDLength),
+		StartDate:      formatDate(now),
+		ExpirationDate: formatDate(now.AddDate(0, 6, 0)), //nolint:mnd // 6 months
+	}
+
+	b.provisionedCapacity[accountID] = append(b.provisionedCapacity[accountID], unit)
+
+	return unit, nil
 }
