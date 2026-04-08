@@ -194,7 +194,10 @@ func TestIntegration_IoT_PolicyAndRule(t *testing.T) {
 
 				var out map[string]any
 				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-				assert.Equal(t, ruleName, out["ruleName"])
+				// AWS GetTopicRule wraps fields under a "rule" object with "ruleArn" at top level.
+				rule, ok := out["rule"].(map[string]any)
+				require.True(t, ok, "response should contain a 'rule' object")
+				assert.Equal(t, ruleName, rule["ruleName"])
 			},
 		},
 		{
