@@ -292,7 +292,17 @@ func TestIntegration_IoTAnalytics_DatasetContent(t *testing.T) {
 	datasetName := "integration-content-dataset-" + t.Name()
 
 	_, err := client.CreateDataset( //nolint:staticcheck // deprecated service
-		ctx, &iotanalyticssdk.CreateDatasetInput{DatasetName: aws.String(datasetName)},
+		ctx, &iotanalyticssdk.CreateDatasetInput{
+			DatasetName: aws.String(datasetName),
+			Actions: []iotanalyticstype.DatasetAction{
+				{
+					ActionName: aws.String("myaction"),
+					QueryAction: &iotanalyticstype.SqlQueryDatasetAction{
+						SqlQuery: aws.String("SELECT * FROM my_datastore"),
+					},
+				},
+			},
+		},
 	)
 	require.NoError(t, err, "CreateDataset should succeed")
 
