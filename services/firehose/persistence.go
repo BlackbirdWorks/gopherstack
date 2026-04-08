@@ -2,6 +2,7 @@ package firehose
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 )
 
@@ -25,6 +26,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		// Snapshot has no context parameter; fall back to the default logger.
+		slog.Default().Warn("firehose: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 

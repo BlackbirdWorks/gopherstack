@@ -746,7 +746,7 @@ func TestUpdateDestination(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.UpdateDestination(tt.streamName, tt.newDest)
+			err := b.UpdateDestination(tt.streamName, "", tt.newDest)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)

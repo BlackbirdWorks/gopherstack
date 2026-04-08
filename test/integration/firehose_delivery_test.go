@@ -249,7 +249,7 @@ func TestIntegration_Firehose_UpdateDestination(t *testing.T) {
 	require.NoError(t, err)
 
 	// Redirect to new bucket.
-	require.NoError(t, fhBk.UpdateDestination("update-stream", &firehosepkg.S3DestinationDescription{
+	require.NoError(t, fhBk.UpdateDestination("update-stream", "", &firehosepkg.S3DestinationDescription{
 		BucketARN: "arn:aws:s3:::new-bucket",
 	}))
 
@@ -402,7 +402,7 @@ func TestIntegration_Firehose_HandlerUpdateDestination(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fhBk.UpdateDestination("updatable-stream", &firehosepkg.S3DestinationDescription{
+	require.NoError(t, fhBk.UpdateDestination("updatable-stream", "", &firehosepkg.S3DestinationDescription{
 		BucketARN: "arn:aws:s3:::updated-bucket",
 	}))
 

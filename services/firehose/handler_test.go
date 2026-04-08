@@ -775,7 +775,7 @@ func TestHandler_Shutdown_FlushesBufferedRecords(t *testing.T) {
 
 				if tt.withS3 {
 					s3mock = &mockS3Storer{}
-					h.Backend.SetS3Backend(s3mock)
+					h.Backend.(*firehose.InMemoryBackend).SetS3Backend(s3mock)
 				}
 			}
 
@@ -806,11 +806,11 @@ func TestFirehoseHandler_StartDeliveryStreamEncryption(t *testing.T) {
 
 	tests := []struct {
 		setup        func(t *testing.T, h *firehose.Handler)
+		body         map[string]any
 		name         string
 		streamName   string
-		body         map[string]any
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:       "success_default_key_type",
@@ -827,7 +827,10 @@ func TestFirehoseHandler_StartDeliveryStreamEncryption(t *testing.T) {
 			streamName: "encrypted-stream",
 			setup: func(t *testing.T, h *firehose.Handler) {
 				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "encrypted-stream"})
+				doFirehoseRequest(
+					t, h, "CreateDeliveryStream",
+					map[string]any{"DeliveryStreamName": "encrypted-stream"},
+				)
 			},
 			body: map[string]any{
 				"DeliveryStreamName": "encrypted-stream",
@@ -877,7 +880,12 @@ func TestFirehoseHandler_StopDeliveryStreamEncryption(t *testing.T) {
 			setup: func(t *testing.T, h *firehose.Handler) {
 				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", map[string]any{"DeliveryStreamName": "my-stream"})
+				doFirehoseRequest(
+					t,
+					h,
+					"StartDeliveryStreamEncryption",
+					map[string]any{"DeliveryStreamName": "my-stream"},
+				)
 			},
 			wantCode: http.StatusOK,
 		},

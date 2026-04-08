@@ -3304,7 +3304,9 @@ func wireCWLogsSubscriptionFilters(cwlogsReg, lambdaReg, kinesisReg, firehoseReg
 	}
 
 	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
-		d.firehose = firehoseH.Backend
+		if fhBk, fhBkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhBkOk {
+			d.firehose = fhBk
+		}
 	}
 
 	cwlogsBk.SetSubscriptionDeliverer(d)
@@ -4277,13 +4279,17 @@ func wireFirehoseDelivery(firehoseReg, s3Reg, lambdaReg service.Registerable) {
 
 	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
 		if s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend); bkOk {
-			firehoseH.Backend.SetS3Backend(s3Bk)
+			if fhBk, fhOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhOk {
+				fhBk.SetS3Backend(s3Bk)
+			}
 		}
 	}
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			firehoseH.Backend.SetLambdaBackend(lambdaBk)
+			if fhBk, fhOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhOk {
+				fhBk.SetLambdaBackend(lambdaBk)
+			}
 		}
 	}
 }

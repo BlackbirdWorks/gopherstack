@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +35,8 @@ var (
 	ErrRecordTooLarge = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	// ErrBatchTooLarge is returned when a PutRecordBatch request exceeds the 500-record limit.
 	ErrBatchTooLarge = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
+	// ErrValidation is returned for invalid input parameters.
+	ErrValidation = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 )
 
 // maxRecordBytes is the maximum size of a single Firehose record (1,000 KB).
@@ -96,21 +101,24 @@ type S3DestinationDescription struct {
 	Prefix                  string                   `json:"Prefix,omitempty"`
 	ErrorOutputPrefix       string                   `json:"ErrorOutputPrefix,omitempty"`
 	CompressionFormat       string                   `json:"CompressionFormat,omitempty"`
+	DestinationID           string                   `json:"DestinationId,omitempty"`
 }
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
-	lastFlush       time.Time
-	Tags            *tags.Tags                `json:"tags,omitempty"`
-	S3Destination   *S3DestinationDescription `json:"s3Destination,omitempty"`
-	Encryption      *EncryptionConfig         `json:"encryption,omitempty"`
-	Name            string                    `json:"name"`
-	ARN             string                    `json:"arn"`
-	Status          string                    `json:"status"`
-	AccountID       string                    `json:"accountID"`
-	Region          string                    `json:"region"`
-	Records         [][]byte                  `json:"records,omitempty"`
-	bufferSizeBytes int
+	lastFlush          time.Time
+	Tags               *tags.Tags                `json:"tags,omitempty"`
+	S3Destination      *S3DestinationDescription `json:"s3Destination,omitempty"`
+	Encryption         *EncryptionConfig         `json:"encryption,omitempty"`
+	Name               string                    `json:"name"`
+	ARN                string                    `json:"arn"`
+	DeliveryStreamType string                    `json:"deliveryStreamType,omitempty"`
+	VersionID          string                    `json:"versionID,omitempty"`
+	Status             string                    `json:"status"`
+	AccountID          string                    `json:"accountID"`
+	Region             string                    `json:"region"`
+	Records            [][]byte                  `json:"records,omitempty"`
+	bufferSizeBytes    int
 }
 
 // InMemoryBackend is the in-memory store for Firehose resources.
@@ -172,6 +180,10 @@ type CreateDeliveryStreamInput struct {
 
 // CreateDeliveryStream creates a new delivery stream.
 func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) (*DeliveryStream, error) {
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, fmt.Errorf("%w: DeliveryStreamName is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateDeliveryStream")
 	defer b.mu.Unlock()
 
@@ -179,23 +191,27 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 		return nil, fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
 	}
 
+	if input.S3Destination != nil && input.S3Destination.DestinationID == "" {
+		input.S3Destination.DestinationID = "destinationId-000000000001"
+	}
+
 	streamARN := arn.Build("firehose", b.region, b.accountID, "deliverystream/"+input.Name)
 	s := &DeliveryStream{
-		Name:          input.Name,
-		ARN:           streamARN,
-		Status:        "ACTIVE",
-		Records:       [][]byte{},
-		Tags:          tags.New("firehose." + input.Name + ".tags"),
-		AccountID:     b.accountID,
-		Region:        b.region,
-		S3Destination: input.S3Destination,
-		lastFlush:     time.Now(),
+		Name:               input.Name,
+		ARN:                streamARN,
+		DeliveryStreamType: "DirectPut",
+		VersionID:          "1",
+		Status:             "ACTIVE",
+		Records:            [][]byte{},
+		Tags:               tags.New("firehose." + input.Name + ".tags"),
+		AccountID:          b.accountID,
+		Region:             b.region,
+		S3Destination:      input.S3Destination,
+		lastFlush:          time.Now(),
 	}
 	b.streams[input.Name] = s
 
-	cp := *s
-
-	return &cp, nil
+	return streamCopy(s), nil
 }
 
 // DeleteDeliveryStream deletes a delivery stream.
@@ -227,9 +243,7 @@ func (b *InMemoryBackend) DescribeDeliveryStream(name string) (*DeliveryStream, 
 		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
 
-	cp := *s
-
-	return &cp, nil
+	return streamCopy(s), nil
 }
 
 // ListDeliveryStreams returns all delivery stream names in alphabetical order.
@@ -314,7 +328,7 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 }
 
 // UpdateDestination updates the S3 destination configuration of an existing stream.
-func (b *InMemoryBackend) UpdateDestination(streamName string, dest *S3DestinationDescription) error {
+func (b *InMemoryBackend) UpdateDestination(streamName, currentVersionID string, dest *S3DestinationDescription) error {
 	b.mu.Lock("UpdateDestination")
 	defer b.mu.Unlock()
 
@@ -323,7 +337,16 @@ func (b *InMemoryBackend) UpdateDestination(streamName string, dest *S3Destinati
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 	}
 
+	if currentVersionID != "" && s.VersionID != currentVersionID {
+		return fmt.Errorf("%w: version mismatch: expected %s got %s", ErrValidation, currentVersionID, s.VersionID)
+	}
+
 	s.S3Destination = dest
+
+	// VersionID is always a valid integer (initialized to "1", incremented only here),
+	// so strconv.Atoi will not error for well-formed data.
+	v, _ := strconv.Atoi(s.VersionID)
+	s.VersionID = strconv.Itoa(v + 1)
 
 	return nil
 }
@@ -690,7 +713,9 @@ func (b *InMemoryBackend) UntagDeliveryStream(name string, keys []string) error 
 
 // StartDeliveryStreamEncryption enables server-side encryption for a delivery stream.
 // In this in-memory implementation the status transitions directly to ENABLED.
-func (b *InMemoryBackend) StartDeliveryStreamEncryption(_ context.Context, name string, input *EncryptionConfigInput) error {
+func (b *InMemoryBackend) StartDeliveryStreamEncryption(
+	_ context.Context, name string, input *EncryptionConfigInput,
+) error {
 	b.mu.Lock("StartDeliveryStreamEncryption")
 	defer b.mu.Unlock()
 
@@ -726,4 +751,58 @@ func (b *InMemoryBackend) StopDeliveryStreamEncryption(_ context.Context, name s
 	s.Encryption = &EncryptionConfig{Status: "DISABLED"}
 
 	return nil
+}
+
+// Reset clears all delivery streams, closing their tag registries to prevent leaks.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, s := range b.streams {
+		if s.Tags != nil {
+			s.Tags.Close()
+		}
+	}
+
+	b.streams = make(map[string]*DeliveryStream)
+}
+
+// AddStreamInternal deep-copies s into the backend, used for seeding test data.
+func (b *InMemoryBackend) AddStreamInternal(s *DeliveryStream) {
+	b.mu.Lock("AddStreamInternal")
+	defer b.mu.Unlock()
+
+	cp := streamCopy(s)
+	b.streams[s.Name] = cp
+}
+
+// streamCopy returns a shallow copy of s with pointer fields independently copied.
+func streamCopy(s *DeliveryStream) *DeliveryStream {
+	cp := *s
+	if s.S3Destination != nil {
+		dest := *s.S3Destination
+		cp.S3Destination = &dest
+	}
+
+	if s.Encryption != nil {
+		enc := *s.Encryption
+		cp.Encryption = &enc
+	}
+
+	cp.Records = nil
+
+	return &cp
+}
+
+// recordIDBytes is the number of random bytes used when generating a record identifier.
+const recordIDBytes = 16
+
+// newRecordID generates a random hex record identifier.
+func newRecordID() string {
+	b := make([]byte, recordIDBytes)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("rec-%d", time.Now().UnixNano())
+	}
+
+	return hex.EncodeToString(b)
 }

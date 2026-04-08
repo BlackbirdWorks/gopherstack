@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -27,12 +28,21 @@ var (
 
 // Handler is the Echo HTTP handler for Kinesis Firehose operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Firehose handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all state in the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -150,7 +160,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateDeliveryStream":          service.WrapOp(h.handleCreateDeliveryStream),
 		"DeleteDeliveryStream":          service.WrapOp(h.handleDeleteDeliveryStream),
@@ -168,7 +178,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -190,7 +200,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusNotFound,
 			map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()})
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, ErrValidation),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	default:
@@ -214,6 +224,7 @@ type createDeliveryStreamInput struct {
 	S3DestinationConfiguration         *s3DestinationInput `json:"S3DestinationConfiguration"`
 	ExtendedS3DestinationConfiguration *s3DestinationInput `json:"ExtendedS3DestinationConfiguration"`
 	DeliveryStreamName                 string              `json:"DeliveryStreamName"`
+	Tags                               []svcTags.KV        `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -252,6 +263,15 @@ func (h *Handler) handleCreateDeliveryStream(
 		return nil, err
 	}
 
+	if len(in.Tags) > 0 {
+		tagMap := make(map[string]string, len(in.Tags))
+		for _, t := range in.Tags {
+			tagMap[t.Key] = t.Value
+		}
+
+		_ = h.Backend.TagDeliveryStream(in.DeliveryStreamName, tagMap)
+	}
+
 	return &createDeliveryStreamOutput{DeliveryStreamARN: s.ARN}, nil
 }
 
@@ -269,9 +289,12 @@ func (h *Handler) handleDeleteDeliveryStream(
 }
 
 type deliveryStreamDescriptionFields struct {
+	EncryptionConfiguration   *EncryptionConfig          `json:"EncryptionConfiguration,omitempty"`
 	DeliveryStreamName        string                     `json:"DeliveryStreamName"`
 	DeliveryStreamARN         string                     `json:"DeliveryStreamARN"`
 	DeliveryStreamStatus      string                     `json:"DeliveryStreamStatus"`
+	DeliveryStreamType        string                     `json:"DeliveryStreamType,omitempty"`
+	VersionID                 string                     `json:"VersionId,omitempty"`
 	S3DestinationDescriptions []S3DestinationDescription `json:"S3DestinationDescriptions,omitempty"`
 }
 
@@ -289,9 +312,12 @@ func (h *Handler) handleDescribeDeliveryStream(
 	}
 
 	desc := deliveryStreamDescriptionFields{
-		DeliveryStreamName:   s.Name,
-		DeliveryStreamARN:    s.ARN,
-		DeliveryStreamStatus: s.Status,
+		DeliveryStreamName:      s.Name,
+		DeliveryStreamARN:       s.ARN,
+		DeliveryStreamStatus:    s.Status,
+		DeliveryStreamType:      s.DeliveryStreamType,
+		VersionID:               s.VersionID,
+		EncryptionConfiguration: s.Encryption,
 	}
 
 	if s.S3Destination != nil {
@@ -344,7 +370,7 @@ func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (
 		return nil, putErr
 	}
 
-	return &putRecordOutput{RecordID: "stub-record-id"}, nil
+	return &putRecordOutput{RecordID: newRecordID()}, nil
 }
 
 type handlePutRecordBatchInput struct {
@@ -400,6 +426,8 @@ func (h *Handler) handleListTagsForDeliveryStream(
 	for k, v := range tags {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
+
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
 	return &listTagsForDeliveryStreamOutput{
 		Tags:        tagList,
@@ -480,7 +508,7 @@ func (h *Handler) handleUpdateDestination(
 		}
 	}
 
-	if err := h.Backend.UpdateDestination(in.DeliveryStreamName, dest); err != nil {
+	if err := h.Backend.UpdateDestination(in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
 		return nil, err
 	}
 
@@ -488,8 +516,8 @@ func (h *Handler) handleUpdateDestination(
 }
 
 type startDeliveryStreamEncryptionInput struct {
-	DeliveryStreamEncryptionConfigurationInput *EncryptionConfigInput `json:"DeliveryStreamEncryptionConfigurationInput,omitempty"`
-	DeliveryStreamName                         string                 `json:"DeliveryStreamName"`
+	EncryptionConfig   *EncryptionConfigInput `json:"DeliveryStreamEncryptionConfigurationInput,omitempty"`
+	DeliveryStreamName string                 `json:"DeliveryStreamName"`
 }
 
 type startDeliveryStreamEncryptionOutput struct{}
@@ -498,7 +526,8 @@ func (h *Handler) handleStartDeliveryStreamEncryption(
 	ctx context.Context,
 	in *startDeliveryStreamEncryptionInput,
 ) (*startDeliveryStreamEncryptionOutput, error) {
-	if err := h.Backend.StartDeliveryStreamEncryption(ctx, in.DeliveryStreamName, in.DeliveryStreamEncryptionConfigurationInput); err != nil {
+	cfgInput := in.EncryptionConfig
+	if err := h.Backend.StartDeliveryStreamEncryption(ctx, in.DeliveryStreamName, cfgInput); err != nil {
 		return nil, err
 	}
 
