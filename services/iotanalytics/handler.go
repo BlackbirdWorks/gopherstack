@@ -2,6 +2,8 @@ package iotanalytics
 
 import (
 	"encoding/json"
+	"errors"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -25,18 +27,188 @@ const (
 	pathPipelines = "/pipelines"
 	// pathTags is the route for tags operations.
 	pathTags = "/tags"
+	// pathLogging is the route for logging options.
+	pathLogging = "/logging"
+	// pathMessages is the route for batch message ingestion.
+	pathMessages = "/messages"
+	// pathPipelineActivities is the route for pipeline activity execution.
+	pathPipelineActivities = "/pipelineactivities"
 	// minNameSegments is the minimum path segments to extract a resource name.
 	minNameSegments = 2
+	// maxSubPathSegments limits SplitN to extract up to 3 sub-path components.
+	maxSubPathSegments = 3
 )
+
+// handlerFunc is the uniform signature for all dispatch operations.
+type handlerFunc func(*echo.Context, string, []byte) error
 
 // Handler is the HTTP handler for the IoT Analytics REST API.
 type Handler struct {
 	Backend StorageBackend
+	ops     map[string]handlerFunc
 }
 
-// NewHandler creates a new IoT Analytics handler.
+// NewHandler creates a new IoT Analytics handler with a pre-built dispatch table.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = buildOps(h)
+
+	return h
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
+// buildOps constructs the operation dispatch map, keyed by operation name.
+// buildChannelOps returns the channel-related entries for the dispatch map.
+func buildChannelOps(h *Handler) map[string]handlerFunc {
+	return map[string]handlerFunc{
+		"CreateChannel": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleCreateChannel(c, body)
+		},
+		"ListChannels": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleListChannels(c)
+		},
+		"DescribeChannel": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDescribeChannel(c, resource)
+		},
+		"UpdateChannel": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleUpdateChannel(c, resource)
+		},
+		"DeleteChannel": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDeleteChannel(c, resource)
+		},
+		"SampleChannelData": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleSampleChannelData(c, resource)
+		},
+	}
+}
+
+// buildDatastoreOps returns the datastore-related entries for the dispatch map.
+func buildDatastoreOps(h *Handler) map[string]handlerFunc {
+	return map[string]handlerFunc{
+		"CreateDatastore": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleCreateDatastore(c, body)
+		},
+		"ListDatastores": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleListDatastores(c)
+		},
+		"DescribeDatastore": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDescribeDatastore(c, resource)
+		},
+		"UpdateDatastore": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleUpdateDatastore(c, resource)
+		},
+		"DeleteDatastore": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDeleteDatastore(c, resource)
+		},
+	}
+}
+
+// buildDatasetOps returns the dataset-related entries for the dispatch map.
+func buildDatasetOps(h *Handler) map[string]handlerFunc {
+	return map[string]handlerFunc{
+		"CreateDataset": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleCreateDataset(c, body)
+		},
+		"ListDatasets": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleListDatasets(c)
+		},
+		"DescribeDataset": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDescribeDataset(c, resource)
+		},
+		"UpdateDataset": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleUpdateDataset(c, resource)
+		},
+		"DeleteDataset": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDeleteDataset(c, resource)
+		},
+		"CreateDatasetContent": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleCreateDatasetContent(c, resource)
+		},
+		"GetDatasetContent": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleGetDatasetContent(c, resource)
+		},
+		"ListDatasetContents": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleListDatasetContents(c, resource)
+		},
+		"DeleteDatasetContent": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDeleteDatasetContent(c, resource)
+		},
+	}
+}
+
+// buildPipelineOps returns the pipeline-related entries for the dispatch map.
+func buildPipelineOps(h *Handler) map[string]handlerFunc {
+	return map[string]handlerFunc{
+		"CreatePipeline": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleCreatePipeline(c, body)
+		},
+		"ListPipelines": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleListPipelines(c)
+		},
+		"DescribePipeline": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDescribePipeline(c, resource)
+		},
+		"UpdatePipeline": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleUpdatePipeline(c, resource)
+		},
+		"DeletePipeline": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleDeletePipeline(c, resource)
+		},
+		"StartPipelineReprocessing": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleStartPipelineReprocessing(c, resource)
+		},
+		"CancelPipelineReprocessing": func(c *echo.Context, resource string, _ []byte) error {
+			return h.handleCancelPipelineReprocessing(c, resource)
+		},
+	}
+}
+
+// buildMiscOps returns the miscellaneous entries (tags, logging, messages) for the dispatch map.
+func buildMiscOps(h *Handler) map[string]handlerFunc {
+	return map[string]handlerFunc{
+		"ListTagsForResource": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleListTagsForResource(c)
+		},
+		"TagResource": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleTagResource(c, body)
+		},
+		"UntagResource": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleUntagResource(c)
+		},
+		"DescribeLoggingOptions": func(c *echo.Context, _ string, _ []byte) error {
+			return h.handleDescribeLoggingOptions(c)
+		},
+		"PutLoggingOptions": func(c *echo.Context, _ string, body []byte) error {
+			return h.handlePutLoggingOptions(c, body)
+		},
+		"BatchPutMessage": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleBatchPutMessage(c, body)
+		},
+		"RunPipelineActivity": func(c *echo.Context, _ string, body []byte) error {
+			return h.handleRunPipelineActivity(c, body)
+		},
+	}
+}
+
+// buildOps constructs the operation dispatch map by merging all sub-group maps.
+func buildOps(h *Handler) map[string]handlerFunc {
+	ops := make(map[string]handlerFunc)
+
+	maps.Copy(ops, buildChannelOps(h))
+
+	maps.Copy(ops, buildDatastoreOps(h))
+
+	maps.Copy(ops, buildDatasetOps(h))
+
+	maps.Copy(ops, buildPipelineOps(h))
+
+	maps.Copy(ops, buildMiscOps(h))
+
+	return ops
 }
 
 // Name returns the service name.
@@ -45,29 +217,40 @@ func (h *Handler) Name() string { return "IoTAnalytics" }
 // GetSupportedOperations returns the list of supported IoT Analytics operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"BatchPutMessage",
+		"CancelPipelineReprocessing",
 		"CreateChannel",
-		"ListChannels",
-		"DescribeChannel",
-		"UpdateChannel",
-		"DeleteChannel",
-		"CreateDatastore",
-		"ListDatastores",
-		"DescribeDatastore",
-		"UpdateDatastore",
-		"DeleteDatastore",
 		"CreateDataset",
-		"ListDatasets",
-		"DescribeDataset",
-		"UpdateDataset",
-		"DeleteDataset",
+		"CreateDatasetContent",
+		"CreateDatastore",
 		"CreatePipeline",
-		"ListPipelines",
-		"DescribePipeline",
-		"UpdatePipeline",
+		"DeleteChannel",
+		"DeleteDataset",
+		"DeleteDatasetContent",
+		"DeleteDatastore",
 		"DeletePipeline",
+		"DescribeChannel",
+		"DescribeDataset",
+		"DescribeDatastore",
+		"DescribeLoggingOptions",
+		"DescribePipeline",
+		"GetDatasetContent",
+		"ListChannels",
+		"ListDatasetContents",
+		"ListDatasets",
+		"ListDatastores",
+		"ListPipelines",
 		"ListTagsForResource",
+		"PutLoggingOptions",
+		"RunPipelineActivity",
+		"SampleChannelData",
+		"StartPipelineReprocessing",
 		"TagResource",
 		"UntagResource",
+		"UpdateChannel",
+		"UpdateDataset",
+		"UpdateDatastore",
+		"UpdatePipeline",
 	}
 }
 
@@ -93,6 +276,18 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		if path == pathTags || strings.HasPrefix(path, pathTags+"?") || strings.HasPrefix(path, pathTags+"/") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == iotAnalyticsService
+		}
+
+		if path == pathLogging || strings.HasPrefix(path, pathLogging+"?") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == iotAnalyticsService
+		}
+
+		if strings.HasPrefix(path, pathMessages) {
+			return httputils.ExtractServiceFromRequest(c.Request()) == iotAnalyticsService
+		}
+
+		if strings.HasPrefix(path, pathPipelineActivities) {
 			return httputils.ExtractServiceFromRequest(c.Request()) == iotAnalyticsService
 		}
 
@@ -152,15 +347,184 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func parseIoTAnalyticsPath(method, path string) (string, string) {
 	switch {
 	case strings.HasPrefix(path, pathChannels):
-		return parseResourcePath(method, path, pathChannels, "Channel", "channelName")
+		return parseChannelPath(method, path)
 	case strings.HasPrefix(path, pathDatastores):
 		return parseResourcePath(method, path, pathDatastores, "Datastore", "datastoreName")
 	case strings.HasPrefix(path, pathDatasets):
-		return parseResourcePath(method, path, pathDatasets, "Dataset", "datasetName")
+		return parseDatasetPath(method, path)
 	case strings.HasPrefix(path, pathPipelines):
-		return parseResourcePath(method, path, pathPipelines, "Pipeline", "pipelineName")
+		return parsePipelinePath(method, path)
 	case path == pathTags || strings.HasPrefix(path, pathTags+"?"):
 		return parseTagsPath(method)
+	case path == pathLogging || strings.HasPrefix(path, pathLogging+"?"):
+		return parseLoggingPath(method)
+	case path == pathMessages+"/batch":
+		if method == http.MethodPost {
+			return "BatchPutMessage", ""
+		}
+	case path == pathPipelineActivities+"/run":
+		if method == http.MethodPost {
+			return "RunPipelineActivity", ""
+		}
+	}
+
+	return "", ""
+}
+
+// parseChannelPath handles channel routes including /channels/{name}/sample.
+func parseChannelPath(method, path string) (string, string) {
+	rest := strings.TrimPrefix(path, pathChannels)
+
+	if rest == "" || rest == "/" {
+		switch method {
+		case http.MethodPost:
+			return "CreateChannel", ""
+		case http.MethodGet:
+			return "ListChannels", ""
+		}
+
+		return "", ""
+	}
+
+	segs := strings.SplitN(strings.TrimPrefix(rest, "/"), "/", maxSubPathSegments)
+	if len(segs) == 0 {
+		return "", ""
+	}
+
+	name := segs[0]
+
+	if len(segs) == minNameSegments && segs[1] == "sample" && method == http.MethodGet {
+		return "SampleChannelData", name
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "DescribeChannel", name
+	case http.MethodPut:
+		return "UpdateChannel", name
+	case http.MethodDelete:
+		return "DeleteChannel", name
+	}
+
+	return "", ""
+}
+
+// parseDatasetPath handles dataset routes including content sub-paths.
+func parseDatasetPath(method, path string) (string, string) {
+	rest := strings.TrimPrefix(path, pathDatasets)
+
+	if rest == "" || rest == "/" {
+		switch method {
+		case http.MethodPost:
+			return "CreateDataset", ""
+		case http.MethodGet:
+			return "ListDatasets", ""
+		}
+
+		return "", ""
+	}
+
+	segs := strings.SplitN(strings.TrimPrefix(rest, "/"), "/", maxSubPathSegments)
+	if len(segs) == 0 {
+		return "", ""
+	}
+
+	name := segs[0]
+
+	if len(segs) >= minNameSegments {
+		return parseDatasetSubPath(method, name, segs[1])
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "DescribeDataset", name
+	case http.MethodPut:
+		return "UpdateDataset", name
+	case http.MethodDelete:
+		return "DeleteDataset", name
+	}
+
+	return "", ""
+}
+
+// parseDatasetSubPath handles the content/contents sub-paths for datasets.
+func parseDatasetSubPath(method, name, sub string) (string, string) {
+	switch sub {
+	case "content":
+		switch method {
+		case http.MethodPost:
+			return "CreateDatasetContent", name
+		case http.MethodGet:
+			return "GetDatasetContent", name
+		case http.MethodDelete:
+			return "DeleteDatasetContent", name
+		}
+	case "contents":
+		if method == http.MethodGet {
+			return "ListDatasetContents", name
+		}
+	}
+
+	return "", ""
+}
+
+// parsePipelinePath handles pipeline routes including reprocessing sub-paths.
+func parsePipelinePath(method, path string) (string, string) {
+	rest := strings.TrimPrefix(path, pathPipelines)
+
+	if rest == "" || rest == "/" {
+		switch method {
+		case http.MethodPost:
+			return "CreatePipeline", ""
+		case http.MethodGet:
+			return "ListPipelines", ""
+		}
+
+		return "", ""
+	}
+
+	segs := strings.SplitN(strings.TrimPrefix(rest, "/"), "/", maxSubPathSegments)
+	if len(segs) == 0 {
+		return "", ""
+	}
+
+	name := segs[0]
+
+	if len(segs) >= minNameSegments && segs[1] == "reprocessing" {
+		if len(segs) == maxSubPathSegments && segs[2] != "" {
+			if method == http.MethodDelete {
+				return "CancelPipelineReprocessing", name + "/" + segs[2]
+			}
+
+			return "", ""
+		}
+
+		if method == http.MethodPost {
+			return "StartPipelineReprocessing", name
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "DescribePipeline", name
+	case http.MethodPut:
+		return "UpdatePipeline", name
+	case http.MethodDelete:
+		return "DeletePipeline", name
+	}
+
+	return "", ""
+}
+
+// parseLoggingPath maps method to logging options operation.
+func parseLoggingPath(method string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return "DescribeLoggingOptions", ""
+	case http.MethodPut:
+		return "PutLoggingOptions", ""
 	}
 
 	return "", ""
@@ -216,106 +580,14 @@ func parseTagsPath(method string) (string, string) {
 	return "", ""
 }
 
-// dispatch routes the request to the appropriate handler.
+// dispatch routes the request to the appropriate handler using the pre-built ops map.
 func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
-	if handled, err := h.dispatchChannel(c, op, resource, body); handled {
-		return err
+	fn, ok := h.ops[op]
+	if !ok {
+		return h.writeError(c, http.StatusNotFound, "unknown operation: "+op)
 	}
 
-	if handled, err := h.dispatchDatastore(c, op, resource, body); handled {
-		return err
-	}
-
-	if handled, err := h.dispatchDataset(c, op, resource, body); handled {
-		return err
-	}
-
-	if handled, err := h.dispatchPipeline(c, op, resource, body); handled {
-		return err
-	}
-
-	switch op {
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c)
-	case "TagResource":
-		return h.handleTagResource(c, body)
-	case "UntagResource":
-		return h.handleUntagResource(c)
-	}
-
-	return h.writeError(c, http.StatusNotFound, "unknown operation: "+op)
-}
-
-// dispatchChannel routes channel operations. Returns (true, err) if op was handled.
-func (h *Handler) dispatchChannel(c *echo.Context, op, resource string, body []byte) (bool, error) {
-	switch op {
-	case "CreateChannel":
-		return true, h.handleCreateChannel(c, body)
-	case "ListChannels":
-		return true, h.handleListChannels(c)
-	case "DescribeChannel":
-		return true, h.handleDescribeChannel(c, resource)
-	case "UpdateChannel":
-		return true, h.handleUpdateChannel(c, resource)
-	case "DeleteChannel":
-		return true, h.handleDeleteChannel(c, resource)
-	}
-
-	return false, nil
-}
-
-// dispatchDatastore routes datastore operations. Returns (true, err) if op was handled.
-func (h *Handler) dispatchDatastore(c *echo.Context, op, resource string, body []byte) (bool, error) {
-	switch op {
-	case "CreateDatastore":
-		return true, h.handleCreateDatastore(c, body)
-	case "ListDatastores":
-		return true, h.handleListDatastores(c)
-	case "DescribeDatastore":
-		return true, h.handleDescribeDatastore(c, resource)
-	case "UpdateDatastore":
-		return true, h.handleUpdateDatastore(c, resource)
-	case "DeleteDatastore":
-		return true, h.handleDeleteDatastore(c, resource)
-	}
-
-	return false, nil
-}
-
-// dispatchDataset routes dataset operations. Returns (true, err) if op was handled.
-func (h *Handler) dispatchDataset(c *echo.Context, op, resource string, body []byte) (bool, error) {
-	switch op {
-	case "CreateDataset":
-		return true, h.handleCreateDataset(c, body)
-	case "ListDatasets":
-		return true, h.handleListDatasets(c)
-	case "DescribeDataset":
-		return true, h.handleDescribeDataset(c, resource)
-	case "UpdateDataset":
-		return true, h.handleUpdateDataset(c, resource)
-	case "DeleteDataset":
-		return true, h.handleDeleteDataset(c, resource)
-	}
-
-	return false, nil
-}
-
-// dispatchPipeline routes pipeline operations. Returns (true, err) if op was handled.
-func (h *Handler) dispatchPipeline(c *echo.Context, op, resource string, body []byte) (bool, error) {
-	switch op {
-	case "CreatePipeline":
-		return true, h.handleCreatePipeline(c, body)
-	case "ListPipelines":
-		return true, h.handleListPipelines(c)
-	case "DescribePipeline":
-		return true, h.handleDescribePipeline(c, resource)
-	case "UpdatePipeline":
-		return true, h.handleUpdatePipeline(c, resource)
-	case "DeletePipeline":
-		return true, h.handleDeletePipeline(c, resource)
-	}
-
-	return false, nil
+	return fn(c, resource, body)
 }
 
 // ----------------------------------------
@@ -336,7 +608,7 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 
 	ch, err := h.Backend.CreateChannel(req.ChannelName, tags)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, createChannelResponse{
@@ -370,6 +642,7 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describeChannelResponse{
 		Channel: channelDetail{
+			Tags:           mapToTagsSorted(ch.Tags),
 			Name:           ch.Name,
 			ARN:            ch.ARN,
 			Status:         ch.Status,
@@ -413,7 +686,7 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 
 	ds, err := h.Backend.CreateDatastore(req.DatastoreName, tags)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, createDatastoreResponse{
@@ -447,6 +720,7 @@ func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describeDatastoreResponse{
 		Datastore: datastoreDetail{
+			Tags:           mapToTagsSorted(ds.Tags),
 			Name:           ds.Name,
 			ARN:            ds.ARN,
 			Status:         ds.Status,
@@ -490,7 +764,7 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 
 	ds, err := h.Backend.CreateDataset(req.DatasetName, tags)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, createDatasetResponse{
@@ -524,6 +798,7 @@ func (h *Handler) handleDescribeDataset(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describeDatasetResponse{
 		Dataset: datasetDetail{
+			Tags:           mapToTagsSorted(ds.Tags),
 			Name:           ds.Name,
 			ARN:            ds.ARN,
 			Status:         ds.Status,
@@ -567,7 +842,7 @@ func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 
 	p, err := h.Backend.CreatePipeline(req.PipelineName, tags)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error())
+		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, createPipelineResponse{
@@ -600,10 +875,12 @@ func (h *Handler) handleDescribePipeline(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, describePipelineResponse{
 		Pipeline: pipelineDetail{
-			Name:           p.Name,
-			ARN:            p.ARN,
-			CreationTime:   p.CreationTime,
-			LastUpdateTime: p.LastUpdate,
+			Tags:                  mapToTagsSorted(p.Tags),
+			Name:                  p.Name,
+			ARN:                   p.ARN,
+			ReprocessingSummaries: p.ReprocessingSummaries,
+			CreationTime:          p.CreationTime,
+			LastUpdateTime:        p.LastUpdate,
 		},
 	})
 }
@@ -679,6 +956,184 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 }
 
 // ----------------------------------------
+// SampleChannelData handler
+// ----------------------------------------
+
+func (h *Handler) handleSampleChannelData(c *echo.Context, channelName string) error {
+	payloads, err := h.Backend.SampleChannelData(channelName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, sampleChannelDataResponse{Payloads: payloads})
+}
+
+// ----------------------------------------
+// BatchPutMessage handler
+// ----------------------------------------
+
+func (h *Handler) handleBatchPutMessage(c *echo.Context, body []byte) error {
+	var req batchPutMessageRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+	}
+
+	errs, err := h.Backend.BatchPutMessage(req.ChannelName, req.Messages)
+	if err != nil {
+		return h.writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, batchPutMessageResponse{BatchPutMessageErrorEntries: errs})
+}
+
+// ----------------------------------------
+// Pipeline reprocessing handlers
+// ----------------------------------------
+
+func (h *Handler) handleStartPipelineReprocessing(c *echo.Context, pipelineName string) error {
+	reprocessingID, err := h.Backend.StartPipelineReprocessing(pipelineName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, startPipelineReprocessingResponse{ReprocessingID: reprocessingID})
+}
+
+func (h *Handler) handleCancelPipelineReprocessing(c *echo.Context, resource string) error {
+	parts := strings.SplitN(resource, "/", minNameSegments)
+	if len(parts) != minNameSegments {
+		return h.writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	pipelineName := parts[0]
+	reprocessingID := parts[1]
+
+	if err := h.Backend.CancelPipelineReprocessing(pipelineName, reprocessingID); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// ----------------------------------------
+// DatasetContent handlers
+// ----------------------------------------
+
+func (h *Handler) handleCreateDatasetContent(c *echo.Context, datasetName string) error {
+	content, err := h.Backend.CreateDatasetContent(datasetName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createDatasetContentResponse{
+		VersionID: content.VersionID,
+	})
+}
+
+func (h *Handler) handleGetDatasetContent(c *echo.Context, datasetName string) error {
+	versionID := c.Request().URL.Query().Get("versionId")
+
+	content, err := h.Backend.GetDatasetContent(datasetName, versionID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getDatasetContentResponse{
+		Status:    &datasetContentStatusDTO{State: content.Status},
+		Timestamp: content.CreationTime,
+	})
+}
+
+func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string) error {
+	contents, err := h.Backend.ListDatasetContents(datasetName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	summaries := make([]datasetContentSummary, 0, len(contents))
+
+	for _, content := range contents {
+		summaries = append(summaries, datasetContentSummary{
+			Version:        content.VersionID,
+			Status:         &datasetContentStatusDTO{State: content.Status},
+			CreationTime:   content.CreationTime,
+			CompletionTime: content.CompletionTime,
+		})
+	}
+
+	return c.JSON(http.StatusOK, listDatasetContentsResponse{DatasetContentSummaries: summaries})
+}
+
+func (h *Handler) handleDeleteDatasetContent(c *echo.Context, datasetName string) error {
+	versionID := c.Request().URL.Query().Get("versionId")
+
+	if err := h.Backend.DeleteDatasetContent(datasetName, versionID); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// ----------------------------------------
+// LoggingOptions handlers
+// ----------------------------------------
+
+func (h *Handler) handleDescribeLoggingOptions(c *echo.Context) error {
+	opts, err := h.Backend.DescribeLoggingOptions()
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeLoggingOptionsResponse{
+		LoggingOptions: loggingOptionsDTO{
+			RoleARN: opts.RoleARN,
+			Level:   opts.Level,
+			Enabled: opts.Enabled,
+		},
+	})
+}
+
+func (h *Handler) handlePutLoggingOptions(c *echo.Context, body []byte) error {
+	var req putLoggingOptionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+	}
+
+	opts := &LoggingOptions{
+		RoleARN: req.LoggingOptions.RoleARN,
+		Level:   req.LoggingOptions.Level,
+		Enabled: req.LoggingOptions.Enabled,
+	}
+
+	if err := h.Backend.PutLoggingOptions(opts); err != nil {
+		return h.writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// ----------------------------------------
+// RunPipelineActivity handler
+// ----------------------------------------
+
+func (h *Handler) handleRunPipelineActivity(c *echo.Context, body []byte) error {
+	var req runPipelineActivityRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+	}
+
+	payloads, err := h.Backend.RunPipelineActivity(req.Payloads)
+	if err != nil {
+		return h.writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, runPipelineActivityResponse{
+		Payloads:  payloads,
+		LogResult: "",
+	})
+}
+
+// ----------------------------------------
 // Error helpers
 // ----------------------------------------
 
@@ -691,6 +1146,14 @@ func (h *Handler) writeError(c *echo.Context, status int, message string) error 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	if isNotFound(err) {
 		return h.writeError(c, http.StatusNotFound, err.Error())
+	}
+
+	if errors.Is(err, ErrAlreadyExists) {
+		return h.writeError(c, http.StatusConflict, err.Error())
+	}
+
+	if errors.Is(err, ErrValidation) {
+		return h.writeError(c, http.StatusBadRequest, err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, err.Error())
