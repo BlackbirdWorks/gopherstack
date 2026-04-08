@@ -83,10 +83,10 @@ type CreateServiceSpecificCredentialResult struct {
 
 // CreateServiceSpecificCredentialResponse is the XML response for CreateServiceSpecificCredential.
 type CreateServiceSpecificCredentialResponse struct {
-	XMLName                               xml.Name                              `xml:"CreateServiceSpecificCredentialResponse"`
-	Xmlns                                 string                                `xml:"xmlns,attr"`
-	CreateServiceSpecificCredentialResult CreateServiceSpecificCredentialResult `xml:"CreateServiceSpecificCredentialResult"`
-	ResponseMetadata                      ResponseMetadata                      `xml:"ResponseMetadata"`
+	XMLName                               xml.Name `xml:"CreateServiceSpecificCredentialResponse"`
+	Xmlns                                 string   `xml:"xmlns,attr"`
+	ResponseMetadata                      ResponseMetadata
+	CreateServiceSpecificCredentialResult CreateServiceSpecificCredentialResult `xml:"CreateServiceSpecificCredentialResult"` //nolint:lll // AWS XML field name is necessarily long
 }
 
 // ---- Virtual MFA Device types ----
