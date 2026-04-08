@@ -251,7 +251,7 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 
 	msg, err := h.Backend.GetRetainedMessage(topic)
 	if err != nil {
-		if errors.Is(err, ErrShadowNotFound) {
+		if errors.Is(err, ErrRetainedMessageNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{
 				"error":   "ResourceNotFoundException",
 				"message": err.Error(),

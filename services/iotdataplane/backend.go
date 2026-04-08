@@ -15,6 +15,9 @@ var ErrNoBroker = errors.New("no mqtt broker configured")
 // ErrShadowNotFound is returned when a thing shadow is not found.
 var ErrShadowNotFound = errors.New("ResourceNotFoundException")
 
+// ErrRetainedMessageNotFound is returned when a retained message is not found for a topic.
+var ErrRetainedMessageNotFound = errors.New("ResourceNotFoundException")
+
 // ErrVersionConflict is returned when a shadow update specifies a version
 // that does not match the current shadow version (optimistic locking violation).
 var ErrVersionConflict = errors.New("VersionConflictException")
@@ -264,14 +267,14 @@ func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos
 }
 
 // GetRetainedMessage returns the retained message stored for the given topic.
-// ErrShadowNotFound is returned when no retained message exists for the topic.
+// ErrRetainedMessageNotFound is returned when no retained message exists for the topic.
 func (b *InMemoryBackend) GetRetainedMessage(topic string) (*RetainedMessage, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	msg, ok := b.retainedMessages[topic]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrShadowNotFound, topic)
+		return nil, fmt.Errorf("%w: %s", ErrRetainedMessageNotFound, topic)
 	}
 
 	cp := *msg
@@ -300,6 +303,11 @@ func (b *InMemoryBackend) ListRetainedMessages() ([]*RetainedMessage, error) {
 	for _, topic := range topics {
 		msg := b.retainedMessages[topic]
 		cp := *msg
+		if len(msg.Payload) > 0 {
+			cp.Payload = make([]byte, len(msg.Payload))
+			copy(cp.Payload, msg.Payload)
+		}
+
 		result = append(result, &cp)
 	}
 
