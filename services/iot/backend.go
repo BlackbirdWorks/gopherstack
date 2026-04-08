@@ -28,14 +28,24 @@ type RuleDispatcher interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	dispatcher RuleDispatcher
-	things     map[string]*Thing
-	policies   map[string]*Policy
-	rules      map[string]*TopicRule
-	accountID  string
-	region     string
-	mqttPort   int
-	mu         sync.RWMutex
+	dispatcher             RuleDispatcher
+	things                 map[string]*Thing
+	policies               map[string]*Policy
+	rules                  map[string]*TopicRule
+	certificateTransfers   map[string]string
+	thingBillingGroups     map[string]string
+	thingThingGroups       map[string][]string
+	packageVersionSboms    map[string]*SbomDocument
+	jobTargets             map[string][]string
+	policyTargets          map[string][]string
+	securityProfileTargets map[string][]string
+	thingPrincipals        map[string][]string
+	auditMitigationTasks   map[string]string
+	auditTasks             map[string]string
+	accountID              string
+	region                 string
+	mqttPort               int
+	mu                     sync.RWMutex
 }
 
 // mqttDefaultPort is the default TCP port for the embedded MQTT broker.
@@ -44,12 +54,22 @@ const mqttDefaultPort = 1883
 // NewInMemoryBackend creates a new InMemoryBackend with default values.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		things:    make(map[string]*Thing),
-		policies:  make(map[string]*Policy),
-		rules:     make(map[string]*TopicRule),
-		accountID: "000000000000",
-		region:    "us-east-1",
-		mqttPort:  mqttDefaultPort,
+		things:                 make(map[string]*Thing),
+		policies:               make(map[string]*Policy),
+		rules:                  make(map[string]*TopicRule),
+		certificateTransfers:   make(map[string]string),
+		thingBillingGroups:     make(map[string]string),
+		thingThingGroups:       make(map[string][]string),
+		packageVersionSboms:    make(map[string]*SbomDocument),
+		jobTargets:             make(map[string][]string),
+		policyTargets:          make(map[string][]string),
+		securityProfileTargets: make(map[string][]string),
+		thingPrincipals:        make(map[string][]string),
+		auditMitigationTasks:   make(map[string]string),
+		auditTasks:             make(map[string]string),
+		accountID:              "000000000000",
+		region:                 "us-east-1",
+		mqttPort:               mqttDefaultPort,
 	}
 }
 
@@ -290,4 +310,137 @@ func (b *InMemoryBackend) DescribeEndpoint(_ string) (*DescribeEndpointOutput, e
 	return &DescribeEndpointOutput{
 		EndpointAddress: fmt.Sprintf("mqtt.%s.amazonaws.com", b.region),
 	}, nil
+}
+
+// AcceptCertificateTransfer accepts a pending certificate transfer.
+func (b *InMemoryBackend) AcceptCertificateTransfer(input *AcceptCertificateTransferInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.certificateTransfers[input.CertificateID] = "ACTIVE"
+
+	return nil
+}
+
+// AddThingToBillingGroup adds a thing to a billing group.
+func (b *InMemoryBackend) AddThingToBillingGroup(input *AddThingToBillingGroupInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.thingBillingGroups[thingKey(input.ThingName, input.ThingArn)] = input.BillingGroupName
+
+	return nil
+}
+
+// AddThingToThingGroup adds a thing to a thing group.
+func (b *InMemoryBackend) AddThingToThingGroup(input *AddThingToThingGroupInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := thingKey(input.ThingName, input.ThingArn)
+	b.thingThingGroups[key] = append(b.thingThingGroups[key], input.ThingGroupName)
+
+	return nil
+}
+
+// thingKey returns the canonical map key for a thing, preferring name over ARN.
+func thingKey(name, arn string) string {
+	if name != "" {
+		return name
+	}
+
+	return arn
+}
+
+// packageVersionKey builds the composite key for a package version.
+func packageVersionKey(packageName, versionName string) string {
+	return packageName + "/" + versionName
+}
+
+// AssociateSbomWithPackageVersion associates an SBOM with a package version.
+func (b *InMemoryBackend) AssociateSbomWithPackageVersion(
+	input *AssociateSbomWithPackageVersionInput,
+) (*AssociateSbomWithPackageVersionOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := packageVersionKey(input.PackageName, input.VersionName)
+	b.packageVersionSboms[key] = input.Sbom
+
+	return &AssociateSbomWithPackageVersionOutput{
+		PackageName:          input.PackageName,
+		VersionName:          input.VersionName,
+		Sbom:                 input.Sbom,
+		SbomValidationStatus: "IN_PROGRESS",
+	}, nil
+}
+
+// AssociateTargetsWithJob associates targets with a continuous job.
+func (b *InMemoryBackend) AssociateTargetsWithJob(
+	input *AssociateTargetsWithJobInput,
+) (*AssociateTargetsWithJobOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.jobTargets[input.JobID] = append(b.jobTargets[input.JobID], input.Targets...)
+
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:job/%s", b.region, b.accountID, input.JobID)
+
+	return &AssociateTargetsWithJobOutput{
+		JobID:  input.JobID,
+		JobArn: arn,
+	}, nil
+}
+
+// AttachPolicy attaches a policy to a target (thing group or certificate).
+func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.policyTargets[input.PolicyName] = append(b.policyTargets[input.PolicyName], input.Target)
+
+	return nil
+}
+
+// AttachSecurityProfile attaches a security profile to a target.
+func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.securityProfileTargets[input.SecurityProfileName] = append(
+		b.securityProfileTargets[input.SecurityProfileName],
+		input.SecurityProfileTargetArn,
+	)
+
+	return nil
+}
+
+// AttachThingPrincipal attaches a principal (certificate or Cognito identity) to a thing.
+func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.thingPrincipals[input.ThingName] = append(b.thingPrincipals[input.ThingName], input.Principal)
+
+	return nil
+}
+
+// CancelAuditMitigationActionsTask cancels an audit mitigation actions task.
+func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditMitigationTasks[input.TaskID] = "CANCELED"
+
+	return nil
+}
+
+// CancelAuditTask cancels an audit task.
+func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditTasks[input.AuditTaskID] = "CANCELED"
+
+	return nil
 }

@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := iot.NewInMemoryBackend()
 	h := iot.NewHandler(backend, nil)
 	sdkcheck.CheckCompleteness(t, &iotsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AcceptCertificateTransfer",
-		"AddThingToBillingGroup",
-		"AddThingToThingGroup",
-		"AssociateSbomWithPackageVersion",
-		"AssociateTargetsWithJob",
-		"AttachPolicy",
-		"AttachSecurityProfile",
-		"AttachThingPrincipal",
-		"CancelAuditMitigationActionsTask",
-		"CancelAuditTask",
 		"CancelCertificateTransfer",
 		"CancelDetectMitigationActionsTask",
 		"CancelJob",

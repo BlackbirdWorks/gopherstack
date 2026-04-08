@@ -16,4 +16,17 @@ type StorageBackend interface {
 	AttachPrincipalPolicy(input *AttachPrincipalPolicyInput) error
 
 	DescribeEndpoint(endpointType string) (*DescribeEndpointOutput, error)
+
+	AcceptCertificateTransfer(input *AcceptCertificateTransferInput) error
+	AddThingToBillingGroup(input *AddThingToBillingGroupInput) error
+	AddThingToThingGroup(input *AddThingToThingGroupInput) error
+	AssociateSbomWithPackageVersion(
+		input *AssociateSbomWithPackageVersionInput,
+	) (*AssociateSbomWithPackageVersionOutput, error)
+	AssociateTargetsWithJob(input *AssociateTargetsWithJobInput) (*AssociateTargetsWithJobOutput, error)
+	AttachPolicy(input *AttachPolicyInput) error
+	AttachSecurityProfile(input *AttachSecurityProfileInput) error
+	AttachThingPrincipal(input *AttachThingPrincipalInput) error
+	CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error
+	CancelAuditTask(input *CancelAuditTaskInput) error
 }

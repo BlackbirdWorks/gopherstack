@@ -104,3 +104,97 @@ type AttachPrincipalPolicyInput struct {
 type DescribeEndpointOutput struct {
 	EndpointAddress string
 }
+
+// AcceptCertificateTransferInput is the input for AcceptCertificateTransfer.
+type AcceptCertificateTransferInput struct {
+	CertificateID string
+	SetAsActive   bool
+}
+
+// AddThingToBillingGroupInput is the input for AddThingToBillingGroup.
+type AddThingToBillingGroupInput struct {
+	BillingGroupName string `json:"billingGroupName"`
+	BillingGroupArn  string `json:"billingGroupArn"`
+	ThingName        string `json:"thingName"`
+	ThingArn         string `json:"thingArn"`
+}
+
+// AddThingToThingGroupInput is the input for AddThingToThingGroup.
+type AddThingToThingGroupInput struct {
+	ThingGroupName        string `json:"thingGroupName"`
+	ThingGroupArn         string `json:"thingGroupArn"`
+	ThingName             string `json:"thingName"`
+	ThingArn              string `json:"thingArn"`
+	OverrideDynamicGroups bool   `json:"overrideDynamicGroups"`
+}
+
+// AssociateSbomWithPackageVersionInput is the input for AssociateSbomWithPackageVersion.
+type AssociateSbomWithPackageVersionInput struct {
+	Sbom        *SbomDocument `json:"sbom"`
+	PackageName string        `json:"packageName"`
+	VersionName string        `json:"versionName"`
+}
+
+// SbomDocument represents an SBOM document reference.
+type SbomDocument struct {
+	S3Location *S3Location `json:"s3Location"`
+}
+
+// S3Location represents an S3 object location.
+type S3Location struct {
+	Bucket  string `json:"bucket"`
+	Key     string `json:"key"`
+	Version string `json:"version"`
+}
+
+// AssociateSbomWithPackageVersionOutput is the output for AssociateSbomWithPackageVersion.
+type AssociateSbomWithPackageVersionOutput struct {
+	PackageName          string        `json:"packageName"`
+	VersionName          string        `json:"versionName"`
+	Sbom                 *SbomDocument `json:"sbom,omitempty"`
+	SbomValidationStatus string        `json:"sbomValidationStatus,omitempty"`
+}
+
+// AssociateTargetsWithJobInput is the input for AssociateTargetsWithJob.
+type AssociateTargetsWithJobInput struct {
+	JobID       string   `json:"jobId"`
+	Comment     string   `json:"comment"`
+	NamespaceID string   `json:"namespaceId"`
+	Targets     []string `json:"targets"`
+}
+
+// AssociateTargetsWithJobOutput is the output for AssociateTargetsWithJob.
+type AssociateTargetsWithJobOutput struct {
+	JobID       string `json:"jobId"`
+	JobArn      string `json:"jobArn"`
+	Description string `json:"description"`
+}
+
+// AttachPolicyInput is the input for AttachPolicy.
+type AttachPolicyInput struct {
+	PolicyName string `json:"policyName"`
+	Target     string `json:"target"`
+}
+
+// AttachSecurityProfileInput is the input for AttachSecurityProfile.
+type AttachSecurityProfileInput struct {
+	SecurityProfileName      string
+	SecurityProfileTargetArn string `json:"securityProfileTargetArn"`
+}
+
+// AttachThingPrincipalInput is the input for AttachThingPrincipal.
+type AttachThingPrincipalInput struct {
+	ThingName          string
+	Principal          string `json:"principal"`
+	ThingPrincipalType string `json:"thingPrincipalType"`
+}
+
+// CancelAuditMitigationActionsTaskInput is the input for CancelAuditMitigationActionsTask.
+type CancelAuditMitigationActionsTaskInput struct {
+	TaskID string
+}
+
+// CancelAuditTaskInput is the input for CancelAuditTask.
+type CancelAuditTaskInput struct {
+	AuditTaskID string
+}
