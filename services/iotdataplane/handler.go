@@ -21,6 +21,8 @@ const (
 	maxPublishBodyBytes = 128 * 1024
 	// maxShadowBodyBytes limits the size of shadow document request bodies.
 	maxShadowBodyBytes = 8 * 1024
+	// retainedMessagePath is the URL path prefix for retained message operations.
+	retainedMessagePath = "/retainedMessage"
 )
 
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
@@ -39,11 +41,14 @@ func (h *Handler) Name() string { return "IoTDataPlane" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"Publish",
-		"GetThingShadow",
-		"UpdateThingShadow",
+		"DeleteConnection",
 		"DeleteThingShadow",
+		"GetRetainedMessage",
+		"GetThingShadow",
 		"ListNamedShadowsForThing",
+		"ListRetainedMessages",
+		"Publish",
+		"UpdateThingShadow",
 	}
 }
 
@@ -63,7 +68,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, "/topics/") ||
 			strings.HasPrefix(path, "/things/") ||
-			strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/")
+			strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/") ||
+			strings.HasPrefix(path, "/connections/") ||
+			path == retainedMessagePath ||
+			strings.HasPrefix(path, retainedMessagePath+"/")
 	}
 }
 
@@ -79,6 +87,12 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "Publish"
 	case strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"):
 		return "ListNamedShadowsForThing"
+	case strings.HasPrefix(path, "/connections/") && method == http.MethodDelete:
+		return "DeleteConnection"
+	case path == retainedMessagePath && method == http.MethodGet:
+		return "ListRetainedMessages"
+	case strings.HasPrefix(path, retainedMessagePath+"/") && method == http.MethodGet:
+		return "GetRetainedMessage"
 	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 		switch method {
 		case http.MethodGet:
@@ -101,6 +115,18 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	if after, ok := strings.CutPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"); ok {
+		return after
+	}
+
+	if after, ok := strings.CutPrefix(path, "/connections/"); ok {
+		return after
+	}
+
+	if path == retainedMessagePath {
+		return ""
+	}
+
+	if after, ok := strings.CutPrefix(path, retainedMessagePath+"/"); ok {
 		return after
 	}
 
@@ -128,6 +154,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handlePublish(c)
 		case strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"):
 			return h.handleListNamedShadows(c)
+		case strings.HasPrefix(path, "/connections/"):
+			return h.handleDeleteConnection(c)
+		case path == retainedMessagePath:
+			return h.handleListRetainedMessages(c)
+		case strings.HasPrefix(path, retainedMessagePath+"/"):
+			return h.handleGetRetainedMessage(c)
 		case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 			return h.handleShadow(c)
 		default:
@@ -178,7 +210,91 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": publishErr.Error()})
 	}
 
+	// Store as retained message when the caller sets ?retain=true.
+	if strings.ToLower(c.Request().URL.Query().Get("retain")) == "true" {
+		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, 0); storeErr != nil {
+			log.Warn("failed to store retained message", "topic", topic, "error", storeErr)
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]string{"topic": topic})
+}
+
+// handleDeleteConnection processes DELETE /connections/{clientId} requests.
+func (h *Handler) handleDeleteConnection(c *echo.Context) error {
+	if c.Request().Method != http.MethodDelete {
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+
+	clientID := strings.TrimPrefix(c.Request().URL.Path, "/connections/")
+	if clientID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "clientId is required"})
+	}
+
+	if err := h.Backend.DeleteConnection(clientID); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{})
+}
+
+// handleGetRetainedMessage processes GET /retainedMessage/{topic} requests.
+func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
+	if c.Request().Method != http.MethodGet {
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+
+	topic := strings.TrimPrefix(c.Request().URL.Path, retainedMessagePath+"/")
+	if topic == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
+	}
+
+	msg, err := h.Backend.GetRetainedMessage(topic)
+	if err != nil {
+		if errors.Is(err, ErrShadowNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error":   "ResourceNotFoundException",
+				"message": err.Error(),
+			})
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	resp := map[string]any{
+		"topic":            msg.Topic,
+		"payload":          msg.Payload,
+		"qos":              msg.Qos,
+		"lastModifiedTime": msg.LastModifiedTime,
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// handleListRetainedMessages processes GET /retainedMessage requests.
+func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
+	if c.Request().Method != http.MethodGet {
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+
+	msgs, err := h.Backend.ListRetainedMessages()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	summaries := make([]map[string]any, 0, len(msgs))
+	for _, msg := range msgs {
+		summaries = append(summaries, map[string]any{
+			"topic":            msg.Topic,
+			"payloadSize":      int64(len(msg.Payload)),
+			"qos":              msg.Qos,
+			"lastModifiedTime": msg.LastModifiedTime,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"retainedTopics": summaries,
+	})
 }
 
 // handleShadow dispatches GET/POST/DELETE /things/{thingName}/shadow requests.

@@ -601,3 +601,348 @@ func TestHandler_PublishWithBroker(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_DeleteConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		method   string
+		clientID string
+		wantCode int
+	}{
+		{
+			name:     "delete_existing_connection",
+			method:   http.MethodDelete,
+			clientID: "client-001",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "delete_nonexistent_connection_is_idempotent",
+			method:   http.MethodDelete,
+			clientID: "unknown-client",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "missing_clientId_returns_bad_request",
+			method:   http.MethodDelete,
+			clientID: "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "wrong_method_returns_method_not_allowed",
+			method:   http.MethodGet,
+			clientID: "client-001",
+			wantCode: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotdataplane.NewInMemoryBackend()
+			b.AddConnectionInternal("client-001")
+			h := iotdataplane.NewHandler(b)
+
+			path := "/connections/" + tt.clientID
+			rec := doRequest(t, h, tt.method, path, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetRetainedMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(*iotdataplane.InMemoryBackend)
+		name        string
+		method      string
+		topic       string
+		wantPayload string
+		wantCode    int
+	}{
+		{
+			name: "get_existing_retained_message",
+			setup: func(b *iotdataplane.InMemoryBackend) {
+				require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 0))
+			},
+			method:      http.MethodGet,
+			topic:       "sensor/temp",
+			wantCode:    http.StatusOK,
+			wantPayload: "sensor/temp",
+		},
+		{
+			name:     "get_nonexistent_topic_returns_not_found",
+			setup:    nil,
+			method:   http.MethodGet,
+			topic:    "sensor/humidity",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "missing_topic_returns_bad_request",
+			setup:    nil,
+			method:   http.MethodGet,
+			topic:    "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "wrong_method_returns_method_not_allowed",
+			setup:    nil,
+			method:   http.MethodPost,
+			topic:    "sensor/temp",
+			wantCode: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotdataplane.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			h := iotdataplane.NewHandler(b)
+
+			path := "/retainedMessage/" + tt.topic
+			rec := doRequest(t, h, tt.method, path, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantPayload != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantPayload)
+			}
+		})
+	}
+}
+
+func TestHandler_ListRetainedMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*iotdataplane.InMemoryBackend)
+		name       string
+		method     string
+		wantTopics []string
+		wantCode   int
+	}{
+		{
+			name: "list_with_multiple_retained_messages",
+			setup: func(b *iotdataplane.InMemoryBackend) {
+				require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 0))
+				require.NoError(t, b.StoreRetainedMessage("sensor/humidity", []byte("70"), 1))
+			},
+			method:     http.MethodGet,
+			wantCode:   http.StatusOK,
+			wantTopics: []string{"sensor/humidity", "sensor/temp"},
+		},
+		{
+			name:     "list_empty_returns_empty_array",
+			setup:    nil,
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "wrong_method_returns_method_not_allowed",
+			setup:    nil,
+			method:   http.MethodPost,
+			wantCode: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotdataplane.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			h := iotdataplane.NewHandler(b)
+
+			rec := doRequest(t, h, tt.method, "/retainedMessage", nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, topic := range tt.wantTopics {
+				assert.Contains(t, rec.Body.String(), topic)
+			}
+		})
+	}
+}
+
+func TestHandler_PublishWithRetain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		path          string
+		retainedTopic string
+		body          []byte
+		wantCode      int
+		wantRetained  bool
+	}{
+		{
+			name:          "publish_with_retain_true_stores_message",
+			path:          "/topics/sensor/data?retain=true",
+			body:          []byte(`{"temp":25}`),
+			wantCode:      http.StatusOK,
+			wantRetained:  true,
+			retainedTopic: "sensor/data",
+		},
+		{
+			name:          "publish_without_retain_does_not_store",
+			path:          "/topics/sensor/data",
+			body:          []byte(`{"temp":25}`),
+			wantCode:      http.StatusOK,
+			wantRetained:  false,
+			retainedTopic: "sensor/data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotdataplane.NewInMemoryBackend()
+			b.SetBroker(&mockMQTTPublisher{})
+			h := iotdataplane.NewHandler(b)
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			_, err := b.GetRetainedMessage(tt.retainedTopic)
+			if tt.wantRetained {
+				require.NoError(t, err, "retained message should be stored")
+			} else {
+				require.Error(t, err, "retained message should not be stored")
+			}
+		})
+	}
+}
+
+func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "DeleteConnection")
+	assert.Contains(t, ops, "GetRetainedMessage")
+	assert.Contains(t, ops, "ListRetainedMessages")
+}
+
+func TestHandler_ExtractOperation_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		{
+			name:   "delete_connection",
+			method: http.MethodDelete,
+			path:   "/connections/client-001",
+			wantOp: "DeleteConnection",
+		},
+		{
+			name:   "get_retained_message",
+			method: http.MethodGet,
+			path:   "/retainedMessage/sensor/temp",
+			wantOp: "GetRetainedMessage",
+		},
+		{
+			name:   "list_retained_messages",
+			method: http.MethodGet,
+			path:   "/retainedMessage",
+			wantOp: "ListRetainedMessages",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_RouteMatcher_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		path      string
+		wantMatch bool
+	}{
+		{name: "connections", path: "/connections/client-001", wantMatch: true},
+		{name: "retained_message_by_topic", path: "/retainedMessage/sensor/temp", wantMatch: true},
+		{name: "list_retained_messages", path: "/retainedMessage", wantMatch: true},
+		{name: "unrelated", path: "/other/path", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
+
+func TestBackend_RetainedMessageLifecycle(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+
+	// Store two retained messages.
+	require.NoError(t, b.StoreRetainedMessage("a/b", []byte("hello"), 1))
+	require.NoError(t, b.StoreRetainedMessage("c/d", []byte("world"), 0))
+
+	// GetRetainedMessage returns exact data.
+	msg, err := b.GetRetainedMessage("a/b")
+	require.NoError(t, err)
+	assert.Equal(t, "a/b", msg.Topic)
+	assert.Equal(t, []byte("hello"), msg.Payload)
+	assert.Equal(t, int32(1), msg.Qos)
+	assert.NotZero(t, msg.LastModifiedTime)
+
+	// ListRetainedMessages returns sorted summaries.
+	msgs, err := b.ListRetainedMessages()
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "a/b", msgs[0].Topic)
+	assert.Equal(t, "c/d", msgs[1].Topic)
+
+	// Storing empty payload removes the retained message.
+	require.NoError(t, b.StoreRetainedMessage("a/b", []byte{}, 0))
+	_, err = b.GetRetainedMessage("a/b")
+	require.Error(t, err)
+}
+
+func TestBackend_DeleteConnection_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddConnectionInternal("my-client")
+
+	// First delete succeeds.
+	require.NoError(t, b.DeleteConnection("my-client"))
+	// Second delete on already-removed client is also a no-op.
+	require.NoError(t, b.DeleteConnection("my-client"))
+	// Deleting an unknown client is also fine.
+	require.NoError(t, b.DeleteConnection("never-existed"))
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -27,15 +28,19 @@ type shadowEntry struct {
 
 // InMemoryBackend implements the IoT Data Plane backend.
 type InMemoryBackend struct {
-	broker  MQTTPublisher
-	shadows map[string]map[string]*shadowEntry // thingName -> shadowName -> entry
-	mu      sync.RWMutex
+	broker           MQTTPublisher
+	shadows          map[string]map[string]*shadowEntry // thingName -> shadowName -> entry
+	connections      map[string]struct{}                // clientID -> struct{}
+	retainedMessages map[string]*RetainedMessage        // topic -> message
+	mu               sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		shadows: make(map[string]map[string]*shadowEntry),
+		shadows:          make(map[string]map[string]*shadowEntry),
+		connections:      make(map[string]struct{}),
+		retainedMessages: make(map[string]*RetainedMessage),
 	}
 }
 
@@ -212,4 +217,91 @@ func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, 
 	}
 
 	return names, nil
+}
+
+// DeleteConnection removes an MQTT client connection from the backend.
+// If the clientID does not exist the operation is a no-op (idempotent).
+func (b *InMemoryBackend) DeleteConnection(clientID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	delete(b.connections, clientID)
+
+	return nil
+}
+
+// AddConnectionInternal seeds a connected client ID for testing purposes.
+func (b *InMemoryBackend) AddConnectionInternal(clientID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.connections[clientID] = struct{}{}
+}
+
+// StoreRetainedMessage saves a retained MQTT message for the given topic.
+// Calling this with an empty payload removes the retained message for that topic.
+func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos int32) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(payload) == 0 {
+		delete(b.retainedMessages, topic)
+
+		return nil
+	}
+
+	cp := make([]byte, len(payload))
+	copy(cp, payload)
+
+	b.retainedMessages[topic] = &RetainedMessage{
+		Topic:            topic,
+		Payload:          cp,
+		Qos:              qos,
+		LastModifiedTime: time.Now().UnixMilli(),
+	}
+
+	return nil
+}
+
+// GetRetainedMessage returns the retained message stored for the given topic.
+// ErrShadowNotFound is returned when no retained message exists for the topic.
+func (b *InMemoryBackend) GetRetainedMessage(topic string) (*RetainedMessage, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	msg, ok := b.retainedMessages[topic]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrShadowNotFound, topic)
+	}
+
+	cp := *msg
+	if len(msg.Payload) > 0 {
+		cp.Payload = make([]byte, len(msg.Payload))
+		copy(cp.Payload, msg.Payload)
+	}
+
+	return &cp, nil
+}
+
+// ListRetainedMessages returns summaries of all retained messages, sorted by topic.
+func (b *InMemoryBackend) ListRetainedMessages() ([]*RetainedMessage, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	topics := make([]string, 0, len(b.retainedMessages))
+	for topic := range b.retainedMessages {
+		topics = append(topics, topic)
+	}
+
+	sort.Strings(topics)
+
+	result := make([]*RetainedMessage, 0, len(topics))
+
+	for _, topic := range topics {
+		msg := b.retainedMessages[topic]
+		cp := *msg
+		result = append(result, &cp)
+	}
+
+	return result, nil
 }
