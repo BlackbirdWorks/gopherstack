@@ -592,14 +592,11 @@ func (h *Handler) handleUpdateSafetyLeverState(c *echo.Context, id string, body 
 // Target Account Configuration handlers
 // ----------------------------------------
 
-// splitCompositeID splits a composite "templateID/accountID" identifier into its two parts.
+// splitCompositeID splits a composite "{resourceID}/{accountID}" identifier into its two parts.
 func splitCompositeID(compositeID string) (string, string) {
-	before, after, ok := strings.Cut(compositeID, "/")
-	if !ok {
-		return compositeID, ""
-	}
+	resourceID, accountID, _ := strings.Cut(compositeID, "/")
 
-	return before, after
+	return resourceID, accountID
 }
 
 func (h *Handler) handleCreateTargetAccountConfiguration(c *echo.Context, compositeID string, body []byte) error {
@@ -764,8 +761,8 @@ func parseFISPath(method, path string) (string, string) {
 			return "CreateExperimentTemplate", ""
 		case method == http.MethodGet && !hasID:
 			return "ListExperimentTemplates", ""
-		// Must check 3+ segment paths before generic 2-segment paths.
-		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations && len(segs) >= 4:
+		// Must check 4-segment paths before 3-segment paths and generic 2-segment paths.
+		case len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations:
 			// /experimentTemplates/{tplId}/targetAccountConfigurations/{accountId}
 			compositeID := segs[1] + "/" + segs[3]
 			switch method {
@@ -800,7 +797,7 @@ func parseFISPath(method, path string) (string, string) {
 		// Must check 3+ segment paths before generic 2-segment GET.
 		case method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets:
 			return "ListExperimentResolvedTargets", segs[1]
-		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations && len(segs) >= 4:
+		case len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations:
 			// /experiments/{expId}/targetAccountConfigurations/{accountId}
 			if method == http.MethodGet {
 				return "GetExperimentTargetAccountConfiguration", segs[1] + "/" + segs[3]
