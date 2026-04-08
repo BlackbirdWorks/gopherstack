@@ -6,12 +6,19 @@ type StorageBackend interface {
 	DescribeThing(thingName string) (*Thing, error)
 	ListThings() []*Thing
 	DeleteThing(thingName string) error
+	UpdateThing(input *UpdateThingInput) error
 
 	CreateTopicRule(input *CreateTopicRuleInput) error
 	GetTopicRule(ruleName string) (*TopicRule, error)
 	ListTopicRules() []*TopicRule
 	DeleteTopicRule(ruleName string) error
+	DisableTopicRule(ruleName string) error
+	EnableTopicRule(ruleName string) error
+	ReplaceTopicRule(input *ReplaceTopicRuleInput) error
 
+	GetPolicy(policyName string) (*GetPolicyOutput, error)
+	DeletePolicy(policyName string) error
+	ListPolicies() []*Policy
 	CreatePolicy(input *CreatePolicyInput) (*CreatePolicyOutput, error)
 	AttachPrincipalPolicy(input *AttachPrincipalPolicyInput) error
 
@@ -29,6 +36,7 @@ type StorageBackend interface {
 	AttachThingPrincipal(input *AttachThingPrincipalInput) error
 	CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error
 	CancelAuditTask(input *CancelAuditTaskInput) error
+	ListThingPrincipals(thingName string) ([]string, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

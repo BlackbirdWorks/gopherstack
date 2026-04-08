@@ -150,13 +150,14 @@ func cloneThing(t *Thing) *Thing {
 	maps.Copy(attrs, t.Attributes)
 
 	return &Thing{
-		ThingName:  t.ThingName,
-		ThingType:  t.ThingType,
-		ThingID:    t.ThingID,
-		ARN:        t.ARN,
-		Attributes: attrs,
-		Version:    t.Version,
-		CreatedAt:  t.CreatedAt,
+		ThingName:     t.ThingName,
+		ThingTypeName: t.ThingTypeName,
+		ThingType:     t.ThingType,
+		ThingID:       t.ThingID,
+		ARN:           t.ARN,
+		Attributes:    attrs,
+		Version:       t.Version,
+		CreatedAt:     t.CreatedAt,
 	}
 }
 
@@ -179,13 +180,14 @@ func cloneTopicRule(r *TopicRule) *TopicRule {
 	}
 
 	return &TopicRule{
-		RuleName:    r.RuleName,
-		ARN:         r.ARN,
-		SQL:         r.SQL,
-		Description: r.Description,
-		Enabled:     r.Enabled,
-		CreatedAt:   r.CreatedAt,
-		Actions:     actions,
+		RuleName:         r.RuleName,
+		ARN:              r.ARN,
+		SQL:              r.SQL,
+		AWSIoTSQLVersion: r.AWSIoTSQLVersion,
+		Description:      r.Description,
+		Enabled:          r.Enabled,
+		CreatedAt:        r.CreatedAt,
+		Actions:          actions,
 	}
 }
 
@@ -252,13 +254,14 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 	id := uuid.NewString()
 
 	b.things[input.ThingName] = &Thing{
-		ThingName:  input.ThingName,
-		ThingType:  input.ThingTypeName,
-		ThingID:    id,
-		Attributes: attrs,
-		ARN:        arn,
-		Version:    1,
-		CreatedAt:  time.Now(),
+		ThingName:     input.ThingName,
+		ThingTypeName: input.ThingTypeName,
+		ThingType:     input.ThingTypeName,
+		ThingID:       id,
+		Attributes:    attrs,
+		ARN:           arn,
+		Version:       1,
+		CreatedAt:     time.Now(),
 	}
 
 	return &CreateThingOutput{
@@ -335,14 +338,20 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, input.RuleName)
 
+	sqlVersion := payload.AWSIoTSQLVersion
+	if sqlVersion == "" {
+		sqlVersion = "2015-10-08"
+	}
+
 	b.rules[input.RuleName] = &TopicRule{
-		RuleName:    input.RuleName,
-		ARN:         arn,
-		SQL:         payload.SQL,
-		Description: payload.Description,
-		Actions:     actions,
-		Enabled:     !payload.RuleDisabled,
-		CreatedAt:   time.Now(),
+		RuleName:         input.RuleName,
+		ARN:              arn,
+		SQL:              payload.SQL,
+		AWSIoTSQLVersion: sqlVersion,
+		Description:      payload.Description,
+		Actions:          actions,
+		Enabled:          !payload.RuleDisabled,
+		CreatedAt:        time.Now(),
 	}
 
 	return nil
@@ -563,6 +572,176 @@ func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
 	return nil
 }
 
+// GetPolicy retrieves an existing Policy by name.
+func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	p, ok := b.policies[policyName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
+	}
+
+	return &GetPolicyOutput{
+		PolicyName:     p.PolicyName,
+		PolicyARN:      p.ARN,
+		PolicyDocument: p.PolicyDocument,
+	}, nil
+}
+
+// DeletePolicy removes a Policy by name.
+func (b *InMemoryBackend) DeletePolicy(policyName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.policies[policyName]; !ok {
+		return fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
+	}
+
+	delete(b.policies, policyName)
+
+	return nil
+}
+
+// ListPolicies returns all policies sorted by name.
+func (b *InMemoryBackend) ListPolicies() []*Policy {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	keys := sortedKeys(b.policies)
+	out := make([]*Policy, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *b.policies[k]
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// DisableTopicRule disables an existing topic rule.
+func (b *InMemoryBackend) DisableTopicRule(ruleName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	r, ok := b.rules[ruleName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
+	}
+
+	r.Enabled = false
+
+	return nil
+}
+
+// EnableTopicRule enables an existing topic rule.
+func (b *InMemoryBackend) EnableTopicRule(ruleName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	r, ok := b.rules[ruleName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
+	}
+
+	r.Enabled = true
+
+	return nil
+}
+
+// ReplaceTopicRule replaces the payload of an existing topic rule.
+func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
+	if input.RuleName == "" {
+		return fmt.Errorf("%w: RuleName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	r, ok := b.rules[input.RuleName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRuleNotFound, input.RuleName)
+	}
+
+	payload := input.TopicRulePayload
+	if payload == nil {
+		payload = &TopicRulePayload{}
+	}
+
+	actions := payload.Actions
+	if actions == nil {
+		actions = []RuleAction{}
+	}
+
+	sqlVersion := payload.AWSIoTSQLVersion
+	if sqlVersion == "" {
+		sqlVersion = "2015-10-08"
+	}
+
+	r.SQL = payload.SQL
+	r.Description = payload.Description
+	r.Actions = actions
+	r.AWSIoTSQLVersion = sqlVersion
+	r.Enabled = !payload.RuleDisabled
+
+	return nil
+}
+
+// UpdateThing updates attributes and/or type of an existing thing.
+func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
+	if input.ThingName == "" {
+		return fmt.Errorf("%w: ThingName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	t, ok := b.things[input.ThingName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrThingNotFound, input.ThingName)
+	}
+
+	if input.RemoveThingType {
+		t.ThingTypeName = ""
+		t.ThingType = ""
+	} else if input.ThingTypeName != "" {
+		t.ThingTypeName = input.ThingTypeName
+		t.ThingType = input.ThingTypeName
+	}
+
+	if input.AttributePayload != nil && input.AttributePayload.Attributes != nil {
+		if t.Attributes == nil {
+			t.Attributes = make(map[string]string)
+		}
+
+		maps.Copy(t.Attributes, input.AttributePayload.Attributes)
+	}
+
+	t.Version++
+
+	return nil
+}
+
+// ListThingPrincipals returns principals attached to the given thing.
+func (b *InMemoryBackend) ListThingPrincipals(thingName string) ([]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	principals := b.thingPrincipals[thingName]
+	if principals == nil {
+		return []string{}, nil
+	}
+
+	out := make([]string, len(principals))
+	copy(out, principals)
+
+	return out, nil
+}
+
 // AddThingInternal seeds a Thing directly into the backend for testing.
 func (b *InMemoryBackend) AddThingInternal(t Thing) {
 	b.mu.Lock()
@@ -578,6 +757,10 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 
 	if t.Attributes == nil {
 		t.Attributes = make(map[string]string)
+	}
+
+	if t.Version == 0 {
+		t.Version = 1
 	}
 
 	b.things[t.ThingName] = &t

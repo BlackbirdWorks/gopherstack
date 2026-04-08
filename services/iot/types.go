@@ -6,13 +6,14 @@ import "time"
 
 // Thing represents an AWS IoT Thing.
 type Thing struct {
-	CreatedAt  time.Time         `json:"createdAt"`
-	Attributes map[string]string `json:"attributes"`
-	ThingName  string            `json:"thingName"`
-	ThingType  string            `json:"thingType,omitempty"`
-	ThingID    string            `json:"thingId"`
-	ARN        string            `json:"thingArn"`
-	Version    int64             `json:"version"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	Attributes    map[string]string `json:"attributes"`
+	ThingName     string            `json:"thingName"`
+	ThingTypeName string            `json:"thingTypeName,omitempty"`
+	ThingType     string            `json:"thingType,omitempty"`
+	ThingID       string            `json:"thingId"`
+	ARN           string            `json:"thingArn"`
+	Version       int64             `json:"version"`
 }
 
 // Policy represents an AWS IoT Policy.
@@ -24,13 +25,14 @@ type Policy struct {
 
 // TopicRule represents an AWS IoT Topic Rule.
 type TopicRule struct {
-	CreatedAt   time.Time    `json:"createdAt"`
-	RuleName    string       `json:"ruleName"`
-	ARN         string       `json:"arn"`
-	SQL         string       `json:"sql"`
-	Description string       `json:"description,omitempty"`
-	Actions     []RuleAction `json:"actions"`
-	Enabled     bool         `json:"enabled"`
+	CreatedAt        time.Time    `json:"createdAt"`
+	RuleName         string       `json:"ruleName"`
+	ARN              string       `json:"arn"`
+	SQL              string       `json:"sql"`
+	AWSIoTSQLVersion string       `json:"awsIotSqlVersion,omitempty"`
+	Description      string       `json:"description,omitempty"`
+	Actions          []RuleAction `json:"actions"`
+	Enabled          bool         `json:"enabled"`
 }
 
 // RuleAction represents an action taken when a rule matches.
@@ -77,10 +79,11 @@ type CreateTopicRuleInput struct {
 
 // TopicRulePayload is the payload for a topic rule.
 type TopicRulePayload struct {
-	SQL          string       `json:"sql"`
-	Description  string       `json:"description"`
-	Actions      []RuleAction `json:"actions"`
-	RuleDisabled bool         `json:"ruleDisabled"`
+	SQL              string       `json:"sql"`
+	Description      string       `json:"description"`
+	AWSIoTSQLVersion string       `json:"awsIotSqlVersion,omitempty"`
+	Actions          []RuleAction `json:"actions"`
+	RuleDisabled     bool         `json:"ruleDisabled"`
 }
 
 // CreatePolicyInput is the input for CreatePolicy.
@@ -199,4 +202,36 @@ type CancelAuditMitigationActionsTaskInput struct {
 // CancelAuditTaskInput is the input for CancelAuditTask.
 type CancelAuditTaskInput struct {
 	AuditTaskID string
+}
+
+// GetPolicyOutput is the output for GetPolicy.
+type GetPolicyOutput struct {
+	PolicyName     string `json:"policyName"`
+	PolicyARN      string `json:"policyArn"`
+	PolicyDocument string `json:"policyDocument"`
+}
+
+// UpdateThingInput is the input for UpdateThing.
+type UpdateThingInput struct {
+	AttributePayload *AttributePayload `json:"attributePayload"`
+	ThingName        string            `json:"thingName"`
+	ThingTypeName    string            `json:"thingTypeName,omitempty"`
+	RemoveThingType  bool              `json:"removeThingType,omitempty"`
+	ExpectedVersion  int64             `json:"expectedVersion,omitempty"`
+}
+
+// DisableTopicRuleInput is the input for DisableTopicRule.
+type DisableTopicRuleInput struct {
+	RuleName string
+}
+
+// EnableTopicRuleInput is the input for EnableTopicRule.
+type EnableTopicRuleInput struct {
+	RuleName string
+}
+
+// ReplaceTopicRuleInput is the input for ReplaceTopicRule.
+type ReplaceTopicRuleInput struct {
+	TopicRulePayload *TopicRulePayload
+	RuleName         string
 }
