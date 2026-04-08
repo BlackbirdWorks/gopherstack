@@ -383,7 +383,7 @@ func TestRefinement2_Handler_ListPolicies_Response(t *testing.T) {
 			}
 
 			resp := doRequest(t, h, http.MethodGet, "/policies", nil)
-			defer require.Equal(t, http.StatusOK, resp.Code)
+			require.Equal(t, http.StatusOK, resp.Code)
 
 			var out map[string]any
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -406,7 +406,7 @@ func TestRefinement2_Handler_ListThings_ResponseFormat(t *testing.T) {
 	backend.AddThingInternal(iot.Thing{ThingName: "thing-beta"})
 
 	resp := doRequest(t, h, http.MethodGet, "/things", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -428,7 +428,7 @@ func TestRefinement2_Handler_ListTopicRules_ResponseFormat(t *testing.T) {
 	backend.AddRuleInternal(iot.TopicRule{RuleName: "rule-2", SQL: "SELECT *"})
 
 	resp := doRequest(t, h, http.MethodGet, "/rules", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -453,7 +453,7 @@ func TestRefinement2_Handler_GetTopicRule_IncludesAWSSQLVersion(t *testing.T) {
 	})
 
 	resp := doRequest(t, h, http.MethodGet, "/rules/version-rule", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -471,7 +471,7 @@ func TestRefinement2_Handler_DescribeThing_IncludesThingTypeName(t *testing.T) {
 	backend.AddThingInternal(iot.Thing{ThingName: "sensor-1", ThingTypeName: "SensorType"})
 
 	resp := doRequest(t, h, http.MethodGet, "/things/sensor-1", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -490,7 +490,7 @@ func TestRefinement2_Handler_UpdateThing(t *testing.T) {
 			"attributes": map[string]string{"location": "room-1"},
 		},
 	})
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	th, err := backend.DescribeThing("update-sensor")
 	require.NoError(t, err)
@@ -507,7 +507,7 @@ func TestRefinement2_Handler_DisableEnableTopicRule(t *testing.T) {
 
 	// Disable
 	resp := doRequest(t, h, http.MethodPatch, "/rules/toggle-rule/disable", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	r, err := backend.GetTopicRule("toggle-rule")
 	require.NoError(t, err)
@@ -515,7 +515,7 @@ func TestRefinement2_Handler_DisableEnableTopicRule(t *testing.T) {
 
 	// Enable
 	resp2 := doRequest(t, h, http.MethodPatch, "/rules/toggle-rule/enable", nil)
-	defer require.Equal(t, http.StatusOK, resp2.Code)
+	require.Equal(t, http.StatusOK, resp2.Code)
 
 	r2, err := backend.GetTopicRule("toggle-rule")
 	require.NoError(t, err)
@@ -533,7 +533,7 @@ func TestRefinement2_Handler_ReplaceTopicRule(t *testing.T) {
 		"sql":         "SELECT new",
 		"description": "updated",
 	})
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	r, err := backend.GetTopicRule("replace-rule")
 	require.NoError(t, err)
@@ -549,7 +549,7 @@ func TestRefinement2_Handler_GetPolicy_HTTP(t *testing.T) {
 	backend.AddPolicyInternal(iot.Policy{PolicyName: "http-policy", PolicyDocument: `{}`})
 
 	resp := doRequest(t, h, http.MethodGet, "/policies/http-policy", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]string
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
@@ -565,7 +565,7 @@ func TestRefinement2_Handler_DeletePolicy_HTTP(t *testing.T) {
 	backend.AddPolicyInternal(iot.Policy{PolicyName: "delete-http-policy"})
 
 	resp := doRequest(t, h, http.MethodDelete, "/policies/delete-http-policy", nil)
-	defer require.Equal(t, http.StatusNoContent, resp.Code)
+	require.Equal(t, http.StatusNoContent, resp.Code)
 
 	assert.Equal(t, 0, backend.PolicyCount())
 }
@@ -577,7 +577,7 @@ func TestRefinement2_Handler_GetPolicy_NotFound_Returns404(t *testing.T) {
 	h := iot.NewHandler(backend, nil)
 
 	resp := doRequest(t, h, http.MethodGet, "/policies/nonexistent", nil)
-	defer assert.Equal(t, http.StatusNotFound, resp.Code)
+	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
 
 func TestRefinement2_Handler_ListThingPrincipals_HTTP(t *testing.T) {
@@ -593,7 +593,7 @@ func TestRefinement2_Handler_ListThingPrincipals_HTTP(t *testing.T) {
 	}))
 
 	resp := doRequest(t, h, http.MethodGet, "/things/http-principal-thing/principals", nil)
-	defer require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
