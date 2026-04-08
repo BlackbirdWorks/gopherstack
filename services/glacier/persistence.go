@@ -1,6 +1,9 @@
 package glacier
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type vaultSnapshot struct {
 	Vault *Vault   `json:"vault"`
@@ -32,13 +35,18 @@ type provisionedCapacitySnapshot struct {
 	Caps      []*ProvisionedCapacity `json:"caps"`
 }
 
+type vaultLockSnapshot struct {
+	Lock *VaultLock `json:"lock"`
+	Key  vaultKey   `json:"key"`
+}
+
 type backendSnapshot struct {
 	Vaults              []vaultSnapshot               `json:"vaults"`
 	Archives            []archiveSnapshot             `json:"archives"`
 	Jobs                []jobSnapshot                 `json:"jobs"`
 	MultipartUploads    []multipartUploadSnapshot     `json:"multipartUploads"`
 	MultipartParts      []multipartPartSnapshot       `json:"multipartParts"`
-	VaultLocks          []vaultSnapshot               `json:"vaultLocks,omitempty"`
+	VaultLocks          []vaultLockSnapshot           `json:"vaultLocks,omitempty"`
 	ProvisionedCapacity []provisionedCapacitySnapshot `json:"provisionedCapacity"`
 }
 
@@ -82,8 +90,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		})
 	}
 
+	for k, lock := range b.vaultLocks {
+		snap.VaultLocks = append(snap.VaultLocks, vaultLockSnapshot{Key: k, Lock: lock})
+	}
+
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("glacier: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -143,6 +157,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	for _, cs := range snap.ProvisionedCapacity {
 		b.provisionedCapacity[cs.AccountID] = cs.Caps
+	}
+
+	for _, ls := range snap.VaultLocks {
+		b.vaultLocks[ls.Key] = ls.Lock
 	}
 
 	return nil

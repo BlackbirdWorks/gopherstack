@@ -3,8 +3,8 @@ package glacier
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -452,69 +452,115 @@ func extractSubID(resource string) string {
 	return parts[1]
 }
 
-// dispatch routes a parsed operation to the appropriate handler.
-//
-//nolint:cyclop // dispatch table has necessary branches for each operation
-func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
+// dispatchVaultOps routes vault CRUD operations.
+func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, error) {
 	switch op {
 	case "CreateVault":
-		return h.handleCreateVault(c, resource)
+		return true, h.handleCreateVault(c, resource)
 	case "DescribeVault":
-		return h.handleDescribeVault(c, resource)
+		return true, h.handleDescribeVault(c, resource)
 	case "DeleteVault":
-		return h.handleDeleteVault(c, resource)
+		return true, h.handleDeleteVault(c, resource)
 	case "ListVaults":
-		return h.handleListVaults(c)
+		return true, h.handleListVaults(c)
+	}
+
+	return false, nil
+}
+
+// dispatchArchiveAndJobOps routes archive and job operations.
+func (h *Handler) dispatchArchiveAndJobOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
 	case "UploadArchive":
-		return h.handleUploadArchive(c, resource, body)
+		return true, h.handleUploadArchive(c, resource, body)
 	case "DeleteArchive":
-		return h.handleDeleteArchive(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleDeleteArchive(c, extractVaultName(resource), extractSubID(resource))
 	case "InitiateJob":
-		return h.handleInitiateJob(c, resource, body)
+		return true, h.handleInitiateJob(c, resource, body)
 	case "DescribeJob":
-		return h.handleDescribeJob(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleDescribeJob(c, extractVaultName(resource), extractSubID(resource))
 	case "ListJobs":
-		return h.handleListJobs(c, resource)
+		return true, h.handleListJobs(c, resource)
 	case "GetJobOutput":
-		return h.handleGetJobOutput(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleGetJobOutput(c, extractVaultName(resource), extractSubID(resource))
+	}
+
+	return false, nil
+}
+
+// dispatchTagsAndPoliciesOps routes tag, notification, and access-policy operations.
+func (h *Handler) dispatchTagsAndPoliciesOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
 	case "SetVaultNotifications":
-		return h.handleSetVaultNotifications(c, resource, body)
+		return true, h.handleSetVaultNotifications(c, resource, body)
 	case "GetVaultNotifications":
-		return h.handleGetVaultNotifications(c, resource)
+		return true, h.handleGetVaultNotifications(c, resource)
 	case "DeleteVaultNotifications":
-		return h.handleDeleteVaultNotifications(c, resource)
+		return true, h.handleDeleteVaultNotifications(c, resource)
 	case "SetVaultAccessPolicy":
-		return h.handleSetVaultAccessPolicy(c, resource, body)
+		return true, h.handleSetVaultAccessPolicy(c, resource, body)
 	case "GetVaultAccessPolicy":
-		return h.handleGetVaultAccessPolicy(c, resource)
+		return true, h.handleGetVaultAccessPolicy(c, resource)
 	case "DeleteVaultAccessPolicy":
-		return h.handleDeleteVaultAccessPolicy(c, resource)
+		return true, h.handleDeleteVaultAccessPolicy(c, resource)
 	case "AddTagsToVault":
-		return h.handleAddTagsToVault(c, resource, body)
+		return true, h.handleAddTagsToVault(c, resource, body)
 	case "ListTagsForVault":
-		return h.handleListTagsForVault(c, resource)
+		return true, h.handleListTagsForVault(c, resource)
 	case "RemoveTagsFromVault":
-		return h.handleRemoveTagsFromVault(c, resource, body)
+		return true, h.handleRemoveTagsFromVault(c, resource, body)
+	}
+
+	return false, nil
+}
+
+// dispatchMultipartAndCapacityOps routes multipart upload and provisioned capacity operations.
+func (h *Handler) dispatchMultipartAndCapacityOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case "InitiateMultipartUpload":
+		return true, h.handleInitiateMultipartUpload(c, resource, body)
+	case "UploadMultipartPart":
+		return true, h.handleUploadMultipartPart(c, extractVaultName(resource), extractSubID(resource), body)
+	case "CompleteMultipartUpload":
+		return true, h.handleCompleteMultipartUpload(c, extractVaultName(resource), extractSubID(resource), body)
+	case "AbortMultipartUpload":
+		return true, h.handleAbortMultipartUpload(c, extractVaultName(resource), extractSubID(resource))
+	case "ListMultipartUploads":
+		return true, h.handleListMultipartUploads(c, resource)
+	case "ListParts":
+		return true, h.handleListParts(c, extractVaultName(resource), extractSubID(resource))
+	case "ListProvisionedCapacity":
+		return true, h.handleListProvisionedCapacity(c, resource)
+	case "PurchaseProvisionedCapacity":
+		return true, h.handlePurchaseProvisionedCapacity(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatch routes a parsed operation to the appropriate handler.
+func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
+	if handled, err := h.dispatchVaultOps(c, op, resource); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchArchiveAndJobOps(c, op, resource, body); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchTagsAndPoliciesOps(c, op, resource, body); handled {
+		return err
+	}
+
+	switch op {
 	case opInitiateVaultLock, opAbortVaultLock, opCompleteVaultLock, opGetVaultLock:
 		return h.handleVaultLock(c, op, resource)
 	case opGetDataRetrievalPolicy, "SetDataRetrievalPolicy":
 		return h.handleDataRetrievalPolicy(c, op, body)
-	case "InitiateMultipartUpload":
-		return h.handleInitiateMultipartUpload(c, resource, body)
-	case "UploadMultipartPart":
-		return h.handleUploadMultipartPart(c, extractVaultName(resource), extractSubID(resource), body)
-	case "CompleteMultipartUpload":
-		return h.handleCompleteMultipartUpload(c, extractVaultName(resource), extractSubID(resource), body)
-	case "AbortMultipartUpload":
-		return h.handleAbortMultipartUpload(c, extractVaultName(resource), extractSubID(resource))
-	case "ListMultipartUploads":
-		return h.handleListMultipartUploads(c, resource)
-	case "ListParts":
-		return h.handleListParts(c, extractVaultName(resource), extractSubID(resource))
-	case "ListProvisionedCapacity":
-		return h.handleListProvisionedCapacity(c, resource)
-	case "PurchaseProvisionedCapacity":
-		return h.handlePurchaseProvisionedCapacity(c, resource)
+	}
+
+	if handled, err := h.dispatchMultipartAndCapacityOps(c, op, resource, body); handled {
+		return err
 	}
 
 	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "unknown operation: "+op)
@@ -875,7 +921,9 @@ func (h *Handler) handleVaultLock(c *echo.Context, op, resource string) error {
 		return c.NoContent(http.StatusNoContent)
 	case opInitiateVaultLock:
 		lockID := generateID(lockIDLength)
-		_ = h.Backend.SetVaultLock(h.AccountID, h.DefaultRegion, vaultName, "", lockID)
+		if err := h.Backend.SetVaultLock(h.AccountID, h.DefaultRegion, vaultName, "", lockID); err != nil {
+			return h.writeBackendError(c, err)
+		}
 
 		return c.JSON(http.StatusCreated, map[string]string{"lockId": lockID})
 	case opCompleteVaultLock:
@@ -1051,8 +1099,8 @@ func (h *Handler) handleListProvisionedCapacity(c *echo.Context, accountID strin
 	caps := h.Backend.ListProvisionedCapacity(accountID)
 	items := make([]ProvisionedCapacity, 0, len(caps))
 
-	for _, cap := range caps {
-		items = append(items, *cap)
+	for _, item := range caps {
+		items = append(items, *item)
 	}
 
 	return c.JSON(http.StatusOK, listProvisionedCapacityResponse{
@@ -1075,11 +1123,7 @@ func (h *Handler) handlePurchaseProvisionedCapacity(c *echo.Context, accountID s
 
 // parseInt64Header parses an integer value from a header string.
 func parseInt64Header(s string) (int64, error) {
-	var n int64
-
-	_, err := fmt.Sscanf(s, "%d", &n)
-
-	return n, err
+	return strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 }
 
 // ----------------------------------------
@@ -1106,6 +1150,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrUploadNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	case errors.Is(err, ErrValidation):
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceUnavailableException", err.Error())

@@ -3,7 +3,7 @@ package elastictranscoder_test
 import (
 	"testing"
 
-	elastictranscodersdk "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
+	elastictranscodersdk "github.com/aws/aws-sdk-go-v2/service/elastictranscoder"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 )

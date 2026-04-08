@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"sort"
 	"sync"
 	"time"
 )
@@ -20,6 +21,8 @@ var (
 	ErrJobNotFound = errors.New("ResourceNotFoundException: Job not found")
 	// ErrUploadNotFound is returned when a multipart upload does not exist.
 	ErrUploadNotFound = errors.New("ResourceNotFoundException: Multipart upload not found")
+	// ErrValidation is returned when an invalid parameter is supplied.
+	ErrValidation = errors.New("InvalidParameterValueException: invalid parameter")
 )
 
 const (
@@ -82,6 +85,8 @@ type StorageBackend interface {
 
 	Reset()
 }
+
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // vaultKey uniquely identifies a vault within an account and region.
 type vaultKey struct {
@@ -172,6 +177,10 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if vaultName == "" {
+		return nil, ErrValidation
+	}
+
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
 	if _, ok := b.vaults[key]; ok {
@@ -187,6 +196,7 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 	b.vaults[key] = v
 	b.archives[key] = make(map[string]*Archive)
 	b.jobs[key] = make(map[string]*Job)
+	b.multipartUploads[key] = make(map[string]*MultipartUpload)
 
 	return v, nil
 }
@@ -220,8 +230,21 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 	delete(b.vaults, key)
 	delete(b.archives, key)
 	delete(b.jobs, key)
+	delete(b.multipartUploads, key)
+	delete(b.vaultLocks, key)
 
 	return nil
+}
+
+// sortedVaultNames returns a sorted copy of the vaults slice ordered by VaultName.
+func sortedVaultNames(vaults []*Vault) []*Vault {
+	sorted := make([]*Vault, len(vaults))
+	copy(sorted, vaults)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].VaultName < sorted[j].VaultName
+	})
+
+	return sorted
 }
 
 // ListVaults returns all vaults for the given account and region.
@@ -237,7 +260,7 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 		}
 	}
 
-	return result
+	return sortedVaultNames(result)
 }
 
 // UploadArchive uploads an archive to a vault.
@@ -357,11 +380,18 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) []*Job {
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
-	result := make([]*Job, 0, len(b.jobs[key]))
+	jobs := b.jobs[key]
+	if jobs == nil {
+		return []*Job{}
+	}
 
-	for _, j := range b.jobs[key] {
+	result := make([]*Job, 0, len(jobs))
+
+	for _, j := range jobs {
 		result = append(result, cloneJob(j))
 	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].JobID < result[j].JobID })
 
 	return result
 }
@@ -671,11 +701,19 @@ func (b *InMemoryBackend) ListMultipartUploads(accountID, region, vaultName stri
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 	ups := b.multipartUploads[key]
 
+	if ups == nil {
+		return []*MultipartUpload{}
+	}
+
 	result := make([]*MultipartUpload, 0, len(ups))
 	for _, up := range ups {
 		cp := *up
 		result = append(result, &cp)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].MultipartUploadID < result[j].MultipartUploadID
+	})
 
 	return result
 }
@@ -775,6 +813,8 @@ func (b *InMemoryBackend) ListProvisionedCapacity(accountID string) []*Provision
 		result = append(result, &cp)
 	}
 
+	sort.Slice(result, func(i, j int) bool { return result[i].CapacityID < result[j].CapacityID })
+
 	return result
 }
 
@@ -793,4 +833,46 @@ func (b *InMemoryBackend) PurchaseProvisionedCapacity(accountID string) (*Provis
 	b.provisionedCapacity[accountID] = append(b.provisionedCapacity[accountID], unit)
 
 	return unit, nil
+}
+
+// AddVaultInternal adds a vault directly to the backend for testing.
+func (b *InMemoryBackend) AddVaultInternal(accountID, region string, v *Vault) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: v.VaultName}
+	cp := *v
+
+	if cp.Tags == nil {
+		cp.Tags = make(map[string]string)
+	}
+
+	b.vaults[key] = &cp
+
+	if b.archives[key] == nil {
+		b.archives[key] = make(map[string]*Archive)
+	}
+
+	if b.jobs[key] == nil {
+		b.jobs[key] = make(map[string]*Job)
+	}
+
+	if b.multipartUploads[key] == nil {
+		b.multipartUploads[key] = make(map[string]*MultipartUpload)
+	}
+}
+
+// AddArchiveInternal adds an archive directly to the backend for testing.
+func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string, a *Archive) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if b.archives[key] == nil {
+		b.archives[key] = make(map[string]*Archive)
+	}
+
+	cp := *a
+	b.archives[key][a.ArchiveID] = &cp
 }
