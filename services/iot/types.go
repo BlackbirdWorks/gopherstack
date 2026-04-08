@@ -6,29 +6,33 @@ import "time"
 
 // Thing represents an AWS IoT Thing.
 type Thing struct {
-	CreatedAt  time.Time
-	Attributes map[string]string
-	ThingName  string
-	ThingType  string
-	ARN        string
-	Version    int64
+	CreatedAt     time.Time         `json:"createdAt"`
+	Attributes    map[string]string `json:"attributes"`
+	ThingName     string            `json:"thingName"`
+	ThingTypeName string            `json:"thingTypeName,omitempty"`
+	ThingType     string            `json:"thingType,omitempty"`
+	ThingID       string            `json:"thingId"`
+	ARN           string            `json:"thingArn"`
+	Version       int64             `json:"version"`
 }
 
 // Policy represents an AWS IoT Policy.
 type Policy struct {
-	PolicyName     string
-	PolicyDocument string
-	ARN            string
+	PolicyName     string `json:"policyName"`
+	PolicyDocument string `json:"policyDocument"`
+	ARN            string `json:"policyArn"`
 }
 
 // TopicRule represents an AWS IoT Topic Rule.
 type TopicRule struct {
-	CreatedAt   time.Time
-	RuleName    string
-	SQL         string
-	Description string
-	Actions     []RuleAction
-	Enabled     bool
+	CreatedAt        time.Time    `json:"createdAt"`
+	RuleName         string       `json:"ruleName"`
+	ARN              string       `json:"arn"`
+	SQL              string       `json:"sql"`
+	AWSIoTSQLVersion string       `json:"awsIotSqlVersion,omitempty"`
+	Description      string       `json:"description,omitempty"`
+	Actions          []RuleAction `json:"actions"`
+	Enabled          bool         `json:"enabled"`
 }
 
 // RuleAction represents an action taken when a rule matches.
@@ -75,10 +79,11 @@ type CreateTopicRuleInput struct {
 
 // TopicRulePayload is the payload for a topic rule.
 type TopicRulePayload struct {
-	SQL          string       `json:"sql"`
-	Description  string       `json:"description"`
-	Actions      []RuleAction `json:"actions"`
-	RuleDisabled bool         `json:"ruleDisabled"`
+	SQL              string       `json:"sql"`
+	Description      string       `json:"description"`
+	AWSIoTSQLVersion string       `json:"awsIotSqlVersion,omitempty"`
+	Actions          []RuleAction `json:"actions"`
+	RuleDisabled     bool         `json:"ruleDisabled"`
 }
 
 // CreatePolicyInput is the input for CreatePolicy.
@@ -103,4 +108,130 @@ type AttachPrincipalPolicyInput struct {
 // DescribeEndpointOutput is the output for DescribeEndpoint.
 type DescribeEndpointOutput struct {
 	EndpointAddress string
+}
+
+// AcceptCertificateTransferInput is the input for AcceptCertificateTransfer.
+type AcceptCertificateTransferInput struct {
+	CertificateID string
+	SetAsActive   bool
+}
+
+// AddThingToBillingGroupInput is the input for AddThingToBillingGroup.
+type AddThingToBillingGroupInput struct {
+	BillingGroupName string `json:"billingGroupName"`
+	BillingGroupArn  string `json:"billingGroupArn"`
+	ThingName        string `json:"thingName"`
+	ThingArn         string `json:"thingArn"`
+}
+
+// AddThingToThingGroupInput is the input for AddThingToThingGroup.
+type AddThingToThingGroupInput struct {
+	ThingGroupName        string `json:"thingGroupName"`
+	ThingGroupArn         string `json:"thingGroupArn"`
+	ThingName             string `json:"thingName"`
+	ThingArn              string `json:"thingArn"`
+	OverrideDynamicGroups bool   `json:"overrideDynamicGroups"`
+}
+
+// AssociateSbomWithPackageVersionInput is the input for AssociateSbomWithPackageVersion.
+type AssociateSbomWithPackageVersionInput struct {
+	Sbom        *SbomDocument `json:"sbom"`
+	PackageName string        `json:"packageName"`
+	VersionName string        `json:"versionName"`
+}
+
+// SbomDocument represents an SBOM document reference.
+type SbomDocument struct {
+	S3Location *S3Location `json:"s3Location"`
+}
+
+// S3Location represents an S3 object location.
+type S3Location struct {
+	Bucket  string `json:"bucket"`
+	Key     string `json:"key"`
+	Version string `json:"version"`
+}
+
+// AssociateSbomWithPackageVersionOutput is the output for AssociateSbomWithPackageVersion.
+type AssociateSbomWithPackageVersionOutput struct {
+	PackageName          string        `json:"packageName"`
+	VersionName          string        `json:"versionName"`
+	Sbom                 *SbomDocument `json:"sbom,omitempty"`
+	SbomValidationStatus string        `json:"sbomValidationStatus,omitempty"`
+}
+
+// AssociateTargetsWithJobInput is the input for AssociateTargetsWithJob.
+type AssociateTargetsWithJobInput struct {
+	JobID       string   `json:"jobId"`
+	Comment     string   `json:"comment"`
+	NamespaceID string   `json:"namespaceId"`
+	Targets     []string `json:"targets"`
+}
+
+// AssociateTargetsWithJobOutput is the output for AssociateTargetsWithJob.
+type AssociateTargetsWithJobOutput struct {
+	JobID       string `json:"jobId"`
+	JobArn      string `json:"jobArn"`
+	Description string `json:"description"`
+}
+
+// AttachPolicyInput is the input for AttachPolicy.
+type AttachPolicyInput struct {
+	PolicyName string `json:"policyName"`
+	Target     string `json:"target"`
+}
+
+// AttachSecurityProfileInput is the input for AttachSecurityProfile.
+type AttachSecurityProfileInput struct {
+	SecurityProfileName      string
+	SecurityProfileTargetArn string `json:"securityProfileTargetArn"`
+}
+
+// AttachThingPrincipalInput is the input for AttachThingPrincipal.
+type AttachThingPrincipalInput struct {
+	ThingName          string
+	Principal          string `json:"principal"`
+	ThingPrincipalType string `json:"thingPrincipalType"`
+}
+
+// CancelAuditMitigationActionsTaskInput is the input for CancelAuditMitigationActionsTask.
+type CancelAuditMitigationActionsTaskInput struct {
+	TaskID string
+}
+
+// CancelAuditTaskInput is the input for CancelAuditTask.
+type CancelAuditTaskInput struct {
+	AuditTaskID string
+}
+
+// GetPolicyOutput is the output for GetPolicy.
+type GetPolicyOutput struct {
+	PolicyName     string `json:"policyName"`
+	PolicyARN      string `json:"policyArn"`
+	PolicyDocument string `json:"policyDocument"`
+}
+
+// UpdateThingInput is the input for UpdateThing.
+type UpdateThingInput struct {
+	AttributePayload *AttributePayload `json:"attributePayload"`
+	ThingName        string            `json:"thingName"`
+	ThingTypeName    string            `json:"thingTypeName,omitempty"`
+	RemoveThingType  bool              `json:"removeThingType,omitempty"`
+	ExpectedVersion  int64             `json:"expectedVersion,omitempty"`
+}
+
+// DisableTopicRuleInput is the input for DisableTopicRule.
+type DisableTopicRuleInput struct {
+	RuleName string
+}
+
+// EnableTopicRuleInput is the input for EnableTopicRule.
+type EnableTopicRuleInput struct {
+	RuleName string
+}
+
+// ReplaceTopicRuleInput is the input for ReplaceTopicRule.
+type ReplaceTopicRuleInput struct {
+	TopicRulePayload *TopicRulePayload
+	RuleName         string
 }
