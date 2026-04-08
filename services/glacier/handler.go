@@ -800,7 +800,10 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
 
 	if j.ArchiveSizeInBytes > 0 {
-		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes))
+		c.Response().Header().Set(
+			"Content-Range",
+			fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes),
+		)
 	}
 
 	return c.String(http.StatusOK, "")
