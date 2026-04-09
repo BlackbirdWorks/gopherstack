@@ -1491,195 +1491,195 @@ func TestParseKafkaPath_NewOps(t *testing.T) {
 // ----------------------------------------
 
 func TestKafka_ListClustersV2(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-setup      func(*kafka.Handler)
-name       string
-wantStatus int
-wantCount  int
-}{
-{
-name:       "empty",
-setup:      func(_ *kafka.Handler) {},
-wantStatus: http.StatusOK,
-wantCount:  0,
-},
-{
-name: "with_clusters",
-setup: func(h *kafka.Handler) {
-doKafkaRequest(t, h, http.MethodPost, "/api/v2/clusters", map[string]any{
-"clusterName": "v2-a",
-"provisioned": map[string]any{
-"kafkaVersion":        "2.8.0",
-"numberOfBrokerNodes": 3,
-"brokerNodeGroupInfo": map[string]any{
-"instanceType":  "kafka.m5.large",
-"clientSubnets": []string{"subnet-1"},
-},
-},
-})
-},
-wantStatus: http.StatusOK,
-wantCount:  1,
-},
-}
+	tests := []struct {
+		setup      func(*kafka.Handler)
+		name       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name:       "empty",
+			setup:      func(_ *kafka.Handler) {},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "with_clusters",
+			setup: func(h *kafka.Handler) {
+				doKafkaRequest(t, h, http.MethodPost, "/api/v2/clusters", map[string]any{
+					"clusterName": "v2-a",
+					"provisioned": map[string]any{
+						"kafkaVersion":        "2.8.0",
+						"numberOfBrokerNodes": 3,
+						"brokerNodeGroupInfo": map[string]any{
+							"instanceType":  "kafka.m5.large",
+							"clientSubnets": []string{"subnet-1"},
+						},
+					},
+				})
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-tt.setup(h)
+			h := newTestHandler(t)
+			tt.setup(h)
 
-rec := doKafkaRequest(t, h, http.MethodGet, "/api/v2/clusters", nil)
-assert.Equal(t, tt.wantStatus, rec.Code)
+			rec := doKafkaRequest(t, h, http.MethodGet, "/api/v2/clusters", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 
-var resp map[string]any
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-clusters, ok := resp["clusters"].([]any)
-require.True(t, ok)
-assert.Len(t, clusters, tt.wantCount)
-})
-}
+			clusters, ok := resp["clusters"].([]any)
+			require.True(t, ok)
+			assert.Len(t, clusters, tt.wantCount)
+		})
+	}
 }
 
 func TestKafka_DescribeAndDeleteConfiguration(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-op         string
-useRealArn bool
-wantStatus int
-}{
-{name: "describe_success", op: "describe", useRealArn: true, wantStatus: http.StatusOK},
-{name: "describe_not_found", op: "describe", useRealArn: false, wantStatus: http.StatusNotFound},
-{name: "delete_success", op: "delete", useRealArn: true, wantStatus: http.StatusOK},
-{name: "delete_not_found", op: "delete", useRealArn: false, wantStatus: http.StatusNotFound},
-}
+	tests := []struct {
+		name       string
+		op         string
+		useRealArn bool
+		wantStatus int
+	}{
+		{name: "describe_success", op: "describe", useRealArn: true, wantStatus: http.StatusOK},
+		{name: "describe_not_found", op: "describe", useRealArn: false, wantStatus: http.StatusNotFound},
+		{name: "delete_success", op: "delete", useRealArn: true, wantStatus: http.StatusOK},
+		{name: "delete_not_found", op: "delete", useRealArn: false, wantStatus: http.StatusNotFound},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
+			h := newTestHandler(t)
 
-createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
-"name":             "cfg-test",
-"kafkaVersions":    []string{"2.8.0"},
-"serverProperties": "auto.create.topics.enable=false",
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+			createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
+				"name":             "cfg-test",
+				"kafkaVersions":    []string{"2.8.0"},
+				"serverProperties": "auto.create.topics.enable=false",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
 
-var createResp map[string]any
-require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 
-var cfgArn string
-if tt.useRealArn {
-cfgArn = createResp["arn"].(string)
-} else {
-cfgArn = "arn:aws:kafka:us-east-1:000000000000:configuration/nonexistent/bad-uuid"
-}
+			var cfgArn string
+			if tt.useRealArn {
+				cfgArn = createResp["arn"].(string)
+			} else {
+				cfgArn = "arn:aws:kafka:us-east-1:000000000000:configuration/nonexistent/bad-uuid"
+			}
 
-encodedArn := url.PathEscape(cfgArn)
+			encodedArn := url.PathEscape(cfgArn)
 
-var rec *httptest.ResponseRecorder
-switch tt.op {
-case "describe":
-rec = doKafkaRequest(t, h, http.MethodGet, "/v1/configurations/"+encodedArn, nil)
-default:
-rec = doKafkaRequest(t, h, http.MethodDelete, "/v1/configurations/"+encodedArn, nil)
-}
+			var rec *httptest.ResponseRecorder
+			switch tt.op {
+			case "describe":
+				rec = doKafkaRequest(t, h, http.MethodGet, "/v1/configurations/"+encodedArn, nil)
+			default:
+				rec = doKafkaRequest(t, h, http.MethodDelete, "/v1/configurations/"+encodedArn, nil)
+			}
 
-assert.Equal(t, tt.wantStatus, rec.Code)
-})
-}
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 func TestKafka_ExtractOperationAndResource(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
+	h := newTestHandler(t)
 
-tests := []struct {
-name         string
-method       string
-path         string
-wantOp       string
-wantResource string
-}{
-{
-name:   "list_clusters",
-method: http.MethodGet,
-path:   "/v1/clusters",
-wantOp: "ListClusters",
-},
-{
-name:         "describe_cluster",
-method:       http.MethodGet,
-path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
-wantOp:       "DescribeCluster",
-wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
-},
-}
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		wantOp       string
+		wantResource string
+	}{
+		{
+			name:   "list_clusters",
+			method: http.MethodGet,
+			path:   "/v1/clusters",
+			wantOp: "ListClusters",
+		},
+		{
+			name:         "describe_cluster",
+			method:       http.MethodGet,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+			wantOp:       "DescribeCluster",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-e := echo.New()
-req := httptest.NewRequest(tt.method, tt.path, http.NoBody)
-rec := httptest.NewRecorder()
-c := e.NewContext(req, rec)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, http.NoBody)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
-op := h.ExtractOperation(c)
-resource := h.ExtractResource(c)
+			op := h.ExtractOperation(c)
+			resource := h.ExtractResource(c)
 
-assert.Equal(t, tt.wantOp, op)
-assert.Equal(t, tt.wantResource, resource)
-})
-}
+			assert.Equal(t, tt.wantOp, op)
+			assert.Equal(t, tt.wantResource, resource)
+		})
+	}
 }
 
 func TestKafka_ChaosOps(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-assert.Equal(t, "kafka", h.ChaosServiceName())
-assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
-assert.Equal(t, []string{testRegion}, h.ChaosRegions())
+	h := newTestHandler(t)
+	assert.Equal(t, "kafka", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.Equal(t, []string{testRegion}, h.ChaosRegions())
 }
 
 func TestKafka_RouteMatcher_NewPaths(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-matcher := h.RouteMatcher()
+	h := newTestHandler(t)
+	matcher := h.RouteMatcher()
 
-tests := []struct {
-name string
-path string
-want bool
-}{
-{name: "operations", path: "/v1/operations/some-arn", want: true},
-{name: "replicators_root", path: "/replication/v1/replicators", want: true},
-{name: "replicators_resource", path: "/replication/v1/replicators/some-arn", want: true},
-{name: "vpc_connection_root", path: "/v1/vpc-connection", want: true},
-{name: "vpc_connection_resource", path: "/v1/vpc-connection/some-arn", want: true},
-}
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "operations", path: "/v1/operations/some-arn", want: true},
+		{name: "replicators_root", path: "/replication/v1/replicators", want: true},
+		{name: "replicators_resource", path: "/replication/v1/replicators/some-arn", want: true},
+		{name: "vpc_connection_root", path: "/v1/vpc-connection", want: true},
+		{name: "vpc_connection_resource", path: "/v1/vpc-connection/some-arn", want: true},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-e := echo.New()
-req := httptest.NewRequest(http.MethodGet, tt.path, http.NoBody)
-rec := httptest.NewRecorder()
-c := e.NewContext(req, rec)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, http.NoBody)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
-assert.Equal(t, tt.want, matcher(c))
-})
-}
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
 }
