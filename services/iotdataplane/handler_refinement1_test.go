@@ -2,8 +2,8 @@ package iotdataplane_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -305,7 +305,7 @@ func TestRefinement1_MaxRetainedMessages_CapEnforced(t *testing.T) {
 
 	// Fill to max (1000).
 	for i := range 1000 {
-		topic := "t/" + string(rune('a'+i%26)) + strconv.Itoa(i)
+		topic := fmt.Sprintf("t/%d", i)
 		require.NoError(t, b.StoreRetainedMessage(topic, []byte("x"), 0))
 	}
 

@@ -3,6 +3,7 @@ package iotdataplane
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -199,16 +200,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// parsePublishQoS extracts and validates the qos query parameter, returning the value and any error response.
-func parsePublishQoS(c *echo.Context) (int32, error) {
-	qosStr := c.Request().URL.Query().Get("qos")
+// parsePublishQoS extracts and validates the qos query parameter.
+// Returns ErrValidation wrapped with a description on invalid input.
+func parsePublishQoS(qosStr string) (int32, error) {
 	if qosStr == "" {
 		return 0, nil
 	}
 
 	qosVal, err := strconv.ParseInt(qosStr, 10, 32)
 	if err != nil || qosVal < 0 || qosVal > 1 {
-		return 0, c.JSON(http.StatusBadRequest, map[string]string{"error": "qos must be 0 or 1"})
+		return 0, fmt.Errorf("%w: qos must be 0 or 1", ErrValidation)
 	}
 
 	return int32(qosVal), nil
@@ -246,9 +247,9 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
 	}
 
-	qos, qosErr := parsePublishQoS(c)
+	qos, qosErr := parsePublishQoS(c.Request().URL.Query().Get("qos"))
 	if qosErr != nil {
-		return qosErr
+		return h.handleError(c, qosErr)
 	}
 
 	// Limit the request body size to prevent excessive memory usage.
@@ -272,17 +273,13 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		}
 	}
 
-	return h.handleRetain(c, log, topic, payload, qos)
+	return h.handleRetain(c, topic, payload, qos)
 }
 
 // handleRetain stores a retained message when ?retain=true/1 is set.
-func (h *Handler) handleRetain(
-	c *echo.Context,
-	log interface{ Warn(string, ...any) },
-	topic string,
-	payload []byte,
-	qos int32,
-) error {
+func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qos int32) error {
+	log := logger.Load(c.Request().Context())
+
 	retainStr := strings.ToLower(c.Request().URL.Query().Get("retain"))
 	if retainStr == "true" || retainStr == "1" {
 		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, qos); storeErr != nil {
@@ -482,7 +479,7 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 
 	// Apply simple nextToken pagination using the shadow name as cursor.
 	nextTokenIn := c.Request().URL.Query().Get("nextToken")
-	maxResultsStr := c.Request().URL.Query().Get("pageSize")
+	maxResultsStr := c.Request().URL.Query().Get("maxResults")
 
 	maxResults := len(names)
 	if maxResultsStr != "" {

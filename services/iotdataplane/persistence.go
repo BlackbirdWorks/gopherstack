@@ -3,7 +3,6 @@ package iotdataplane
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"time"
 )
 
@@ -75,8 +74,6 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("iotdataplane: failed to marshal snapshot", "error", err)
-
 		return nil
 	}
 
