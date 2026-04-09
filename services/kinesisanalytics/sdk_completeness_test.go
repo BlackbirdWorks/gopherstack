@@ -17,16 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := kinesisanalytics.NewInMemoryBackend("us-east-1", "000000000000")
 	h := kinesisanalytics.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &kinesisanalyticssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddApplicationCloudWatchLoggingOption",
-		"AddApplicationInput",
-		"AddApplicationInputProcessingConfiguration",
-		"AddApplicationOutput",
-		"AddApplicationReferenceDataSource",
-		"DeleteApplicationCloudWatchLoggingOption",
-		"DeleteApplicationInputProcessingConfiguration",
-		"DeleteApplicationOutput",
-		"DeleteApplicationReferenceDataSource",
-		"DiscoverInputSchema",
-	})
+	sdkcheck.CheckCompleteness(t, &kinesisanalyticssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

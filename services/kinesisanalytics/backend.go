@@ -40,6 +40,20 @@ type StorageBackend interface {
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
+	AddApplicationCloudWatchLoggingOption(name string, versionID int64, option CloudWatchLoggingOptionDesc) error
+	AddApplicationInput(name string, versionID int64, input InputDescription) error
+	AddApplicationInputProcessingConfiguration(
+		name string,
+		versionID int64,
+		inputID string,
+		config *InputProcessingConfigurationDesc,
+	) error
+	AddApplicationOutput(name string, versionID int64, output OutputDescription) error
+	AddApplicationReferenceDataSource(name string, versionID int64, ref ReferenceDataSourceDescription) error
+	DeleteApplicationCloudWatchLoggingOption(name string, versionID int64, loggingOptionID string) error
+	DeleteApplicationInputProcessingConfiguration(name string, versionID int64, inputID string) error
+	DeleteApplicationOutput(name string, versionID int64, outputID string) error
+	DeleteApplicationReferenceDataSource(name string, versionID int64, referenceID string) error
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -48,8 +62,11 @@ type InMemoryBackend struct {
 	appsByARN map[string]*Application // application ARN → Application
 	region    string
 	accountID string
+	nextID    int64
 	mu        sync.RWMutex
 }
+
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new in-memory Kinesis Analytics backend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
@@ -276,4 +293,250 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	}
 
 	return nil
+}
+
+// newResourceID generates a new unique resource ID. Must be called under b.mu.
+func (b *InMemoryBackend) newResourceID(prefix string) string {
+	b.nextID++
+
+	return fmt.Sprintf("%s-%d", prefix, b.nextID)
+}
+
+// checkAndBumpVersion validates the version and increments it. Must be called under b.mu.
+func checkAndBumpVersion(app *Application, currentVersionID int64) error {
+	if app.ApplicationVersionID != currentVersionID {
+		return ErrConcurrentUpdate
+	}
+
+	now := time.Now().UTC()
+	app.ApplicationVersionID++
+	app.LastUpdateTimestamp = &now
+
+	return nil
+}
+
+// AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to an application.
+func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
+	name string, versionID int64, option CloudWatchLoggingOptionDesc,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	option.CloudWatchLoggingOptionID = b.newResourceID("cwl")
+	app.CloudWatchLoggingOptions = append(app.CloudWatchLoggingOptions, option)
+
+	return nil
+}
+
+// AddApplicationInput adds an input configuration to an application.
+func (b *InMemoryBackend) AddApplicationInput(
+	name string, versionID int64, input InputDescription,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	input.InputID = b.newResourceID("input")
+	app.Inputs = append(app.Inputs, input)
+
+	return nil
+}
+
+// AddApplicationInputProcessingConfiguration sets a processing configuration on an existing input.
+func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
+	name string, versionID int64, inputID string, config *InputProcessingConfigurationDesc,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	for i := range app.Inputs {
+		if app.Inputs[i].InputID == inputID {
+			app.Inputs[i].InputProcessingConfigurationDescription = config
+
+			return nil
+		}
+	}
+
+	return ErrNotFound
+}
+
+// AddApplicationOutput adds an output configuration to an application.
+func (b *InMemoryBackend) AddApplicationOutput(
+	name string, versionID int64, output OutputDescription,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	output.OutputID = b.newResourceID("output")
+	app.Outputs = append(app.Outputs, output)
+
+	return nil
+}
+
+// AddApplicationReferenceDataSource adds a reference data source to an application.
+func (b *InMemoryBackend) AddApplicationReferenceDataSource(
+	name string, versionID int64, ref ReferenceDataSourceDescription,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	ref.ReferenceID = b.newResourceID("ref")
+	app.ReferenceDataSources = append(app.ReferenceDataSources, ref)
+
+	return nil
+}
+
+// DeleteApplicationCloudWatchLoggingOption removes a CloudWatch logging option from an application.
+func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
+	name string, versionID int64, loggingOptionID string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	for i, opt := range app.CloudWatchLoggingOptions {
+		if opt.CloudWatchLoggingOptionID == loggingOptionID {
+			app.CloudWatchLoggingOptions = append(
+				app.CloudWatchLoggingOptions[:i],
+				app.CloudWatchLoggingOptions[i+1:]...,
+			)
+
+			return nil
+		}
+	}
+
+	return ErrNotFound
+}
+
+// DeleteApplicationInputProcessingConfiguration removes the processing config from an input.
+func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
+	name string, versionID int64, inputID string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	for i := range app.Inputs {
+		if app.Inputs[i].InputID == inputID {
+			app.Inputs[i].InputProcessingConfigurationDescription = nil
+
+			return nil
+		}
+	}
+
+	return ErrNotFound
+}
+
+// DeleteApplicationOutput removes an output configuration from an application.
+func (b *InMemoryBackend) DeleteApplicationOutput(
+	name string, versionID int64, outputID string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	for i, out := range app.Outputs {
+		if out.OutputID == outputID {
+			app.Outputs = append(app.Outputs[:i], app.Outputs[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return ErrNotFound
+}
+
+// DeleteApplicationReferenceDataSource removes a reference data source from an application.
+func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
+	name string, versionID int64, referenceID string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	app, exists := b.apps[name]
+	if !exists {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, versionID); err != nil {
+		return err
+	}
+
+	for i, ref := range app.ReferenceDataSources {
+		if ref.ReferenceID == referenceID {
+			app.ReferenceDataSources = append(app.ReferenceDataSources[:i], app.ReferenceDataSources[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return ErrNotFound
 }
