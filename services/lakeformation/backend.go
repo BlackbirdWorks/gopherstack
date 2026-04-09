@@ -602,9 +602,8 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 	for _, pair := range lfTags {
 		k := lfTagKey{CatalogID: catalogID, TagKey: pair.TagKey}
 		if _, ok := b.lfTags[k]; !ok {
-			tagCopy := pair
 			failures = append(failures, LFTagError{
-				LFTag: &tagCopy,
+				LFTag: &pair,
 				Error: &errorDetail{
 					ErrorCode:    "EntityNotFoundException",
 					ErrorMessage: fmt.Sprintf("LF tag not found: %s", pair.TagKey),
@@ -751,7 +750,8 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(catalog
 	defer b.mu.Unlock()
 
 	appArn := fmt.Sprintf(
-		"arn:aws:sso::123456789012:application/ssoins-0000000000000000/apl-%s",
+		"arn:aws:sso::%s:application/ssoins-0000000000000000/apl-%s",
+		catalogID,
 		catalogID,
 	)
 
