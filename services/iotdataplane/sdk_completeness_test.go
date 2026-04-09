@@ -17,9 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := iotdataplane.NewInMemoryBackend()
 	h := iotdataplane.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &iotdataplanesdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteConnection",
-		"GetRetainedMessage",
-		"ListRetainedMessages",
-	})
+	sdkcheck.CheckCompleteness(t, &iotdataplanesdk.Client{}, h.GetSupportedOperations(), []string{})
 }
