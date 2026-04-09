@@ -2,6 +2,7 @@ package iotwireless
 
 import (
 	"encoding/json"
+	"log/slog"
 	"maps"
 )
 
@@ -11,6 +12,12 @@ import (
 type Snapshottable interface {
 	Snapshot() []byte
 	Restore(data []byte) error
+}
+
+// Resettable is an optional interface that a StorageBackend may implement to
+// support clearing all state (e.g. for test teardown).
+type Resettable interface {
+	Reset()
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend
@@ -178,8 +185,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		// Marshal of plain Go structs with JSON tags should never fail.
-		// Returning nil signals to the persistence layer that nothing was captured.
+		slog.Default().Warn("iotwireless: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 

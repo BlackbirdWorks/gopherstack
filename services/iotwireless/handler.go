@@ -31,6 +31,13 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears the handler's backend state, returning it to a pristine condition.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "IoTWireless" }
 
@@ -65,7 +72,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AssociateWirelessGatewayWithThing",
 		"CancelMulticastGroupSession",
 		"CreateDeviceProfile",
+		"GetDeviceProfile",
+		"ListDeviceProfiles",
+		"DeleteDeviceProfile",
 		"CreateFuotaTask",
+		"GetFuotaTask",
+		"ListFuotaTasks",
+		"DeleteFuotaTask",
 	}
 }
 
@@ -418,13 +431,42 @@ func (h *Handler) dispatchDestination(c *echo.Context, op, resource string, body
 	return false, nil
 }
 
-// dispatchNewOps handles the 10 new operations added in this implementation.
+// dispatchNewOps handles operations added in this implementation.
 func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	if handled, err := h.dispatchNewCRUDOps(c, op, resource, body); handled {
+		return true, err
+	}
+
+	return h.dispatchAssociationOps(c, op, resource, body)
+}
+
+// dispatchNewCRUDOps handles CRUD operations for DeviceProfile and FuotaTask.
+func (h *Handler) dispatchNewCRUDOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
 	case "CreateDeviceProfile":
 		return true, h.createDeviceProfile(c, body)
+	case "GetDeviceProfile":
+		return true, h.getDeviceProfile(c, resource)
+	case "ListDeviceProfiles":
+		return true, h.listDeviceProfiles(c)
+	case "DeleteDeviceProfile":
+		return true, h.deleteDeviceProfile(c, resource)
 	case "CreateFuotaTask":
 		return true, h.createFuotaTask(c, body)
+	case "GetFuotaTask":
+		return true, h.getFuotaTask(c, resource)
+	case "ListFuotaTasks":
+		return true, h.listFuotaTasks(c)
+	case "DeleteFuotaTask":
+		return true, h.deleteFuotaTask(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchAssociationOps handles AWS IoT Wireless resource-association operations.
+func (h *Handler) dispatchAssociationOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
 	case "AssociateAwsAccountWithPartnerAccount":
 		return true, h.associateAwsAccountWithPartnerAccount(c, resource, body)
 	case "AssociateMulticastGroupWithFuotaTask":
@@ -575,6 +617,29 @@ type createFuotaTaskResponse struct {
 	ID  string `json:"Id"`
 }
 
+type deviceProfileEntry struct {
+	Arn  string `json:"Arn"`
+	ID   string `json:"Id"`
+	Name string `json:"Name"`
+}
+
+type listDeviceProfilesResponse struct {
+	DeviceProfileList []deviceProfileEntry `json:"DeviceProfileList"`
+}
+
+type fuotaTaskEntry struct {
+	Arn                 string `json:"Arn"`
+	ID                  string `json:"Id"`
+	Name                string `json:"Name"`
+	Description         string `json:"Description,omitempty"`
+	FirmwareUpdateImage string `json:"FirmwareUpdateImage,omitempty"`
+	FirmwareUpdateRole  string `json:"FirmwareUpdateRole,omitempty"`
+}
+
+type listFuotaTasksResponse struct {
+	FuotaTaskList []fuotaTaskEntry `json:"FuotaTaskList"`
+}
+
 type associatePartnerAccountRequest struct {
 	Tags map[string]string `json:"Tags"`
 }
@@ -641,6 +706,19 @@ func isNotFound(err error) bool {
 		errors.Is(err, ErrFuotaTaskNotFound)
 }
 
+// handleError writes an appropriate HTTP error response for a backend error.
+func handleError(c *echo.Context, err error) error {
+	if isNotFound(err) {
+		return writeError(c, http.StatusNotFound, err.Error())
+	}
+
+	if errors.Is(err, ErrValidation) {
+		return writeError(c, http.StatusBadRequest, err.Error())
+	}
+
+	return writeError(c, http.StatusInternalServerError, err.Error())
+}
+
 // decodeARN URL-decodes an ARN path segment.
 func decodeARN(encoded string) string {
 	decoded, err := url.PathUnescape(encoded)
@@ -673,11 +751,7 @@ func (h *Handler) createWirelessDevice(c *echo.Context, body []byte) error {
 func (h *Handler) getWirelessDevice(c *echo.Context, id string) error {
 	d, err := h.Backend.GetWirelessDevice(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, wirelessDeviceEntry{
@@ -711,11 +785,7 @@ func (h *Handler) listWirelessDevices(c *echo.Context) error {
 func (h *Handler) deleteWirelessDevice(c *echo.Context, id string) error {
 	err := h.Backend.DeleteWirelessDevice(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -745,11 +815,7 @@ func (h *Handler) createWirelessGateway(c *echo.Context, body []byte) error {
 func (h *Handler) getWirelessGateway(c *echo.Context, id string) error {
 	gw, err := h.Backend.GetWirelessGateway(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, wirelessGatewayEntry{
@@ -779,11 +845,7 @@ func (h *Handler) listWirelessGateways(c *echo.Context) error {
 func (h *Handler) deleteWirelessGateway(c *echo.Context, id string) error {
 	err := h.Backend.DeleteWirelessGateway(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -810,11 +872,7 @@ func (h *Handler) createServiceProfile(c *echo.Context, body []byte) error {
 func (h *Handler) getServiceProfile(c *echo.Context, id string) error {
 	sp, err := h.Backend.GetServiceProfile(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, serviceProfileEntry{
@@ -842,11 +900,7 @@ func (h *Handler) listServiceProfiles(c *echo.Context) error {
 func (h *Handler) deleteServiceProfile(c *echo.Context, id string) error {
 	err := h.Backend.DeleteServiceProfile(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -883,11 +937,7 @@ func (h *Handler) createDestination(c *echo.Context, body []byte) error {
 func (h *Handler) getDestination(c *echo.Context, name string) error {
 	dest, err := h.Backend.GetDestination(h.AccountID, h.DefaultRegion, name)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, destinationEntry{
@@ -921,11 +971,7 @@ func (h *Handler) listDestinations(c *echo.Context) error {
 func (h *Handler) deleteDestination(c *echo.Context, name string) error {
 	err := h.Backend.DeleteDestination(h.AccountID, h.DefaultRegion, name)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -1012,6 +1058,90 @@ func (h *Handler) createFuotaTask(c *echo.Context, body []byte) error {
 	return writeJSON(c, http.StatusCreated, createFuotaTaskResponse{Arn: ft.ARN, ID: ft.ID})
 }
 
+func (h *Handler) getFuotaTask(c *echo.Context, id string) error {
+	ft, err := h.Backend.GetFuotaTask(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, fuotaTaskEntry{
+		Arn:                 ft.ARN,
+		ID:                  ft.ID,
+		Name:                ft.Name,
+		Description:         ft.Description,
+		FirmwareUpdateImage: ft.FirmwareUpdateImage,
+		FirmwareUpdateRole:  ft.FirmwareUpdateRole,
+	})
+}
+
+func (h *Handler) listFuotaTasks(c *echo.Context) error {
+	tasks := h.Backend.ListFuotaTasks(h.AccountID, h.DefaultRegion)
+	entries := make([]fuotaTaskEntry, 0, len(tasks))
+
+	for _, ft := range tasks {
+		entries = append(entries, fuotaTaskEntry{
+			Arn:                 ft.ARN,
+			ID:                  ft.ID,
+			Name:                ft.Name,
+			Description:         ft.Description,
+			FirmwareUpdateImage: ft.FirmwareUpdateImage,
+			FirmwareUpdateRole:  ft.FirmwareUpdateRole,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, listFuotaTasksResponse{FuotaTaskList: entries})
+}
+
+func (h *Handler) deleteFuotaTask(c *echo.Context, id string) error {
+	err := h.Backend.DeleteFuotaTask(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) getDeviceProfile(c *echo.Context, id string) error {
+	dp, err := h.Backend.GetDeviceProfile(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, deviceProfileEntry{
+		Arn:  dp.ARN,
+		ID:   dp.ID,
+		Name: dp.Name,
+	})
+}
+
+func (h *Handler) listDeviceProfiles(c *echo.Context) error {
+	profiles := h.Backend.ListDeviceProfiles(h.AccountID, h.DefaultRegion)
+	entries := make([]deviceProfileEntry, 0, len(profiles))
+
+	for _, dp := range profiles {
+		entries = append(entries, deviceProfileEntry{
+			Arn:  dp.ARN,
+			ID:   dp.ID,
+			Name: dp.Name,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, listDeviceProfilesResponse{DeviceProfileList: entries})
+}
+
+func (h *Handler) deleteDeviceProfile(c *echo.Context, id string) error {
+	err := h.Backend.DeleteDeviceProfile(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
 // --- Association handlers ---
 
 func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, partnerAccountID string, body []byte) error {
@@ -1020,7 +1150,12 @@ func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, partner
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	arn, err := h.Backend.AssociateAwsAccountWithPartnerAccount(h.AccountID, partnerAccountID, req.Tags)
+	arn, err := h.Backend.AssociateAwsAccountWithPartnerAccount(
+		h.AccountID,
+		h.DefaultRegion,
+		partnerAccountID,
+		req.Tags,
+	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -1083,11 +1218,7 @@ func (h *Handler) associateWirelessDeviceWithThing(c *echo.Context, wirelessDevi
 
 	err := h.Backend.AssociateWirelessDeviceWithThing(h.AccountID, h.DefaultRegion, wirelessDeviceID, req.ThingArn)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -1105,11 +1236,7 @@ func (h *Handler) associateWirelessGatewayWithCertificate(c *echo.Context, gatew
 		h.AccountID, h.DefaultRegion, gatewayID, req.IotCertificateID,
 	)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, associateWirelessGatewayWithCertificateResponse{IotCertificateArn: certARN})
@@ -1123,11 +1250,7 @@ func (h *Handler) associateWirelessGatewayWithThing(c *echo.Context, gatewayID s
 
 	err := h.Backend.AssociateWirelessGatewayWithThing(h.AccountID, h.DefaultRegion, gatewayID, req.ThingArn)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)

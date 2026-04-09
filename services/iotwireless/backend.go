@@ -1,9 +1,11 @@
 package iotwireless
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -24,10 +26,14 @@ var (
 	ErrDeviceProfileNotFound = errors.New("ResourceNotFoundException: Device profile not found")
 	// ErrFuotaTaskNotFound is returned when a FUOTA task does not exist.
 	ErrFuotaTaskNotFound = errors.New("ResourceNotFoundException: FUOTA task not found")
+	// ErrValidation is returned when a request contains invalid parameters.
+	ErrValidation = errors.New("ValidationException: invalid request parameters")
 )
 
 // StorageBackend is the interface for the IoT Wireless backend.
 type StorageBackend interface {
+	Reset()
+
 	CreateWirelessDevice(
 		accountID, region, name, devType, destinationName, description string,
 		tags map[string]string,
@@ -55,13 +61,22 @@ type StorageBackend interface {
 	DeleteDestination(accountID, region, name string) error
 
 	CreateDeviceProfile(accountID, region, name string, tags map[string]string) (*DeviceProfile, error)
+	GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error)
+	ListDeviceProfiles(accountID, region string) []*DeviceProfile
+	DeleteDeviceProfile(accountID, region, id string) error
 
 	CreateFuotaTask(
 		accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole string,
 		tags map[string]string,
 	) (*FuotaTask, error)
+	GetFuotaTask(accountID, region, id string) (*FuotaTask, error)
+	ListFuotaTasks(accountID, region string) []*FuotaTask
+	DeleteFuotaTask(accountID, region, id string) error
 
-	AssociateAwsAccountWithPartnerAccount(accountID, partnerAccountID string, tags map[string]string) (string, error)
+	AssociateAwsAccountWithPartnerAccount(
+		accountID, region, partnerAccountID string,
+		tags map[string]string,
+	) (string, error)
 	AssociateMulticastGroupWithFuotaTask(fuotaTaskID, multicastGroupID string) error
 	AssociateWirelessDeviceWithFuotaTask(fuotaTaskID, wirelessDeviceID string) error
 	AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, wirelessDeviceID string) error
@@ -74,6 +89,9 @@ type StorageBackend interface {
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) (map[string]string, error)
 }
+
+// Compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // resourceKey uniquely identifies a resource within an account and region.
 type resourceKey struct {
@@ -147,12 +165,34 @@ func fuotaTaskARN(region, accountID, id string) string {
 	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:FuotaTask/%s", region, accountID, id)
 }
 
-func partnerAccountARN(accountID, partnerAccountID string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:us-east-1:%s:PartnerAccount/%s", accountID, partnerAccountID)
+func partnerAccountARN(accountID, region, partnerAccountID string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:PartnerAccount/%s", region, accountID, partnerAccountID)
 }
 
-func iotCertificateARN(accountID, certID string) string {
-	return fmt.Sprintf("arn:aws:iot:us-east-1:%s:cert/%s", accountID, certID)
+func iotCertificateARN(accountID, region, certID string) string {
+	return fmt.Sprintf("arn:aws:iot:%s:%s:cert/%s", region, accountID, certID)
+}
+
+// Reset clears all in-memory state, returning the backend to a pristine condition.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.devices = make(map[resourceKey]*WirelessDevice)
+	b.gateways = make(map[resourceKey]*WirelessGateway)
+	b.serviceProfiles = make(map[resourceKey]*ServiceProfile)
+	b.destinations = make(map[resourceKey]*Destination)
+	b.deviceProfiles = make(map[resourceKey]*DeviceProfile)
+	b.fuotaTasks = make(map[resourceKey]*FuotaTask)
+	b.resourceTags = make(map[string]map[string]string)
+	b.partnerAccounts = make(map[string]string)
+	b.fuotaTaskMulticast = make(map[string]string)
+	b.fuotaTaskDevices = make(map[string]string)
+	b.multicastGroupDevices = make(map[string]string)
+	b.multicastGroupSessions = make(map[string]bool)
+	b.wirelessDeviceThings = make(map[string]string)
+	b.wirelessGatewayCerts = make(map[string]string)
+	b.wirelessGatewayThings = make(map[string]string)
 }
 
 // copyWirelessDevice returns a shallow copy of d with an independent Tags map.
@@ -268,18 +308,23 @@ func (b *InMemoryBackend) GetWirelessDevice(accountID, region, id string) (*Wire
 	return copyWirelessDevice(d), nil
 }
 
-// ListWirelessDevices returns all wireless devices for the given account and region.
+// ListWirelessDevices returns all wireless devices for the given account and region,
+// sorted by name for deterministic output.
 func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*WirelessDevice {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var result []*WirelessDevice
+	result := make([]*WirelessDevice, 0)
 
 	for k, d := range b.devices {
 		if k.AccountID == accountID && k.Region == region {
 			result = append(result, copyWirelessDevice(d))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *WirelessDevice) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	return result
 }
@@ -344,18 +389,23 @@ func (b *InMemoryBackend) GetWirelessGateway(accountID, region, id string) (*Wir
 	return copyWirelessGateway(gw), nil
 }
 
-// ListWirelessGateways returns all wireless gateways for the given account and region.
+// ListWirelessGateways returns all wireless gateways for the given account and region,
+// sorted by name for deterministic output.
 func (b *InMemoryBackend) ListWirelessGateways(accountID, region string) []*WirelessGateway {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var result []*WirelessGateway
+	result := make([]*WirelessGateway, 0)
 
 	for k, gw := range b.gateways {
 		if k.AccountID == accountID && k.Region == region {
 			result = append(result, copyWirelessGateway(gw))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *WirelessGateway) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	return result
 }
@@ -419,18 +469,23 @@ func (b *InMemoryBackend) GetServiceProfile(accountID, region, id string) (*Serv
 	return copyServiceProfile(sp), nil
 }
 
-// ListServiceProfiles returns all service profiles for the given account and region.
+// ListServiceProfiles returns all service profiles for the given account and region,
+// sorted by name for deterministic output.
 func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*ServiceProfile {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var result []*ServiceProfile
+	result := make([]*ServiceProfile, 0)
 
 	for k, sp := range b.serviceProfiles {
 		if k.AccountID == accountID && k.Region == region {
 			result = append(result, copyServiceProfile(sp))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *ServiceProfile) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	return result
 }
@@ -497,17 +552,23 @@ func (b *InMemoryBackend) GetDestination(accountID, region, name string) (*Desti
 }
 
 // ListDestinations returns all destinations for the given account and region.
+// ListDestinations returns all destinations for the given account and region,
+// sorted by name for deterministic output.
 func (b *InMemoryBackend) ListDestinations(accountID, region string) []*Destination {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var result []*Destination
+	result := make([]*Destination, 0)
 
 	for k, dest := range b.destinations {
 		if k.AccountID == accountID && k.Region == region {
 			result = append(result, copyDestination(dest))
 		}
 	}
+
+	slices.SortFunc(result, func(a, b *Destination) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	return result
 }
@@ -607,6 +668,60 @@ func (b *InMemoryBackend) CreateDeviceProfile(
 	return copyDeviceProfile(dp), nil
 }
 
+// GetDeviceProfile returns a device profile by ID.
+func (b *InMemoryBackend) GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	dp, ok := b.deviceProfiles[key]
+	if !ok {
+		return nil, ErrDeviceProfileNotFound
+	}
+
+	return copyDeviceProfile(dp), nil
+}
+
+// ListDeviceProfiles returns all device profiles for the given account and region,
+// sorted by name for deterministic output.
+func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*DeviceProfile {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*DeviceProfile, 0)
+
+	for k, dp := range b.deviceProfiles {
+		if k.AccountID == accountID && k.Region == region {
+			result = append(result, copyDeviceProfile(dp))
+		}
+	}
+
+	slices.SortFunc(result, func(a, b *DeviceProfile) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return result
+}
+
+// DeleteDeviceProfile deletes a device profile by ID.
+func (b *InMemoryBackend) DeleteDeviceProfile(accountID, region, id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	dp, ok := b.deviceProfiles[key]
+	if !ok {
+		return ErrDeviceProfileNotFound
+	}
+
+	delete(b.resourceTags, dp.ARN)
+	delete(b.deviceProfiles, key)
+
+	return nil
+}
+
 // CreateFuotaTask creates a new FUOTA task.
 func (b *InMemoryBackend) CreateFuotaTask(
 	accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole string,
@@ -636,15 +751,69 @@ func (b *InMemoryBackend) CreateFuotaTask(
 	return copyFuotaTask(ft), nil
 }
 
+// GetFuotaTask returns a FUOTA task by ID.
+func (b *InMemoryBackend) GetFuotaTask(accountID, region, id string) (*FuotaTask, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	ft, ok := b.fuotaTasks[key]
+	if !ok {
+		return nil, ErrFuotaTaskNotFound
+	}
+
+	return copyFuotaTask(ft), nil
+}
+
+// ListFuotaTasks returns all FUOTA tasks for the given account and region,
+// sorted by name for deterministic output.
+func (b *InMemoryBackend) ListFuotaTasks(accountID, region string) []*FuotaTask {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*FuotaTask, 0)
+
+	for k, ft := range b.fuotaTasks {
+		if k.AccountID == accountID && k.Region == region {
+			result = append(result, copyFuotaTask(ft))
+		}
+	}
+
+	slices.SortFunc(result, func(a, b *FuotaTask) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return result
+}
+
+// DeleteFuotaTask deletes a FUOTA task by ID.
+func (b *InMemoryBackend) DeleteFuotaTask(accountID, region, id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	ft, ok := b.fuotaTasks[key]
+	if !ok {
+		return ErrFuotaTaskNotFound
+	}
+
+	delete(b.resourceTags, ft.ARN)
+	delete(b.fuotaTasks, key)
+
+	return nil
+}
+
 // AssociateAwsAccountWithPartnerAccount stores a partner account association and returns its ARN.
 func (b *InMemoryBackend) AssociateAwsAccountWithPartnerAccount(
-	accountID, partnerAccountID string,
+	accountID, region, partnerAccountID string,
 	tags map[string]string,
 ) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	arn := partnerAccountARN(accountID, partnerAccountID)
+	arn := partnerAccountARN(accountID, region, partnerAccountID)
 	b.partnerAccounts[partnerAccountID] = arn
 	b.storeResourceTagsLocked(arn, tags)
 
@@ -713,7 +882,7 @@ func (b *InMemoryBackend) AssociateWirelessGatewayWithCertificate(
 	}
 
 	b.wirelessGatewayCerts[gatewayID] = iotCertificateID
-	certARN := iotCertificateARN(accountID, iotCertificateID)
+	certARN := iotCertificateARN(accountID, region, iotCertificateID)
 
 	return certARN, nil
 }
@@ -745,4 +914,78 @@ func (b *InMemoryBackend) CancelMulticastGroupSession(multicastGroupID string) e
 	delete(b.multicastGroupSessions, multicastGroupID)
 
 	return nil
+}
+
+// --- Seed helpers for testing ---
+
+// AddWirelessDeviceInternal inserts a WirelessDevice directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddWirelessDeviceInternal(accountID, region string, d *WirelessDevice) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyWirelessDevice(d)
+	key := resourceKey{AccountID: accountID, Region: region, ID: d.ID}
+	b.devices[key] = cp
+	b.storeResourceTagsLocked(d.ARN, d.Tags)
+}
+
+// AddWirelessGatewayInternal inserts a WirelessGateway directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddWirelessGatewayInternal(accountID, region string, gw *WirelessGateway) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyWirelessGateway(gw)
+	key := resourceKey{AccountID: accountID, Region: region, ID: gw.ID}
+	b.gateways[key] = cp
+	b.storeResourceTagsLocked(gw.ARN, gw.Tags)
+}
+
+// AddServiceProfileInternal inserts a ServiceProfile directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddServiceProfileInternal(accountID, region string, sp *ServiceProfile) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyServiceProfile(sp)
+	key := resourceKey{AccountID: accountID, Region: region, ID: sp.ID}
+	b.serviceProfiles[key] = cp
+	b.storeResourceTagsLocked(sp.ARN, sp.Tags)
+}
+
+// AddDestinationInternal inserts a Destination directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddDestinationInternal(accountID, region string, dest *Destination) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyDestination(dest)
+	key := resourceKey{AccountID: accountID, Region: region, ID: dest.Name}
+	b.destinations[key] = cp
+	b.storeResourceTagsLocked(dest.ARN, dest.Tags)
+}
+
+// AddDeviceProfileInternal inserts a DeviceProfile directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddDeviceProfileInternal(accountID, region string, dp *DeviceProfile) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyDeviceProfile(dp)
+	key := resourceKey{AccountID: accountID, Region: region, ID: dp.ID}
+	b.deviceProfiles[key] = cp
+	b.storeResourceTagsLocked(dp.ARN, dp.Tags)
+}
+
+// AddFuotaTaskInternal inserts a FuotaTask directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddFuotaTaskInternal(accountID, region string, ft *FuotaTask) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyFuotaTask(ft)
+	key := resourceKey{AccountID: accountID, Region: region, ID: ft.ID}
+	b.fuotaTasks[key] = cp
+	b.storeResourceTagsLocked(ft.ARN, ft.Tags)
 }
