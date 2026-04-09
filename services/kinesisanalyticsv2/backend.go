@@ -18,7 +18,98 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	// ErrConcurrentModification is returned when the application version does not match.
+	ErrConcurrentModification = awserr.New("ConcurrentModificationException", awserr.ErrInvalidParameter)
 )
+
+// CloudWatchLoggingOptionDesc describes a CloudWatch logging option.
+type CloudWatchLoggingOptionDesc struct {
+	CloudWatchLoggingOptionID string `json:"CloudWatchLoggingOptionId"`
+	LogStreamARN              string `json:"LogStreamARN"`
+	RoleARN                   string `json:"RoleARN,omitempty"`
+}
+
+// LambdaProcessorDesc describes a Lambda input processor.
+type LambdaProcessorDesc struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+// InputProcessingConfigurationDesc describes an input processing configuration.
+type InputProcessingConfigurationDesc struct {
+	InputLambdaProcessor *LambdaProcessorDesc `json:"InputLambdaProcessor,omitempty"`
+}
+
+// KinesisStreamsInputDesc describes a Kinesis Streams input.
+type KinesisStreamsInputDesc struct {
+	ResourceARN string `json:"ResourceARN"`
+	RoleARN     string `json:"RoleARN,omitempty"`
+}
+
+// KinesisFirehoseInputDesc describes a Kinesis Firehose input.
+type KinesisFirehoseInputDesc struct {
+	ResourceARN string `json:"ResourceARN"`
+	RoleARN     string `json:"RoleARN,omitempty"`
+}
+
+// InputDescription describes an application input configuration.
+type InputDescription struct {
+	InputProcessingConfigurationDescription *InputProcessingConfigurationDesc `json:"InputProcessingConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	KinesisStreamsInputDescription          *KinesisStreamsInputDesc          `json:"KinesisStreamsInputDescription,omitempty"`          //nolint:lll // AWS API name
+	KinesisFirehoseInputDescription         *KinesisFirehoseInputDesc         `json:"KinesisFirehoseInputDescription,omitempty"`         //nolint:lll // AWS API name
+	InputID                                 string                            `json:"InputId"`
+	NamePrefix                              string                            `json:"NamePrefix,omitempty"`
+}
+
+// KinesisStreamsOutputDesc describes a Kinesis Streams output.
+type KinesisStreamsOutputDesc struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+// KinesisFirehoseOutputDesc describes a Kinesis Firehose output.
+type KinesisFirehoseOutputDesc struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+// LambdaOutputDesc describes a Lambda output.
+type LambdaOutputDesc struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+// DestinationSchemaDesc describes the destination record format.
+type DestinationSchemaDesc struct {
+	RecordFormatType string `json:"RecordFormatType"`
+}
+
+// OutputDescription describes an application output configuration.
+type OutputDescription struct {
+	KinesisStreamsOutputDescription  *KinesisStreamsOutputDesc  `json:"KinesisStreamsOutputDescription,omitempty"`
+	KinesisFirehoseOutputDescription *KinesisFirehoseOutputDesc `json:"KinesisFirehoseOutputDescription,omitempty"`
+	LambdaOutputDescription          *LambdaOutputDesc          `json:"LambdaOutputDescription,omitempty"`
+	DestinationSchema                *DestinationSchemaDesc     `json:"DestinationSchema,omitempty"`
+	OutputID                         string                     `json:"OutputId"`
+	Name                             string                     `json:"Name,omitempty"`
+}
+
+// S3ReferenceDataSourceDesc describes the S3 source for reference data.
+type S3ReferenceDataSourceDesc struct {
+	BucketARN string `json:"BucketARN"`
+	FileKey   string `json:"FileKey"`
+}
+
+// ReferenceDataSourceDescription describes a reference data source.
+type ReferenceDataSourceDescription struct {
+	S3ReferenceDataSourceDescription *S3ReferenceDataSourceDesc `json:"S3ReferenceDataSourceDescription,omitempty"`
+	ReferenceID                      string                     `json:"ReferenceId"`
+	TableName                        string                     `json:"TableName,omitempty"`
+}
+
+// VpcConfigurationDescription describes a VPC configuration.
+type VpcConfigurationDescription struct {
+	VpcConfigurationID string   `json:"VpcConfigurationId"`
+	VpcID              string   `json:"VpcId,omitempty"`
+	SubnetIDs          []string `json:"SubnetIds"`
+	SecurityGroupIDs   []string `json:"SecurityGroupIds"`
+}
 
 const (
 	// ApplicationStatusReady indicates a running application that is ready.
@@ -37,16 +128,21 @@ type Tag struct {
 
 // Application represents a Kinesis Data Analytics v2 application.
 type Application struct {
-	CreatedAt              time.Time `json:"-"`
-	ApplicationARN         string    `json:"ApplicationARN"`
-	ApplicationName        string    `json:"ApplicationName"`
-	ApplicationStatus      string    `json:"ApplicationStatus"`
-	RuntimeEnvironment     string    `json:"RuntimeEnvironment"`
-	ServiceExecutionRole   string    `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription string    `json:"ApplicationDescription,omitempty"`
-	ApplicationMode        string    `json:"ApplicationMode,omitempty"`
-	Tags                   []Tag     `json:"-"`
-	ApplicationVersionID   int64     `json:"ApplicationVersionId"`
+	CreatedAt                       time.Time                        `json:"-"`
+	ApplicationARN                  string                           `json:"ApplicationARN"`
+	ApplicationName                 string                           `json:"ApplicationName"`
+	ApplicationStatus               string                           `json:"ApplicationStatus"`
+	RuntimeEnvironment              string                           `json:"RuntimeEnvironment"`
+	ServiceExecutionRole            string                           `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription          string                           `json:"ApplicationDescription,omitempty"`
+	ApplicationMode                 string                           `json:"ApplicationMode,omitempty"`
+	Tags                            []Tag                            `json:"-"`
+	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"-"`
+	InputDescriptions               []InputDescription               `json:"-"`
+	OutputDescriptions              []OutputDescription              `json:"-"`
+	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"-"`
+	VpcConfigurationDescriptions    []VpcConfigurationDescription    `json:"-"`
+	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
 }
 
 // Snapshot represents an application snapshot.
@@ -66,6 +162,7 @@ type InMemoryBackend struct {
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
+	nextID          int64
 }
 
 // NewInMemoryBackend creates a new in-memory Kinesis Data Analytics v2 backend.
@@ -105,16 +202,21 @@ func (b *InMemoryBackend) CreateApplication(
 
 	appARN := b.applicationARN(name)
 	app := &Application{
-		ApplicationARN:         appARN,
-		ApplicationName:        name,
-		ApplicationStatus:      ApplicationStatusReady,
-		RuntimeEnvironment:     runtimeEnv,
-		ServiceExecutionRole:   serviceRole,
-		ApplicationDescription: description,
-		ApplicationMode:        mode,
-		ApplicationVersionID:   1,
-		Tags:                   cloneTags(tags),
-		CreatedAt:              time.Now().UTC(),
+		ApplicationARN:                  appARN,
+		ApplicationName:                 name,
+		ApplicationStatus:               ApplicationStatusReady,
+		RuntimeEnvironment:              runtimeEnv,
+		ServiceExecutionRole:            serviceRole,
+		ApplicationDescription:          description,
+		ApplicationMode:                 mode,
+		ApplicationVersionID:            1,
+		Tags:                            cloneTags(tags),
+		CreatedAt:                       time.Now().UTC(),
+		CloudWatchLoggingOptionDescs:    []CloudWatchLoggingOptionDesc{},
+		InputDescriptions:               []InputDescription{},
+		OutputDescriptions:              []OutputDescription{},
+		ReferenceDataSourceDescriptions: []ReferenceDataSourceDescription{},
+		VpcConfigurationDescriptions:    []VpcConfigurationDescription{},
 	}
 	b.applications[name] = app
 	b.applicationARNs[appARN] = name
@@ -393,6 +495,289 @@ func (b *InMemoryBackend) findByARN(resourceARN string) *Application {
 // GenerateApplicationARN exposes the ARN builder for testing.
 func (b *InMemoryBackend) GenerateApplicationARN(name string) string {
 	return b.applicationARN(name)
+}
+
+// newResourceID generates a unique resource ID. Must be called under b.mu.
+func (b *InMemoryBackend) newResourceID(prefix string) string {
+	b.nextID++
+
+	return fmt.Sprintf("%s-%d", prefix, b.nextID)
+}
+
+// checkAndBumpVersion validates the current version and increments it.
+// A zero/negative versionID is treated as "skip version check".
+// Must be called under b.mu.
+func checkAndBumpVersion(app *Application, currentVersionID int64) error {
+	if currentVersionID > 0 && app.ApplicationVersionID != currentVersionID {
+		return ErrConcurrentModification
+	}
+
+	app.ApplicationVersionID++
+
+	return nil
+}
+
+// AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to an application.
+func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
+	name string, currentVersionID int64, logStreamARN, roleARN string,
+) error {
+	b.mu.Lock("AddApplicationCloudWatchLoggingOption")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.CloudWatchLoggingOptionDescs = append(app.CloudWatchLoggingOptionDescs, CloudWatchLoggingOptionDesc{
+		CloudWatchLoggingOptionID: b.newResourceID("cwl"),
+		LogStreamARN:              logStreamARN,
+		RoleARN:                   roleARN,
+	})
+
+	return nil
+}
+
+// AddApplicationInput adds an input configuration to an application.
+func (b *InMemoryBackend) AddApplicationInput(
+	name string, currentVersionID int64, input InputDescription,
+) error {
+	b.mu.Lock("AddApplicationInput")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	input.InputID = b.newResourceID("input")
+	app.InputDescriptions = append(app.InputDescriptions, input)
+
+	return nil
+}
+
+// AddApplicationInputProcessingConfiguration sets a processing config on an existing input.
+func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
+	name string, currentVersionID int64, inputID string, config *InputProcessingConfigurationDesc,
+) error {
+	b.mu.Lock("AddApplicationInputProcessingConfiguration")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	// Find input before bumping version to avoid phantom increments on NotFound.
+	idx := -1
+
+	for i := range app.InputDescriptions {
+		if app.InputDescriptions[i].InputID == inputID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.InputDescriptions[idx].InputProcessingConfigurationDescription = config
+
+	return nil
+}
+
+// AddApplicationOutput adds an output configuration to an application.
+func (b *InMemoryBackend) AddApplicationOutput(
+	name string, currentVersionID int64, output OutputDescription,
+) error {
+	b.mu.Lock("AddApplicationOutput")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	output.OutputID = b.newResourceID("output")
+	app.OutputDescriptions = append(app.OutputDescriptions, output)
+
+	return nil
+}
+
+// AddApplicationReferenceDataSource adds a reference data source to an application.
+func (b *InMemoryBackend) AddApplicationReferenceDataSource(
+	name string, currentVersionID int64, ref ReferenceDataSourceDescription,
+) error {
+	b.mu.Lock("AddApplicationReferenceDataSource")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	ref.ReferenceID = b.newResourceID("ref")
+	app.ReferenceDataSourceDescriptions = append(app.ReferenceDataSourceDescriptions, ref)
+
+	return nil
+}
+
+// AddApplicationVpcConfiguration adds a VPC configuration to an application.
+func (b *InMemoryBackend) AddApplicationVpcConfiguration(
+	name string, currentVersionID int64, vpc VpcConfigurationDescription,
+) error {
+	b.mu.Lock("AddApplicationVpcConfiguration")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	vpc.VpcConfigurationID = b.newResourceID("vpc")
+	app.VpcConfigurationDescriptions = append(app.VpcConfigurationDescriptions, vpc)
+
+	return nil
+}
+
+// DeleteApplicationCloudWatchLoggingOption removes a CloudWatch logging option from an application.
+func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
+	name string, currentVersionID int64, loggingOptionID string,
+) error {
+	b.mu.Lock("DeleteApplicationCloudWatchLoggingOption")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	// Find before bumping to avoid a phantom version increment on NotFound.
+	idx := -1
+
+	for i, opt := range app.CloudWatchLoggingOptionDescs {
+		if opt.CloudWatchLoggingOptionID == loggingOptionID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.CloudWatchLoggingOptionDescs = append(
+		app.CloudWatchLoggingOptionDescs[:idx],
+		app.CloudWatchLoggingOptionDescs[idx+1:]...,
+	)
+
+	return nil
+}
+
+// DeleteApplicationInputProcessingConfiguration removes the processing config from an input.
+func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
+	name string, currentVersionID int64, inputID string,
+) error {
+	b.mu.Lock("DeleteApplicationInputProcessingConfiguration")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	// Find before bumping.
+	idx := -1
+
+	for i := range app.InputDescriptions {
+		if app.InputDescriptions[i].InputID == inputID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.InputDescriptions[idx].InputProcessingConfigurationDescription = nil
+
+	return nil
+}
+
+// DeleteApplicationOutput removes an output configuration from an application.
+func (b *InMemoryBackend) DeleteApplicationOutput(
+	name string, currentVersionID int64, outputID string,
+) error {
+	b.mu.Lock("DeleteApplicationOutput")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	// Find before bumping.
+	idx := -1
+
+	for i, out := range app.OutputDescriptions {
+		if out.OutputID == outputID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.OutputDescriptions = append(
+		app.OutputDescriptions[:idx],
+		app.OutputDescriptions[idx+1:]...,
+	)
+
+	return nil
 }
 
 // cloneTags returns a copy of a tag slice.

@@ -623,3 +623,836 @@ func TestKAV2_ErrorPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestKAV2_AddApplicationCloudWatchLoggingOption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *kinesisanalyticsv2.Handler)
+		body       map[string]any
+		name       string
+		wantCWLLen int
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "cwl-app",
+					"RuntimeEnvironment": "SQL-1_0",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName": "cwl-app",
+				"CloudWatchLoggingOption": map[string]any{
+					"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:my-group:log-stream:my-stream",
+					"RoleARN":      "arn:aws:iam::000000000000:role/my-role",
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantCWLLen: 1,
+		},
+		{
+			name: "app_not_found",
+			body: map[string]any{
+				"ApplicationName": "missing-app",
+				"CloudWatchLoggingOption": map[string]any{
+					"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
+				},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_cwl_option",
+			body: map[string]any{
+				"ApplicationName": "cwl-app",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doKAV2Request(t, h, "AddApplicationCloudWatchLoggingOption", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				descriptions, ok := out["CloudWatchLoggingOptionDescriptions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, descriptions, tt.wantCWLLen)
+			}
+		})
+	}
+}
+
+func TestKAV2_AddApplicationInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *kinesisanalyticsv2.Handler)
+		body       map[string]any
+		name       string
+		wantInputs int
+		wantStatus int
+	}{
+		{
+			name: "success_kinesis_streams",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "input-app",
+					"RuntimeEnvironment": "SQL-1_0",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName": "input-app",
+				"Input": map[string]any{
+					"NamePrefix": "SOURCE_SQL_STREAM",
+					"KinesisStreamsInput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantInputs: 1,
+		},
+		{
+			name: "app_not_found",
+			body: map[string]any{
+				"ApplicationName": "missing-app",
+				"Input": map[string]any{
+					"NamePrefix": "PREFIX",
+				},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_input",
+			body: map[string]any{
+				"ApplicationName": "input-app",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doKAV2Request(t, h, "AddApplicationInput", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				inputs, ok := out["InputDescriptions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, inputs, tt.wantInputs)
+			}
+		})
+	}
+}
+
+func TestKAV2_AddApplicationInputProcessingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	// Create an app and add an input, return the input ID.
+	setupInputApp := func(h *kinesisanalyticsv2.Handler, appName string) string {
+		doKAV2Request(t, h, "CreateApplication", map[string]any{
+			"ApplicationName":    appName,
+			"RuntimeEnvironment": "SQL-1_0",
+		})
+		rec := doKAV2Request(t, h, "AddApplicationInput", map[string]any{
+			"ApplicationName": appName,
+			"Input": map[string]any{
+				"NamePrefix": "SOURCE_SQL_STREAM",
+				"KinesisStreamsInput": map[string]any{
+					"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+				},
+			},
+		})
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		inputs := out["InputDescriptions"].([]any)
+		input := inputs[0].(map[string]any)
+
+		return input["InputId"].(string)
+	}
+
+	tests := []struct {
+		appName    string
+		inputID    string
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			appName:    "proc-app",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "input_not_found",
+			appName:    "proc-app2",
+			inputID:    "nonexistent-input",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "app_not_found",
+			appName:    "missing-app",
+			inputID:    "any-id",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			inputID := tt.inputID
+
+			switch tt.name {
+			case "success":
+				inputID = setupInputApp(h, tt.appName)
+			case "input_not_found":
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    tt.appName,
+					"RuntimeEnvironment": "SQL-1_0",
+				})
+			}
+
+			rec := doKAV2Request(t, h, "AddApplicationInputProcessingConfiguration", map[string]any{
+				"ApplicationName": tt.appName,
+				"InputId":         inputID,
+				"InputProcessingConfiguration": map[string]any{
+					"InputLambdaProcessor": map[string]any{
+						"ResourceARN": "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+					},
+				},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestKAV2_AddApplicationOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(h *kinesisanalyticsv2.Handler)
+		body        map[string]any
+		name        string
+		wantOutputs int
+		wantStatus  int
+	}{
+		{
+			name: "success_kinesis_streams",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "output-app",
+					"RuntimeEnvironment": "SQL-1_0",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName": "output-app",
+				"Output": map[string]any{
+					"Name": "DESTINATION_STREAM",
+					"KinesisStreamsOutput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+					},
+					"DestinationSchema": map[string]any{
+						"RecordFormatType": "JSON",
+					},
+				},
+			},
+			wantStatus:  http.StatusOK,
+			wantOutputs: 1,
+		},
+		{
+			name: "app_not_found",
+			body: map[string]any{
+				"ApplicationName": "missing-app",
+				"Output": map[string]any{
+					"Name": "output",
+				},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_output",
+			body: map[string]any{
+				"ApplicationName": "output-app",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doKAV2Request(t, h, "AddApplicationOutput", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				outputs, ok := out["OutputDescriptions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, outputs, tt.wantOutputs)
+			}
+		})
+	}
+}
+
+func TestKAV2_AddApplicationReferenceDataSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *kinesisanalyticsv2.Handler)
+		body       map[string]any
+		name       string
+		wantRefs   int
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "ref-app",
+					"RuntimeEnvironment": "SQL-1_0",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName": "ref-app",
+				"ReferenceDataSource": map[string]any{
+					"TableName": "REFERENCE_TABLE",
+					"S3ReferenceDataSource": map[string]any{
+						"BucketARN": "arn:aws:s3:::my-bucket",
+						"FileKey":   "data/reference.csv",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantRefs:   1,
+		},
+		{
+			name: "app_not_found",
+			body: map[string]any{
+				"ApplicationName": "missing-app",
+				"ReferenceDataSource": map[string]any{
+					"TableName": "TABLE",
+				},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_ref_source",
+			body: map[string]any{
+				"ApplicationName": "ref-app",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doKAV2Request(t, h, "AddApplicationReferenceDataSource", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				refs, ok := out["ReferenceDataSourceDescriptions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, refs, tt.wantRefs)
+			}
+		})
+	}
+}
+
+func TestKAV2_AddApplicationVpcConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *kinesisanalyticsv2.Handler)
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "vpc-app",
+					"RuntimeEnvironment": "FLINK-1_18",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName": "vpc-app",
+				"VpcConfiguration": map[string]any{
+					"SubnetIds":        []string{"subnet-abc123", "subnet-def456"},
+					"SecurityGroupIds": []string{"sg-abc123"},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "app_not_found",
+			body: map[string]any{
+				"ApplicationName": "missing-app",
+				"VpcConfiguration": map[string]any{
+					"SubnetIds":        []string{"subnet-abc123"},
+					"SecurityGroupIds": []string{"sg-abc123"},
+				},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_vpc_config",
+			body: map[string]any{
+				"ApplicationName": "vpc-app",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doKAV2Request(t, h, "AddApplicationVpcConfiguration", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.NotNil(t, out["VpcConfigurationDescription"])
+				vpcDesc, ok := out["VpcConfigurationDescription"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, vpcDesc["VpcConfigurationId"])
+			}
+		})
+	}
+}
+
+func TestKAV2_CreateApplicationPresignedUrl(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *kinesisanalyticsv2.Handler)
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "flink-app",
+					"RuntimeEnvironment": "FLINK-1_18",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName": "flink-app",
+				"UrlType":         "FLINK_DASHBOARD_URL",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "app_not_found",
+			body: map[string]any{
+				"ApplicationName": "missing-app",
+				"UrlType":         "FLINK_DASHBOARD_URL",
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doKAV2Request(t, h, "CreateApplicationPresignedUrl", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				url, ok := out["AuthorizedUrl"].(string)
+				require.True(t, ok)
+				assert.Contains(t, url, "FLINK_DASHBOARD_URL")
+			}
+		})
+	}
+}
+
+func TestKAV2_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
+	t.Parallel()
+
+	// addCWLOption creates app and adds a CWL option, returning the option ID.
+	addCWLOption := func(h *kinesisanalyticsv2.Handler, appName string) string {
+		doKAV2Request(t, h, "CreateApplication", map[string]any{
+			"ApplicationName":    appName,
+			"RuntimeEnvironment": "SQL-1_0",
+		})
+		rec := doKAV2Request(t, h, "AddApplicationCloudWatchLoggingOption", map[string]any{
+			"ApplicationName": appName,
+			"CloudWatchLoggingOption": map[string]any{
+				"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
+			},
+		})
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		descs := out["CloudWatchLoggingOptionDescriptions"].([]any)
+		desc := descs[0].(map[string]any)
+
+		return desc["CloudWatchLoggingOptionId"].(string)
+	}
+
+	tests := []struct {
+		appName      string
+		optionID     string
+		name         string
+		wantCWLCount int
+		wantStatus   int
+	}{
+		{
+			name:         "success",
+			appName:      "del-cwl-app",
+			wantStatus:   http.StatusOK,
+			wantCWLCount: 0,
+		},
+		{
+			name:       "app_not_found",
+			appName:    "missing-app",
+			optionID:   "cwl-1",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			optionID := tt.optionID
+
+			if tt.name == "success" {
+				optionID = addCWLOption(h, tt.appName)
+			}
+
+			rec := doKAV2Request(t, h, "DeleteApplicationCloudWatchLoggingOption", map[string]any{
+				"ApplicationName":           tt.appName,
+				"CloudWatchLoggingOptionId": optionID,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				descs, ok := out["CloudWatchLoggingOptionDescriptions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, descs, tt.wantCWLCount)
+			}
+		})
+	}
+}
+
+func TestKAV2_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	setupInputWithProc := func(h *kinesisanalyticsv2.Handler, appName string) string {
+		doKAV2Request(t, h, "CreateApplication", map[string]any{
+			"ApplicationName":    appName,
+			"RuntimeEnvironment": "SQL-1_0",
+		})
+		rec := doKAV2Request(t, h, "AddApplicationInput", map[string]any{
+			"ApplicationName": appName,
+			"Input": map[string]any{
+				"NamePrefix": "PREFIX",
+				"KinesisStreamsInput": map[string]any{
+					"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/s",
+				},
+			},
+		})
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		inputs := out["InputDescriptions"].([]any)
+		input := inputs[0].(map[string]any)
+		inputID := input["InputId"].(string)
+
+		doKAV2Request(t, h, "AddApplicationInputProcessingConfiguration", map[string]any{
+			"ApplicationName": appName,
+			"InputId":         inputID,
+			"InputProcessingConfiguration": map[string]any{
+				"InputLambdaProcessor": map[string]any{
+					"ResourceARN": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+				},
+			},
+		})
+
+		return inputID
+	}
+
+	tests := []struct {
+		appName    string
+		inputID    string
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			appName:    "del-proc-app",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "app_not_found",
+			appName:    "missing-app",
+			inputID:    "input-1",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			inputID := tt.inputID
+
+			if tt.name == "success" {
+				inputID = setupInputWithProc(h, tt.appName)
+			}
+
+			rec := doKAV2Request(t, h, "DeleteApplicationInputProcessingConfiguration", map[string]any{
+				"ApplicationName": tt.appName,
+				"InputId":         inputID,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestKAV2_DeleteApplicationOutput(t *testing.T) {
+	t.Parallel()
+
+	addOutput := func(h *kinesisanalyticsv2.Handler, appName string) string {
+		doKAV2Request(t, h, "CreateApplication", map[string]any{
+			"ApplicationName":    appName,
+			"RuntimeEnvironment": "SQL-1_0",
+		})
+		rec := doKAV2Request(t, h, "AddApplicationOutput", map[string]any{
+			"ApplicationName": appName,
+			"Output": map[string]any{
+				"Name": "OUTPUT_STREAM",
+				"KinesisStreamsOutput": map[string]any{
+					"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/s",
+				},
+				"DestinationSchema": map[string]any{
+					"RecordFormatType": "JSON",
+				},
+			},
+		})
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		outputs := out["OutputDescriptions"].([]any)
+		output := outputs[0].(map[string]any)
+
+		return output["OutputId"].(string)
+	}
+
+	tests := []struct {
+		appName      string
+		outputID     string
+		name         string
+		wantOutCount int
+		wantStatus   int
+	}{
+		{
+			name:         "success",
+			appName:      "del-out-app",
+			wantStatus:   http.StatusOK,
+			wantOutCount: 0,
+		},
+		{
+			name:       "app_not_found",
+			appName:    "missing-app",
+			outputID:   "output-1",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "output_not_found",
+			appName:    "del-out-notfound-app",
+			outputID:   "nonexistent-output",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			outputID := tt.outputID
+
+			switch tt.name {
+			case "success":
+				outputID = addOutput(h, tt.appName)
+			case "output_not_found":
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    tt.appName,
+					"RuntimeEnvironment": "SQL-1_0",
+				})
+			}
+
+			rec := doKAV2Request(t, h, "DeleteApplicationOutput", map[string]any{
+				"ApplicationName": tt.appName,
+				"OutputId":        outputID,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.NotEmpty(t, out["ApplicationARN"])
+			}
+		})
+	}
+}
+
+func TestKAV2_NewOpsVersionBump(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupAdd func(h *kinesisanalyticsv2.Handler, appName string) []byte
+		name     string
+	}{
+		{
+			name: "AddApplicationCloudWatchLoggingOption",
+			setupAdd: func(h *kinesisanalyticsv2.Handler, appName string) []byte {
+				rec := doKAV2Request(t, h, "AddApplicationCloudWatchLoggingOption", map[string]any{
+					"ApplicationName": appName,
+					"CloudWatchLoggingOption": map[string]any{
+						"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
+					},
+				})
+
+				return rec.Body.Bytes()
+			},
+		},
+		{
+			name: "AddApplicationVpcConfiguration",
+			setupAdd: func(h *kinesisanalyticsv2.Handler, appName string) []byte {
+				rec := doKAV2Request(t, h, "AddApplicationVpcConfiguration", map[string]any{
+					"ApplicationName": appName,
+					"VpcConfiguration": map[string]any{
+						"SubnetIds":        []string{"subnet-1"},
+						"SecurityGroupIds": []string{"sg-1"},
+					},
+				})
+
+				return rec.Body.Bytes()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+			appName := "version-bump-app-" + tt.name
+
+			doKAV2Request(t, h, "CreateApplication", map[string]any{
+				"ApplicationName":    appName,
+				"RuntimeEnvironment": "FLINK-1_18",
+			})
+
+			respBody := tt.setupAdd(h, appName)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(respBody, &out))
+			versionID, ok := out["ApplicationVersionId"].(float64)
+			require.True(t, ok)
+			assert.InEpsilon(t, 2.0, versionID, 1e-9)
+		})
+	}
+}
+
+func TestKAV2_GetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+	ops := h.GetSupportedOperations()
+
+	newOps := []string{
+		"AddApplicationCloudWatchLoggingOption",
+		"AddApplicationInput",
+		"AddApplicationInputProcessingConfiguration",
+		"AddApplicationOutput",
+		"AddApplicationReferenceDataSource",
+		"AddApplicationVpcConfiguration",
+		"CreateApplicationPresignedUrl",
+		"DeleteApplicationCloudWatchLoggingOption",
+		"DeleteApplicationInputProcessingConfiguration",
+		"DeleteApplicationOutput",
+	}
+
+	for _, op := range newOps {
+		assert.Contains(t, ops, op, "expected %q in GetSupportedOperations", op)
+	}
+}
