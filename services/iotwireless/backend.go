@@ -61,7 +61,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*FuotaTask, error)
 
-	AssociateAwsAccountWithPartnerAccount(partnerAccountID string, tags map[string]string) (string, error)
+	AssociateAwsAccountWithPartnerAccount(accountID, partnerAccountID string, tags map[string]string) (string, error)
 	AssociateMulticastGroupWithFuotaTask(fuotaTaskID, multicastGroupID string) error
 	AssociateWirelessDeviceWithFuotaTask(fuotaTaskID, wirelessDeviceID string) error
 	AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, wirelessDeviceID string) error
@@ -638,22 +638,15 @@ func (b *InMemoryBackend) CreateFuotaTask(
 
 // AssociateAwsAccountWithPartnerAccount stores a partner account association and returns its ARN.
 func (b *InMemoryBackend) AssociateAwsAccountWithPartnerAccount(
-	partnerAccountID string,
+	accountID, partnerAccountID string,
 	tags map[string]string,
 ) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	arn := partnerAccountARN("000000000000", partnerAccountID)
+	arn := partnerAccountARN(accountID, partnerAccountID)
 	b.partnerAccounts[partnerAccountID] = arn
-
-	if len(tags) > 0 {
-		if _, ok := b.resourceTags[arn]; !ok {
-			b.resourceTags[arn] = make(map[string]string)
-		}
-
-		maps.Copy(b.resourceTags[arn], tags)
-	}
+	b.storeResourceTagsLocked(arn, tags)
 
 	return arn, nil
 }

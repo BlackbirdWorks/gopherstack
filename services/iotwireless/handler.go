@@ -1020,7 +1020,7 @@ func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, partner
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	arn, err := h.Backend.AssociateAwsAccountWithPartnerAccount(partnerAccountID, req.Tags)
+	arn, err := h.Backend.AssociateAwsAccountWithPartnerAccount(h.AccountID, partnerAccountID, req.Tags)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
