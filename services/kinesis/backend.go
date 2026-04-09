@@ -1053,6 +1053,21 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	return nil
 }
 
+// nextShardID computes the next unique shard ID for a stream by finding the
+// maximum existing shard index and incrementing it. This ensures IDs remain
+// unique across merge/split operations even after shards are removed.
+func nextShardID(shards []*Shard) string {
+	maxIdx := len(shards) // safe lower bound
+	for _, s := range shards {
+		var n int
+		if _, err := fmt.Sscanf(s.ID, "shardId-%012d", &n); err == nil && n+1 > maxIdx {
+			maxIdx = n + 1
+		}
+	}
+
+	return fmt.Sprintf("shardId-%012d", maxIdx)
+}
+
 // MergeShards merges two adjacent shards into one.
 // The merged shard spans the combined hash key range of both parent shards.
 func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
@@ -1091,7 +1106,7 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 		endKey = s2End
 	}
 
-	mergedID := fmt.Sprintf("shardId-%012d", len(stream.Shards))
+	mergedID := nextShardID(stream.Shards)
 	merged := &Shard{
 		ID:                mergedID,
 		HashKeyRangeStart: startKey.String(),
@@ -1143,14 +1158,22 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 
 	shard1End := new(big.Int).Sub(newStart, big.NewInt(1))
 
-	newIdx := len(stream.Shards)
+	shard1ID := nextShardID(stream.Shards)
+
+	var shard1Idx int
+	if _, err := fmt.Sscanf(shard1ID, "shardId-%012d", &shard1Idx); err != nil {
+		// nextShardID guarantees the format; this path is unreachable in practice.
+		shard1Idx = len(stream.Shards)
+	}
+
+	shard2ID := fmt.Sprintf("shardId-%012d", shard1Idx+1)
 	shard1 := &Shard{
-		ID:                fmt.Sprintf("shardId-%012d", newIdx),
+		ID:                shard1ID,
 		HashKeyRangeStart: shard.HashKeyRangeStart,
 		HashKeyRangeEnd:   shard1End.String(),
 	}
 	shard2 := &Shard{
-		ID:                fmt.Sprintf("shardId-%012d", newIdx+1),
+		ID:                shard2ID,
 		HashKeyRangeStart: input.NewStartingHashKey,
 		HashKeyRangeEnd:   shard.HashKeyRangeEnd,
 	}

@@ -97,6 +97,83 @@ func TestMergeShards(t *testing.T) {
 	assert.Len(t, descResp.StreamDescription.Shards, 1)
 }
 
+// TestMergeAndSplitShardIDs verifies that shard IDs remain unique after merge+split operations.
+func TestMergeAndSplitShardIDs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create stream with 4 shards (IDs 0-3).
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "id-check-stream",
+		"ShardCount": 4,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getShards := func() []string {
+		r := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "id-check-stream"})
+		require.Equal(t, http.StatusOK, r.Code)
+
+		var d struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID string `json:"ShardId"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d))
+
+		ids := make([]string, len(d.StreamDescription.Shards))
+		for i, s := range d.StreamDescription.Shards {
+			ids[i] = s.ShardID
+		}
+
+		return ids
+	}
+
+	ids := getShards()
+	require.Len(t, ids, 4)
+
+	// Merge shards 0 and 1 → should produce shard with a new unique ID (4).
+	rec = doRequest(t, h, "MergeShards", map[string]any{
+		"StreamName":           "id-check-stream",
+		"ShardToMerge":         ids[0],
+		"AdjacentShardToMerge": ids[1],
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	ids = getShards()
+	require.Len(t, ids, 3)
+
+	// Verify all IDs are unique.
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		assert.NotContains(t, seen, id, "duplicate shard ID %q detected", id)
+		seen[id] = struct{}{}
+	}
+
+	// Split one of the remaining shards. Use a key strictly inside shard 2's range
+	// (170141183460469231731687303715884105728 to 255211775190703847598956918694523764991).
+	const splitKey = "200000000000000000000000000000000000000"
+	rec = doRequest(t, h, "SplitShard", map[string]any{
+		"StreamName":         "id-check-stream",
+		"ShardToSplit":       ids[0],
+		"NewStartingHashKey": splitKey,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	ids = getShards()
+	require.Len(t, ids, 4)
+
+	// Verify all IDs are still unique after the split.
+	seen = map[string]struct{}{}
+	for _, id := range ids {
+		assert.NotContains(t, seen, id, "duplicate shard ID %q detected after split", id)
+		seen[id] = struct{}{}
+	}
+}
+
 // TestMergeShards_Errors verifies error cases for MergeShards.
 func TestMergeShards_Errors(t *testing.T) {
 	t.Parallel()
