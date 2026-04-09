@@ -74,6 +74,18 @@ const (
 	StreamModeProvisioned = "PROVISIONED"
 	// StreamModeOnDemand is the ON_DEMAND stream mode.
 	StreamModeOnDemand = "ON_DEMAND"
+
+	// maxShardsPerStream is the per-stream limit on shard count enforced at creation time.
+	maxShardsPerStream = 100
+
+	// maxTagsPerStream is the maximum number of tags AWS allows per stream.
+	maxTagsPerStream = 50
+
+	// maxPartitionKeyLen is the maximum allowed partition key length in bytes.
+	maxPartitionKeyLen = 256
+
+	// streamStatusDeleting is the status when a stream is being deleted.
+	streamStatusDeleting = "DELETING"
 )
 
 const streamModeProvisioned = StreamModeProvisioned
