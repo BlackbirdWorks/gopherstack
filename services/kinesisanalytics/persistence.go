@@ -2,11 +2,12 @@ package kinesisanalytics
 
 import (
 	"encoding/json"
-	"maps"
+	"log/slog"
 )
 
 type backendSnapshot struct {
-	Apps map[string]*Application `json:"apps"`
+	Apps   map[string]*Application `json:"apps"`
+	NextID int64                   `json:"next_id"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -17,15 +18,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	appsCopy := make(map[string]*Application, len(b.apps))
 	for k, v := range b.apps {
-		cp := *v
-		cp.Tags = maps.Clone(v.Tags)
-		appsCopy[k] = &cp
+		appsCopy[k] = appCopy(v)
 	}
 
-	snap := backendSnapshot{Apps: appsCopy}
+	snap := backendSnapshot{
+		Apps:   appsCopy,
+		NextID: b.nextID,
+	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("kinesisanalytics: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -49,6 +53,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	b.apps = snap.Apps
+	b.nextID = snap.NextID
 
 	// Rebuild ARN index from restored applications.
 	b.appsByARN = make(map[string]*Application, len(b.apps))

@@ -625,3 +625,725 @@ func TestProvider_Init(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_AddApplicationCloudWatchLoggingOption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend)
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "adds logging option successfully",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "cwl-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "cwl-app",
+				"CurrentApplicationVersionId": 1,
+				"CloudWatchLoggingOption": map[string]any{
+					"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:test:log-stream:s1",
+					"RoleARN":      "arn:aws:iam::000000000000:role/role",
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing application name",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "app not found",
+			input: map[string]any{
+				"ApplicationName":             "ghost",
+				"CurrentApplicationVersionId": 1,
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "version mismatch",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "cwl-ver-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "cwl-ver-app",
+				"CurrentApplicationVersionId": 99,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			rec := doRequest(t, h, "AddApplicationCloudWatchLoggingOption", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("cwl-app")
+				require.NoError(t, err)
+				assert.NotEmpty(t, app.CloudWatchLoggingOptions)
+			}
+		})
+	}
+}
+
+func TestHandler_AddApplicationInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend)
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "adds kinesis streams input",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "input-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "input-app",
+				"CurrentApplicationVersionId": 1,
+				"Input": map[string]any{
+					"NamePrefix": "SOURCE_SQL_STREAM",
+					"KinesisStreamsInput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+						"RoleARN":     "arn:aws:iam::000000000000:role/role",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing application name",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "app not found",
+			input: map[string]any{
+				"ApplicationName":             "ghost",
+				"CurrentApplicationVersionId": 1,
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "version mismatch",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "input-ver-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "input-ver-app",
+				"CurrentApplicationVersionId": 99,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			rec := doRequest(t, h, "AddApplicationInput", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("input-app")
+				require.NoError(t, err)
+				assert.NotEmpty(t, app.Inputs)
+			}
+		})
+	}
+}
+
+func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend) string
+		input      func(inputID string) map[string]any
+		name       string
+		appName    string
+		wantStatus int
+	}{
+		{
+			name:    "adds processing config to existing input",
+			appName: "proc-app",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "proc-app", "", "", nil)
+				_ = b.AddApplicationInput("proc-app", 1, kinesisanalytics.InputDescription{NamePrefix: "PREFIX"})
+				app, _ := b.DescribeApplication("proc-app")
+
+				return app.Inputs[0].InputID
+			},
+			input: func(inputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "proc-app",
+					"CurrentApplicationVersionId": 2,
+					"InputId":                     inputID,
+					"InputProcessingConfiguration": map[string]any{
+						"InputLambdaProcessor": map[string]any{
+							"ResourceARN": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+							"RoleARN":     "arn:aws:iam::000000000000:role/role",
+						},
+					},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:  "missing application name",
+			setup: func(_ *kinesisanalytics.InMemoryBackend) string { return "" },
+			input: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "input id not found",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "proc-notfound-app", "", "", nil)
+
+				return "nonexistent-id"
+			},
+			input: func(inputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "proc-notfound-app",
+					"CurrentApplicationVersionId": 1,
+					"InputId":                     inputID,
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			inputID := tt.setup(b)
+			rec := doRequest(t, h, "AddApplicationInputProcessingConfiguration", tt.input(inputID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication(tt.appName)
+				require.NoError(t, err)
+				require.NotEmpty(t, app.Inputs)
+				assert.NotNil(t, app.Inputs[0].InputProcessingConfigurationDescription)
+			}
+		})
+	}
+}
+
+func TestHandler_AddApplicationOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend)
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "adds kinesis streams output",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "output-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "output-app",
+				"CurrentApplicationVersionId": 1,
+				"Output": map[string]any{
+					"Name": "DESTINATION_SQL_STREAM",
+					"KinesisStreamsOutput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/out",
+						"RoleARN":     "arn:aws:iam::000000000000:role/role",
+					},
+					"DestinationSchema": map[string]any{"RecordFormatType": "JSON"},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing application name",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "app not found",
+			input: map[string]any{
+				"ApplicationName":             "ghost",
+				"CurrentApplicationVersionId": 1,
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "version mismatch",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "output-ver-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "output-ver-app",
+				"CurrentApplicationVersionId": 99,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			rec := doRequest(t, h, "AddApplicationOutput", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("output-app")
+				require.NoError(t, err)
+				assert.NotEmpty(t, app.Outputs)
+			}
+		})
+	}
+}
+
+func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend)
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "adds reference data source",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "ref-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "ref-app",
+				"CurrentApplicationVersionId": 1,
+				"ReferenceDataSource": map[string]any{
+					"TableName": "MY_REF_TABLE",
+					"S3ReferenceDataSource": map[string]any{
+						"BucketARN": "arn:aws:s3:::my-bucket",
+						"FileKey":   "data.csv",
+						"RoleARN":   "arn:aws:iam::000000000000:role/role",
+					},
+					"ReferenceSchema": map[string]any{
+						"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},
+						"RecordColumns": []map[string]any{{"Name": "COL1", "SqlType": "VARCHAR(4)"}},
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing application name",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "app not found",
+			input: map[string]any{
+				"ApplicationName":             "ghost",
+				"CurrentApplicationVersionId": 1,
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "version mismatch",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "ref-ver-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "ref-ver-app",
+				"CurrentApplicationVersionId": 99,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			rec := doRequest(t, h, "AddApplicationReferenceDataSource", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("ref-app")
+				require.NoError(t, err)
+				assert.NotEmpty(t, app.ReferenceDataSources)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend) string
+		input      func(optID string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "deletes existing logging option",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-cwl-app", "", "", nil)
+				_ = b.AddApplicationCloudWatchLoggingOption(
+					"del-cwl-app",
+					1,
+					kinesisanalytics.CloudWatchLoggingOptionDesc{
+						LogStreamARN: "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
+					},
+				)
+				app, _ := b.DescribeApplication("del-cwl-app")
+
+				return app.CloudWatchLoggingOptions[0].CloudWatchLoggingOptionID
+			},
+			input: func(optID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-cwl-app",
+					"CurrentApplicationVersionId": 2,
+					"CloudWatchLoggingOptionId":   optID,
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:  "missing application name",
+			setup: func(_ *kinesisanalytics.InMemoryBackend) string { return "" },
+			input: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "logging option id not found",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-cwl-notfound", "", "", nil)
+
+				return "nonexistent"
+			},
+			input: func(optID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-cwl-notfound",
+					"CurrentApplicationVersionId": 1,
+					"CloudWatchLoggingOptionId":   optID,
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			optID := tt.setup(b)
+			rec := doRequest(t, h, "DeleteApplicationCloudWatchLoggingOption", tt.input(optID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("del-cwl-app")
+				require.NoError(t, err)
+				assert.Empty(t, app.CloudWatchLoggingOptions)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend) string
+		input      func(inputID string) map[string]any
+		name       string
+		appName    string
+		wantStatus int
+	}{
+		{
+			name:    "removes processing config from input",
+			appName: "del-proc-app",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-proc-app", "", "", nil)
+				_ = b.AddApplicationInput("del-proc-app", 1, kinesisanalytics.InputDescription{NamePrefix: "STREAM"})
+				app, _ := b.DescribeApplication("del-proc-app")
+				inputID := app.Inputs[0].InputID
+				cfg := &kinesisanalytics.InputProcessingConfigurationDesc{
+					InputLambdaProcessor: &kinesisanalytics.LambdaProcessorDesc{ResourceARN: "arn:aws:lambda::fn"},
+				}
+				_ = b.AddApplicationInputProcessingConfiguration("del-proc-app", 2, inputID, cfg)
+
+				return inputID
+			},
+			input: func(inputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-proc-app",
+					"CurrentApplicationVersionId": 3,
+					"InputId":                     inputID,
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:  "missing application name",
+			setup: func(_ *kinesisanalytics.InMemoryBackend) string { return "" },
+			input: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "input id not found",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-proc-notfound", "", "", nil)
+
+				return "nonexistent"
+			},
+			input: func(inputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-proc-notfound",
+					"CurrentApplicationVersionId": 1,
+					"InputId":                     inputID,
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			inputID := tt.setup(b)
+			rec := doRequest(t, h, "DeleteApplicationInputProcessingConfiguration", tt.input(inputID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication(tt.appName)
+				require.NoError(t, err)
+				require.NotEmpty(t, app.Inputs)
+				assert.Nil(t, app.Inputs[0].InputProcessingConfigurationDescription)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteApplicationOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend) string
+		input      func(outputID string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "deletes existing output",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-out-app", "", "", nil)
+				_ = b.AddApplicationOutput("del-out-app", 1, kinesisanalytics.OutputDescription{Name: "STREAM_OUT"})
+				app, _ := b.DescribeApplication("del-out-app")
+
+				return app.Outputs[0].OutputID
+			},
+			input: func(outputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-out-app",
+					"CurrentApplicationVersionId": 2,
+					"OutputId":                    outputID,
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:  "missing application name",
+			setup: func(_ *kinesisanalytics.InMemoryBackend) string { return "" },
+			input: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "output id not found",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-out-notfound", "", "", nil)
+
+				return "nonexistent"
+			},
+			input: func(outputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-out-notfound",
+					"CurrentApplicationVersionId": 1,
+					"OutputId":                    outputID,
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			outputID := tt.setup(b)
+			rec := doRequest(t, h, "DeleteApplicationOutput", tt.input(outputID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("del-out-app")
+				require.NoError(t, err)
+				assert.Empty(t, app.Outputs)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteApplicationReferenceDataSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalytics.InMemoryBackend) string
+		input      func(refID string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "deletes existing reference data source",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-ref-app", "", "", nil)
+				_ = b.AddApplicationReferenceDataSource(
+					"del-ref-app",
+					1,
+					kinesisanalytics.ReferenceDataSourceDescription{TableName: "REF_TBL"},
+				)
+				app, _ := b.DescribeApplication("del-ref-app")
+
+				return app.ReferenceDataSources[0].ReferenceID
+			},
+			input: func(refID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-ref-app",
+					"CurrentApplicationVersionId": 2,
+					"ReferenceId":                 refID,
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:  "missing application name",
+			setup: func(_ *kinesisanalytics.InMemoryBackend) string { return "" },
+			input: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "reference id not found",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = b.CreateApplication(testRegion, testAccountID, "del-ref-notfound", "", "", nil)
+
+				return "nonexistent"
+			},
+			input: func(refID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":             "del-ref-notfound",
+					"CurrentApplicationVersionId": 1,
+					"ReferenceId":                 refID,
+				}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			refID := tt.setup(b)
+			rec := doRequest(t, h, "DeleteApplicationReferenceDataSource", tt.input(refID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				app, err := b.DescribeApplication("del-ref-app")
+				require.NoError(t, err)
+				assert.Empty(t, app.ReferenceDataSources)
+			}
+		})
+	}
+}
+
+func TestHandler_DiscoverInputSchema(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "returns synthetic schema",
+			input: map[string]any{
+				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+				"RoleARN":     "arn:aws:iam::000000000000:role/role",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "returns schema for empty request",
+			input:      map[string]any{},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "DiscoverInputSchema", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, "InputSchema")
+				assert.Contains(t, resp, "ParsedInputRecords")
+			}
+		})
+	}
+}
