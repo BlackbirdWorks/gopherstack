@@ -41,6 +41,15 @@ type StorageBackend interface {
 	DisableEnhancedMonitoring(input *DisableEnhancedMonitoringInput) (*DisableEnhancedMonitoringOutput, error)
 	IncreaseStreamRetentionPeriod(input *IncreaseStreamRetentionPeriodInput) error
 	DecreaseStreamRetentionPeriod(input *DecreaseStreamRetentionPeriodInput) error
+	MergeShards(input *MergeShardsInput) error
+	SplitShard(input *SplitShardInput) error
+	StartStreamEncryption(input *StartStreamEncryptionInput) error
+	StopStreamEncryption(input *StopStreamEncryptionInput) error
+	DeleteResourcePolicy(input *DeleteResourcePolicyInput) error
+	GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error)
+	PutResourcePolicy(input *PutResourcePolicyInput) error
+	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
+	DescribeAccountSettings() (*DescribeAccountSettingsOutput, error)
 	ListAll() []StreamInfo
 }
 
@@ -54,6 +63,7 @@ type kinesisThrottleFault struct {
 type InMemoryBackend struct {
 	streams             map[string]*Stream
 	fisThroughputFaults map[string]*kinesisThrottleFault // keyed by stream name
+	resourcePolicies    map[string]string                // keyed by resource ARN
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -69,6 +79,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		streams:             make(map[string]*Stream),
 		fisThroughputFaults: make(map[string]*kinesisThrottleFault),
+		resourcePolicies:    make(map[string]string),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("kinesis"),
@@ -1042,6 +1053,224 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	return nil
 }
 
+// MergeShards merges two adjacent shards into one.
+// The merged shard spans the combined hash key range of both parent shards.
+func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
+	b.mu.Lock("MergeShards")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	shard1 := findShard(stream.Shards, input.ShardToMerge)
+	shard2 := findShard(stream.Shards, input.AdjacentShardToMerge)
+
+	if shard1 == nil || shard2 == nil {
+		return ErrInvalidArgument
+	}
+
+	// Determine the merged range: min start, max end.
+	s1Start := new(big.Int)
+	s1Start.SetString(shard1.HashKeyRangeStart, hashKeyDecimalBase)
+	s2Start := new(big.Int)
+	s2Start.SetString(shard2.HashKeyRangeStart, hashKeyDecimalBase)
+	s1End := new(big.Int)
+	s1End.SetString(shard1.HashKeyRangeEnd, hashKeyDecimalBase)
+	s2End := new(big.Int)
+	s2End.SetString(shard2.HashKeyRangeEnd, hashKeyDecimalBase)
+
+	startKey := s1Start
+	if s2Start.Cmp(s1Start) < 0 {
+		startKey = s2Start
+	}
+
+	endKey := s1End
+	if s2End.Cmp(s1End) > 0 {
+		endKey = s2End
+	}
+
+	mergedID := fmt.Sprintf("shardId-%012d", len(stream.Shards))
+	merged := &Shard{
+		ID:                mergedID,
+		HashKeyRangeStart: startKey.String(),
+		HashKeyRangeEnd:   endKey.String(),
+	}
+
+	newShards := make([]*Shard, 0, len(stream.Shards)-1)
+	for _, s := range stream.Shards {
+		if s.ID != input.ShardToMerge && s.ID != input.AdjacentShardToMerge {
+			newShards = append(newShards, s)
+		}
+	}
+
+	newShards = append(newShards, merged)
+	stream.Shards = newShards
+
+	return nil
+}
+
+// SplitShard splits a shard into two at the given new starting hash key.
+func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
+	b.mu.Lock("SplitShard")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	shard := findShard(stream.Shards, input.ShardToSplit)
+	if shard == nil {
+		return ErrInvalidArgument
+	}
+
+	newStart := new(big.Int)
+	if _, valid := newStart.SetString(input.NewStartingHashKey, hashKeyDecimalBase); !valid {
+		return ErrInvalidArgument
+	}
+
+	shardStart := new(big.Int)
+	shardStart.SetString(shard.HashKeyRangeStart, hashKeyDecimalBase)
+	shardEnd := new(big.Int)
+	shardEnd.SetString(shard.HashKeyRangeEnd, hashKeyDecimalBase)
+
+	// NewStartingHashKey must be strictly inside the shard's range.
+	if newStart.Cmp(shardStart) <= 0 || newStart.Cmp(shardEnd) >= 0 {
+		return ErrInvalidArgument
+	}
+
+	shard1End := new(big.Int).Sub(newStart, big.NewInt(1))
+
+	newIdx := len(stream.Shards)
+	shard1 := &Shard{
+		ID:                fmt.Sprintf("shardId-%012d", newIdx),
+		HashKeyRangeStart: shard.HashKeyRangeStart,
+		HashKeyRangeEnd:   shard1End.String(),
+	}
+	shard2 := &Shard{
+		ID:                fmt.Sprintf("shardId-%012d", newIdx+1),
+		HashKeyRangeStart: input.NewStartingHashKey,
+		HashKeyRangeEnd:   shard.HashKeyRangeEnd,
+	}
+
+	newShards := make([]*Shard, 0, len(stream.Shards)+1)
+	for _, s := range stream.Shards {
+		if s.ID != input.ShardToSplit {
+			newShards = append(newShards, s)
+		}
+	}
+
+	newShards = append(newShards, shard1, shard2)
+	stream.Shards = newShards
+
+	return nil
+}
+
+// StartStreamEncryption enables server-side encryption on a stream.
+func (b *InMemoryBackend) StartStreamEncryption(input *StartStreamEncryptionInput) error {
+	b.mu.Lock("StartStreamEncryption")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	if input.EncryptionType != encryptionTypeKMS {
+		return ErrInvalidArgument
+	}
+
+	stream.EncryptionType = input.EncryptionType
+	stream.KeyID = input.KeyID
+
+	return nil
+}
+
+// StopStreamEncryption disables server-side encryption on a stream.
+func (b *InMemoryBackend) StopStreamEncryption(input *StopStreamEncryptionInput) error {
+	b.mu.Lock("StopStreamEncryption")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	stream.EncryptionType = encryptionTypeNone
+	stream.KeyID = ""
+
+	return nil
+}
+
+// PutResourcePolicy stores a resource-based policy for the given stream or consumer ARN.
+func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) error {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	b.resourcePolicies[input.ResourceARN] = input.Policy
+
+	return nil
+}
+
+// GetResourcePolicy retrieves the resource-based policy for the given stream or consumer ARN.
+func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error) {
+	b.mu.RLock("GetResourcePolicy")
+	defer b.mu.RUnlock()
+
+	policy, ok := b.resourcePolicies[input.ResourceARN]
+	if !ok {
+		return nil, ErrResourcePolicyNotFound
+	}
+
+	return &GetResourcePolicyOutput{Policy: policy}, nil
+}
+
+// DeleteResourcePolicy removes the resource-based policy for the given stream or consumer ARN.
+func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput) error {
+	b.mu.Lock("DeleteResourcePolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourcePolicies[input.ResourceARN]; !ok {
+		return ErrResourcePolicyNotFound
+	}
+
+	delete(b.resourcePolicies, input.ResourceARN)
+
+	return nil
+}
+
+// ListTagsForResource returns the tags associated with a stream identified by its ARN.
+// Tags are those stored on the stream's internal Tags store (set via TagResource).
+func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	streamName := streamNameFromARN(input.ResourceARN)
+	stream, ok := b.streams[streamName]
+
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	result := map[string]string{}
+	if stream.Tags != nil {
+		result = stream.Tags.Clone()
+	}
+
+	return &ListTagsForResourceOutput{Tags: result}, nil
+}
+
+// DescribeAccountSettings returns account-level limits for this Kinesis account.
+func (b *InMemoryBackend) DescribeAccountSettings() (*DescribeAccountSettingsOutput, error) {
+	return &DescribeAccountSettingsOutput{
+		ShardLimit:               kinesisDefaultShardLimit,
+		OnDemandStreamCount:      0,
+		OnDemandStreamCountLimit: defaultOnDemandStreamCountLimit,
+	}, nil
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -1056,6 +1285,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.streams = make(map[string]*Stream)
 	b.fisThroughputFaults = make(map[string]*kinesisThrottleFault)
+	b.resourcePolicies = make(map[string]string)
 }
 
 // Purge removes all Kinesis streams and consumers created before the cutoff time.

@@ -18,6 +18,7 @@ var (
 	ErrShardIteratorExpired          = errors.New("ExpiredIteratorException")
 	ErrConsumerNotFound              = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrConsumerAlreadyExists         = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	ErrResourcePolicyNotFound        = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrProvisionedThroughputExceeded = awserr.New(
 		"ProvisionedThroughputExceededException",
 		errRateExceeded,

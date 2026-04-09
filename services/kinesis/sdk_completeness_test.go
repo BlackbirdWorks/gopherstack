@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := kinesis.NewInMemoryBackend()
 	h := kinesis.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &kinesissdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteResourcePolicy",
-		"DescribeAccountSettings",
-		"DescribeLimits",
-		"GetResourcePolicy",
-		"ListTagsForResource",
-		"MergeShards",
-		"PutResourcePolicy",
-		"SplitShard",
-		"StartStreamEncryption",
-		"StopStreamEncryption",
 		"TagResource",
 		"UntagResource",
 		"UpdateAccountSettings",

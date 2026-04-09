@@ -10,6 +10,12 @@ const (
 	// streamStatusActive is the status when a stream is ready for use.
 	streamStatusActive = "ACTIVE"
 
+	// encryptionTypeKMS is the KMS encryption type.
+	encryptionTypeKMS = "KMS"
+
+	// encryptionTypeNone is the no-encryption type.
+	encryptionTypeNone = "NONE"
+
 	// defaultShardCount is the default number of shards for a new stream.
 	defaultShardCount = 1
 
@@ -44,6 +50,15 @@ const (
 	// maxShardCount is the maximum number of shards allowed in a stream.
 	maxShardCount = 1000
 
+	// kinesisDefaultShardLimit is the default account-level shard limit.
+	kinesisDefaultShardLimit = 500
+
+	// defaultOnDemandStreamCountLimit is the default limit for on-demand streams.
+	defaultOnDemandStreamCountLimit = 10
+
+	// hashKeyDecimalBase is the base used for parsing Kinesis hash key strings.
+	hashKeyDecimalBase = 10
+
 	// minRetentionHours is the minimum retention period AWS allows (24 h).
 	minRetentionHours = 24
 	// maxRetentionHours is the maximum retention period AWS allows (8 760 h = 365 days).
@@ -64,6 +79,8 @@ type Stream struct {
 	Name               string               `json:"name"`
 	ARN                string               `json:"arn"`
 	Status             string               `json:"status"`
+	EncryptionType     string               `json:"encryptionType,omitempty"`
+	KeyID              string               `json:"keyId,omitempty"`
 	Shards             []*Shard             `json:"shards"`
 	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
 	RetentionPeriod    int                  `json:"retentionPeriod"`
@@ -370,4 +387,70 @@ type IncreaseStreamRetentionPeriodInput struct {
 type DecreaseStreamRetentionPeriodInput struct {
 	StreamName           string
 	RetentionPeriodHours int
+}
+
+// MergeShardsInput is the input for MergeShards.
+type MergeShardsInput struct {
+	StreamName           string
+	ShardToMerge         string
+	AdjacentShardToMerge string
+}
+
+// SplitShardInput is the input for SplitShard.
+type SplitShardInput struct {
+	StreamName         string
+	ShardToSplit       string
+	NewStartingHashKey string
+}
+
+// StartStreamEncryptionInput is the input for StartStreamEncryption.
+type StartStreamEncryptionInput struct {
+	StreamName     string
+	EncryptionType string
+	KeyID          string
+}
+
+// StopStreamEncryptionInput is the input for StopStreamEncryption.
+type StopStreamEncryptionInput struct {
+	StreamName     string
+	EncryptionType string
+	KeyID          string
+}
+
+// DeleteResourcePolicyInput is the input for DeleteResourcePolicy.
+type DeleteResourcePolicyInput struct {
+	ResourceARN string
+}
+
+// GetResourcePolicyInput is the input for GetResourcePolicy.
+type GetResourcePolicyInput struct {
+	ResourceARN string
+}
+
+// GetResourcePolicyOutput is the output for GetResourcePolicy.
+type GetResourcePolicyOutput struct {
+	Policy string
+}
+
+// PutResourcePolicyInput is the input for PutResourcePolicy.
+type PutResourcePolicyInput struct {
+	ResourceARN string
+	Policy      string
+}
+
+// ListTagsForResourceInput is the input for ListTagsForResource.
+type ListTagsForResourceInput struct {
+	ResourceARN string
+}
+
+// ListTagsForResourceOutput is the output for ListTagsForResource.
+type ListTagsForResourceOutput struct {
+	Tags map[string]string
+}
+
+// DescribeAccountSettingsOutput is the output for DescribeAccountSettings.
+type DescribeAccountSettingsOutput struct {
+	ShardLimit               int
+	OnDemandStreamCount      int
+	OnDemandStreamCountLimit int
 }

@@ -123,6 +123,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateShardCount",
 		"EnableEnhancedMonitoring",
 		"DisableEnhancedMonitoring",
+		"DescribeLimits",
+		"DescribeAccountSettings",
+		"MergeShards",
+		"SplitShard",
+		"StartStreamEncryption",
+		"StopStreamEncryption",
+		"DeleteResourcePolicy",
+		"GetResourcePolicy",
+		"PutResourcePolicy",
+		"ListTagsForResource",
 	}
 }
 
@@ -223,6 +233,15 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 		"IncreaseStreamRetentionPeriod": h.handleIncreaseStreamRetentionPeriod,
 		"DecreaseStreamRetentionPeriod": h.handleDecreaseStreamRetentionPeriod,
 		"DescribeLimits":                h.handleDescribeLimits,
+		"DescribeAccountSettings":       h.handleDescribeAccountSettings,
+		"MergeShards":                   h.handleMergeShards,
+		"SplitShard":                    h.handleSplitShard,
+		"StartStreamEncryption":         h.handleStartStreamEncryption,
+		"StopStreamEncryption":          h.handleStopStreamEncryption,
+		"DeleteResourcePolicy":          h.handleDeleteResourcePolicy,
+		"GetResourcePolicy":             h.handleGetResourcePolicy,
+		"PutResourcePolicy":             h.handlePutResourcePolicy,
+		"ListTagsForResource":           h.handleListTagsForResource,
 		"RegisterStreamConsumer":        h.handleRegisterStreamConsumer,
 		"DescribeStreamConsumer":        h.handleDescribeStreamConsumer,
 		"ListStreamConsumers":           h.handleListStreamConsumers,
@@ -743,11 +762,14 @@ func (h *Handler) handleListShards(
 	return jsonListShardsResp{Shards: shards}, nil
 }
 
+// errTypeResourceNotFound is the Kinesis error type string for resource not found errors.
+const errTypeResourceNotFound = "ResourceNotFoundException"
+
 // errorDetails maps an error to its Kinesis JSON error type, message, and HTTP status.
 func errorDetails(err error) (string, string, int) {
 	switch {
 	case errors.Is(err, ErrStreamNotFound):
-		return "ResourceNotFoundException",
+		return errTypeResourceNotFound,
 			"Stream not found.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrStreamAlreadyExists):
@@ -755,12 +777,16 @@ func errorDetails(err error) (string, string, int) {
 			"A stream with this name already exists.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrConsumerNotFound):
-		return "ResourceNotFoundException",
+		return errTypeResourceNotFound,
 			"Consumer not found.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrConsumerAlreadyExists):
 		return "ResourceInUseException",
 			"A consumer with this name already exists.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrResourcePolicyNotFound):
+		return errTypeResourceNotFound,
+			"Resource policy not found.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrProvisionedThroughputExceeded):
 		return "ProvisionedThroughputExceededException",
@@ -888,8 +914,6 @@ func (h *Handler) handleDecreaseStreamRetentionPeriod(
 	return struct{}{}, nil
 }
 
-const kinesisDefaultShardLimit = 500
-
 func (h *Handler) handleDescribeLimits(
 	_ context.Context,
 	_ *http.Request,
@@ -899,6 +923,236 @@ func (h *Handler) handleDescribeLimits(
 		OpenShardCount: 0,
 		ShardLimit:     kinesisDefaultShardLimit,
 	}, nil
+}
+
+// --- JSON types for new operations ---
+
+type jsonDescribeAccountSettingsResp struct {
+	ShardLimit               int `json:"ShardLimit"`
+	OnDemandStreamCount      int `json:"OnDemandStreamCount"`
+	OnDemandStreamCountLimit int `json:"OnDemandStreamCountLimit"`
+}
+
+type jsonMergeShardsReq struct {
+	StreamName           string `json:"StreamName"`
+	ShardToMerge         string `json:"ShardToMerge"`
+	AdjacentShardToMerge string `json:"AdjacentShardToMerge"`
+}
+
+type jsonSplitShardReq struct {
+	StreamName         string `json:"StreamName"`
+	ShardToSplit       string `json:"ShardToSplit"`
+	NewStartingHashKey string `json:"NewStartingHashKey"`
+}
+
+type jsonEncryptionReq struct {
+	StreamName     string `json:"StreamName"`
+	EncryptionType string `json:"EncryptionType"`
+	KeyID          string `json:"KeyId"`
+}
+
+type jsonResourceARNReq struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type jsonPutResourcePolicyReq struct {
+	ResourceARN string `json:"ResourceARN"`
+	Policy      string `json:"Policy"`
+}
+
+type jsonGetResourcePolicyResp struct {
+	Policy string `json:"Policy"`
+}
+
+type jsonListTagsForResourceResp struct {
+	Tags []svcTags.KV `json:"Tags"`
+}
+
+// --- Handler methods for new operations ---
+
+func (h *Handler) handleDescribeAccountSettings(
+	_ context.Context,
+	_ *http.Request,
+	_ []byte,
+) (any, error) {
+	out, err := h.Backend.DescribeAccountSettings()
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonDescribeAccountSettingsResp{
+		ShardLimit:               out.ShardLimit,
+		OnDemandStreamCount:      out.OnDemandStreamCount,
+		OnDemandStreamCountLimit: out.OnDemandStreamCountLimit,
+	}, nil
+}
+
+func (h *Handler) handleMergeShards(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonMergeShardsReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.MergeShards(&MergeShardsInput{
+		StreamName:           req.StreamName,
+		ShardToMerge:         req.ShardToMerge,
+		AdjacentShardToMerge: req.AdjacentShardToMerge,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleSplitShard(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonSplitShardReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.SplitShard(&SplitShardInput{
+		StreamName:         req.StreamName,
+		ShardToSplit:       req.ShardToSplit,
+		NewStartingHashKey: req.NewStartingHashKey,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleStartStreamEncryption(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonEncryptionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.StartStreamEncryption(&StartStreamEncryptionInput{
+		StreamName:     req.StreamName,
+		EncryptionType: req.EncryptionType,
+		KeyID:          req.KeyID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleStopStreamEncryption(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonEncryptionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.StopStreamEncryption(&StopStreamEncryptionInput{
+		StreamName:     req.StreamName,
+		EncryptionType: req.EncryptionType,
+		KeyID:          req.KeyID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handlePutResourcePolicy(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonPutResourcePolicyReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.PutResourcePolicy(&PutResourcePolicyInput{
+		ResourceARN: req.ResourceARN,
+		Policy:      req.Policy,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleGetResourcePolicy(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonResourceARNReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.GetResourcePolicy(&GetResourcePolicyInput{
+		ResourceARN: req.ResourceARN,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonGetResourcePolicyResp{Policy: out.Policy}, nil
+}
+
+func (h *Handler) handleDeleteResourcePolicy(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonResourceARNReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.DeleteResourcePolicy(&DeleteResourcePolicyInput{
+		ResourceARN: req.ResourceARN,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonResourceARNReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.ListTagsForResource(&ListTagsForResourceInput{
+		ResourceARN: req.ResourceARN,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	tagList := make([]svcTags.KV, 0, len(out.Tags))
+	for k, v := range out.Tags {
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
+	}
+
+	return jsonListTagsForResourceResp{Tags: tagList}, nil
 }
 
 // --- Consumer JSON types ---
