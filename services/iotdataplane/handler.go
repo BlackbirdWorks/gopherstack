@@ -5,8 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,6 +24,8 @@ const (
 	maxShadowBodyBytes = 8 * 1024
 	// retainedMessagePath is the URL path prefix for retained message operations.
 	retainedMessagePath = "/retainedMessage"
+	// retainedMessagePathSlash is the prefix used to match individual topic paths.
+	retainedMessagePathSlash = retainedMessagePath + "/"
 )
 
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
@@ -33,6 +36,11 @@ type Handler struct {
 // NewHandler creates a new IoT Data Plane Handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// Reset clears all handler state by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -71,7 +79,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/") ||
 			strings.HasPrefix(path, "/connections/") ||
 			path == retainedMessagePath ||
-			strings.HasPrefix(path, retainedMessagePath+"/")
+			strings.HasPrefix(path, retainedMessagePathSlash)
 	}
 }
 
@@ -91,7 +99,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "DeleteConnection"
 	case path == retainedMessagePath && method == http.MethodGet:
 		return "ListRetainedMessages"
-	case strings.HasPrefix(path, retainedMessagePath+"/") && method == http.MethodGet:
+	case strings.HasPrefix(path, retainedMessagePathSlash) && method == http.MethodGet:
 		return "GetRetainedMessage"
 	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 		switch method {
@@ -126,7 +134,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	if after, ok := strings.CutPrefix(path, retainedMessagePath+"/"); ok {
+	if after, ok := strings.CutPrefix(path, retainedMessagePathSlash); ok {
 		return after
 	}
 
@@ -145,6 +153,29 @@ func parseShadowPath(path string) string {
 	return parts[0]
 }
 
+// handleError maps backend errors to appropriate HTTP status codes.
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrShadowNotFound), errors.Is(err, ErrRetainedMessageNotFound):
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error":   "ResourceNotFoundException",
+			"message": err.Error(),
+		})
+	case errors.Is(err, ErrVersionConflict):
+		return c.JSON(http.StatusConflict, map[string]string{
+			"error":   "VersionConflictException",
+			"message": err.Error(),
+		})
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error":   "InvalidRequestException",
+			"message": err.Error(),
+		})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+}
+
 // Handler returns the Echo handler function for IoT Data Plane operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -158,7 +189,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleDeleteConnection(c)
 		case path == retainedMessagePath:
 			return h.handleListRetainedMessages(c)
-		case strings.HasPrefix(path, retainedMessagePath+"/"):
+		case strings.HasPrefix(path, retainedMessagePathSlash):
 			return h.handleGetRetainedMessage(c)
 		case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 			return h.handleShadow(c)
@@ -168,7 +199,41 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// parsePublishQoS extracts and validates the qos query parameter, returning the value and any error response.
+func parsePublishQoS(c *echo.Context) (int32, error) {
+	qosStr := c.Request().URL.Query().Get("qos")
+	if qosStr == "" {
+		return 0, nil
+	}
+
+	qosVal, err := strconv.ParseInt(qosStr, 10, 32)
+	if err != nil || qosVal < 0 || qosVal > 1 {
+		return 0, c.JSON(http.StatusBadRequest, map[string]string{"error": "qos must be 0 or 1"})
+	}
+
+	return int32(qosVal), nil
+}
+
+// unwrapPublishPayload unwraps a JSON `{"payload":"..."}` envelope if present,
+// otherwise returns the original body bytes unchanged.
+func unwrapPublishPayload(body []byte) []byte {
+	var wrapper struct {
+		Payload *json.RawMessage `json:"payload"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil && wrapper.Payload != nil {
+		var payloadStr string
+		if unmarshalErr := json.Unmarshal(*wrapper.Payload, &payloadStr); unmarshalErr == nil {
+			return []byte(payloadStr)
+		}
+	}
+
+	return body
+}
+
 // handlePublish processes POST /topics/{topic} requests.
+// Query params: qos (int), retain (bool).
+// When no broker is configured the publish is silently accepted with HTTP 200.
 func (h *Handler) handlePublish(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
@@ -181,6 +246,11 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
 	}
 
+	qos, qosErr := parsePublishQoS(c)
+	if qosErr != nil {
+		return qosErr
+	}
+
 	// Limit the request body size to prevent excessive memory usage.
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxPublishBodyBytes)
 
@@ -189,38 +259,46 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
 	}
 
-	payload := body
+	payload := unwrapPublishPayload(body)
 
-	// If the body is a JSON object with a "payload" string key, unwrap it.
-	// Using a fixed struct avoids the map allocation that a map[string]json.RawMessage would incur.
-	var wrapper struct {
-		Payload *json.RawMessage `json:"payload"`
-	}
+	if publishErr := h.Backend.Publish(topic, payload, qos); publishErr != nil {
+		if errors.Is(publishErr, ErrNoBroker) {
+			// No broker is normal in test/local environments – accept the message.
+			log.Warn("iot data plane: no broker configured, message dropped", "topic", topic)
+		} else {
+			log.Error("iot data plane publish failed", "topic", topic, "error", publishErr)
 
-	if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil && wrapper.Payload != nil {
-		var payloadStr string
-		if unmarshalErr := json.Unmarshal(*wrapper.Payload, &payloadStr); unmarshalErr == nil {
-			payload = []byte(payloadStr)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": publishErr.Error()})
 		}
 	}
 
-	if publishErr := h.Backend.Publish(topic, payload); publishErr != nil {
-		log.Error("iot data plane publish failed", "topic", topic, "error", publishErr)
+	return h.handleRetain(c, log, topic, payload, qos)
+}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": publishErr.Error()})
-	}
+// handleRetain stores a retained message when ?retain=true/1 is set.
+func (h *Handler) handleRetain(
+	c *echo.Context,
+	log interface{ Warn(string, ...any) },
+	topic string,
+	payload []byte,
+	qos int32,
+) error {
+	retainStr := strings.ToLower(c.Request().URL.Query().Get("retain"))
+	if retainStr == "true" || retainStr == "1" {
+		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, qos); storeErr != nil {
+			if errors.Is(storeErr, ErrValidation) {
+				return h.handleError(c, storeErr)
+			}
 
-	// Store as retained message when the caller sets ?retain=true.
-	if strings.ToLower(c.Request().URL.Query().Get("retain")) == "true" {
-		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, 0); storeErr != nil {
 			log.Warn("failed to store retained message", "topic", topic, "error", storeErr)
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"topic": topic})
+	return c.JSON(http.StatusOK, map[string]string{})
 }
 
 // handleDeleteConnection processes DELETE /connections/{clientId} requests.
+// Query params: cleanSession (bool), preventWillMessage (bool) – accepted but not enforced.
 func (h *Handler) handleDeleteConnection(c *echo.Context) error {
 	if c.Request().Method != http.MethodDelete {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -232,7 +310,7 @@ func (h *Handler) handleDeleteConnection(c *echo.Context) error {
 	}
 
 	if err := h.Backend.DeleteConnection(clientID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{})
@@ -244,21 +322,14 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
 
-	topic := strings.TrimPrefix(c.Request().URL.Path, retainedMessagePath+"/")
+	topic := strings.TrimPrefix(c.Request().URL.Path, retainedMessagePathSlash)
 	if topic == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
 	}
 
 	msg, err := h.Backend.GetRetainedMessage(topic)
 	if err != nil {
-		if errors.Is(err, ErrRetainedMessageNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error":   "ResourceNotFoundException",
-				"message": err.Error(),
-			})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	resp := map[string]any{
@@ -272,6 +343,7 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 }
 
 // handleListRetainedMessages processes GET /retainedMessage requests.
+// Query params: nextToken (string), maxResults (int).
 func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -282,8 +354,36 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	summaries := make([]map[string]any, 0, len(msgs))
-	for _, msg := range msgs {
+	// Apply simple nextToken pagination using the topic as the cursor.
+	nextTokenIn := c.Request().URL.Query().Get("nextToken")
+	maxResultsStr := c.Request().URL.Query().Get("maxResults")
+
+	maxResults := len(msgs)
+	if maxResultsStr != "" {
+		if v, parseErr := strconv.Atoi(maxResultsStr); parseErr == nil && v > 0 {
+			maxResults = v
+		}
+	}
+
+	// Find the start index from the nextToken (which is a topic name cursor).
+	startIdx := 0
+
+	if nextTokenIn != "" {
+		for i, msg := range msgs {
+			if msg.Topic == nextTokenIn {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	end := min(startIdx+maxResults, len(msgs))
+
+	page := msgs[startIdx:end]
+
+	summaries := make([]map[string]any, 0, len(page))
+	for _, msg := range page {
 		summaries = append(summaries, map[string]any{
 			"topic":            msg.Topic,
 			"payloadSize":      int64(len(msg.Payload)),
@@ -292,9 +392,15 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"retainedTopics": summaries,
-	})
+	}
+
+	if end < len(msgs) {
+		resp["nextToken"] = msgs[end].Topic
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // handleShadow dispatches GET/POST/DELETE /things/{thingName}/shadow requests.
@@ -323,14 +429,7 @@ func (h *Handler) handleShadow(c *echo.Context) error {
 func (h *Handler) handleGetThingShadow(c *echo.Context, thingName, shadowName string) error {
 	doc, err := h.Backend.GetThingShadow(thingName, shadowName)
 	if err != nil {
-		if errors.Is(err, ErrShadowNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error":   "ResourceNotFoundException",
-				"message": err.Error(),
-			})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.Blob(http.StatusOK, "application/json", doc)
@@ -347,36 +446,25 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 
 	updated, updateErr := h.Backend.UpdateThingShadow(thingName, shadowName, body)
 	if updateErr != nil {
-		if errors.Is(updateErr, ErrVersionConflict) {
-			return c.JSON(http.StatusConflict, map[string]string{
-				"error":   "VersionConflictException",
-				"message": updateErr.Error(),
-			})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": updateErr.Error()})
+		return h.handleError(c, updateErr)
 	}
 
 	return c.Blob(http.StatusOK, "application/json", updated)
 }
 
 // handleDeleteThingShadow processes DELETE /things/{thingName}/shadow.
+// Returns the deleted shadow state as payload (AWS contract).
 func (h *Handler) handleDeleteThingShadow(c *echo.Context, thingName, shadowName string) error {
-	if err := h.Backend.DeleteThingShadow(thingName, shadowName); err != nil {
-		if errors.Is(err, ErrShadowNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error":   "ResourceNotFoundException",
-				"message": err.Error(),
-			})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	payload, err := h.Backend.DeleteThingShadow(thingName, shadowName)
+	if err != nil {
+		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return c.Blob(http.StatusOK, "application/json", payload)
 }
 
 // handleListNamedShadows processes GET /api/things/shadow/ListNamedShadowsForThing/{thingName}.
+// Response includes results, nextToken (pagination), and timestamp (AWS SDK compat).
 func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -392,10 +480,45 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	sort.Strings(names)
+	// Apply simple nextToken pagination using the shadow name as cursor.
+	nextTokenIn := c.Request().URL.Query().Get("nextToken")
+	maxResultsStr := c.Request().URL.Query().Get("pageSize")
+
+	maxResults := len(names)
+	if maxResultsStr != "" {
+		if v, parseErr := strconv.Atoi(maxResultsStr); parseErr == nil && v > 0 {
+			maxResults = v
+		}
+	}
+
+	startIdx := 0
+
+	if nextTokenIn != "" {
+		for i, name := range names {
+			if name == nextTokenIn {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	end := min(startIdx+maxResults, len(names))
+
+	page := names[startIdx:end]
+
+	// Ensure page is never nil so the JSON encoder always emits [].
+	if page == nil {
+		page = []string{}
+	}
 
 	resp := map[string]any{
-		"results": names,
+		"results":   page,
+		"timestamp": time.Now().Unix(),
+	}
+
+	if end < len(names) {
+		resp["nextToken"] = names[end]
 	}
 
 	return c.JSON(http.StatusOK, resp)

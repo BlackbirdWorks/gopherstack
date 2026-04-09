@@ -330,7 +330,7 @@ func TestBackend_DeleteThingShadow_ThingNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
-	err := b.DeleteThingShadow("nonexistent", "")
+	_, err := b.DeleteThingShadow("nonexistent", "")
 	require.Error(t, err)
 }
 
@@ -554,7 +554,7 @@ func TestBackend_Publish(t *testing.T) {
 				b.SetBroker(mock)
 			}
 
-			err := b.Publish(tt.topic, tt.payload)
+			err := b.Publish(tt.topic, tt.payload, 0)
 
 			if tt.wantErr {
 				require.Error(t, err)

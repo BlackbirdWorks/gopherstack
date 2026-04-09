@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,14 +14,24 @@ import (
 var ErrNoBroker = errors.New("no mqtt broker configured")
 
 // ErrShadowNotFound is returned when a thing shadow is not found.
-var ErrShadowNotFound = errors.New("ResourceNotFoundException")
+var ErrShadowNotFound = errors.New("shadow not found")
 
-// ErrRetainedMessageNotFound is returned when a retained message is not found for a topic.
-var ErrRetainedMessageNotFound = errors.New("ResourceNotFoundException")
+// ErrRetainedMessageNotFound is returned when no retained message exists for a topic.
+var ErrRetainedMessageNotFound = errors.New("retained message not found")
 
 // ErrVersionConflict is returned when a shadow update specifies a version
 // that does not match the current shadow version (optimistic locking violation).
 var ErrVersionConflict = errors.New("VersionConflictException")
+
+// ErrValidation is returned for invalid input parameters.
+var ErrValidation = errors.New("InvalidRequestException")
+
+// maxRetainedMessages is the maximum number of retained messages stored in memory.
+// This prevents unbounded memory growth when many topics are used.
+const maxRetainedMessages = 1000
+
+// compile-time interface check.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // shadowEntry holds a shadow document together with its version and timestamp.
 type shadowEntry struct {
@@ -47,6 +58,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// Reset clears all backend state, including shadows, connections, and retained messages.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.shadows = make(map[string]map[string]*shadowEntry)
+	b.connections = make(map[string]struct{})
+	b.retainedMessages = make(map[string]*RetainedMessage)
+}
+
 // SetBroker wires the MQTT broker for publishing (called during CLI startup).
 func (b *InMemoryBackend) SetBroker(broker MQTTPublisher) {
 	b.mu.Lock()
@@ -56,7 +77,8 @@ func (b *InMemoryBackend) SetBroker(broker MQTTPublisher) {
 }
 
 // Publish delivers a message to the given MQTT topic.
-func (b *InMemoryBackend) Publish(topic string, payload []byte) error {
+// If no broker is configured the call is a no-op (accepted but not forwarded).
+func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32) error {
 	b.mu.RLock()
 	broker := b.broker
 	b.mu.RUnlock()
@@ -65,7 +87,25 @@ func (b *InMemoryBackend) Publish(topic string, payload []byte) error {
 		return ErrNoBroker
 	}
 
-	return broker.Publish(topic, payload, false, 0)
+	// Clamp qos to valid MQTT range [0,1] before narrowing to byte.
+	var qosByte byte
+	if qos > 0 {
+		qosByte = 1
+	}
+
+	return broker.Publish(topic, payload, false, qosByte)
+}
+
+// sortedKeys returns a sorted copy of the keys of a map[string]V.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 // buildShadowResponse merges version and timestamp into the stored shadow document.
@@ -178,18 +218,27 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	return resp, nil
 }
 
-// DeleteThingShadow removes the document for the named shadow of a thing.
-func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) error {
+// DeleteThingShadow removes the document for the named shadow of a thing and
+// returns the last known shadow state (compatible with the AWS DeleteThingShadow
+// response which always returns a Payload).
+func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	thingShadows, ok := b.shadows[thingName]
 	if !ok {
-		return fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
-	if _, hasShadow := thingShadows[shadowName]; !hasShadow {
-		return fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+	entry, hasShadow := thingShadows[shadowName]
+	if !hasShadow {
+		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+	}
+
+	// Build the final state response before deletion so we can return it.
+	payload, err := buildShadowResponse(entry.document, entry.version, entry.updatedAt)
+	if err != nil {
+		payload = entry.document
 	}
 
 	delete(thingShadows, shadowName)
@@ -198,10 +247,10 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) error 
 		delete(b.shadows, thingName)
 	}
 
-	return nil
+	return payload, nil
 }
 
-// ListNamedShadowsForThing returns the list of named shadow names for the given thing.
+// ListNamedShadowsForThing returns the sorted list of named shadow names for the given thing.
 // The classic (unnamed) shadow is excluded from this list.
 func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, error) {
 	b.mu.RLock()
@@ -219,12 +268,19 @@ func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, 
 		}
 	}
 
+	sort.Strings(names)
+
 	return names, nil
 }
 
 // DeleteConnection removes an MQTT client connection from the backend.
 // If the clientID does not exist the operation is a no-op (idempotent).
+// ClientIDs beginning with '$' are rejected per AWS rules.
 func (b *InMemoryBackend) DeleteConnection(clientID string) error {
+	if strings.HasPrefix(clientID, "$") {
+		return fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -241,8 +297,28 @@ func (b *InMemoryBackend) AddConnectionInternal(clientID string) {
 	b.connections[clientID] = struct{}{}
 }
 
+// AddShadowInternal seeds a shadow entry for testing purposes.
+func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, document []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.shadows[thingName]; !ok {
+		b.shadows[thingName] = make(map[string]*shadowEntry)
+	}
+
+	cp := make([]byte, len(document))
+	copy(cp, document)
+
+	b.shadows[thingName][shadowName] = &shadowEntry{
+		document:  cp,
+		version:   1,
+		updatedAt: time.Now(),
+	}
+}
+
 // StoreRetainedMessage saves a retained MQTT message for the given topic.
 // Calling this with an empty payload removes the retained message for that topic.
+// Returns ErrValidation if the cap would be exceeded.
 func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos int32) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -251,6 +327,10 @@ func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos
 		delete(b.retainedMessages, topic)
 
 		return nil
+	}
+
+	if _, exists := b.retainedMessages[topic]; !exists && len(b.retainedMessages) >= maxRetainedMessages {
+		return fmt.Errorf("%w: retained message limit (%d) exceeded", ErrValidation, maxRetainedMessages)
 	}
 
 	cp := make([]byte, len(payload))
@@ -291,13 +371,7 @@ func (b *InMemoryBackend) ListRetainedMessages() ([]*RetainedMessage, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	topics := make([]string, 0, len(b.retainedMessages))
-	for topic := range b.retainedMessages {
-		topics = append(topics, topic)
-	}
-
-	sort.Strings(topics)
-
+	topics := sortedKeys(b.retainedMessages)
 	result := make([]*RetainedMessage, 0, len(topics))
 
 	for _, topic := range topics {
