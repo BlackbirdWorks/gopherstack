@@ -20,6 +20,15 @@ var (
 )
 
 const (
+	// ReplicatorStateRunning indicates a running replicator.
+	ReplicatorStateRunning = "RUNNING"
+	// VpcConnectionStateAvailable indicates a VPC connection that is available.
+	VpcConnectionStateAvailable = "AVAILABLE"
+	// ClusterOperationStateUpdateComplete indicates a completed cluster operation.
+	ClusterOperationStateUpdateComplete = "UPDATE_COMPLETE"
+)
+
+const (
 	// ClusterStateActive indicates a running cluster.
 	ClusterStateActive = "ACTIVE"
 	// ClusterStateCreating indicates a cluster being provisioned.
@@ -79,21 +88,33 @@ type Configuration struct {
 
 // InMemoryBackend stores MSK state in memory.
 type InMemoryBackend struct {
-	clusters       map[string]*Cluster       // key: clusterArn
-	configurations map[string]*Configuration // key: configArn
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
+	clusters          map[string]*Cluster          // key: clusterArn
+	configurations    map[string]*Configuration    // key: configArn
+	scramSecrets      map[string][]string          // key: clusterArn → []secretArn
+	replicators       map[string]*Replicator       // key: replicatorArn
+	topics            map[string]*Topic            // key: clusterArn + "|" + topicName
+	vpcConnections    map[string]*VpcConnection    // key: vpcConnectionArn
+	clusterPolicies   map[string]string            // key: clusterArn → policy document
+	clusterOperations map[string]*ClusterOperation // key: clusterOperationArn
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory MSK backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:       make(map[string]*Cluster),
-		configurations: make(map[string]*Configuration),
-		mu:             lockmetrics.New("kafka"),
-		accountID:      accountID,
-		region:         region,
+		clusters:          make(map[string]*Cluster),
+		configurations:    make(map[string]*Configuration),
+		scramSecrets:      make(map[string][]string),
+		replicators:       make(map[string]*Replicator),
+		topics:            make(map[string]*Topic),
+		vpcConnections:    make(map[string]*VpcConnection),
+		clusterPolicies:   make(map[string]string),
+		clusterOperations: make(map[string]*ClusterOperation),
+		mu:                lockmetrics.New("kafka"),
+		accountID:         accountID,
+		region:            region,
 	}
 }
 
@@ -111,6 +132,36 @@ func (b *InMemoryBackend) clusterARN(name string) string {
 // configurationARN builds an ARN for an MSK configuration.
 func (b *InMemoryBackend) configurationARN(name string) string {
 	return arn.Build("kafka", b.region, b.accountID, fmt.Sprintf("configuration/%s/%s", name, uuid.New().String()))
+}
+
+// replicatorARN builds an ARN for an MSK replicator.
+func (b *InMemoryBackend) replicatorARN(name string) string {
+	return arn.Build("kafka", b.region, b.accountID, fmt.Sprintf("replicator/%s/%s", name, uuid.New().String()))
+}
+
+// vpcConnectionARN builds an ARN for an MSK VPC connection.
+func (b *InMemoryBackend) vpcConnectionARN(clusterArn, vpcID string) string {
+	return arn.Build(
+		"kafka",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("vpc-connection/%s/%s/%s", clusterArn, vpcID, uuid.New().String()),
+	)
+}
+
+// clusterOperationARN builds an ARN for an MSK cluster operation.
+func (b *InMemoryBackend) clusterOperationARN(clusterArn string) string {
+	return arn.Build(
+		"kafka",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("cluster-operation/%s/%s", clusterArn, uuid.New().String()),
+	)
+}
+
+// topicKey returns the composite key used to store a topic in memory.
+func topicKey(clusterArn, topicName string) string {
+	return clusterArn + "|" + topicName
 }
 
 // --- Cluster operations ---
@@ -325,6 +376,302 @@ func (b *InMemoryBackend) GetTags(resourceArn string) (map[string]string, error)
 	}
 
 	return nil, ErrNotFound
+}
+
+// --- SCRAM secret operations ---
+
+// BatchAssociateScramSecret associates a list of SCRAM secrets with a cluster.
+// It returns any errors that occurred for individual secrets.
+func (b *InMemoryBackend) BatchAssociateScramSecret(
+	clusterArn string,
+	secretArnList []string,
+) ([]ScramSecretError, error) {
+	b.mu.Lock("BatchAssociateScramSecret")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	existing := b.scramSecrets[clusterArn]
+	existingSet := make(map[string]struct{}, len(existing))
+
+	for _, s := range existing {
+		existingSet[s] = struct{}{}
+	}
+
+	for _, secretArn := range secretArnList {
+		if _, found := existingSet[secretArn]; !found {
+			existing = append(existing, secretArn)
+			existingSet[secretArn] = struct{}{}
+		}
+	}
+
+	b.scramSecrets[clusterArn] = existing
+
+	return []ScramSecretError{}, nil
+}
+
+// BatchDisassociateScramSecret disassociates a list of SCRAM secrets from a cluster.
+// It returns any errors that occurred for individual secrets.
+func (b *InMemoryBackend) BatchDisassociateScramSecret(
+	clusterArn string,
+	secretArnList []string,
+) ([]ScramSecretError, error) {
+	b.mu.Lock("BatchDisassociateScramSecret")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	removeSet := make(map[string]struct{}, len(secretArnList))
+
+	for _, s := range secretArnList {
+		removeSet[s] = struct{}{}
+	}
+
+	existing := b.scramSecrets[clusterArn]
+	kept := existing[:0]
+
+	for _, s := range existing {
+		if _, remove := removeSet[s]; !remove {
+			kept = append(kept, s)
+		}
+	}
+
+	b.scramSecrets[clusterArn] = kept
+
+	return []ScramSecretError{}, nil
+}
+
+// --- Replicator operations ---
+
+// CreateReplicator creates a new MSK replicator.
+func (b *InMemoryBackend) CreateReplicator(
+	name, description, serviceExecutionRoleArn string,
+	tags map[string]string,
+) (*Replicator, error) {
+	b.mu.Lock("CreateReplicator")
+	defer b.mu.Unlock()
+
+	for _, r := range b.replicators {
+		if r.ReplicatorName == name {
+			return nil, ErrAlreadyExists
+		}
+	}
+
+	replicatorArn := b.replicatorARN(name)
+	replicator := &Replicator{
+		ReplicatorArn:           replicatorArn,
+		ReplicatorName:          name,
+		Description:             description,
+		ServiceExecutionRoleArn: serviceExecutionRoleArn,
+		ReplicatorState:         ReplicatorStateRunning,
+		Tags:                    maps.Clone(tags),
+	}
+	b.replicators[replicatorArn] = replicator
+
+	return replicator, nil
+}
+
+// DeleteReplicator deletes a replicator by ARN.
+func (b *InMemoryBackend) DeleteReplicator(replicatorArn string) error {
+	b.mu.Lock("DeleteReplicator")
+	defer b.mu.Unlock()
+
+	if _, ok := b.replicators[replicatorArn]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.replicators, replicatorArn)
+
+	return nil
+}
+
+// --- Topic operations ---
+
+// CreateTopic creates a topic on an MSK cluster.
+func (b *InMemoryBackend) CreateTopic(
+	clusterArn, topicName string,
+	replicationFactor, numPartitions int32,
+	configEntries map[string]string,
+) (*Topic, error) {
+	b.mu.Lock("CreateTopic")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	key := topicKey(clusterArn, topicName)
+	if _, ok := b.topics[key]; ok {
+		return nil, ErrAlreadyExists
+	}
+
+	topic := &Topic{
+		TopicName:         topicName,
+		ClusterArn:        clusterArn,
+		ReplicationFactor: replicationFactor,
+		NumPartitions:     numPartitions,
+		ConfigEntries:     maps.Clone(configEntries),
+	}
+	b.topics[key] = topic
+
+	return topic, nil
+}
+
+// DeleteTopic deletes a topic from an MSK cluster.
+func (b *InMemoryBackend) DeleteTopic(clusterArn, topicName string) error {
+	b.mu.Lock("DeleteTopic")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return ErrNotFound
+	}
+
+	key := topicKey(clusterArn, topicName)
+	if _, ok := b.topics[key]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.topics, key)
+
+	return nil
+}
+
+// --- VPC connection operations ---
+
+// CreateVpcConnection creates a new VPC connection to an MSK cluster.
+func (b *InMemoryBackend) CreateVpcConnection(
+	targetClusterArn, vpcID, authentication string,
+	tags map[string]string,
+) (*VpcConnection, error) {
+	b.mu.Lock("CreateVpcConnection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[targetClusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	vpcConnectionArn := b.vpcConnectionARN(targetClusterArn, vpcID)
+	conn := &VpcConnection{
+		VpcConnectionArn: vpcConnectionArn,
+		TargetClusterArn: targetClusterArn,
+		VpcID:            vpcID,
+		Authentication:   authentication,
+		State:            VpcConnectionStateAvailable,
+		Tags:             maps.Clone(tags),
+	}
+	b.vpcConnections[vpcConnectionArn] = conn
+
+	return conn, nil
+}
+
+// DeleteVpcConnection deletes a VPC connection by ARN.
+func (b *InMemoryBackend) DeleteVpcConnection(vpcConnectionArn string) error {
+	b.mu.Lock("DeleteVpcConnection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcConnections[vpcConnectionArn]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.vpcConnections, vpcConnectionArn)
+
+	return nil
+}
+
+// --- Cluster policy operations ---
+
+// DeleteClusterPolicy deletes the policy attached to an MSK cluster.
+func (b *InMemoryBackend) DeleteClusterPolicy(clusterArn string) error {
+	b.mu.Lock("DeleteClusterPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.clusterPolicies, clusterArn)
+
+	return nil
+}
+
+// --- Cluster operation operations ---
+
+// DescribeClusterOperation retrieves a cluster operation by ARN.
+func (b *InMemoryBackend) DescribeClusterOperation(clusterOperationArn string) (*ClusterOperation, error) {
+	b.mu.RLock("DescribeClusterOperation")
+	defer b.mu.RUnlock()
+
+	op, ok := b.clusterOperations[clusterOperationArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return op, nil
+}
+
+// AddClusterOperationInternal adds a cluster operation for testing purposes.
+func (b *InMemoryBackend) AddClusterOperationInternal(clusterArn, operationType string) *ClusterOperation {
+	b.mu.Lock("AddClusterOperationInternal")
+	defer b.mu.Unlock()
+
+	clusterOperationArn := b.clusterOperationARN(clusterArn)
+	op := &ClusterOperation{
+		ClusterOperationArn: clusterOperationArn,
+		ClusterArn:          clusterArn,
+		OperationType:       operationType,
+		OperationState:      ClusterOperationStateUpdateComplete,
+	}
+	b.clusterOperations[clusterOperationArn] = op
+
+	return op
+}
+
+// ScramSecretError represents an error that occurred while associating or disassociating a SCRAM secret.
+type ScramSecretError struct {
+	SecretArn    string `json:"secretArn"`
+	ErrorCode    string `json:"errorCode,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
+// Replicator represents an MSK replicator.
+type Replicator struct {
+	Tags                    map[string]string `json:"-"`
+	ReplicatorArn           string            `json:"replicatorArn"`
+	ReplicatorName          string            `json:"replicatorName"`
+	Description             string            `json:"description,omitempty"`
+	ServiceExecutionRoleArn string            `json:"serviceExecutionRoleArn"`
+	ReplicatorState         string            `json:"replicatorState"`
+}
+
+// Topic represents an MSK topic on a cluster.
+type Topic struct {
+	ConfigEntries     map[string]string `json:"configEntries,omitempty"`
+	TopicName         string            `json:"topicName"`
+	ClusterArn        string            `json:"clusterArn"`
+	ReplicationFactor int32             `json:"replicationFactor"`
+	NumPartitions     int32             `json:"numPartitions"`
+}
+
+// VpcConnection represents an MSK VPC connection.
+type VpcConnection struct {
+	Tags             map[string]string `json:"-"`
+	VpcConnectionArn string            `json:"vpcConnectionArn"`
+	TargetClusterArn string            `json:"targetClusterArn"`
+	VpcID            string            `json:"vpcId"`
+	Authentication   string            `json:"authentication,omitempty"`
+	State            string            `json:"state"`
+}
+
+// ClusterOperation represents an MSK cluster operation.
+type ClusterOperation struct {
+	ClusterOperationArn string `json:"clusterOperationArn"`
+	ClusterArn          string `json:"clusterArn"`
+	OperationType       string `json:"operationType"`
+	OperationState      string `json:"operationState"`
 }
 
 // cloneCluster creates a deep copy of a cluster.
