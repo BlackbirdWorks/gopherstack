@@ -2,31 +2,34 @@ package kinesis
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 type backendSnapshot struct {
-	Streams   map[string]*Stream `json:"streams"`
-	AccountID string             `json:"accountID"`
-	Region    string             `json:"region"`
+	Streams          map[string]*Stream `json:"streams"`
+	ResourcePolicies map[string]string  `json:"resourcePolicies,omitempty"`
+	AccountID        string             `json:"accountID"`
+	Region           string             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-// Note: shard sequence number counters (nextSeq) are not serialised; they
-// restart from 0 after restore. Existing records retain their stored sequence
-// numbers, so no in-flight duplicates occur for already-stored records.
+// Note: shard sequence number counters are now serialised via the NextSeq field.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Streams:   b.streams,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Streams:          b.streams,
+		ResourcePolicies: b.resourcePolicies,
+		AccountID:        b.accountID,
+		Region:           b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("kinesis: snapshot serialization failed", "error", err)
+
 		return nil
 	}
 
@@ -49,9 +52,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Streams = make(map[string]*Stream)
 	}
 
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]string)
+	}
+
 	b.streams = snap.Streams
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.resourcePolicies = snap.ResourcePolicies
 
 	return nil
 }

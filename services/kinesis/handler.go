@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"hash/crc32"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,17 +29,21 @@ type Handler struct {
 	janitor       *Janitor
 	tags          map[string]*svcTags.Tags
 	tagsMu        *lockmetrics.RWMutex
+	ops           map[string]kinesisDispatchFn
 	DefaultRegion string
 	AccountID     string
 }
 
 // NewHandler creates a new Kinesis Handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("kinesis.tags"),
 	}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -123,6 +129,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateShardCount",
 		"EnableEnhancedMonitoring",
 		"DisableEnhancedMonitoring",
+		"DescribeLimits",
+		"DescribeAccountSettings",
+		"MergeShards",
+		"SplitShard",
+		"StartStreamEncryption",
+		"StopStreamEncryption",
+		"DeleteResourcePolicy",
+		"GetResourcePolicy",
+		"PutResourcePolicy",
+		"ListTagsForResource",
+		"UpdateStreamMode",
 	}
 }
 
@@ -205,7 +222,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type kinesisDispatchFn func(ctx context.Context, r *http.Request, body []byte) (any, error)
 
-func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
+func (h *Handler) buildOps() map[string]kinesisDispatchFn {
 	return map[string]kinesisDispatchFn{
 		"CreateStream":                  h.handleCreateStream,
 		"DeleteStream":                  h.handleDeleteStream,
@@ -223,6 +240,16 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 		"IncreaseStreamRetentionPeriod": h.handleIncreaseStreamRetentionPeriod,
 		"DecreaseStreamRetentionPeriod": h.handleDecreaseStreamRetentionPeriod,
 		"DescribeLimits":                h.handleDescribeLimits,
+		"DescribeAccountSettings":       h.handleDescribeAccountSettings,
+		"MergeShards":                   h.handleMergeShards,
+		"SplitShard":                    h.handleSplitShard,
+		"StartStreamEncryption":         h.handleStartStreamEncryption,
+		"StopStreamEncryption":          h.handleStopStreamEncryption,
+		"DeleteResourcePolicy":          h.handleDeleteResourcePolicy,
+		"GetResourcePolicy":             h.handleGetResourcePolicy,
+		"PutResourcePolicy":             h.handlePutResourcePolicy,
+		"ListTagsForResource":           h.handleListTagsForResource,
+		"UpdateStreamMode":              h.handleUpdateStreamMode,
 		"RegisterStreamConsumer":        h.handleRegisterStreamConsumer,
 		"DescribeStreamConsumer":        h.handleDescribeStreamConsumer,
 		"ListStreamConsumers":           h.handleListStreamConsumers,
@@ -235,7 +262,7 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 
 // kinesisRoute dispatches a Kinesis action to the appropriate handler method.
 func (h *Handler) kinesisRoute(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
-	fn, ok := h.kinesisDispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, ErrUnknownAction
 	}
@@ -257,9 +284,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // --- JSON request/response types ---
 
+type jsonStreamModeDetails struct {
+	StreamMode string `json:"StreamMode"`
+}
+
 type jsonCreateStreamReq struct {
-	StreamName string `json:"StreamName"`
-	ShardCount int    `json:"ShardCount"`
+	StreamModeDetails *jsonStreamModeDetails `json:"StreamModeDetails,omitempty"`
+	Tags              map[string]string      `json:"Tags,omitempty"`
+	StreamName        string                 `json:"StreamName"`
+	ShardCount        int                    `json:"ShardCount"`
 }
 
 type jsonDeleteStreamReq struct {
@@ -276,9 +309,10 @@ type jsonListStreamsReq struct {
 }
 
 type jsonPutRecordReq struct {
-	StreamName   string `json:"StreamName"`
-	PartitionKey string `json:"PartitionKey"`
-	Data         []byte `json:"Data"`
+	StreamName      string `json:"StreamName"`
+	PartitionKey    string `json:"PartitionKey"`
+	ExplicitHashKey string `json:"ExplicitHashKey,omitempty"`
+	Data            []byte `json:"Data"`
 }
 
 type jsonPutRecordEntry struct {
@@ -305,15 +339,18 @@ type jsonGetRecordsReq struct {
 }
 
 type jsonListShardsReq struct {
-	StreamName string `json:"StreamName"`
-	NextToken  string `json:"NextToken"`
-	MaxResults int    `json:"MaxResults"`
+	StreamName            string `json:"StreamName"`
+	NextToken             string `json:"NextToken"`
+	ExclusiveStartShardID string `json:"ExclusiveStartShardId,omitempty"`
+	MaxResults            int    `json:"MaxResults"`
 }
 
 type jsonShardDescription struct {
-	ShardID             string           `json:"ShardId"`
-	HashKeyRange        jsonHashKeyRange `json:"HashKeyRange"`
-	SequenceNumberRange jsonSeqNumRange  `json:"SequenceNumberRange"`
+	ShardID               string           `json:"ShardId"`
+	ParentShardID         string           `json:"ParentShardId,omitempty"`
+	AdjacentParentShardID string           `json:"AdjacentParentShardId,omitempty"`
+	HashKeyRange          jsonHashKeyRange `json:"HashKeyRange"`
+	SequenceNumberRange   jsonSeqNumRange  `json:"SequenceNumberRange"`
 }
 
 type jsonHashKeyRange struct {
@@ -327,20 +364,30 @@ type jsonSeqNumRange struct {
 }
 
 type jsonStreamDescriptionSummary struct {
-	StreamName           string `json:"StreamName"`
-	StreamARN            string `json:"StreamARN"`
-	StreamStatus         string `json:"StreamStatus"`
-	RetentionPeriodHours int    `json:"RetentionPeriodHours"`
-	OpenShardCount       int    `json:"OpenShardCount"`
+	StreamModeDetails       *jsonStreamModeDetails `json:"StreamModeDetails,omitempty"`
+	StreamName              string                 `json:"StreamName"`
+	StreamARN               string                 `json:"StreamARN"`
+	StreamStatus            string                 `json:"StreamStatus"`
+	EncryptionType          string                 `json:"EncryptionType,omitempty"`
+	KeyID                   string                 `json:"KeyId,omitempty"`
+	EnhancedMonitoring      []string               `json:"EnhancedMonitoringShardLevelMetrics"`
+	StreamCreationTimestamp float64                `json:"StreamCreationTimestamp,omitempty"`
+	RetentionPeriodHours    int                    `json:"RetentionPeriodHours"`
+	OpenShardCount          int                    `json:"OpenShardCount"`
 }
 
 type jsonStreamDescription struct {
-	StreamName           string                 `json:"StreamName"`
-	StreamARN            string                 `json:"StreamARN"`
-	StreamStatus         string                 `json:"StreamStatus"`
-	Shards               []jsonShardDescription `json:"Shards"`
-	RetentionPeriodHours int                    `json:"RetentionPeriodHours"`
-	HasMoreShards        bool                   `json:"HasMoreShards"`
+	StreamModeDetails       *jsonStreamModeDetails `json:"StreamModeDetails,omitempty"`
+	StreamName              string                 `json:"StreamName"`
+	StreamARN               string                 `json:"StreamARN"`
+	StreamStatus            string                 `json:"StreamStatus"`
+	EncryptionType          string                 `json:"EncryptionType,omitempty"`
+	KeyID                   string                 `json:"KeyId,omitempty"`
+	Shards                  []jsonShardDescription `json:"Shards"`
+	EnhancedMonitoring      []string               `json:"EnhancedMonitoringShardLevelMetrics"`
+	StreamCreationTimestamp float64                `json:"StreamCreationTimestamp,omitempty"`
+	RetentionPeriodHours    int                    `json:"RetentionPeriodHours"`
+	HasMoreShards           bool                   `json:"HasMoreShards"`
 }
 
 type jsonDescribeStreamResp struct {
@@ -435,11 +482,17 @@ func (h *Handler) handleCreateStream(
 		return nil, ErrInvalidArgument
 	}
 
+	var streamMode string
+	if req.StreamModeDetails != nil {
+		streamMode = req.StreamModeDetails.StreamMode
+	}
+
 	err := h.Backend.CreateStream(&CreateStreamInput{
 		StreamName: req.StreamName,
 		ShardCount: shardCount,
 		Region:     region,
 		AccountID:  h.AccountID,
+		StreamMode: streamMode,
 	})
 	if err != nil {
 		if !errors.Is(err, ErrStreamAlreadyExists) {
@@ -447,6 +500,10 @@ func (h *Handler) handleCreateStream(
 		}
 
 		return nil, err
+	}
+
+	if len(req.Tags) > 0 {
+		h.setTags(req.StreamName, req.Tags)
 	}
 
 	return struct{}{}, nil
@@ -493,10 +550,16 @@ func (h *Handler) handleDescribeStream(
 		return nil, err
 	}
 
-	shards := make([]jsonShardDescription, len(out.Shards))
-	for i, s := range out.Shards {
-		shards[i] = jsonShardDescription{
-			ShardID: s.ShardID,
+	shards := make([]jsonShardDescription, 0, len(out.Shards))
+	for _, s := range out.Shards {
+		if s.Closed {
+			continue
+		}
+
+		shards = append(shards, jsonShardDescription{
+			ShardID:               s.ShardID,
+			ParentShardID:         s.ParentShardID,
+			AdjacentParentShardID: s.AdjacentParentShardID,
 			HashKeyRange: jsonHashKeyRange{
 				StartingHashKey: s.HashKeyRangeStart,
 				EndingHashKey:   s.HashKeyRangeEnd,
@@ -505,17 +568,22 @@ func (h *Handler) handleDescribeStream(
 				StartingSequenceNumber: s.SequenceNumberRangeStart,
 				EndingSequenceNumber:   s.SequenceNumberRangeEnd,
 			},
-		}
+		})
 	}
 
 	return jsonDescribeStreamResp{
 		StreamDescription: jsonStreamDescription{
-			StreamName:           out.StreamName,
-			StreamARN:            out.StreamARN,
-			StreamStatus:         out.StreamStatus,
-			RetentionPeriodHours: out.RetentionPeriodHours,
-			Shards:               shards,
-			HasMoreShards:        false,
+			StreamName:              out.StreamName,
+			StreamARN:               out.StreamARN,
+			StreamStatus:            out.StreamStatus,
+			RetentionPeriodHours:    out.RetentionPeriodHours,
+			Shards:                  shards,
+			HasMoreShards:           false,
+			EncryptionType:          out.EncryptionType,
+			KeyID:                   out.KeyID,
+			EnhancedMonitoring:      out.EnhancedMonitoring,
+			StreamCreationTimestamp: float64(out.StreamCreationTimestamp.Unix()),
+			StreamModeDetails:       &jsonStreamModeDetails{StreamMode: out.StreamMode},
 		},
 	}, nil
 }
@@ -535,13 +603,25 @@ func (h *Handler) handleDescribeStreamSummary(
 		return nil, err
 	}
 
+	openCount := 0
+	for _, s := range out.Shards {
+		if !s.Closed {
+			openCount++
+		}
+	}
+
 	return jsonDescribeStreamSummaryResp{
 		StreamDescriptionSummary: jsonStreamDescriptionSummary{
-			StreamName:           out.StreamName,
-			StreamARN:            out.StreamARN,
-			StreamStatus:         out.StreamStatus,
-			RetentionPeriodHours: out.RetentionPeriodHours,
-			OpenShardCount:       len(out.Shards),
+			StreamName:              out.StreamName,
+			StreamARN:               out.StreamARN,
+			StreamStatus:            out.StreamStatus,
+			RetentionPeriodHours:    out.RetentionPeriodHours,
+			OpenShardCount:          openCount,
+			EncryptionType:          out.EncryptionType,
+			KeyID:                   out.KeyID,
+			EnhancedMonitoring:      out.EnhancedMonitoring,
+			StreamCreationTimestamp: float64(out.StreamCreationTimestamp.Unix()),
+			StreamModeDetails:       &jsonStreamModeDetails{StreamMode: out.StreamMode},
 		},
 	}, nil
 }
@@ -584,9 +664,10 @@ func (h *Handler) handlePutRecord(
 	}
 
 	out, err := h.Backend.PutRecord(&PutRecordInput{
-		StreamName:   req.StreamName,
-		PartitionKey: req.PartitionKey,
-		Data:         req.Data,
+		StreamName:      req.StreamName,
+		PartitionKey:    req.PartitionKey,
+		ExplicitHashKey: req.ExplicitHashKey,
+		Data:            req.Data,
 	})
 	if err != nil {
 		return nil, err
@@ -717,18 +798,25 @@ func (h *Handler) handleListShards(
 	}
 
 	out, err := h.Backend.ListShards(&ListShardsInput{
-		StreamName: req.StreamName,
-		NextToken:  req.NextToken,
-		MaxResults: req.MaxResults,
+		StreamName:            req.StreamName,
+		NextToken:             req.NextToken,
+		MaxResults:            req.MaxResults,
+		ExclusiveStartShardID: req.ExclusiveStartShardID,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	shards := make([]jsonShardDescription, len(out.Shards))
-	for i, s := range out.Shards {
-		shards[i] = jsonShardDescription{
-			ShardID: s.ShardID,
+	shards := make([]jsonShardDescription, 0, len(out.Shards))
+	for _, s := range out.Shards {
+		if s.Closed {
+			continue
+		}
+
+		shards = append(shards, jsonShardDescription{
+			ShardID:               s.ShardID,
+			ParentShardID:         s.ParentShardID,
+			AdjacentParentShardID: s.AdjacentParentShardID,
 			HashKeyRange: jsonHashKeyRange{
 				StartingHashKey: s.HashKeyRangeStart,
 				EndingHashKey:   s.HashKeyRangeEnd,
@@ -737,17 +825,20 @@ func (h *Handler) handleListShards(
 				StartingSequenceNumber: s.SequenceNumberRangeStart,
 				EndingSequenceNumber:   s.SequenceNumberRangeEnd,
 			},
-		}
+		})
 	}
 
 	return jsonListShardsResp{Shards: shards}, nil
 }
 
+// errTypeResourceNotFound is the Kinesis error type string for resource not found errors.
+const errTypeResourceNotFound = "ResourceNotFoundException"
+
 // errorDetails maps an error to its Kinesis JSON error type, message, and HTTP status.
 func errorDetails(err error) (string, string, int) {
 	switch {
 	case errors.Is(err, ErrStreamNotFound):
-		return "ResourceNotFoundException",
+		return errTypeResourceNotFound,
 			"Stream not found.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrStreamAlreadyExists):
@@ -755,12 +846,16 @@ func errorDetails(err error) (string, string, int) {
 			"A stream with this name already exists.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrConsumerNotFound):
-		return "ResourceNotFoundException",
+		return errTypeResourceNotFound,
 			"Consumer not found.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrConsumerAlreadyExists):
 		return "ResourceInUseException",
 			"A consumer with this name already exists.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrResourcePolicyNotFound):
+		return errTypeResourceNotFound,
+			"Resource policy not found.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrProvisionedThroughputExceeded):
 		return "ProvisionedThroughputExceededException",
@@ -770,6 +865,8 @@ func errorDetails(err error) (string, string, int) {
 		return "InvalidArgumentException",
 			"Invalid argument.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrValidation):
+		return "ValidationException", err.Error(), http.StatusBadRequest
 	case errors.Is(err, ErrShardIteratorExpired):
 		return "ExpiredIteratorException",
 			"The shard iterator has expired.",
@@ -802,6 +899,9 @@ func (h *Handler) handleAddTagsToStream(
 	var kv map[string]string
 	if req.Tags != nil {
 		kv = req.Tags.Clone()
+	}
+	if len(kv) > maxTagsPerStream {
+		return nil, ErrInvalidArgument
 	}
 	h.setTags(req.StreamName, kv)
 
@@ -888,17 +988,256 @@ func (h *Handler) handleDecreaseStreamRetentionPeriod(
 	return struct{}{}, nil
 }
 
-const kinesisDefaultShardLimit = 500
-
 func (h *Handler) handleDescribeLimits(
 	_ context.Context,
 	_ *http.Request,
 	_ []byte,
 ) (any, error) {
 	return &describeLimitsOutput{
-		OpenShardCount: 0,
+		OpenShardCount: h.Backend.CountOpenShards(),
 		ShardLimit:     kinesisDefaultShardLimit,
 	}, nil
+}
+
+// --- JSON types for new operations ---
+
+type jsonDescribeAccountSettingsResp struct {
+	ShardLimit               int `json:"ShardLimit"`
+	OnDemandStreamCount      int `json:"OnDemandStreamCount"`
+	OnDemandStreamCountLimit int `json:"OnDemandStreamCountLimit"`
+}
+
+type jsonMergeShardsReq struct {
+	StreamName           string `json:"StreamName"`
+	StreamARN            string `json:"StreamARN"`
+	ShardToMerge         string `json:"ShardToMerge"`
+	AdjacentShardToMerge string `json:"AdjacentShardToMerge"`
+}
+
+type jsonSplitShardReq struct {
+	StreamName         string `json:"StreamName"`
+	StreamARN          string `json:"StreamARN"`
+	ShardToSplit       string `json:"ShardToSplit"`
+	NewStartingHashKey string `json:"NewStartingHashKey"`
+}
+
+type jsonEncryptionReq struct {
+	StreamName     string `json:"StreamName"`
+	StreamARN      string `json:"StreamARN"`
+	EncryptionType string `json:"EncryptionType"`
+	KeyID          string `json:"KeyId"`
+}
+
+type jsonResourceARNReq struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type jsonPutResourcePolicyReq struct {
+	ResourceARN string `json:"ResourceARN"`
+	Policy      string `json:"Policy"`
+}
+
+type jsonGetResourcePolicyResp struct {
+	Policy string `json:"Policy"`
+}
+
+type jsonListTagsForResourceResp struct {
+	Tags []svcTags.KV `json:"Tags"`
+}
+
+// --- Handler methods for new operations ---
+
+func (h *Handler) handleDescribeAccountSettings(
+	_ context.Context,
+	_ *http.Request,
+	_ []byte,
+) (any, error) {
+	out, err := h.Backend.DescribeAccountSettings()
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonDescribeAccountSettingsResp{
+		ShardLimit:               out.ShardLimit,
+		OnDemandStreamCount:      out.OnDemandStreamCount,
+		OnDemandStreamCountLimit: out.OnDemandStreamCountLimit,
+	}, nil
+}
+
+func (h *Handler) handleMergeShards(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonMergeShardsReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.MergeShards(&MergeShardsInput{
+		StreamName:           req.StreamName,
+		StreamARN:            req.StreamARN,
+		ShardToMerge:         req.ShardToMerge,
+		AdjacentShardToMerge: req.AdjacentShardToMerge,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleSplitShard(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonSplitShardReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.SplitShard(&SplitShardInput{
+		StreamName:         req.StreamName,
+		StreamARN:          req.StreamARN,
+		ShardToSplit:       req.ShardToSplit,
+		NewStartingHashKey: req.NewStartingHashKey,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleStartStreamEncryption(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonEncryptionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.StartStreamEncryption(&StartStreamEncryptionInput{
+		StreamName:     req.StreamName,
+		StreamARN:      req.StreamARN,
+		EncryptionType: req.EncryptionType,
+		KeyID:          req.KeyID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleStopStreamEncryption(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonEncryptionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.StopStreamEncryption(&StopStreamEncryptionInput{
+		StreamName:     req.StreamName,
+		StreamARN:      req.StreamARN,
+		EncryptionType: req.EncryptionType,
+		KeyID:          req.KeyID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handlePutResourcePolicy(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonPutResourcePolicyReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.PutResourcePolicy(&PutResourcePolicyInput{
+		ResourceARN: req.ResourceARN,
+		Policy:      req.Policy,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleGetResourcePolicy(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonResourceARNReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.GetResourcePolicy(&GetResourcePolicyInput{
+		ResourceARN: req.ResourceARN,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonGetResourcePolicyResp{Policy: out.Policy}, nil
+}
+
+func (h *Handler) handleDeleteResourcePolicy(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonResourceARNReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.DeleteResourcePolicy(&DeleteResourcePolicyInput{
+		ResourceARN: req.ResourceARN,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonResourceARNReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	streamName := streamNameFromARN(req.ResourceARN)
+
+	// Validate the stream exists before returning tags.
+	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: streamName}); err != nil {
+		return nil, err
+	}
+
+	tags := h.getTags(streamName)
+	tagList := make([]svcTags.KV, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
+	}
+	slices.SortFunc(tagList, func(a, b svcTags.KV) int {
+		return cmp.Compare(a.Key, b.Key)
+	})
+
+	return jsonListTagsForResourceResp{Tags: tagList}, nil
 }
 
 // --- Consumer JSON types ---
@@ -1319,8 +1658,8 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Reset()
+	if r, ok := h.Backend.(resetter); ok {
+		r.Reset()
 	}
 
 	// Close and discard handler-level tag registries to prevent metric leaks.
@@ -1337,7 +1676,25 @@ func (h *Handler) Reset() {
 
 // Purge implements service.Purgeable by removing all Kinesis streams older than cutoff.
 func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Purge(ctx, cutoff)
+	if p, ok := h.Backend.(purger); ok {
+		p.Purge(ctx, cutoff)
 	}
+}
+
+func (h *Handler) handleUpdateStreamMode(_ context.Context, _ *http.Request, body []byte) (any, error) {
+	var req struct {
+		StreamModeDetails *jsonStreamModeDetails `json:"StreamModeDetails"`
+		StreamARN         string                 `json:"StreamARN"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+	if req.StreamModeDetails == nil {
+		return nil, ErrInvalidArgument
+	}
+
+	return struct{}{}, h.Backend.UpdateStreamMode(&UpdateStreamModeInput{
+		StreamARN:         req.StreamARN,
+		StreamModeDetails: StreamModeDetails{StreamMode: req.StreamModeDetails.StreamMode},
+	})
 }
