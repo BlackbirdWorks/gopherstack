@@ -1,9 +1,14 @@
 package kms
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when a nil AppContext is passed.
+var ErrNilAppContext = errors.New("nil AppContext passed to KMS Provider.Init")
 
 // ConfigProvider is a private interface to extract KMS configuration
 // from the abstract AppContext Config.
@@ -23,6 +28,10 @@ func (p *Provider) Name() string {
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	var backend *InMemoryBackend
 	var defaultRegion string
 

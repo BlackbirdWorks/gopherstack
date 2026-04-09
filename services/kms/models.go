@@ -75,12 +75,20 @@ type KeyMetadata struct {
 	Origin string `json:"Origin,omitempty"`
 	// KeySpec is the key spec, e.g., "SYMMETRIC_DEFAULT".
 	KeySpec string `json:"KeySpec,omitempty"`
+	// CustomerMasterKeySpec is the deprecated alias for KeySpec.
+	CustomerMasterKeySpec string `json:"CustomerMasterKeySpec,omitempty"`
 	// EncryptionAlgorithms lists the encryption algorithms supported by this key.
 	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
 	// SigningAlgorithms lists the signing algorithms supported by this key.
 	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
+	// MacAlgorithms lists the MAC algorithms supported by this HMAC key.
+	MacAlgorithms []string `json:"MacAlgorithms,omitempty"`
+	// KeyAgreementAlgorithms lists the key agreement algorithms (e.g. ECDH).
+	KeyAgreementAlgorithms []string `json:"KeyAgreementAlgorithms,omitempty"`
 	// MultiRegion indicates whether this is a multi-region key.
 	MultiRegion bool `json:"MultiRegion"`
+	// Enabled indicates whether this key is currently enabled.
+	Enabled bool `json:"Enabled"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
 	// DeletionDate is the Unix timestamp when the key will be deleted (PendingDeletion state only).
@@ -480,6 +488,8 @@ type GetPublicKeyOutput struct {
 	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
 	// EncryptionAlgorithms lists the encryption algorithms (empty for sign keys).
 	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
+	// KeyAgreementAlgorithms lists the key agreement algorithms (e.g. ECDH).
+	KeyAgreementAlgorithms []string `json:"KeyAgreementAlgorithms,omitempty"`
 }
 
 // ImportKeyMaterialInput is the request payload for ImportKeyMaterial.
@@ -658,4 +668,23 @@ type GenerateRandomInput struct {
 type GenerateRandomOutput struct {
 	// Plaintext contains the generated random bytes.
 	Plaintext []byte `json:"Plaintext"`
+}
+
+// VerifyMacInput is the request payload for VerifyMac.
+type VerifyMacInput struct {
+	// KeyId is the HMAC KMS key used to verify the MAC.
+	KeyID string `json:"KeyId"`
+	// MacAlgorithm specifies the MAC algorithm (e.g. HMAC_SHA_256).
+	MacAlgorithm string `json:"MacAlgorithm"`
+	// Message is the data over which to verify the MAC.
+	Message []byte `json:"Message"`
+	// Mac is the MAC tag to verify.
+	Mac []byte `json:"Mac"`
+}
+
+// VerifyMacOutput is the response payload for VerifyMac.
+type VerifyMacOutput struct {
+	KeyID        string `json:"KeyId"`
+	MacAlgorithm string `json:"MacAlgorithm"`
+	MacValid     bool   `json:"MacValid"`
 }

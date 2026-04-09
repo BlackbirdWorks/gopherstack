@@ -26,6 +26,5 @@ func TestSDKCompleteness(t *testing.T) {
 		"UpdateCustomKeyStore",
 		"UpdateKeyDescription",
 		"UpdatePrimaryRegion",
-		"VerifyMac",
 	})
 }

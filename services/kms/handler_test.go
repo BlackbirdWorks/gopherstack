@@ -2489,11 +2489,6 @@ func TestKMSCreateKeyIncompatibleSpecUsage(t *testing.T) {
 		keyUsage string
 	}{
 		{
-			name:     "RSA_2048_with_ENCRYPT_DECRYPT",
-			keySpec:  "RSA_2048",
-			keyUsage: kms.KeyUsageEncryptDecrypt,
-		},
-		{
 			name:     "ECC_NIST_P256_with_ENCRYPT_DECRYPT",
 			keySpec:  "ECC_NIST_P256",
 			keyUsage: kms.KeyUsageEncryptDecrypt,
@@ -2995,12 +2990,12 @@ func TestKMSScheduleKeyDeletion_Validation(t *testing.T) {
 		{
 			name:        "too_few_days_6",
 			pendingDays: 6,
-			wantErr:     kms.ErrInvalidKeyUsage,
+			wantErr:     kms.ErrValidation,
 		},
 		{
 			name:        "too_many_days_31",
 			pendingDays: 31,
-			wantErr:     kms.ErrInvalidKeyUsage,
+			wantErr:     kms.ErrValidation,
 		},
 		{
 			name:        "default_when_zero",

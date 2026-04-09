@@ -583,7 +583,7 @@ func TestNewOpsHandler(t *testing.T) {
 			name:           "GenerateRandom_over_limit",
 			operation:      "GenerateRandom",
 			body:           `{"NumberOfBytes":2048}`,
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "GenerateMac_success",

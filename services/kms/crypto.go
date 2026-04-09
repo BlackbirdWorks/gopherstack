@@ -9,6 +9,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // SHA-1 is required for RSA-OAEP-SHA-1 (AWS compatibility)
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
@@ -622,6 +623,83 @@ func defaultSigningAlgorithms(keySpec string) []string {
 	default:
 		return nil
 	}
+}
+
+// defaultMacAlgorithms returns the HMAC algorithms supported by a key spec.
+func defaultMacAlgorithms(keySpec string) []string {
+	switch keySpec {
+	case keySpecHMAC256:
+		return []string{"HMAC_SHA_256"}
+	case keySpecHMAC384:
+		return []string{"HMAC_SHA_384"}
+	case keySpecHMAC512:
+		return []string{"HMAC_SHA_512"}
+	default:
+		return nil
+	}
+}
+
+// keyAgreementAlgorithms returns the key agreement algorithms supported by a key usage.
+func keyAgreementAlgorithms(keyUsage string) []string {
+	if keyUsage == KeyUsageKeyAgreement {
+		return []string{"ECDH"}
+	}
+
+	return nil
+}
+
+// defaultSigningAlgorithmsForUsage returns signing algorithms for the given key spec and usage.
+// For KEY_AGREEMENT keys, signing algorithms are not applicable and nil is returned.
+func defaultSigningAlgorithmsForUsage(keySpec, keyUsage string) []string {
+	if keyUsage == KeyUsageKeyAgreement {
+		return nil
+	}
+
+	return defaultSigningAlgorithms(keySpec)
+}
+
+// encryptRSAOAEP encrypts plaintext using RSA-OAEP-SHA-256 with the given key material.
+func encryptRSAOAEP(plaintext []byte, km *keyMaterial) ([]byte, error) {
+	if km.rsaKey == nil {
+		return nil, fmt.Errorf("%w: not an RSA key", ErrInvalidKeyUsage)
+	}
+
+	return rsa.EncryptOAEP(sha256.New(), rand.Reader, &km.rsaKey.PublicKey, plaintext, nil)
+}
+
+// decryptRSAOAEP decrypts ciphertext using RSA-OAEP-SHA-256 with the given key material.
+// It first tries SHA-256 (primary) then SHA-1 for backward compatibility with RSAES_OAEP_SHA_1 blobs.
+func decryptRSAOAEP(ciphertext []byte, km *keyMaterial) ([]byte, error) {
+	if km.rsaKey == nil {
+		return nil, fmt.Errorf("%w: not an RSA key", ErrInvalidKeyUsage)
+	}
+
+	// Try SHA-256 first (RSAES_OAEP_SHA_256).
+	plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, km.rsaKey, ciphertext, nil)
+	if err == nil {
+		return plaintext, nil
+	}
+
+	// Fall back to SHA-1 (RSAES_OAEP_SHA_1) for AWS compatibility.
+	plaintext, err = tryDecryptRSAOAEPSHA1(ciphertext, km)
+	if err != nil {
+		return nil, fmt.Errorf("%w: RSA-OAEP decryption failed", ErrInvalidCiphertext)
+	}
+
+	return plaintext, nil
+}
+
+// tryDecryptRSAOAEPSHA1 attempts RSA-OAEP decryption with SHA-1 hash for RSAES_OAEP_SHA_1 blobs.
+// SHA-1 is used here solely for AWS SDK compatibility; it is not used for hashing security-sensitive data.
+//
+//nolint:gosec // SHA-1 is required for AWS RSAES_OAEP_SHA_1 compatibility, not for security hashing
+func tryDecryptRSAOAEPSHA1(ciphertext []byte, km *keyMaterial) ([]byte, error) {
+	return rsa.DecryptOAEP(sha1.New(), rand.Reader, km.rsaKey, ciphertext, nil)
+}
+
+// hmacEqual is a constant-time comparison of two HMAC byte slices.
+func hmacEqual(a, b []byte) bool {
+	return hmac.Equal(a, b)
 }
 
 // validateSigningAlgorithm returns an error if signingAlgorithm is not in the set of
