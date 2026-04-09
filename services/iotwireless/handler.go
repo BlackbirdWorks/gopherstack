@@ -31,6 +31,13 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears the handler's backend state, returning it to a pristine condition.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "IoTWireless" }
 
@@ -56,6 +63,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
+		"AssociateAwsAccountWithPartnerAccount",
+		"AssociateMulticastGroupWithFuotaTask",
+		"AssociateWirelessDeviceWithFuotaTask",
+		"AssociateWirelessDeviceWithMulticastGroup",
+		"AssociateWirelessDeviceWithThing",
+		"AssociateWirelessGatewayWithCertificate",
+		"AssociateWirelessGatewayWithThing",
+		"CancelMulticastGroupSession",
+		"CreateDeviceProfile",
+		"GetDeviceProfile",
+		"ListDeviceProfiles",
+		"DeleteDeviceProfile",
+		"CreateFuotaTask",
+		"GetFuotaTask",
+		"ListFuotaTasks",
+		"DeleteFuotaTask",
 	}
 }
 
@@ -76,10 +99,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		for _, prefix := range []string{
-			"/wireless-devices",
-			"/wireless-gateways",
-			"/service-profiles",
-			"/destinations",
+			"/" + pathBaseWirelessDevices,
+			"/" + pathBaseWirelessGateways,
+			"/" + pathBaseServiceProfiles,
+			"/" + pathBaseDestinations,
+			"/" + pathBaseDeviceProfiles,
+			"/" + pathBaseFuotaTasks,
+			"/" + pathBaseMulticastGroups,
+			"/" + pathBasePartnerAccounts,
 		} {
 			if path == prefix || strings.HasPrefix(path, prefix+"/") {
 				return httputils.ExtractServiceFromRequest(c.Request()) == iotwirelessService
@@ -143,6 +170,16 @@ const (
 	maxPathParts = 3
 	// idSegmentIndex is the index of the resource ID segment in the split path.
 	idSegmentIndex = 2
+
+	// path base segment constants used in route matching and path parsing.
+	pathBaseWirelessDevices  = "wireless-devices"
+	pathBaseWirelessGateways = "wireless-gateways"
+	pathBaseServiceProfiles  = "service-profiles"
+	pathBaseDestinations     = "destinations"
+	pathBaseDeviceProfiles   = "device-profiles"
+	pathBaseFuotaTasks       = "fuota-tasks"
+	pathBaseMulticastGroups  = "multicast-groups"
+	pathBasePartnerAccounts  = "partner-accounts"
 )
 
 // parseIoTWirelessPath maps a method+path to an operation and resource identifier.
@@ -179,15 +216,95 @@ func parseIoTWirelessPath(method, path string) (string, string) {
 		id = parts[1]
 	}
 
+	subPath := ""
+	if len(parts) == maxPathParts {
+		subPath = parts[2]
+	}
+
+	return parseIoTWirelessBase(method, base, id, subPath, hasID)
+}
+
+// parseIoTWirelessBase routes path segments to their operation names.
+func parseIoTWirelessBase(method, base, id, subPath string, hasID bool) (string, string) {
 	switch base {
-	case "wireless-devices":
-		return parseCollectionPath(method, "WirelessDevice", hasID, id)
-	case "wireless-gateways":
-		return parseCollectionPath(method, "WirelessGateway", hasID, id)
-	case "service-profiles":
+	case pathBaseWirelessDevices:
+		return parseWirelessDevicePath(method, id, subPath, hasID)
+	case pathBaseWirelessGateways:
+		return parseWirelessGatewayPath(method, id, subPath, hasID)
+	case pathBaseServiceProfiles:
 		return parseCollectionPath(method, "ServiceProfile", hasID, id)
-	case "destinations":
+	case pathBaseDestinations:
 		return parseCollectionPath(method, "Destination", hasID, id)
+	case pathBaseDeviceProfiles:
+		return parseCollectionPath(method, "DeviceProfile", hasID, id)
+	case pathBaseFuotaTasks:
+		return parseFuotaTaskPath(method, id, subPath, hasID)
+	case pathBaseMulticastGroups:
+		return parseMulticastGroupPath(method, id, subPath, hasID)
+	case pathBasePartnerAccounts:
+		if hasID && method == http.MethodPut {
+			return "AssociateAwsAccountWithPartnerAccount", id
+		}
+
+		return "", ""
+	}
+
+	return "", ""
+}
+
+// parseWirelessDevicePath handles wireless-devices sub-path routing.
+func parseWirelessDevicePath(method, id, subPath string, hasID bool) (string, string) {
+	if hasID && subPath == "thing" && method == http.MethodPut {
+		return "AssociateWirelessDeviceWithThing", id
+	}
+
+	return parseCollectionPath(method, "WirelessDevice", hasID, id)
+}
+
+// parseWirelessGatewayPath handles wireless-gateways sub-path routing.
+func parseWirelessGatewayPath(method, id, subPath string, hasID bool) (string, string) {
+	if hasID && subPath == "certificate" && method == http.MethodPut {
+		return "AssociateWirelessGatewayWithCertificate", id
+	}
+
+	if hasID && subPath == "thing" && method == http.MethodPut {
+		return "AssociateWirelessGatewayWithThing", id
+	}
+
+	return parseCollectionPath(method, "WirelessGateway", hasID, id)
+}
+
+// parseFuotaTaskPath handles fuota-tasks sub-path routing.
+func parseFuotaTaskPath(method, id, subPath string, hasID bool) (string, string) {
+	if hasID {
+		switch subPath {
+		case pathBaseMulticastGroups:
+			if method == http.MethodPut {
+				return "AssociateMulticastGroupWithFuotaTask", id
+			}
+		case pathBaseWirelessDevices:
+			if method == http.MethodPut {
+				return "AssociateWirelessDeviceWithFuotaTask", id
+			}
+		}
+	}
+
+	return parseCollectionPath(method, "FuotaTask", hasID, id)
+}
+
+// parseMulticastGroupPath handles multicast-groups sub-path routing.
+func parseMulticastGroupPath(method, id, subPath string, hasID bool) (string, string) {
+	if hasID {
+		switch subPath {
+		case pathBaseWirelessDevices:
+			if method == http.MethodPut {
+				return "AssociateWirelessDeviceWithMulticastGroup", id
+			}
+		case "session":
+			if method == http.MethodDelete {
+				return "CancelMulticastGroupSession", id
+			}
+		}
 	}
 
 	return "", ""
@@ -231,6 +348,10 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 	}
 
 	if handled, result := h.dispatchDestination(c, op, resource, body); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchNewOps(c, op, resource, body); handled {
 		return result
 	}
 
@@ -305,6 +426,63 @@ func (h *Handler) dispatchDestination(c *echo.Context, op, resource string, body
 		return true, h.listDestinations(c)
 	case "DeleteDestination":
 		return true, h.deleteDestination(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchNewOps handles operations added in this implementation.
+func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	if handled, err := h.dispatchNewCRUDOps(c, op, resource, body); handled {
+		return true, err
+	}
+
+	return h.dispatchAssociationOps(c, op, resource, body)
+}
+
+// dispatchNewCRUDOps handles CRUD operations for DeviceProfile and FuotaTask.
+func (h *Handler) dispatchNewCRUDOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case "CreateDeviceProfile":
+		return true, h.createDeviceProfile(c, body)
+	case "GetDeviceProfile":
+		return true, h.getDeviceProfile(c, resource)
+	case "ListDeviceProfiles":
+		return true, h.listDeviceProfiles(c)
+	case "DeleteDeviceProfile":
+		return true, h.deleteDeviceProfile(c, resource)
+	case "CreateFuotaTask":
+		return true, h.createFuotaTask(c, body)
+	case "GetFuotaTask":
+		return true, h.getFuotaTask(c, resource)
+	case "ListFuotaTasks":
+		return true, h.listFuotaTasks(c)
+	case "DeleteFuotaTask":
+		return true, h.deleteFuotaTask(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchAssociationOps handles AWS IoT Wireless resource-association operations.
+func (h *Handler) dispatchAssociationOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case "AssociateAwsAccountWithPartnerAccount":
+		return true, h.associateAwsAccountWithPartnerAccount(c, resource, body)
+	case "AssociateMulticastGroupWithFuotaTask":
+		return true, h.associateMulticastGroupWithFuotaTask(c, resource, body)
+	case "AssociateWirelessDeviceWithFuotaTask":
+		return true, h.associateWirelessDeviceWithFuotaTask(c, resource, body)
+	case "AssociateWirelessDeviceWithMulticastGroup":
+		return true, h.associateWirelessDeviceWithMulticastGroup(c, resource, body)
+	case "AssociateWirelessDeviceWithThing":
+		return true, h.associateWirelessDeviceWithThing(c, resource, body)
+	case "AssociateWirelessGatewayWithCertificate":
+		return true, h.associateWirelessGatewayWithCertificate(c, resource, body)
+	case "AssociateWirelessGatewayWithThing":
+		return true, h.associateWirelessGatewayWithThing(c, resource, body)
+	case "CancelMulticastGroupSession":
+		return true, h.cancelMulticastGroupSession(c, resource)
 	}
 
 	return false, nil
@@ -414,6 +592,90 @@ type errorResponse struct {
 	Message string `json:"Message"`
 }
 
+// --- Request/response types for new operations ---
+
+type createDeviceProfileRequest struct {
+	Tags map[string]string `json:"Tags"`
+	Name string            `json:"Name"`
+}
+
+type createDeviceProfileResponse struct {
+	Arn string `json:"Arn"`
+	ID  string `json:"Id"`
+}
+
+type createFuotaTaskRequest struct {
+	Tags                map[string]string `json:"Tags"`
+	Name                string            `json:"Name"`
+	Description         string            `json:"Description"`
+	FirmwareUpdateImage string            `json:"FirmwareUpdateImage"`
+	FirmwareUpdateRole  string            `json:"FirmwareUpdateRole"`
+}
+
+type createFuotaTaskResponse struct {
+	Arn string `json:"Arn"`
+	ID  string `json:"Id"`
+}
+
+type deviceProfileEntry struct {
+	Arn  string `json:"Arn"`
+	ID   string `json:"Id"`
+	Name string `json:"Name"`
+}
+
+type listDeviceProfilesResponse struct {
+	DeviceProfileList []deviceProfileEntry `json:"DeviceProfileList"`
+}
+
+type fuotaTaskEntry struct {
+	Arn                 string `json:"Arn"`
+	ID                  string `json:"Id"`
+	Name                string `json:"Name"`
+	Description         string `json:"Description,omitempty"`
+	FirmwareUpdateImage string `json:"FirmwareUpdateImage,omitempty"`
+	FirmwareUpdateRole  string `json:"FirmwareUpdateRole,omitempty"`
+}
+
+type listFuotaTasksResponse struct {
+	FuotaTaskList []fuotaTaskEntry `json:"FuotaTaskList"`
+}
+
+type associatePartnerAccountRequest struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+type associatePartnerAccountResponse struct {
+	Arn string `json:"Arn"`
+}
+
+type associateMulticastGroupRequest struct {
+	MulticastGroupID string `json:"MulticastGroupId"`
+}
+
+type associateWirelessDeviceWithFuotaRequest struct {
+	WirelessDeviceID string `json:"WirelessDeviceId"`
+}
+
+type associateWirelessDeviceWithMulticastRequest struct {
+	WirelessDeviceID string `json:"WirelessDeviceId"`
+}
+
+type associateWirelessDeviceWithThingRequest struct {
+	ThingArn string `json:"ThingArn"`
+}
+
+type associateWirelessGatewayWithCertificateRequest struct {
+	IotCertificateID string `json:"IotCertificateId"`
+}
+
+type associateWirelessGatewayWithCertificateResponse struct {
+	IotCertificateArn string `json:"IotCertificateArn"`
+}
+
+type associateWirelessGatewayWithThingRequest struct {
+	ThingArn string `json:"ThingArn"`
+}
+
 // writeError writes a JSON error response.
 func writeError(c *echo.Context, status int, message string) error {
 	c.Response().Header().Set("Content-Type", "application/json")
@@ -439,7 +701,22 @@ func isNotFound(err error) bool {
 	return errors.Is(err, ErrDeviceNotFound) ||
 		errors.Is(err, ErrGatewayNotFound) ||
 		errors.Is(err, ErrServiceProfileNotFound) ||
-		errors.Is(err, ErrDestinationNotFound)
+		errors.Is(err, ErrDestinationNotFound) ||
+		errors.Is(err, ErrDeviceProfileNotFound) ||
+		errors.Is(err, ErrFuotaTaskNotFound)
+}
+
+// handleError writes an appropriate HTTP error response for a backend error.
+func handleError(c *echo.Context, err error) error {
+	if isNotFound(err) {
+		return writeError(c, http.StatusNotFound, err.Error())
+	}
+
+	if errors.Is(err, ErrValidation) {
+		return writeError(c, http.StatusBadRequest, err.Error())
+	}
+
+	return writeError(c, http.StatusInternalServerError, err.Error())
 }
 
 // decodeARN URL-decodes an ARN path segment.
@@ -474,11 +751,7 @@ func (h *Handler) createWirelessDevice(c *echo.Context, body []byte) error {
 func (h *Handler) getWirelessDevice(c *echo.Context, id string) error {
 	d, err := h.Backend.GetWirelessDevice(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, wirelessDeviceEntry{
@@ -512,11 +785,7 @@ func (h *Handler) listWirelessDevices(c *echo.Context) error {
 func (h *Handler) deleteWirelessDevice(c *echo.Context, id string) error {
 	err := h.Backend.DeleteWirelessDevice(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -546,11 +815,7 @@ func (h *Handler) createWirelessGateway(c *echo.Context, body []byte) error {
 func (h *Handler) getWirelessGateway(c *echo.Context, id string) error {
 	gw, err := h.Backend.GetWirelessGateway(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, wirelessGatewayEntry{
@@ -580,11 +845,7 @@ func (h *Handler) listWirelessGateways(c *echo.Context) error {
 func (h *Handler) deleteWirelessGateway(c *echo.Context, id string) error {
 	err := h.Backend.DeleteWirelessGateway(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -611,11 +872,7 @@ func (h *Handler) createServiceProfile(c *echo.Context, body []byte) error {
 func (h *Handler) getServiceProfile(c *echo.Context, id string) error {
 	sp, err := h.Backend.GetServiceProfile(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, serviceProfileEntry{
@@ -643,11 +900,7 @@ func (h *Handler) listServiceProfiles(c *echo.Context) error {
 func (h *Handler) deleteServiceProfile(c *echo.Context, id string) error {
 	err := h.Backend.DeleteServiceProfile(h.AccountID, h.DefaultRegion, id)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -684,11 +937,7 @@ func (h *Handler) createDestination(c *echo.Context, body []byte) error {
 func (h *Handler) getDestination(c *echo.Context, name string) error {
 	dest, err := h.Backend.GetDestination(h.AccountID, h.DefaultRegion, name)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, destinationEntry{
@@ -722,11 +971,7 @@ func (h *Handler) listDestinations(c *echo.Context) error {
 func (h *Handler) deleteDestination(c *echo.Context, name string) error {
 	err := h.Backend.DeleteDestination(h.AccountID, h.DefaultRegion, name)
 	if err != nil {
-		if isNotFound(err) {
-			return writeError(c, http.StatusNotFound, err.Error())
-		}
-
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)
@@ -769,6 +1014,252 @@ func (h *Handler) untagResource(c *echo.Context, arnEncoded string, query url.Va
 	tagKeys := query["tagKeys"]
 
 	if err := h.Backend.UntagResource(arn, tagKeys); err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+// --- Device Profile handlers ---
+
+func (h *Handler) createDeviceProfile(c *echo.Context, body []byte) error {
+	var req createDeviceProfileRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	dp, err := h.Backend.CreateDeviceProfile(h.AccountID, h.DefaultRegion, req.Name, req.Tags)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return writeJSON(c, http.StatusCreated, createDeviceProfileResponse{Arn: dp.ARN, ID: dp.ID})
+}
+
+// --- FUOTA Task handlers ---
+
+func (h *Handler) createFuotaTask(c *echo.Context, body []byte) error {
+	var req createFuotaTaskRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	ft, err := h.Backend.CreateFuotaTask(
+		h.AccountID, h.DefaultRegion,
+		req.Name, req.Description, req.FirmwareUpdateImage, req.FirmwareUpdateRole,
+		req.Tags,
+	)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return writeJSON(c, http.StatusCreated, createFuotaTaskResponse{Arn: ft.ARN, ID: ft.ID})
+}
+
+func (h *Handler) getFuotaTask(c *echo.Context, id string) error {
+	ft, err := h.Backend.GetFuotaTask(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, fuotaTaskEntry{
+		Arn:                 ft.ARN,
+		ID:                  ft.ID,
+		Name:                ft.Name,
+		Description:         ft.Description,
+		FirmwareUpdateImage: ft.FirmwareUpdateImage,
+		FirmwareUpdateRole:  ft.FirmwareUpdateRole,
+	})
+}
+
+func (h *Handler) listFuotaTasks(c *echo.Context) error {
+	tasks := h.Backend.ListFuotaTasks(h.AccountID, h.DefaultRegion)
+	entries := make([]fuotaTaskEntry, 0, len(tasks))
+
+	for _, ft := range tasks {
+		entries = append(entries, fuotaTaskEntry{
+			Arn:                 ft.ARN,
+			ID:                  ft.ID,
+			Name:                ft.Name,
+			Description:         ft.Description,
+			FirmwareUpdateImage: ft.FirmwareUpdateImage,
+			FirmwareUpdateRole:  ft.FirmwareUpdateRole,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, listFuotaTasksResponse{FuotaTaskList: entries})
+}
+
+func (h *Handler) deleteFuotaTask(c *echo.Context, id string) error {
+	err := h.Backend.DeleteFuotaTask(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) getDeviceProfile(c *echo.Context, id string) error {
+	dp, err := h.Backend.GetDeviceProfile(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, deviceProfileEntry{
+		Arn:  dp.ARN,
+		ID:   dp.ID,
+		Name: dp.Name,
+	})
+}
+
+func (h *Handler) listDeviceProfiles(c *echo.Context) error {
+	profiles := h.Backend.ListDeviceProfiles(h.AccountID, h.DefaultRegion)
+	entries := make([]deviceProfileEntry, 0, len(profiles))
+
+	for _, dp := range profiles {
+		entries = append(entries, deviceProfileEntry{
+			Arn:  dp.ARN,
+			ID:   dp.ID,
+			Name: dp.Name,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, listDeviceProfilesResponse{DeviceProfileList: entries})
+}
+
+func (h *Handler) deleteDeviceProfile(c *echo.Context, id string) error {
+	err := h.Backend.DeleteDeviceProfile(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+// --- Association handlers ---
+
+func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, partnerAccountID string, body []byte) error {
+	var req associatePartnerAccountRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	arn, err := h.Backend.AssociateAwsAccountWithPartnerAccount(
+		h.AccountID,
+		h.DefaultRegion,
+		partnerAccountID,
+		req.Tags,
+	)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return writeJSON(c, http.StatusOK, associatePartnerAccountResponse{Arn: arn})
+}
+
+func (h *Handler) associateMulticastGroupWithFuotaTask(c *echo.Context, fuotaTaskID string, body []byte) error {
+	var req associateMulticastGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	if err := h.Backend.AssociateMulticastGroupWithFuotaTask(fuotaTaskID, req.MulticastGroupID); err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) associateWirelessDeviceWithFuotaTask(c *echo.Context, fuotaTaskID string, body []byte) error {
+	var req associateWirelessDeviceWithFuotaRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	if err := h.Backend.AssociateWirelessDeviceWithFuotaTask(fuotaTaskID, req.WirelessDeviceID); err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) associateWirelessDeviceWithMulticastGroup(
+	c *echo.Context, multicastGroupID string, body []byte,
+) error {
+	var req associateWirelessDeviceWithMulticastRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	if err := h.Backend.AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, req.WirelessDeviceID); err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) associateWirelessDeviceWithThing(c *echo.Context, wirelessDeviceID string, body []byte) error {
+	var req associateWirelessDeviceWithThingRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	err := h.Backend.AssociateWirelessDeviceWithThing(h.AccountID, h.DefaultRegion, wirelessDeviceID, req.ThingArn)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) associateWirelessGatewayWithCertificate(c *echo.Context, gatewayID string, body []byte) error {
+	var req associateWirelessGatewayWithCertificateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	certARN, err := h.Backend.AssociateWirelessGatewayWithCertificate(
+		h.AccountID, h.DefaultRegion, gatewayID, req.IotCertificateID,
+	)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, associateWirelessGatewayWithCertificateResponse{IotCertificateArn: certARN})
+}
+
+func (h *Handler) associateWirelessGatewayWithThing(c *echo.Context, gatewayID string, body []byte) error {
+	var req associateWirelessGatewayWithThingRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	err := h.Backend.AssociateWirelessGatewayWithThing(h.AccountID, h.DefaultRegion, gatewayID, req.ThingArn)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) cancelMulticastGroupSession(c *echo.Context, multicastGroupID string) error {
+	if err := h.Backend.CancelMulticastGroupSession(multicastGroupID); err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 
