@@ -18,12 +18,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
-func newTestHandler(t *testing.T) *kafka.Handler {
+func newTestHandlerWithBackend(t *testing.T) (*kafka.Handler, *kafka.InMemoryBackend) {
 	t.Helper()
 
 	backend := kafka.NewInMemoryBackend(testAccountID, testRegion)
 
-	return kafka.NewHandler(backend)
+	return kafka.NewHandler(backend), backend
+}
+
+func newTestHandler(t *testing.T) *kafka.Handler {
+	t.Helper()
+
+	h, _ := newTestHandlerWithBackend(t)
+
+	return h
 }
 
 func doKafkaRequest(t *testing.T, h *kafka.Handler, method, path string, body any) *httptest.ResponseRecorder {
@@ -1347,7 +1355,7 @@ func TestKafka_DescribeClusterOperation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, backend := newTestHandlerWithBackend(t)
 
 			// Create a cluster and an operation via internal helper
 			createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters", map[string]any{
@@ -1365,7 +1373,7 @@ func TestKafka_DescribeClusterOperation(t *testing.T) {
 			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 			clusterArn := createResp["clusterArn"].(string)
 
-			op := h.Backend.AddClusterOperationInternal(clusterArn, "UPDATE_BROKER_COUNT")
+			op := backend.AddClusterOperationInternal(clusterArn, "UPDATE_BROKER_COUNT")
 
 			var operationArn string
 			if tt.useRealArn {

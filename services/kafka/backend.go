@@ -4,6 +4,8 @@ package kafka
 import (
 	"fmt"
 	"maps"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -17,6 +19,8 @@ var (
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -37,6 +41,15 @@ const (
 	ClusterStateDeleting = "DELETING"
 	// ClusterStateFailed indicates a cluster in a failed state.
 	ClusterStateFailed = "FAILED"
+)
+
+const (
+	// defaultBrokerCount is used in seed helpers for testing.
+	defaultBrokerCount = 3
+	// defaultReplicationFactor is used in AddTopicInternal.
+	defaultReplicationFactor = 3
+	// defaultPartitionCount is used in AddTopicInternal.
+	defaultPartitionCount = 1
 )
 
 // BrokerNodeGroupInfo holds broker node configuration.
@@ -124,6 +137,21 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the backend account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+// Reset clears all state, returning the backend to a clean empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.clusters = make(map[string]*Cluster)
+	b.configurations = make(map[string]*Configuration)
+	b.scramSecrets = make(map[string][]string)
+	b.replicators = make(map[string]*Replicator)
+	b.topics = make(map[string]*Topic)
+	b.vpcConnections = make(map[string]*VpcConnection)
+	b.clusterPolicies = make(map[string]string)
+	b.clusterOperations = make(map[string]*ClusterOperation)
+}
+
 // clusterARN builds an ARN for an MSK cluster.
 func (b *InMemoryBackend) clusterARN(name string) string {
 	return arn.Build("kafka", b.region, b.accountID, fmt.Sprintf("cluster/%s/%s", name, uuid.New().String()))
@@ -173,6 +201,10 @@ func (b *InMemoryBackend) CreateCluster(
 	brokerInfo BrokerNodeGroupInfo,
 	tags map[string]string,
 ) (*Cluster, error) {
+	if name == "" {
+		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
@@ -191,11 +223,11 @@ func (b *InMemoryBackend) CreateCluster(
 		BrokerNodeGroupInfo: brokerInfo,
 		State:               ClusterStateActive,
 		CurrentVersion:      "K3AEGXETSR30VB",
-		Tags:                maps.Clone(tags),
+		Tags:                nonNilTagsCopy(tags),
 	}
 	b.clusters[clusterArn] = cluster
 
-	return cluster, nil
+	return cloneCluster(cluster), nil
 }
 
 // DescribeCluster retrieves a cluster by ARN.
@@ -211,7 +243,7 @@ func (b *InMemoryBackend) DescribeCluster(clusterArn string) (*Cluster, error) {
 	return cloneCluster(c), nil
 }
 
-// ListClusters returns all MSK clusters.
+// ListClusters returns all MSK clusters sorted by name.
 func (b *InMemoryBackend) ListClusters() []*Cluster {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
@@ -221,10 +253,21 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 		out = append(out, cloneCluster(c))
 	}
 
+	slices.SortFunc(out, func(a, b *Cluster) int {
+		if a.ClusterName < b.ClusterName {
+			return -1
+		}
+		if a.ClusterName > b.ClusterName {
+			return 1
+		}
+
+		return 0
+	})
+
 	return out
 }
 
-// DeleteCluster deletes a cluster by ARN.
+// DeleteCluster deletes a cluster by ARN, cascading to its SCRAM secrets, topics and cluster policy.
 func (b *InMemoryBackend) DeleteCluster(clusterArn string) error {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
@@ -234,6 +277,16 @@ func (b *InMemoryBackend) DeleteCluster(clusterArn string) error {
 	}
 
 	delete(b.clusters, clusterArn)
+	delete(b.scramSecrets, clusterArn)
+	delete(b.clusterPolicies, clusterArn)
+
+	// Remove all topics belonging to this cluster.
+	prefix := clusterArn + topicKeySeparator
+	for k := range b.topics {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.topics, k)
+		}
+	}
 
 	return nil
 }
@@ -246,6 +299,10 @@ func (b *InMemoryBackend) CreateConfiguration(
 	kafkaVersions []string,
 	serverProperties string,
 ) (*Configuration, error) {
+	if name == "" {
+		return nil, fmt.Errorf("name is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
 
@@ -256,16 +313,19 @@ func (b *InMemoryBackend) CreateConfiguration(
 	}
 
 	configArn := b.configurationARN(name)
+	kvs := make([]string, len(kafkaVersions))
+	copy(kvs, kafkaVersions)
 	config := &Configuration{
 		Arn:              configArn,
 		Name:             name,
 		Description:      description,
-		KafkaVersions:    kafkaVersions,
+		KafkaVersions:    kvs,
 		ServerProperties: serverProperties,
+		Tags:             make(map[string]string),
 	}
 	b.configurations[configArn] = config
 
-	return config, nil
+	return cloneConfiguration(config), nil
 }
 
 // DescribeConfiguration retrieves a configuration by ARN.
@@ -278,18 +338,29 @@ func (b *InMemoryBackend) DescribeConfiguration(configArn string) (*Configuratio
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return cloneConfiguration(c), nil
 }
 
-// ListConfigurations returns all MSK configurations.
+// ListConfigurations returns all MSK configurations sorted by name.
 func (b *InMemoryBackend) ListConfigurations() []*Configuration {
 	b.mu.RLock("ListConfigurations")
 	defer b.mu.RUnlock()
 
 	out := make([]*Configuration, 0, len(b.configurations))
 	for _, c := range b.configurations {
-		out = append(out, c)
+		out = append(out, cloneConfiguration(c))
 	}
+
+	slices.SortFunc(out, func(a, b *Configuration) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+
+		return 0
+	})
 
 	return out
 }
@@ -310,27 +381,31 @@ func (b *InMemoryBackend) DeleteConfiguration(configArn string) error {
 
 // --- Tag operations ---
 
-// TagResource adds tags to a cluster or configuration by ARN.
+// TagResource adds tags to a cluster, configuration, replicator, or VPC connection by ARN.
 func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if c, ok := b.clusters[resourceArn]; ok {
-		if c.Tags == nil {
-			c.Tags = make(map[string]string)
-		}
-
 		maps.Copy(c.Tags, tags)
 
 		return nil
 	}
 
 	if c, ok := b.configurations[resourceArn]; ok {
-		if c.Tags == nil {
-			c.Tags = make(map[string]string)
-		}
-
 		maps.Copy(c.Tags, tags)
+
+		return nil
+	}
+
+	if r, ok := b.replicators[resourceArn]; ok {
+		maps.Copy(r.Tags, tags)
+
+		return nil
+	}
+
+	if v, ok := b.vpcConnections[resourceArn]; ok {
+		maps.Copy(v.Tags, tags)
 
 		return nil
 	}
@@ -338,7 +413,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	return ErrNotFound
 }
 
-// UntagResource removes tags from a cluster or configuration by ARN.
+// UntagResource removes tags from a cluster, configuration, replicator, or VPC connection by ARN.
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
@@ -359,10 +434,26 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		return nil
 	}
 
+	if r, ok := b.replicators[resourceArn]; ok {
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	}
+
+	if v, ok := b.vpcConnections[resourceArn]; ok {
+		for _, k := range tagKeys {
+			delete(v.Tags, k)
+		}
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
-// GetTags retrieves tags for a cluster or configuration by ARN.
+// GetTags retrieves tags for a cluster, configuration, replicator, or VPC connection by ARN.
 func (b *InMemoryBackend) GetTags(resourceArn string) (map[string]string, error) {
 	b.mu.RLock("GetTags")
 	defer b.mu.RUnlock()
@@ -373,6 +464,14 @@ func (b *InMemoryBackend) GetTags(resourceArn string) (map[string]string, error)
 
 	if c, ok := b.configurations[resourceArn]; ok {
 		return maps.Clone(c.Tags), nil
+	}
+
+	if r, ok := b.replicators[resourceArn]; ok {
+		return maps.Clone(r.Tags), nil
+	}
+
+	if v, ok := b.vpcConnections[resourceArn]; ok {
+		return maps.Clone(v.Tags), nil
 	}
 
 	return nil, ErrNotFound
@@ -432,7 +531,7 @@ func (b *InMemoryBackend) BatchDisassociateScramSecret(
 	}
 
 	existing := b.scramSecrets[clusterArn]
-	kept := existing[:0]
+	kept := make([]string, 0, len(existing))
 
 	for _, s := range existing {
 		if _, remove := removeSet[s]; !remove {
@@ -452,6 +551,10 @@ func (b *InMemoryBackend) CreateReplicator(
 	name, description, serviceExecutionRoleArn string,
 	tags map[string]string,
 ) (*Replicator, error) {
+	if name == "" {
+		return nil, fmt.Errorf("replicatorName is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateReplicator")
 	defer b.mu.Unlock()
 
@@ -468,11 +571,11 @@ func (b *InMemoryBackend) CreateReplicator(
 		Description:             description,
 		ServiceExecutionRoleArn: serviceExecutionRoleArn,
 		ReplicatorState:         ReplicatorStateRunning,
-		Tags:                    maps.Clone(tags),
+		Tags:                    nonNilTagsCopy(tags),
 	}
 	b.replicators[replicatorArn] = replicator
 
-	return replicator, nil
+	return cloneReplicator(replicator), nil
 }
 
 // DeleteReplicator deletes a replicator by ARN.
@@ -497,6 +600,10 @@ func (b *InMemoryBackend) CreateTopic(
 	replicationFactor, numPartitions int32,
 	configEntries map[string]string,
 ) (*Topic, error) {
+	if topicName == "" {
+		return nil, fmt.Errorf("topicName is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateTopic")
 	defer b.mu.Unlock()
 
@@ -514,11 +621,11 @@ func (b *InMemoryBackend) CreateTopic(
 		ClusterArn:        clusterArn,
 		ReplicationFactor: replicationFactor,
 		NumPartitions:     numPartitions,
-		ConfigEntries:     maps.Clone(configEntries),
+		ConfigEntries:     nonNilMapCopy(configEntries),
 	}
 	b.topics[key] = topic
 
-	return topic, nil
+	return cloneTopic(topic), nil
 }
 
 // DeleteTopic deletes a topic from an MSK cluster.
@@ -561,11 +668,11 @@ func (b *InMemoryBackend) CreateVpcConnection(
 		VpcID:            vpcID,
 		Authentication:   authentication,
 		State:            VpcConnectionStateAvailable,
-		Tags:             maps.Clone(tags),
+		Tags:             nonNilTagsCopy(tags),
 	}
 	b.vpcConnections[vpcConnectionArn] = conn
 
-	return conn, nil
+	return cloneVpcConnection(conn), nil
 }
 
 // DeleteVpcConnection deletes a VPC connection by ARN.
@@ -610,7 +717,7 @@ func (b *InMemoryBackend) DescribeClusterOperation(clusterOperationArn string) (
 		return nil, ErrNotFound
 	}
 
-	return op, nil
+	return cloneClusterOperation(op), nil
 }
 
 // AddClusterOperationInternal adds a cluster operation for testing purposes.
@@ -627,7 +734,94 @@ func (b *InMemoryBackend) AddClusterOperationInternal(clusterArn, operationType 
 	}
 	b.clusterOperations[clusterOperationArn] = op
 
-	return op
+	return cloneClusterOperation(op)
+}
+
+// AddClusterInternal creates a cluster directly for testing purposes.
+func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster {
+	b.mu.Lock("AddClusterInternal")
+	defer b.mu.Unlock()
+
+	clusterArn := b.clusterARN(name)
+	cluster := &Cluster{
+		ClusterArn:          clusterArn,
+		ClusterName:         name,
+		KafkaVersion:        kafkaVersion,
+		NumberOfBrokerNodes: defaultBrokerCount,
+		State:               ClusterStateActive,
+		CurrentVersion:      "K3AEGXETSR30VB",
+		Tags:                make(map[string]string),
+	}
+	b.clusters[clusterArn] = cluster
+
+	return cloneCluster(cluster)
+}
+func (b *InMemoryBackend) AddConfigurationInternal(name string) *Configuration {
+	b.mu.Lock("AddConfigurationInternal")
+	defer b.mu.Unlock()
+
+	configArn := b.configurationARN(name)
+	config := &Configuration{
+		Arn:           configArn,
+		Name:          name,
+		KafkaVersions: []string{"2.8.0"},
+		Tags:          make(map[string]string),
+	}
+	b.configurations[configArn] = config
+
+	return cloneConfiguration(config)
+}
+
+// AddReplicatorInternal creates a replicator directly for testing purposes.
+func (b *InMemoryBackend) AddReplicatorInternal(name string) *Replicator {
+	b.mu.Lock("AddReplicatorInternal")
+	defer b.mu.Unlock()
+
+	replicatorArn := b.replicatorARN(name)
+	replicator := &Replicator{
+		ReplicatorArn:   replicatorArn,
+		ReplicatorName:  name,
+		ReplicatorState: ReplicatorStateRunning,
+		Tags:            make(map[string]string),
+	}
+	b.replicators[replicatorArn] = replicator
+
+	return cloneReplicator(replicator)
+}
+
+// AddTopicInternal creates a topic directly for testing purposes.
+func (b *InMemoryBackend) AddTopicInternal(clusterArn, topicName string) *Topic {
+	b.mu.Lock("AddTopicInternal")
+	defer b.mu.Unlock()
+
+	topic := &Topic{
+		TopicName:         topicName,
+		ClusterArn:        clusterArn,
+		ReplicationFactor: defaultReplicationFactor,
+		NumPartitions:     defaultPartitionCount,
+		ConfigEntries:     make(map[string]string),
+	}
+	b.topics[topicKey(clusterArn, topicName)] = topic
+
+	return cloneTopic(topic)
+}
+
+// AddVpcConnectionInternal creates a VPC connection directly for testing purposes.
+func (b *InMemoryBackend) AddVpcConnectionInternal(clusterArn, vpcID string) *VpcConnection {
+	b.mu.Lock("AddVpcConnectionInternal")
+	defer b.mu.Unlock()
+
+	vpcConnectionArn := b.vpcConnectionARN(clusterArn, vpcID)
+	conn := &VpcConnection{
+		VpcConnectionArn: vpcConnectionArn,
+		TargetClusterArn: clusterArn,
+		VpcID:            vpcID,
+		State:            VpcConnectionStateAvailable,
+		Tags:             make(map[string]string),
+	}
+	b.vpcConnections[vpcConnectionArn] = conn
+
+	return cloneVpcConnection(conn)
 }
 
 // ScramSecretError represents an error that occurred while associating or disassociating a SCRAM secret.
@@ -683,7 +877,7 @@ func cloneCluster(c *Cluster) *Cluster {
 		State:               c.State,
 		CurrentVersion:      c.CurrentVersion,
 		NumberOfBrokerNodes: c.NumberOfBrokerNodes,
-		Tags:                maps.Clone(c.Tags),
+		Tags:                nonNilTagsCopy(c.Tags),
 		BrokerNodeGroupInfo: BrokerNodeGroupInfo{
 			BrokerAZDistribution: c.BrokerNodeGroupInfo.BrokerAZDistribution,
 			InstanceType:         c.BrokerNodeGroupInfo.InstanceType,
@@ -702,4 +896,82 @@ func cloneCluster(c *Cluster) *Cluster {
 	}
 
 	return clone
+}
+
+// cloneConfiguration creates a deep copy of a Configuration.
+func cloneConfiguration(c *Configuration) *Configuration {
+	kvs := make([]string, len(c.KafkaVersions))
+	copy(kvs, c.KafkaVersions)
+
+	return &Configuration{
+		Arn:              c.Arn,
+		Name:             c.Name,
+		Description:      c.Description,
+		ServerProperties: c.ServerProperties,
+		KafkaVersions:    kvs,
+		Tags:             nonNilTagsCopy(c.Tags),
+	}
+}
+
+// cloneReplicator creates a deep copy of a Replicator.
+func cloneReplicator(r *Replicator) *Replicator {
+	return &Replicator{
+		ReplicatorArn:           r.ReplicatorArn,
+		ReplicatorName:          r.ReplicatorName,
+		Description:             r.Description,
+		ServiceExecutionRoleArn: r.ServiceExecutionRoleArn,
+		ReplicatorState:         r.ReplicatorState,
+		Tags:                    nonNilTagsCopy(r.Tags),
+	}
+}
+
+// cloneTopic creates a deep copy of a Topic.
+func cloneTopic(t *Topic) *Topic {
+	return &Topic{
+		TopicName:         t.TopicName,
+		ClusterArn:        t.ClusterArn,
+		ReplicationFactor: t.ReplicationFactor,
+		NumPartitions:     t.NumPartitions,
+		ConfigEntries:     nonNilMapCopy(t.ConfigEntries),
+	}
+}
+
+// cloneVpcConnection creates a deep copy of a VpcConnection.
+func cloneVpcConnection(v *VpcConnection) *VpcConnection {
+	return &VpcConnection{
+		VpcConnectionArn: v.VpcConnectionArn,
+		TargetClusterArn: v.TargetClusterArn,
+		VpcID:            v.VpcID,
+		Authentication:   v.Authentication,
+		State:            v.State,
+		Tags:             nonNilTagsCopy(v.Tags),
+	}
+}
+
+// cloneClusterOperation creates a deep copy of a ClusterOperation.
+func cloneClusterOperation(op *ClusterOperation) *ClusterOperation {
+	return &ClusterOperation{
+		ClusterOperationArn: op.ClusterOperationArn,
+		ClusterArn:          op.ClusterArn,
+		OperationType:       op.OperationType,
+		OperationState:      op.OperationState,
+	}
+}
+
+// nonNilTagsCopy returns a new non-nil copy of tags; an empty map if tags is nil.
+func nonNilTagsCopy(tags map[string]string) map[string]string {
+	if tags == nil {
+		return make(map[string]string)
+	}
+
+	return maps.Clone(tags)
+}
+
+// nonNilMapCopy returns a new non-nil copy of a string map; an empty map if nil.
+func nonNilMapCopy(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return maps.Clone(m)
 }

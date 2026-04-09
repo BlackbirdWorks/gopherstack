@@ -40,16 +40,21 @@ const (
 
 // Handler is the HTTP handler for the MSK REST API.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Kafka handler backed by backend.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Kafka" }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
 
 // GetSupportedOperations returns the list of supported MSK operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -1156,6 +1161,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "NotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
