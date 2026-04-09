@@ -505,7 +505,7 @@ func (b *InMemoryBackend) newResourceID(prefix string) string {
 }
 
 // checkAndBumpVersion validates the current version and increments it.
-// A zero/negative versionID is treated as "skip version check".
+// A zero/negative currentVersionID is treated as "skip version check".
 // Must be called under b.mu.
 func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 	if currentVersionID > 0 && app.ApplicationVersionID != currentVersionID {
