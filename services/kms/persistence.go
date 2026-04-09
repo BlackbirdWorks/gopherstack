@@ -13,6 +13,7 @@ type backendSnapshot struct {
 	Policies           map[string]string                  `json:"policies"`
 	KeyMaterials       map[string]serializedKeyMaterial   `json:"key_materials,omitempty"`
 	KeyMaterialHistory map[string][]serializedKeyMaterial `json:"key_material_history,omitempty"`
+	CustomKeyStores    map[string]*CustomKeyStore         `json:"custom_key_stores,omitempty"`
 	AccountID          string                             `json:"accountID"`
 	Region             string                             `json:"region"`
 }
@@ -68,6 +69,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Policies:           b.policies,
 		KeyMaterials:       serialized,
 		KeyMaterialHistory: serializedHistory,
+		CustomKeyStores:    b.customKeyStores,
 		AccountID:          b.accountID,
 		Region:             b.region,
 	}
@@ -108,6 +110,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if snap.Policies == nil {
 		snap.Policies = make(map[string]string)
+	}
+
+	if snap.CustomKeyStores == nil {
+		snap.CustomKeyStores = make(map[string]*CustomKeyStore)
 	}
 
 	// Restore key materials.
@@ -158,6 +164,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.policies = snap.Policies
 	b.keyMaterials = restored
 	b.keyMaterialHistory = restoredHistory
+	b.customKeyStores = snap.CustomKeyStores
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

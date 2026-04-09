@@ -75,12 +75,20 @@ type KeyMetadata struct {
 	Origin string `json:"Origin,omitempty"`
 	// KeySpec is the key spec, e.g., "SYMMETRIC_DEFAULT".
 	KeySpec string `json:"KeySpec,omitempty"`
+	// CustomerMasterKeySpec is the deprecated alias for KeySpec.
+	CustomerMasterKeySpec string `json:"CustomerMasterKeySpec,omitempty"`
 	// EncryptionAlgorithms lists the encryption algorithms supported by this key.
 	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
 	// SigningAlgorithms lists the signing algorithms supported by this key.
 	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
+	// MacAlgorithms lists the MAC algorithms supported by this HMAC key.
+	MacAlgorithms []string `json:"MacAlgorithms,omitempty"`
+	// KeyAgreementAlgorithms lists the key agreement algorithms (e.g. ECDH).
+	KeyAgreementAlgorithms []string `json:"KeyAgreementAlgorithms,omitempty"`
 	// MultiRegion indicates whether this is a multi-region key.
 	MultiRegion bool `json:"MultiRegion"`
+	// Enabled indicates whether this key is currently enabled.
+	Enabled bool `json:"Enabled"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
 	// DeletionDate is the Unix timestamp when the key will be deleted (PendingDeletion state only).
@@ -480,6 +488,8 @@ type GetPublicKeyOutput struct {
 	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
 	// EncryptionAlgorithms lists the encryption algorithms (empty for sign keys).
 	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
+	// KeyAgreementAlgorithms lists the key agreement algorithms (e.g. ECDH).
+	KeyAgreementAlgorithms []string `json:"KeyAgreementAlgorithms,omitempty"`
 }
 
 // ImportKeyMaterialInput is the request payload for ImportKeyMaterial.
@@ -494,4 +504,187 @@ type ImportKeyMaterialInput struct {
 type DeleteImportedKeyMaterialInput struct {
 	// KeyId identifies the EXTERNAL-origin key whose material should be deleted.
 	KeyID string `json:"KeyId"`
+}
+
+// KeyUsageGenerateMac is the key usage for HMAC keys.
+const KeyUsageGenerateMac = "GENERATE_VERIFY_MAC"
+
+// KeyUsageKeyAgreement is the key usage for ECDH key agreement keys.
+const KeyUsageKeyAgreement = "KEY_AGREEMENT"
+
+// ConnectionStateConnected indicates a custom key store is connected.
+const ConnectionStateConnected = "CONNECTED"
+
+// ConnectionStateDisconnected indicates a custom key store is disconnected.
+const ConnectionStateDisconnected = "DISCONNECTED"
+
+// CustomKeyStore represents an AWS KMS custom key store entry.
+type CustomKeyStore struct {
+	CustomKeyStoreID   string  `json:"CustomKeyStoreId"`
+	CustomKeyStoreName string  `json:"CustomKeyStoreName"`
+	ConnectionState    string  `json:"ConnectionState"`
+	CustomKeyStoreType string  `json:"CustomKeyStoreType"`
+	CreationDate       float64 `json:"CreationDate"`
+}
+
+// CreateCustomKeyStoreInput is the request payload for CreateCustomKeyStore.
+type CreateCustomKeyStoreInput struct {
+	// CustomKeyStoreName is the name of the custom key store to create.
+	CustomKeyStoreName string `json:"CustomKeyStoreName"`
+	// CustomKeyStoreType is the type of custom key store (default AWS_CLOUDHSM).
+	CustomKeyStoreType string `json:"CustomKeyStoreType,omitempty"`
+}
+
+// CreateCustomKeyStoreOutput is the response payload for CreateCustomKeyStore.
+type CreateCustomKeyStoreOutput struct {
+	// CustomKeyStoreId is the ID of the newly created custom key store.
+	CustomKeyStoreID string `json:"CustomKeyStoreId"`
+}
+
+// DeleteCustomKeyStoreInput is the request payload for DeleteCustomKeyStore.
+type DeleteCustomKeyStoreInput struct {
+	// CustomKeyStoreId identifies the custom key store to delete.
+	CustomKeyStoreID string `json:"CustomKeyStoreId"`
+}
+
+// DescribeCustomKeyStoresInput is the request payload for DescribeCustomKeyStores.
+type DescribeCustomKeyStoresInput struct {
+	// CustomKeyStoreId filters results to a single custom key store by ID.
+	CustomKeyStoreID string `json:"CustomKeyStoreId,omitempty"`
+	// CustomKeyStoreName filters results to a single custom key store by name.
+	CustomKeyStoreName string `json:"CustomKeyStoreName,omitempty"`
+	// Limit caps the number of results returned.
+	Limit *int32 `json:"Limit,omitempty"`
+	// Marker is the pagination cursor from a previous call.
+	Marker string `json:"Marker,omitempty"`
+}
+
+// DescribeCustomKeyStoresOutput is the response payload for DescribeCustomKeyStores.
+type DescribeCustomKeyStoresOutput struct {
+	NextMarker      string           `json:"NextMarker,omitempty"`
+	CustomKeyStores []CustomKeyStore `json:"CustomKeyStores"`
+	Truncated       bool             `json:"Truncated"`
+}
+
+// ConnectCustomKeyStoreInput is the request payload for ConnectCustomKeyStore.
+type ConnectCustomKeyStoreInput struct {
+	// CustomKeyStoreId identifies the custom key store to connect.
+	CustomKeyStoreID string `json:"CustomKeyStoreId"`
+}
+
+// DisconnectCustomKeyStoreInput is the request payload for DisconnectCustomKeyStore.
+type DisconnectCustomKeyStoreInput struct {
+	// CustomKeyStoreId identifies the custom key store to disconnect.
+	CustomKeyStoreID string `json:"CustomKeyStoreId"`
+}
+
+// DeriveSharedSecretInput is the request payload for DeriveSharedSecret.
+type DeriveSharedSecretInput struct {
+	// KeyId is the ECC key (KEY_AGREEMENT usage) used to derive the shared secret.
+	KeyID string `json:"KeyId"`
+	// KeyAgreementAlgorithm is the key agreement algorithm (always ECDH).
+	KeyAgreementAlgorithm string `json:"KeyAgreementAlgorithm"`
+	// PublicKey is the DER-encoded public key of the other party.
+	PublicKey []byte `json:"PublicKey"`
+}
+
+// DeriveSharedSecretOutput is the response payload for DeriveSharedSecret.
+type DeriveSharedSecretOutput struct {
+	KeyID                 string `json:"KeyId"`
+	KeyAgreementAlgorithm string `json:"KeyAgreementAlgorithm"`
+	SharedSecret          []byte `json:"SharedSecret"`
+}
+
+// GenerateDataKeyPairInput is the request payload for GenerateDataKeyPair.
+type GenerateDataKeyPairInput struct {
+	// EncryptionContext is the optional encryption context for the wrapping key.
+	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
+	// KeyId is the KMS symmetric key used to encrypt the private key.
+	KeyID string `json:"KeyId"`
+	// KeyPairSpec specifies the asymmetric key spec (e.g. RSA_2048, ECC_NIST_P256).
+	KeyPairSpec string `json:"KeyPairSpec"`
+}
+
+// GenerateDataKeyPairOutput is the response payload for GenerateDataKeyPair.
+type GenerateDataKeyPairOutput struct {
+	// KeyId is the ARN of the wrapping KMS key.
+	KeyID string `json:"KeyId"`
+	// KeyPairSpec is the key pair spec used.
+	KeyPairSpec string `json:"KeyPairSpec"`
+	// PrivateKeyCiphertextBlob is the DER-encoded private key encrypted under KeyId.
+	PrivateKeyCiphertextBlob []byte `json:"PrivateKeyCiphertextBlob"`
+	// PrivateKeyPlaintext is the DER-encoded PKCS#8 private key.
+	PrivateKeyPlaintext []byte `json:"PrivateKeyPlaintext"`
+	// PublicKey is the DER-encoded SubjectPublicKeyInfo public key.
+	PublicKey []byte `json:"PublicKey"`
+}
+
+// GenerateDataKeyPairWithoutPlaintextInput is the request payload for GenerateDataKeyPairWithoutPlaintext.
+type GenerateDataKeyPairWithoutPlaintextInput struct {
+	// EncryptionContext is the optional encryption context for the wrapping key.
+	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
+	// KeyId is the KMS symmetric key used to encrypt the private key.
+	KeyID string `json:"KeyId"`
+	// KeyPairSpec specifies the asymmetric key spec (e.g. RSA_2048, ECC_NIST_P256).
+	KeyPairSpec string `json:"KeyPairSpec"`
+}
+
+// GenerateDataKeyPairWithoutPlaintextOutput is the response payload for GenerateDataKeyPairWithoutPlaintext.
+type GenerateDataKeyPairWithoutPlaintextOutput struct {
+	// KeyId is the ARN of the wrapping KMS key.
+	KeyID string `json:"KeyId"`
+	// KeyPairSpec is the key pair spec used.
+	KeyPairSpec string `json:"KeyPairSpec"`
+	// PrivateKeyCiphertextBlob is the DER-encoded private key encrypted under KeyId.
+	PrivateKeyCiphertextBlob []byte `json:"PrivateKeyCiphertextBlob"`
+	// PublicKey is the DER-encoded SubjectPublicKeyInfo public key.
+	PublicKey []byte `json:"PublicKey"`
+}
+
+// GenerateMacInput is the request payload for GenerateMac.
+type GenerateMacInput struct {
+	// KeyId is the HMAC KMS key used to generate the MAC.
+	KeyID string `json:"KeyId"`
+	// MacAlgorithm specifies the MAC algorithm (e.g. HMAC_SHA_256).
+	MacAlgorithm string `json:"MacAlgorithm"`
+	// Message is the data over which to compute the MAC.
+	Message []byte `json:"Message"`
+}
+
+// GenerateMacOutput is the response payload for GenerateMac.
+type GenerateMacOutput struct {
+	KeyID        string `json:"KeyId"`
+	MacAlgorithm string `json:"MacAlgorithm"`
+	Mac          []byte `json:"Mac"`
+}
+
+// GenerateRandomInput is the request payload for GenerateRandom.
+type GenerateRandomInput struct {
+	// NumberOfBytes specifies how many random bytes to generate (default 32, max 1024).
+	NumberOfBytes *int32 `json:"NumberOfBytes,omitempty"`
+}
+
+// GenerateRandomOutput is the response payload for GenerateRandom.
+type GenerateRandomOutput struct {
+	// Plaintext contains the generated random bytes.
+	Plaintext []byte `json:"Plaintext"`
+}
+
+// VerifyMacInput is the request payload for VerifyMac.
+type VerifyMacInput struct {
+	// KeyId is the HMAC KMS key used to verify the MAC.
+	KeyID string `json:"KeyId"`
+	// MacAlgorithm specifies the MAC algorithm (e.g. HMAC_SHA_256).
+	MacAlgorithm string `json:"MacAlgorithm"`
+	// Message is the data over which to verify the MAC.
+	Message []byte `json:"Message"`
+	// Mac is the MAC tag to verify.
+	Mac []byte `json:"Mac"`
+}
+
+// VerifyMacOutput is the response payload for VerifyMac.
+type VerifyMacOutput struct {
+	KeyID        string `json:"KeyId"`
+	MacAlgorithm string `json:"MacAlgorithm"`
+	MacValid     bool   `json:"MacValid"`
 }
