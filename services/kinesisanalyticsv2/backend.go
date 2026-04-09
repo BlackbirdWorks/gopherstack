@@ -20,6 +20,8 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	// ErrConcurrentModification is returned when the application version does not match.
 	ErrConcurrentModification = awserr.New("ConcurrentModificationException", awserr.ErrInvalidParameter)
+	// ErrValidation is returned for invalid input parameters.
+	ErrValidation = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 )
 
 // CloudWatchLoggingOptionDesc describes a CloudWatch logging option.
@@ -225,6 +227,7 @@ func (b *InMemoryBackend) CreateApplication(
 }
 
 // DescribeApplication retrieves an application by name.
+// Returns a deep copy so callers cannot mutate internal state.
 func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error) {
 	b.mu.RLock("DescribeApplication")
 	defer b.mu.RUnlock()
@@ -234,7 +237,7 @@ func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error)
 		return nil, ErrNotFound
 	}
 
-	return app, nil
+	return appCopy(app), nil
 }
 
 // ListApplications returns applications with optional pagination.
@@ -363,7 +366,25 @@ func (b *InMemoryBackend) CreateApplicationSnapshot(appName, snapshotName string
 	return snap, nil
 }
 
-// ListApplicationSnapshots returns snapshots for an application with optional pagination.
+// DescribeApplicationSnapshot retrieves a snapshot by application name and snapshot name.
+func (b *InMemoryBackend) DescribeApplicationSnapshot(appName, snapshotName string) (*Snapshot, error) {
+	b.mu.RLock("DescribeApplicationSnapshot")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[appName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	for _, s := range b.snapshots[appName] {
+		if s.SnapshotName == snapshotName {
+			return s, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// ListApplicationSnapshots returns snapshots for an application with optional pagination, sorted by creation time.
 func (b *InMemoryBackend) ListApplicationSnapshots(appName, nextToken string) ([]*Snapshot, string, error) {
 	b.mu.RLock("ListApplicationSnapshots")
 	defer b.mu.RUnlock()
@@ -375,6 +396,10 @@ func (b *InMemoryBackend) ListApplicationSnapshots(appName, nextToken string) ([
 	snaps := b.snapshots[appName]
 	out := make([]*Snapshot, len(snaps))
 	copy(out, snaps)
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].SnapshotCreation.Before(out[j].SnapshotCreation)
+	})
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(out) {
@@ -457,7 +482,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		keySet[k] = struct{}{}
 	}
 
-	filtered := app.Tags[:0]
+	filtered := make([]Tag, 0, len(app.Tags))
 	for _, t := range app.Tags {
 		if _, remove := keySet[t.Key]; !remove {
 			filtered = append(filtered, t)
@@ -469,7 +494,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	return nil
 }
 
-// ListTagsForResource returns tags for an application.
+// ListTagsForResource returns tags for an application, sorted by key.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
@@ -479,7 +504,10 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 		return nil, ErrNotFound
 	}
 
-	return cloneTags(app.Tags), nil
+	cp := cloneTags(app.Tags)
+	sort.Slice(cp, func(i, j int) bool { return cp[i].Key < cp[j].Key })
+
+	return cp, nil
 }
 
 // findByARN finds an application by its ARN using O(1) index lookup.
@@ -495,6 +523,27 @@ func (b *InMemoryBackend) findByARN(resourceARN string) *Application {
 // GenerateApplicationARN exposes the ARN builder for testing.
 func (b *InMemoryBackend) GenerateApplicationARN(name string) string {
 	return b.applicationARN(name)
+}
+
+// Reset clears all state and resets the ID counter.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.applications = make(map[string]*Application)
+	b.applicationARNs = make(map[string]string)
+	b.snapshots = make(map[string][]*Snapshot)
+	b.nextID = 0
+}
+
+// AddApplicationInternal is a test-only seed helper that stores an application directly.
+func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
+	b.mu.Lock("AddApplicationInternal")
+	defer b.mu.Unlock()
+
+	cp := appCopy(app)
+	b.applications[cp.ApplicationName] = cp
+	b.applicationARNs[cp.ApplicationARN] = cp.ApplicationName
 }
 
 // newResourceID generates a unique resource ID. Must be called under b.mu.
@@ -661,6 +710,15 @@ func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 	}
 
 	vpc.VpcConfigurationID = b.newResourceID("vpc")
+
+	if vpc.SubnetIDs == nil {
+		vpc.SubnetIDs = []string{}
+	}
+
+	if vpc.SecurityGroupIDs == nil {
+		vpc.SecurityGroupIDs = []string{}
+	}
+
 	app.VpcConfigurationDescriptions = append(app.VpcConfigurationDescriptions, vpc)
 
 	return nil
@@ -780,16 +838,85 @@ func (b *InMemoryBackend) DeleteApplicationOutput(
 	return nil
 }
 
-// cloneTags returns a copy of a tag slice.
+// cloneTags returns a copy of a tag slice. Always returns a non-nil slice.
 func cloneTags(tags []Tag) []Tag {
-	if tags == nil {
-		return nil
-	}
-
 	result := make([]Tag, len(tags))
 	copy(result, tags)
 
 	return result
+}
+
+// copyCWLOptions returns a deep copy of the CloudWatch logging option slice.
+func copyCWLOptions(src []CloudWatchLoggingOptionDesc) []CloudWatchLoggingOptionDesc {
+	out := make([]CloudWatchLoggingOptionDesc, len(src))
+	copy(out, src)
+
+	return out
+}
+
+// copyInputDescs returns a deep copy of the input description slice.
+func copyInputDescs(src []InputDescription) []InputDescription {
+	out := make([]InputDescription, len(src))
+	copy(out, src)
+
+	return out
+}
+
+// copyOutputDescs returns a deep copy of the output description slice.
+func copyOutputDescs(src []OutputDescription) []OutputDescription {
+	out := make([]OutputDescription, len(src))
+	copy(out, src)
+
+	return out
+}
+
+// copyRefDataSources returns a deep copy of the reference data source description slice.
+func copyRefDataSources(src []ReferenceDataSourceDescription) []ReferenceDataSourceDescription {
+	out := make([]ReferenceDataSourceDescription, len(src))
+	copy(out, src)
+
+	return out
+}
+
+// copyVpcConfigs returns a deep copy of the VPC configuration description slice.
+// Nil SubnetIDs/SecurityGroupIDs are normalized to empty slices.
+func copyVpcConfigs(src []VpcConfigurationDescription) []VpcConfigurationDescription {
+	out := make([]VpcConfigurationDescription, len(src))
+
+	for i, v := range src {
+		entry := v
+
+		if v.SubnetIDs == nil {
+			entry.SubnetIDs = []string{}
+		} else {
+			entry.SubnetIDs = make([]string, len(v.SubnetIDs))
+			copy(entry.SubnetIDs, v.SubnetIDs)
+		}
+
+		if v.SecurityGroupIDs == nil {
+			entry.SecurityGroupIDs = []string{}
+		} else {
+			entry.SecurityGroupIDs = make([]string, len(v.SecurityGroupIDs))
+			copy(entry.SecurityGroupIDs, v.SecurityGroupIDs)
+		}
+
+		out[i] = entry
+	}
+
+	return out
+}
+
+// appCopy returns a deep copy of an Application, safe to return to callers.
+func appCopy(src *Application) *Application {
+	cp := *src
+	cp.Tags = cloneTags(src.Tags)
+	cp.CloudWatchLoggingOptionDescs = copyCWLOptions(src.CloudWatchLoggingOptionDescs)
+	cp.InputDescriptions = copyInputDescs(src.InputDescriptions)
+	cp.OutputDescriptions = copyOutputDescs(src.OutputDescriptions)
+	cp.ReferenceDataSourceDescriptions = copyRefDataSources(src.ReferenceDataSourceDescriptions)
+	cp.VpcConfigurationDescriptions = copyVpcConfigs(src.VpcConfigurationDescriptions)
+
+	return &cp
 }
 
 // tagsToMap converts a tag slice to a map for display.

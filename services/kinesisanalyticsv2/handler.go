@@ -21,12 +21,23 @@ const (
 
 // Handler is the HTTP handler for the Kinesis Data Analytics v2 JSON API.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]func(*echo.Context, []byte) error
 }
 
 // NewHandler creates a new Kinesis Data Analytics v2 handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears handler state by delegating to the backend if it supports it.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -130,97 +141,46 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "kinesisanalyticsv2 request", "op", op)
 
-		return h.dispatch(c, op, body)
+		fn, ok := h.ops[op]
+		if !ok {
+			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "unknown operation: "+op)
+		}
+
+		return fn(c, body)
 	}
 }
 
-// dispatch routes a parsed operation to the appropriate handler.
-//
-
-func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	if handler := h.dispatchAddOps(op); handler != nil {
-		return handler(c, body)
+// buildOps constructs the dispatch map once at handler-creation time.
+func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
+	return map[string]func(*echo.Context, []byte) error{
+		// Add operations
+		"AddApplicationCloudWatchLoggingOption":      h.handleAddApplicationCloudWatchLoggingOption,
+		"AddApplicationInput":                        h.handleAddApplicationInput,
+		"AddApplicationInputProcessingConfiguration": h.handleAddApplicationInputProcessingConfiguration,
+		"AddApplicationOutput":                       h.handleAddApplicationOutput,
+		"AddApplicationReferenceDataSource":          h.handleAddApplicationReferenceDataSource,
+		"AddApplicationVpcConfiguration":             h.handleAddApplicationVpcConfiguration,
+		// Delete operations
+		"DeleteApplicationCloudWatchLoggingOption":      h.handleDeleteApplicationCloudWatchLoggingOption,
+		"DeleteApplicationInputProcessingConfiguration": h.handleDeleteApplicationInputProcessingConfiguration,
+		"DeleteApplicationOutput":                       h.handleDeleteApplicationOutput,
+		"DeleteApplication":                             h.handleDeleteApplication,
+		"DeleteApplicationSnapshot":                     h.handleDeleteApplicationSnapshot,
+		// Core operations
+		"CreateApplication":             h.handleCreateApplication,
+		"CreateApplicationPresignedUrl": h.handleCreateApplicationPresignedURL,
+		"CreateApplicationSnapshot":     h.handleCreateApplicationSnapshot,
+		"DescribeApplication":           h.handleDescribeApplication,
+		"DescribeApplicationSnapshot":   h.handleDescribeApplicationSnapshot,
+		"ListApplications":              h.handleListApplications,
+		"ListApplicationSnapshots":      h.handleListApplicationSnapshots,
+		"ListTagsForResource":           h.handleListTagsForResource,
+		"StartApplication":              h.handleStartApplication,
+		"StopApplication":               h.handleStopApplication,
+		"TagResource":                   h.handleTagResource,
+		"UntagResource":                 h.handleUntagResource,
+		"UpdateApplication":             h.handleUpdateApplication,
 	}
-
-	if handler := h.dispatchDeleteOps(op); handler != nil {
-		return handler(c, body)
-	}
-
-	return h.dispatchCoreOps(c, op, body)
-}
-
-type opFunc func(c *echo.Context, body []byte) error
-
-// dispatchAddOps returns the handler for Add* operations, or nil if not matched.
-func (h *Handler) dispatchAddOps(op string) opFunc {
-	switch op {
-	case "AddApplicationCloudWatchLoggingOption":
-		return h.handleAddApplicationCloudWatchLoggingOption
-	case "AddApplicationInput":
-		return h.handleAddApplicationInput
-	case "AddApplicationInputProcessingConfiguration":
-		return h.handleAddApplicationInputProcessingConfiguration
-	case "AddApplicationOutput":
-		return h.handleAddApplicationOutput
-	case "AddApplicationReferenceDataSource":
-		return h.handleAddApplicationReferenceDataSource
-	case "AddApplicationVpcConfiguration":
-		return h.handleAddApplicationVpcConfiguration
-	}
-
-	return nil
-}
-
-// dispatchDeleteOps returns the handler for Delete* operations, or nil if not matched.
-func (h *Handler) dispatchDeleteOps(op string) opFunc {
-	switch op {
-	case "DeleteApplicationCloudWatchLoggingOption":
-		return h.handleDeleteApplicationCloudWatchLoggingOption
-	case "DeleteApplicationInputProcessingConfiguration":
-		return h.handleDeleteApplicationInputProcessingConfiguration
-	case "DeleteApplicationOutput":
-		return h.handleDeleteApplicationOutput
-	case "DeleteApplication":
-		return h.handleDeleteApplication
-	case "DeleteApplicationSnapshot":
-		return h.handleDeleteApplicationSnapshot
-	}
-
-	return nil
-}
-
-// dispatchCoreOps handles core CRUD and other operations.
-func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "CreateApplication":
-		return h.handleCreateApplication(c, body)
-	case "CreateApplicationPresignedUrl":
-		return h.handleCreateApplicationPresignedURL(c, body)
-	case "CreateApplicationSnapshot":
-		return h.handleCreateApplicationSnapshot(c, body)
-	case "DescribeApplication":
-		return h.handleDescribeApplication(c, body)
-	case "DescribeApplicationSnapshot":
-		return h.handleDescribeApplicationSnapshot(c, body)
-	case "ListApplications":
-		return h.handleListApplications(c, body)
-	case "ListApplicationSnapshots":
-		return h.handleListApplicationSnapshots(c, body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, body)
-	case "StartApplication":
-		return h.handleStartApplication(c, body)
-	case "StopApplication":
-		return h.handleStopApplication(c, body)
-	case "TagResource":
-		return h.handleTagResource(c, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, body)
-	case "UpdateApplication":
-		return h.handleUpdateApplication(c, body)
-	}
-
-	return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "unknown operation: "+op)
 }
 
 // ----------------------------------------
@@ -567,12 +527,12 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(c *echo.Context, b
 		in.CloudWatchLoggingOption.LogStreamARN,
 		in.CloudWatchLoggingOption.RoleARN,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, addApplicationCWLOptionOutput{
@@ -599,12 +559,12 @@ func (h *Handler) handleAddApplicationInput(
 	desc := buildInputDescription(in.Input)
 
 	if err := h.Backend.AddApplicationInput(in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, addApplicationInputOutput{
@@ -632,12 +592,12 @@ func (h *Handler) handleAddApplicationInputProcessingConfiguration(c *echo.Conte
 	if err := h.Backend.AddApplicationInputProcessingConfiguration(
 		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, config,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	var desc *InputProcessingConfigurationDesc
@@ -675,12 +635,12 @@ func (h *Handler) handleAddApplicationOutput(
 	desc := buildOutputDescription(in.Output)
 
 	if err := h.Backend.AddApplicationOutput(in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, addApplicationOutputOutput{
@@ -714,12 +674,12 @@ func (h *Handler) handleAddApplicationReferenceDataSource(c *echo.Context, body 
 	if err := h.Backend.AddApplicationReferenceDataSource(
 		in.ApplicationName, in.CurrentApplicationVersionID, ref,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, addApplicationRefDataSourceOutput{
@@ -747,12 +707,12 @@ func (h *Handler) handleAddApplicationVpcConfiguration(c *echo.Context, body []b
 	if err := h.Backend.AddApplicationVpcConfiguration(
 		in.ApplicationName, in.CurrentApplicationVersionID, vpc,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	var vpcDesc *VpcConfigurationDescription
@@ -775,16 +735,20 @@ func (h *Handler) handleCreateApplicationPresignedURL(c *echo.Context, body []by
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
+	if in.URLType == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "URLType is required")
+	}
+
 	// Verify the application exists.
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	// Return a synthetic presigned URL based on the application ARN.
-	url := "https://flink.amazonaws.com/dashboard/" + app.ApplicationARN + "?type=" + in.URLType
+	presignedURL := "https://flink.amazonaws.com/dashboard/" + app.ApplicationARN + "?type=" + in.URLType
 
-	return c.JSON(http.StatusOK, createPresignedURLOutput{AuthorizedURL: url})
+	return c.JSON(http.StatusOK, createPresignedURLOutput{AuthorizedURL: presignedURL})
 }
 
 func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(c *echo.Context, body []byte) error {
@@ -796,12 +760,12 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(c *echo.Context
 	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
 		in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, deleteApplicationCWLOptionOutput{
@@ -820,12 +784,12 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(c *echo.Co
 	if err := h.Backend.DeleteApplicationInputProcessingConfiguration(
 		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, deleteInputProcessingConfigOutput{
@@ -843,12 +807,12 @@ func (h *Handler) handleDeleteApplicationOutput(c *echo.Context, body []byte) er
 	if err := h.Backend.DeleteApplicationOutput(
 		in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
 	); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, deleteApplicationOutputOutput{
@@ -863,6 +827,14 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
+	if in.ApplicationName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "ApplicationName is required")
+	}
+
+	if in.RuntimeEnvironment == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "RuntimeEnvironment is required")
+	}
+
 	app, err := h.Backend.CreateApplication(
 		in.ApplicationName,
 		in.RuntimeEnvironment,
@@ -872,7 +844,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		in.Tags,
 	)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, createApplicationOutput{
@@ -888,7 +860,7 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, describeApplicationOutput{
@@ -924,7 +896,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 		in.ApplicationDescription,
 	)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, updateApplicationOutput{
@@ -939,7 +911,7 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.DeleteApplication(in.ApplicationName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -952,7 +924,7 @@ func (h *Handler) handleStartApplication(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.StartApplication(in.ApplicationName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -965,7 +937,7 @@ func (h *Handler) handleStopApplication(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.StopApplication(in.ApplicationName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -983,7 +955,7 @@ func (h *Handler) handleCreateApplicationSnapshot(c *echo.Context, body []byte) 
 
 	snap, err := h.Backend.CreateApplicationSnapshot(in.ApplicationName, in.SnapshotName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct {
@@ -997,18 +969,12 @@ func (h *Handler) handleDescribeApplicationSnapshot(c *echo.Context, body []byte
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snaps, _, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, "")
+	snap, err := h.Backend.DescribeApplicationSnapshot(in.ApplicationName, in.SnapshotName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
-	for _, s := range snaps {
-		if s.SnapshotName == in.SnapshotName {
-			return c.JSON(http.StatusOK, describeSnapshotOutput{SnapshotDetails: toSnapshotDetail(s)})
-		}
-	}
-
-	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "snapshot not found: "+in.SnapshotName)
+	return c.JSON(http.StatusOK, describeSnapshotOutput{SnapshotDetails: toSnapshotDetail(snap)})
 }
 
 func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) error {
@@ -1019,7 +985,7 @@ func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) e
 
 	snaps, outToken, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, in.NextToken)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	details := make([]snapshotDetail, 0, len(snaps))
@@ -1037,7 +1003,7 @@ func (h *Handler) handleDeleteApplicationSnapshot(c *echo.Context, body []byte) 
 	}
 
 	if err := h.Backend.DeleteApplicationSnapshot(in.ApplicationName, in.SnapshotName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -1054,7 +1020,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -1067,7 +1033,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -1081,7 +1047,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 
 	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, listTagsOutput{Tags: tags})
@@ -1135,14 +1101,15 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 	})
 }
 
-func (h *Handler) writeBackendError(c *echo.Context, err error) error {
+// handleError maps a backend error to the appropriate HTTP response.
+func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return h.writeError(c, http.StatusBadRequest, "ConcurrentModificationException", err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
