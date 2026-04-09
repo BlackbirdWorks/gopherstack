@@ -2,7 +2,6 @@ package kms_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -707,11 +706,7 @@ func buildBodyFromResourceID(operation, resourceID string) string {
 	}
 
 	switch operation {
-	case "ConnectCustomKeyStore", "DeleteCustomKeyStore":
-		body, _ := json.Marshal(map[string]string{"CustomKeyStoreId": resourceID})
-
-		return string(body)
-	case "DisconnectCustomKeyStore":
+	case "ConnectCustomKeyStore", "DeleteCustomKeyStore", "DisconnectCustomKeyStore":
 		body, _ := json.Marshal(map[string]string{"CustomKeyStoreId": resourceID})
 
 		return string(body)
@@ -950,8 +945,6 @@ func TestCustomKeyStoreHandler_ViaHTTP(t *testing.T) {
 
 	b := kms.NewInMemoryBackend()
 	h := kms.NewHandler(b)
-	ctx := context.Background()
-	_ = ctx
 
 	// Create via HTTP.
 	rec := postKMSOp(t, h, "CreateCustomKeyStore", `{"CustomKeyStoreName":"http-store"}`)

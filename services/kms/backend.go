@@ -23,6 +23,8 @@ var (
 	ErrAliasNotFound = errors.New("NotFoundException")
 	// ErrAliasAlreadyExists is returned when an alias with the given name already exists.
 	ErrAliasAlreadyExists = errors.New("AlreadyExistsException")
+	// ErrCustomKeyStoreAlreadyExists is returned when a custom key store with the given name already exists.
+	ErrCustomKeyStoreAlreadyExists = errors.New("CustomKeyStoreNameInUseException")
 	// ErrKeyDisabled is returned when an operation is attempted on a disabled key.
 	ErrKeyDisabled = errors.New("DisabledException")
 	// ErrKeyInvalidState is returned when a key is in a state that does not allow the requested
@@ -233,8 +235,8 @@ func validateKeySpecUsage(keySpec, keyUsage string) error {
 	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096:
 		if keyUsage != "" && keyUsage != KeyUsageSignVerify {
 			return fmt.Errorf(
-				"%w: key spec %q is not compatible with key usage %q; RSA keys require SIGN_VERIFY",
-				ErrInvalidKeyUsage, keySpec, keyUsage,
+				"%w: key spec %q is only supported with KeyUsage=%s",
+				ErrInvalidKeyUsage, keySpec, KeyUsageSignVerify,
 			)
 		}
 	case keySpecECCP256, keySpecECCP384, keySpecECCP521:
@@ -1534,7 +1536,7 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 		if ks.CustomKeyStoreName == input.CustomKeyStoreName {
 			return nil, fmt.Errorf(
 				"%w: custom key store with name %q already exists",
-				ErrAliasAlreadyExists, input.CustomKeyStoreName,
+				ErrCustomKeyStoreAlreadyExists, input.CustomKeyStoreName,
 			)
 		}
 	}

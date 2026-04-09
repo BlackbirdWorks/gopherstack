@@ -730,6 +730,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "InvalidKeyUsageException"
 	case errors.Is(reqErr, ErrAliasAlreadyExists):
 		errorType = "AlreadyExistsException"
+	case errors.Is(reqErr, ErrCustomKeyStoreAlreadyExists):
+		errorType = "CustomKeyStoreNameInUseException"
 	case errors.Is(reqErr, ErrInvalidCiphertext), errors.Is(reqErr, ErrCiphertextTooShort):
 		errorType = "InvalidCiphertextException"
 	case errors.Is(reqErr, ErrInvalidSignature):

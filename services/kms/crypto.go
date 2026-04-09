@@ -15,6 +15,7 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"math/big"
 	"slices"
@@ -151,26 +152,29 @@ func computeHMAC(message []byte, macAlgorithm string, km *keyMaterial) ([]byte, 
 		return nil, errMissingSymmetricKey
 	}
 
-	var mac []byte
-
-	switch macAlgorithm {
-	case "HMAC_SHA_256":
-		h := hmac.New(sha256.New, km.symmetricKey)
-		h.Write(message)
-		mac = h.Sum(nil)
-	case "HMAC_SHA_384":
-		h := hmac.New(sha512.New384, km.symmetricKey)
-		h.Write(message)
-		mac = h.Sum(nil)
-	case "HMAC_SHA_512":
-		h := hmac.New(sha512.New, km.symmetricKey)
-		h.Write(message)
-		mac = h.Sum(nil)
-	default:
+	newHash, ok := hmacHashFor(macAlgorithm)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnsupportedAlgorithm, macAlgorithm)
 	}
 
-	return mac, nil
+	h := hmac.New(newHash, km.symmetricKey)
+	h.Write(message)
+
+	return h.Sum(nil), nil
+}
+
+// hmacHashFor returns the hash constructor for the given HMAC algorithm name.
+func hmacHashFor(macAlgorithm string) (func() hash.Hash, bool) {
+	switch macAlgorithm {
+	case "HMAC_SHA_256":
+		return sha256.New, true
+	case "HMAC_SHA_384":
+		return sha512.New384, true
+	case "HMAC_SHA_512":
+		return sha512.New, true
+	default:
+		return nil, false
+	}
 }
 
 // deriveECDH performs ECDH key agreement using the stored EC private key and the provided DER-encoded
