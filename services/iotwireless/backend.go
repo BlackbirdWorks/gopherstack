@@ -20,6 +20,10 @@ var (
 	ErrServiceProfileNotFound = errors.New("ResourceNotFoundException: Service profile not found")
 	// ErrDestinationNotFound is returned when a destination does not exist.
 	ErrDestinationNotFound = errors.New("ResourceNotFoundException: Destination not found")
+	// ErrDeviceProfileNotFound is returned when a device profile does not exist.
+	ErrDeviceProfileNotFound = errors.New("ResourceNotFoundException: Device profile not found")
+	// ErrFuotaTaskNotFound is returned when a FUOTA task does not exist.
+	ErrFuotaTaskNotFound = errors.New("ResourceNotFoundException: FUOTA task not found")
 )
 
 // StorageBackend is the interface for the IoT Wireless backend.
@@ -50,6 +54,22 @@ type StorageBackend interface {
 	ListDestinations(accountID, region string) []*Destination
 	DeleteDestination(accountID, region, name string) error
 
+	CreateDeviceProfile(accountID, region, name string, tags map[string]string) (*DeviceProfile, error)
+
+	CreateFuotaTask(
+		accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole string,
+		tags map[string]string,
+	) (*FuotaTask, error)
+
+	AssociateAwsAccountWithPartnerAccount(partnerAccountID string, tags map[string]string) (string, error)
+	AssociateMulticastGroupWithFuotaTask(fuotaTaskID, multicastGroupID string) error
+	AssociateWirelessDeviceWithFuotaTask(fuotaTaskID, wirelessDeviceID string) error
+	AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, wirelessDeviceID string) error
+	AssociateWirelessDeviceWithThing(accountID, region, wirelessDeviceID, thingArn string) error
+	AssociateWirelessGatewayWithCertificate(accountID, region, gatewayID, iotCertificateID string) (string, error)
+	AssociateWirelessGatewayWithThing(accountID, region, gatewayID, thingArn string) error
+	CancelMulticastGroupSession(multicastGroupID string) error
+
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) (map[string]string, error)
@@ -64,22 +84,42 @@ type resourceKey struct {
 
 // InMemoryBackend is the in-memory backend for IoT Wireless.
 type InMemoryBackend struct {
-	devices         map[resourceKey]*WirelessDevice
-	gateways        map[resourceKey]*WirelessGateway
-	serviceProfiles map[resourceKey]*ServiceProfile
-	destinations    map[resourceKey]*Destination
-	resourceTags    map[string]map[string]string
-	mu              sync.RWMutex
+	devices                map[resourceKey]*WirelessDevice
+	gateways               map[resourceKey]*WirelessGateway
+	serviceProfiles        map[resourceKey]*ServiceProfile
+	destinations           map[resourceKey]*Destination
+	deviceProfiles         map[resourceKey]*DeviceProfile
+	fuotaTasks             map[resourceKey]*FuotaTask
+	resourceTags           map[string]map[string]string
+	partnerAccounts        map[string]string // partnerAccountID -> arn
+	fuotaTaskMulticast     map[string]string // fuotaTaskID -> multicastGroupID
+	fuotaTaskDevices       map[string]string // fuotaTaskID -> wirelessDeviceID
+	multicastGroupDevices  map[string]string // multicastGroupID -> wirelessDeviceID
+	multicastGroupSessions map[string]bool   // multicastGroupIDs with active sessions
+	wirelessDeviceThings   map[string]string // wirelessDeviceID -> thingArn
+	wirelessGatewayCerts   map[string]string // gatewayID -> iotCertificateID
+	wirelessGatewayThings  map[string]string // gatewayID -> thingArn
+	mu                     sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Wireless backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		devices:         make(map[resourceKey]*WirelessDevice),
-		gateways:        make(map[resourceKey]*WirelessGateway),
-		serviceProfiles: make(map[resourceKey]*ServiceProfile),
-		destinations:    make(map[resourceKey]*Destination),
-		resourceTags:    make(map[string]map[string]string),
+		devices:                make(map[resourceKey]*WirelessDevice),
+		gateways:               make(map[resourceKey]*WirelessGateway),
+		serviceProfiles:        make(map[resourceKey]*ServiceProfile),
+		destinations:           make(map[resourceKey]*Destination),
+		deviceProfiles:         make(map[resourceKey]*DeviceProfile),
+		fuotaTasks:             make(map[resourceKey]*FuotaTask),
+		resourceTags:           make(map[string]map[string]string),
+		partnerAccounts:        make(map[string]string),
+		fuotaTaskMulticast:     make(map[string]string),
+		fuotaTaskDevices:       make(map[string]string),
+		multicastGroupDevices:  make(map[string]string),
+		multicastGroupSessions: make(map[string]bool),
+		wirelessDeviceThings:   make(map[string]string),
+		wirelessGatewayCerts:   make(map[string]string),
+		wirelessGatewayThings:  make(map[string]string),
 	}
 }
 
@@ -97,6 +137,22 @@ func serviceProfileARN(region, accountID, id string) string {
 
 func destinationARN(region, accountID, name string) string {
 	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:Destination/%s", region, accountID, name)
+}
+
+func deviceProfileARN(region, accountID, id string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:DeviceProfile/%s", region, accountID, id)
+}
+
+func fuotaTaskARN(region, accountID, id string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:FuotaTask/%s", region, accountID, id)
+}
+
+func partnerAccountARN(accountID, partnerAccountID string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:us-east-1:%s:PartnerAccount/%s", accountID, partnerAccountID)
+}
+
+func iotCertificateARN(accountID, certID string) string {
+	return fmt.Sprintf("arn:aws:iot:us-east-1:%s:cert/%s", accountID, certID)
 }
 
 // copyWirelessDevice returns a shallow copy of d with an independent Tags map.
@@ -135,6 +191,39 @@ func copyDestination(dest *Destination) *Destination {
 	return &cp
 }
 
+// copyDeviceProfile returns a shallow copy of dp with an independent Tags map.
+func copyDeviceProfile(dp *DeviceProfile) *DeviceProfile {
+	cp := *dp
+	cp.Tags = make(map[string]string, len(dp.Tags))
+	maps.Copy(cp.Tags, dp.Tags)
+
+	return &cp
+}
+
+// copyFuotaTask returns a shallow copy of ft with an independent Tags map.
+func copyFuotaTask(ft *FuotaTask) *FuotaTask {
+	cp := *ft
+	cp.Tags = make(map[string]string, len(ft.Tags))
+	maps.Copy(cp.Tags, ft.Tags)
+
+	return &cp
+}
+
+// newTagsCopy returns a copy of the provided tag map.
+// An empty non-nil map is returned for nil input.
+func newTagsCopy(tags map[string]string) map[string]string {
+	cp := make(map[string]string, len(tags))
+	maps.Copy(cp, tags)
+
+	return cp
+}
+
+// storeResourceTagsLocked initialises the resource tag entry for the given ARN.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) storeResourceTagsLocked(arn string, tags map[string]string) {
+	b.resourceTags[arn] = newTagsCopy(tags)
+}
+
 // CreateWirelessDevice creates a new wireless device.
 func (b *InMemoryBackend) CreateWirelessDevice(
 	accountID, region, name, devType, destinationName, description string,
@@ -146,9 +235,6 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 	id := uuid.NewString()
 	arn := wirelessDeviceARN(region, accountID, id)
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
-
 	d := &WirelessDevice{
 		ID:              id,
 		ARN:             arn,
@@ -156,15 +242,13 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 		Type:            devType,
 		DestinationName: destinationName,
 		Description:     description,
-		Tags:            tagsCopy,
+		Tags:            newTagsCopy(tags),
 		CreatedAt:       time.Now(),
 	}
 
 	key := resourceKey{AccountID: accountID, Region: region, ID: id}
 	b.devices[key] = d
-
-	b.resourceTags[arn] = make(map[string]string, len(tags))
-	maps.Copy(b.resourceTags[arn], tags)
+	b.storeResourceTagsLocked(arn, tags)
 
 	return copyWirelessDevice(d), nil
 }
@@ -229,23 +313,18 @@ func (b *InMemoryBackend) CreateWirelessGateway(
 	id := uuid.NewString()
 	arn := wirelessGatewayARN(region, accountID, id)
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
-
 	gw := &WirelessGateway{
 		ID:          id,
 		ARN:         arn,
 		Name:        name,
 		Description: description,
-		Tags:        tagsCopy,
+		Tags:        newTagsCopy(tags),
 		CreatedAt:   time.Now(),
 	}
 
 	key := resourceKey{AccountID: accountID, Region: region, ID: id}
 	b.gateways[key] = gw
-
-	b.resourceTags[arn] = make(map[string]string, len(tags))
-	maps.Copy(b.resourceTags[arn], tags)
+	b.storeResourceTagsLocked(arn, tags)
 
 	return copyWirelessGateway(gw), nil
 }
@@ -310,22 +389,17 @@ func (b *InMemoryBackend) CreateServiceProfile(
 	id := uuid.NewString()
 	arn := serviceProfileARN(region, accountID, id)
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
-
 	sp := &ServiceProfile{
 		ID:        id,
 		ARN:       arn,
 		Name:      name,
-		Tags:      tagsCopy,
+		Tags:      newTagsCopy(tags),
 		CreatedAt: time.Now(),
 	}
 
 	key := resourceKey{AccountID: accountID, Region: region, ID: id}
 	b.serviceProfiles[key] = sp
-
-	b.resourceTags[arn] = make(map[string]string, len(tags))
-	maps.Copy(b.resourceTags[arn], tags)
+	b.storeResourceTagsLocked(arn, tags)
 
 	return copyServiceProfile(sp), nil
 }
@@ -389,9 +463,6 @@ func (b *InMemoryBackend) CreateDestination(
 
 	arn := destinationARN(region, accountID, name)
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
-
 	dest := &Destination{
 		Name:           name,
 		ARN:            arn,
@@ -399,15 +470,13 @@ func (b *InMemoryBackend) CreateDestination(
 		ExpressionType: expressionType,
 		RoleArn:        roleArn,
 		Description:    description,
-		Tags:           tagsCopy,
+		Tags:           newTagsCopy(tags),
 		CreatedAt:      time.Now(),
 	}
 
 	key := resourceKey{AccountID: accountID, Region: region, ID: name}
 	b.destinations[key] = dest
-
-	b.resourceTags[arn] = make(map[string]string, len(tags))
-	maps.Copy(b.resourceTags[arn], tags)
+	b.storeResourceTagsLocked(arn, tags)
 
 	return copyDestination(dest), nil
 }
@@ -510,4 +579,177 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	maps.Copy(result, tags)
 
 	return result, nil
+}
+
+// CreateDeviceProfile creates a new device profile.
+func (b *InMemoryBackend) CreateDeviceProfile(
+	accountID, region, name string,
+	tags map[string]string,
+) (*DeviceProfile, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := deviceProfileARN(region, accountID, id)
+
+	dp := &DeviceProfile{
+		ID:        id,
+		ARN:       arn,
+		Name:      name,
+		Tags:      newTagsCopy(tags),
+		CreatedAt: time.Now(),
+	}
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	b.deviceProfiles[key] = dp
+	b.storeResourceTagsLocked(arn, tags)
+
+	return copyDeviceProfile(dp), nil
+}
+
+// CreateFuotaTask creates a new FUOTA task.
+func (b *InMemoryBackend) CreateFuotaTask(
+	accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole string,
+	tags map[string]string,
+) (*FuotaTask, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := fuotaTaskARN(region, accountID, id)
+
+	ft := &FuotaTask{
+		ID:                  id,
+		ARN:                 arn,
+		Name:                name,
+		Description:         description,
+		FirmwareUpdateImage: firmwareUpdateImage,
+		FirmwareUpdateRole:  firmwareUpdateRole,
+		Tags:                newTagsCopy(tags),
+		CreatedAt:           time.Now(),
+	}
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	b.fuotaTasks[key] = ft
+	b.storeResourceTagsLocked(arn, tags)
+
+	return copyFuotaTask(ft), nil
+}
+
+// AssociateAwsAccountWithPartnerAccount stores a partner account association and returns its ARN.
+func (b *InMemoryBackend) AssociateAwsAccountWithPartnerAccount(
+	partnerAccountID string,
+	tags map[string]string,
+) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	arn := partnerAccountARN("000000000000", partnerAccountID)
+	b.partnerAccounts[partnerAccountID] = arn
+
+	if len(tags) > 0 {
+		if _, ok := b.resourceTags[arn]; !ok {
+			b.resourceTags[arn] = make(map[string]string)
+		}
+
+		maps.Copy(b.resourceTags[arn], tags)
+	}
+
+	return arn, nil
+}
+
+// AssociateMulticastGroupWithFuotaTask records the association of a multicast group with a FUOTA task.
+func (b *InMemoryBackend) AssociateMulticastGroupWithFuotaTask(fuotaTaskID, multicastGroupID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.fuotaTaskMulticast[fuotaTaskID] = multicastGroupID
+
+	return nil
+}
+
+// AssociateWirelessDeviceWithFuotaTask records the association of a wireless device with a FUOTA task.
+func (b *InMemoryBackend) AssociateWirelessDeviceWithFuotaTask(fuotaTaskID, wirelessDeviceID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.fuotaTaskDevices[fuotaTaskID] = wirelessDeviceID
+
+	return nil
+}
+
+// AssociateWirelessDeviceWithMulticastGroup records the association of a wireless device with a multicast group.
+func (b *InMemoryBackend) AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, wirelessDeviceID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.multicastGroupDevices[multicastGroupID] = wirelessDeviceID
+
+	return nil
+}
+
+// AssociateWirelessDeviceWithThing associates a wireless device with an IoT Thing.
+// Returns ErrDeviceNotFound when the device does not exist.
+func (b *InMemoryBackend) AssociateWirelessDeviceWithThing(
+	accountID, region, wirelessDeviceID, thingArn string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: wirelessDeviceID}
+	if _, ok := b.devices[key]; !ok {
+		return ErrDeviceNotFound
+	}
+
+	b.wirelessDeviceThings[wirelessDeviceID] = thingArn
+
+	return nil
+}
+
+// AssociateWirelessGatewayWithCertificate associates a wireless gateway with an IoT certificate
+// and returns the certificate ARN. Returns ErrGatewayNotFound when the gateway does not exist.
+func (b *InMemoryBackend) AssociateWirelessGatewayWithCertificate(
+	accountID, region, gatewayID, iotCertificateID string,
+) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
+	if _, ok := b.gateways[key]; !ok {
+		return "", ErrGatewayNotFound
+	}
+
+	b.wirelessGatewayCerts[gatewayID] = iotCertificateID
+	certARN := iotCertificateARN(accountID, iotCertificateID)
+
+	return certARN, nil
+}
+
+// AssociateWirelessGatewayWithThing associates a wireless gateway with an IoT Thing.
+// Returns ErrGatewayNotFound when the gateway does not exist.
+func (b *InMemoryBackend) AssociateWirelessGatewayWithThing(
+	accountID, region, gatewayID, thingArn string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
+	if _, ok := b.gateways[key]; !ok {
+		return ErrGatewayNotFound
+	}
+
+	b.wirelessGatewayThings[gatewayID] = thingArn
+
+	return nil
+}
+
+// CancelMulticastGroupSession marks the multicast group session as cancelled.
+// If no session is active, the call is a no-op (idempotent).
+func (b *InMemoryBackend) CancelMulticastGroupSession(multicastGroupID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	delete(b.multicastGroupSessions, multicastGroupID)
+
+	return nil
 }

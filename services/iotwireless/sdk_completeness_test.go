@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := iotwireless.NewInMemoryBackend()
 	h := iotwireless.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &iotwirelesssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateAwsAccountWithPartnerAccount",
-		"AssociateMulticastGroupWithFuotaTask",
-		"AssociateWirelessDeviceWithFuotaTask",
-		"AssociateWirelessDeviceWithMulticastGroup",
-		"AssociateWirelessDeviceWithThing",
-		"AssociateWirelessGatewayWithCertificate",
-		"AssociateWirelessGatewayWithThing",
-		"CancelMulticastGroupSession",
-		"CreateDeviceProfile",
-		"CreateFuotaTask",
 		"CreateMulticastGroup",
 		"CreateNetworkAnalyzerConfiguration",
 		"CreateWirelessGatewayTask",
