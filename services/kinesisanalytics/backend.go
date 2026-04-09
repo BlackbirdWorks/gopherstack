@@ -19,6 +19,8 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	// ErrConcurrentUpdate is returned when the application version does not match.
 	ErrConcurrentUpdate = errors.New("ConcurrentModificationException: application version mismatch")
+	// ErrValidation is returned for invalid input parameters.
+	ErrValidation = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -78,6 +80,16 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all state and resets the ID counter.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.apps = make(map[string]*Application)
+	b.appsByARN = make(map[string]*Application)
+	b.nextID = 0
+}
+
 // applicationARN builds the ARN for a Kinesis Analytics application.
 func applicationARN(region, accountID, name string) string {
 	return arn.Build("kinesisanalytics", region, accountID, fmt.Sprintf("application/%s", name))
@@ -100,21 +112,25 @@ func (b *InMemoryBackend) CreateApplication(
 	maps.Copy(t, tags)
 
 	app := &Application{
-		ApplicationName:        name,
-		ApplicationARN:         applicationARN(region, accountID, name),
-		ApplicationDescription: description,
-		ApplicationCode:        code,
-		ApplicationStatus:      statusReady,
-		ApplicationVersionID:   1,
-		CreateTimestamp:        &now,
-		LastUpdateTimestamp:    &now,
-		Tags:                   t,
+		ApplicationName:          name,
+		ApplicationARN:           applicationARN(region, accountID, name),
+		ApplicationDescription:   description,
+		ApplicationCode:          code,
+		ApplicationStatus:        statusReady,
+		ApplicationVersionID:     1,
+		CreateTimestamp:          &now,
+		LastUpdateTimestamp:      &now,
+		Tags:                     t,
+		CloudWatchLoggingOptions: []CloudWatchLoggingOptionDesc{},
+		Inputs:                   []InputDescription{},
+		Outputs:                  []OutputDescription{},
+		ReferenceDataSources:     []ReferenceDataSourceDescription{},
 	}
 
 	b.apps[name] = app
 	b.appsByARN[app.ApplicationARN] = app
 
-	return app, nil
+	return appCopy(app), nil
 }
 
 // DeleteApplication deletes a Kinesis Analytics application.
@@ -133,7 +149,7 @@ func (b *InMemoryBackend) DeleteApplication(name string, _ *time.Time) error {
 	return nil
 }
 
-// DescribeApplication returns the details for a Kinesis Analytics application.
+// DescribeApplication returns a copy of the details for a Kinesis Analytics application.
 func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -143,7 +159,7 @@ func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error)
 		return nil, ErrNotFound
 	}
 
-	return app, nil
+	return appCopy(app), nil
 }
 
 // ListApplications returns all applications, with optional pagination.
@@ -302,6 +318,97 @@ func (b *InMemoryBackend) newResourceID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, b.nextID)
 }
 
+// appCopy returns a deep copy of the Application, safe to hand to callers.
+func appCopy(src *Application) *Application {
+	cp := *src
+
+	cp.Tags = maps.Clone(src.Tags)
+	cp.CloudWatchLoggingOptions = copyCloudWatchOptions(src.CloudWatchLoggingOptions)
+	cp.Inputs = copyInputDescs(src.Inputs)
+	cp.Outputs = copyOutputDescs(src.Outputs)
+	cp.ReferenceDataSources = copyRefDataSources(src.ReferenceDataSources)
+
+	return &cp
+}
+
+func copyCloudWatchOptions(src []CloudWatchLoggingOptionDesc) []CloudWatchLoggingOptionDesc {
+	dst := make([]CloudWatchLoggingOptionDesc, len(src))
+	copy(dst, src)
+
+	return dst
+}
+
+func copyInputDescs(src []InputDescription) []InputDescription {
+	dst := make([]InputDescription, len(src))
+
+	for i, inp := range src {
+		dup := inp
+		if inp.InputProcessingConfigurationDescription != nil {
+			c := *inp.InputProcessingConfigurationDescription
+			if c.InputLambdaProcessor != nil {
+				lp := *c.InputLambdaProcessor
+				c.InputLambdaProcessor = &lp
+			}
+			dup.InputProcessingConfigurationDescription = &c
+		}
+		dst[i] = dup
+	}
+
+	return dst
+}
+
+func copyOutputDescs(src []OutputDescription) []OutputDescription {
+	dst := make([]OutputDescription, len(src))
+
+	for i, out := range src {
+		dup := out
+		if out.KinesisStreamsOutputDescription != nil {
+			s := *out.KinesisStreamsOutputDescription
+			dup.KinesisStreamsOutputDescription = &s
+		}
+		if out.KinesisFirehoseOutputDescription != nil {
+			f := *out.KinesisFirehoseOutputDescription
+			dup.KinesisFirehoseOutputDescription = &f
+		}
+		if out.LambdaOutputDescription != nil {
+			l := *out.LambdaOutputDescription
+			dup.LambdaOutputDescription = &l
+		}
+		if out.DestinationSchema != nil {
+			ds := *out.DestinationSchema
+			dup.DestinationSchema = &ds
+		}
+		dst[i] = dup
+	}
+
+	return dst
+}
+
+func copyRefDataSources(src []ReferenceDataSourceDescription) []ReferenceDataSourceDescription {
+	dst := make([]ReferenceDataSourceDescription, len(src))
+
+	for i, ref := range src {
+		dup := ref
+		if ref.S3ReferenceDataSourceDescription != nil {
+			s3 := *ref.S3ReferenceDataSourceDescription
+			dup.S3ReferenceDataSourceDescription = &s3
+		}
+		if ref.ReferenceSchema != nil {
+			rs := *ref.ReferenceSchema
+			rs.RecordColumns = make([]RecordColumn, len(ref.ReferenceSchema.RecordColumns))
+			copy(rs.RecordColumns, ref.ReferenceSchema.RecordColumns)
+			if ref.ReferenceSchema.RecordFormat.MappingParameters != nil {
+				mp := *ref.ReferenceSchema.RecordFormat.MappingParameters
+				rs.RecordFormat.MappingParameters = &mp
+			}
+			dup.ReferenceSchema = &rs
+		}
+		dst[i] = dup
+	}
+
+	return dst
+}
+
 // checkAndBumpVersion validates the version and increments it. Must be called under b.mu.
 func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 	if app.ApplicationVersionID != currentVersionID {
@@ -313,6 +420,16 @@ func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 	app.LastUpdateTimestamp = &now
 
 	return nil
+}
+
+// AddApplicationInternal is a test-only seed helper that stores an application directly.
+func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := appCopy(app)
+	b.apps[cp.ApplicationName] = cp
+	b.appsByARN[cp.ApplicationARN] = cp
 }
 
 // AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to an application.
@@ -371,19 +488,28 @@ func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
 		return ErrNotFound
 	}
 
+	// Find the input before bumping the version to avoid side-effects on NotFound.
+	idx := -1
+
+	for i := range app.Inputs {
+		if app.Inputs[i].InputID == inputID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
 	if err := checkAndBumpVersion(app, versionID); err != nil {
 		return err
 	}
 
-	for i := range app.Inputs {
-		if app.Inputs[i].InputID == inputID {
-			app.Inputs[i].InputProcessingConfigurationDescription = config
+	app.Inputs[idx].InputProcessingConfigurationDescription = config
 
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return nil
 }
 
 // AddApplicationOutput adds an output configuration to an application.
@@ -442,22 +568,31 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 		return ErrNotFound
 	}
 
+	// Find before bumping to avoid a phantom version increment on NotFound.
+	idx := -1
+
+	for i, opt := range app.CloudWatchLoggingOptions {
+		if opt.CloudWatchLoggingOptionID == loggingOptionID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
 	if err := checkAndBumpVersion(app, versionID); err != nil {
 		return err
 	}
 
-	for i, opt := range app.CloudWatchLoggingOptions {
-		if opt.CloudWatchLoggingOptionID == loggingOptionID {
-			app.CloudWatchLoggingOptions = append(
-				app.CloudWatchLoggingOptions[:i],
-				app.CloudWatchLoggingOptions[i+1:]...,
-			)
+	app.CloudWatchLoggingOptions = append(
+		app.CloudWatchLoggingOptions[:idx],
+		app.CloudWatchLoggingOptions[idx+1:]...,
+	)
 
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return nil
 }
 
 // DeleteApplicationInputProcessingConfiguration removes the processing config from an input.
@@ -472,19 +607,28 @@ func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
 		return ErrNotFound
 	}
 
+	// Find before bumping.
+	idx := -1
+
+	for i := range app.Inputs {
+		if app.Inputs[i].InputID == inputID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
 	if err := checkAndBumpVersion(app, versionID); err != nil {
 		return err
 	}
 
-	for i := range app.Inputs {
-		if app.Inputs[i].InputID == inputID {
-			app.Inputs[i].InputProcessingConfigurationDescription = nil
+	app.Inputs[idx].InputProcessingConfigurationDescription = nil
 
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return nil
 }
 
 // DeleteApplicationOutput removes an output configuration from an application.
@@ -499,19 +643,28 @@ func (b *InMemoryBackend) DeleteApplicationOutput(
 		return ErrNotFound
 	}
 
+	// Find before bumping.
+	idx := -1
+
+	for i, out := range app.Outputs {
+		if out.OutputID == outputID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
 	if err := checkAndBumpVersion(app, versionID); err != nil {
 		return err
 	}
 
-	for i, out := range app.Outputs {
-		if out.OutputID == outputID {
-			app.Outputs = append(app.Outputs[:i], app.Outputs[i+1:]...)
+	app.Outputs = append(app.Outputs[:idx], app.Outputs[idx+1:]...)
 
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return nil
 }
 
 // DeleteApplicationReferenceDataSource removes a reference data source from an application.
@@ -526,17 +679,26 @@ func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
 		return ErrNotFound
 	}
 
+	// Find before bumping.
+	idx := -1
+
+	for i, ref := range app.ReferenceDataSources {
+		if ref.ReferenceID == referenceID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
 	if err := checkAndBumpVersion(app, versionID); err != nil {
 		return err
 	}
 
-	for i, ref := range app.ReferenceDataSources {
-		if ref.ReferenceID == referenceID {
-			app.ReferenceDataSources = append(app.ReferenceDataSources[:i], app.ReferenceDataSources[i+1:]...)
+	app.ReferenceDataSources = append(app.ReferenceDataSources[:idx], app.ReferenceDataSources[idx+1:]...)
 
-			return nil
-		}
-	}
-
-	return ErrNotFound
+	return nil
 }

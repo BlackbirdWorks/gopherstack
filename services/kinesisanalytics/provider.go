@@ -1,9 +1,14 @@
 package kinesisanalytics
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Provider.Init when a nil AppContext is supplied.
+var ErrNilAppContext = errors.New("kinesisanalytics: AppContext must not be nil")
 
 // Provider implements service.Provider for the Kinesis Analytics service.
 type Provider struct{}
@@ -15,6 +20,10 @@ func (p *Provider) Name() string { return "KinesisAnalytics" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 

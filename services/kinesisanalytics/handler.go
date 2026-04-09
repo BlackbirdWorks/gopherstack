@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -25,10 +26,15 @@ var (
 	errUnknownAction   = errors.New("unknown action")
 	errApplicationName = errors.New("ApplicationName is required")
 	errResourceARN     = errors.New("ResourceARN is required")
+	errInputID         = errors.New("InputId is required")
+	errOutputID        = errors.New("OutputId is required")
+	errReferenceID     = errors.New("ReferenceId is required")
+	errCWLOptionID     = errors.New("CloudWatchLoggingOptionId is required")
 )
 
 // Handler is the HTTP handler for the Kinesis Analytics v1 API.
 type Handler struct {
+	ops           map[string]service.JSONOpFunc
 	Backend       StorageBackend
 	AccountID     string
 	DefaultRegion string
@@ -36,7 +42,49 @@ type Handler struct {
 
 // NewHandler creates a new Kinesis Analytics handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears handler state (delegates to backend if supported).
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+}
+
+// buildOps constructs the dispatch map once at handler creation time.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateApplication":                     service.WrapOp(h.handleCreateApplication),
+		"DeleteApplication":                     service.WrapOp(h.handleDeleteApplication),
+		"DescribeApplication":                   service.WrapOp(h.handleDescribeApplication),
+		"ListApplications":                      service.WrapOp(h.handleListApplications),
+		"StartApplication":                      service.WrapOp(h.handleStartApplication),
+		"StopApplication":                       service.WrapOp(h.handleStopApplication),
+		"UpdateApplication":                     service.WrapOp(h.handleUpdateApplication),
+		"ListTagsForResource":                   service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                           service.WrapOp(h.handleTagResource),
+		"UntagResource":                         service.WrapOp(h.handleUntagResource),
+		"AddApplicationCloudWatchLoggingOption": service.WrapOp(h.handleAddApplicationCloudWatchLoggingOption),
+		"AddApplicationInput":                   service.WrapOp(h.handleAddApplicationInput),
+		"AddApplicationInputProcessingConfiguration": service.WrapOp(
+			h.handleAddApplicationInputProcessingConfiguration,
+		),
+		"AddApplicationOutput":              service.WrapOp(h.handleAddApplicationOutput),
+		"AddApplicationReferenceDataSource": service.WrapOp(h.handleAddApplicationReferenceDataSource),
+		"DeleteApplicationCloudWatchLoggingOption": service.WrapOp(
+			h.handleDeleteApplicationCloudWatchLoggingOption,
+		),
+		"DeleteApplicationInputProcessingConfiguration": service.WrapOp(
+			h.handleDeleteApplicationInputProcessingConfiguration,
+		),
+		"DeleteApplicationOutput":              service.WrapOp(h.handleDeleteApplicationOutput),
+		"DeleteApplicationReferenceDataSource": service.WrapOp(h.handleDeleteApplicationReferenceDataSource),
+		"DiscoverInputSchema":                  service.WrapOp(h.handleDiscoverInputSchema),
+	}
 }
 
 // Name returns the service name.
@@ -129,39 +177,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateApplication":                     service.WrapOp(h.handleCreateApplication),
-		"DeleteApplication":                     service.WrapOp(h.handleDeleteApplication),
-		"DescribeApplication":                   service.WrapOp(h.handleDescribeApplication),
-		"ListApplications":                      service.WrapOp(h.handleListApplications),
-		"StartApplication":                      service.WrapOp(h.handleStartApplication),
-		"StopApplication":                       service.WrapOp(h.handleStopApplication),
-		"UpdateApplication":                     service.WrapOp(h.handleUpdateApplication),
-		"ListTagsForResource":                   service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                           service.WrapOp(h.handleTagResource),
-		"UntagResource":                         service.WrapOp(h.handleUntagResource),
-		"AddApplicationCloudWatchLoggingOption": service.WrapOp(h.handleAddApplicationCloudWatchLoggingOption),
-		"AddApplicationInput":                   service.WrapOp(h.handleAddApplicationInput),
-		"AddApplicationInputProcessingConfiguration": service.WrapOp(
-			h.handleAddApplicationInputProcessingConfiguration,
-		),
-		"AddApplicationOutput":              service.WrapOp(h.handleAddApplicationOutput),
-		"AddApplicationReferenceDataSource": service.WrapOp(h.handleAddApplicationReferenceDataSource),
-		"DeleteApplicationCloudWatchLoggingOption": service.WrapOp(
-			h.handleDeleteApplicationCloudWatchLoggingOption,
-		),
-		"DeleteApplicationInputProcessingConfiguration": service.WrapOp(
-			h.handleDeleteApplicationInputProcessingConfiguration,
-		),
-		"DeleteApplicationOutput":              service.WrapOp(h.handleDeleteApplicationOutput),
-		"DeleteApplicationReferenceDataSource": service.WrapOp(h.handleDeleteApplicationReferenceDataSource),
-		"DiscoverInputSchema":                  service.WrapOp(h.handleDiscoverInputSchema),
-	}
-}
-
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -185,15 +202,23 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "ResourceInUseException", Message: err.Error()})
-	case errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
 	case errors.Is(err, ErrConcurrentUpdate):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "ConcurrentModificationException", Message: err.Error()})
-	case errors.Is(err, errApplicationName), errors.Is(err, errResourceARN):
+	case errors.Is(err, errUnknownAction),
+		errors.As(err, &syntaxErr),
+		errors.As(err, &typeErr):
+		return c.JSON(http.StatusBadRequest,
+			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
+	case errors.Is(err, errApplicationName),
+		errors.Is(err, errResourceARN),
+		errors.Is(err, errInputID),
+		errors.Is(err, errOutputID),
+		errors.Is(err, errReferenceID),
+		errors.Is(err, errCWLOptionID):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
 	default:
@@ -358,10 +383,18 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	entries := make([]tagEntry, 0, len(tagMap))
+	keys := make([]string, 0, len(tagMap))
 
-	for k, v := range tagMap {
-		entries = append(entries, tagEntry{Key: k, Value: v})
+	for k := range tagMap {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	entries := make([]tagEntry, 0, len(keys))
+
+	for _, k := range keys {
+		entries = append(entries, tagEntry{Key: k, Value: tagMap[k]})
 	}
 
 	return &listTagsForResourceOutput{Tags: entries}, nil
@@ -614,6 +647,10 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 		return nil, errApplicationName
 	}
 
+	if in.CloudWatchLoggingOptionID == "" {
+		return nil, errCWLOptionID
+	}
+
 	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
 		in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
 	); err != nil {
@@ -629,6 +666,10 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
+	}
+
+	if in.InputID == "" {
+		return nil, errInputID
 	}
 
 	if err := h.Backend.DeleteApplicationInputProcessingConfiguration(
@@ -648,6 +689,10 @@ func (h *Handler) handleDeleteApplicationOutput(
 		return nil, errApplicationName
 	}
 
+	if in.OutputID == "" {
+		return nil, errOutputID
+	}
+
 	if err := h.Backend.DeleteApplicationOutput(
 		in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
 	); err != nil {
@@ -663,6 +708,10 @@ func (h *Handler) handleDeleteApplicationReferenceDataSource(
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
+	}
+
+	if in.ReferenceID == "" {
+		return nil, errReferenceID
 	}
 
 	if err := h.Backend.DeleteApplicationReferenceDataSource(
