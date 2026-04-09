@@ -189,6 +189,9 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 	if shardCount <= 0 {
 		shardCount = defaultShardCount
 	}
+	if shardCount > maxShardsPerStream {
+		return ErrInvalidArgument
+	}
 	if shardCount > maxShardCount {
 		shardCount = maxShardCount
 	}
@@ -272,6 +275,8 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 		stream.Tags.Close()
 	}
 
+	// Mark the stream as deleting before removing it (AWS-realistic status transition).
+	stream.Status = streamStatusDeleting
 	delete(b.streams, input.StreamName)
 	delete(b.fisThroughputFaults, input.StreamName)
 
@@ -371,6 +376,11 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 
 	if b.isThroughputFaultActiveLocked(input.StreamName) {
 		return nil, ErrProvisionedThroughputExceeded
+	}
+
+	// Validate partition key length (AWS requires 1–256 chars).
+	if len(input.PartitionKey) == 0 || len(input.PartitionKey) > maxPartitionKeyLen {
+		return nil, ErrInvalidArgument
 	}
 
 	if len(stream.Shards) == 0 {

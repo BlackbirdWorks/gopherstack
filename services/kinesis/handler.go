@@ -900,6 +900,9 @@ func (h *Handler) handleAddTagsToStream(
 	if req.Tags != nil {
 		kv = req.Tags.Clone()
 	}
+	if len(kv) > maxTagsPerStream {
+		return nil, ErrInvalidArgument
+	}
 	h.setTags(req.StreamName, kv)
 
 	return struct{}{}, nil
