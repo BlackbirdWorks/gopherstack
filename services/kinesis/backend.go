@@ -1234,9 +1234,7 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 	merged.AdjacentParentShardID = input.AdjacentShardToMerge
 
 	newShards := make([]*Shard, 0, len(stream.Shards)+1)
-	for _, s := range stream.Shards {
-		newShards = append(newShards, s)
-	}
+	newShards = append(newShards, stream.Shards...)
 	newShards = append(newShards, merged)
 	stream.Shards = newShards
 
@@ -1305,10 +1303,11 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 	shard1.ParentShardID = input.ShardToSplit
 	shard2.ParentShardID = input.ShardToSplit
 
-	newShards := make([]*Shard, 0, len(stream.Shards)+2)
-	for _, s := range stream.Shards {
-		newShards = append(newShards, s)
-	}
+	// splitShardResultCount is the number of new shards produced by a split.
+	const splitShardResultCount = 2
+
+	newShards := make([]*Shard, 0, len(stream.Shards)+splitShardResultCount)
+	newShards = append(newShards, stream.Shards...)
 	newShards = append(newShards, shard1, shard2)
 	stream.Shards = newShards
 

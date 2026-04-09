@@ -18,8 +18,8 @@ func TestRefinement2_CreateStream_DefaultsToProvisioned(t *testing.T) {
 	tests := []struct {
 		name       string
 		streamName string
-		shardCount int
 		wantMode   string
+		shardCount int
 	}{
 		{name: "no_mode_specified", streamName: "prov-stream-1", shardCount: 1, wantMode: "PROVISIONED"},
 	}
@@ -65,7 +65,13 @@ func TestRefinement2_CreateStream_WithOnDemand(t *testing.T) {
 		shardCount int
 	}{
 		{name: "on_demand", streamName: "od-stream-1", shardCount: 1, streamMode: "ON_DEMAND", wantMode: "ON_DEMAND"},
-		{name: "provisioned_explicit", streamName: "prov-stream-2", shardCount: 2, streamMode: "PROVISIONED", wantMode: "PROVISIONED"},
+		{
+			name:       "provisioned_explicit",
+			streamName: "prov-stream-2",
+			shardCount: 2,
+			streamMode: "PROVISIONED",
+			wantMode:   "PROVISIONED",
+		},
 	}
 
 	for _, tt := range tests {
@@ -252,7 +258,7 @@ func TestRefinement2_UpdateStreamMode_InvalidMode(t *testing.T) {
 			}))
 
 			err := b.UpdateStreamMode(&kinesis.UpdateStreamModeInput{
-				StreamARN: "arn:aws:kinesis:us-east-1:123456789012:stream/inv-mode-stream",
+				StreamARN:         "arn:aws:kinesis:us-east-1:123456789012:stream/inv-mode-stream",
 				StreamModeDetails: kinesis.StreamModeDetails{StreamMode: tt.mode},
 			})
 
@@ -288,7 +294,7 @@ func TestRefinement2_UpdateStreamMode_NotFound(t *testing.T) {
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
 			err := b.UpdateStreamMode(&kinesis.UpdateStreamModeInput{
-				StreamARN: tt.streamARN,
+				StreamARN:         tt.streamARN,
 				StreamModeDetails: kinesis.StreamModeDetails{StreamMode: kinesis.StreamModeOnDemand},
 			})
 
@@ -426,7 +432,7 @@ func TestRefinement2_DescribeStreamSummary_OpenShardCount(t *testing.T) {
 
 				var shardsResp struct {
 					Shards []struct {
-						ShardId string `json:"ShardId"`
+						ShardID string `json:"ShardId"`
 					} `json:"Shards"`
 				}
 				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &shardsResp))
@@ -434,8 +440,8 @@ func TestRefinement2_DescribeStreamSummary_OpenShardCount(t *testing.T) {
 
 				rec3 := doRequest(t, h, "MergeShards", map[string]any{
 					"StreamName":           tt.streamName,
-					"ShardToMerge":         shardsResp.Shards[0].ShardId,
-					"AdjacentShardToMerge": shardsResp.Shards[1].ShardId,
+					"ShardToMerge":         shardsResp.Shards[0].ShardID,
+					"AdjacentShardToMerge": shardsResp.Shards[1].ShardID,
 				})
 				require.Equal(t, http.StatusOK, rec3.Code)
 			}
@@ -538,7 +544,7 @@ func TestRefinement2_MergeShards_KeepsClosedShards(t *testing.T) {
 			out2, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantTotalShards, len(out2.Shards))
+			assert.Len(t, out2.Shards, tt.wantTotalShards)
 
 			openCount := 0
 			for _, s := range out2.Shards {
@@ -595,7 +601,7 @@ func TestRefinement2_SplitShard_KeepsClosedShards(t *testing.T) {
 			out2, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantTotalShards, len(out2.Shards))
+			assert.Len(t, out2.Shards, tt.wantTotalShards)
 
 			openCount := 0
 			for _, s := range out2.Shards {
@@ -738,13 +744,13 @@ func TestRefinement2_ListShards_ExclusiveStartShardId(t *testing.T) {
 
 	tests := []struct {
 		name                  string
-		exclusiveStartShardId string
+		exclusiveStartShardID string
 		shardCount            int
 		wantCount             int
 	}{
-		{name: "no_filter", shardCount: 3, exclusiveStartShardId: "", wantCount: 3},
-		{name: "skip_first", shardCount: 3, exclusiveStartShardId: "shardId-000000000000", wantCount: 2},
-		{name: "skip_first_two", shardCount: 3, exclusiveStartShardId: "shardId-000000000001", wantCount: 1},
+		{name: "no_filter", shardCount: 3, exclusiveStartShardID: "", wantCount: 3},
+		{name: "skip_first", shardCount: 3, exclusiveStartShardID: "shardId-000000000000", wantCount: 2},
+		{name: "skip_first_two", shardCount: 3, exclusiveStartShardID: "shardId-000000000001", wantCount: 1},
 	}
 
 	for _, tt := range tests {
@@ -760,11 +766,11 @@ func TestRefinement2_ListShards_ExclusiveStartShardId(t *testing.T) {
 			}))
 
 			out, err := b.ListShards(&kinesis.ListShardsInput{
-				StreamName:           "list-shards-excl-" + tt.name,
-				ExclusiveStartShardID: tt.exclusiveStartShardId,
+				StreamName:            "list-shards-excl-" + tt.name,
+				ExclusiveStartShardID: tt.exclusiveStartShardID,
 			})
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantCount, len(out.Shards))
+			assert.Len(t, out.Shards, tt.wantCount)
 		})
 	}
 }
@@ -804,7 +810,7 @@ func TestRefinement2_ListShards_IncludesClosedShards(t *testing.T) {
 
 			out, err := b.ListShards(&kinesis.ListShardsInput{StreamName: tt.streamName})
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantTotalShards, len(out.Shards))
+			assert.Len(t, out.Shards, tt.wantTotalShards)
 		})
 	}
 }
@@ -850,6 +856,7 @@ func TestRefinement2_ShardDescription_ParentShardId(t *testing.T) {
 			for i := range ds2.Shards {
 				if !ds2.Shards[i].Closed {
 					mergedShard = &ds2.Shards[i]
+
 					break
 				}
 			}
@@ -914,7 +921,12 @@ func TestRefinement2_AddStreamInternal_DefaultsStreamMode(t *testing.T) {
 		streamMode string
 		wantMode   string
 	}{
-		{name: "empty_mode_defaults_to_provisioned", streamName: "internal-stream-1", streamMode: "", wantMode: "PROVISIONED"},
+		{
+			name:       "empty_mode_defaults_to_provisioned",
+			streamName: "internal-stream-1",
+			streamMode: "",
+			wantMode:   "PROVISIONED",
+		},
 		{name: "on_demand_preserved", streamName: "internal-stream-2", streamMode: "ON_DEMAND", wantMode: "ON_DEMAND"},
 	}
 

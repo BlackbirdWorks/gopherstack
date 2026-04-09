@@ -89,10 +89,10 @@ type Stream struct {
 	Status             string               `json:"status"`
 	EncryptionType     string               `json:"encryptionType,omitempty"`
 	KeyID              string               `json:"keyId,omitempty"`
+	StreamMode         string               `json:"streamMode,omitempty"`
 	Shards             []*Shard             `json:"shards"`
 	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
 	RetentionPeriod    int                  `json:"retentionPeriod"`
-	StreamMode         string               `json:"streamMode,omitempty"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
@@ -100,9 +100,9 @@ type Shard struct {
 	ID                    string       `json:"id"`
 	HashKeyRangeStart     string       `json:"hashKeyRangeStart"`
 	HashKeyRangeEnd       string       `json:"hashKeyRangeEnd"`
-	Records               shardRecords `json:"records"`
 	ParentShardID         string       `json:"parentShardId,omitempty"`
 	AdjacentParentShardID string       `json:"adjacentParentShardId,omitempty"`
+	Records               shardRecords `json:"records"`
 	NextSeq               uint64       `json:"nextSeq"`
 	Closed                bool         `json:"closed,omitempty"`
 }
@@ -138,8 +138,8 @@ type CreateStreamInput struct {
 	StreamName string
 	Region     string
 	AccountID  string
-	ShardCount int
 	StreamMode string
+	ShardCount int
 }
 
 // DeleteStreamInput is the input for DeleteStream.
@@ -269,10 +269,10 @@ type GetRecordsOutput struct {
 
 // ListShardsInput is the input for ListShards.
 type ListShardsInput struct {
-	StreamName           string
-	NextToken            string
+	StreamName            string
+	NextToken             string
 	ExclusiveStartShardID string
-	MaxResults           int
+	MaxResults            int
 }
 
 // ListShardsOutput is the output for ListShards.
