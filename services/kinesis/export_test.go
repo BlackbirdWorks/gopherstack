@@ -141,3 +141,24 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
+
+// StreamCount returns the number of streams in the backend.
+func (b *InMemoryBackend) StreamCount() int {
+	b.mu.RLock("StreamCount")
+	defer b.mu.RUnlock()
+
+	return len(b.streams)
+}
+
+// ResourcePolicyCount returns the number of resource policies in the backend.
+func (b *InMemoryBackend) ResourcePolicyCount() int {
+	b.mu.RLock("ResourcePolicyCount")
+	defer b.mu.RUnlock()
+
+	return len(b.resourcePolicies)
+}
+
+// HandlerOpsLen returns the number of pre-built handler ops.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.ops)
+}

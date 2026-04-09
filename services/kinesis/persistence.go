@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 type backendSnapshot struct {
@@ -29,6 +30,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("kinesis: snapshot serialization failed", "error", err)
+
 		return nil
 	}
 

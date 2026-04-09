@@ -144,7 +144,10 @@ type DescribeStreamOutput struct {
 	StreamName           string
 	StreamARN            string
 	StreamStatus         string
+	EncryptionType       string
+	KeyID                string
 	Shards               []ShardDescription
+	EnhancedMonitoring   []string
 	RetentionPeriodHours int
 }
 
@@ -392,6 +395,7 @@ type DecreaseStreamRetentionPeriodInput struct {
 // MergeShardsInput is the input for MergeShards.
 type MergeShardsInput struct {
 	StreamName           string
+	StreamARN            string
 	ShardToMerge         string
 	AdjacentShardToMerge string
 }
@@ -399,6 +403,7 @@ type MergeShardsInput struct {
 // SplitShardInput is the input for SplitShard.
 type SplitShardInput struct {
 	StreamName         string
+	StreamARN          string
 	ShardToSplit       string
 	NewStartingHashKey string
 }
@@ -406,6 +411,7 @@ type SplitShardInput struct {
 // StartStreamEncryptionInput is the input for StartStreamEncryption.
 type StartStreamEncryptionInput struct {
 	StreamName     string
+	StreamARN      string
 	EncryptionType string
 	KeyID          string
 }
@@ -413,6 +419,7 @@ type StartStreamEncryptionInput struct {
 // StopStreamEncryptionInput is the input for StopStreamEncryption.
 type StopStreamEncryptionInput struct {
 	StreamName     string
+	StreamARN      string
 	EncryptionType string
 	KeyID          string
 }

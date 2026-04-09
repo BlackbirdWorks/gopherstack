@@ -1,6 +1,7 @@
 package kinesis
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand/v2"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -50,7 +53,40 @@ type StorageBackend interface {
 	PutResourcePolicy(input *PutResourcePolicyInput) error
 	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
 	DescribeAccountSettings() (*DescribeAccountSettingsOutput, error)
+	CountOpenShards() int
 	ListAll() []StreamInfo
+}
+
+// Compile-time assertion that InMemoryBackend implements StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
+
+// resetter is implemented by backends that support a full in-memory reset.
+type resetter interface {
+	Reset()
+}
+
+// purger is implemented by backends that support time-based purging.
+type purger interface {
+	Purge(ctx context.Context, cutoff time.Time)
+}
+
+// streamNameRe validates Kinesis stream names: 1–128 alphanumeric, hyphen, underscore, or dot chars.
+var streamNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,128}$`)
+
+// isValidStreamName reports whether s is a valid Kinesis stream name.
+func isValidStreamName(s string) bool {
+	return streamNameRe.MatchString(s)
+}
+
+// sortedKeys returns the keys of map m in sorted order.
+func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	return keys
 }
 
 // kinesisThrottleFault holds the state of an active FIS throughput-exception fault on a stream.
@@ -118,6 +154,10 @@ func (s *Shard) nextSequenceNumber() string {
 func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 	b.mu.Lock("CreateStream")
 	defer b.mu.Unlock()
+
+	if !isValidStreamName(input.StreamName) {
+		return ErrValidation
+	}
 
 	if _, exists := b.streams[input.StreamName]; exists {
 		return ErrStreamAlreadyExists
@@ -248,6 +288,9 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 		StreamStatus:         stream.Status,
 		Shards:               shards,
 		RetentionPeriodHours: stream.RetentionPeriod,
+		EncryptionType:       stream.EncryptionType,
+		KeyID:                stream.KeyID,
+		EnhancedMonitoring:   append([]string{}, stream.EnhancedMonitoring...),
 	}, nil
 }
 
@@ -256,13 +299,8 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 	b.mu.RLock("ListStreams")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.streams))
-	for name := range b.streams {
-		names = append(names, name)
-	}
-
 	// AWS returns stream names in alphabetical order.
-	sort.Strings(names)
+	names := sortedKeys(b.streams)
 
 	limit := input.Limit
 	if limit <= 0 {
@@ -1074,7 +1112,12 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 	b.mu.Lock("MergeShards")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams[input.StreamName]
+	streamName := input.StreamName
+	if streamName == "" {
+		streamName = streamNameFromARN(input.StreamARN)
+	}
+
+	stream, ok := b.streams[streamName]
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1131,7 +1174,12 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 	b.mu.Lock("SplitShard")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams[input.StreamName]
+	streamName := input.StreamName
+	if streamName == "" {
+		streamName = streamNameFromARN(input.StreamARN)
+	}
+
+	stream, ok := b.streams[streamName]
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1196,7 +1244,12 @@ func (b *InMemoryBackend) StartStreamEncryption(input *StartStreamEncryptionInpu
 	b.mu.Lock("StartStreamEncryption")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams[input.StreamName]
+	streamName := input.StreamName
+	if streamName == "" {
+		streamName = streamNameFromARN(input.StreamARN)
+	}
+
+	stream, ok := b.streams[streamName]
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1216,7 +1269,12 @@ func (b *InMemoryBackend) StopStreamEncryption(input *StopStreamEncryptionInput)
 	b.mu.Lock("StopStreamEncryption")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams[input.StreamName]
+	streamName := input.StreamName
+	if streamName == "" {
+		streamName = streamNameFromARN(input.StreamARN)
+	}
+
+	stream, ok := b.streams[streamName]
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1345,4 +1403,38 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			}
 		}
 	}
+}
+
+// CountOpenShards returns the total number of shards across all streams.
+func (b *InMemoryBackend) CountOpenShards() int {
+	b.mu.RLock("CountOpenShards")
+	defer b.mu.RUnlock()
+
+	count := 0
+	for _, s := range b.streams {
+		count += len(s.Shards)
+	}
+
+	return count
+}
+
+// AddStreamInternal seeds a stream directly into the backend for testing.
+// Caller must provide a non-nil stream with at least Name and ARN set.
+func (b *InMemoryBackend) AddStreamInternal(stream *Stream) {
+	b.mu.Lock("AddStreamInternal")
+	defer b.mu.Unlock()
+
+	if stream.Consumers == nil {
+		stream.Consumers = map[string]*Consumer{}
+	}
+
+	if stream.Shards == nil {
+		stream.Shards = []*Shard{}
+	}
+
+	if stream.EnhancedMonitoring == nil {
+		stream.EnhancedMonitoring = []string{}
+	}
+
+	b.streams[stream.Name] = stream
 }
