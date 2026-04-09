@@ -52,6 +52,7 @@ type StorageBackend interface {
 	GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error)
 	PutResourcePolicy(input *PutResourcePolicyInput) error
 	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
+	UpdateStreamMode(input *UpdateStreamModeInput) error
 	DescribeAccountSettings() (*DescribeAccountSettingsOutput, error)
 	CountOpenShards() int
 	ListAll() []StreamInfo
@@ -131,23 +132,43 @@ func hashKey(partitionKey string) *big.Int {
 	return new(big.Int).SetBytes(sum[:])
 }
 
-// shardForPartitionKey selects a shard index for the given partition key by hash.
-func shardForPartitionKey(shards []*Shard, partitionKey string) int {
-	if len(shards) == 0 {
-		return 0
+// shardForHashKey selects the open shard whose hash key range contains h.
+func shardForHashKey(shards []*Shard, h *big.Int) *Shard {
+	for _, s := range shards {
+		if s.Closed {
+			continue
+		}
+		start := new(big.Int)
+		start.SetString(s.HashKeyRangeStart, hashKeyDecimalBase)
+		end := new(big.Int)
+		end.SetString(s.HashKeyRangeEnd, hashKeyDecimalBase)
+		if h.Cmp(start) >= 0 && h.Cmp(end) <= 0 {
+			return s
+		}
+	}
+	// fallback: first open shard
+	for _, s := range shards {
+		if !s.Closed {
+			return s
+		}
+	}
+	if len(shards) > 0 {
+		return shards[0]
 	}
 
-	h := hashKey(partitionKey)
-	idx := new(big.Int).Mod(h, big.NewInt(int64(len(shards))))
+	return nil
+}
 
-	return int(idx.Int64())
+// shardForPartitionKey selects the open shard for the given partition key by hash.
+func shardForPartitionKey(shards []*Shard, partitionKey string) *Shard {
+	return shardForHashKey(shards, hashKey(partitionKey))
 }
 
 // nextSequenceNumber generates a new sequence number for a shard.
 func (s *Shard) nextSequenceNumber() string {
-	s.nextSeq++
+	s.NextSeq++
 
-	return fmt.Sprintf("%020d", s.nextSeq)
+	return fmt.Sprintf("%020d", s.NextSeq)
 }
 
 // CreateStream creates a new Kinesis stream.
@@ -215,6 +236,11 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		region = input.Region
 	}
 
+	streamMode := input.StreamMode
+	if streamMode == "" {
+		streamMode = streamModeProvisioned
+	}
+
 	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
 	b.streams[input.StreamName] = &Stream{
@@ -226,6 +252,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		CreatedAt:       time.Now(),
 		RetentionPeriod: defaultRetentionHours,
 		Consumers:       make(map[string]*Consumer),
+		StreamMode:      streamMode,
 	}
 
 	return nil
@@ -263,14 +290,19 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 
 	shards := make([]ShardDescription, len(stream.Shards))
 	for i, s := range stream.Shards {
-		var seqEnd string
-		if s.Records.len() > 0 {
-			seqEnd = s.Records.last().SequenceNumber
-		}
-
 		seqStart := "0"
 		if s.Records.len() > 0 {
 			seqStart = s.Records.at(0).SequenceNumber
+		}
+
+		var seqEnd string
+		if s.Closed {
+			seqEnd = "0"
+			if s.Records.len() > 0 {
+				seqEnd = s.Records.last().SequenceNumber
+			}
+		} else if s.Records.len() > 0 {
+			seqEnd = s.Records.last().SequenceNumber
 		}
 
 		shards[i] = ShardDescription{
@@ -279,18 +311,28 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 			HashKeyRangeEnd:          s.HashKeyRangeEnd,
 			SequenceNumberRangeStart: seqStart,
 			SequenceNumberRangeEnd:   seqEnd,
+			ParentShardID:            s.ParentShardID,
+			AdjacentParentShardID:    s.AdjacentParentShardID,
+			Closed:                   s.Closed,
 		}
 	}
 
+	encType := stream.EncryptionType
+	if encType == "" {
+		encType = encryptionTypeNone
+	}
+
 	return &DescribeStreamOutput{
-		StreamName:           stream.Name,
-		StreamARN:            stream.ARN,
-		StreamStatus:         stream.Status,
-		Shards:               shards,
-		RetentionPeriodHours: stream.RetentionPeriod,
-		EncryptionType:       stream.EncryptionType,
-		KeyID:                stream.KeyID,
-		EnhancedMonitoring:   append([]string{}, stream.EnhancedMonitoring...),
+		StreamName:              stream.Name,
+		StreamARN:               stream.ARN,
+		StreamStatus:            stream.Status,
+		Shards:                  shards,
+		RetentionPeriodHours:    stream.RetentionPeriod,
+		EncryptionType:          encType,
+		KeyID:                   stream.KeyID,
+		EnhancedMonitoring:      append([]string{}, stream.EnhancedMonitoring...),
+		StreamCreationTimestamp: stream.CreatedAt,
+		StreamMode:              stream.StreamMode,
 	}, nil
 }
 
@@ -335,8 +377,19 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 		return nil, ErrInvalidArgument
 	}
 
-	shardIdx := shardForPartitionKey(stream.Shards, input.PartitionKey)
-	shard := stream.Shards[shardIdx]
+	var shard *Shard
+	if input.ExplicitHashKey != "" {
+		routingHash := new(big.Int)
+		if _, ok := routingHash.SetString(input.ExplicitHashKey, hashKeyDecimalBase); !ok {
+			return nil, ErrInvalidArgument
+		}
+		shard = shardForHashKey(stream.Shards, routingHash)
+	} else {
+		shard = shardForPartitionKey(stream.Shards, input.PartitionKey)
+	}
+	if shard == nil {
+		return nil, ErrInvalidArgument
+	}
 
 	seq := shard.nextSequenceNumber()
 	record := &Record{
@@ -565,11 +618,15 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 		return nil, ErrStreamNotFound
 	}
 
-	shards := make([]ShardDescription, len(stream.Shards))
-	for i, s := range stream.Shards {
-		var seqEnd string
-		if s.Records.len() > 0 {
-			seqEnd = s.Records.last().SequenceNumber
+	skip := input.ExclusiveStartShardID != ""
+	result := make([]ShardDescription, 0, len(stream.Shards))
+	for _, s := range stream.Shards {
+		if skip {
+			if s.ID == input.ExclusiveStartShardID {
+				skip = false
+			}
+
+			continue
 		}
 
 		seqStart := "0"
@@ -577,16 +634,29 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 			seqStart = s.Records.at(0).SequenceNumber
 		}
 
-		shards[i] = ShardDescription{
+		var seqEnd string
+		if s.Closed {
+			seqEnd = "0"
+			if s.Records.len() > 0 {
+				seqEnd = s.Records.last().SequenceNumber
+			}
+		} else if s.Records.len() > 0 {
+			seqEnd = s.Records.last().SequenceNumber
+		}
+
+		result = append(result, ShardDescription{
 			ShardID:                  s.ID,
 			HashKeyRangeStart:        s.HashKeyRangeStart,
 			HashKeyRangeEnd:          s.HashKeyRangeEnd,
 			SequenceNumberRangeStart: seqStart,
 			SequenceNumberRangeEnd:   seqEnd,
-		}
+			ParentShardID:            s.ParentShardID,
+			AdjacentParentShardID:    s.AdjacentParentShardID,
+			Closed:                   s.Closed,
+		})
 	}
 
-	return &ListShardsOutput{Shards: shards}, nil
+	return &ListShardsOutput{Shards: result}, nil
 }
 
 // ListAll returns a snapshot of all streams as StreamInfo values.
@@ -1156,13 +1226,17 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 		HashKeyRangeEnd:   endKey.String(),
 	}
 
-	newShards := make([]*Shard, 0, len(stream.Shards)-1)
-	for _, s := range stream.Shards {
-		if s.ID != input.ShardToMerge && s.ID != input.AdjacentShardToMerge {
-			newShards = append(newShards, s)
-		}
-	}
+	// Mark parents as closed (keep them in the list)
+	shard1.Closed = true
+	shard2.Closed = true
 
+	merged.ParentShardID = input.ShardToMerge
+	merged.AdjacentParentShardID = input.AdjacentShardToMerge
+
+	newShards := make([]*Shard, 0, len(stream.Shards)+1)
+	for _, s := range stream.Shards {
+		newShards = append(newShards, s)
+	}
 	newShards = append(newShards, merged)
 	stream.Shards = newShards
 
@@ -1226,13 +1300,15 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 		HashKeyRangeEnd:   shard.HashKeyRangeEnd,
 	}
 
-	newShards := make([]*Shard, 0, len(stream.Shards)+1)
-	for _, s := range stream.Shards {
-		if s.ID != input.ShardToSplit {
-			newShards = append(newShards, s)
-		}
-	}
+	shard.Closed = true
 
+	shard1.ParentShardID = input.ShardToSplit
+	shard2.ParentShardID = input.ShardToSplit
+
+	newShards := make([]*Shard, 0, len(stream.Shards)+2)
+	for _, s := range stream.Shards {
+		newShards = append(newShards, s)
+	}
 	newShards = append(newShards, shard1, shard2)
 	stream.Shards = newShards
 
@@ -1345,9 +1421,19 @@ func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (
 
 // DescribeAccountSettings returns account-level limits for this Kinesis account.
 func (b *InMemoryBackend) DescribeAccountSettings() (*DescribeAccountSettingsOutput, error) {
+	b.mu.RLock("DescribeAccountSettings")
+	defer b.mu.RUnlock()
+
+	onDemandCount := 0
+	for _, s := range b.streams {
+		if s.StreamMode == streamModeOnDemand {
+			onDemandCount++
+		}
+	}
+
 	return &DescribeAccountSettingsOutput{
 		ShardLimit:               kinesisDefaultShardLimit,
-		OnDemandStreamCount:      0,
+		OnDemandStreamCount:      onDemandCount,
 		OnDemandStreamCountLimit: defaultOnDemandStreamCountLimit,
 	}, nil
 }
@@ -1405,14 +1491,18 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	}
 }
 
-// CountOpenShards returns the total number of shards across all streams.
+// CountOpenShards returns the total number of open (non-closed) shards across all streams.
 func (b *InMemoryBackend) CountOpenShards() int {
 	b.mu.RLock("CountOpenShards")
 	defer b.mu.RUnlock()
 
 	count := 0
 	for _, s := range b.streams {
-		count += len(s.Shards)
+		for _, sh := range s.Shards {
+			if !sh.Closed {
+				count++
+			}
+		}
 	}
 
 	return count
@@ -1432,9 +1522,34 @@ func (b *InMemoryBackend) AddStreamInternal(stream *Stream) {
 		stream.Shards = []*Shard{}
 	}
 
+	if stream.StreamMode == "" {
+		stream.StreamMode = streamModeProvisioned
+	}
+
 	if stream.EnhancedMonitoring == nil {
 		stream.EnhancedMonitoring = []string{}
 	}
 
 	b.streams[stream.Name] = stream
+}
+
+// UpdateStreamMode changes the mode of a stream identified by its ARN.
+func (b *InMemoryBackend) UpdateStreamMode(input *UpdateStreamModeInput) error {
+	b.mu.Lock("UpdateStreamMode")
+	defer b.mu.Unlock()
+
+	streamName := streamNameFromARN(input.StreamARN)
+	stream, ok := b.streams[streamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	if input.StreamModeDetails.StreamMode != streamModeProvisioned &&
+		input.StreamModeDetails.StreamMode != streamModeOnDemand {
+		return ErrInvalidArgument
+	}
+
+	stream.StreamMode = input.StreamModeDetails.StreamMode
+
+	return nil
 }

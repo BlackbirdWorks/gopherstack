@@ -69,7 +69,15 @@ const (
 
 	// scalingTypeUniformScaling is the only supported scaling type for UpdateShardCount.
 	scalingTypeUniformScaling = "UNIFORM_SCALING"
+
+	// StreamModeProvisioned is the PROVISIONED stream mode.
+	StreamModeProvisioned = "PROVISIONED"
+	// StreamModeOnDemand is the ON_DEMAND stream mode.
+	StreamModeOnDemand = "ON_DEMAND"
 )
+
+const streamModeProvisioned = StreamModeProvisioned
+const streamModeOnDemand = StreamModeOnDemand
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
@@ -84,15 +92,19 @@ type Stream struct {
 	Shards             []*Shard             `json:"shards"`
 	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
 	RetentionPeriod    int                  `json:"retentionPeriod"`
+	StreamMode         string               `json:"streamMode,omitempty"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
 type Shard struct {
-	ID                string       `json:"id"`
-	HashKeyRangeStart string       `json:"hashKeyRangeStart"`
-	HashKeyRangeEnd   string       `json:"hashKeyRangeEnd"`
-	Records           shardRecords `json:"records"`
-	nextSeq           uint64
+	ID                    string       `json:"id"`
+	HashKeyRangeStart     string       `json:"hashKeyRangeStart"`
+	HashKeyRangeEnd       string       `json:"hashKeyRangeEnd"`
+	Records               shardRecords `json:"records"`
+	ParentShardID         string       `json:"parentShardId,omitempty"`
+	AdjacentParentShardID string       `json:"adjacentParentShardId,omitempty"`
+	NextSeq               uint64       `json:"nextSeq"`
+	Closed                bool         `json:"closed,omitempty"`
 }
 
 // Record represents a single Kinesis data record.
@@ -127,6 +139,7 @@ type CreateStreamInput struct {
 	Region     string
 	AccountID  string
 	ShardCount int
+	StreamMode string
 }
 
 // DeleteStreamInput is the input for DeleteStream.
@@ -141,14 +154,16 @@ type DescribeStreamInput struct {
 
 // DescribeStreamOutput is the output for DescribeStream.
 type DescribeStreamOutput struct {
-	StreamName           string
-	StreamARN            string
-	StreamStatus         string
-	EncryptionType       string
-	KeyID                string
-	Shards               []ShardDescription
-	EnhancedMonitoring   []string
-	RetentionPeriodHours int
+	StreamCreationTimestamp time.Time
+	StreamName              string
+	StreamARN               string
+	StreamStatus            string
+	EncryptionType          string
+	StreamMode              string
+	KeyID                   string
+	Shards                  []ShardDescription
+	EnhancedMonitoring      []string
+	RetentionPeriodHours    int
 }
 
 // ShardDescription describes a shard in a DescribeStream response.
@@ -158,6 +173,9 @@ type ShardDescription struct {
 	HashKeyRangeEnd          string
 	SequenceNumberRangeStart string
 	SequenceNumberRangeEnd   string
+	ParentShardID            string
+	AdjacentParentShardID    string
+	Closed                   bool
 }
 
 // ListStreamsInput is the input for ListStreams.
@@ -251,9 +269,10 @@ type GetRecordsOutput struct {
 
 // ListShardsInput is the input for ListShards.
 type ListShardsInput struct {
-	StreamName string
-	NextToken  string
-	MaxResults int
+	StreamName           string
+	NextToken            string
+	ExclusiveStartShardID string
+	MaxResults           int
 }
 
 // ListShardsOutput is the output for ListShards.
@@ -460,4 +479,15 @@ type DescribeAccountSettingsOutput struct {
 	ShardLimit               int
 	OnDemandStreamCount      int
 	OnDemandStreamCountLimit int
+}
+
+// UpdateStreamModeInput is the input for UpdateStreamMode.
+type UpdateStreamModeInput struct {
+	StreamARN         string
+	StreamModeDetails StreamModeDetails
+}
+
+// StreamModeDetails describes the mode of a Kinesis stream.
+type StreamModeDetails struct {
+	StreamMode string
 }

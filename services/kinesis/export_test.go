@@ -110,11 +110,11 @@ func (b *InMemoryBackend) PushOldRecordForTest(streamName string, shardIdx int, 
 	}
 
 	shard := stream.Shards[shardIdx]
-	shard.nextSeq++
+	shard.NextSeq++
 	rec := &Record{
 		PartitionKey:                "test",
 		Data:                        []byte("test"),
-		SequenceNumber:              fmt.Sprintf("%020d", shard.nextSeq),
+		SequenceNumber:              fmt.Sprintf("%020d", shard.NextSeq),
 		ApproximateArrivalTimestamp: time.Now().Add(-age),
 	}
 	shard.Records.push(rec)

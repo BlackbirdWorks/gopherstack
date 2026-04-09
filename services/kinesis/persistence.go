@@ -14,9 +14,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-// Note: shard sequence number counters (nextSeq) are not serialised; they
-// restart from 0 after restore. Existing records retain their stored sequence
-// numbers, so no in-flight duplicates occur for already-stored records.
+// Note: shard sequence number counters are now serialised via the NextSeq field.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()

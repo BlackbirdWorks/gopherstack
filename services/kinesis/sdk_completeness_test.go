@@ -22,7 +22,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"UntagResource",
 		"UpdateAccountSettings",
 		"UpdateMaxRecordSize",
-		"UpdateStreamMode",
 		"UpdateStreamWarmThroughput",
 	})
 }
