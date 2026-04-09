@@ -259,3 +259,160 @@ type errorResponse struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`
 }
+
+// LFTagPair represents an LF-tag key with its associated values attached to a resource.
+type LFTagPair struct {
+	CatalogID string   `json:"CatalogId,omitempty"`
+	TagKey    string   `json:"TagKey"`
+	TagValues []string `json:"TagValues"`
+}
+
+// LFTagError represents a failure to attach or detach a single LF-tag.
+type LFTagError struct {
+	LFTag *LFTagPair   `json:"LFTag,omitempty"`
+	Error *errorDetail `json:"Error,omitempty"`
+}
+
+// DataCellsFilter holds the definition of a cell-level access filter.
+type DataCellsFilter struct {
+	TableCatalogID string `json:"TableCatalogId"`
+	DatabaseName   string `json:"DatabaseName"`
+	TableName      string `json:"TableName"`
+	Name           string `json:"Name"`
+}
+
+// LFTagExpression holds a saved, named LF-tag expression.
+type LFTagExpression struct {
+	Name        string  `json:"Name"`
+	Description string  `json:"Description,omitempty"`
+	CatalogID   string  `json:"CatalogId,omitempty"`
+	Expression  []LFTag `json:"Expression,omitempty"`
+}
+
+// Transaction represents an in-flight Lake Formation governed table transaction.
+type Transaction struct {
+	TransactionID     string `json:"TransactionId"`
+	TransactionStatus string `json:"TransactionStatus"`
+}
+
+// IdentityCenterConfiguration holds the IAM Identity Center integration configuration.
+type IdentityCenterConfiguration struct {
+	CatalogID      string `json:"CatalogId,omitempty"`
+	InstanceArn    string `json:"InstanceArn,omitempty"`
+	ApplicationArn string `json:"ApplicationArn,omitempty"`
+}
+
+// LFOptIn associates a principal and resource for opt-in enforcement.
+type LFOptIn struct {
+	Principal *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource  *Resource          `json:"Resource,omitempty"`
+}
+
+// --- Request / Response types for new operations ---
+
+// addLFTagsToResourceInput is the request body for AddLFTagsToResource.
+type addLFTagsToResourceInput struct {
+	CatalogID string      `json:"CatalogId,omitempty"`
+	Resource  *Resource   `json:"Resource"`
+	LFTags    []LFTagPair `json:"LFTags"`
+}
+
+// addLFTagsToResourceOutput is the response body for AddLFTagsToResource.
+type addLFTagsToResourceOutput struct {
+	Failures []LFTagError `json:"Failures"`
+}
+
+// assumeDecoratedRoleWithSAMLInput is the request body for AssumeDecoratedRoleWithSAML.
+type assumeDecoratedRoleWithSAMLInput struct {
+	DurationSeconds *int32 `json:"DurationSeconds,omitempty"`
+	PrincipalArn    string `json:"PrincipalArn"`
+	RoleArn         string `json:"RoleArn"`
+	SAMLAssertion   string `json:"SAMLAssertion"`
+}
+
+// SAMLCredentials is the response body for AssumeDecoratedRoleWithSAML.
+type SAMLCredentials struct {
+	AccessKeyID     string `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string `json:"SecretAccessKey,omitempty"`
+	SessionToken    string `json:"SessionToken,omitempty"`
+	Expiration      string `json:"Expiration,omitempty"`
+}
+
+// cancelTransactionInput is the request body for CancelTransaction.
+type cancelTransactionInput struct {
+	TransactionID string `json:"TransactionId"`
+}
+
+// cancelTransactionOutput is the response body for CancelTransaction (empty).
+type cancelTransactionOutput struct{}
+
+// commitTransactionInput is the request body for CommitTransaction.
+type commitTransactionInput struct {
+	TransactionID string `json:"TransactionId"`
+}
+
+// commitTransactionOutput is the response body for CommitTransaction.
+type commitTransactionOutput struct {
+	TransactionStatus string `json:"TransactionStatus,omitempty"`
+}
+
+// createDataCellsFilterInput is the request body for CreateDataCellsFilter.
+type createDataCellsFilterInput struct {
+	TableData *DataCellsFilter `json:"TableData"`
+}
+
+// createDataCellsFilterOutput is the response body for CreateDataCellsFilter (empty).
+type createDataCellsFilterOutput struct{}
+
+// createLFTagExpressionInput is the request body for CreateLFTagExpression.
+type createLFTagExpressionInput struct {
+	CatalogID   string  `json:"CatalogId,omitempty"`
+	Name        string  `json:"Name"`
+	Description string  `json:"Description,omitempty"`
+	Expression  []LFTag `json:"Expression"`
+}
+
+// createLFTagExpressionOutput is the response body for CreateLFTagExpression (empty).
+type createLFTagExpressionOutput struct{}
+
+// createLakeFormationIdentityCenterConfigurationInput is the request body for
+// CreateLakeFormationIdentityCenterConfiguration.
+type createLakeFormationIdentityCenterConfigurationInput struct {
+	CatalogID   string `json:"CatalogId,omitempty"`
+	InstanceArn string `json:"InstanceArn,omitempty"`
+}
+
+// createLakeFormationIdentityCenterConfigurationOutput is the response body for
+// CreateLakeFormationIdentityCenterConfiguration.
+type createLakeFormationIdentityCenterConfigurationOutput struct {
+	ApplicationArn string `json:"ApplicationArn,omitempty"`
+}
+
+// createLakeFormationOptInInput is the request body for CreateLakeFormationOptIn.
+type createLakeFormationOptInInput struct {
+	Principal *DataLakePrincipal `json:"Principal"`
+	Resource  *Resource          `json:"Resource"`
+}
+
+// createLakeFormationOptInOutput is the response body for CreateLakeFormationOptIn (empty).
+type createLakeFormationOptInOutput struct{}
+
+// deleteDataCellsFilterInput is the request body for DeleteDataCellsFilter.
+type deleteDataCellsFilterInput struct {
+	TableCatalogID string `json:"TableCatalogId,omitempty"`
+	DatabaseName   string `json:"DatabaseName,omitempty"`
+	TableName      string `json:"TableName,omitempty"`
+	Name           string `json:"Name,omitempty"`
+}
+
+// deleteDataCellsFilterOutput is the response body for DeleteDataCellsFilter (empty).
+type deleteDataCellsFilterOutput struct{}
+
+// deleteLFTagExpressionInput is the request body for DeleteLFTagExpression.
+type deleteLFTagExpressionInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+	Name      string `json:"Name"`
+}
+
+// deleteLFTagExpressionOutput is the response body for DeleteLFTagExpression (empty).
+type deleteLFTagExpressionOutput struct{}

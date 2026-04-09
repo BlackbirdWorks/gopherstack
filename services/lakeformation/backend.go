@@ -11,6 +11,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	transactionStatusActive    = "ACTIVE"
+	transactionStatusCommitted = "COMMITTED"
+	transactionStatusAborted   = "ABORTED"
+)
+
 // StorageBackend is the interface for Lake Formation backend operations.
 type StorageBackend interface {
 	GetDataLakeSettings() *DataLakeSettings
@@ -33,6 +39,20 @@ type StorageBackend interface {
 
 	BatchGrantPermissions(entries []*PermissionEntry) []*BatchFailureEntry
 	BatchRevokePermissions(entries []*PermissionEntry) []*BatchFailureEntry
+
+	AddLFTagsToResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
+	AssumeDecoratedRoleWithSAML(
+		principalArn, roleArn, samlAssertion string,
+		durationSeconds *int32,
+	) *SAMLCredentials
+	CancelTransaction(transactionID string) error
+	CommitTransaction(transactionID string) (string, error)
+	CreateDataCellsFilter(filter *DataCellsFilter) error
+	CreateLFTagExpression(name, description, catalogID string, expression []LFTag) error
+	CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string
+	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
+	DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error
+	DeleteLFTagExpression(name, catalogID string) error
 }
 
 // lfTagKey uniquely identifies a LF tag by catalog and key.
@@ -41,23 +61,51 @@ type lfTagKey struct {
 	TagKey    string
 }
 
+// dataCellsFilterKey uniquely identifies a DataCellsFilter.
+type dataCellsFilterKey struct {
+	TableCatalogID string
+	DatabaseName   string
+	TableName      string
+	Name           string
+}
+
+// lfTagExpressionKey uniquely identifies an LF-tag expression.
+type lfTagExpressionKey struct {
+	CatalogID string
+	Name      string
+}
+
 // InMemoryBackend is the in-memory backend for Lake Formation.
 type InMemoryBackend struct {
-	dataLakeSettings *DataLakeSettings
-	resources        map[string]*ResourceInfo
-	lfTags           map[lfTagKey]*LFTag
-	mu               *lockmetrics.RWMutex
-	permissions      []*PermissionEntry
+	dataLakeSettings      *DataLakeSettings
+	resources             map[string]*ResourceInfo
+	lfTags                map[lfTagKey]*LFTag
+	transactions          map[string]string
+	dataCellsFilters      map[dataCellsFilterKey]*DataCellsFilter
+	lfTagExpressions      map[lfTagExpressionKey]*LFTagExpression
+	identityCenterConfigs map[string]*IdentityCenterConfiguration
+	lakeFormationOptIns   []*LFOptIn
+	resourceLFTags        map[string][]LFTagPair
+	mu                    *lockmetrics.RWMutex
+	permissions           []*PermissionEntry
 }
+
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new in-memory Lake Formation backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		dataLakeSettings: &DataLakeSettings{},
-		resources:        make(map[string]*ResourceInfo),
-		permissions:      make([]*PermissionEntry, 0),
-		lfTags:           make(map[lfTagKey]*LFTag),
-		mu:               lockmetrics.New("lakeformation"),
+		dataLakeSettings:      &DataLakeSettings{},
+		resources:             make(map[string]*ResourceInfo),
+		permissions:           make([]*PermissionEntry, 0),
+		lfTags:                make(map[lfTagKey]*LFTag),
+		transactions:          make(map[string]string),
+		dataCellsFilters:      make(map[dataCellsFilterKey]*DataCellsFilter),
+		lfTagExpressions:      make(map[lfTagExpressionKey]*LFTagExpression),
+		identityCenterConfigs: make(map[string]*IdentityCenterConfiguration),
+		lakeFormationOptIns:   make([]*LFOptIn, 0),
+		resourceLFTags:        make(map[string][]LFTagPair),
+		mu:                    lockmetrics.New("lakeformation"),
 	}
 }
 
@@ -541,4 +589,264 @@ func copyLFTag(t *LFTag) *LFTag {
 	}
 
 	return &cp
+}
+
+// AddLFTagsToResource attaches LF-tags to the specified resource.
+// All tag attachments are stored in memory; failures are returned for any tag not found.
+func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError {
+	b.mu.Lock("AddLFTagsToResource")
+	defer b.mu.Unlock()
+
+	var failures []LFTagError
+
+	for _, pair := range lfTags {
+		k := lfTagKey{CatalogID: catalogID, TagKey: pair.TagKey}
+		if _, ok := b.lfTags[k]; !ok {
+			tagCopy := pair
+			failures = append(failures, LFTagError{
+				LFTag: &tagCopy,
+				Error: &errorDetail{
+					ErrorCode:    "EntityNotFoundException",
+					ErrorMessage: fmt.Sprintf("LF tag not found: %s", pair.TagKey),
+				},
+			})
+
+			continue
+		}
+	}
+
+	if len(failures) == 0 {
+		resourceKey := resourceToKey(resource)
+		existing := b.resourceLFTags[resourceKey]
+
+		for _, pair := range lfTags {
+			found := false
+
+			for i, ex := range existing {
+				if ex.TagKey == pair.TagKey {
+					existing[i] = pair
+					found = true
+
+					break
+				}
+			}
+
+			if !found {
+				existing = append(existing, pair)
+			}
+		}
+
+		b.resourceLFTags[resourceKey] = existing
+	}
+
+	return failures
+}
+
+// AssumeDecoratedRoleWithSAML returns synthetic temporary credentials.
+// The actual SAML assertion and role are not validated in the in-memory backend.
+func (b *InMemoryBackend) AssumeDecoratedRoleWithSAML(
+	_, _, _ string,
+	_ *int32,
+) *SAMLCredentials {
+	return &SAMLCredentials{
+		AccessKeyID:     "ASIALAKEFORMATION0001",
+		SecretAccessKey: "syntheticSecretKey00000000000000000000000",
+		SessionToken:    "syntheticSessionToken",
+		Expiration:      time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}
+}
+
+// CancelTransaction cancels an in-flight transaction.
+// Returns an error if the transaction is already committed.
+func (b *InMemoryBackend) CancelTransaction(transactionID string) error {
+	b.mu.Lock("CancelTransaction")
+	defer b.mu.Unlock()
+
+	if status, ok := b.transactions[transactionID]; ok && status == transactionStatusCommitted {
+		return awserr.New(
+			fmt.Sprintf("transaction %s is already committed", transactionID),
+			awserr.ErrConflict,
+		)
+	}
+
+	b.transactions[transactionID] = transactionStatusAborted
+
+	return nil
+}
+
+// CommitTransaction commits an in-flight transaction.
+// Returns an error if the transaction is already aborted.
+func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error) {
+	b.mu.Lock("CommitTransaction")
+	defer b.mu.Unlock()
+
+	if status, ok := b.transactions[transactionID]; ok && status == transactionStatusAborted {
+		return "", awserr.New(
+			fmt.Sprintf("transaction %s has been cancelled", transactionID),
+			awserr.ErrConflict,
+		)
+	}
+
+	b.transactions[transactionID] = transactionStatusCommitted
+
+	return transactionStatusCommitted, nil
+}
+
+// CreateDataCellsFilter stores a new data cells filter.
+func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
+	b.mu.Lock("CreateDataCellsFilter")
+	defer b.mu.Unlock()
+
+	k := dataCellsFilterKey{
+		TableCatalogID: filter.TableCatalogID,
+		DatabaseName:   filter.DatabaseName,
+		TableName:      filter.TableName,
+		Name:           filter.Name,
+	}
+
+	if _, ok := b.dataCellsFilters[k]; ok {
+		return awserr.New(
+			fmt.Sprintf("data cells filter already exists: %s", filter.Name),
+			awserr.ErrAlreadyExists,
+		)
+	}
+
+	cp := *filter
+	b.dataCellsFilters[k] = &cp
+
+	return nil
+}
+
+// CreateLFTagExpression stores a new named LF-tag expression.
+func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID string, expression []LFTag) error {
+	b.mu.Lock("CreateLFTagExpression")
+	defer b.mu.Unlock()
+
+	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+
+	if _, ok := b.lfTagExpressions[k]; ok {
+		return awserr.New(
+			fmt.Sprintf("LF-tag expression already exists: %s", name),
+			awserr.ErrAlreadyExists,
+		)
+	}
+
+	expr := make([]LFTag, len(expression))
+	copy(expr, expression)
+
+	b.lfTagExpressions[k] = &LFTagExpression{
+		Name:        name,
+		Description: description,
+		CatalogID:   catalogID,
+		Expression:  expr,
+	}
+
+	return nil
+}
+
+// CreateLakeFormationIdentityCenterConfiguration creates or replaces the IAM Identity Center
+// integration for the given catalog and returns a synthetic application ARN.
+func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string {
+	b.mu.Lock("CreateLakeFormationIdentityCenterConfiguration")
+	defer b.mu.Unlock()
+
+	appArn := fmt.Sprintf(
+		"arn:aws:sso::123456789012:application/ssoins-0000000000000000/apl-%s",
+		catalogID,
+	)
+
+	b.identityCenterConfigs[catalogID] = &IdentityCenterConfiguration{
+		CatalogID:      catalogID,
+		InstanceArn:    instanceArn,
+		ApplicationArn: appArn,
+	}
+
+	return appArn
+}
+
+// CreateLakeFormationOptIn adds an opt-in enforcement entry for a principal and resource.
+func (b *InMemoryBackend) CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error {
+	b.mu.Lock("CreateLakeFormationOptIn")
+	defer b.mu.Unlock()
+
+	for _, o := range b.lakeFormationOptIns {
+		if principalEqual(o.Principal, principal) && resourceEqual(o.Resource, resource) {
+			return awserr.New("opt-in already exists for this principal and resource", awserr.ErrAlreadyExists)
+		}
+	}
+
+	b.lakeFormationOptIns = append(b.lakeFormationOptIns, &LFOptIn{
+		Principal: principal,
+		Resource:  resource,
+	})
+
+	return nil
+}
+
+// DeleteDataCellsFilter removes the named data cells filter.
+func (b *InMemoryBackend) DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error {
+	b.mu.Lock("DeleteDataCellsFilter")
+	defer b.mu.Unlock()
+
+	k := dataCellsFilterKey{
+		TableCatalogID: tableCatalogID,
+		DatabaseName:   databaseName,
+		TableName:      tableName,
+		Name:           name,
+	}
+
+	if _, ok := b.dataCellsFilters[k]; !ok {
+		return awserr.New(
+			fmt.Sprintf("data cells filter not found: %s", name),
+			awserr.ErrNotFound,
+		)
+	}
+
+	delete(b.dataCellsFilters, k)
+
+	return nil
+}
+
+// DeleteLFTagExpression removes the named LF-tag expression.
+func (b *InMemoryBackend) DeleteLFTagExpression(name, catalogID string) error {
+	b.mu.Lock("DeleteLFTagExpression")
+	defer b.mu.Unlock()
+
+	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+
+	if _, ok := b.lfTagExpressions[k]; !ok {
+		return awserr.New(
+			fmt.Sprintf("LF-tag expression not found: %s", name),
+			awserr.ErrNotFound,
+		)
+	}
+
+	delete(b.lfTagExpressions, k)
+
+	return nil
+}
+
+// resourceToKey returns a stable string key for a Resource pointer (used to index resourceLFTags).
+func resourceToKey(r *Resource) string {
+	if r == nil {
+		return ""
+	}
+
+	if r.DataLocation != nil {
+		return "datalocation:" + r.DataLocation.ResourceArn
+	}
+
+	if r.Database != nil {
+		return "database:" + r.Database.Name
+	}
+
+	if r.Table != nil {
+		return "table:" + r.Table.DatabaseName + "." + r.Table.Name
+	}
+
+	if r.Catalog != nil {
+		return "catalog"
+	}
+
+	return ""
 }

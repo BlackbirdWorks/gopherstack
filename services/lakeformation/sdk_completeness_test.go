@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &lakeformationsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddLFTagsToResource",
-		"AssumeDecoratedRoleWithSAML",
-		"CancelTransaction",
-		"CommitTransaction",
-		"CreateDataCellsFilter",
-		"CreateLFTagExpression",
-		"CreateLakeFormationIdentityCenterConfiguration",
-		"CreateLakeFormationOptIn",
-		"DeleteDataCellsFilter",
-		"DeleteLFTagExpression",
 		"DeleteLakeFormationIdentityCenterConfiguration",
 		"DeleteLakeFormationOptIn",
 		"DeleteObjectsOnCancel",
