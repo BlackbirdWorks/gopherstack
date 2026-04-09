@@ -78,7 +78,7 @@ func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
 func TestRefinement1_ErrNilAppContextValue(t *testing.T) {
 	t.Parallel()
 
-	assert.NotNil(t, kinesis.ErrNilAppContext)
+	assert.Error(t, kinesis.ErrNilAppContext)
 	assert.Contains(t, kinesis.ErrNilAppContext.Error(), "kinesis")
 }
 
