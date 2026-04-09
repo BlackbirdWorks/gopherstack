@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -31,6 +32,18 @@ const (
 	keySpecSymmetric = "SYMMETRIC_DEFAULT"
 	// keySpecRSA2048 is the key spec for RSA-2048 asymmetric keys.
 	keySpecRSA2048 = "RSA_2048"
+	// keySpecHMAC256 is the key spec for HMAC-SHA-256 keys.
+	keySpecHMAC256 = "HMAC_256"
+	// keySpecHMAC384 is the key spec for HMAC-SHA-384 keys.
+	keySpecHMAC384 = "HMAC_384"
+	// keySpecHMAC512 is the key spec for HMAC-SHA-512 keys.
+	keySpecHMAC512 = "HMAC_512"
+	// hmac256Bytes is the key size in bytes for HMAC-SHA-256.
+	hmac256Bytes = 32
+	// hmac384Bytes is the key size in bytes for HMAC-SHA-384.
+	hmac384Bytes = 48
+	// hmac512Bytes is the key size in bytes for HMAC-SHA-512.
+	hmac512Bytes = 64
 )
 
 var (
@@ -93,6 +106,12 @@ func generateKeyMaterial(keySpec string) (*keyMaterial, error) {
 		return generateECKeyMaterial(elliptic.P384())
 	case keySpecECCP521:
 		return generateECKeyMaterial(elliptic.P521())
+	case keySpecHMAC256:
+		return generateHMACKeyMaterial(hmac256Bytes)
+	case keySpecHMAC384:
+		return generateHMACKeyMaterial(hmac384Bytes)
+	case keySpecHMAC512:
+		return generateHMACKeyMaterial(hmac512Bytes)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedKeySpec, keySpec)
 	}
@@ -114,6 +133,102 @@ func generateECKeyMaterial(curve elliptic.Curve) (*keyMaterial, error) {
 	}
 
 	return &keyMaterial{ecKey: k}, nil
+}
+
+func generateHMACKeyMaterial(size int) (*keyMaterial, error) {
+	key := make([]byte, size)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, fmt.Errorf("generating HMAC key: %w", err)
+	}
+
+	return &keyMaterial{symmetricKey: key}, nil
+}
+
+// computeHMAC computes an HMAC tag over message using the key material and algorithm.
+// Supported algorithms: HMAC_SHA_256, HMAC_SHA_384, HMAC_SHA_512.
+func computeHMAC(message []byte, macAlgorithm string, km *keyMaterial) ([]byte, error) {
+	if km.symmetricKey == nil {
+		return nil, errMissingSymmetricKey
+	}
+
+	var mac []byte
+
+	switch macAlgorithm {
+	case "HMAC_SHA_256":
+		h := hmac.New(sha256.New, km.symmetricKey)
+		h.Write(message)
+		mac = h.Sum(nil)
+	case "HMAC_SHA_384":
+		h := hmac.New(sha512.New384, km.symmetricKey)
+		h.Write(message)
+		mac = h.Sum(nil)
+	case "HMAC_SHA_512":
+		h := hmac.New(sha512.New, km.symmetricKey)
+		h.Write(message)
+		mac = h.Sum(nil)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnsupportedAlgorithm, macAlgorithm)
+	}
+
+	return mac, nil
+}
+
+// deriveECDH performs ECDH key agreement using the stored EC private key and the provided DER-encoded
+// peer public key (SubjectPublicKeyInfo). Returns the raw shared secret bytes.
+func deriveECDH(peerPublicKeyDER []byte, km *keyMaterial) ([]byte, error) {
+	if km.ecKey == nil {
+		return nil, fmt.Errorf("%w: no EC key available for ECDH", errNoAsymmetricKey)
+	}
+
+	peerPub, err := x509.ParsePKIXPublicKey(peerPublicKeyDER)
+	if err != nil {
+		return nil, fmt.Errorf("%w: parsing peer public key: %w", ErrInvalidKeyUsage, err)
+	}
+
+	peerECPub, ok := peerPub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("%w: peer public key is not an EC key", ErrInvalidKeyUsage)
+	}
+
+	// Convert ecdsa.PrivateKey to ecdh.PrivateKey.
+	privECDH, convErr := km.ecKey.ECDH()
+	if convErr != nil {
+		return nil, fmt.Errorf("converting EC private key to ECDH: %w", convErr)
+	}
+
+	// Convert ecdsa.PublicKey to ecdh.PublicKey.
+	peerECDH, convErr := peerECPub.ECDH()
+	if convErr != nil {
+		return nil, fmt.Errorf("%w: converting peer EC public key to ECDH: %w", ErrInvalidKeyUsage, convErr)
+	}
+
+	secret, err := privECDH.ECDH(peerECDH)
+	if err != nil {
+		return nil, fmt.Errorf("ECDH key agreement: %w", err)
+	}
+
+	return secret, nil
+}
+
+// privateKeyPKCS8DER returns the PKCS#8 DER-encoded private key from key material.
+func privateKeyPKCS8DER(km *keyMaterial) ([]byte, error) {
+	var privKey crypto.PrivateKey
+
+	switch {
+	case km.rsaKey != nil:
+		privKey = km.rsaKey
+	case km.ecKey != nil:
+		privKey = km.ecKey
+	default:
+		return nil, errNoAsymmetricKey
+	}
+
+	der, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling private key to PKCS8: %w", err)
+	}
+
+	return der, nil
 }
 
 // padKeyID pads or truncates a key ID to exactly keyIDPrefixLen bytes.

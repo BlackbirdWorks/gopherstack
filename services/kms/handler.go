@@ -137,17 +137,27 @@ func (h *Handler) Name() string {
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CancelKeyDeletion",
+		"ConnectCustomKeyStore",
+		"CreateCustomKeyStore",
 		"CreateKey",
+		"DeleteCustomKeyStore",
+		"DescribeCustomKeyStores",
 		"DescribeKey",
+		"DeriveSharedSecret",
 		"DisableKey",
 		"DisableKeyRotation",
+		"DisconnectCustomKeyStore",
 		"Decrypt",
 		"DeleteImportedKeyMaterial",
 		"EnableKey",
 		"EnableKeyRotation",
 		"Encrypt",
 		"GenerateDataKey",
+		"GenerateDataKeyPair",
+		"GenerateDataKeyPairWithoutPlaintext",
 		"GenerateDataKeyWithoutPlaintext",
+		"GenerateMac",
+		"GenerateRandom",
 		"GetKeyRotationStatus",
 		"GetPublicKey",
 		"ImportKeyMaterial",
@@ -252,6 +262,7 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 	maps.Copy(table, h.buildAliasRotationActions())
 	maps.Copy(table, h.buildGrantPolicyActions())
 	maps.Copy(table, h.buildTagActions())
+	maps.Copy(table, h.buildNewOpsActions())
 
 	return table
 }
@@ -592,6 +603,92 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 			h.removeTags(input.KeyID, input.TagKeys)
 
 			return struct{}{}, nil
+		},
+	}
+}
+
+// buildNewOpsActions returns dispatch entries for the 10 newly implemented operations.
+func (h *Handler) buildNewOpsActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"CreateCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input CreateCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateCustomKeyStore(&input)
+		},
+		"DeleteCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input DeleteCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteCustomKeyStore(&input)
+		},
+		"DescribeCustomKeyStores": func(_ string, b []byte) (any, error) {
+			var input DescribeCustomKeyStoresInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeCustomKeyStores(&input)
+		},
+		"ConnectCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input ConnectCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.ConnectCustomKeyStore(&input)
+		},
+		"DisconnectCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input DisconnectCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DisconnectCustomKeyStore(&input)
+		},
+		"DeriveSharedSecret": func(_ string, b []byte) (any, error) {
+			var input DeriveSharedSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeriveSharedSecret(&input)
+		},
+		"GenerateDataKeyPair": func(_ string, b []byte) (any, error) {
+			var input GenerateDataKeyPairInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateDataKeyPair(&input)
+		},
+		"GenerateDataKeyPairWithoutPlaintext": func(_ string, b []byte) (any, error) {
+			var input GenerateDataKeyPairWithoutPlaintextInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateDataKeyPairWithoutPlaintext(&input)
+		},
+		"GenerateMac": func(_ string, b []byte) (any, error) {
+			var input GenerateMacInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateMac(&input)
+		},
+		"GenerateRandom": func(_ string, b []byte) (any, error) {
+			var input GenerateRandomInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateRandom(&input)
 		},
 	}
 }

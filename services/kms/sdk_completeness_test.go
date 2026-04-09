@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &kmssdk.Client{}, h.GetSupportedOperations(), []string{
-		"ConnectCustomKeyStore",
-		"CreateCustomKeyStore",
-		"DeleteCustomKeyStore",
-		"DeriveSharedSecret",
-		"DescribeCustomKeyStores",
-		"DisconnectCustomKeyStore",
-		"GenerateDataKeyPair",
-		"GenerateDataKeyPairWithoutPlaintext",
-		"GenerateMac",
-		"GenerateRandom",
 		"GetParametersForImport",
 		"ListKeyPolicies",
 		"ListKeyRotations",
