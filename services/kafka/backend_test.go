@@ -397,6 +397,508 @@ func TestBackend_TagOperations(t *testing.T) {
 	}
 }
 
+func TestBackend_BatchAssociateScramSecret(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kafka.InMemoryBackend) string
+		name       string
+		secretArns []string
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+
+				return c.ClusterArn
+			},
+			secretArns: []string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster/nonexistent/uuid"
+			},
+			secretArns: []string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn := tt.setup(b)
+
+			errs, err := b.BatchAssociateScramSecret(clusterArn, tt.secretArns)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Empty(t, errs)
+		})
+	}
+}
+
+func TestBackend_BatchDisassociateScramSecret(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kafka.InMemoryBackend) string
+		name       string
+		secretArns []string
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				_, _ = b.BatchAssociateScramSecret(
+					c.ClusterArn,
+					[]string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
+				)
+
+				return c.ClusterArn
+			},
+			secretArns: []string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster/nonexistent/uuid"
+			},
+			secretArns: []string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn := tt.setup(b)
+
+			errs, err := b.BatchDisassociateScramSecret(clusterArn, tt.secretArns)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Empty(t, errs)
+		})
+	}
+}
+
+func TestBackend_CreateReplicator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend)
+		name    string
+		repName string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			repName: "my-replicator",
+			setup:   func(_ *kafka.InMemoryBackend) {},
+		},
+		{
+			name:    "duplicate_name",
+			repName: "my-replicator",
+			setup: func(b *kafka.InMemoryBackend) {
+				_, _ = b.CreateReplicator("my-replicator", "", "arn:aws:iam::000000000000:role/my-role", nil)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			tt.setup(b)
+
+			replicator, err := b.CreateReplicator(
+				tt.repName,
+				"test replicator",
+				"arn:aws:iam::000000000000:role/my-role",
+				nil,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.repName, replicator.ReplicatorName)
+			assert.NotEmpty(t, replicator.ReplicatorArn)
+			assert.Equal(t, kafka.ReplicatorStateRunning, replicator.ReplicatorState)
+		})
+	}
+}
+
+func TestBackend_DeleteReplicator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				r, _ := b.CreateReplicator("my-replicator", "", "arn:aws:iam::000000000000:role/my-role", nil)
+
+				return r.ReplicatorArn
+			},
+		},
+		{
+			name: "not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:replicator/nonexistent/uuid"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			replicatorArn := tt.setup(b)
+
+			err := b.DeleteReplicator(replicatorArn)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestBackend_CreateTopic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*kafka.InMemoryBackend) string
+		name      string
+		topicName string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+
+				return c.ClusterArn
+			},
+			topicName: "my-topic",
+		},
+		{
+			name: "duplicate_topic",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				_, _ = b.CreateTopic(c.ClusterArn, "my-topic", 1, 3, nil)
+
+				return c.ClusterArn
+			},
+			topicName: "my-topic",
+			wantErr:   true,
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster/nonexistent/uuid"
+			},
+			topicName: "my-topic",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn := tt.setup(b)
+
+			topic, err := b.CreateTopic(clusterArn, tt.topicName, 1, 3, nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.topicName, topic.TopicName)
+			assert.Equal(t, clusterArn, topic.ClusterArn)
+		})
+	}
+}
+
+func TestBackend_DeleteTopic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend) (string, string)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) (string, string) {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				_, _ = b.CreateTopic(c.ClusterArn, "my-topic", 1, 3, nil)
+
+				return c.ClusterArn, "my-topic"
+			},
+		},
+		{
+			name: "topic_not_found",
+			setup: func(b *kafka.InMemoryBackend) (string, string) {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+
+				return c.ClusterArn, "nonexistent-topic"
+			},
+			wantErr: true,
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(_ *kafka.InMemoryBackend) (string, string) {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster/nonexistent/uuid", "my-topic"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn, topicName := tt.setup(b)
+
+			err := b.DeleteTopic(clusterArn, topicName)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestBackend_CreateVpcConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+
+				return c.ClusterArn
+			},
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster/nonexistent/uuid"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn := tt.setup(b)
+
+			conn, err := b.CreateVpcConnection(clusterArn, "vpc-12345", "SASL_IAM", nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, conn.VpcConnectionArn)
+			assert.Equal(t, clusterArn, conn.TargetClusterArn)
+			assert.Equal(t, kafka.VpcConnectionStateAvailable, conn.State)
+		})
+	}
+}
+
+func TestBackend_DeleteVpcConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				conn, _ := b.CreateVpcConnection(c.ClusterArn, "vpc-12345", "SASL_IAM", nil)
+
+				return conn.VpcConnectionArn
+			},
+		},
+		{
+			name: "not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:vpc-connection/nonexistent"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			vpcConnectionArn := tt.setup(b)
+
+			err := b.DeleteVpcConnection(vpcConnectionArn)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestBackend_DeleteClusterPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success_no_policy",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+
+				return c.ClusterArn
+			},
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster/nonexistent/uuid"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn := tt.setup(b)
+
+			err := b.DeleteClusterPolicy(clusterArn)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestBackend_DescribeClusterOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kafka.InMemoryBackend) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(b *kafka.InMemoryBackend) string {
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				op := b.AddClusterOperationInternal(c.ClusterArn, "UPDATE_BROKER_COUNT")
+
+				return op.ClusterOperationArn
+			},
+		},
+		{
+			name: "not_found",
+			setup: func(_ *kafka.InMemoryBackend) string {
+				return "arn:aws:kafka:us-east-1:000000000000:cluster-operation/nonexistent/uuid"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterOperationArn := tt.setup(b)
+
+			op, err := b.DescribeClusterOperation(clusterOperationArn)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, clusterOperationArn, op.ClusterOperationArn)
+			assert.Equal(t, kafka.ClusterOperationStateUpdateComplete, op.OperationState)
+		})
+	}
+}
+
 func TestParseKafkaPath(t *testing.T) {
 	t.Parallel()
 

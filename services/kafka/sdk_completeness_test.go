@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := kafka.NewInMemoryBackend("000000000000", "us-east-1")
 	h := kafka.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &kafkasdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchAssociateScramSecret",
-		"BatchDisassociateScramSecret",
-		"CreateReplicator",
-		"CreateTopic",
-		"CreateVpcConnection",
-		"DeleteClusterPolicy",
-		"DeleteReplicator",
-		"DeleteTopic",
-		"DeleteVpcConnection",
-		"DescribeClusterOperation",
 		"DescribeClusterOperationV2",
 		"DescribeConfigurationRevision",
 		"DescribeReplicator",

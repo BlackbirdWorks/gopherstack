@@ -10,3 +10,64 @@ type ExportedConfiguration = Configuration
 func ParseKafkaPathForTest(method, path string) (string, string) {
 	return parseKafkaPath(method, path)
 }
+
+// ClusterCount returns the number of clusters in the backend.
+func ClusterCount(b *InMemoryBackend) int {
+	b.mu.RLock("ClusterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.clusters)
+}
+
+// ConfigurationCount returns the number of configurations in the backend.
+func ConfigurationCount(b *InMemoryBackend) int {
+	b.mu.RLock("ConfigurationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.configurations)
+}
+
+// ReplicatorCount returns the number of replicators in the backend.
+func ReplicatorCount(b *InMemoryBackend) int {
+	b.mu.RLock("ReplicatorCount")
+	defer b.mu.RUnlock()
+
+	return len(b.replicators)
+}
+
+// TopicCount returns the number of topics in the backend.
+func TopicCount(b *InMemoryBackend) int {
+	b.mu.RLock("TopicCount")
+	defer b.mu.RUnlock()
+
+	return len(b.topics)
+}
+
+// VpcConnectionCount returns the number of VPC connections in the backend.
+func VpcConnectionCount(b *InMemoryBackend) int {
+	b.mu.RLock("VpcConnectionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.vpcConnections)
+}
+
+// ClusterOperationCount returns the number of cluster operations in the backend.
+func ClusterOperationCount(b *InMemoryBackend) int {
+	b.mu.RLock("ClusterOperationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.clusterOperations)
+}
+
+// ScramSecretCount returns the number of SCRAM secrets across all clusters.
+func ScramSecretCount(b *InMemoryBackend) int {
+	b.mu.RLock("ScramSecretCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, secrets := range b.scramSecrets {
+		total += len(secrets)
+	}
+
+	return total
+}
