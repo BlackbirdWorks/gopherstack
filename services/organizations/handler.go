@@ -35,45 +35,55 @@ func (h *Handler) Name() string { return "Organizations" }
 // GetSupportedOperations returns the list of supported Organizations operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateOrganization",
-		"DescribeOrganization",
-		"DeleteOrganization",
-		"ListAccounts",
-		"CreateAccount",
-		"DescribeCreateAccountStatus",
-		"DescribeAccount",
-		"RemoveAccountFromOrganization",
-		"MoveAccount",
-		"ListRoots",
-		"CreateOrganizationalUnit",
-		"DescribeOrganizationalUnit",
-		"DeleteOrganizationalUnit",
-		"UpdateOrganizationalUnit",
-		"ListOrganizationalUnitsForParent",
-		"ListAccountsForParent",
-		"ListParents",
-		"ListChildren",
-		"CreatePolicy",
-		"DescribePolicy",
-		"UpdatePolicy",
-		"DeletePolicy",
-		"ListPolicies",
+		"AcceptHandshake",
 		"AttachPolicy",
+		"CancelHandshake",
+		"CloseAccount",
+		"CreateAccount",
+		"CreateGovCloudAccount",
+		"CreateOrganization",
+		"CreateOrganizationalUnit",
+		"CreatePolicy",
+		"DeclineHandshake",
+		"DeleteOrganization",
+		"DeleteOrganizationalUnit",
+		"DeletePolicy",
+		"DeleteResourcePolicy",
+		"DeregisterDelegatedAdministrator",
+		"DescribeAccount",
+		"DescribeCreateAccountStatus",
+		"DescribeEffectivePolicy",
+		"DescribeHandshake",
+		"DescribeOrganization",
+		"DescribeOrganizationalUnit",
+		"DescribePolicy",
+		"DescribeResourcePolicy",
+		"DescribeResponsibilityTransfer",
 		"DetachPolicy",
-		"ListPoliciesForTarget",
-		"ListTargetsForPolicy",
-		"EnablePolicyType",
+		"DisableAWSServiceAccess",
 		"DisablePolicyType",
+		"EnableAWSServiceAccess",
+		"EnableAllFeatures",
+		"EnablePolicyType",
+		"ListAccounts",
+		"ListAccountsForParent",
+		"ListAWSServiceAccessForOrganization",
+		"ListChildren",
+		"ListDelegatedAdministrators",
+		"ListOrganizationalUnitsForParent",
+		"ListParents",
+		"ListPolicies",
+		"ListPoliciesForTarget",
+		"ListRoots",
+		"ListTagsForResource",
+		"ListTargetsForPolicy",
+		"MoveAccount",
+		"RegisterDelegatedAdministrator",
+		"RemoveAccountFromOrganization",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
-		"EnableAWSServiceAccess",
-		"DisableAWSServiceAccess",
-		"ListAWSServiceAccessForOrganization",
-		"RegisterDelegatedAdministrator",
-		"DeregisterDelegatedAdministrator",
-		"ListDelegatedAdministrators",
-		"EnableAllFeatures",
+		"UpdateOrganizationalUnit",
+		"UpdatePolicy",
 	}
 }
 
@@ -175,6 +185,10 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 		return result
 	}
 
+	if ok, result := h.dispatchNewOps(c, op, body); ok {
+		return result
+	}
+
 	return h.writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 }
 
@@ -211,6 +225,10 @@ func (h *Handler) dispatchAccount(c *echo.Context, op string, body []byte) (bool
 		return true, h.handleRemoveAccountFromOrganization(c, body)
 	case "MoveAccount":
 		return true, h.handleMoveAccount(c, body)
+	case "CloseAccount":
+		return true, h.handleCloseAccount(c, body)
+	case "CreateGovCloudAccount":
+		return true, h.handleCreateGovCloudAccount(c, body)
 	}
 
 	return false, nil
@@ -1010,4 +1028,267 @@ func toPolicySummaryObject(p *Policy) policySummaryObject {
 		Type:        p.PolicySummary.Type,
 		AwsManaged:  p.PolicySummary.AwsManaged,
 	}
+}
+
+// dispatchNewOps handles handshake, resource-policy, and effective-policy operations.
+func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "AcceptHandshake":
+		return true, h.handleAcceptHandshake(c, body)
+	case "CancelHandshake":
+		return true, h.handleCancelHandshake(c, body)
+	case "DeclineHandshake":
+		return true, h.handleDeclineHandshake(c, body)
+	case "DescribeHandshake":
+		return true, h.handleDescribeHandshake(c, body)
+	case "DescribeResponsibilityTransfer":
+		return true, h.handleDescribeResponsibilityTransfer(c, body)
+	case "DeleteResourcePolicy":
+		return true, h.handleDeleteResourcePolicy(c, body)
+	case "DescribeResourcePolicy":
+		return true, h.handleDescribeResourcePolicy(c, body)
+	case "DescribeEffectivePolicy":
+		return true, h.handleDescribeEffectivePolicy(c, body)
+	}
+
+	return false, nil
+}
+
+// ----------------------------------------
+// CloseAccount / CreateGovCloudAccount handlers
+// ----------------------------------------
+
+func (h *Handler) handleCloseAccount(c *echo.Context, body []byte) error {
+	var req closeAccountRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.AccountID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountId is required")
+	}
+
+	if err := h.Backend.CloseAccount(req.AccountID); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, struct{}{})
+}
+
+func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) error {
+	var req createGovCloudAccountRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.AccountName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
+	}
+
+	if req.Email == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
+	}
+
+	status, err := h.Backend.CreateGovCloudAccount(req.AccountName, req.Email, req.Tags)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createGovCloudAccountResponse{CreateAccountStatus: *status})
+}
+
+// ----------------------------------------
+// Handshake handlers
+// ----------------------------------------
+
+func (h *Handler) handleAcceptHandshake(c *echo.Context, body []byte) error {
+	var req acceptHandshakeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	hs, err := h.Backend.AcceptHandshake(req.HandshakeID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, acceptHandshakeResponse{Handshake: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleCancelHandshake(c *echo.Context, body []byte) error {
+	var req cancelHandshakeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	hs, err := h.Backend.CancelHandshake(req.HandshakeID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, cancelHandshakeResponse{Handshake: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleDeclineHandshake(c *echo.Context, body []byte) error {
+	var req declineHandshakeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	hs, err := h.Backend.DeclineHandshake(req.HandshakeID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, declineHandshakeResponse{Handshake: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleDescribeHandshake(c *echo.Context, body []byte) error {
+	var req describeHandshakeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	hs, err := h.Backend.DescribeHandshake(req.HandshakeID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeHandshakeResponse{Handshake: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleDescribeResponsibilityTransfer(c *echo.Context, body []byte) error {
+	var req describeResponsibilityTransferRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	hs, err := h.Backend.DescribeResponsibilityTransfer(req.HandshakeID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+}
+
+// ----------------------------------------
+// ResourcePolicy handlers
+// ----------------------------------------
+
+func (h *Handler) handleDeleteResourcePolicy(c *echo.Context, _ []byte) error {
+	if err := h.Backend.DeleteResourcePolicy(); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, struct{}{})
+}
+
+func (h *Handler) handleDescribeResourcePolicy(c *echo.Context, _ []byte) error {
+	rp, err := h.Backend.DescribeResourcePolicy()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeResourcePolicyResponse{
+		ResourcePolicy: resourcePolicyObject{
+			Content: rp.Content,
+			ResourcePolicySummary: resourcePolicySummaryObject{
+				ARN: rp.ARN,
+				ID:  rp.ID,
+			},
+		},
+	})
+}
+
+// ----------------------------------------
+// EffectivePolicy handlers
+// ----------------------------------------
+
+func (h *Handler) handleDescribeEffectivePolicy(c *echo.Context, body []byte) error {
+	var req describeEffectivePolicyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.PolicyType == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
+	}
+
+	ep, err := h.Backend.DescribeEffectivePolicy(req.PolicyType, req.TargetID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeEffectivePolicyResponse{
+		EffectivePolicy: effectivePolicyObject{
+			LastUpdatedTimestamp: epochSeconds(ep.LastUpdatedTimestamp),
+			PolicyContent:        ep.PolicyContent,
+			PolicyID:             ep.PolicyID,
+			PolicyType:           ep.PolicyType,
+			TargetID:             ep.TargetID,
+		},
+	})
+}
+
+// ----------------------------------------
+// Handshake conversion helpers
+// ----------------------------------------
+
+func toHandshakeObject(h *Handshake) handshakeObject {
+	parties := make([]handshakePartyObject, 0, len(h.Parties))
+	for _, p := range h.Parties {
+		parties = append(parties, handshakePartyObject(p))
+	}
+
+	resources := toHandshakeResourceObjects(h.Resources)
+
+	return handshakeObject{
+		ID:                  h.ID,
+		ARN:                 h.ARN,
+		Action:              h.Action,
+		State:               h.State,
+		RequestedTimestamp:  epochSeconds(h.RequestedTimestamp),
+		ExpirationTimestamp: epochSeconds(h.ExpirationTimestamp),
+		Parties:             parties,
+		Resources:           resources,
+	}
+}
+
+func toHandshakeResourceObjects(rs []HandshakeResource) []handshakeResourceObject {
+	out := make([]handshakeResourceObject, 0, len(rs))
+
+	for _, r := range rs {
+		obj := handshakeResourceObject{
+			Type:  r.Type,
+			Value: r.Value,
+		}
+
+		if len(r.Resources) > 0 {
+			obj.Resources = toHandshakeResourceObjects(r.Resources)
+		}
+
+		out = append(out, obj)
+	}
+
+	return out
 }

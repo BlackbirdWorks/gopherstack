@@ -110,11 +110,53 @@ type DelegatedAdmin struct {
 type CreateAccountStatus struct {
 	ID                 string  `json:"Id"`
 	AccountID          string  `json:"AccountId,omitempty"`
+	GovCloudAccountID  string  `json:"GovCloudAccountId,omitempty"`
 	AccountName        string  `json:"AccountName"`
 	State              string  `json:"State"`
 	FailureReason      string  `json:"FailureReason,omitempty"`
 	RequestedTimestamp float64 `json:"RequestedTimestamp"`
 	CompletedTimestamp float64 `json:"CompletedTimestamp"`
+}
+
+// Handshake represents an AWS Organizations handshake invitation or transfer.
+type Handshake struct {
+	RequestedTimestamp  time.Time           `json:"requestedTimestamp"`
+	ExpirationTimestamp time.Time           `json:"expirationTimestamp"`
+	ID                  string              `json:"id"`
+	ARN                 string              `json:"arn"`
+	Action              string              `json:"action"`
+	State               string              `json:"state"`
+	Parties             []HandshakeParty    `json:"parties"`
+	Resources           []HandshakeResource `json:"resources"`
+}
+
+// HandshakeParty is a participant in a handshake.
+type HandshakeParty struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+// HandshakeResource holds a resource associated with a handshake.
+type HandshakeResource struct {
+	Type      string              `json:"type"`
+	Value     string              `json:"value"`
+	Resources []HandshakeResource `json:"resources,omitempty"`
+}
+
+// ResourcePolicy represents the organization resource-based policy.
+type ResourcePolicy struct {
+	ID      string `json:"id"`
+	ARN     string `json:"arn"`
+	Content string `json:"content"`
+}
+
+// EffectivePolicy represents the aggregated effective policy for a target.
+type EffectivePolicy struct {
+	LastUpdatedTimestamp time.Time `json:"lastUpdatedTimestamp"`
+	PolicyContent        string    `json:"policyContent"`
+	PolicyID             string    `json:"policyId"`
+	PolicyType           string    `json:"policyType"`
+	TargetID             string    `json:"targetId"`
 }
 
 // ----------------------------------------
@@ -496,4 +538,123 @@ type delegatedAdminObject struct {
 type listDelegatedAdministratorsResponse struct {
 	NextToken               string                 `json:"NextToken,omitempty"`
 	DelegatedAdministrators []delegatedAdminObject `json:"DelegatedAdministrators"`
+}
+
+// -- Handshake --
+
+type acceptHandshakeRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+}
+
+type cancelHandshakeRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+}
+
+type declineHandshakeRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+}
+
+type describeHandshakeRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+}
+
+type describeResponsibilityTransferRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+}
+
+type handshakePartyObject struct {
+	ID   string `json:"Id"`
+	Type string `json:"Type"`
+}
+
+type handshakeResourceObject struct {
+	Type      string                    `json:"Type"`
+	Value     string                    `json:"Value"`
+	Resources []handshakeResourceObject `json:"Resources,omitempty"`
+}
+
+type handshakeObject struct {
+	ID                  string                    `json:"Id"`
+	ARN                 string                    `json:"Arn"`
+	Action              string                    `json:"Action"`
+	State               string                    `json:"State"`
+	Parties             []handshakePartyObject    `json:"Parties"`
+	Resources           []handshakeResourceObject `json:"Resources"`
+	RequestedTimestamp  float64                   `json:"RequestedTimestamp"`
+	ExpirationTimestamp float64                   `json:"ExpirationTimestamp"`
+}
+
+type acceptHandshakeResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
+}
+
+type cancelHandshakeResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
+}
+
+type declineHandshakeResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
+}
+
+type describeHandshakeResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
+}
+
+type describeResponsibilityTransferResponse struct {
+	HandshakeDetails handshakeObject `json:"HandshakeDetails"`
+}
+
+// -- CloseAccount --
+
+type closeAccountRequest struct {
+	AccountID string `json:"AccountId"`
+}
+
+// -- CreateGovCloudAccount --
+
+type createGovCloudAccountRequest struct {
+	AccountName            string `json:"AccountName"`
+	Email                  string `json:"Email"`
+	IamUserAccessToBilling string `json:"IamUserAccessToBilling,omitempty"`
+	RoleName               string `json:"RoleName,omitempty"`
+	Tags                   []Tag  `json:"Tags,omitempty"`
+}
+
+type createGovCloudAccountResponse struct {
+	CreateAccountStatus CreateAccountStatus `json:"CreateAccountStatus"`
+}
+
+// -- ResourcePolicy --
+
+type resourcePolicySummaryObject struct {
+	ARN string `json:"Arn"`
+	ID  string `json:"Id"`
+}
+
+type resourcePolicyObject struct {
+	Content               string                      `json:"Content"`
+	ResourcePolicySummary resourcePolicySummaryObject `json:"ResourcePolicySummary"`
+}
+
+type describeResourcePolicyResponse struct {
+	ResourcePolicy resourcePolicyObject `json:"ResourcePolicy"`
+}
+
+// -- EffectivePolicy --
+
+type describeEffectivePolicyRequest struct {
+	PolicyType string `json:"PolicyType"`
+	TargetID   string `json:"TargetId,omitempty"`
+}
+
+type effectivePolicyObject struct {
+	PolicyContent        string  `json:"PolicyContent"`
+	PolicyID             string  `json:"PolicyId"`
+	PolicyType           string  `json:"PolicyType"`
+	TargetID             string  `json:"TargetId"`
+	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp"`
+}
+
+type describeEffectivePolicyResponse struct {
+	EffectivePolicy effectivePolicyObject `json:"EffectivePolicy"`
 }

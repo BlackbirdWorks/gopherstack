@@ -7,8 +7,10 @@ import (
 
 type backendSnapshot struct {
 	DelegatedAdmins map[string]map[string]*DelegatedAdmin `json:"delegatedAdmins"`
+	Handshakes      map[string]*Handshake                 `json:"handshakes"`
 	Org             *Organization                         `json:"org"`
 	Root            *Root                                 `json:"root"`
+	ResourcePolicy  *ResourcePolicy                       `json:"resourcePolicy,omitempty"`
 	Accounts        map[string]*Account                   `json:"accounts"`
 	OUs             map[string]*OrganizationalUnit        `json:"ous"`
 	Policies        map[string]*Policy                    `json:"policies"`
@@ -44,6 +46,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		CreateStatuses:  b.createStatuses,
 		ServiceAccess:   b.serviceAccess,
 		DelegatedAdmins: b.delegatedAdmins,
+		Handshakes:      b.handshakes,
+		ResourcePolicy:  b.resourcePolicy,
 		AccountID:       b.accountID,
 		Region:          b.region,
 		AccountCounter:  b.accountCounter,
@@ -110,6 +114,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.DelegatedAdmins = make(map[string]map[string]*DelegatedAdmin)
 	}
 
+	if snap.Handshakes == nil {
+		snap.Handshakes = make(map[string]*Handshake)
+	}
+
 	b.org = snap.Org
 	b.root = snap.Root
 	b.accounts = snap.Accounts
@@ -123,6 +131,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.createStatuses = snap.CreateStatuses
 	b.serviceAccess = snap.ServiceAccess
 	b.delegatedAdmins = snap.DelegatedAdmins
+	b.handshakes = snap.Handshakes
+	b.resourcePolicy = snap.ResourcePolicy
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.accountCounter = snap.AccountCounter
