@@ -166,7 +166,7 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 		{"ParameterGroupCount", memorydb.ParameterGroupCount(b), 0},
 		{"EventCount", memorydb.EventCount(b), 1},
 		{"MultiRegionClusterCount", memorydb.MultiRegionClusterCount(b), 0},
-		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 34},
+		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 41},
 	}
 
 	for _, tt := range tests {
@@ -441,10 +441,13 @@ func TestRefinement1_GetSupportedOperations(t *testing.T) {
 
 	ops := h.GetSupportedOperations()
 
-	assert.Len(t, ops, 34)
+	assert.Len(t, ops, 41)
 	assert.Contains(t, ops, "DescribeSnapshots")
 	assert.Contains(t, ops, "BatchUpdateCluster")
 	assert.Contains(t, ops, "CreateMultiRegionCluster")
+	assert.Contains(t, ops, "DescribeParameters")
+	assert.Contains(t, ops, "FailoverShard")
+	assert.Contains(t, ops, "UpdateMultiRegionCluster")
 }
 
 // TestRefinement1_VarCompileTimeAssertion verifies var _ StorageBackend = (*InMemoryBackend)(nil) compiles.

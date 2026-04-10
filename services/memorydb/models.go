@@ -697,10 +697,10 @@ type describeParametersRequest struct {
 }
 
 type parameterObject struct {
-	Name        string `json:"Name,omitempty"`
-	Value       string `json:"Value,omitempty"`
-	Description string `json:"Description,omitempty"`
-	DataType    string `json:"DataType,omitempty"`
+	Name          string `json:"Name,omitempty"`
+	Value         string `json:"Value,omitempty"`
+	Description   string `json:"Description,omitempty"`
+	DataType      string `json:"DataType,omitempty"`
 	AllowedValues string `json:"AllowedValues,omitempty"`
 }
 
@@ -713,8 +713,8 @@ type describeParametersResponse struct {
 
 type resetParameterGroupRequest struct {
 	ParameterGroupName string   `json:"ParameterGroupName"`
-	AllParameters      bool     `json:"AllParameters,omitempty"`
 	ParameterNames     []string `json:"ParameterNames,omitempty"`
+	AllParameters      bool     `json:"AllParameters,omitempty"`
 }
 
 type resetParameterGroupResponse struct {
@@ -724,7 +724,7 @@ type resetParameterGroupResponse struct {
 // -- FailoverShard request/response types ------------------------------------
 
 type failoverShardRequest struct {
-	ClusterName string `json:"ClusterName"`
+	ClusterName        string `json:"ClusterName"`
 	ShardConfiguration string `json:"ShardConfiguration,omitempty"`
 }
 
@@ -769,14 +769,6 @@ type updateMultiRegionClusterResponse struct {
 }
 
 // -- DescribeServiceUpdates request/response types ---------------------------
-
-type describeServiceUpdatesRequest struct {
-	MaxResults          *int32   `json:"MaxResults,omitempty"`
-	ServiceUpdateName   string   `json:"ServiceUpdateName,omitempty"`
-	NextToken           string   `json:"NextToken,omitempty"`
-	Status              []string `json:"Status,omitempty"`
-	ClusterNames        []string `json:"ClusterNames,omitempty"`
-}
 
 type serviceUpdateObject struct {
 	ServiceUpdateName   string `json:"ServiceUpdateName,omitempty"`

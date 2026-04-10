@@ -259,6 +259,19 @@ func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool
 
 // dispatchNewOps handles the new operations added in this release.
 func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool, error) {
+	if ok, err := h.dispatchSnapshotAndEngineOps(c, op, body); ok {
+		return true, err
+	}
+
+	if ok, err := h.dispatchMultiRegionOps(c, op, body); ok {
+		return true, err
+	}
+
+	return h.dispatchParameterAndShardOps(c, op, body)
+}
+
+// dispatchSnapshotAndEngineOps handles snapshot, engine-version, and event operations.
+func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "CreateSnapshot":
 		return true, h.handleCreateSnapshot(c, body)
@@ -272,6 +285,18 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 		return true, h.handleDescribeEngineVersions(c, body)
 	case "DescribeEvents":
 		return true, h.handleDescribeEvents(c, body)
+	case "BatchUpdateCluster":
+		return true, h.handleBatchUpdateCluster(c, body)
+	case "DescribeServiceUpdates":
+		return true, h.handleDescribeServiceUpdates(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchMultiRegionOps handles multi-region cluster and parameter group operations.
+func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
 	case "CreateMultiRegionCluster":
 		return true, h.handleCreateMultiRegionCluster(c, body)
 	case "DeleteMultiRegionCluster":
@@ -280,8 +305,18 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 		return true, h.handleDescribeMultiRegionClusters(c, body)
 	case "DescribeMultiRegionParameterGroups":
 		return true, h.handleDescribeMultiRegionParameterGroups(c, body)
-	case "BatchUpdateCluster":
-		return true, h.handleBatchUpdateCluster(c, body)
+	case "UpdateMultiRegionCluster":
+		return true, h.handleUpdateMultiRegionCluster(c, body)
+	case "ListAllowedMultiRegionClusterUpdates":
+		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchParameterAndShardOps handles parameter group and shard operations.
+func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
 	case "DescribeParameters":
 		return true, h.handleDescribeParameters(c, body)
 	case "ResetParameterGroup":
@@ -290,12 +325,6 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 		return true, h.handleFailoverShard(c, body)
 	case "ListAllowedNodeTypeUpdates":
 		return true, h.handleListAllowedNodeTypeUpdates(c, body)
-	case "ListAllowedMultiRegionClusterUpdates":
-		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
-	case "UpdateMultiRegionCluster":
-		return true, h.handleUpdateMultiRegionCluster(c, body)
-	case "DescribeServiceUpdates":
-		return true, h.handleDescribeServiceUpdates(c, body)
 	}
 
 	return false, nil
@@ -1164,7 +1193,12 @@ func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, bo
 	}
 
 	if req.MultiRegionClusterName == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "MultiRegionClusterName is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionClusterName is required",
+		)
 	}
 
 	nodeTypes, err := h.Backend.ListAllowedMultiRegionClusterUpdates(req.MultiRegionClusterName)
@@ -1186,7 +1220,12 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 	}
 
 	if req.MultiRegionClusterName == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "MultiRegionClusterName is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionClusterName is required",
+		)
 	}
 
 	mrc, err := h.Backend.UpdateMultiRegionCluster(&req)
