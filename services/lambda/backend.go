@@ -63,6 +63,8 @@ var (
 	ErrFunctionConcurrencyNotFound = errors.New("ResourceNotFoundException")
 	// ErrProvisionedConcurrencyConfigNotFound is returned when no provisioned concurrency config exists for the qualifier.
 	ErrProvisionedConcurrencyConfigNotFound = errors.New("ResourceNotFoundException")
+	// ErrCodeSigningConfigNotFound is returned when a function has no code signing config associated.
+	ErrCodeSigningConfigNotFound = errors.New("CodeSigningConfigNotFoundException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -3168,7 +3170,7 @@ func (b *InMemoryBackend) GetFunctionCodeSigningConfig(functionName string) (str
 
 	cscARN, ok := b.fnCodeSigningConfigs[functionName]
 	if !ok {
-		return "", ErrFunctionNotFound
+		return "", ErrCodeSigningConfigNotFound
 	}
 
 	return cscARN, nil

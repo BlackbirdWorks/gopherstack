@@ -116,6 +116,9 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPut, hasSuffixProvisionedConcurrency, "PutProvisionedConcurrencyConfig"},
 	{http.MethodGet, hasSuffixProvisionedConcurrency, "ListProvisionedConcurrencyConfigs"},
 	{http.MethodDelete, hasSuffixProvisionedConcurrency, "DeleteProvisionedConcurrencyConfig"},
+	{http.MethodGet, hasSuffixCodeSigningConfig, "GetFunctionCodeSigningConfig"},
+	{http.MethodPut, hasSuffixCodeSigningConfig, "PutFunctionCodeSigningConfig"},
+	{http.MethodDelete, hasSuffixCodeSigningConfig, "DeleteFunctionCodeSigningConfig"},
 }
 
 func isEmptyRest(rest string) bool            { return rest == "" }
@@ -2509,6 +2512,11 @@ func (h *Handler) handleGetFunctionCodeSigningConfig(c *echo.Context, bk *InMemo
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrCodeSigningConfigNotFound) {
+			return h.writeError(c, http.StatusNotFound, "CodeSigningConfigNotFoundException",
+				fmt.Sprintf("Function: %s does not have a code signing config", name))
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

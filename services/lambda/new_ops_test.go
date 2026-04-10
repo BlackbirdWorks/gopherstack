@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -24,28 +23,6 @@ func newInMemoryHandler(t *testing.T) (*lambda.Handler, *lambda.InMemoryBackend)
 	bk := lambda.NewInMemoryBackend(
 		nil,
 		nil, // no real HTTP servers in unit tests
-		lambda.DefaultSettings(),
-		"000000000000",
-		"us-east-1",
-	)
-	h := lambda.NewHandler(bk)
-	h.DefaultRegion = "us-east-1"
-	h.AccountID = "000000000000"
-
-	return h, bk
-}
-
-// newInMemoryHandlerWithPorts creates a handler backed by a real InMemoryBackend with
-// a real port allocator for tests that require actual HTTP listeners (e.g., URL configs).
-func newInMemoryHandlerWithPorts(t *testing.T, portStart, portEnd int) (*lambda.Handler, *lambda.InMemoryBackend) {
-	t.Helper()
-
-	pa, err := portalloc.New(portStart, portEnd)
-	require.NoError(t, err)
-
-	bk := lambda.NewInMemoryBackend(
-		nil,
-		pa,
 		lambda.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
@@ -79,7 +56,10 @@ func callInMemoryHandler(
 func createFunctionForTest(t *testing.T, h *lambda.Handler, fnName string) {
 	t.Helper()
 
-	body := fmt.Sprintf(`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/test"}`, fnName)
+	body := fmt.Sprintf(
+		`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"x"},"Role":"arn:aws:iam:::role/r"}`,
+		fnName,
+	)
 	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 }
@@ -188,8 +168,8 @@ func TestNewOps_GetAccountSettings(t *testing.T) {
 	var out lambda.AccountSettingsOutput
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	require.NotNil(t, out.AccountLimit)
-	assert.Greater(t, out.AccountLimit.ConcurrentExecutions, 0)
-	assert.Greater(t, out.AccountLimit.TotalCodeSize, int64(0))
+	assert.Positive(t, out.AccountLimit.ConcurrentExecutions)
+	assert.Positive(t, out.AccountLimit.TotalCodeSize)
 	require.NotNil(t, out.AccountUsage)
 	assert.GreaterOrEqual(t, out.AccountUsage.FunctionCount, 0)
 }
@@ -215,14 +195,14 @@ func TestNewOps_CodeSigningConfig_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		createBody  string
-		wantStatus  int
-		wantDesc    string
+		name       string
+		createBody string
+		wantDesc   string
+		wantStatus int
 	}{
 		{
 			name:       "with_description",
-			createBody: `{"AllowedPublishers":{"SigningProfileVersionArns":["arn:aws:signer:us-east-1:000000000000:/signing-profiles/p/v1"]},"Description":"my csc"}`,
+			createBody: `{"AllowedPublishers":{"SigningProfileVersionArns":["arn:aws:signer:::p"]},"Description":"my csc"}`,
 			wantStatus: http.StatusCreated,
 			wantDesc:   "my csc",
 		},
@@ -260,8 +240,13 @@ func TestNewOps_CodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 	h, _ := newInMemoryHandler(t)
 
 	// Create
-	rec := callInMemoryHandler(t, h, http.MethodPost, "/2020-04-22/code-signing-configs",
-		`{"AllowedPublishers":{"SigningProfileVersionArns":["arn:aws:signer:us-east-1:000000000000:/signing-profiles/p/v1"]}}`)
+	rec := callInMemoryHandler(
+		t,
+		h,
+		http.MethodPost,
+		"/2020-04-22/code-signing-configs",
+		`{"AllowedPublishers":{"SigningProfileVersionArns":["arn:aws:signer:::p"]}}`,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut lambda.CreateCodeSigningConfigOutput
@@ -310,8 +295,13 @@ func TestNewOps_FunctionCodeSigningConfig(t *testing.T) {
 	createFunctionForTest(t, h, "csc-test-fn")
 
 	// Create a code signing config first
-	rec := callInMemoryHandler(t, h, http.MethodPost, "/2020-04-22/code-signing-configs",
-		`{"AllowedPublishers":{"SigningProfileVersionArns":["arn:aws:signer:us-east-1:000000000000:/signing-profiles/p/v1"]}}`)
+	rec := callInMemoryHandler(
+		t,
+		h,
+		http.MethodPost,
+		"/2020-04-22/code-signing-configs",
+		`{"AllowedPublishers":{"SigningProfileVersionArns":["arn:aws:signer:::p"]}}`,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut lambda.CreateCodeSigningConfigOutput
@@ -378,8 +368,8 @@ func TestNewOps_CapacityProvider_Lifecycle(t *testing.T) {
 	tests := []struct {
 		name       string
 		createBody string
-		wantStatus int
 		wantName   string
+		wantStatus int
 	}{
 		{
 			name:       "with_concurrency",
