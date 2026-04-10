@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -24,48 +25,68 @@ const (
 
 // Handler is the Echo HTTP handler for Neptune operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Neptune handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Neptune" }
 
-// GetSupportedOperations returns supported Neptune operations.
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
+// clusterARN builds a Neptune cluster ARN using the backend's region and account.
+func (h *Handler) clusterARN(id string) string {
+	return arn.Build("neptune", h.Backend.Region(), h.Backend.AccountID(), "cluster:"+id)
+}
+
+// GetSupportedOperations returns supported Neptune operations (sorted).
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AddRoleToDBCluster",
+		"AddSourceIdentifierToSubscription",
+		"AddTagsToResource",
+		"ApplyPendingMaintenanceAction",
+		"CopyDBClusterParameterGroup",
+		"CopyDBClusterSnapshot",
+		"CopyDBParameterGroup",
 		"CreateDBCluster",
-		"DescribeDBClusters",
-		"DeleteDBCluster",
-		"ModifyDBCluster",
-		"StopDBCluster",
-		"StartDBCluster",
-		"FailoverDBCluster",
+		"CreateDBClusterEndpoint",
+		"CreateDBClusterParameterGroup",
+		"CreateDBClusterSnapshot",
 		"CreateDBInstance",
-		"DescribeDBInstances",
+		"CreateDBParameterGroup",
+		"CreateDBSubnetGroup",
+		"CreateEventSubscription",
+		"CreateGlobalCluster",
+		"DeleteDBCluster",
+		"DeleteDBClusterParameterGroup",
+		"DeleteDBClusterSnapshot",
 		"DeleteDBInstance",
+		"DeleteDBSubnetGroup",
+		"DescribeDBClusterParameterGroups",
+		"DescribeDBClusterSnapshots",
+		"DescribeDBClusters",
+		"DescribeDBEngineVersions",
+		"DescribeDBInstances",
+		"DescribeDBSubnetGroups",
+		"DescribeGlobalClusters",
+		"DescribeOrderableDBInstanceOptions",
+		"FailoverDBCluster",
+		"ListTagsForResource",
+		"ModifyDBCluster",
+		"ModifyDBClusterParameterGroup",
 		"ModifyDBInstance",
 		"RebootDBInstance",
-		"CreateDBSubnetGroup",
-		"DescribeDBSubnetGroups",
-		"DeleteDBSubnetGroup",
-		"CreateDBClusterParameterGroup",
-		"DescribeDBClusterParameterGroups",
-		"DeleteDBClusterParameterGroup",
-		"ModifyDBClusterParameterGroup",
-		"CreateDBClusterSnapshot",
-		"DescribeDBClusterSnapshots",
-		"DeleteDBClusterSnapshot",
-		"ListTagsForResource",
-		"AddTagsToResource",
 		"RemoveTagsFromResource",
-		"DescribeDBEngineVersions",
-		"DescribeOrderableDBInstanceOptions",
-		"DescribeGlobalClusters",
+		"StartDBCluster",
+		"StopDBCluster",
 	}
 }
 
@@ -234,6 +255,33 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 	case "DescribeGlobalClusters":
 		return h.handleDescribeGlobalClusters(vals)
 	default:
+		return h.dispatchNewOps(action, vals)
+	}
+}
+
+func (h *Handler) dispatchNewOps(action string, vals url.Values) (any, error) {
+	switch action {
+	case "AddRoleToDBCluster":
+		return h.handleAddRoleToDBCluster(vals)
+	case "AddSourceIdentifierToSubscription":
+		return h.handleAddSourceIdentifierToSubscription(vals)
+	case "ApplyPendingMaintenanceAction":
+		return h.handleApplyPendingMaintenanceAction(vals)
+	case "CopyDBClusterParameterGroup":
+		return h.handleCopyDBClusterParameterGroup(vals)
+	case "CopyDBClusterSnapshot":
+		return h.handleCopyDBClusterSnapshot(vals)
+	case "CopyDBParameterGroup":
+		return h.handleCopyDBParameterGroup(vals)
+	case "CreateDBClusterEndpoint":
+		return h.handleCreateDBClusterEndpoint(vals)
+	case "CreateDBParameterGroup":
+		return h.handleCreateDBParameterGroup(vals)
+	case "CreateEventSubscription":
+		return h.handleCreateEventSubscription(vals)
+	case "CreateGlobalCluster":
+		return h.handleCreateGlobalCluster(vals)
+	default:
 		return nil, fmt.Errorf("%w: %s is not a valid Neptune action", ErrUnknownAction, action)
 	}
 }
@@ -241,9 +289,19 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, 0)
+	port := 0
+	if portStr := vals.Get("Port"); portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, port)
 	if err != nil {
 		return nil, err
+	}
+	tags := parseTagEntries(vals)
+	if len(tags) > 0 {
+		h.Backend.AddTagsToResource(h.clusterARN(cluster.DBClusterIdentifier), tags)
 	}
 
 	return &createDBClusterResponse{
@@ -633,7 +691,157 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 }
 
 func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
-	return &describeGlobalClustersResponse{Xmlns: neptuneXMLNS}, nil
+	gcs := h.Backend.DescribeGlobalClusters()
+	members := make([]xmlGlobalCluster, 0, len(gcs))
+	for _, gc := range gcs {
+		cp := gc
+		members = append(members, toXMLGlobalCluster(&cp))
+	}
+
+	return &describeGlobalClustersResponse{
+		Xmlns: neptuneXMLNS,
+		Result: describeGlobalClustersResult{
+			GlobalClusters: xmlGlobalClusterList{Members: members},
+		},
+	}, nil
+}
+
+func (h *Handler) handleAddRoleToDBCluster(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	roleARN := vals.Get("RoleArn")
+	if err := h.Backend.AddRoleToDBCluster(clusterID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &addRoleToDBClusterResponse{Xmlns: neptuneXMLNS}, nil
+}
+
+func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any, error) {
+	name := vals.Get("SubscriptionName")
+	sourceID := vals.Get("SourceIdentifier")
+	sub, err := h.Backend.AddSourceIdentifierToSubscription(name, sourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addSourceIdentifierToSubscriptionResponse{
+		Xmlns:             neptuneXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleApplyPendingMaintenanceAction(vals url.Values) (any, error) {
+	resourceID := vals.Get("ResourceIdentifier")
+	applyAction := vals.Get("ApplyAction")
+	optInType := vals.Get("OptInType")
+	if err := h.Backend.ApplyPendingMaintenanceAction(resourceID, applyAction, optInType); err != nil {
+		return nil, err
+	}
+
+	return &applyPendingMaintenanceActionResponse{Xmlns: neptuneXMLNS}, nil
+}
+
+func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error) {
+	sourceName := vals.Get("SourceDBClusterParameterGroupIdentifier")
+	targetName := vals.Get("TargetDBClusterParameterGroupIdentifier")
+	targetDescription := vals.Get("TargetDBClusterParameterGroupDescription")
+	pg, err := h.Backend.CopyDBClusterParameterGroup(sourceName, targetName, targetDescription)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBClusterParameterGroupResponse{
+		Xmlns:                   neptuneXMLNS,
+		DBClusterParameterGroup: toXMLParameterGroup(pg),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
+	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
+	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
+	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBClusterSnapshotResponse{
+		Xmlns:             neptuneXMLNS,
+		DBClusterSnapshot: toXMLClusterSnapshot(snap),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBParameterGroup(vals url.Values) (any, error) {
+	sourceName := vals.Get("SourceDBParameterGroupIdentifier")
+	targetName := vals.Get("TargetDBParameterGroupIdentifier")
+	targetDescription := vals.Get("TargetDBParameterGroupDescription")
+	pg, err := h.Backend.CopyDBParameterGroup(sourceName, targetName, targetDescription)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBParameterGroupResponse{
+		Xmlns:            neptuneXMLNS,
+		DBParameterGroup: toXMLDBParameterGroup(pg),
+	}, nil
+}
+
+func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
+	endpointID := vals.Get("DBClusterEndpointIdentifier")
+	clusterID := vals.Get("DBClusterIdentifier")
+	endpointType := vals.Get("EndpointType")
+	ep, err := h.Backend.CreateDBClusterEndpoint(endpointID, clusterID, endpointType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDBClusterEndpointResponse{
+		Xmlns:             neptuneXMLNS,
+		DBClusterEndpoint: toXMLClusterEndpoint(ep),
+	}, nil
+}
+
+func (h *Handler) handleCreateDBParameterGroup(vals url.Values) (any, error) {
+	name := vals.Get("DBParameterGroupName")
+	family := vals.Get("DBParameterGroupFamily")
+	description := vals.Get("Description")
+	pg, err := h.Backend.CreateDBParameterGroup(name, family, description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDBParameterGroupResponse{
+		Xmlns:            neptuneXMLNS,
+		DBParameterGroup: toXMLDBParameterGroup(pg),
+	}, nil
+}
+
+func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
+	name := vals.Get("SubscriptionName")
+	snsTopicARN := vals.Get("SnsTopicArn")
+	sourceIDs := parseSourceIDMembers(vals)
+	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createEventSubscriptionResponse{
+		Xmlns:             neptuneXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
+	globalClusterID := vals.Get("GlobalClusterIdentifier")
+	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
+	gc, err := h.Backend.CreateGlobalCluster(globalClusterID, sourceDBClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createGlobalClusterResponse{
+		Xmlns:         neptuneXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
 }
 
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
@@ -664,6 +872,14 @@ func neptuneErrorCode(opErr error) string {
 		{ErrClusterParameterGroupAlreadyExists, "DBClusterParameterGroupAlreadyExistsFault"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},
+		{ErrParameterGroupNotFound, "DBParameterGroupNotFoundFault"},
+		{ErrParameterGroupAlreadyExists, "DBParameterGroupAlreadyExistsFault"},
+		{ErrClusterEndpointNotFound, "DBClusterEndpointNotFoundFault"},
+		{ErrClusterEndpointAlreadyExists, "DBClusterEndpointAlreadyExistsFault"},
+		{ErrSubscriptionNotFound, "SubscriptionNotFoundFault"},
+		{ErrSubscriptionAlreadyExists, "SubscriptionAlreadyExistFault"},
+		{ErrGlobalClusterNotFound, "GlobalClusterNotFoundFault"},
+		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExistsFault"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrUnknownAction, "InvalidAction"},
 	}
@@ -740,6 +956,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	return xmlDBCluster{
 		DBClusterIdentifier:         c.DBClusterIdentifier,
 		Engine:                      c.Engine,
+		EngineVersion:               c.EngineVersion,
 		Status:                      c.Status,
 		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
 		Endpoint:                    c.Endpoint,
@@ -792,6 +1009,62 @@ func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 	}
 }
 
+func toXMLDBParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
+	return xmlDBParameterGroup{
+		DBParameterGroupName:   pg.DBParameterGroupName,
+		DBParameterGroupFamily: pg.DBParameterGroupFamily,
+		Description:            pg.Description,
+	}
+}
+
+func toXMLClusterEndpoint(ep *DBClusterEndpoint) xmlDBClusterEndpoint {
+	return xmlDBClusterEndpoint{
+		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
+		DBClusterIdentifier:         ep.DBClusterIdentifier,
+		EndpointType:                ep.EndpointType,
+		Status:                      ep.Status,
+		Endpoint:                    ep.Endpoint,
+	}
+}
+
+func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
+	ids := make([]xmlSourceID, 0, len(sub.SourceIDs))
+	for _, id := range sub.SourceIDs {
+		ids = append(ids, xmlSourceID{Member: id})
+	}
+
+	return xmlEventSubscription{
+		CustSubscriptionID: sub.CustSubscriptionID,
+		SnsTopicARN:        sub.SnsTopicARN,
+		Status:             sub.Status,
+		SourceIDs:          xmlSourceIDList{Members: ids},
+	}
+}
+
+func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
+	members := make([]xmlGlobalClusterMember, 0, len(gc.GlobalClusterMembers))
+	for _, m := range gc.GlobalClusterMembers {
+		members = append(members, xmlGlobalClusterMember(m))
+	}
+
+	return xmlGlobalCluster{
+		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
+		Status:                  gc.Status,
+		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
+	}
+}
+
+func parseSourceIDMembers(vals url.Values) []string {
+	var ids []string
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("SourceIds.member.%d", i))
+		if id == "" {
+			return ids
+		}
+		ids = append(ids, id)
+	}
+}
+
 type neptuneError struct {
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`
@@ -816,6 +1089,7 @@ type xmlDBClusterMemberList struct {
 type xmlDBCluster struct {
 	DBClusterIdentifier         string                 `xml:"DBClusterIdentifier"`
 	Engine                      string                 `xml:"Engine"`
+	EngineVersion               string                 `xml:"EngineVersion,omitempty"`
 	Status                      string                 `xml:"Status"`
 	DBClusterParameterGroupName string                 `xml:"DBClusterParameterGroup,omitempty"`
 	Endpoint                    string                 `xml:"Endpoint,omitempty"`
@@ -1092,12 +1366,120 @@ type describeOrderableDBInstanceOptionsResponse struct {
 	Result  describeOrderableDBInstanceOptionsResult `xml:"DescribeOrderableDBInstanceOptionsResult"`
 }
 
+type describeGlobalClustersResult struct {
+	GlobalClusters xmlGlobalClusterList `xml:"GlobalClusters"`
+}
+
 type describeGlobalClustersResponse struct {
-	Result struct {
-		GlobalClusters struct{} `xml:"GlobalClusters"`
-	} `xml:"DescribeGlobalClustersResult"`
-	XMLName xml.Name `xml:"DescribeGlobalClustersResponse"`
+	XMLName xml.Name                     `xml:"DescribeGlobalClustersResponse"`
+	Xmlns   string                       `xml:"xmlns,attr"`
+	Result  describeGlobalClustersResult `xml:"DescribeGlobalClustersResult"`
+}
+
+type addRoleToDBClusterResponse struct {
+	XMLName xml.Name `xml:"AddRoleToDBClusterResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type applyPendingMaintenanceActionResponse struct {
+	XMLName xml.Name `xml:"ApplyPendingMaintenanceActionResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type xmlDBParameterGroup struct {
+	DBParameterGroupName   string `xml:"DBParameterGroupName"`
+	DBParameterGroupFamily string `xml:"DBParameterGroupFamily"`
+	Description            string `xml:"Description"`
+}
+
+type copyDBClusterParameterGroupResponse struct {
+	XMLName                 xml.Name                   `xml:"CopyDBClusterParameterGroupResponse"`
+	Xmlns                   string                     `xml:"xmlns,attr"`
+	DBClusterParameterGroup xmlDBClusterParameterGroup `xml:"CopyDBClusterParameterGroupResult>DBClusterParameterGroup"`
+}
+
+type copyDBClusterSnapshotResponse struct {
+	XMLName           xml.Name             `xml:"CopyDBClusterSnapshotResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterSnapshot xmlDBClusterSnapshot `xml:"CopyDBClusterSnapshotResult>DBClusterSnapshot"`
+}
+
+type copyDBParameterGroupResponse struct {
+	XMLName          xml.Name            `xml:"CopyDBParameterGroupResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	DBParameterGroup xmlDBParameterGroup `xml:"CopyDBParameterGroupResult>DBParameterGroup"`
+}
+
+type xmlDBClusterEndpoint struct {
+	DBClusterEndpointIdentifier string `xml:"DBClusterEndpointIdentifier"`
+	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
+	EndpointType                string `xml:"EndpointType"`
+	Status                      string `xml:"Status"`
+	Endpoint                    string `xml:"Endpoint,omitempty"`
+}
+
+type createDBClusterEndpointResponse struct {
+	XMLName           xml.Name             `xml:"CreateDBClusterEndpointResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterEndpoint xmlDBClusterEndpoint `xml:"CreateDBClusterEndpointResult"`
+}
+
+type createDBParameterGroupResponse struct {
+	XMLName          xml.Name            `xml:"CreateDBParameterGroupResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	DBParameterGroup xmlDBParameterGroup `xml:"CreateDBParameterGroupResult>DBParameterGroup"`
+}
+
+type xmlSourceID struct {
+	Member string `xml:",chardata"`
+}
+
+type xmlSourceIDList struct {
+	Members []xmlSourceID `xml:"member"`
+}
+
+type xmlEventSubscription struct {
+	CustSubscriptionID string          `xml:"CustSubscriptionId"`
+	SnsTopicARN        string          `xml:"SnsTopicArn"`
+	Status             string          `xml:"Status"`
+	SourceIDs          xmlSourceIDList `xml:"SourceIdsList"`
+}
+
+type addSourceIdentifierToSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"AddSourceIdentifierToSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"AddSourceIdentifierToSubscriptionResult>EventSubscription"`
+}
+
+type createEventSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"CreateEventSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"CreateEventSubscriptionResult>EventSubscription"`
+}
+
+type xmlGlobalClusterMember struct {
+	DBClusterARN string `xml:"DBClusterArn"`
+	IsWriter     bool   `xml:"IsWriter"`
+}
+
+type xmlGlobalClusterMemberList struct {
+	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
+}
+
+type xmlGlobalClusterList struct {
+	Members []xmlGlobalCluster `xml:"GlobalCluster"`
+}
+
+type xmlGlobalCluster struct {
+	GlobalClusterIdentifier string                     `xml:"GlobalClusterIdentifier"`
+	Status                  string                     `xml:"Status"`
+	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
+}
+
+type createGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"CreateGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"CreateGlobalClusterResult>GlobalCluster"`
 }
 
 const defaultNeptuneMaxRecords = 100
