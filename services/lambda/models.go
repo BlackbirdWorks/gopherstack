@@ -1,6 +1,9 @@
 package lambda
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // PackageTypeImage is the Image-based Lambda package type (Docker image).
 const PackageTypeImage = "Image"
@@ -409,4 +412,193 @@ type PutProvisionedConcurrencyConfigInput struct {
 type ListProvisionedConcurrencyConfigsOutput struct {
 	NextMarker                    string                          `json:"NextMarker,omitempty"`
 	ProvisionedConcurrencyConfigs []*ProvisionedConcurrencyConfig `json:"ProvisionedConcurrencyConfigs"`
+}
+
+// FunctionPermission is a single statement in a function resource-based policy.
+type FunctionPermission struct {
+	Action        string `json:"Action"`
+	Effect        string `json:"Effect"`
+	FunctionName  string `json:"-"`
+	Principal     string `json:"Principal"`
+	SourceAccount string `json:"SourceAccount,omitempty"`
+	SourceArn     string `json:"SourceArn,omitempty"`
+	StatementID   string `json:"Sid"`
+}
+
+// AddPermissionInput is the request body for AddPermission.
+type AddPermissionInput struct {
+	Action        string `json:"Action"`
+	Principal     string `json:"Principal"`
+	StatementID   string `json:"StatementId"`
+	SourceAccount string `json:"SourceAccount,omitempty"`
+	SourceArn     string `json:"SourceArn,omitempty"`
+}
+
+// AddPermissionOutput is the response for AddPermission.
+type AddPermissionOutput struct {
+	Statement *string `json:"Statement,omitempty"`
+}
+
+// GetPolicyOutput is the response for GetPolicy (returns the function resource policy JSON).
+type GetPolicyOutput struct {
+	Policy     *string `json:"Policy,omitempty"`
+	RevisionID *string `json:"RevisionId,omitempty"`
+}
+
+// AllowedPublishers holds the signing profile version ARNs allowed for code signing.
+type AllowedPublishers struct {
+	SigningProfileVersionArns []string `json:"SigningProfileVersionArns"`
+}
+
+// CodeSigningPolicies holds the Lambda code signing policy.
+type CodeSigningPolicies struct {
+	UntrustedArtifactOnDeployment string `json:"UntrustedArtifactOnDeployment,omitempty"`
+}
+
+// CodeSigningConfig holds a Lambda code signing configuration.
+type CodeSigningConfig struct {
+	AllowedPublishers    *AllowedPublishers `json:"AllowedPublishers"`
+	CodeSigningConfigArn string             `json:"CodeSigningConfigArn"`
+	// CodeSigningConfigId uses lowercase 'd' to match the AWS SDK JSON field name.
+	//nolint:revive,staticcheck // AWS SDK uses "Id" not "ID" for this JSON field
+	CodeSigningConfigId string               `json:"CodeSigningConfigId"`
+	CodeSigningPolicies *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
+	Description         string               `json:"Description,omitempty"`
+	LastModified        string               `json:"LastModified"`
+}
+
+// CreateCodeSigningConfigInput is the request body for CreateCodeSigningConfig.
+type CreateCodeSigningConfigInput struct {
+	AllowedPublishers   *AllowedPublishers   `json:"AllowedPublishers"`
+	CodeSigningPolicies *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
+	Description         string               `json:"Description,omitempty"`
+}
+
+// CreateCodeSigningConfigOutput is the response for CreateCodeSigningConfig.
+type CreateCodeSigningConfigOutput struct {
+	CodeSigningConfig *CodeSigningConfig `json:"CodeSigningConfig"`
+}
+
+// UpdateCodeSigningConfigInput is the request body for UpdateCodeSigningConfig.
+type UpdateCodeSigningConfigInput struct {
+	AllowedPublishers   *AllowedPublishers   `json:"AllowedPublishers,omitempty"`
+	CodeSigningPolicies *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
+	Description         string               `json:"Description,omitempty"`
+}
+
+// UpdateCodeSigningConfigOutput is the response for UpdateCodeSigningConfig.
+type UpdateCodeSigningConfigOutput struct {
+	CodeSigningConfig *CodeSigningConfig `json:"CodeSigningConfig"`
+}
+
+// ListCodeSigningConfigsOutput is the response for ListCodeSigningConfigs.
+type ListCodeSigningConfigsOutput struct {
+	NextMarker         string               `json:"NextMarker,omitempty"`
+	CodeSigningConfigs []*CodeSigningConfig `json:"CodeSigningConfigs"`
+}
+
+// GetFunctionCodeSigningConfigOutput is the response for GetFunctionCodeSigningConfig.
+type GetFunctionCodeSigningConfigOutput struct {
+	CodeSigningConfigArn string `json:"CodeSigningConfigArn"`
+	FunctionName         string `json:"FunctionName"`
+}
+
+// PutFunctionCodeSigningConfigInput is the request body for PutFunctionCodeSigningConfig.
+type PutFunctionCodeSigningConfigInput struct {
+	CodeSigningConfigArn string `json:"CodeSigningConfigArn"`
+}
+
+// PutFunctionCodeSigningConfigOutput is the response for PutFunctionCodeSigningConfig.
+type PutFunctionCodeSigningConfigOutput struct {
+	CodeSigningConfigArn string `json:"CodeSigningConfigArn"`
+	FunctionName         string `json:"FunctionName"`
+}
+
+// ListFunctionsByCodeSigningConfigOutput is the response for ListFunctionsByCodeSigningConfig.
+type ListFunctionsByCodeSigningConfigOutput struct {
+	NextMarker   string   `json:"NextMarker,omitempty"`
+	FunctionArns []string `json:"FunctionArns"`
+}
+
+// CapacityProvider holds a Lambda capacity provider configuration.
+type CapacityProvider struct {
+	CapacityProviderArn       string `json:"CapacityProviderArn"`
+	LastModifiedTime          string `json:"LastModifiedTime"`
+	Name                      string `json:"Name"`
+	Status                    string `json:"Status,omitempty"`
+	TargetOnDemandConcurrency int    `json:"TargetOnDemandConcurrency,omitempty"`
+}
+
+// CreateCapacityProviderInput is the request body for CreateCapacityProvider.
+type CreateCapacityProviderInput struct {
+	Name                      string `json:"Name"`
+	TargetOnDemandConcurrency int    `json:"TargetOnDemandConcurrency,omitempty"`
+}
+
+// CreateCapacityProviderOutput is the response for CreateCapacityProvider.
+type CreateCapacityProviderOutput struct {
+	CapacityProvider *CapacityProvider `json:"CapacityProvider"`
+}
+
+// UpdateCapacityProviderInput is the request body for UpdateCapacityProvider.
+type UpdateCapacityProviderInput struct {
+	TargetOnDemandConcurrency int `json:"TargetOnDemandConcurrency,omitempty"`
+}
+
+// UpdateCapacityProviderOutput is the response for UpdateCapacityProvider.
+type UpdateCapacityProviderOutput struct {
+	CapacityProvider *CapacityProvider `json:"CapacityProvider"`
+}
+
+// ListCapacityProvidersOutput is the response for ListCapacityProviders.
+type ListCapacityProvidersOutput struct {
+	NextMarker        string              `json:"NextMarker,omitempty"`
+	CapacityProviders []*CapacityProvider `json:"CapacityProviders"`
+}
+
+// AccountLimit holds the Lambda account-level limits.
+type AccountLimit struct {
+	CodeSizeUnzipped               int64 `json:"CodeSizeUnzipped"`
+	CodeSizeZipped                 int64 `json:"CodeSizeZipped"`
+	ConcurrentExecutions           int   `json:"ConcurrentExecutions"`
+	TotalCodeSize                  int64 `json:"TotalCodeSize"`
+	UnreservedConcurrentExecutions int   `json:"UnreservedConcurrentExecutions"`
+}
+
+// AccountUsage holds the Lambda account-level usage.
+type AccountUsage struct {
+	FunctionCount int   `json:"FunctionCount"`
+	TotalCodeSize int64 `json:"TotalCodeSize"`
+}
+
+// AccountSettingsOutput is the response for GetAccountSettings.
+type AccountSettingsOutput struct {
+	AccountLimit *AccountLimit `json:"AccountLimit"`
+	AccountUsage *AccountUsage `json:"AccountUsage"`
+}
+
+// buildCodeSigningConfigARN constructs a Lambda code signing config ARN.
+func buildCodeSigningConfigARN(region, accountID, cscID string) string {
+	return fmt.Sprintf("arn:aws:lambda:%s:%s:code-signing-config:%s", region, accountID, cscID)
+}
+
+// buildCapacityProviderARN constructs a Lambda capacity provider ARN.
+func buildCapacityProviderARN(region, accountID, name string) string {
+	return fmt.Sprintf("arn:aws:lambda:%s:%s:capacity-provider:%s", region, accountID, name)
+}
+
+// CheckpointDurableExecutionInput is the request body for CheckpointDurableExecution.
+type CheckpointDurableExecutionInput struct {
+	Marker *string `json:"Marker,omitempty"`
+}
+
+// CheckpointDurableExecutionOutput is the response for CheckpointDurableExecution.
+type CheckpointDurableExecutionOutput struct{}
+
+// UpdateFunctionURLConfigInput is the request body for UpdateFunctionUrlConfig.
+type UpdateFunctionURLConfigInput struct {
+	Cors *struct {
+		AllowOrigins []string `json:"AllowOrigins,omitempty"`
+	} `json:"Cors,omitempty"`
+	AuthType string `json:"AuthType,omitempty"`
 }

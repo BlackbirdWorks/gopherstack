@@ -18,10 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	// NewHandler accepts nil because GetSupportedOperations does not use the backend.
 	h := lambda.NewHandler(nil)
 	sdkcheck.CheckCompleteness(t, &lambdasdk.Client{}, h.GetSupportedOperations(), []string{
-		// AddPermission — resource-based policy management not yet implemented.
-		"AddPermission",
-		// Durable execution (Lambda Workflows) — preview feature not yet implemented.
-		"CheckpointDurableExecution",
+		// Durable execution (Lambda Workflows) — only checkpoint is implemented; others remain stubs.
 		"GetDurableExecution",
 		"GetDurableExecutionHistory",
 		"GetDurableExecutionState",
@@ -30,35 +27,13 @@ func TestSDKCompleteness(t *testing.T) {
 		"SendDurableExecutionCallbackHeartbeat",
 		"SendDurableExecutionCallbackSuccess",
 		"StopDurableExecution",
-		// Capacity providers — not yet implemented.
-		"CreateCapacityProvider",
-		"DeleteCapacityProvider",
-		"GetCapacityProvider",
-		"ListCapacityProviders",
+		// Capacity providers — listing by capacity provider not yet implemented.
 		"ListFunctionVersionsByCapacityProvider",
-		"UpdateCapacityProvider",
-		// Code signing — not yet implemented.
-		"CreateCodeSigningConfig",
-		"DeleteCodeSigningConfig",
-		"DeleteFunctionCodeSigningConfig",
-		"GetCodeSigningConfig",
-		"GetFunctionCodeSigningConfig",
-		"ListCodeSigningConfigs",
-		"ListFunctionsByCodeSigningConfig",
-		"PutFunctionCodeSigningConfig",
-		"UpdateCodeSigningConfig",
-		// FunctionUrlConfig — SDK uses "Url" (not "URL"); gopherstack uses a different casing.
-		"CreateFunctionUrlConfig",
-		"DeleteFunctionUrlConfig",
-		"GetFunctionUrlConfig",
-		"ListFunctionUrlConfigs",
-		"UpdateFunctionUrlConfig",
 		// Invoke — SDK exposes "Invoke"; gopherstack registers it as "InvokeFunction".
 		"Invoke",
 		"InvokeAsync",
 		"InvokeWithResponseStream",
 		// Miscellaneous operations not yet implemented.
-		"GetAccountSettings",
 		"GetFunctionConfiguration",
 		"GetFunctionRecursionConfig",
 		"GetFunctionScalingConfig",
