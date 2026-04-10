@@ -20,34 +20,25 @@ func TestHandler_CloseAccount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
-		setup      func(*organizations.Handler)
-		name       string
-		wantStatus int
+		body          map[string]any
+		name          string
+		wantStatus    int
+		createAccount bool
 	}{
 		{
-			name: "closes_existing_account",
-			body: nil, // will be set by setup
-			setup: func(h *organizations.Handler) {
-				doRequest(t, h, "CreateOrganization", map[string]any{"FeatureSet": "ALL"})
-			},
-			wantStatus: http.StatusOK,
+			name:          "closes_existing_account",
+			createAccount: true,
+			wantStatus:    http.StatusOK,
 		},
 		{
 			name:       "missing_account_id",
 			body:       map[string]any{},
 			wantStatus: http.StatusBadRequest,
-			setup: func(h *organizations.Handler) {
-				doRequest(t, h, "CreateOrganization", map[string]any{"FeatureSet": "ALL"})
-			},
 		},
 		{
 			name:       "account_not_found",
 			body:       map[string]any{"AccountId": "999999999999"},
 			wantStatus: http.StatusBadRequest,
-			setup: func(h *organizations.Handler) {
-				doRequest(t, h, "CreateOrganization", map[string]any{"FeatureSet": "ALL"})
-			},
 		},
 	}
 
@@ -56,14 +47,11 @@ func TestHandler_CloseAccount(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
+			doRequest(t, h, "CreateOrganization", map[string]any{"FeatureSet": "ALL"})
 
 			body := tt.body
 
-			if tt.name == "closes_existing_account" {
+			if tt.createAccount {
 				// Create an account first then close it.
 				acctRec := doRequest(t, h, "CreateAccount", map[string]any{
 					"AccountName": "close-test",
@@ -875,6 +863,7 @@ func TestBackend_DescribeEffectivePolicy(t *testing.T) {
 		policyType string
 		targetID   string
 		seedPolicy bool
+		noOrg      bool
 		wantErr    bool
 	}{
 		{
@@ -890,6 +879,8 @@ func TestBackend_DescribeEffectivePolicy(t *testing.T) {
 		{
 			name:       "no_org_returns_error",
 			policyType: "SERVICE_CONTROL_POLICY",
+			noOrg:      true,
+			wantErr:    true,
 		},
 	}
 
@@ -899,15 +890,10 @@ func TestBackend_DescribeEffectivePolicy(t *testing.T) {
 
 			b := newTestBackend()
 
-			if tt.name == "no_org_returns_error" {
-				_, err := b.DescribeEffectivePolicy("SERVICE_CONTROL_POLICY", "")
-				require.Error(t, err)
-
-				return
+			if !tt.noOrg {
+				_, _, err := b.CreateOrganization("ALL")
+				require.NoError(t, err)
 			}
-
-			_, _, err := b.CreateOrganization("ALL")
-			require.NoError(t, err)
 
 			var targetID string
 

@@ -1586,12 +1586,28 @@ func copyHandshake(h *Handshake) *Handshake {
 		copy(cp.Parties, h.Parties)
 	}
 
-	if h.Resources != nil {
-		cp.Resources = make([]HandshakeResource, len(h.Resources))
-		copy(cp.Resources, h.Resources)
-	}
+	cp.Resources = copyHandshakeResources(h.Resources)
 
 	return &cp
+}
+
+// copyHandshakeResources returns a deep copy of a HandshakeResource slice.
+func copyHandshakeResources(rs []HandshakeResource) []HandshakeResource {
+	if rs == nil {
+		return nil
+	}
+
+	out := make([]HandshakeResource, len(rs))
+
+	for i, r := range rs {
+		out[i] = HandshakeResource{
+			Type:      r.Type,
+			Value:     r.Value,
+			Resources: copyHandshakeResources(r.Resources),
+		}
+	}
+
+	return out
 }
 
 // EnsureOrgExists returns ErrOrgNotFound if no org exists (for operations that require it).
