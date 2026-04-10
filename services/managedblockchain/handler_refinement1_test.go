@@ -45,10 +45,8 @@ func TestRefinement1_Reset(t *testing.T) {
 func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
 	b := managedblockchain.NewInMemoryBackend()
-	n := b.AddNetworkInternal(testRegion, testAccountID, "net1")
-	_ = n
+	b.AddNetworkInternal(testRegion, testAccountID, "net1")
 
 	h2 := managedblockchain.NewHandler(b)
 	h2.AccountID = testAccountID
@@ -59,8 +57,6 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	h2.Reset()
 
 	assert.Equal(t, 0, managedblockchain.NetworkCount(b))
-
-	_ = h
 }
 
 // TestRefinement1_ProviderInit_NilCtx verifies that Provider.Init rejects a nil context.
@@ -629,8 +625,6 @@ func TestRefinement1_AccessorLifecycleViaHTTP(t *testing.T) {
 			// Verify deleted
 			rec5 := doRequest(t, h, http.MethodGet, "/accessors/"+accessorID, nil)
 			assert.Equal(t, http.StatusNotFound, rec5.Code)
-
-			_ = tt
 		})
 	}
 }
