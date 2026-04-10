@@ -75,6 +75,7 @@ type NodeSummary struct {
 
 // createNetworkRequest is the request body for POST /networks.
 type createNetworkRequest struct {
+	Tags                map[string]string   `json:"Tags"`
 	ClientRequestToken  string              `json:"ClientRequestToken"`
 	Description         string              `json:"Description"`
 	Framework           string              `json:"Framework"`
@@ -133,9 +134,17 @@ type listNetworksResponse struct {
 
 // createMemberRequest is the request body for POST /networks/{networkId}/members.
 type createMemberRequest struct {
+	Tags                map[string]string   `json:"Tags"`
 	ClientRequestToken  string              `json:"ClientRequestToken"`
 	InvitationID        string              `json:"InvitationId"`
 	MemberConfiguration memberConfiguration `json:"MemberConfiguration"`
+}
+
+// createNodeRequest is the request body for POST /networks/{networkId}/members/{memberId}/nodes.
+type createNodeRequest struct {
+	Tags               map[string]string `json:"Tags"`
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	NodeConfiguration  nodeConfiguration `json:"NodeConfiguration"`
 }
 
 // createMemberResponse is the response body for POST /networks/{networkId}/members.
@@ -197,12 +206,6 @@ type nodeConfiguration struct {
 	InstanceType     string `json:"InstanceType"`
 }
 
-// createNodeRequest is the request body for POST /networks/{networkId}/members/{memberId}/nodes.
-type createNodeRequest struct {
-	ClientRequestToken string            `json:"ClientRequestToken"`
-	NodeConfiguration  nodeConfiguration `json:"NodeConfiguration"`
-}
-
 // createNodeResponse is the response body for POST /networks/{networkId}/members/{memberId}/nodes.
 type createNodeResponse struct {
 	NodeID string `json:"NodeId"`
@@ -239,4 +242,188 @@ type nodeSummaryObject struct {
 type listNodesResponse struct {
 	NextToken *string             `json:"NextToken,omitempty"`
 	Nodes     []nodeSummaryObject `json:"Nodes"`
+}
+
+// Accessor represents an Amazon Managed Blockchain accessor for token-based access.
+type Accessor struct {
+	CreationDate *time.Time        `json:"creationDate"`
+	Tags         map[string]string `json:"tags"`
+	Arn          string            `json:"arn"`
+	BillingToken string            `json:"billingToken"`
+	ID           string            `json:"id"`
+	NetworkType  string            `json:"networkType"`
+	Status       string            `json:"status"`
+	Type         string            `json:"type"`
+}
+
+// Proposal represents a governance proposal on a Managed Blockchain network.
+type Proposal struct {
+	CreationDate         *time.Time        `json:"creationDate"`
+	ExpirationDate       *time.Time        `json:"expirationDate,omitempty"`
+	Tags                 map[string]string `json:"tags"`
+	Arn                  string            `json:"arn"`
+	Description          string            `json:"description"`
+	NetworkID            string            `json:"networkId"`
+	ProposalID           string            `json:"proposalId"`
+	ProposedByMemberID   string            `json:"proposedByMemberId"`
+	ProposedByMemberName string            `json:"proposedByMemberName"`
+	Status               string            `json:"status"`
+	NoVoteCount          int32             `json:"noVoteCount"`
+	OutstandingVoteCount int32             `json:"outstandingVoteCount"`
+	YesVoteCount         int32             `json:"yesVoteCount"`
+}
+
+// Invitation represents an invitation to join a Managed Blockchain network.
+type Invitation struct {
+	CreationDate   *time.Time `json:"creationDate"`
+	ExpirationDate *time.Time `json:"expirationDate,omitempty"`
+	Arn            string     `json:"arn"`
+	InvitationID   string     `json:"invitationId"`
+	NetworkID      string     `json:"networkId"`
+	NetworkName    string     `json:"networkName"`
+	Status         string     `json:"status"`
+}
+
+// ProposalVote represents a single vote cast on a proposal.
+type ProposalVote struct {
+	MemberID   string `json:"memberId"`
+	MemberName string `json:"memberName"`
+	Vote       string `json:"vote"`
+}
+
+// -- Accessor request / response types -----------------------------------------
+
+// createAccessorRequest is the request body for POST /accessors.
+type createAccessorRequest struct {
+	Tags               map[string]string `json:"Tags"`
+	AccessorType       string            `json:"AccessorType"`
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	NetworkType        string            `json:"NetworkType"`
+}
+
+// createAccessorResponse is the response body for POST /accessors.
+type createAccessorResponse struct {
+	AccessorID   string `json:"AccessorId"`
+	BillingToken string `json:"BillingToken"`
+	NetworkType  string `json:"NetworkType"`
+}
+
+// accessorObject is the JSON representation of an accessor for GetAccessor.
+type accessorObject struct {
+	CreationDate *time.Time        `json:"CreationDate,omitempty"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	Arn          string            `json:"Arn"`
+	BillingToken string            `json:"BillingToken"`
+	ID           string            `json:"Id"`
+	NetworkType  string            `json:"NetworkType,omitempty"`
+	Status       string            `json:"Status"`
+	Type         string            `json:"Type"`
+}
+
+// getAccessorResponse is the response body for GET /accessors/{accessorId}.
+type getAccessorResponse struct {
+	Accessor accessorObject `json:"Accessor"`
+}
+
+// accessorSummaryObject is the JSON representation of an accessor summary.
+type accessorSummaryObject struct {
+	CreationDate *time.Time `json:"CreationDate,omitempty"`
+	Arn          string     `json:"Arn"`
+	ID           string     `json:"Id"`
+	NetworkType  string     `json:"NetworkType,omitempty"`
+	Status       string     `json:"Status"`
+	Type         string     `json:"Type"`
+}
+
+// listAccessorsResponse is the response body for GET /accessors.
+type listAccessorsResponse struct {
+	NextToken *string                 `json:"NextToken,omitempty"`
+	Accessors []accessorSummaryObject `json:"Accessors"`
+}
+
+// -- Proposal request / response types ----------------------------------------
+
+// createProposalRequest is the request body for POST /networks/{networkId}/proposals.
+type createProposalRequest struct {
+	Tags               map[string]string `json:"Tags"`
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	Description        string            `json:"Description"`
+	MemberID           string            `json:"MemberId"`
+}
+
+// createProposalResponse is the response body for POST /networks/{networkId}/proposals.
+type createProposalResponse struct {
+	ProposalID string `json:"ProposalId"`
+}
+
+// proposalObject is the JSON representation of a proposal for GetProposal.
+type proposalObject struct {
+	CreationDate         *time.Time        `json:"CreationDate,omitempty"`
+	ExpirationDate       *time.Time        `json:"ExpirationDate,omitempty"`
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	Arn                  string            `json:"Arn"`
+	Description          string            `json:"Description,omitempty"`
+	NetworkID            string            `json:"NetworkId"`
+	ProposalID           string            `json:"ProposalId"`
+	ProposedByMemberID   string            `json:"ProposedByMemberId"`
+	ProposedByMemberName string            `json:"ProposedByMemberName,omitempty"`
+	Status               string            `json:"Status"`
+	NoVoteCount          int32             `json:"NoVoteCount"`
+	OutstandingVoteCount int32             `json:"OutstandingVoteCount"`
+	YesVoteCount         int32             `json:"YesVoteCount"`
+}
+
+// getProposalResponse is the response body for GET /networks/{networkId}/proposals/{proposalId}.
+type getProposalResponse struct {
+	Proposal proposalObject `json:"Proposal"`
+}
+
+// proposalSummaryObject is the JSON representation of a proposal summary.
+type proposalSummaryObject struct {
+	CreationDate         *time.Time `json:"CreationDate,omitempty"`
+	ExpirationDate       *time.Time `json:"ExpirationDate,omitempty"`
+	Arn                  string     `json:"Arn"`
+	Description          string     `json:"Description,omitempty"`
+	ProposalID           string     `json:"ProposalId"`
+	ProposedByMemberID   string     `json:"ProposedByMemberId"`
+	ProposedByMemberName string     `json:"ProposedByMemberName,omitempty"`
+	Status               string     `json:"Status"`
+}
+
+// listProposalsResponse is the response body for GET /networks/{networkId}/proposals.
+type listProposalsResponse struct {
+	NextToken *string                 `json:"NextToken,omitempty"`
+	Proposals []proposalSummaryObject `json:"Proposals"`
+}
+
+// voteSummaryObject is the JSON representation of a vote summary.
+type voteSummaryObject struct {
+	MemberID   string `json:"MemberId"`
+	MemberName string `json:"MemberName,omitempty"`
+	Vote       string `json:"Vote"`
+}
+
+// listProposalVotesResponse is the response body for GET .../votes.
+type listProposalVotesResponse struct {
+	NextToken     *string             `json:"NextToken,omitempty"`
+	ProposalVotes []voteSummaryObject `json:"ProposalVotes"`
+}
+
+// -- Invitation request / response types --------------------------------------
+
+// invitationObject is the JSON representation of an invitation.
+type invitationObject struct {
+	CreationDate   *time.Time `json:"CreationDate,omitempty"`
+	ExpirationDate *time.Time `json:"ExpirationDate,omitempty"`
+	Arn            string     `json:"Arn"`
+	InvitationID   string     `json:"InvitationId"`
+	NetworkID      string     `json:"NetworkId,omitempty"`
+	NetworkName    string     `json:"NetworkName,omitempty"`
+	Status         string     `json:"Status"`
+}
+
+// listInvitationsResponse is the response body for GET /invitations.
+type listInvitationsResponse struct {
+	NextToken   *string            `json:"NextToken,omitempty"`
+	Invitations []invitationObject `json:"Invitations"`
 }

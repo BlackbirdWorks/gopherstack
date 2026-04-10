@@ -121,6 +121,64 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				assert.Len(t, members, 2)
 			},
 		},
+		{
+			name: "accessor_preserved",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateAccessor(region, accountID, "BILLING_TOKEN", "ETHEREUM_MAINNET", nil)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
+				t.Helper()
+
+				accessors, err := b.ListAccessors()
+				require.NoError(t, err)
+				require.Len(t, accessors, 1)
+				assert.Equal(t, "ETHEREUM_MAINNET", accessors[0].NetworkType)
+			},
+		},
+		{
+			name: "proposal_preserved",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
+				t.Helper()
+
+				n, m, err := b.CreateNetwork(region, accountID,
+					"prop-net", "", "", "", "founder", "", nil)
+				require.NoError(t, err)
+
+				_, err = b.CreateProposal(region, accountID, n.ID, m.ID, "test proposal", nil)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
+				t.Helper()
+
+				networks, err := b.ListNetworks()
+				require.NoError(t, err)
+				require.Len(t, networks, 1)
+
+				proposals, err := b.ListProposals(networks[0].ID)
+				require.NoError(t, err)
+				require.Len(t, proposals, 1)
+				assert.Equal(t, "test proposal", proposals[0].Description)
+			},
+		},
+		{
+			name: "invitation_preserved",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
+				t.Helper()
+
+				b.AddInvitationInternal(region, accountID, "net-id", "test-network")
+			},
+			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
+				t.Helper()
+
+				invitations, err := b.ListInvitations()
+				require.NoError(t, err)
+				require.Len(t, invitations, 1)
+				assert.Equal(t, "PENDING", invitations[0].Status)
+			},
+		},
 	}
 
 	for _, tt := range tests {
