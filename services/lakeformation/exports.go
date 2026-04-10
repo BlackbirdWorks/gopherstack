@@ -63,3 +63,19 @@ func (b *InMemoryBackend) TransactionCount() int {
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
 }
+
+// ResourceLFTagCount returns the number of resources with LF-tag associations (test helper).
+func (b *InMemoryBackend) ResourceLFTagCount() int {
+	b.mu.RLock("ResourceLFTagCount")
+	defer b.mu.RUnlock()
+
+	return len(b.resourceLFTags)
+}
+
+// IdentityCenterConfigCount returns the number of Identity Center configurations (test helper).
+func (b *InMemoryBackend) IdentityCenterConfigCount() int {
+	b.mu.RLock("IdentityCenterConfigCount")
+	defer b.mu.RUnlock()
+
+	return len(b.identityCenterConfigs)
+}

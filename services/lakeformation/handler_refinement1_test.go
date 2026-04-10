@@ -126,7 +126,7 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
 	ops := h.GetSupportedOperations()
-	assert.Len(t, ops, 26)
+	assert.Len(t, ops, 37)
 
 	expected := []string{
 		"AddLFTagsToResource",
@@ -143,18 +143,29 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 		"DeleteDataCellsFilter",
 		"DeleteLFTag",
 		"DeleteLFTagExpression",
+		"DeleteLakeFormationOptIn",
 		"DeregisterResource",
 		"DescribeResource",
+		"DescribeTransaction",
+		"GetDataLakePrincipal",
 		"GetDataLakeSettings",
 		"GetLFTag",
+		"GetResourceLFTags",
 		"GrantPermissions",
+		"ListDataCellsFilter",
+		"ListLFTagExpressions",
 		"ListLFTags",
+		"ListLakeFormationOptIns",
 		"ListPermissions",
 		"ListResources",
+		"ListTransactions",
 		"PutDataLakeSettings",
 		"RegisterResource",
+		"RemoveLFTagsFromResource",
 		"RevokePermissions",
+		"StartTransaction",
 		"UpdateLFTag",
+		"UpdateResource",
 	}
 
 	assert.Equal(t, expected, ops)

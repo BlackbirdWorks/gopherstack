@@ -416,3 +416,122 @@ type deleteLFTagExpressionInput struct {
 
 // deleteLFTagExpressionOutput is the response body for DeleteLFTagExpression (empty).
 type deleteLFTagExpressionOutput struct{}
+
+// --- New operation request/response types ---
+
+// updateResourceInput is the request body for UpdateResource.
+type updateResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	RoleArn     string `json:"RoleArn"`
+}
+
+// updateResourceOutput is the response body for UpdateResource (empty).
+type updateResourceOutput struct{}
+
+// startTransactionOutput is the response body for StartTransaction.
+type startTransactionOutput struct {
+	TransactionID string `json:"TransactionId,omitempty"`
+}
+
+// describeTransactionInput is the request body for DescribeTransaction.
+type describeTransactionInput struct {
+	TransactionID string `json:"TransactionId"`
+}
+
+// describeTransactionOutput is the response body for DescribeTransaction.
+type describeTransactionOutput struct {
+	TransactionDescription *Transaction `json:"TransactionDescription,omitempty"`
+}
+
+// listTransactionsInput is the request body for ListTransactions.
+type listTransactionsInput struct {
+	StatusFilter string `json:"StatusFilter,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int    `json:"MaxResults,omitempty"`
+}
+
+// listTransactionsOutput is the response body for ListTransactions.
+type listTransactionsOutput struct {
+	NextToken    string         `json:"NextToken,omitempty"`
+	Transactions []*Transaction `json:"Transactions"`
+}
+
+// removeLFTagsFromResourceInput is the request body for RemoveLFTagsFromResource.
+type removeLFTagsFromResourceInput struct {
+	CatalogID string      `json:"CatalogId,omitempty"`
+	Resource  *Resource   `json:"Resource"`
+	LFTags    []LFTagPair `json:"LFTags"`
+}
+
+// removeLFTagsFromResourceOutput is the response body for RemoveLFTagsFromResource.
+type removeLFTagsFromResourceOutput struct {
+	Failures []LFTagError `json:"Failures"`
+}
+
+// getResourceLFTagsInput is the request body for GetResourceLFTags.
+type getResourceLFTagsInput struct {
+	Resource           *Resource `json:"Resource"`
+	ShowAssignedLFTags *bool     `json:"ShowAssignedLFTags,omitempty"`
+	CatalogID          string    `json:"CatalogId,omitempty"`
+}
+
+// getResourceLFTagsOutput is the response body for GetResourceLFTags.
+type getResourceLFTagsOutput struct {
+	LFTagOnDatabase []LFTagPair `json:"LFTagOnDatabase,omitempty"`
+	LFTagsOnColumns []LFTagPair `json:"LFTagsOnColumns,omitempty"`
+	LFTagsOnTable   []LFTagPair `json:"LFTagsOnTable,omitempty"`
+}
+
+// listDataCellsFilterInput is the request body for ListDataCellsFilter.
+type listDataCellsFilterInput struct {
+	Table      *TableResource `json:"Table,omitempty"`
+	NextToken  string         `json:"NextToken,omitempty"`
+	MaxResults int            `json:"MaxResults,omitempty"`
+}
+
+// listDataCellsFilterOutput is the response body for ListDataCellsFilter.
+type listDataCellsFilterOutput struct {
+	NextToken        string             `json:"NextToken,omitempty"`
+	DataCellsFilters []*DataCellsFilter `json:"DataCellsFilters"`
+}
+
+// listLFTagExpressionsInput is the request body for ListLFTagExpressions.
+type listLFTagExpressionsInput struct {
+	CatalogID  string `json:"CatalogId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
+// listLFTagExpressionsOutput is the response body for ListLFTagExpressions.
+type listLFTagExpressionsOutput struct {
+	NextToken        string             `json:"NextToken,omitempty"`
+	LFTagExpressions []*LFTagExpression `json:"LFTagExpressions"`
+}
+
+// deleteLakeFormationOptInInput is the request body for DeleteLakeFormationOptIn.
+type deleteLakeFormationOptInInput struct {
+	Principal *DataLakePrincipal `json:"Principal"`
+	Resource  *Resource          `json:"Resource"`
+}
+
+// deleteLakeFormationOptInOutput is the response body for DeleteLakeFormationOptIn (empty).
+type deleteLakeFormationOptInOutput struct{}
+
+// listLakeFormationOptInsInput is the request body for ListLakeFormationOptIns.
+type listLakeFormationOptInsInput struct {
+	Principal  *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource   *Resource          `json:"Resource,omitempty"`
+	NextToken  string             `json:"NextToken,omitempty"`
+	MaxResults int                `json:"MaxResults,omitempty"`
+}
+
+// listLakeFormationOptInsOutput is the response body for ListLakeFormationOptIns.
+type listLakeFormationOptInsOutput struct {
+	NextToken                   string     `json:"NextToken,omitempty"`
+	LakeFormationOptInsInfoList []*LFOptIn `json:"LakeFormationOptInsInfoList"`
+}
+
+// getDataLakePrincipalOutput is the response body for GetDataLakePrincipal.
+type getDataLakePrincipalOutput struct {
+	Identity string `json:"Identity,omitempty"`
+}

@@ -40,11 +40,13 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 	}
 
 	for k, v := range b.resources {
-		cp := *v
-		snap.Resources[k] = &cp
+		snap.Resources[k] = copyResourceInfo(v)
 	}
 
-	copy(snap.Permissions, b.permissions)
+	// Deep-copy permissions including Principal/Resource pointer fields.
+	for i, p := range b.permissions {
+		snap.Permissions[i] = deepCopyPermissionEntry(p)
+	}
 
 	for k, v := range b.lfTags {
 		snap.LFTags[snapshotLFTagKey(k)] = copyLFTag(v)
@@ -73,7 +75,21 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		snap.IdentityCenterConfigs[k] = &cp
 	}
 
-	copy(snap.LakeFormationOptIns, b.lakeFormationOptIns)
+	// Deep-copy opt-ins including Principal/Resource pointer fields.
+	for i, o := range b.lakeFormationOptIns {
+		cp := &LFOptIn{}
+
+		if o.Principal != nil {
+			p := *o.Principal
+			cp.Principal = &p
+		}
+
+		if o.Resource != nil {
+			cp.Resource = copyResource(o.Resource)
+		}
+
+		snap.LakeFormationOptIns[i] = cp
+	}
 
 	for k, v := range b.resourceLFTags {
 		pairs := make([]LFTagPair, len(v))

@@ -1,11 +1,14 @@
 package lakeformation
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -29,6 +32,7 @@ type StorageBackend interface {
 	PutDataLakeSettings(settings *DataLakeSettings)
 
 	RegisterResource(resourceArn, roleArn string) error
+	UpdateResource(resourceArn, roleArn string) error
 	DeregisterResource(resourceArn string) error
 	DescribeResource(resourceArn string) (*ResourceInfo, error)
 	ListResources(maxResults int, nextToken string) ([]*ResourceInfo, string)
@@ -47,18 +51,39 @@ type StorageBackend interface {
 	BatchRevokePermissions(entries []*PermissionEntry) []*BatchFailureEntry
 
 	AddLFTagsToResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
+	RemoveLFTagsFromResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
+	GetResourceLFTags(catalogID string, resource *Resource) ([]LFTagPair, error)
+
 	AssumeDecoratedRoleWithSAML(
 		principalArn, roleArn, samlAssertion string,
 		durationSeconds *int32,
 	) *SAMLCredentials
+
+	StartTransaction() string
 	CancelTransaction(transactionID string) error
 	CommitTransaction(transactionID string) (string, error)
+	DescribeTransaction(transactionID string) (*Transaction, error)
+	ListTransactions(maxResults int, nextToken string) ([]*Transaction, string)
+
 	CreateDataCellsFilter(filter *DataCellsFilter) error
-	CreateLFTagExpression(name, description, catalogID string, expression []LFTag) error
-	CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string
-	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
 	DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error
+	ListDataCellsFilter(
+		tableCatalogID, databaseName, tableName string,
+		maxResults int,
+		nextToken string,
+	) ([]*DataCellsFilter, string)
+
+	CreateLFTagExpression(name, description, catalogID string, expression []LFTag) error
 	DeleteLFTagExpression(name, catalogID string) error
+	ListLFTagExpressions(catalogID string, maxResults int, nextToken string) ([]*LFTagExpression, string)
+
+	CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string
+
+	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
+	DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
+	ListLakeFormationOptIns(principalIdentifier string, maxResults int, nextToken string) ([]*LFOptIn, string)
+
+	GetDataLakePrincipal() *DataLakePrincipal
 }
 
 // lfTagKey uniquely identifies a LF tag by catalog and key.
@@ -294,9 +319,7 @@ func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, e
 		)
 	}
 
-	cp := *info
-
-	return &cp, nil
+	return copyResourceInfo(info), nil
 }
 
 const defaultMaxResults = 100
@@ -308,8 +331,7 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 
 	all := make([]*ResourceInfo, 0, len(b.resources))
 	for _, v := range b.resources {
-		cp := *v
-		all = append(all, &cp)
+		all = append(all, copyResourceInfo(v))
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -343,6 +365,10 @@ func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
 
 // RevokePermissions removes a matching permission entry.
 func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
+	if entry == nil {
+		return fmt.Errorf("entry is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("RevokePermissions")
 	defer b.mu.Unlock()
 
@@ -372,10 +398,21 @@ func (b *InMemoryBackend) ListPermissions(
 
 	for _, p := range b.permissions {
 		if resourceArn == "" || permissionMatchesARN(p, resourceArn) {
-			cp := *p
-			filtered = append(filtered, &cp)
+			cp := deepCopyPermissionEntry(p)
+			filtered = append(filtered, cp)
 		}
 	}
+
+	// Sort deterministically by principal identifier then by resource key.
+	sort.Slice(filtered, func(i, j int) bool {
+		pi := principalID(filtered[i].Principal)
+		pj := principalID(filtered[j].Principal)
+		if pi != pj {
+			return pi < pj
+		}
+
+		return resourceToKey(filtered[i].Resource) < resourceToKey(filtered[j].Resource)
+	})
 
 	return paginate(filtered, maxResults, nextToken, defaultMaxResults)
 }
@@ -460,6 +497,7 @@ func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
 }
 
 // UpdateLFTag adds and removes values from an existing LF tag.
+// TagValues are sorted after modification for deterministic output.
 func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, tagValuesToDelete []string) error {
 	if tagKey == "" {
 		return fmt.Errorf("TagKey is required: %w", ErrValidation)
@@ -490,6 +528,7 @@ func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, 
 		vals = slices.DeleteFunc(vals, func(s string) bool { return s == v })
 	}
 
+	sort.Strings(vals)
 	tag.TagValues = vals
 
 	return nil
@@ -525,10 +564,15 @@ func (b *InMemoryBackend) BatchGrantPermissions(entries []*PermissionEntry) []*B
 
 	for _, e := range entries {
 		if err := b.GrantPermissions(e); err != nil {
+			errCode := "InternalServiceException"
+			if errors.Is(err, ErrValidation) {
+				errCode = "InvalidInputException"
+			}
+
 			failures = append(failures, &BatchFailureEntry{
 				RequestEntry: e,
 				Error: &errorDetail{
-					ErrorCode:    "InternalServiceException",
+					ErrorCode:    errCode,
 					ErrorMessage: err.Error(),
 				},
 			})
@@ -544,10 +588,15 @@ func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*
 
 	for _, e := range entries {
 		if err := b.RevokePermissions(e); err != nil {
+			errCode := "InternalServiceException"
+			if errors.Is(err, ErrValidation) {
+				errCode = "InvalidInputException"
+			}
+
 			failures = append(failures, &BatchFailureEntry{
 				RequestEntry: e,
 				Error: &errorDetail{
-					ErrorCode:    "InternalServiceException",
+					ErrorCode:    errCode,
 					ErrorMessage: err.Error(),
 				},
 			})
@@ -830,6 +879,26 @@ func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error
 
 // CreateDataCellsFilter stores a new data cells filter.
 func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
+	if filter == nil {
+		return fmt.Errorf("filter is required: %w", ErrValidation)
+	}
+
+	if strings.TrimSpace(filter.TableCatalogID) == "" {
+		return fmt.Errorf("TableCatalogId is required: %w", ErrValidation)
+	}
+
+	if strings.TrimSpace(filter.DatabaseName) == "" {
+		return fmt.Errorf("DatabaseName is required: %w", ErrValidation)
+	}
+
+	if strings.TrimSpace(filter.TableName) == "" {
+		return fmt.Errorf("TableName is required: %w", ErrValidation)
+	}
+
+	if strings.TrimSpace(filter.Name) == "" {
+		return fmt.Errorf("Name is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateDataCellsFilter")
 	defer b.mu.Unlock()
 
@@ -859,6 +928,13 @@ func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID str
 	defer b.mu.Unlock()
 
 	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+
+	// Validate each tag in the expression has a TagKey.
+	for i, tag := range expression {
+		if strings.TrimSpace(tag.TagKey) == "" {
+			return fmt.Errorf("Expression[%d].TagKey is required: %w", i, ErrValidation)
+		}
+	}
 
 	if _, ok := b.lfTagExpressions[k]; ok {
 		return awserr.New(
@@ -922,6 +998,10 @@ func (b *InMemoryBackend) CreateLakeFormationOptIn(principal *DataLakePrincipal,
 
 // DeleteDataCellsFilter removes the named data cells filter.
 func (b *InMemoryBackend) DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("Name is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteDataCellsFilter")
 	defer b.mu.Unlock()
 
@@ -986,4 +1066,419 @@ func resourceToKey(r *Resource) string {
 	}
 
 	return ""
+}
+
+// principalID returns the DataLakePrincipalIdentifier for a principal, or "" if nil.
+func principalID(p *DataLakePrincipal) string {
+	if p == nil {
+		return ""
+	}
+
+	return p.DataLakePrincipalIdentifier
+}
+
+// deepCopyPermissionEntry returns a deep copy of a PermissionEntry including pointer fields.
+func deepCopyPermissionEntry(e *PermissionEntry) *PermissionEntry {
+	if e == nil {
+		return nil
+	}
+
+	cp := &PermissionEntry{}
+
+	if e.Principal != nil {
+		p := *e.Principal
+		cp.Principal = &p
+	}
+
+	if e.Resource != nil {
+		cp.Resource = copyResource(e.Resource)
+	}
+
+	if e.Permissions != nil {
+		cp.Permissions = make([]string, len(e.Permissions))
+		copy(cp.Permissions, e.Permissions)
+	}
+
+	if e.PermissionsWithGrantOption != nil {
+		cp.PermissionsWithGrantOption = make([]string, len(e.PermissionsWithGrantOption))
+		copy(cp.PermissionsWithGrantOption, e.PermissionsWithGrantOption)
+	}
+
+	return cp
+}
+
+// copyResource returns a shallow copy of a Resource, preserving nested pointers.
+func copyResource(r *Resource) *Resource {
+	if r == nil {
+		return nil
+	}
+
+	cp := &Resource{}
+
+	if r.Catalog != nil {
+		cat := *r.Catalog
+		cp.Catalog = &cat
+	}
+
+	if r.Database != nil {
+		db := *r.Database
+		cp.Database = &db
+	}
+
+	if r.Table != nil {
+		tbl := *r.Table
+		cp.Table = &tbl
+	}
+
+	if r.DataLocation != nil {
+		dl := *r.DataLocation
+		cp.DataLocation = &dl
+	}
+
+	return cp
+}
+
+// copyResourceInfo returns a deep copy of a ResourceInfo, including the LastModified pointer.
+func copyResourceInfo(ri *ResourceInfo) *ResourceInfo {
+	if ri == nil {
+		return nil
+	}
+
+	cp := &ResourceInfo{
+		ResourceArn: ri.ResourceArn,
+		RoleArn:     ri.RoleArn,
+	}
+
+	if ri.LastModified != nil {
+		t := *ri.LastModified
+		cp.LastModified = &t
+	}
+
+	return cp
+}
+
+// transactionIDBytesLen is the number of random bytes used for transaction IDs.
+const transactionIDBytesLen = 16
+
+// newTransactionID generates a random hex transaction ID.
+func newTransactionID() string {
+	b := make([]byte, transactionIDBytesLen)
+
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use time-based ID (practically unreachable).
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+
+	return hex.EncodeToString(b)
+}
+
+// UpdateResource updates the role ARN of an already registered resource.
+func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("ResourceArn is required: %w", ErrValidation)
+	}
+
+	if roleArn == "" {
+		return fmt.Errorf("RoleArn is required: %w", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateResource")
+	defer b.mu.Unlock()
+
+	info, ok := b.resources[resourceArn]
+	if !ok {
+		return awserr.New(
+			fmt.Sprintf("resource not found: %s", resourceArn),
+			awserr.ErrNotFound,
+		)
+	}
+
+	info.RoleArn = roleArn
+	now := time.Now()
+	info.LastModified = &now
+
+	return nil
+}
+
+// StartTransaction begins a new in-flight transaction and returns its ID.
+func (b *InMemoryBackend) StartTransaction() string {
+	id := newTransactionID()
+
+	b.mu.Lock("StartTransaction")
+	defer b.mu.Unlock()
+
+	b.transactions[id] = transactionStatusActive
+
+	return id
+}
+
+// DescribeTransaction returns the status of a specific transaction.
+func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transaction, error) {
+	if strings.TrimSpace(transactionID) == "" {
+		return nil, fmt.Errorf("TransactionId is required: %w", ErrValidation)
+	}
+
+	b.mu.RLock("DescribeTransaction")
+	defer b.mu.RUnlock()
+
+	status, ok := b.transactions[transactionID]
+	if !ok {
+		return nil, awserr.New(
+			fmt.Sprintf("transaction not found: %s", transactionID),
+			awserr.ErrNotFound,
+		)
+	}
+
+	return &Transaction{TransactionID: transactionID, TransactionStatus: status}, nil
+}
+
+// ListTransactions returns a paginated list of all known transactions.
+func (b *InMemoryBackend) ListTransactions(maxResults int, nextToken string) ([]*Transaction, string) {
+	b.mu.RLock("ListTransactions")
+	defer b.mu.RUnlock()
+
+	all := make([]*Transaction, 0, len(b.transactions))
+
+	for id, status := range b.transactions {
+		all = append(all, &Transaction{TransactionID: id, TransactionStatus: status})
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].TransactionID < all[j].TransactionID
+	})
+
+	return paginate(all, maxResults, nextToken, defaultMaxResults)
+}
+
+// RemoveLFTagsFromResource detaches LF-tags from the specified resource.
+// Failures are returned for any tag not currently attached to the resource.
+func (b *InMemoryBackend) RemoveLFTagsFromResource(
+	_ string,
+	resource *Resource,
+	lfTags []LFTagPair,
+) []LFTagError {
+	b.mu.Lock("RemoveLFTagsFromResource")
+	defer b.mu.Unlock()
+
+	failures := make([]LFTagError, 0)
+	resourceKey := resourceToKey(resource)
+	existing := b.resourceLFTags[resourceKey]
+
+	for _, pair := range lfTags {
+		found := false
+
+		for _, ex := range existing {
+			if ex.TagKey == pair.TagKey {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			pair := pair
+			failures = append(failures, LFTagError{
+				LFTag: &pair,
+				Error: &errorDetail{
+					ErrorCode:    "EntityNotFoundException",
+					ErrorMessage: fmt.Sprintf("LF tag not attached to resource: %s", pair.TagKey),
+				},
+			})
+
+			continue
+		}
+
+		existing = slices.DeleteFunc(existing, func(e LFTagPair) bool {
+			return e.TagKey == pair.TagKey
+		})
+	}
+
+	if len(existing) == 0 {
+		delete(b.resourceLFTags, resourceKey)
+	} else {
+		b.resourceLFTags[resourceKey] = existing
+	}
+
+	return failures
+}
+
+// GetResourceLFTags returns the LF-tags currently attached to a resource.
+func (b *InMemoryBackend) GetResourceLFTags(_ string, resource *Resource) ([]LFTagPair, error) {
+	if resource == nil {
+		return nil, fmt.Errorf("resource is required: %w", ErrValidation)
+	}
+
+	b.mu.RLock("GetResourceLFTags")
+	defer b.mu.RUnlock()
+
+	resourceKey := resourceToKey(resource)
+	pairs := b.resourceLFTags[resourceKey]
+
+	result := make([]LFTagPair, len(pairs))
+	copy(result, pairs)
+
+	return result, nil
+}
+
+// GetDataLakePrincipal returns a synthetic caller-identity principal.
+// In a real deployment, this returns the ARN of the calling IAM entity.
+func (b *InMemoryBackend) GetDataLakePrincipal() *DataLakePrincipal {
+	return &DataLakePrincipal{
+		DataLakePrincipalIdentifier: "arn:aws:iam::000000000000:user/gopherstack-user",
+	}
+}
+
+// ListDataCellsFilter returns a paginated list of data cells filters.
+// Optional tableCatalogID, databaseName, and tableName act as filters.
+func (b *InMemoryBackend) ListDataCellsFilter(
+	tableCatalogID, databaseName, tableName string,
+	maxResults int,
+	nextToken string,
+) ([]*DataCellsFilter, string) {
+	b.mu.RLock("ListDataCellsFilter")
+	defer b.mu.RUnlock()
+
+	all := make([]*DataCellsFilter, 0, len(b.dataCellsFilters))
+
+	for _, v := range b.dataCellsFilters {
+		if tableCatalogID != "" && v.TableCatalogID != tableCatalogID {
+			continue
+		}
+
+		if databaseName != "" && v.DatabaseName != databaseName {
+			continue
+		}
+
+		if tableName != "" && v.TableName != tableName {
+			continue
+		}
+
+		cp := *v
+		all = append(all, &cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		ki := all[i].TableCatalogID + "|" + all[i].DatabaseName + "|" + all[i].TableName + "|" + all[i].Name
+		kj := all[j].TableCatalogID + "|" + all[j].DatabaseName + "|" + all[j].TableName + "|" + all[j].Name
+
+		return ki < kj
+	})
+
+	return paginate(all, maxResults, nextToken, defaultMaxResults)
+}
+
+// ListLFTagExpressions returns a paginated list of LF-tag expressions for the given catalog.
+func (b *InMemoryBackend) ListLFTagExpressions(
+	catalogID string,
+	maxResults int,
+	nextToken string,
+) ([]*LFTagExpression, string) {
+	b.mu.RLock("ListLFTagExpressions")
+	defer b.mu.RUnlock()
+
+	all := make([]*LFTagExpression, 0, len(b.lfTagExpressions))
+
+	for k, v := range b.lfTagExpressions {
+		if catalogID != "" && k.CatalogID != catalogID {
+			continue
+		}
+
+		expr := *v
+
+		if v.Expression != nil {
+			expr.Expression = make([]LFTag, len(v.Expression))
+			copy(expr.Expression, v.Expression)
+		}
+
+		all = append(all, &expr)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CatalogID != all[j].CatalogID {
+			return all[i].CatalogID < all[j].CatalogID
+		}
+
+		return all[i].Name < all[j].Name
+	})
+
+	return paginate(all, maxResults, nextToken, defaultMaxResults)
+}
+
+// DeleteLakeFormationOptIn removes an opt-in enforcement entry for a principal and resource.
+func (b *InMemoryBackend) DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error {
+	if principal == nil {
+		return fmt.Errorf("principal is required: %w", ErrValidation)
+	}
+
+	if resource == nil {
+		return fmt.Errorf("resource is required: %w", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteLakeFormationOptIn")
+	defer b.mu.Unlock()
+
+	updated := make([]*LFOptIn, 0, len(b.lakeFormationOptIns))
+	found := false
+
+	for _, o := range b.lakeFormationOptIns {
+		if principalEqual(o.Principal, principal) && resourceEqual(o.Resource, resource) {
+			found = true
+
+			continue
+		}
+
+		updated = append(updated, o)
+	}
+
+	if !found {
+		return awserr.New("opt-in not found for this principal and resource", awserr.ErrNotFound)
+	}
+
+	b.lakeFormationOptIns = updated
+
+	return nil
+}
+
+// ListLakeFormationOptIns returns a paginated list of opt-in entries.
+// Optional principalIdentifier acts as a filter.
+func (b *InMemoryBackend) ListLakeFormationOptIns(
+	principalIdentifier string,
+	maxResults int,
+	nextToken string,
+) ([]*LFOptIn, string) {
+	b.mu.RLock("ListLakeFormationOptIns")
+	defer b.mu.RUnlock()
+
+	all := make([]*LFOptIn, 0, len(b.lakeFormationOptIns))
+
+	for _, o := range b.lakeFormationOptIns {
+		if principalIdentifier != "" && principalID(o.Principal) != principalIdentifier {
+			continue
+		}
+
+		cp := &LFOptIn{}
+
+		if o.Principal != nil {
+			p := *o.Principal
+			cp.Principal = &p
+		}
+
+		if o.Resource != nil {
+			cp.Resource = copyResource(o.Resource)
+		}
+
+		all = append(all, cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		pi := principalID(all[i].Principal)
+		pj := principalID(all[j].Principal)
+		if pi != pj {
+			return pi < pj
+		}
+
+		return resourceToKey(all[i].Resource) < resourceToKey(all[j].Resource)
+	})
+
+	return paginate(all, maxResults, nextToken, defaultMaxResults)
 }
