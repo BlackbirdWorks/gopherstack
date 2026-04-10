@@ -17,8 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := mwaa.NewInMemoryBackend("us-east-1", "000000000000")
 	h := mwaa.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &mwaasdk.Client{}, h.GetSupportedOperations(), []string{
-		"InvokeRestApi",
-		"PublishMetrics",
-	})
+	sdkcheck.CheckCompleteness(t, &mwaasdk.Client{}, h.GetSupportedOperations(), []string{})
 }

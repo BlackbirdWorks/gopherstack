@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
@@ -18,8 +18,31 @@ const (
 	defaultMaxWorkers          = int32(10)
 	defaultMinWorkers          = int32(1)
 	defaultWebserverAccessMode = "PUBLIC_ONLY"
-	environmentStatusAvailable = "AVAILABLE"
+	restAPISuccessCode         = int32(200)
+	maxMetricsPerEnv           = 1000
+
+	// Environment status constants.
+	envStatusAvailable = "AVAILABLE"
+	envStatusCreating  = "CREATING"
+	envStatusDeleting  = "DELETING"
+	envStatusUpdating  = "UPDATING"
+	envStatusError     = "ERROR"
+
+	// WebserverAccessMode constants.
+	accessModePublic  = "PUBLIC_ONLY"
+	accessModePrivate = "PRIVATE_ONLY"
 )
+
+// validEnvironmentClasses returns the set of valid environment class values.
+func validEnvironmentClasses() map[string]struct{} {
+	return map[string]struct{}{
+		"mw1.small":   {},
+		"mw1.medium":  {},
+		"mw1.large":   {},
+		"mw1.xlarge":  {},
+		"mw1.2xlarge": {},
+	}
+}
 
 // Errors used by the backend.
 var (
@@ -34,25 +57,17 @@ var (
 	ErrInvalidParameter = awserr.New("ValidationException: invalid parameter", awserr.ErrInvalidParameter)
 )
 
-// StorageBackend is the interface for the MWAA in-memory backend.
-type StorageBackend interface {
-	CreateEnvironment(region, accountID, name string, req *createEnvironmentRequest) (*Environment, error)
-	GetEnvironment(name string) (*Environment, error)
-	DeleteEnvironment(name string) (*Environment, error)
-	UpdateEnvironment(name string, req *updateEnvironmentRequest) (*Environment, error)
-	ListEnvironments() ([]string, error)
-	TagResource(resourceARN string, tags map[string]string) error
-	UntagResource(resourceARN string, tagKeys []string) error
-	ListTagsForResource(resourceARN string) (map[string]string, error)
-}
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	environments map[string]*Environment
-	arnIndex     map[string]string // ARN -> name
+	arnIndex     map[string]string
+	metrics      map[string][]MetricDatum
+	mu           *lockmetrics.RWMutex
 	region       string
 	accountID    string
-	mu           sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new MWAA in-memory backend.
@@ -62,7 +77,77 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		accountID:    accountID,
 		environments: make(map[string]*Environment),
 		arnIndex:     make(map[string]string),
+		metrics:      make(map[string][]MetricDatum),
+		mu:           lockmetrics.New("mwaa"),
 	}
+}
+
+// Region returns the configured region.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the configured account ID.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset closes the current mutex and reinitialises all maps.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Close()
+	b.mu = lockmetrics.New("mwaa")
+	b.environments = make(map[string]*Environment)
+	b.arnIndex = make(map[string]string)
+	b.metrics = make(map[string][]MetricDatum)
+}
+
+// AddEnvironmentInternal creates an environment with minimal defaults, bypassing
+// validation, intended for use in tests only.
+func (b *InMemoryBackend) AddEnvironmentInternal(name string) *Environment {
+	b.mu.Lock("AddEnvironmentInternal")
+	defer b.mu.Unlock()
+
+	envARN := arn.Build("airflow", b.region, b.accountID, fmt.Sprintf("environment/%s", name))
+	env := &Environment{
+		Name:      name,
+		ARN:       envARN,
+		Status:    envStatusAvailable,
+		Tags:      make(map[string]string),
+		CreatedAt: epochSecondsNow(),
+	}
+
+	b.environments[name] = env
+	b.arnIndex[envARN] = name
+
+	return env
+}
+
+// validateCreateRequest validates required fields and enumerated values for CreateEnvironment.
+func validateCreateRequest(req *createEnvironmentRequest) error {
+	if req.DagS3Path == "" {
+		return fmt.Errorf("%w: DagS3Path is required", ErrInvalidParameter)
+	}
+
+	if req.ExecutionRoleArn == "" {
+		return fmt.Errorf("%w: ExecutionRoleArn is required", ErrInvalidParameter)
+	}
+
+	if req.SourceBucketArn == "" {
+		return fmt.Errorf("%w: SourceBucketArn is required", ErrInvalidParameter)
+	}
+
+	if req.WebserverAccessMode != "" &&
+		req.WebserverAccessMode != accessModePublic &&
+		req.WebserverAccessMode != accessModePrivate {
+		return fmt.Errorf(
+			"%w: WebserverAccessMode must be %s or %s",
+			ErrInvalidParameter, accessModePublic, accessModePrivate,
+		)
+	}
+
+	if req.EnvironmentClass != "" {
+		if _, ok := validEnvironmentClasses()[req.EnvironmentClass]; !ok {
+			return fmt.Errorf("%w: invalid EnvironmentClass %q", ErrInvalidParameter, req.EnvironmentClass)
+		}
+	}
+
+	return nil
 }
 
 // CreateEnvironment creates a new MWAA environment.
@@ -70,7 +155,11 @@ func (b *InMemoryBackend) CreateEnvironment(
 	region, accountID, name string,
 	req *createEnvironmentRequest,
 ) (*Environment, error) {
-	b.mu.Lock()
+	if err := validateCreateRequest(req); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateEnvironment")
 	defer b.mu.Unlock()
 
 	if _, exists := b.environments[name]; exists {
@@ -123,7 +212,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	env := &Environment{
 		Name:                 name,
 		ARN:                  envARN,
-		Status:               environmentStatusAvailable,
+		Status:               envStatusAvailable,
 		DagS3Path:            req.DagS3Path,
 		ExecutionRoleArn:     req.ExecutionRoleArn,
 		SourceBucketArn:      req.SourceBucketArn,
@@ -144,9 +233,9 @@ func (b *InMemoryBackend) CreateEnvironment(
 	return env, nil
 }
 
-// GetEnvironment retrieves an MWAA environment by name.
+// GetEnvironment retrieves a deep copy of an MWAA environment by name.
 func (b *InMemoryBackend) GetEnvironment(name string) (*Environment, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetEnvironment")
 	defer b.mu.RUnlock()
 
 	env, ok := b.environments[name]
@@ -154,12 +243,12 @@ func (b *InMemoryBackend) GetEnvironment(name string) (*Environment, error) {
 		return nil, ErrEnvironmentNotFound
 	}
 
-	return env, nil
+	return cloneEnvironment(env), nil
 }
 
-// DeleteEnvironment deletes an MWAA environment by name.
+// DeleteEnvironment deletes an MWAA environment by name and cascades to metrics.
 func (b *InMemoryBackend) DeleteEnvironment(name string) (*Environment, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteEnvironment")
 	defer b.mu.Unlock()
 
 	env, ok := b.environments[name]
@@ -169,13 +258,14 @@ func (b *InMemoryBackend) DeleteEnvironment(name string) (*Environment, error) {
 
 	delete(b.environments, name)
 	delete(b.arnIndex, env.ARN)
+	delete(b.metrics, name)
 
 	return env, nil
 }
 
 // UpdateEnvironment updates an existing MWAA environment.
 func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentRequest) (*Environment, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateEnvironment")
 	defer b.mu.Unlock()
 
 	env, ok := b.environments[name]
@@ -233,7 +323,7 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 
 // ListEnvironments returns a sorted list of environment names.
 func (b *InMemoryBackend) ListEnvironments() ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListEnvironments")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.environments))
@@ -249,7 +339,7 @@ func (b *InMemoryBackend) ListEnvironments() ([]string, error) {
 
 // TagResource adds or updates tags on a resource identified by its ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	env := b.findByARN(resourceARN)
@@ -268,7 +358,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 // UntagResource removes tags from a resource identified by its ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	env := b.findByARN(resourceARN)
@@ -285,7 +375,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // ListTagsForResource returns all tags for a resource identified by its ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	env := b.findByARN(resourceARN)
@@ -307,4 +397,87 @@ func (b *InMemoryBackend) findByARN(resourceARN string) *Environment {
 	}
 
 	return b.environments[name]
+}
+
+// InvokeRestAPI simulates calling the Apache Airflow REST API on the specified environment's webserver.
+func (b *InMemoryBackend) InvokeRestAPI(envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error) {
+	b.mu.RLock("InvokeRestAPI")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return nil, ErrEnvironmentNotFound
+	}
+
+	if req.Method == "" {
+		return nil, fmt.Errorf("%w: Method is required", ErrInvalidParameter)
+	}
+
+	if req.Path == "" {
+		return nil, fmt.Errorf("%w: Path is required", ErrInvalidParameter)
+	}
+
+	return &InvokeRestAPIResponse{
+		RestAPIStatusCode: restAPISuccessCode,
+		RestAPIResponse:   map[string]any{},
+	}, nil
+}
+
+// PublishMetrics stores internal environment metrics for the specified environment.
+// The total number of metrics per environment is capped at maxMetricsPerEnv.
+func (b *InMemoryBackend) PublishMetrics(envName string, req *publishMetricsRequest) error {
+	b.mu.Lock("PublishMetrics")
+	defer b.mu.Unlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return ErrEnvironmentNotFound
+	}
+
+	b.metrics[envName] = append(b.metrics[envName], req.MetricData...)
+
+	if len(b.metrics[envName]) > maxMetricsPerEnv {
+		b.metrics[envName] = b.metrics[envName][len(b.metrics[envName])-maxMetricsPerEnv:]
+	}
+
+	return nil
+}
+
+// CreateCliToken validates that the environment exists and returns a stub CLI token.
+func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
+	b.mu.RLock("CreateCliToken")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return "", ErrEnvironmentNotFound
+	}
+
+	return "stub-cli-token-" + envName, nil
+}
+
+// CreateWebLoginToken validates that the environment exists and returns a stub web login token.
+func (b *InMemoryBackend) CreateWebLoginToken(envName string) (string, error) {
+	b.mu.RLock("CreateWebLoginToken")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return "", ErrEnvironmentNotFound
+	}
+
+	return "stub-web-token-" + envName, nil
+}
+
+// cloneEnvironment returns a deep copy of the given environment.
+func cloneEnvironment(env *Environment) *Environment {
+	clone := *env
+
+	if env.Tags != nil {
+		clone.Tags = make(map[string]string, len(env.Tags))
+		maps.Copy(clone.Tags, env.Tags)
+	}
+
+	if env.NetworkConfiguration != nil {
+		nc := *env.NetworkConfiguration
+		clone.NetworkConfiguration = &nc
+	}
+
+	return &clone
 }
