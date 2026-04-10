@@ -111,7 +111,7 @@ func (h *DashboardHandler) mediaconvertCreateQueue(c *echo.Context) error {
 
 	description := c.Request().FormValue("description")
 
-	if _, err := h.MediaConvertOps.Backend.CreateQueue(name, description, "", ""); err != nil {
+	if _, err := h.MediaConvertOps.Backend.CreateQueue(name, description, "", "", nil); err != nil {
 		h.Logger.ErrorContext(c.Request().Context(), "mediaconvert: failed to create queue", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

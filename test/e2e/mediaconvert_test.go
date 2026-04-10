@@ -21,6 +21,7 @@ func TestMediaConvertDashboard(t *testing.T) {
 		"e2e test queue",
 		"",
 		"",
+		nil,
 	)
 	require.NoError(t, err)
 

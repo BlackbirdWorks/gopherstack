@@ -1,9 +1,11 @@
 package mediaconvert
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,23 @@ var (
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrValidation is returned when request parameters fail validation.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+)
+
+const (
+	// statusActive is the active state for queues and presets.
+	statusActive = "ACTIVE"
+	// statusPaused is the paused state for queues.
+	statusPaused = "PAUSED"
+	// jobStatusSubmitted is the initial job state.
+	jobStatusSubmitted = "SUBMITTED"
+	// jobStatusProgressing is the in-progress job state.
+	jobStatusProgressing = "PROGRESSING"
+	// jobStatusCanceled is the canceled job state.
+	jobStatusCanceled = "CANCELED"
+	// pricingPlanOnDemand is the default pricing plan.
+	pricingPlanOnDemand = "ON_DEMAND"
 )
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value,
@@ -26,44 +45,109 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
 }
 
+// deepCopySettings returns a deep copy of a settings map, or nil if input is nil.
+func deepCopySettings(s map[string]any) map[string]any {
+	if s == nil {
+		return nil
+	}
+
+	data, err := json.Marshal(s)
+	if err != nil {
+		return nil
+	}
+
+	var cp map[string]any
+	if unmarshalErr := json.Unmarshal(data, &cp); unmarshalErr != nil {
+		return nil
+	}
+
+	return cp
+}
+
+// nonNilTagsCopy returns a copy of the given tags map; never returns nil.
+func nonNilTagsCopy(tags map[string]string) map[string]string {
+	cp := make(map[string]string, len(tags))
+	maps.Copy(cp, tags)
+
+	return cp
+}
+
 // Queue represents a MediaConvert queue.
 type Queue struct {
-	Arn                  string  `json:"arn"`
-	Name                 string  `json:"name"`
-	Description          string  `json:"description,omitempty"`
-	PricingPlan          string  `json:"pricingPlan"`
-	Status               string  `json:"status"`
-	Type                 string  `json:"type"`
-	CreatedAt            float64 `json:"createdAt"`
-	LastUpdated          float64 `json:"lastUpdated"`
-	ProgressingJobsCount int     `json:"progressingJobsCount"`
-	SubmittedJobsCount   int     `json:"submittedJobsCount"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Arn                  string            `json:"arn"`
+	Name                 string            `json:"name"`
+	Description          string            `json:"description,omitempty"`
+	PricingPlan          string            `json:"pricingPlan"`
+	ReservationPlanName  string            `json:"reservationPlanName,omitempty"`
+	Status               string            `json:"status"`
+	Type                 string            `json:"type"`
+	CreatedAt            float64           `json:"createdAt"`
+	LastUpdated          float64           `json:"lastUpdated"`
+	ProgressingJobsCount int               `json:"progressingJobsCount"`
+	SubmittedJobsCount   int               `json:"submittedJobsCount"`
 }
 
 // JobTemplate represents a MediaConvert job template.
 type JobTemplate struct {
-	Settings    map[string]any `json:"settings,omitempty"`
-	Arn         string         `json:"arn"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Category    string         `json:"category,omitempty"`
-	Queue       string         `json:"queue,omitempty"`
-	Type        string         `json:"type"`
-	CreatedAt   float64        `json:"createdAt"`
-	LastUpdated float64        `json:"lastUpdated"`
-	Priority    int            `json:"priority"`
+	Settings    map[string]any    `json:"settings,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Arn         string            `json:"arn"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Category    string            `json:"category,omitempty"`
+	Queue       string            `json:"queue,omitempty"`
+	Type        string            `json:"type"`
+	CreatedAt   float64           `json:"createdAt"`
+	LastUpdated float64           `json:"lastUpdated"`
+	Priority    int               `json:"priority"`
+}
+
+// JobTiming holds timing information for a MediaConvert job.
+type JobTiming struct {
+	SubmitTime float64 `json:"submitTime,omitempty"`
+	StartTime  float64 `json:"startTime,omitempty"`
+	FinishTime float64 `json:"finishTime,omitempty"`
 }
 
 // Job represents a MediaConvert transcoding job.
 type Job struct {
-	Settings    map[string]any `json:"settings,omitempty"`
-	Arn         string         `json:"arn"`
-	ID          string         `json:"id"`
-	Queue       string         `json:"queue,omitempty"`
-	Role        string         `json:"role"`
-	Status      string         `json:"status"`
-	JobTemplate string         `json:"jobTemplate,omitempty"`
-	CreatedAt   float64        `json:"createdAt"`
+	Settings           map[string]any    `json:"settings,omitempty"`
+	Tags               map[string]string `json:"tags,omitempty"`
+	UserMetadata       map[string]string `json:"userMetadata,omitempty"`
+	Timing             *JobTiming        `json:"timing,omitempty"`
+	Arn                string            `json:"arn"`
+	ID                 string            `json:"id"`
+	Queue              string            `json:"queue,omitempty"`
+	QueueArn           string            `json:"queueArn,omitempty"`
+	Role               string            `json:"role"`
+	Status             string            `json:"status"`
+	JobTemplate        string            `json:"jobTemplate,omitempty"`
+	ErrorMessage       string            `json:"errorMessage,omitempty"`
+	BillingTagsSource  string            `json:"billingTagsSource,omitempty"`
+	AccelerationStatus string            `json:"accelerationStatus,omitempty"`
+	ErrorCode          int               `json:"errorCode,omitempty"`
+	CreatedAt          float64           `json:"createdAt"`
+}
+
+// Preset represents a MediaConvert output preset.
+type Preset struct {
+	Settings    map[string]any    `json:"settings,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Arn         string            `json:"arn"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Category    string            `json:"category,omitempty"`
+	Type        string            `json:"type"`
+	CreatedAt   float64           `json:"createdAt"`
+	LastUpdated float64           `json:"lastUpdated"`
+}
+
+// Policy represents a MediaConvert account policy.
+type Policy struct {
+	HTTPInputs  string `json:"httpInputs,omitempty"`
+	HTTPSInputs string `json:"httpsInputs,omitempty"`
+	S3Inputs    string `json:"s3Inputs,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for MediaConvert resources.
@@ -71,7 +155,10 @@ type InMemoryBackend struct {
 	queues       map[string]*Queue
 	jobTemplates map[string]*JobTemplate
 	jobs         map[string]*Job
+	presets      map[string]*Preset
 	tags         map[string]map[string]string
+	certificates map[string]struct{}
+	policy       *Policy
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -83,7 +170,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		queues:       make(map[string]*Queue),
 		jobTemplates: make(map[string]*JobTemplate),
 		jobs:         make(map[string]*Job),
+		presets:      make(map[string]*Preset),
 		tags:         make(map[string]map[string]string),
+		certificates: make(map[string]struct{}),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("mediaconvert"),
@@ -93,21 +182,79 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the region configured for this backend.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the account ID configured for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all stored resources, resetting the backend to its initial state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.queues = make(map[string]*Queue)
+	b.jobTemplates = make(map[string]*JobTemplate)
+	b.jobs = make(map[string]*Job)
+	b.presets = make(map[string]*Preset)
+	b.tags = make(map[string]map[string]string)
+	b.certificates = make(map[string]struct{})
+	b.policy = nil
+}
+
+// --- Internal seed helpers (used by tests) ---
+
+// AddQueueInternal inserts a queue directly into the backend, bypassing business logic.
+func (b *InMemoryBackend) AddQueueInternal(q *Queue) {
+	b.mu.Lock("AddQueueInternal")
+	defer b.mu.Unlock()
+
+	b.queues[q.Name] = q
+}
+
+// AddJobTemplateInternal inserts a job template directly into the backend.
+func (b *InMemoryBackend) AddJobTemplateInternal(jt *JobTemplate) {
+	b.mu.Lock("AddJobTemplateInternal")
+	defer b.mu.Unlock()
+
+	b.jobTemplates[jt.Name] = jt
+}
+
+// AddJobInternal inserts a job directly into the backend.
+func (b *InMemoryBackend) AddJobInternal(j *Job) {
+	b.mu.Lock("AddJobInternal")
+	defer b.mu.Unlock()
+
+	b.jobs[j.ID] = j
+}
+
+// AddPresetInternal inserts a preset directly into the backend.
+func (b *InMemoryBackend) AddPresetInternal(p *Preset) {
+	b.mu.Lock("AddPresetInternal")
+	defer b.mu.Unlock()
+
+	b.presets[p.Name] = p
+}
+
 // CreateQueue creates a new MediaConvert queue.
-func (b *InMemoryBackend) CreateQueue(name, description, pricingPlan, status string) (*Queue, error) {
+func (b *InMemoryBackend) CreateQueue(
+	name, description, pricingPlan, status string,
+	tags map[string]string,
+) (*Queue, error) {
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
 
 	if _, ok := b.queues[name]; ok {
 		return nil, fmt.Errorf("%w: queue %s already exists", ErrAlreadyExists, name)
 	}
 
 	if pricingPlan == "" {
-		pricingPlan = "ON_DEMAND"
+		pricingPlan = pricingPlanOnDemand
 	}
 
 	if status == "" {
-		status = "ACTIVE"
+		status = statusActive
 	}
 
 	now := epochSeconds(time.Now())
@@ -118,13 +265,19 @@ func (b *InMemoryBackend) CreateQueue(name, description, pricingPlan, status str
 		PricingPlan: pricingPlan,
 		Status:      status,
 		Type:        "CUSTOM",
+		Tags:        nonNilTagsCopy(tags),
 		CreatedAt:   now,
 		LastUpdated: now,
 	}
 	b.queues[name] = q
-	cp := *q
 
-	return &cp, nil
+	if len(tags) > 0 {
+		b.storeTagsLocked(q.Arn, tags)
+	}
+
+	cp := cloneQueue(q)
+
+	return cp, nil
 }
 
 // GetQueue returns a queue by name.
@@ -136,9 +289,11 @@ func (b *InMemoryBackend) GetQueue(name string) (*Queue, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
-	cp := *q
 
-	return &cp, nil
+	cp := cloneQueue(q)
+	cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.countJobsForQueueLocked(q.Arn)
+
+	return cp, nil
 }
 
 // ListQueues returns all queues sorted by name.
@@ -148,13 +303,35 @@ func (b *InMemoryBackend) ListQueues() []*Queue {
 
 	list := make([]*Queue, 0, len(b.queues))
 	for _, q := range b.queues {
-		cp := *q
-		list = append(list, &cp)
+		cp := cloneQueue(q)
+		cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.countJobsForQueueLocked(q.Arn)
+		list = append(list, cp)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
 	return list
+}
+
+// countJobsForQueueLocked counts PROGRESSING and SUBMITTED jobs for a queue ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) countJobsForQueueLocked(queueArn string) (int, int) {
+	var progressing, submitted int
+
+	for _, j := range b.jobs {
+		if j.QueueArn != queueArn {
+			continue
+		}
+
+		switch j.Status {
+		case jobStatusProgressing:
+			progressing++
+		case jobStatusSubmitted:
+			submitted++
+		}
+	}
+
+	return progressing, submitted
 }
 
 // UpdateQueue updates a queue's description and status.
@@ -167,6 +344,10 @@ func (b *InMemoryBackend) UpdateQueue(name, description, status string) (*Queue,
 		return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
 
+	if status != "" && status != statusActive && status != statusPaused {
+		return nil, fmt.Errorf("%w: status must be ACTIVE or PAUSED", ErrValidation)
+	}
+
 	if description != "" {
 		q.Description = description
 	}
@@ -176,9 +357,8 @@ func (b *InMemoryBackend) UpdateQueue(name, description, status string) (*Queue,
 	}
 
 	q.LastUpdated = epochSeconds(time.Now())
-	cp := *q
 
-	return &cp, nil
+	return cloneQueue(q), nil
 }
 
 // DeleteQueue removes a queue by name.
@@ -201,9 +381,14 @@ func (b *InMemoryBackend) CreateJobTemplate(
 	name, description, category, queue string,
 	priority int,
 	settings map[string]any,
+	tags map[string]string,
 ) (*JobTemplate, error) {
 	b.mu.Lock("CreateJobTemplate")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
 
 	if _, ok := b.jobTemplates[name]; ok {
 		return nil, fmt.Errorf("%w: job template %s already exists", ErrAlreadyExists, name)
@@ -217,15 +402,19 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		Category:    category,
 		Queue:       queue,
 		Priority:    priority,
-		Settings:    settings,
+		Settings:    deepCopySettings(settings),
+		Tags:        nonNilTagsCopy(tags),
 		Type:        "CUSTOM",
 		CreatedAt:   now,
 		LastUpdated: now,
 	}
 	b.jobTemplates[name] = jt
-	cp := *jt
 
-	return &cp, nil
+	if len(tags) > 0 {
+		b.storeTagsLocked(jt.Arn, tags)
+	}
+
+	return cloneJobTemplate(jt), nil
 }
 
 // GetJobTemplate returns a job template by name.
@@ -237,9 +426,8 @@ func (b *InMemoryBackend) GetJobTemplate(name string) (*JobTemplate, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: job template %s not found", ErrNotFound, name)
 	}
-	cp := *jt
 
-	return &cp, nil
+	return cloneJobTemplate(jt), nil
 }
 
 // ListJobTemplates returns all job templates sorted by name.
@@ -249,8 +437,7 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 
 	list := make([]*JobTemplate, 0, len(b.jobTemplates))
 	for _, jt := range b.jobTemplates {
-		cp := *jt
-		list = append(list, &cp)
+		list = append(list, cloneJobTemplate(jt))
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
@@ -289,13 +476,12 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 	}
 
 	if settings != nil {
-		jt.Settings = settings
+		jt.Settings = deepCopySettings(settings)
 	}
 
 	jt.LastUpdated = epochSeconds(time.Now())
-	cp := *jt
 
-	return &cp, nil
+	return cloneJobTemplate(jt), nil
 }
 
 // DeleteJobTemplate removes a job template by name.
@@ -314,25 +500,56 @@ func (b *InMemoryBackend) DeleteJobTemplate(name string) error {
 }
 
 // CreateJob creates a new MediaConvert job.
-func (b *InMemoryBackend) CreateJob(role, queue, jobTemplate string, settings map[string]any) (*Job, error) {
+func (b *InMemoryBackend) CreateJob(
+	role, queue, jobTemplate string,
+	settings map[string]any,
+	tags map[string]string,
+	userMetadata map[string]string,
+	billingTagsSource string,
+) (*Job, error) {
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
+	if role == "" {
+		return nil, fmt.Errorf("%w: role is required", ErrValidation)
+	}
+
+	// Resolve queue ARN from queue name.
+	queueArn := ""
+	if queue != "" {
+		q, ok := b.queues[queue]
+		if !ok {
+			return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, queue)
+		}
+
+		queueArn = q.Arn
+	}
+
+	now := epochSeconds(time.Now())
 	id := generateJobID()
 	j := &Job{
-		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
-		ID:          id,
-		Role:        role,
-		Queue:       queue,
-		JobTemplate: jobTemplate,
-		Status:      "SUBMITTED",
-		Settings:    settings,
-		CreatedAt:   epochSeconds(time.Now()),
+		Arn:                arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
+		ID:                 id,
+		Role:               role,
+		Queue:              queue,
+		QueueArn:           queueArn,
+		JobTemplate:        jobTemplate,
+		Status:             jobStatusSubmitted,
+		Settings:           deepCopySettings(settings),
+		Tags:               nonNilTagsCopy(tags),
+		UserMetadata:       nonNilTagsCopy(userMetadata),
+		BillingTagsSource:  billingTagsSource,
+		AccelerationStatus: "NOT_APPLICABLE",
+		Timing:             &JobTiming{SubmitTime: now},
+		CreatedAt:          now,
 	}
 	b.jobs[id] = j
-	cp := *j
 
-	return &cp, nil
+	if len(tags) > 0 {
+		b.storeTagsLocked(j.Arn, tags)
+	}
+
+	return cloneJob(j), nil
 }
 
 // GetJob returns a job by ID.
@@ -344,9 +561,8 @@ func (b *InMemoryBackend) GetJob(id string) (*Job, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
-	cp := *j
 
-	return &cp, nil
+	return cloneJob(j), nil
 }
 
 // ListJobs returns all jobs sorted by creation time (newest first).
@@ -356,8 +572,7 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 
 	list := make([]*Job, 0, len(b.jobs))
 	for _, j := range b.jobs {
-		cp := *j
-		list = append(list, &cp)
+		list = append(list, cloneJob(j))
 	}
 
 	sort.Slice(list, func(i, j int) bool {
@@ -368,6 +583,7 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 }
 
 // CancelJob cancels a job by ID.
+// Only SUBMITTED or PROGRESSING jobs can be canceled.
 func (b *InMemoryBackend) CancelJob(id string) error {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
@@ -376,7 +592,12 @@ func (b *InMemoryBackend) CancelJob(id string) error {
 	if !ok {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
-	j.Status = "CANCELED"
+
+	if j.Status != jobStatusSubmitted && j.Status != jobStatusProgressing {
+		return fmt.Errorf("%w: job %s cannot be canceled in status %s", ErrValidation, id, j.Status)
+	}
+
+	j.Status = jobStatusCanceled
 
 	return nil
 }
@@ -407,11 +628,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if b.tags[resourceARN] == nil {
-		b.tags[resourceARN] = make(map[string]string)
-	}
-
-	maps.Copy(b.tags[resourceARN], tags)
+	b.storeTagsLocked(resourceARN, tags)
 }
 
 // UntagResource removes the specified tag keys from the resource ARN.
@@ -426,4 +643,274 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) {
 	if len(b.tags[resourceARN]) == 0 {
 		delete(b.tags, resourceARN)
 	}
+}
+
+// storeTagsLocked merges tags into the ARN tag map.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) storeTagsLocked(resourceARN string, tags map[string]string) {
+	if len(tags) == 0 {
+		return
+	}
+
+	if b.tags[resourceARN] == nil {
+		b.tags[resourceARN] = make(map[string]string, len(tags))
+	}
+
+	maps.Copy(b.tags[resourceARN], tags)
+}
+
+// CreatePreset creates a new MediaConvert output preset.
+func (b *InMemoryBackend) CreatePreset(
+	name, description, category string,
+	settings map[string]any,
+	tags map[string]string,
+) (*Preset, error) {
+	b.mu.Lock("CreatePreset")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if _, ok := b.presets[name]; ok {
+		return nil, fmt.Errorf("%w: preset %s already exists", ErrAlreadyExists, name)
+	}
+
+	now := epochSeconds(time.Now())
+	p := &Preset{
+		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "presets/"+name),
+		Name:        name,
+		Description: description,
+		Category:    category,
+		Settings:    deepCopySettings(settings),
+		Tags:        nonNilTagsCopy(tags),
+		Type:        "CUSTOM",
+		CreatedAt:   now,
+		LastUpdated: now,
+	}
+	b.presets[name] = p
+
+	if len(tags) > 0 {
+		b.storeTagsLocked(p.Arn, tags)
+	}
+
+	return clonePreset(p), nil
+}
+
+// GetPreset returns a preset by name.
+func (b *InMemoryBackend) GetPreset(name string) (*Preset, error) {
+	b.mu.RLock("GetPreset")
+	defer b.mu.RUnlock()
+
+	p, ok := b.presets[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
+	}
+
+	return clonePreset(p), nil
+}
+
+// ListPresets returns all presets sorted by name.
+func (b *InMemoryBackend) ListPresets() []*Preset {
+	b.mu.RLock("ListPresets")
+	defer b.mu.RUnlock()
+
+	list := make([]*Preset, 0, len(b.presets))
+	for _, p := range b.presets {
+		list = append(list, clonePreset(p))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// UpdatePreset updates a preset's description, category, and settings.
+func (b *InMemoryBackend) UpdatePreset(name, description, category string, settings map[string]any) (*Preset, error) {
+	b.mu.Lock("UpdatePreset")
+	defer b.mu.Unlock()
+
+	p, ok := b.presets[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
+	}
+
+	if description != "" {
+		p.Description = description
+	}
+
+	if category != "" {
+		p.Category = category
+	}
+
+	if settings != nil {
+		p.Settings = deepCopySettings(settings)
+	}
+
+	p.LastUpdated = epochSeconds(time.Now())
+
+	return clonePreset(p), nil
+}
+
+// DeletePreset removes a preset by name.
+func (b *InMemoryBackend) DeletePreset(name string) error {
+	b.mu.Lock("DeletePreset")
+	defer b.mu.Unlock()
+
+	p, ok := b.presets[name]
+	if !ok {
+		return fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
+	}
+	delete(b.tags, p.Arn)
+	delete(b.presets, name)
+
+	return nil
+}
+
+// GetPolicy returns the current account policy, or nil if none has been set.
+func (b *InMemoryBackend) GetPolicy() (*Policy, error) {
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	if b.policy == nil {
+		return nil, fmt.Errorf("%w: no policy configured", ErrNotFound)
+	}
+	cp := *b.policy
+
+	return &cp, nil
+}
+
+// PutPolicy sets the account policy.
+func (b *InMemoryBackend) PutPolicy(httpInputs, httpsInputs, s3Inputs string) *Policy {
+	b.mu.Lock("PutPolicy")
+	defer b.mu.Unlock()
+
+	b.policy = &Policy{
+		HTTPInputs:  httpInputs,
+		HTTPSInputs: httpsInputs,
+		S3Inputs:    s3Inputs,
+	}
+	cp := *b.policy
+
+	return &cp
+}
+
+// DeletePolicy removes the account policy.
+func (b *InMemoryBackend) DeletePolicy() error {
+	b.mu.Lock("DeletePolicy")
+	defer b.mu.Unlock()
+
+	if b.policy == nil {
+		return fmt.Errorf("%w: no policy configured", ErrNotFound)
+	}
+	b.policy = nil
+
+	return nil
+}
+
+// AssociateCertificate registers an ACM certificate ARN with this backend.
+func (b *InMemoryBackend) AssociateCertificate(certARN string) error {
+	b.mu.Lock("AssociateCertificate")
+	defer b.mu.Unlock()
+
+	if certARN == "" {
+		return fmt.Errorf("%w: arn is required", ErrValidation)
+	}
+
+	if !strings.HasPrefix(certARN, "arn:") {
+		return fmt.Errorf("%w: arn must start with 'arn:'", ErrValidation)
+	}
+
+	if _, ok := b.certificates[certARN]; ok {
+		return fmt.Errorf("%w: certificate %s already associated", ErrAlreadyExists, certARN)
+	}
+	b.certificates[certARN] = struct{}{}
+
+	return nil
+}
+
+// DisassociateCertificate removes an ACM certificate ARN association.
+func (b *InMemoryBackend) DisassociateCertificate(certARN string) error {
+	b.mu.Lock("DisassociateCertificate")
+	defer b.mu.Unlock()
+
+	if certARN == "" {
+		return fmt.Errorf("%w: arn is required", ErrValidation)
+	}
+
+	if !strings.HasPrefix(certARN, "arn:") {
+		return fmt.Errorf("%w: arn must start with 'arn:'", ErrValidation)
+	}
+
+	if _, ok := b.certificates[certARN]; !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrNotFound, certARN)
+	}
+	delete(b.certificates, certARN)
+
+	return nil
+}
+
+// GetJobsQueryResults returns an empty jobs query result set for the given query ID.
+// Because StartJobsQuery is not implemented, all query IDs return an empty result.
+func (b *InMemoryBackend) GetJobsQueryResults(_ string) []*Job {
+	b.mu.RLock("GetJobsQueryResults")
+	defer b.mu.RUnlock()
+
+	return []*Job{}
+}
+
+// CreateResourceShare records a resource-share request for the given job ID.
+// The return value is the job ID echoed back (no persistent share store is maintained).
+func (b *InMemoryBackend) CreateResourceShare(jobID string) (string, error) {
+	b.mu.RLock("CreateResourceShare")
+	defer b.mu.RUnlock()
+
+	if jobID == "" {
+		return "", fmt.Errorf("%w: jobId is required", ErrValidation)
+	}
+
+	if _, ok := b.jobs[jobID]; !ok {
+		return "", fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+	}
+
+	return jobID, nil
+}
+
+// --- Deep clone helpers ---
+
+func cloneQueue(q *Queue) *Queue {
+	cp := *q
+	cp.Tags = nonNilTagsCopy(q.Tags)
+
+	return &cp
+}
+
+func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
+	cp := *jt
+	cp.Settings = deepCopySettings(jt.Settings)
+	cp.Tags = nonNilTagsCopy(jt.Tags)
+
+	return &cp
+}
+
+func cloneJob(j *Job) *Job {
+	cp := *j
+	cp.Settings = deepCopySettings(j.Settings)
+	cp.Tags = nonNilTagsCopy(j.Tags)
+	cp.UserMetadata = nonNilTagsCopy(j.UserMetadata)
+
+	if j.Timing != nil {
+		t := *j.Timing
+		cp.Timing = &t
+	}
+
+	return &cp
+}
+
+func clonePreset(p *Preset) *Preset {
+	cp := *p
+	cp.Settings = deepCopySettings(p.Settings)
+	cp.Tags = nonNilTagsCopy(p.Tags)
+
+	return &cp
 }
