@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,32 +39,55 @@ func NewHandler(backend StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "MemoryDB" }
 
+// Reset clears all state by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // GetSupportedOperations returns the list of supported MemoryDB operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateCluster",
-		"DescribeClusters",
-		"DeleteCluster",
-		"UpdateCluster",
+		"BatchUpdateCluster",
+		"CopySnapshot",
 		"CreateACL",
-		"DescribeACLs",
-		"DeleteACL",
-		"UpdateACL",
-		"CreateSubnetGroup",
-		"DescribeSubnetGroups",
-		"DeleteSubnetGroup",
-		"UpdateSubnetGroup",
-		"CreateUser",
-		"DescribeUsers",
-		"DeleteUser",
-		"UpdateUser",
+		"CreateCluster",
+		"CreateMultiRegionCluster",
 		"CreateParameterGroup",
-		"DescribeParameterGroups",
+		"CreateSnapshot",
+		"CreateSubnetGroup",
+		"CreateUser",
+		"DeleteACL",
+		"DeleteCluster",
+		"DeleteMultiRegionCluster",
 		"DeleteParameterGroup",
-		"UpdateParameterGroup",
+		"DeleteSnapshot",
+		"DeleteSubnetGroup",
+		"DeleteUser",
+		"DescribeACLs",
+		"DescribeClusters",
+		"DescribeEngineVersions",
+		"DescribeEvents",
+		"DescribeMultiRegionClusters",
+		"DescribeMultiRegionParameterGroups",
+		"DescribeParameterGroups",
+		"DescribeParameters",
+		"DescribeServiceUpdates",
+		"DescribeSnapshots",
+		"DescribeSubnetGroups",
+		"DescribeUsers",
+		"FailoverShard",
+		"ListAllowedMultiRegionClusterUpdates",
+		"ListAllowedNodeTypeUpdates",
 		"ListTags",
+		"ResetParameterGroup",
 		"TagResource",
 		"UntagResource",
+		"UpdateACL",
+		"UpdateCluster",
+		"UpdateMultiRegionCluster",
+		"UpdateParameterGroup",
+		"UpdateSubnetGroup",
+		"UpdateUser",
 	}
 }
 
@@ -117,7 +141,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	resourceKeys := []string{
 		"ClusterName", "ACLName", "SubnetGroupName",
-		"UserName", "ParameterGroupName", "ResourceArn",
+		"UserName", "ParameterGroupName", "SnapshotName",
+		"ResourceArn",
 	}
 
 	for _, key := range resourceKeys {
@@ -164,59 +189,145 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes to the appropriate handler based on the operation name.
-//
-//nolint:cyclop // switch-based operation dispatch; each case is a single delegation.
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "CreateCluster":
-		return h.handleCreateCluster(c, body)
-	case "DescribeClusters":
-		return h.handleDescribeClusters(c, body)
-	case "DeleteCluster":
-		return h.handleDeleteCluster(c, body)
-	case "UpdateCluster":
-		return h.handleUpdateCluster(c, body)
-	case "CreateACL":
-		return h.handleCreateACL(c, body)
-	case "DescribeACLs":
-		return h.handleDescribeACLs(c, body)
-	case "DeleteACL":
-		return h.handleDeleteACL(c, body)
-	case "UpdateACL":
-		return h.handleUpdateACL(c, body)
-	case "CreateSubnetGroup":
-		return h.handleCreateSubnetGroup(c, body)
-	case "DescribeSubnetGroups":
-		return h.handleDescribeSubnetGroups(c, body)
-	case "DeleteSubnetGroup":
-		return h.handleDeleteSubnetGroup(c, body)
-	case "UpdateSubnetGroup":
-		return h.handleUpdateSubnetGroup(c, body)
-	case "CreateUser":
-		return h.handleCreateUser(c, body)
-	case "DescribeUsers":
-		return h.handleDescribeUsers(c, body)
-	case "DeleteUser":
-		return h.handleDeleteUser(c, body)
-	case "UpdateUser":
-		return h.handleUpdateUser(c, body)
-	case "CreateParameterGroup":
-		return h.handleCreateParameterGroup(c, body)
-	case "DescribeParameterGroups":
-		return h.handleDescribeParameterGroups(c, body)
-	case "DeleteParameterGroup":
-		return h.handleDeleteParameterGroup(c, body)
-	case "UpdateParameterGroup":
-		return h.handleUpdateParameterGroup(c, body)
-	case "ListTags":
-		return h.handleListTags(c, body)
-	case "TagResource":
-		return h.handleTagResource(c, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, body)
+	if handled, result := h.dispatchCoreOps(c, op, body); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchNewOps(c, op, body); handled {
+		return result
 	}
 
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
+}
+
+// dispatchCoreOps handles the original core operations.
+//
+//nolint:cyclop // switch-based operation dispatch; each case is a single delegation.
+func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateCluster":
+		return true, h.handleCreateCluster(c, body)
+	case "DescribeClusters":
+		return true, h.handleDescribeClusters(c, body)
+	case "DeleteCluster":
+		return true, h.handleDeleteCluster(c, body)
+	case "UpdateCluster":
+		return true, h.handleUpdateCluster(c, body)
+	case "CreateACL":
+		return true, h.handleCreateACL(c, body)
+	case "DescribeACLs":
+		return true, h.handleDescribeACLs(c, body)
+	case "DeleteACL":
+		return true, h.handleDeleteACL(c, body)
+	case "UpdateACL":
+		return true, h.handleUpdateACL(c, body)
+	case "CreateSubnetGroup":
+		return true, h.handleCreateSubnetGroup(c, body)
+	case "DescribeSubnetGroups":
+		return true, h.handleDescribeSubnetGroups(c, body)
+	case "DeleteSubnetGroup":
+		return true, h.handleDeleteSubnetGroup(c, body)
+	case "UpdateSubnetGroup":
+		return true, h.handleUpdateSubnetGroup(c, body)
+	case "CreateUser":
+		return true, h.handleCreateUser(c, body)
+	case "DescribeUsers":
+		return true, h.handleDescribeUsers(c, body)
+	case "DeleteUser":
+		return true, h.handleDeleteUser(c, body)
+	case "UpdateUser":
+		return true, h.handleUpdateUser(c, body)
+	case "CreateParameterGroup":
+		return true, h.handleCreateParameterGroup(c, body)
+	case "DescribeParameterGroups":
+		return true, h.handleDescribeParameterGroups(c, body)
+	case "DeleteParameterGroup":
+		return true, h.handleDeleteParameterGroup(c, body)
+	case "UpdateParameterGroup":
+		return true, h.handleUpdateParameterGroup(c, body)
+	case "ListTags":
+		return true, h.handleListTags(c, body)
+	case "TagResource":
+		return true, h.handleTagResource(c, body)
+	case "UntagResource":
+		return true, h.handleUntagResource(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchNewOps handles the new operations added in this release.
+func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool, error) {
+	if ok, err := h.dispatchSnapshotAndEngineOps(c, op, body); ok {
+		return true, err
+	}
+
+	if ok, err := h.dispatchMultiRegionOps(c, op, body); ok {
+		return true, err
+	}
+
+	return h.dispatchParameterAndShardOps(c, op, body)
+}
+
+// dispatchSnapshotAndEngineOps handles snapshot, engine-version, and event operations.
+func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateSnapshot":
+		return true, h.handleCreateSnapshot(c, body)
+	case "DescribeSnapshots":
+		return true, h.handleDescribeSnapshots(c, body)
+	case "CopySnapshot":
+		return true, h.handleCopySnapshot(c, body)
+	case "DeleteSnapshot":
+		return true, h.handleDeleteSnapshot(c, body)
+	case "DescribeEngineVersions":
+		return true, h.handleDescribeEngineVersions(c, body)
+	case "DescribeEvents":
+		return true, h.handleDescribeEvents(c, body)
+	case "BatchUpdateCluster":
+		return true, h.handleBatchUpdateCluster(c, body)
+	case "DescribeServiceUpdates":
+		return true, h.handleDescribeServiceUpdates(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchMultiRegionOps handles multi-region cluster and parameter group operations.
+func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateMultiRegionCluster":
+		return true, h.handleCreateMultiRegionCluster(c, body)
+	case "DeleteMultiRegionCluster":
+		return true, h.handleDeleteMultiRegionCluster(c, body)
+	case "DescribeMultiRegionClusters":
+		return true, h.handleDescribeMultiRegionClusters(c, body)
+	case "DescribeMultiRegionParameterGroups":
+		return true, h.handleDescribeMultiRegionParameterGroups(c, body)
+	case "UpdateMultiRegionCluster":
+		return true, h.handleUpdateMultiRegionCluster(c, body)
+	case "ListAllowedMultiRegionClusterUpdates":
+		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchParameterAndShardOps handles parameter group and shard operations.
+func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "DescribeParameters":
+		return true, h.handleDescribeParameters(c, body)
+	case "ResetParameterGroup":
+		return true, h.handleResetParameterGroup(c, body)
+	case "FailoverShard":
+		return true, h.handleFailoverShard(c, body)
+	case "ListAllowedNodeTypeUpdates":
+		return true, h.handleListAllowedNodeTypeUpdates(c, body)
+	}
+
+	return false, nil
 }
 
 // -- Cluster handlers ------------------------------------------------------------
@@ -276,7 +387,19 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
-	cluster, err := h.Backend.DeleteCluster(req.ClusterName)
+	var (
+		cluster *Cluster
+		err     error
+	)
+
+	if req.FinalSnapshotName != "" {
+		cluster, err = h.Backend.DeleteClusterWithSnapshot(
+			h.DefaultRegion, h.AccountID, req.ClusterName, req.FinalSnapshotName,
+		)
+	} else {
+		cluster, err = h.Backend.DeleteCluster(req.ClusterName)
+	}
+
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -661,7 +784,13 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	// Return the resulting tag list (AWS behaviour).
+	result, err := h.Backend.ListTags(req.ResourceArn)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listTagsResponse{TagList: tagsToSlice(result)})
 }
 
 func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
@@ -679,7 +808,436 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	// Return the remaining tag list (AWS behaviour).
+	result, err := h.Backend.ListTags(req.ResourceArn)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listTagsResponse{TagList: tagsToSlice(result)})
+}
+
+// -- Snapshot handlers -----------------------------------------------------------
+
+func (h *Handler) handleCreateSnapshot(c *echo.Context, body []byte) error {
+	var req createSnapshotRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.SnapshotName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SnapshotName is required")
+	}
+
+	if req.ClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
+	}
+
+	s, err := h.Backend.CreateSnapshot(h.DefaultRegion, h.AccountID, &req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createSnapshotResponse{Snapshot: toSnapshotObject(s)})
+}
+
+func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
+	var req copySnapshotRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.SourceSnapshotName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SourceSnapshotName is required")
+	}
+
+	if req.TargetSnapshotName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "TargetSnapshotName is required")
+	}
+
+	s, err := h.Backend.CopySnapshot(h.DefaultRegion, h.AccountID, &req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, copySnapshotResponse{Snapshot: toSnapshotObject(s)})
+}
+
+func (h *Handler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
+	var req deleteSnapshotRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.SnapshotName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SnapshotName is required")
+	}
+
+	s, err := h.Backend.DeleteSnapshot(req.SnapshotName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteSnapshotResponse{Snapshot: toSnapshotObject(s)})
+}
+
+func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
+	var req describeSnapshotRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]snapshotObject, 0, len(snapshots))
+
+	for _, s := range snapshots {
+		objs = append(objs, toSnapshotObject(s))
+	}
+
+	return c.JSON(http.StatusOK, describeSnapshotResponse{Snapshots: objs})
+}
+
+// -- EngineVersion handlers ------------------------------------------------------
+
+func (h *Handler) handleDescribeEngineVersions(c *echo.Context, body []byte) error {
+	var req describeEngineVersionsRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	versions, err := h.Backend.DescribeEngineVersions(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]engineVersionObject, 0, len(versions))
+
+	for _, ev := range versions {
+		objs = append(objs, engineVersionObject{
+			EngineVersion:        ev.EngineVersion,
+			EnginePatchVersion:   ev.EnginePatchVersion,
+			ParameterGroupFamily: ev.ParameterGroupFamily,
+			Description:          ev.Description,
+		})
+	}
+
+	return c.JSON(http.StatusOK, describeEngineVersionsResponse{EngineVersions: objs})
+}
+
+// -- Event handlers --------------------------------------------------------------
+
+func (h *Handler) handleDescribeEvents(c *echo.Context, body []byte) error {
+	var req describeEventsRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	events, err := h.Backend.DescribeEvents(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]eventObject, 0, len(events))
+
+	for _, ev := range events {
+		objs = append(objs, eventObject{
+			Date:       ev.Date.Format(time.RFC3339),
+			SourceName: ev.SourceName,
+			SourceType: ev.SourceType,
+			Message:    ev.Message,
+		})
+	}
+
+	return c.JSON(http.StatusOK, describeEventsResponse{Events: objs})
+}
+
+// -- MultiRegionCluster handlers -------------------------------------------------
+
+func (h *Handler) handleCreateMultiRegionCluster(c *echo.Context, body []byte) error {
+	var req createMultiRegionClusterRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.MultiRegionClusterNameSuffix == "" {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionClusterNameSuffix is required",
+		)
+	}
+
+	if req.NodeType == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "NodeType is required")
+	}
+
+	mrc, err := h.Backend.CreateMultiRegionCluster(h.DefaultRegion, h.AccountID, &req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+}
+
+func (h *Handler) handleDeleteMultiRegionCluster(c *echo.Context, body []byte) error {
+	var req deleteMultiRegionClusterRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.MultiRegionClusterName == "" {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionClusterName is required",
+		)
+	}
+
+	mrc, err := h.Backend.DeleteMultiRegionCluster(req.MultiRegionClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+}
+
+func (h *Handler) handleDescribeMultiRegionClusters(c *echo.Context, body []byte) error {
+	var req describeMultiRegionClustersRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	mrcs, err := h.Backend.DescribeMultiRegionClusters(req.MultiRegionClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]multiRegionClusterObject, 0, len(mrcs))
+
+	for _, mrc := range mrcs {
+		objs = append(objs, toMultiRegionClusterObject(mrc))
+	}
+
+	return c.JSON(http.StatusOK, describeMultiRegionClustersResponse{MultiRegionClusters: objs})
+}
+
+// -- MultiRegionParameterGroup handlers ------------------------------------------
+
+func (h *Handler) handleDescribeMultiRegionParameterGroups(c *echo.Context, body []byte) error {
+	var req describeMultiRegionParameterGroupsRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	mrpgs, err := h.Backend.DescribeMultiRegionParameterGroups(req.ParameterGroupName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]multiRegionParameterGroupObject, 0, len(mrpgs))
+
+	for _, mrpg := range mrpgs {
+		objs = append(objs, multiRegionParameterGroupObject{
+			ARN:         mrpg.ARN,
+			Name:        mrpg.Name,
+			Description: mrpg.Description,
+			Family:      mrpg.Family,
+		})
+	}
+
+	return c.JSON(http.StatusOK, describeMultiRegionParameterGroupsResponse{MultiRegionParameterGroups: objs})
+}
+
+// -- BatchUpdateCluster handler --------------------------------------------------
+
+func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
+	var req batchUpdateClusterRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if len(req.ClusterNames) == 0 {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterNames is required")
+	}
+
+	found := h.Backend.BatchUpdateCluster(req.ClusterNames)
+
+	processedObjs := make([]clusterObject, 0, len(found))
+	unprocessedObjs := make([]unprocessedCluster, 0)
+
+	for _, name := range req.ClusterNames {
+		if cl, ok := found[name]; ok {
+			processedObjs = append(processedObjs, toClusterObject(cl))
+		} else {
+			unprocessedObjs = append(unprocessedObjs, unprocessedCluster{
+				ClusterName:  name,
+				ErrorType:    "ClusterNotFoundFault",
+				ErrorMessage: "cluster not found: " + name,
+			})
+		}
+	}
+
+	return c.JSON(http.StatusOK, batchUpdateClusterResponse{
+		ProcessedClusters:   processedObjs,
+		UnprocessedClusters: unprocessedObjs,
+	})
+}
+
+// -- New handler functions (refinement check 2) ----------------------------------
+
+func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
+	var req describeParametersRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	params, err := h.Backend.DescribeParameters(req.ParameterGroupName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]parameterObject, 0, len(params))
+
+	for k, v := range params {
+		objs = append(objs, parameterObject{
+			Name:     k,
+			Value:    v,
+			DataType: "string",
+		})
+	}
+
+	sort.Slice(objs, func(i, j int) bool { return objs[i].Name < objs[j].Name })
+
+	return c.JSON(http.StatusOK, describeParametersResponse{Parameters: objs})
+}
+
+func (h *Handler) handleResetParameterGroup(c *echo.Context, body []byte) error {
+	var req resetParameterGroupRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, resetParameterGroupResponse{ParameterGroup: toParameterGroupObject(pg)})
+}
+
+func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
+	var req failoverShardRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.ClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
+	}
+
+	cl, err := h.Backend.FailoverShard(req.ClusterName, req.ShardConfiguration)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, failoverShardResponse{Cluster: toClusterObject(cl)})
+}
+
+func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte) error {
+	var req listAllowedNodeTypeUpdatesRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.ClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
+	}
+
+	nodeTypes, err := h.Backend.ListAllowedNodeTypeUpdates(req.ClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listAllowedNodeTypeUpdatesResponse{
+		ScaleUpNodeTypes:   nodeTypes,
+		ScaleDownNodeTypes: nodeTypes,
+	})
+}
+
+func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, body []byte) error {
+	var req listAllowedMultiRegionClusterUpdatesRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.MultiRegionClusterName == "" {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionClusterName is required",
+		)
+	}
+
+	nodeTypes, err := h.Backend.ListAllowedMultiRegionClusterUpdates(req.MultiRegionClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listAllowedMultiRegionClusterUpdatesResponse{
+		ScaleUpNodeTypes:   nodeTypes,
+		ScaleDownNodeTypes: nodeTypes,
+	})
+}
+
+func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) error {
+	var req updateMultiRegionClusterRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.MultiRegionClusterName == "" {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionClusterName is required",
+		)
+	}
+
+	mrc, err := h.Backend.UpdateMultiRegionCluster(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+}
+
+func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, _ []byte) error {
+	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: []serviceUpdateObject{}})
 }
 
 // -- helpers ---------------------------------------------------------------------
@@ -691,6 +1249,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	default:
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -820,6 +1380,37 @@ func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
 		ARN:         pg.ARN,
 		Description: pg.Description,
 		Family:      pg.Family,
+	}
+}
+
+// toSnapshotObject converts a Snapshot to its JSON representation.
+func toSnapshotObject(s *Snapshot) snapshotObject {
+	createdAt := ""
+	if !s.CreatedAt.IsZero() {
+		createdAt = s.CreatedAt.UTC().Format(time.RFC3339)
+	}
+
+	return snapshotObject{
+		Name:        s.Name,
+		ARN:         s.ARN,
+		ClusterName: s.ClusterName,
+		Status:      s.Status,
+		KmsKeyID:    s.KmsKeyID,
+		CreatedAt:   createdAt,
+	}
+}
+
+// toMultiRegionClusterObject converts a MultiRegionCluster to its JSON representation.
+func toMultiRegionClusterObject(mrc *MultiRegionCluster) multiRegionClusterObject {
+	return multiRegionClusterObject{
+		MultiRegionClusterName:        mrc.MultiRegionClusterName,
+		ARN:                           mrc.ARN,
+		Description:                   mrc.Description,
+		NodeType:                      mrc.NodeType,
+		Engine:                        mrc.Engine,
+		EngineVersion:                 mrc.EngineVersion,
+		MultiRegionParameterGroupName: mrc.MultiRegionParameterGroupName,
+		Status:                        mrc.Status,
 	}
 }
 

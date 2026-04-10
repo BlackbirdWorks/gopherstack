@@ -51,6 +51,25 @@ func doRequest(t *testing.T, h *memorydb.Handler, op string, body any) *httptest
 	return rec
 }
 
+// doRequestRaw sends a raw body (without JSON marshalling) to the handler.
+func doRequestRaw(t *testing.T, h *memorydb.Handler, op string, raw []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AmazonMemoryDB."+op)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
 func TestHandler_CreateCluster(t *testing.T) {
 	t.Parallel()
 
