@@ -31,6 +31,8 @@ const (
 	snapshotStatusAvailable = "available"
 	// multiRegionClusterStatusAvailable is the status for a running multi-region cluster.
 	multiRegionClusterStatusAvailable = "available"
+	// maxEvents is the maximum number of events retained in memory.
+	maxEvents = 1000
 
 	// Resource kind constants for tag routing.
 	resourceKindCluster        = "cluster"
@@ -40,6 +42,9 @@ const (
 	resourceKindParameterGroup = "parametergroup"
 	resourceKindSnapshot       = "snapshot"
 )
+
+// ErrValidation is returned when input validation fails.
+var ErrValidation = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
 
 // Errors used by the backend.
 var (
@@ -86,7 +91,15 @@ var (
 		"MultiRegionClusterAlreadyExistsFault: multi-region cluster already exists",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrMultiRegionParameterGroupNotFound is returned when a multi-region parameter group does not exist.
+	ErrMultiRegionParameterGroupNotFound = awserr.New(
+		"ParameterGroupNotFoundFault: multi-region parameter group not found",
+		awserr.ErrNotFound,
+	)
 )
+
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // StorageBackend is the interface for the MemoryDB in-memory backend.
 type StorageBackend interface {
@@ -94,6 +107,7 @@ type StorageBackend interface {
 	CreateCluster(region, accountID string, req *createClusterRequest) (*Cluster, error)
 	DescribeClusters(name string) ([]*Cluster, error)
 	DeleteCluster(name string) (*Cluster, error)
+	DeleteClusterWithSnapshot(region, accountID, clusterName, snapshotName string) (*Cluster, error)
 	UpdateCluster(req *updateClusterRequest) (*Cluster, error)
 
 	// ACL operations
@@ -127,6 +141,7 @@ type StorageBackend interface {
 
 	// Snapshot operations
 	CreateSnapshot(region, accountID string, req *createSnapshotRequest) (*Snapshot, error)
+	DescribeSnapshots(name string) ([]*Snapshot, error)
 	CopySnapshot(region, accountID string, req *copySnapshotRequest) (*Snapshot, error)
 	DeleteSnapshot(name string) (*Snapshot, error)
 
@@ -149,19 +164,26 @@ type StorageBackend interface {
 
 	// BatchUpdateCluster operation
 	BatchUpdateCluster(clusterNames []string) map[string]*Cluster
+
+	// Lifecycle
+	Reset()
+	Snapshot() []byte
+	Restore(data []byte) error
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	clusters                   map[string]*Cluster
+	multiRegionClusters        map[string]*MultiRegionCluster
 	acls                       map[string]*ACL
 	subnetGroups               map[string]*SubnetGroup
 	users                      map[string]*User
 	parameterGroups            map[string]*ParameterGroup
 	snapshots                  map[string]*Snapshot
-	multiRegionClusters        map[string]*MultiRegionCluster
+	clusters                   map[string]*Cluster
 	multiRegionParameterGroups map[string]*MultiRegionParameterGroup
 	arnToResource              map[string]resourceRef
+	accountID                  string
+	region                     string
 	events                     []*Event
 	mu                         sync.RWMutex
 }
@@ -190,6 +212,8 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		multiRegionParameterGroups: make(map[string]*MultiRegionParameterGroup),
 		events:                     []*Event{},
 		arnToResource:              make(map[string]resourceRef),
+		accountID:                  accountID,
+		region:                     region,
 	}
 
 	// Pre-seed the open-access ACL so Terraform resources that omit an explicit
@@ -206,6 +230,35 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	b.arnToResource[openAccessARN] = resourceRef{kind: resourceKindACL, name: openAccessACL}
 
 	return b
+}
+
+// Reset clears all state and re-seeds defaults, returning the backend to a clean state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.clusters = make(map[string]*Cluster)
+	b.acls = make(map[string]*ACL)
+	b.subnetGroups = make(map[string]*SubnetGroup)
+	b.users = make(map[string]*User)
+	b.parameterGroups = make(map[string]*ParameterGroup)
+	b.snapshots = make(map[string]*Snapshot)
+	b.multiRegionClusters = make(map[string]*MultiRegionCluster)
+	b.multiRegionParameterGroups = make(map[string]*MultiRegionParameterGroup)
+	b.events = []*Event{}
+	b.arnToResource = make(map[string]resourceRef)
+
+	// Re-seed open-access ACL.
+	openAccessARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("acl/%s", openAccessACL))
+	b.acls[openAccessACL] = &ACL{
+		Name:      openAccessACL,
+		ARN:       openAccessARN,
+		Status:    aclStatusActive,
+		UserNames: []string{},
+		CreatedAt: time.Now(),
+		Tags:      make(map[string]string),
+	}
+	b.arnToResource[openAccessARN] = resourceRef{kind: resourceKindACL, name: openAccessACL}
 }
 
 // -- Cluster operations ----------------------------------------------------------
@@ -277,6 +330,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		Tags:                tagsFromSlice(req.Tags),
 		CreatedAt:           time.Now(),
 		Region:              region,
+		SecurityGroupIDs:    req.SecurityGroupIDs,
 	}
 
 	if req.SnapshotRetentionLimit != nil {
@@ -286,7 +340,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	b.clusters[req.ClusterName] = c
 	b.arnToResource[clusterARN] = resourceRef{kind: resourceKindCluster, name: req.ClusterName}
 
-	return c, nil
+	return cloneCluster(c), nil
 }
 
 // DescribeClusters returns clusters, optionally filtered by name.
@@ -300,13 +354,13 @@ func (b *InMemoryBackend) DescribeClusters(name string) ([]*Cluster, error) {
 			return nil, ErrClusterNotFound
 		}
 
-		return []*Cluster{c}, nil
+		return []*Cluster{cloneCluster(c)}, nil
 	}
 
 	result := make([]*Cluster, 0, len(b.clusters))
 
 	for _, c := range b.clusters {
-		result = append(result, c)
+		result = append(result, cloneCluster(c))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -316,7 +370,7 @@ func (b *InMemoryBackend) DescribeClusters(name string) ([]*Cluster, error) {
 	return result, nil
 }
 
-// DeleteCluster removes a cluster.
+// DeleteCluster removes a cluster, optionally taking a final snapshot first.
 func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -329,7 +383,39 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	delete(b.clusters, name)
 	delete(b.arnToResource, c.ARN)
 
-	return c, nil
+	return cloneCluster(c), nil
+}
+
+// DeleteClusterWithSnapshot removes a cluster, first creating a snapshot with the given name.
+func (b *InMemoryBackend) DeleteClusterWithSnapshot(
+	region, accountID, clusterName, snapshotName string,
+) (*Cluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterName]
+	if !ok {
+		return nil, ErrClusterNotFound
+	}
+
+	if snapshotName != "" {
+		snapshotARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("snapshot/%s", snapshotName))
+		s := &Snapshot{
+			Name:        snapshotName,
+			ARN:         snapshotARN,
+			ClusterName: clusterName,
+			Status:      snapshotStatusAvailable,
+			Tags:        make(map[string]string),
+			CreatedAt:   time.Now(),
+		}
+		b.snapshots[snapshotName] = s
+		b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: snapshotName}
+	}
+
+	delete(b.clusters, clusterName)
+	delete(b.arnToResource, c.ARN)
+
+	return cloneCluster(c), nil
 }
 
 // UpdateCluster modifies an existing cluster.
@@ -471,7 +557,7 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 		return nil, ErrACLNotFound
 	}
 
-	// Add users.
+	// Add users (dedup).
 	existing := make(map[string]bool, len(a.UserNames))
 
 	for _, u := range a.UserNames {
@@ -485,15 +571,15 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 		}
 	}
 
-	// Remove users.
-	toRemove := make(map[string]bool, len(req.UserNamesToRemove))
+	// Remove users — allocate a fresh slice to avoid backing-array aliasing.
+	if len(req.UserNamesToRemove) > 0 {
+		toRemove := make(map[string]bool, len(req.UserNamesToRemove))
 
-	for _, u := range req.UserNamesToRemove {
-		toRemove[u] = true
-	}
+		for _, u := range req.UserNamesToRemove {
+			toRemove[u] = true
+		}
 
-	if len(toRemove) > 0 {
-		filtered := a.UserNames[:0]
+		filtered := make([]string, 0, len(a.UserNames))
 
 		for _, u := range a.UserNames {
 			if !toRemove[u] {
@@ -711,6 +797,10 @@ func (b *InMemoryBackend) CreateParameterGroup(
 ) (*ParameterGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if req.Family == "" {
+		return nil, fmt.Errorf("Family is required: %w", ErrValidation)
+	}
 
 	if _, exists := b.parameterGroups[req.ParameterGroupName]; exists {
 		return nil, ErrParameterGroupAlreadyExists
@@ -965,6 +1055,11 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// Validate the source cluster exists.
+	if _, ok := b.clusters[req.ClusterName]; !ok {
+		return nil, ErrClusterNotFound
+	}
+
 	if _, exists := b.snapshots[req.SnapshotName]; exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
@@ -985,6 +1080,33 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: req.SnapshotName}
 
 	return s, nil
+}
+
+// DescribeSnapshots returns snapshots, optionally filtered by name.
+func (b *InMemoryBackend) DescribeSnapshots(name string) ([]*Snapshot, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if name != "" {
+		s, ok := b.snapshots[name]
+		if !ok {
+			return nil, ErrSnapshotNotFound
+		}
+
+		return []*Snapshot{s}, nil
+	}
+
+	result := make([]*Snapshot, 0, len(b.snapshots))
+
+	for _, s := range b.snapshots {
+		result = append(result, s)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
 }
 
 // CopySnapshot copies an existing snapshot to a new name.
@@ -1008,13 +1130,21 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 		kmsKeyID = src.KmsKeyID
 	}
 
+	// Inherit tags from source if none supplied.
+	var tags map[string]string
+	if len(req.Tags) > 0 {
+		tags = tagsFromSlice(req.Tags)
+	} else {
+		tags = maps.Clone(src.Tags)
+	}
+
 	dst := &Snapshot{
 		Name:        req.TargetSnapshotName,
 		ARN:         targetARN,
 		ClusterName: src.ClusterName,
 		Status:      snapshotStatusAvailable,
 		KmsKeyID:    kmsKeyID,
-		Tags:        tagsFromSlice(req.Tags),
+		Tags:        tags,
 		CreatedAt:   time.Now(),
 	}
 
@@ -1089,11 +1219,16 @@ func (b *InMemoryBackend) DescribeEngineVersions(req *describeEngineVersionsRequ
 // -- Event operations -----------------------------------------------------------
 
 // AddEvent appends an event to the backend event log (used internally for seeding).
+// Events are capped at maxEvents; oldest entries are dropped when the cap is reached.
 func (b *InMemoryBackend) AddEvent(ev *Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.events = append(b.events, ev)
+
+	if len(b.events) > maxEvents {
+		b.events = b.events[len(b.events)-maxEvents:]
+	}
 }
 
 // DescribeEvents returns events, optionally filtered by source name and type.
@@ -1217,10 +1352,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(name string) ([]*Mu
 	if name != "" {
 		mrpg, ok := b.multiRegionParameterGroups[name]
 		if !ok {
-			return nil, awserr.New(
-				"ParameterGroupNotFoundFault: multi-region parameter group not found",
-				awserr.ErrNotFound,
-			)
+			return nil, ErrMultiRegionParameterGroupNotFound
 		}
 
 		return []*MultiRegionParameterGroup{mrpg}, nil
@@ -1339,6 +1471,33 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		func(pg *ParameterGroup) time.Time { return pg.CreatedAt },
 		func(_ string, pg *ParameterGroup) { delete(b.arnToResource, pg.ARN) },
 	)
+
+	purgeMemoryDBMap(ctx, b.snapshots, cutoff,
+		func(s *Snapshot) time.Time { return s.CreatedAt },
+		func(_ string, s *Snapshot) { delete(b.arnToResource, s.ARN) },
+	)
+
+	purgeMemoryDBMap(ctx, b.multiRegionClusters, cutoff,
+		func(mrc *MultiRegionCluster) time.Time { return mrc.CreatedAt },
+		func(_ string, _ *MultiRegionCluster) {},
+	)
+
+	// Truncate events older than cutoff.
+	if ctx.Err() != nil {
+		return
+	}
+
+	filtered := b.events[:0]
+
+	for _, ev := range b.events {
+		if !ev.Date.IsZero() && ev.Date.Before(cutoff) {
+			continue
+		}
+
+		filtered = append(filtered, ev)
+	}
+
+	b.events = filtered
 }
 
 // purgeMemoryDBMap deletes entries from m that were created before cutoff,
@@ -1382,4 +1541,141 @@ func purgeMemoryDBMapFiltered[V any](
 			delete(m, k)
 		}
 	}
+}
+
+// -- Deep-copy helpers -----------------------------------------------------------
+
+// cloneCluster returns a shallow copy of the cluster with a separate tags map.
+func cloneCluster(c *Cluster) *Cluster {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+	cp.Tags = maps.Clone(c.Tags)
+	cp.SecurityGroupIDs = append([]string(nil), c.SecurityGroupIDs...)
+
+	return &cp
+}
+
+// -- Seed helpers (for testing) --------------------------------------------------
+
+// AddClusterInternal inserts a cluster directly into the backend for testing.
+func (b *InMemoryBackend) AddClusterInternal(name, nodeType string) *Cluster {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	clusterARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("cluster/%s", name))
+	c := &Cluster{
+		Name:      name,
+		ARN:       clusterARN,
+		NodeType:  nodeType,
+		Status:    clusterStatusAvailable,
+		ACLName:   openAccessACL,
+		Tags:      make(map[string]string),
+		CreatedAt: time.Now(),
+		Region:    b.region,
+	}
+	b.clusters[name] = c
+	b.arnToResource[clusterARN] = resourceRef{kind: resourceKindCluster, name: name}
+
+	return c
+}
+
+// AddACLInternal inserts an ACL directly into the backend for testing.
+func (b *InMemoryBackend) AddACLInternal(name string) *ACL {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	aclARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("acl/%s", name))
+	a := &ACL{
+		Name:      name,
+		ARN:       aclARN,
+		Status:    aclStatusActive,
+		UserNames: []string{},
+		Tags:      make(map[string]string),
+		CreatedAt: time.Now(),
+	}
+	b.acls[name] = a
+	b.arnToResource[aclARN] = resourceRef{kind: resourceKindACL, name: name}
+
+	return a
+}
+
+// AddSnapshotInternal inserts a snapshot directly into the backend for testing.
+func (b *InMemoryBackend) AddSnapshotInternal(name, clusterName string) *Snapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	snapshotARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("snapshot/%s", name))
+	s := &Snapshot{
+		Name:        name,
+		ARN:         snapshotARN,
+		ClusterName: clusterName,
+		Status:      snapshotStatusAvailable,
+		Tags:        make(map[string]string),
+		CreatedAt:   time.Now(),
+	}
+	b.snapshots[name] = s
+	b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: name}
+
+	return s
+}
+
+// AddUserInternal inserts a user directly into the backend for testing.
+func (b *InMemoryBackend) AddUserInternal(name, accessString string) *User {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	userARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("user/%s", name))
+	u := &User{
+		Name:         name,
+		ARN:          userARN,
+		AccessString: accessString,
+		Status:       userStatusActive,
+		Tags:         make(map[string]string),
+		CreatedAt:    time.Now(),
+	}
+	b.users[name] = u
+	b.arnToResource[userARN] = resourceRef{kind: resourceKindUser, name: name}
+
+	return u
+}
+
+// AddSubnetGroupInternal inserts a subnet group directly into the backend for testing.
+func (b *InMemoryBackend) AddSubnetGroupInternal(name string) *SubnetGroup {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	sgARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("subnetgroup/%s", name))
+	sg := &SubnetGroup{
+		Name:      name,
+		ARN:       sgARN,
+		Tags:      make(map[string]string),
+		CreatedAt: time.Now(),
+	}
+	b.subnetGroups[name] = sg
+	b.arnToResource[sgARN] = resourceRef{kind: resourceKindSubnetGroup, name: name}
+
+	return sg
+}
+
+// AddParameterGroupInternal inserts a parameter group directly into the backend for testing.
+func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *ParameterGroup {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	pgARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("parametergroup/%s", name))
+	pg := &ParameterGroup{
+		Name:       name,
+		ARN:        pgARN,
+		Family:     family,
+		Parameters: make(map[string]string),
+		Tags:       make(map[string]string),
+		CreatedAt:  time.Now(),
+	}
+	b.parameterGroups[name] = pg
+	b.arnToResource[pgARN] = resourceRef{kind: resourceKindParameterGroup, name: name}
+
+	return pg
 }

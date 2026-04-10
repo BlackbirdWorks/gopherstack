@@ -24,6 +24,7 @@ type Cluster struct {
 	SnsTopicArn            string
 	MaintenanceWindow      string
 	SnapshotWindow         string
+	SecurityGroupIDs       []string
 	NumShards              int32
 	NumReplicasPerShard    int32
 	SnapshotRetentionLimit int32
@@ -505,6 +506,14 @@ type createSnapshotRequest struct {
 	Tags         []tagEntry `json:"Tags,omitempty"`
 }
 
+type describeSnapshotRequest struct {
+	MaxResults   *int32 `json:"MaxResults,omitempty"`
+	SnapshotName string `json:"SnapshotName,omitempty"`
+	ClusterName  string `json:"ClusterName,omitempty"`
+	SnapshotType string `json:"SnapshotType,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
+}
+
 type copySnapshotRequest struct {
 	SourceSnapshotName string     `json:"SourceSnapshotName"`
 	TargetSnapshotName string     `json:"TargetSnapshotName"`
@@ -523,10 +532,16 @@ type snapshotObject struct {
 	ClusterName string `json:"ClusterConfiguration,omitempty"`
 	Status      string `json:"Status,omitempty"`
 	KmsKeyID    string `json:"KmsKeyId,omitempty"`
+	CreatedAt   string `json:"SnapshotCreationTime,omitempty"`
 }
 
 type createSnapshotResponse struct {
 	Snapshot snapshotObject `json:"Snapshot"`
+}
+
+type describeSnapshotResponse struct {
+	NextToken string           `json:"NextToken,omitempty"`
+	Snapshots []snapshotObject `json:"Snapshots"`
 }
 
 type copySnapshotResponse struct {

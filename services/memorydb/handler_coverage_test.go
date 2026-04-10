@@ -530,6 +530,12 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 		{
 			name: "tags on snapshot",
 			setup: func(h *memorydb.Handler) string {
+				// Pre-create the cluster first.
+				doRequest(t, h, "CreateCluster", map[string]any{
+					"ClusterName": "my-cluster",
+					"NodeType":    "db.r6g.large",
+					"ACLName":     "open-access",
+				})
 				rec := doRequest(t, h, "CreateSnapshot", map[string]any{
 					"SnapshotName": "tag-snap",
 					"ClusterName":  "my-cluster",
@@ -597,6 +603,9 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 
 			switch tt.name {
 			case "snapshot_lifecycle":
+				// Pre-create the cluster the snapshot references.
+				b.AddClusterInternal("my-cluster", "db.r6g.large")
+
 				req := &memorydb.ExportedCreateSnapshotRequest{
 					SnapshotName: "my-snap",
 					ClusterName:  "my-cluster",
@@ -855,6 +864,9 @@ func TestBackend_CopySnapshot_EdgeCases(t *testing.T) {
 			b := memorydb.NewInMemoryBackend()
 
 			if tt.name == "copy to existing target" {
+				// Pre-create the cluster that the snapshots reference.
+				b.AddClusterInternal("cluster", "db.r6g.large")
+
 				// Create source
 				_, err := b.CreateSnapshot(testRegion, testAccountID, &memorydb.ExportedCreateSnapshotRequest{
 					SnapshotName: "src",

@@ -55,6 +55,15 @@ func TestHandler_CreateSnapshot(t *testing.T) {
 
 			h := newTestHandler(t)
 
+			// Pre-create the cluster that the snapshot will reference.
+			if clusterName, ok := tt.body["ClusterName"].(string); ok && clusterName != "" {
+				doRequest(t, h, "CreateCluster", map[string]any{
+					"ClusterName": clusterName,
+					"NodeType":    "db.r6g.large",
+					"ACLName":     "open-access",
+				})
+			}
+
 			if tt.name == "duplicate snapshot" {
 				doRequest(t, h, "CreateSnapshot", tt.body)
 			}
@@ -120,6 +129,12 @@ func TestHandler_CopySnapshot(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.name == "copies snapshot" {
+				// Pre-create the cluster, then the source snapshot.
+				doRequest(t, h, "CreateCluster", map[string]any{
+					"ClusterName": "my-cluster",
+					"NodeType":    "db.r6g.large",
+					"ACLName":     "open-access",
+				})
 				doRequest(t, h, "CreateSnapshot", map[string]any{
 					"SnapshotName": "src-snap",
 					"ClusterName":  "my-cluster",
@@ -168,6 +183,12 @@ func TestHandler_DeleteSnapshot(t *testing.T) {
 
 			switch tt.name {
 			case "deletes existing snapshot":
+				// Pre-create cluster then snapshot.
+				doRequest(t, h, "CreateCluster", map[string]any{
+					"ClusterName": "my-cluster",
+					"NodeType":    "db.r6g.large",
+					"ACLName":     "open-access",
+				})
 				doRequest(t, h, "CreateSnapshot", map[string]any{
 					"SnapshotName": "del-snap",
 					"ClusterName":  "my-cluster",

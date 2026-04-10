@@ -23,7 +23,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"DescribeReservedNodes",
 		"DescribeReservedNodesOfferings",
 		"DescribeServiceUpdates",
-		"DescribeSnapshots",
 		"FailoverShard",
 		"ListAllowedMultiRegionClusterUpdates",
 		"ListAllowedNodeTypeUpdates",

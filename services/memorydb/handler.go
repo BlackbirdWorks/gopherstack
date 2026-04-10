@@ -38,6 +38,11 @@ func NewHandler(backend StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "MemoryDB" }
 
+// Reset clears all state by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // GetSupportedOperations returns the list of supported MemoryDB operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
@@ -64,6 +69,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeMultiRegionClusters",
 		"DescribeMultiRegionParameterGroups",
 		"DescribeParameterGroups",
+		"DescribeSnapshots",
 		"DescribeSubnetGroups",
 		"DescribeUsers",
 		"ListTags",
@@ -127,7 +133,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	resourceKeys := []string{
 		"ClusterName", "ACLName", "SubnetGroupName",
-		"UserName", "ParameterGroupName", "ResourceArn",
+		"UserName", "ParameterGroupName", "SnapshotName",
+		"ResourceArn",
 	}
 
 	for _, key := range resourceKeys {
@@ -247,6 +254,8 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 	switch op {
 	case "CreateSnapshot":
 		return true, h.handleCreateSnapshot(c, body)
+	case "DescribeSnapshots":
+		return true, h.handleDescribeSnapshots(c, body)
 	case "CopySnapshot":
 		return true, h.handleCopySnapshot(c, body)
 	case "DeleteSnapshot":
@@ -327,7 +336,19 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
-	cluster, err := h.Backend.DeleteCluster(req.ClusterName)
+	var (
+		cluster *Cluster
+		err     error
+	)
+
+	if req.FinalSnapshotName != "" {
+		cluster, err = h.Backend.DeleteClusterWithSnapshot(
+			h.DefaultRegion, h.AccountID, req.ClusterName, req.FinalSnapshotName,
+		)
+	} else {
+		cluster, err = h.Backend.DeleteCluster(req.ClusterName)
+	}
+
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -712,7 +733,13 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	// Return the resulting tag list (AWS behaviour).
+	result, err := h.Backend.ListTags(req.ResourceArn)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listTagsResponse{TagList: tagsToSlice(result)})
 }
 
 func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
@@ -730,7 +757,13 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	// Return the remaining tag list (AWS behaviour).
+	result, err := h.Backend.ListTags(req.ResourceArn)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listTagsResponse{TagList: tagsToSlice(result)})
 }
 
 // -- Snapshot handlers -----------------------------------------------------------
@@ -798,6 +831,27 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, deleteSnapshotResponse{Snapshot: toSnapshotObject(s)})
+}
+
+func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
+	var req describeSnapshotRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]snapshotObject, 0, len(snapshots))
+
+	for _, s := range snapshots {
+		objs = append(objs, toSnapshotObject(s))
+	}
+
+	return c.JSON(http.StatusOK, describeSnapshotResponse{Snapshots: objs})
 }
 
 // -- EngineVersion handlers ------------------------------------------------------
@@ -1004,6 +1058,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	default:
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1138,12 +1194,18 @@ func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
 
 // toSnapshotObject converts a Snapshot to its JSON representation.
 func toSnapshotObject(s *Snapshot) snapshotObject {
+	createdAt := ""
+	if !s.CreatedAt.IsZero() {
+		createdAt = s.CreatedAt.UTC().Format(time.RFC3339)
+	}
+
 	return snapshotObject{
 		Name:        s.Name,
 		ARN:         s.ARN,
 		ClusterName: s.ClusterName,
 		Status:      s.Status,
 		KmsKeyID:    s.KmsKeyID,
+		CreatedAt:   createdAt,
 	}
 }
 
