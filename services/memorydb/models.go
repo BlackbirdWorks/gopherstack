@@ -445,5 +445,230 @@ type tagEntry struct {
 	Value string `json:"Value"`
 }
 
+// Snapshot represents an in-memory MemoryDB snapshot.
+type Snapshot struct {
+	CreatedAt   time.Time
+	Tags        map[string]string
+	ARN         string
+	Name        string
+	ClusterName string
+	Status      string
+	KmsKeyID    string
+}
+
+// EngineVersion describes a supported MemoryDB engine version.
+type EngineVersion struct {
+	EngineVersion        string
+	EnginePatchVersion   string
+	ParameterGroupFamily string
+	Description          string
+}
+
+// Event represents a MemoryDB event.
+type Event struct {
+	Date       time.Time
+	SourceName string
+	SourceType string
+	Message    string
+}
+
+// MultiRegionCluster represents an in-memory MemoryDB multi-region cluster.
+type MultiRegionCluster struct {
+	CreatedAt                     time.Time
+	Tags                          map[string]string
+	ARN                           string
+	MultiRegionClusterName        string
+	Description                   string
+	NodeType                      string
+	Engine                        string
+	EngineVersion                 string
+	MultiRegionParameterGroupName string
+	Status                        string
+}
+
+// MultiRegionParameterGroup represents an in-memory MemoryDB multi-region parameter group.
+type MultiRegionParameterGroup struct {
+	CreatedAt   time.Time
+	Tags        map[string]string
+	ARN         string
+	Name        string
+	Description string
+	Family      string
+}
+
+// -- Snapshot request/response types ------------------------------------------
+
+type createSnapshotRequest struct {
+	ClusterName  string     `json:"ClusterName"`
+	SnapshotName string     `json:"SnapshotName"`
+	KmsKeyID     string     `json:"KmsKeyId,omitempty"`
+	Tags         []tagEntry `json:"Tags,omitempty"`
+}
+
+type copySnapshotRequest struct {
+	SourceSnapshotName string     `json:"SourceSnapshotName"`
+	TargetSnapshotName string     `json:"TargetSnapshotName"`
+	KmsKeyID           string     `json:"KmsKeyId,omitempty"`
+	TargetBucket       string     `json:"TargetBucket,omitempty"`
+	Tags               []tagEntry `json:"Tags,omitempty"`
+}
+
+type deleteSnapshotRequest struct {
+	SnapshotName string `json:"SnapshotName"`
+}
+
+type snapshotObject struct {
+	ARN         string `json:"ARN,omitempty"`
+	Name        string `json:"Name,omitempty"`
+	ClusterName string `json:"ClusterConfiguration,omitempty"`
+	Status      string `json:"Status,omitempty"`
+	KmsKeyID    string `json:"KmsKeyId,omitempty"`
+}
+
+type createSnapshotResponse struct {
+	Snapshot snapshotObject `json:"Snapshot"`
+}
+
+type copySnapshotResponse struct {
+	Snapshot snapshotObject `json:"Snapshot"`
+}
+
+type deleteSnapshotResponse struct {
+	Snapshot snapshotObject `json:"Snapshot"`
+}
+
+// -- EngineVersion request/response types ------------------------------------
+
+type describeEngineVersionsRequest struct {
+	MaxResults           *int32 `json:"MaxResults,omitempty"`
+	ParameterGroupFamily string `json:"ParameterGroupFamily,omitempty"`
+	NextToken            string `json:"NextToken,omitempty"`
+	DefaultOnly          bool   `json:"DefaultOnly,omitempty"`
+}
+
+type engineVersionObject struct {
+	EngineVersion        string `json:"EngineVersion,omitempty"`
+	EnginePatchVersion   string `json:"EnginePatchVersion,omitempty"`
+	ParameterGroupFamily string `json:"ParameterGroupFamily,omitempty"`
+	Description          string `json:"Description,omitempty"`
+}
+
+type describeEngineVersionsResponse struct {
+	NextToken      string                `json:"NextToken,omitempty"`
+	EngineVersions []engineVersionObject `json:"EngineVersions"`
+}
+
+// -- Event request/response types --------------------------------------------
+
+type describeEventsRequest struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	Duration   *int32 `json:"Duration,omitempty"`
+	SourceName string `json:"SourceName,omitempty"`
+	SourceType string `json:"SourceType,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+type eventObject struct {
+	Date       string `json:"Date,omitempty"`
+	SourceName string `json:"SourceName,omitempty"`
+	SourceType string `json:"SourceType,omitempty"`
+	Message    string `json:"Message,omitempty"`
+}
+
+type describeEventsResponse struct {
+	NextToken string        `json:"NextToken,omitempty"`
+	Events    []eventObject `json:"Events"`
+}
+
+// -- MultiRegionCluster request/response types --------------------------------
+
+type createMultiRegionClusterRequest struct {
+	TLSEnabled                    *bool      `json:"TLSEnabled,omitempty"`
+	MultiRegionClusterNameSuffix  string     `json:"MultiRegionClusterNameSuffix"`
+	Description                   string     `json:"Description,omitempty"`
+	NodeType                      string     `json:"NodeType"`
+	Engine                        string     `json:"Engine,omitempty"`
+	EngineVersion                 string     `json:"EngineVersion,omitempty"`
+	MultiRegionParameterGroupName string     `json:"MultiRegionParameterGroupName,omitempty"`
+	Tags                          []tagEntry `json:"Tags,omitempty"`
+}
+
+type deleteMultiRegionClusterRequest struct {
+	MultiRegionClusterName string `json:"MultiRegionClusterName"`
+}
+
+type describeMultiRegionClustersRequest struct {
+	MaxResults             *int32 `json:"MaxResults,omitempty"`
+	ShowClusterDetails     *bool  `json:"ShowClusterDetails,omitempty"`
+	MultiRegionClusterName string `json:"MultiRegionClusterName,omitempty"`
+	NextToken              string `json:"NextToken,omitempty"`
+}
+
+type multiRegionClusterObject struct {
+	ARN                           string `json:"ARN,omitempty"`
+	MultiRegionClusterName        string `json:"MultiRegionClusterName,omitempty"`
+	Description                   string `json:"Description,omitempty"`
+	NodeType                      string `json:"NodeType,omitempty"`
+	Engine                        string `json:"Engine,omitempty"`
+	EngineVersion                 string `json:"EngineVersion,omitempty"`
+	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName,omitempty"`
+	Status                        string `json:"Status,omitempty"`
+}
+
+type createMultiRegionClusterResponse struct {
+	MultiRegionCluster multiRegionClusterObject `json:"MultiRegionCluster"`
+}
+
+type deleteMultiRegionClusterResponse struct {
+	MultiRegionCluster multiRegionClusterObject `json:"MultiRegionCluster"`
+}
+
+type describeMultiRegionClustersResponse struct {
+	NextToken           string                     `json:"NextToken,omitempty"`
+	MultiRegionClusters []multiRegionClusterObject `json:"MultiRegionClusters"`
+}
+
+// -- MultiRegionParameterGroup request/response types -------------------------
+
+type describeMultiRegionParameterGroupsRequest struct {
+	MaxResults         *int32 `json:"MaxResults,omitempty"`
+	ParameterGroupName string `json:"ParameterGroupName,omitempty"`
+	NextToken          string `json:"NextToken,omitempty"`
+}
+
+type multiRegionParameterGroupObject struct {
+	ARN         string `json:"ARN,omitempty"`
+	Name        string `json:"Name,omitempty"`
+	Description string `json:"Description,omitempty"`
+	Family      string `json:"Family,omitempty"`
+}
+
+type describeMultiRegionParameterGroupsResponse struct {
+	NextToken                  string                            `json:"NextToken,omitempty"`
+	MultiRegionParameterGroups []multiRegionParameterGroupObject `json:"MultiRegionParameterGroups"`
+}
+
+// -- BatchUpdateCluster request/response types --------------------------------
+
+type batchUpdateClusterServiceUpdate struct {
+	ServiceUpdateNameToApply string `json:"ServiceUpdateNameToApply,omitempty"`
+}
+
+type batchUpdateClusterRequest struct {
+	ServiceUpdate *batchUpdateClusterServiceUpdate `json:"ServiceUpdate,omitempty"`
+	ClusterNames  []string                         `json:"ClusterNames"`
+}
+
+type unprocessedCluster struct {
+	ClusterName  string `json:"ClusterName,omitempty"`
+	ErrorType    string `json:"ErrorType,omitempty"`
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+}
+
+type batchUpdateClusterResponse struct {
+	ProcessedClusters   []clusterObject      `json:"ProcessedClusters"`
+	UnprocessedClusters []unprocessedCluster `json:"UnprocessedClusters"`
+}
+
 // errorResponse is the standard JSON error response body.
 type errorResponse = service.JSONErrorResponse

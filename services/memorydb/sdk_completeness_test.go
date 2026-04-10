@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := memorydb.NewInMemoryBackend()
 	h := memorydb.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &memorydbsdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchUpdateCluster",
-		"CopySnapshot",
-		"CreateMultiRegionCluster",
-		"CreateSnapshot",
-		"DeleteMultiRegionCluster",
-		"DeleteSnapshot",
-		"DescribeEngineVersions",
-		"DescribeEvents",
-		"DescribeMultiRegionClusters",
-		"DescribeMultiRegionParameterGroups",
 		"DescribeMultiRegionParameters",
 		"DescribeParameters",
 		"DescribeReservedNodes",

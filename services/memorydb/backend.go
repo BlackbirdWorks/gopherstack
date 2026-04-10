@@ -27,6 +27,10 @@ const (
 	aclStatusActive = "active"
 	// userStatusActive is the status for an active user.
 	userStatusActive = "active"
+	// snapshotStatusAvailable is the status for a completed snapshot.
+	snapshotStatusAvailable = "available"
+	// multiRegionClusterStatusAvailable is the status for a running multi-region cluster.
+	multiRegionClusterStatusAvailable = "available"
 
 	// Resource kind constants for tag routing.
 	resourceKindCluster        = "cluster"
@@ -34,6 +38,7 @@ const (
 	resourceKindSubnetGroup    = "subnetgroup"
 	resourceKindUser           = "user"
 	resourceKindParameterGroup = "parametergroup"
+	resourceKindSnapshot       = "snapshot"
 )
 
 // Errors used by the backend.
@@ -62,6 +67,23 @@ var (
 	// ErrParameterGroupAlreadyExists is returned when a parameter group already exists.
 	ErrParameterGroupAlreadyExists = awserr.New(
 		"ParameterGroupAlreadyExistsFault: parameter group already exists",
+		awserr.ErrAlreadyExists,
+	)
+	// ErrSnapshotNotFound is returned when a snapshot does not exist.
+	ErrSnapshotNotFound = awserr.New("SnapshotNotFoundFault: snapshot not found", awserr.ErrNotFound)
+	// ErrSnapshotAlreadyExists is returned when a snapshot already exists.
+	ErrSnapshotAlreadyExists = awserr.New(
+		"SnapshotAlreadyExistsFault: snapshot already exists",
+		awserr.ErrAlreadyExists,
+	)
+	// ErrMultiRegionClusterNotFound is returned when a multi-region cluster does not exist.
+	ErrMultiRegionClusterNotFound = awserr.New(
+		"MultiRegionClusterNotFoundFault: multi-region cluster not found",
+		awserr.ErrNotFound,
+	)
+	// ErrMultiRegionClusterAlreadyExists is returned when a multi-region cluster already exists.
+	ErrMultiRegionClusterAlreadyExists = awserr.New(
+		"MultiRegionClusterAlreadyExistsFault: multi-region cluster already exists",
 		awserr.ErrAlreadyExists,
 	)
 )
@@ -102,18 +124,46 @@ type StorageBackend interface {
 	ListTags(resourceArn string) (map[string]string, error)
 	TagResource(resourceArn string, tags map[string]string) error
 	UntagResource(resourceArn string, tagKeys []string) error
+
+	// Snapshot operations
+	CreateSnapshot(region, accountID string, req *createSnapshotRequest) (*Snapshot, error)
+	CopySnapshot(region, accountID string, req *copySnapshotRequest) (*Snapshot, error)
+	DeleteSnapshot(name string) (*Snapshot, error)
+
+	// EngineVersion operations
+	DescribeEngineVersions(req *describeEngineVersionsRequest) ([]*EngineVersion, error)
+
+	// Event operations
+	DescribeEvents(req *describeEventsRequest) ([]*Event, error)
+
+	// MultiRegionCluster operations
+	CreateMultiRegionCluster(
+		region, accountID string,
+		req *createMultiRegionClusterRequest,
+	) (*MultiRegionCluster, error)
+	DeleteMultiRegionCluster(name string) (*MultiRegionCluster, error)
+	DescribeMultiRegionClusters(name string) ([]*MultiRegionCluster, error)
+
+	// MultiRegionParameterGroup operations
+	DescribeMultiRegionParameterGroups(name string) ([]*MultiRegionParameterGroup, error)
+
+	// BatchUpdateCluster operation
+	BatchUpdateCluster(clusterNames []string) map[string]*Cluster
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	clusters        map[string]*Cluster
-	acls            map[string]*ACL
-	subnetGroups    map[string]*SubnetGroup
-	users           map[string]*User
-	parameterGroups map[string]*ParameterGroup
-	// arnToResource maps ARN strings to their resource type+name for tag lookups.
-	arnToResource map[string]resourceRef
-	mu            sync.RWMutex
+	clusters                   map[string]*Cluster
+	acls                       map[string]*ACL
+	subnetGroups               map[string]*SubnetGroup
+	users                      map[string]*User
+	parameterGroups            map[string]*ParameterGroup
+	snapshots                  map[string]*Snapshot
+	multiRegionClusters        map[string]*MultiRegionCluster
+	multiRegionParameterGroups map[string]*MultiRegionParameterGroup
+	arnToResource              map[string]resourceRef
+	events                     []*Event
+	mu                         sync.RWMutex
 }
 
 type resourceRef struct {
@@ -130,12 +180,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 // newInMemoryBackendWithDefaults creates a backend pre-seeded with the given region and account.
 func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		clusters:        make(map[string]*Cluster),
-		acls:            make(map[string]*ACL),
-		subnetGroups:    make(map[string]*SubnetGroup),
-		users:           make(map[string]*User),
-		parameterGroups: make(map[string]*ParameterGroup),
-		arnToResource:   make(map[string]resourceRef),
+		clusters:                   make(map[string]*Cluster),
+		acls:                       make(map[string]*ACL),
+		subnetGroups:               make(map[string]*SubnetGroup),
+		users:                      make(map[string]*User),
+		parameterGroups:            make(map[string]*ParameterGroup),
+		snapshots:                  make(map[string]*Snapshot),
+		multiRegionClusters:        make(map[string]*MultiRegionCluster),
+		multiRegionParameterGroups: make(map[string]*MultiRegionParameterGroup),
+		events:                     []*Event{},
+		arnToResource:              make(map[string]resourceRef),
 	}
 
 	// Pre-seed the open-access ACL so Terraform resources that omit an explicit
@@ -812,6 +866,10 @@ func (b *InMemoryBackend) tagsForRef(ref resourceRef) map[string]string {
 		if pg, ok := b.parameterGroups[ref.name]; ok {
 			src = pg.Tags
 		}
+	case resourceKindSnapshot:
+		if s, ok := b.snapshots[ref.name]; ok {
+			src = s.Tags
+		}
 	}
 
 	return maps.Clone(src)
@@ -849,47 +907,356 @@ func (b *InMemoryBackend) applyTags(ref resourceRef, tags map[string]string) {
 		if pg, ok := b.parameterGroups[ref.name]; ok {
 			mergeTags(&pg.Tags, tags)
 		}
+	case resourceKindSnapshot:
+		if s, ok := b.snapshots[ref.name]; ok {
+			mergeTags(&s.Tags, tags)
+		}
 	}
 }
 
 // removeTags deletes the given tag keys from the referenced resource (must hold Lock).
 func (b *InMemoryBackend) removeTags(ref resourceRef, tagKeys []string) {
-	keysSet := make(map[string]bool, len(tagKeys))
+	m := b.tagsMapForRef(ref)
+	if m == nil {
+		return
+	}
 
 	for _, k := range tagKeys {
-		keysSet[k] = true
+		delete(m, k)
 	}
+}
 
-	doDelete := func(m map[string]string) {
-		for _, k := range tagKeys {
-			if keysSet[k] {
-				delete(m, k)
-			}
-		}
-	}
-
+// tagsMapForRef returns a direct (mutable) reference to the tag map for a resource (must hold Lock).
+func (b *InMemoryBackend) tagsMapForRef(ref resourceRef) map[string]string {
 	switch ref.kind {
 	case resourceKindCluster:
 		if c, ok := b.clusters[ref.name]; ok {
-			doDelete(c.Tags)
+			return c.Tags
 		}
 	case resourceKindACL:
 		if a, ok := b.acls[ref.name]; ok {
-			doDelete(a.Tags)
+			return a.Tags
 		}
 	case resourceKindSubnetGroup:
 		if sg, ok := b.subnetGroups[ref.name]; ok {
-			doDelete(sg.Tags)
+			return sg.Tags
 		}
 	case resourceKindUser:
 		if u, ok := b.users[ref.name]; ok {
-			doDelete(u.Tags)
+			return u.Tags
 		}
 	case resourceKindParameterGroup:
 		if pg, ok := b.parameterGroups[ref.name]; ok {
-			doDelete(pg.Tags)
+			return pg.Tags
+		}
+	case resourceKindSnapshot:
+		if s, ok := b.snapshots[ref.name]; ok {
+			return s.Tags
 		}
 	}
+
+	return nil
+}
+
+// -- Snapshot operations --------------------------------------------------------
+
+// CreateSnapshot creates a snapshot of a cluster.
+func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSnapshotRequest) (*Snapshot, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.snapshots[req.SnapshotName]; exists {
+		return nil, ErrSnapshotAlreadyExists
+	}
+
+	snapshotARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("snapshot/%s", req.SnapshotName))
+
+	s := &Snapshot{
+		Name:        req.SnapshotName,
+		ARN:         snapshotARN,
+		ClusterName: req.ClusterName,
+		Status:      snapshotStatusAvailable,
+		KmsKeyID:    req.KmsKeyID,
+		Tags:        tagsFromSlice(req.Tags),
+		CreatedAt:   time.Now(),
+	}
+
+	b.snapshots[req.SnapshotName] = s
+	b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: req.SnapshotName}
+
+	return s, nil
+}
+
+// CopySnapshot copies an existing snapshot to a new name.
+func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapshotRequest) (*Snapshot, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	src, ok := b.snapshots[req.SourceSnapshotName]
+	if !ok {
+		return nil, ErrSnapshotNotFound
+	}
+
+	if _, exists := b.snapshots[req.TargetSnapshotName]; exists {
+		return nil, ErrSnapshotAlreadyExists
+	}
+
+	targetARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("snapshot/%s", req.TargetSnapshotName))
+
+	kmsKeyID := req.KmsKeyID
+	if kmsKeyID == "" {
+		kmsKeyID = src.KmsKeyID
+	}
+
+	dst := &Snapshot{
+		Name:        req.TargetSnapshotName,
+		ARN:         targetARN,
+		ClusterName: src.ClusterName,
+		Status:      snapshotStatusAvailable,
+		KmsKeyID:    kmsKeyID,
+		Tags:        tagsFromSlice(req.Tags),
+		CreatedAt:   time.Now(),
+	}
+
+	b.snapshots[req.TargetSnapshotName] = dst
+	b.arnToResource[targetARN] = resourceRef{kind: resourceKindSnapshot, name: req.TargetSnapshotName}
+
+	return dst, nil
+}
+
+// DeleteSnapshot removes a snapshot.
+func (b *InMemoryBackend) DeleteSnapshot(name string) (*Snapshot, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	s, ok := b.snapshots[name]
+	if !ok {
+		return nil, ErrSnapshotNotFound
+	}
+
+	delete(b.snapshots, name)
+	delete(b.arnToResource, s.ARN)
+
+	return s, nil
+}
+
+// -- EngineVersion operations ---------------------------------------------------
+
+// defaultEngineVersions returns the built-in list of supported engine versions.
+func defaultEngineVersions() []*EngineVersion {
+	return []*EngineVersion{
+		{
+			EngineVersion:        "7.1",
+			EnginePatchVersion:   "7.1.0",
+			ParameterGroupFamily: "memorydb_redis7",
+			Description:          "Redis 7.1",
+		},
+		{
+			EngineVersion:        "7.0",
+			EnginePatchVersion:   "7.0.7",
+			ParameterGroupFamily: "memorydb_redis7",
+			Description:          "Redis 7.0",
+		},
+		{
+			EngineVersion:        "6.2",
+			EnginePatchVersion:   "6.2.6",
+			ParameterGroupFamily: "memorydb_redis6",
+			Description:          "Redis 6.2",
+		},
+	}
+}
+
+// DescribeEngineVersions returns supported engine versions, optionally filtered.
+func (b *InMemoryBackend) DescribeEngineVersions(req *describeEngineVersionsRequest) ([]*EngineVersion, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	all := defaultEngineVersions()
+
+	result := make([]*EngineVersion, 0, len(all))
+
+	for _, ev := range all {
+		if req.ParameterGroupFamily != "" && ev.ParameterGroupFamily != req.ParameterGroupFamily {
+			continue
+		}
+
+		result = append(result, ev)
+	}
+
+	return result, nil
+}
+
+// -- Event operations -----------------------------------------------------------
+
+// AddEvent appends an event to the backend event log (used internally for seeding).
+func (b *InMemoryBackend) AddEvent(ev *Event) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.events = append(b.events, ev)
+}
+
+// DescribeEvents returns events, optionally filtered by source name and type.
+func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*Event, 0, len(b.events))
+
+	for _, ev := range b.events {
+		if req.SourceName != "" && ev.SourceName != req.SourceName {
+			continue
+		}
+
+		if req.SourceType != "" && ev.SourceType != req.SourceType {
+			continue
+		}
+
+		result = append(result, ev)
+	}
+
+	return result, nil
+}
+
+// -- MultiRegionCluster operations ----------------------------------------------
+
+// CreateMultiRegionCluster creates a new multi-region cluster.
+func (b *InMemoryBackend) CreateMultiRegionCluster(
+	region, accountID string,
+	req *createMultiRegionClusterRequest,
+) (*MultiRegionCluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// AWS generates the full name by prepending "virv-" to the suffix.
+	fullName := "virv-" + req.MultiRegionClusterNameSuffix
+
+	if _, exists := b.multiRegionClusters[fullName]; exists {
+		return nil, ErrMultiRegionClusterAlreadyExists
+	}
+
+	mrARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("multiregioncluster/%s", fullName))
+
+	engineVersion := req.EngineVersion
+	if engineVersion == "" {
+		engineVersion = defaultEngineVersion
+	}
+
+	engine := req.Engine
+	if engine == "" {
+		engine = "redis"
+	}
+
+	mrc := &MultiRegionCluster{
+		MultiRegionClusterName:        fullName,
+		ARN:                           mrARN,
+		Description:                   req.Description,
+		NodeType:                      req.NodeType,
+		Engine:                        engine,
+		EngineVersion:                 engineVersion,
+		MultiRegionParameterGroupName: req.MultiRegionParameterGroupName,
+		Status:                        multiRegionClusterStatusAvailable,
+		Tags:                          tagsFromSlice(req.Tags),
+		CreatedAt:                     time.Now(),
+	}
+
+	b.multiRegionClusters[fullName] = mrc
+
+	return mrc, nil
+}
+
+// DeleteMultiRegionCluster removes a multi-region cluster.
+func (b *InMemoryBackend) DeleteMultiRegionCluster(name string) (*MultiRegionCluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	mrc, ok := b.multiRegionClusters[name]
+	if !ok {
+		return nil, ErrMultiRegionClusterNotFound
+	}
+
+	delete(b.multiRegionClusters, name)
+
+	return mrc, nil
+}
+
+// DescribeMultiRegionClusters returns multi-region clusters, optionally filtered by name.
+func (b *InMemoryBackend) DescribeMultiRegionClusters(name string) ([]*MultiRegionCluster, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if name != "" {
+		mrc, ok := b.multiRegionClusters[name]
+		if !ok {
+			return nil, ErrMultiRegionClusterNotFound
+		}
+
+		return []*MultiRegionCluster{mrc}, nil
+	}
+
+	result := make([]*MultiRegionCluster, 0, len(b.multiRegionClusters))
+
+	for _, mrc := range b.multiRegionClusters {
+		result = append(result, mrc)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].MultiRegionClusterName < result[j].MultiRegionClusterName
+	})
+
+	return result, nil
+}
+
+// -- MultiRegionParameterGroup operations ----------------------------------------
+
+// DescribeMultiRegionParameterGroups returns multi-region parameter groups, optionally filtered by name.
+func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(name string) ([]*MultiRegionParameterGroup, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if name != "" {
+		mrpg, ok := b.multiRegionParameterGroups[name]
+		if !ok {
+			return nil, awserr.New(
+				"ParameterGroupNotFoundFault: multi-region parameter group not found",
+				awserr.ErrNotFound,
+			)
+		}
+
+		return []*MultiRegionParameterGroup{mrpg}, nil
+	}
+
+	result := make([]*MultiRegionParameterGroup, 0, len(b.multiRegionParameterGroups))
+
+	for _, mrpg := range b.multiRegionParameterGroups {
+		result = append(result, mrpg)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// -- BatchUpdateCluster operation -----------------------------------------------
+
+// BatchUpdateCluster looks up each named cluster and returns a map of name→cluster
+// for all clusters that were found. Unknown names are omitted from the result.
+// The caller is responsible for deciding which names are processed vs unprocessed.
+func (b *InMemoryBackend) BatchUpdateCluster(clusterNames []string) map[string]*Cluster {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make(map[string]*Cluster, len(clusterNames))
+
+	for _, name := range clusterNames {
+		if c, ok := b.clusters[name]; ok {
+			result[name] = c
+		}
+	}
+
+	return result
 }
 
 // -- helpers ---------------------------------------------------------------------

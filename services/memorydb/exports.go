@@ -22,3 +22,24 @@ type ExportedAuthModeReq = authenticationModeReq
 
 // ExportedCreateParameterGroupRequest aliases createParameterGroupRequest for testing.
 type ExportedCreateParameterGroupRequest = createParameterGroupRequest
+
+// ExportedCreateSnapshotRequest aliases createSnapshotRequest for testing.
+type ExportedCreateSnapshotRequest = createSnapshotRequest
+
+// ExportedCopySnapshotRequest aliases copySnapshotRequest for testing.
+type ExportedCopySnapshotRequest = copySnapshotRequest
+
+// ExportedCreateMultiRegionClusterRequest aliases createMultiRegionClusterRequest for testing.
+type ExportedCreateMultiRegionClusterRequest = createMultiRegionClusterRequest
+
+// ExportedDescribeEngineVersionsRequest aliases describeEngineVersionsRequest for testing.
+type ExportedDescribeEngineVersionsRequest = describeEngineVersionsRequest
+
+// ExportedDescribeEventsRequest aliases describeEventsRequest for testing.
+type ExportedDescribeEventsRequest = describeEventsRequest
+
+// ExportedEvent aliases Event for testing.
+type ExportedEvent = Event
+
+// ExportedEngineVersion aliases EngineVersion for testing.
+type ExportedEngineVersion = EngineVersion
