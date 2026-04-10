@@ -125,3 +125,6 @@ func ARNIndexSize(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// ExportedUpdateMultiRegionClusterRequest aliases updateMultiRegionClusterRequest for testing.
+type ExportedUpdateMultiRegionClusterRequest = updateMultiRegionClusterRequest
