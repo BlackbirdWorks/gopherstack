@@ -602,3 +602,39 @@ type UpdateFunctionURLConfigInput struct {
 	} `json:"Cors,omitempty"`
 	AuthType string `json:"AuthType,omitempty"`
 }
+
+// RuntimeManagementConfig holds the runtime management configuration for a Lambda function.
+type RuntimeManagementConfig struct {
+	// RuntimeVersionArn is set when UpdateRuntimeOn is "Manual".
+	RuntimeVersionArn string `json:"RuntimeVersionArn,omitempty"`
+	// UpdateRuntimeOn controls when the runtime is updated: "Auto", "FunctionUpdate", or "Manual".
+	UpdateRuntimeOn string `json:"UpdateRuntimeOn"`
+	FunctionArn     string `json:"FunctionArn,omitempty"`
+}
+
+// PutRuntimeManagementConfigInput is the request body for PutRuntimeManagementConfig.
+type PutRuntimeManagementConfigInput struct {
+	RuntimeVersionArn string `json:"RuntimeVersionArn,omitempty"`
+	UpdateRuntimeOn   string `json:"UpdateRuntimeOn"`
+}
+
+// FunctionRecursionConfig holds the recursion detection configuration for a Lambda function.
+type FunctionRecursionConfig struct {
+	RecursiveLoop string `json:"RecursiveLoop"`
+}
+
+// PutFunctionRecursionConfigInput is the request body for PutFunctionRecursionConfig.
+type PutFunctionRecursionConfigInput struct {
+	RecursiveLoop string `json:"RecursiveLoop"`
+}
+
+// FunctionScalingConfig holds the scaling configuration for a Lambda function.
+type FunctionScalingConfig struct {
+	MaximumConcurrency *int   `json:"MaximumConcurrency,omitempty"`
+	FunctionArn        string `json:"FunctionArn,omitempty"`
+}
+
+// PutFunctionScalingConfigInput is the request body for PutFunctionScalingConfig.
+type PutFunctionScalingConfigInput struct {
+	MaximumConcurrency *int `json:"MaximumConcurrency,omitempty"`
+}

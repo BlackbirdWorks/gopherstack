@@ -38,6 +38,15 @@ const lambda2020PathPrefix = "/2020-06-30/functions"
 // lambda2021PathPrefix is the path prefix for Lambda function URL config endpoints (SDK "Url" casing).
 const lambda2021PathPrefix = "/2021-10-31/functions"
 
+// lambda2021RuntimeMgmtPathPrefix is the path prefix for runtime management config endpoints.
+const lambda2021RuntimeMgmtPathPrefix = "/2021-07-20/functions"
+
+// lambda2024RecursionPathPrefix is the path prefix for function recursion config endpoints.
+const lambda2024RecursionPathPrefix = "/2024-08-28/functions"
+
+// lambda2023ScalingPathPrefix is the path prefix for function scaling config endpoints.
+const lambda2023ScalingPathPrefix = "/2023-10-26/functions"
+
 // lambdaFunctionPrefixes holds all the date-versioned /functions path prefixes that
 // Gopherstack normalises to lambdaPathPrefix for route matching.
 //
@@ -250,11 +259,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetFunction",
 		"GetFunctionCodeSigningConfig",
 		"GetFunctionConcurrency",
+		"GetFunctionConfiguration",
 		"GetFunctionEventInvokeConfig",
+		"GetFunctionRecursionConfig",
+		"GetFunctionScalingConfig",
 		"GetFunctionUrlConfig",
 		"GetLayerVersion",
+		"GetLayerVersionByArn",
 		"GetLayerVersionPolicy",
+		"GetPolicy",
 		"GetProvisionedConcurrencyConfig",
+		"GetRuntimeManagementConfig",
 		"InvokeFunction",
 		"ListAliases",
 		"ListCapacityProviders",
@@ -275,13 +290,18 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutFunctionCodeSigningConfig",
 		"PutFunctionConcurrency",
 		"PutFunctionEventInvokeConfig",
+		"PutFunctionRecursionConfig",
+		"PutFunctionScalingConfig",
 		"PutProvisionedConcurrencyConfig",
+		"PutRuntimeManagementConfig",
 		"RemoveLayerVersionPermission",
+		"RemovePermission",
 		"TagResource",
 		"UntagResource",
 		"UpdateAlias",
 		"UpdateCapacityProvider",
 		"UpdateCodeSigningConfig",
+		"UpdateEventSourceMapping",
 		"UpdateFunctionCode",
 		"UpdateFunctionConfiguration",
 		"UpdateFunctionEventInvokeConfig",
