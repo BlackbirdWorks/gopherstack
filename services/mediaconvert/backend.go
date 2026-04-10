@@ -66,12 +66,34 @@ type Job struct {
 	CreatedAt   float64        `json:"createdAt"`
 }
 
+// Preset represents a MediaConvert output preset.
+type Preset struct {
+	Settings    map[string]any `json:"settings,omitempty"`
+	Arn         string         `json:"arn"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Category    string         `json:"category,omitempty"`
+	Type        string         `json:"type"`
+	CreatedAt   float64        `json:"createdAt"`
+	LastUpdated float64        `json:"lastUpdated"`
+}
+
+// Policy represents a MediaConvert account policy.
+type Policy struct {
+	HTTPInputs  string `json:"httpInputs,omitempty"`
+	HTTPSInputs string `json:"httpsInputs,omitempty"`
+	S3Inputs    string `json:"s3Inputs,omitempty"`
+}
+
 // InMemoryBackend is the in-memory store for MediaConvert resources.
 type InMemoryBackend struct {
 	queues       map[string]*Queue
 	jobTemplates map[string]*JobTemplate
 	jobs         map[string]*Job
+	presets      map[string]*Preset
 	tags         map[string]map[string]string
+	certificates map[string]struct{}
+	policy       *Policy
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -83,7 +105,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		queues:       make(map[string]*Queue),
 		jobTemplates: make(map[string]*JobTemplate),
 		jobs:         make(map[string]*Job),
+		presets:      make(map[string]*Preset),
 		tags:         make(map[string]map[string]string),
+		certificates: make(map[string]struct{}),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("mediaconvert"),
@@ -426,4 +450,164 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) {
 	if len(b.tags[resourceARN]) == 0 {
 		delete(b.tags, resourceARN)
 	}
+}
+
+// CreatePreset creates a new MediaConvert output preset.
+func (b *InMemoryBackend) CreatePreset(name, description, category string, settings map[string]any) (*Preset, error) {
+	b.mu.Lock("CreatePreset")
+	defer b.mu.Unlock()
+
+	if _, ok := b.presets[name]; ok {
+		return nil, fmt.Errorf("%w: preset %s already exists", ErrAlreadyExists, name)
+	}
+
+	now := epochSeconds(time.Now())
+	p := &Preset{
+		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "presets/"+name),
+		Name:        name,
+		Description: description,
+		Category:    category,
+		Settings:    settings,
+		Type:        "CUSTOM",
+		CreatedAt:   now,
+		LastUpdated: now,
+	}
+	b.presets[name] = p
+	cp := *p
+
+	return &cp, nil
+}
+
+// GetPreset returns a preset by name.
+func (b *InMemoryBackend) GetPreset(name string) (*Preset, error) {
+	b.mu.RLock("GetPreset")
+	defer b.mu.RUnlock()
+
+	p, ok := b.presets[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
+	}
+	cp := *p
+
+	return &cp, nil
+}
+
+// ListPresets returns all presets sorted by name.
+func (b *InMemoryBackend) ListPresets() []*Preset {
+	b.mu.RLock("ListPresets")
+	defer b.mu.RUnlock()
+
+	list := make([]*Preset, 0, len(b.presets))
+	for _, p := range b.presets {
+		cp := *p
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// DeletePreset removes a preset by name.
+func (b *InMemoryBackend) DeletePreset(name string) error {
+	b.mu.Lock("DeletePreset")
+	defer b.mu.Unlock()
+
+	p, ok := b.presets[name]
+	if !ok {
+		return fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
+	}
+	delete(b.tags, p.Arn)
+	delete(b.presets, name)
+
+	return nil
+}
+
+// GetPolicy returns the current account policy, or nil if none has been set.
+func (b *InMemoryBackend) GetPolicy() (*Policy, error) {
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	if b.policy == nil {
+		return nil, fmt.Errorf("%w: no policy configured", ErrNotFound)
+	}
+	cp := *b.policy
+
+	return &cp, nil
+}
+
+// PutPolicy sets the account policy.
+func (b *InMemoryBackend) PutPolicy(httpInputs, httpsInputs, s3Inputs string) *Policy {
+	b.mu.Lock("PutPolicy")
+	defer b.mu.Unlock()
+
+	b.policy = &Policy{
+		HTTPInputs:  httpInputs,
+		HTTPSInputs: httpsInputs,
+		S3Inputs:    s3Inputs,
+	}
+	cp := *b.policy
+
+	return &cp
+}
+
+// DeletePolicy removes the account policy.
+func (b *InMemoryBackend) DeletePolicy() error {
+	b.mu.Lock("DeletePolicy")
+	defer b.mu.Unlock()
+
+	if b.policy == nil {
+		return fmt.Errorf("%w: no policy configured", ErrNotFound)
+	}
+	b.policy = nil
+
+	return nil
+}
+
+// AssociateCertificate registers an ACM certificate ARN with this backend.
+func (b *InMemoryBackend) AssociateCertificate(certARN string) error {
+	b.mu.Lock("AssociateCertificate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.certificates[certARN]; ok {
+		return fmt.Errorf("%w: certificate %s already associated", ErrAlreadyExists, certARN)
+	}
+	b.certificates[certARN] = struct{}{}
+
+	return nil
+}
+
+// DisassociateCertificate removes an ACM certificate ARN association.
+func (b *InMemoryBackend) DisassociateCertificate(certARN string) error {
+	b.mu.Lock("DisassociateCertificate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.certificates[certARN]; !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrNotFound, certARN)
+	}
+	delete(b.certificates, certARN)
+
+	return nil
+}
+
+// GetJobsQueryResults returns an empty jobs query result set.
+// Because StartJobsQuery is not implemented, all query IDs return an empty result.
+func (b *InMemoryBackend) GetJobsQueryResults() []*Job {
+	b.mu.RLock("GetJobsQueryResults")
+	defer b.mu.RUnlock()
+
+	return []*Job{}
+}
+
+// CreateResourceShare records a resource-share request for the given job ID.
+// The return value is the job ID echoed back (no persistent share store is maintained).
+func (b *InMemoryBackend) CreateResourceShare(jobID string) (string, error) {
+	b.mu.RLock("CreateResourceShare")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.jobs[jobID]; !ok {
+		return "", fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+	}
+
+	return jobID, nil
 }

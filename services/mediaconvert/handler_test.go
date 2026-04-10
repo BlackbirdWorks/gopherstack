@@ -655,3 +655,385 @@ func TestMediaConvert_UntagResource_RemovesEntryOnLastKey(t *testing.T) {
 		})
 	}
 }
+
+// --- New operations tests ---
+
+func TestMediaConvert_Preset_FullLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	presetName := "test-preset"
+
+	// Create
+	rec := doRequest(t, h, http.MethodPost, "/2017-08-29/presets", map[string]any{
+		"name":        presetName,
+		"description": "a test preset",
+		"category":    "Standard",
+		"settings":    map[string]any{"codec": "H.264"},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	pData, ok := createResp["preset"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, presetName, pData["name"])
+	assert.Equal(t, "CUSTOM", pData["type"])
+	assert.NotEmpty(t, pData["arn"])
+
+	// Get
+	rec = doRequest(t, h, http.MethodGet, "/2017-08-29/presets/"+presetName, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), presetName)
+
+	// List
+	rec = doRequest(t, h, http.MethodGet, "/2017-08-29/presets", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), presetName)
+
+	// Delete
+	rec = doRequest(t, h, http.MethodDelete, "/2017-08-29/presets/"+presetName, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify deleted
+	rec = doRequest(t, h, http.MethodGet, "/2017-08-29/presets/"+presetName, nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestMediaConvert_Preset_TableTests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		setup      func(h *mediaconvert.Handler)
+		name       string
+		method     string
+		path       string
+		wantInBody string
+		wantStatus int
+	}{
+		{
+			name:       "create_preset_missing_name",
+			method:     http.MethodPost,
+			path:       "/2017-08-29/presets",
+			body:       map[string]any{"description": "no name"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "create_preset_duplicate",
+			setup: func(h *mediaconvert.Handler) {
+				doRequest(t, h, http.MethodPost, "/2017-08-29/presets", map[string]any{"name": "dup-preset"})
+			},
+			method:     http.MethodPost,
+			path:       "/2017-08-29/presets",
+			body:       map[string]any{"name": "dup-preset"},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "get_preset_not_found",
+			method:     http.MethodGet,
+			path:       "/2017-08-29/presets/nonexistent",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete_preset_not_found",
+			method:     http.MethodDelete,
+			path:       "/2017-08-29/presets/nonexistent",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "list_presets_empty",
+			method:     http.MethodGet,
+			path:       "/2017-08-29/presets",
+			wantStatus: http.StatusOK,
+			wantInBody: `"presets"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantInBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantInBody)
+			}
+		})
+	}
+}
+
+func TestMediaConvert_Policy_TableTests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(b *mediaconvert.InMemoryBackend)
+		name       string
+		method     string
+		path       string
+		wantInBody string
+		wantStatus int
+	}{
+		{
+			name:       "get_policy_not_found",
+			method:     http.MethodGet,
+			path:       "/2017-08-29/policy",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "get_policy_exists",
+			setup: func(b *mediaconvert.InMemoryBackend) {
+				b.PutPolicy("ALLOWED", "ALLOWED", "ALLOWED")
+			},
+			method:     http.MethodGet,
+			path:       "/2017-08-29/policy",
+			wantStatus: http.StatusOK,
+			wantInBody: "policy",
+		},
+		{
+			name:       "delete_policy_not_found",
+			method:     http.MethodDelete,
+			path:       "/2017-08-29/policy",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "delete_policy_exists",
+			setup: func(b *mediaconvert.InMemoryBackend) {
+				b.PutPolicy("ALLOWED", "ALLOWED", "ALLOWED")
+			},
+			method:     http.MethodDelete,
+			path:       "/2017-08-29/policy",
+			wantStatus: http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			h := mediaconvert.NewHandler(b)
+
+			rec := doRequest(t, h, tt.method, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantInBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantInBody)
+			}
+		})
+	}
+}
+
+func TestMediaConvert_Policy_DeleteAfterGet(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	b.PutPolicy("ALLOWED", "DISALLOWED", "ALLOWED")
+	h := mediaconvert.NewHandler(b)
+
+	rec := doRequest(t, h, http.MethodGet, "/2017-08-29/policy", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	policy, ok := out["policy"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ALLOWED", policy["httpInputs"])
+	assert.Equal(t, "DISALLOWED", policy["httpsInputs"])
+
+	rec = doRequest(t, h, http.MethodDelete, "/2017-08-29/policy", nil)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/2017-08-29/policy", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestMediaConvert_Certificate_TableTests(t *testing.T) {
+	t.Parallel()
+
+	const certARN = "arn:aws:acm:us-east-1:123456789012:certificate/abc123"
+
+	tests := []struct {
+		body       any
+		setup      func(b *mediaconvert.InMemoryBackend)
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "associate_certificate",
+			method:     http.MethodPost,
+			path:       "/2017-08-29/certificates",
+			body:       map[string]any{"arn": certARN},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "associate_certificate_missing_arn",
+			method:     http.MethodPost,
+			path:       "/2017-08-29/certificates",
+			body:       map[string]any{"description": "no arn"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "associate_certificate_duplicate",
+			setup: func(b *mediaconvert.InMemoryBackend) {
+				require.NoError(t, b.AssociateCertificate(certARN))
+			},
+			method:     http.MethodPost,
+			path:       "/2017-08-29/certificates",
+			body:       map[string]any{"arn": certARN},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "disassociate_certificate",
+			setup: func(b *mediaconvert.InMemoryBackend) {
+				require.NoError(t, b.AssociateCertificate(certARN))
+			},
+			method:     http.MethodDelete,
+			path:       "/2017-08-29/certificates/" + certARN,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "disassociate_certificate_not_found",
+			method:     http.MethodDelete,
+			path:       "/2017-08-29/certificates/" + certARN,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			h := mediaconvert.NewHandler(b)
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestMediaConvert_GetJobsQueryResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		queryID    string
+		wantStatus int
+		wantJobs   bool
+	}{
+		{
+			name:       "returns_empty_results_for_any_id",
+			queryID:    "query-abc-123",
+			wantStatus: http.StatusOK,
+			wantJobs:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodGet, "/2017-08-29/jobsQueries/"+tt.queryID, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantJobs {
+				var out map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				_, ok := out["jobs"]
+				assert.True(t, ok, "response should contain 'jobs' key")
+			}
+		})
+	}
+}
+
+func TestMediaConvert_CreateResourceShare_TableTests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *mediaconvert.Handler) string
+		body       func(jobID string) any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "create_resource_share_valid_job",
+			setup: func(h *mediaconvert.Handler) string {
+				rec := doRequest(t, h, http.MethodPost, "/2017-08-29/jobs", map[string]any{
+					"role": "arn:aws:iam::123456789012:role/MediaConvert_Role",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var resp map[string]any
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				job, _ := resp["job"].(map[string]any)
+				id, _ := job["id"].(string)
+
+				return id
+			},
+			body:       func(jobID string) any { return map[string]any{"jobId": jobID} },
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "create_resource_share_missing_job_id",
+			setup:      func(_ *mediaconvert.Handler) string { return "" },
+			body:       func(_ string) any { return map[string]any{"description": "no job id"} },
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "create_resource_share_job_not_found",
+			setup:      func(_ *mediaconvert.Handler) string { return "nonexistent-job" },
+			body:       func(jobID string) any { return map[string]any{"jobId": jobID} },
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			jobID := tt.setup(h)
+			rec := doRequest(t, h, http.MethodPost, "/2017-08-29/resourceShares", tt.body(jobID))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestMediaConvert_GetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	wantOps := []string{
+		"AssociateCertificate",
+		"CreatePreset",
+		"CreateResourceShare",
+		"DeletePolicy",
+		"DeletePreset",
+		"DisassociateCertificate",
+		"GetJobsQueryResults",
+		"GetPolicy",
+		"GetPreset",
+		"ListPresets",
+	}
+
+	for _, op := range wantOps {
+		assert.Contains(t, ops, op, "GetSupportedOperations should include %s", op)
+	}
+}
