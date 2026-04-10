@@ -2,6 +2,8 @@ package lambda
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,12 +113,15 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodGet, isNameOnly, "GetFunction"},
 	{http.MethodDelete, isNameOnly, "DeleteFunction"},
 	{http.MethodPut, hasSuffixCode, "UpdateFunctionCode"},
+	{http.MethodGet, hasSuffixConfiguration, "GetFunctionConfiguration"},
 	{http.MethodPut, hasSuffixConfiguration, "UpdateFunctionConfiguration"},
 	{http.MethodPost, hasSuffixInvocations, "InvokeFunction"},
 	{http.MethodPost, hasSuffixURL, "CreateFunctionURLConfig"},
 	{http.MethodGet, hasSuffixURL, "GetFunctionURLConfig"},
 	{http.MethodDelete, hasSuffixURL, "DeleteFunctionURLConfig"},
 	{http.MethodPost, hasSuffixPolicy, "AddPermission"},
+	{http.MethodGet, hasSuffixPolicy, "GetPolicy"},
+	{http.MethodDelete, hasSuffixPolicy, "RemovePermission"},
 	{http.MethodPut, hasSuffixEventInvokeConfig, "PutFunctionEventInvokeConfig"},
 	{http.MethodGet, hasSuffixEventInvokeConfig, "GetFunctionEventInvokeConfig"},
 	{http.MethodPost, hasSuffixEventInvokeConfig, "UpdateFunctionEventInvokeConfig"},
@@ -262,6 +267,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetFunction",
 		"GetFunctionCodeSigningConfig",
 		"GetFunctionConcurrency",
+		"GetFunctionConfiguration",
 		"GetFunctionEventInvokeConfig",
 		"GetFunctionRecursionConfig",
 		"GetFunctionScalingConfig",
@@ -269,6 +275,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetLayerVersion",
 		"GetLayerVersionByArn",
 		"GetLayerVersionPolicy",
+		"GetPolicy",
 		"GetProvisionedConcurrencyConfig",
 		"GetRuntimeManagementConfig",
 		"InvokeFunction",
@@ -296,6 +303,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutProvisionedConcurrencyConfig",
 		"PutRuntimeManagementConfig",
 		"RemoveLayerVersionPermission",
+		"RemovePermission",
 		"TagResource",
 		"UntagResource",
 		"UpdateAlias",
@@ -578,8 +586,13 @@ func (h *Handler) buildRouteHandlers() []handlerEntry {
 	)
 }
 
-// buildCoreRoutes returns the core function CRUD + invoke + URL routes.
+// buildCoreRoutes returns the core function CRUD + invoke + URL + policy routes.
 func (h *Handler) buildCoreRoutes() []handlerEntry {
+	return append(h.buildFunctionCRUDRoutes(), h.buildFunctionURLPolicyRoutes()...)
+}
+
+// buildFunctionCRUDRoutes returns the basic function CRUD and invoke routes.
+func (h *Handler) buildFunctionCRUDRoutes() []handlerEntry {
 	return []handlerEntry{
 		{
 			method:  http.MethodPost,
@@ -611,6 +624,15 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 			},
 		},
 		{
+			method: http.MethodGet,
+			match:  hasSuffixConfiguration,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/configuration")
+
+				return h.handleGetFunctionConfiguration(c, name)
+			},
+		},
+		{
 			method: http.MethodPut,
 			match:  hasSuffixConfiguration,
 			execute: func(c *echo.Context, rest string) error {
@@ -628,6 +650,12 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 				return h.handleInvoke(c, name)
 			},
 		},
+	}
+}
+
+// buildFunctionURLPolicyRoutes returns the function URL and resource policy routes.
+func (h *Handler) buildFunctionURLPolicyRoutes() []handlerEntry {
+	return []handlerEntry{
 		{
 			method: http.MethodPost,
 			match:  hasSuffixURL,
@@ -662,6 +690,24 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
 
 				return h.handleAddPermission(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixPolicy,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
+
+				return h.handleGetPolicy(c, name)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixPolicy,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
+
+				return h.handleRemovePermission(c, name)
 			},
 		},
 	}
@@ -1099,6 +1145,10 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
+	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
+		return false
+	}
+
 	if input.PackageType == "" {
 		input.PackageType = PackageTypeImage
 	}
@@ -1110,6 +1160,30 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
+	return h.validateCreateFunctionCode(c, input)
+}
+
+// validateMemoryAndTimeout validates MemorySize and Timeout values (both 0 means use defaults).
+func (h *Handler) validateMemoryAndTimeout(c *echo.Context, memorySize, timeout int) bool {
+	if memorySize != 0 && (memorySize < minMemorySize || memorySize > maxMemorySize) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("MemorySize must be between %d and %d MB", minMemorySize, maxMemorySize))
+
+		return false
+	}
+
+	if timeout != 0 && (timeout < minTimeout || timeout > maxTimeout) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("Timeout must be between %d and %d seconds", minTimeout, maxTimeout))
+
+		return false
+	}
+
+	return true
+}
+
+// validateCreateFunctionCode validates the Code field based on PackageType.
+func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunctionInput) bool {
 	if input.Code == nil {
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Code is required")
 
@@ -1193,6 +1267,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	if len(fn.ZipData) > 0 {
 		fn.CodeSize = int64(len(fn.ZipData))
+		sum := sha256.Sum256(fn.ZipData)
+		fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
 	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
@@ -1319,6 +1395,8 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 
 		if len(fn.ZipData) > 0 {
 			fn.CodeSize = int64(len(fn.ZipData))
+			sum := sha256.Sum256(fn.ZipData)
+			fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
 		}
 	}
 
@@ -1344,6 +1422,10 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
+	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
+		return nil
+	}
+
 	fn, getFnErr := h.Backend.GetFunction(name)
 	if getFnErr != nil {
 		if errors.Is(getFnErr, ErrFunctionNotFound) {
@@ -1354,6 +1436,21 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
 	}
 
+	applyFunctionConfigurationUpdate(fn, &input)
+
+	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
+	fn.RevisionID = uuid.New().String()
+	fn.LastUpdateStatus = LastUpdateStatusSuccessful
+
+	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, fn)
+}
+
+// applyFunctionConfigurationUpdate applies non-zero fields from input onto fn.
+func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
 	if input.Description != "" {
 		fn.Description = input.Description
 	}
@@ -1385,16 +1482,6 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	if input.Layers != nil {
 		fn.Layers = layerARNsToFunctionLayers(input.Layers)
 	}
-
-	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
-	fn.RevisionID = uuid.New().String()
-	fn.LastUpdateStatus = LastUpdateStatusSuccessful
-
-	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
-	}
-
-	return c.JSON(http.StatusOK, fn)
 }
 
 func (h *Handler) handleInvoke(c *echo.Context, name string) error {
@@ -1592,6 +1679,18 @@ const defaultMemorySize = 128
 
 // defaultTimeout is the default Lambda function timeout in seconds.
 const defaultTimeout = 3
+
+// minMemorySize is the minimum allowed Lambda function memory in MB.
+const minMemorySize = 128
+
+// maxMemorySize is the maximum allowed Lambda function memory in MB.
+const maxMemorySize = 10240
+
+// minTimeout is the minimum allowed Lambda function timeout in seconds.
+const minTimeout = 1
+
+// maxTimeout is the maximum allowed Lambda function timeout in seconds.
+const maxTimeout = 900
 
 // extractNameFromAliasPath extracts the function name from a rest path like /{name}/aliases
 // or /{name}/aliases/{aliasName}.
@@ -2565,7 +2664,71 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 	return c.JSON(http.StatusCreated, out)
 }
 
-// --- 2020-06-30 function route handler ---
+// handleGetPolicy handles GET /2015-03-31/functions/{name}/policy.
+func (h *Handler) handleGetPolicy(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	out, err := lambdaBk.GetPolicy(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrNoPolicyFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("No policy is associated with the given resource: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// handleRemovePermission handles DELETE /2015-03-31/functions/{name}/policy?StatementId=xxx.
+func (h *Handler) handleRemovePermission(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	statementID := c.Request().URL.Query().Get("StatementId")
+	if statementID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "StatementId is required")
+	}
+
+	if err := lambdaBk.RemovePermission(name, statementID); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleGetFunctionConfiguration handles GET /2015-03-31/functions/{name}/configuration.
+// Real AWS returns the function configuration without the code location.
+func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) error {
+	fn, err := h.Backend.GetFunction(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	// GetFunctionConfiguration returns the configuration only (no code location).
+	return c.JSON(http.StatusOK, fn)
+}
 
 // handle2020FunctionRoute handles routes under /2020-06-30/functions/{name}/...
 func (h *Handler) handle2020FunctionRoute(c *echo.Context, rest2020, method string) error {
@@ -2593,6 +2756,8 @@ func (h *Handler) handle2020FunctionRoute(c *echo.Context, rest2020, method stri
 }
 
 // handleGetFunctionCodeSigningConfig handles GET /2020-06-30/functions/{name}/code-signing-config.
+// Real AWS returns HTTP 200 with an empty CodeSigningConfigArn when the function exists but
+// has no code signing config associated (not a 404).
 func (h *Handler) handleGetFunctionCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, name string) error {
 	cscARN, err := bk.GetFunctionCodeSigningConfig(name)
 	if err != nil {
@@ -2602,8 +2767,11 @@ func (h *Handler) handleGetFunctionCodeSigningConfig(c *echo.Context, bk *InMemo
 		}
 
 		if errors.Is(err, ErrCodeSigningConfigNotFound) {
-			return h.writeError(c, http.StatusNotFound, "CodeSigningConfigNotFoundException",
-				fmt.Sprintf("Function: %s does not have a code signing config", name))
+			// Real AWS returns 200 with empty ARN when no code signing config is associated.
+			return c.JSON(http.StatusOK, &GetFunctionCodeSigningConfigOutput{
+				CodeSigningConfigArn: "",
+				FunctionName:         name,
+			})
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

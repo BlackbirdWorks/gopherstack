@@ -33,9 +33,5 @@ func TestSDKCompleteness(t *testing.T) {
 		"Invoke",
 		"InvokeAsync",
 		"InvokeWithResponseStream",
-		// Miscellaneous operations not yet implemented.
-		"GetFunctionConfiguration",
-		"GetPolicy",
-		"RemovePermission",
 	})
 }

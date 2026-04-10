@@ -73,8 +73,10 @@ type FunctionConfiguration struct {
 	ReservedConcurrentExecutions *int               `json:"ReservedConcurrentExecutions,omitempty"`
 	ImageURI                     string             `json:"ImageUri,omitempty"`
 	LastUpdateStatus             LastUpdateStatus   `json:"LastUpdateStatus"`
+	LastUpdateStatusReason       string             `json:"LastUpdateStatusReason,omitempty"`
 	PackageType                  string             `json:"PackageType"`
 	StateReason                  string             `json:"StateReason,omitempty"`
+	StateReasonCode              string             `json:"StateReasonCode,omitempty"`
 	Role                         string             `json:"Role"`
 	LastModified                 string             `json:"LastModified"`
 	Runtime                      string             `json:"Runtime,omitempty"`
@@ -83,6 +85,7 @@ type FunctionConfiguration struct {
 	FunctionArn                  string             `json:"FunctionArn"`
 	State                        FunctionState      `json:"State"`
 	FunctionName                 string             `json:"FunctionName"`
+	CodeSha256                   string             `json:"CodeSha256,omitempty"`
 	S3BucketCode                 string             `json:"-"`
 	S3KeyCode                    string             `json:"-"`
 	Handler                      string             `json:"Handler,omitempty"`

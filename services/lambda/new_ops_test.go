@@ -342,10 +342,14 @@ func TestNewOps_FunctionCodeSigningConfig(t *testing.T) {
 		"/2020-06-30/functions/csc-test-fn/code-signing-config", "")
 	assert.Equal(t, http.StatusNoContent, delRec.Code)
 
-	// Get after delete → 404
+	// Get after delete → 200 with empty ARN (matches real AWS behavior)
 	getRec2 := callInMemoryHandler(t, h, http.MethodGet,
 		"/2020-06-30/functions/csc-test-fn/code-signing-config", "")
-	assert.Equal(t, http.StatusNotFound, getRec2.Code)
+	assert.Equal(t, http.StatusOK, getRec2.Code)
+
+	var getOut2 lambda.GetFunctionCodeSigningConfigOutput
+	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&getOut2))
+	assert.Empty(t, getOut2.CodeSigningConfigArn)
 }
 
 func TestNewOps_FunctionCodeSigningConfig_MissingArn(t *testing.T) {

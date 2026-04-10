@@ -65,6 +65,8 @@ var (
 	ErrProvisionedConcurrencyConfigNotFound = errors.New("ResourceNotFoundException")
 	// ErrCodeSigningConfigNotFound is returned when a function has no code signing config associated.
 	ErrCodeSigningConfigNotFound = errors.New("CodeSigningConfigNotFoundException")
+	// ErrNoPolicyFound is returned when a function has no resource-based policy (no permissions).
+	ErrNoPolicyFound = errors.New("ResourceNotFoundException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -3023,7 +3025,7 @@ func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, erro
 
 	perms := b.permissions[functionName]
 	if len(perms) == 0 {
-		return nil, ErrFunctionNotFound
+		return nil, ErrNoPolicyFound
 	}
 
 	stmts := make([]string, 0, len(perms))
