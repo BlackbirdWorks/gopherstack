@@ -156,6 +156,12 @@ func TestHandler_CreateCliToken(t *testing.T) {
 			t.Parallel()
 
 			h := newHandlerForTest(t)
+			// Seed the environment so the token endpoint can validate it exists.
+			doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
+				"DagS3Path":        "dags/",
+				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
+				"SourceBucketArn":  "arn:aws:s3:::bucket",
+			})
 			rec := doMWAARequest(t, h, http.MethodPost, "/clitoken/"+tt.envName, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -188,6 +194,12 @@ func TestHandler_CreateWebLoginToken(t *testing.T) {
 			t.Parallel()
 
 			h := newHandlerForTest(t)
+			// Seed the environment so the token endpoint can validate it exists.
+			doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
+				"DagS3Path":        "dags/",
+				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
+				"SourceBucketArn":  "arn:aws:s3:::bucket",
+			})
 			rec := doMWAARequest(t, h, http.MethodPost, "/webtoken/"+tt.envName, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 

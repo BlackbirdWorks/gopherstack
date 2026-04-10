@@ -18,6 +18,14 @@ const (
 	mwaaService       = "airflow"
 	mwaaMatchPriority = 87
 	opUnknown         = "Unknown"
+
+	// Path prefix constants.
+	pathEnvironments   = "/environments"
+	pathTagsPrefix     = "/tags/"
+	pathCliTokenPrefix = "/clitoken/"
+	pathWebTokenPrefix = "/webtoken/"
+	pathRestAPIPrefix  = "/restapi/"
+	pathMetricsPrefix  = "/metrics/environments/"
 )
 
 // Handler is the HTTP handler for the AWS MWAA REST API.
@@ -30,6 +38,11 @@ type Handler struct {
 // NewHandler creates a new MWAA handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// Reset resets the handler's backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -74,8 +87,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		mwaaPathPrefixes := []string{
-			"/environments", "/tags/", "/clitoken/",
-			"/webtoken/", "/restapi/", "/metrics/environments/",
+			pathEnvironments, pathTagsPrefix, pathCliTokenPrefix,
+			pathWebTokenPrefix, pathRestAPIPrefix, pathMetricsPrefix,
 		}
 		for _, prefix := range mwaaPathPrefixes {
 			if strings.HasPrefix(path, prefix) {
@@ -96,19 +109,19 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 
 	switch {
-	case strings.HasPrefix(path, "/clitoken/"):
+	case strings.HasPrefix(path, pathCliTokenPrefix):
 		return "CreateCliToken"
-	case strings.HasPrefix(path, "/webtoken/"):
+	case strings.HasPrefix(path, pathWebTokenPrefix):
 		return "CreateWebLoginToken"
-	case strings.HasPrefix(path, "/restapi/"):
+	case strings.HasPrefix(path, pathRestAPIPrefix):
 		return "InvokeRestApi"
-	case strings.HasPrefix(path, "/metrics/environments/"):
+	case strings.HasPrefix(path, pathMetricsPrefix):
 		return "PublishMetrics"
-	case strings.HasPrefix(path, "/tags/"):
+	case strings.HasPrefix(path, pathTagsPrefix):
 		return extractTagOperation(method)
-	case path == "/environments" || path == "/environments/":
+	case path == pathEnvironments || path == pathEnvironments+"/":
 		return extractEnvironmentListOperation(method)
-	case strings.HasPrefix(path, "/environments/"):
+	case strings.HasPrefix(path, pathEnvironments+"/"):
 		return extractEnvironmentOperation(method)
 	}
 
@@ -154,21 +167,23 @@ func extractEnvironmentOperation(method string) string {
 	return opUnknown
 }
 
-// ExtractResource extracts the environment name from the request path.
+// ExtractResource extracts the environment name or ARN from the request path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 
 	switch {
-	case strings.HasPrefix(path, "/environments/"):
-		return strings.TrimPrefix(path, "/environments/")
-	case strings.HasPrefix(path, "/clitoken/"):
-		return strings.TrimPrefix(path, "/clitoken/")
-	case strings.HasPrefix(path, "/webtoken/"):
-		return strings.TrimPrefix(path, "/webtoken/")
-	case strings.HasPrefix(path, "/restapi/"):
-		return strings.TrimPrefix(path, "/restapi/")
-	case strings.HasPrefix(path, "/metrics/environments/"):
-		return strings.TrimPrefix(path, "/metrics/environments/")
+	case strings.HasPrefix(path, pathEnvironments+"/"):
+		return strings.TrimPrefix(path, pathEnvironments+"/")
+	case strings.HasPrefix(path, pathCliTokenPrefix):
+		return strings.TrimPrefix(path, pathCliTokenPrefix)
+	case strings.HasPrefix(path, pathWebTokenPrefix):
+		return strings.TrimPrefix(path, pathWebTokenPrefix)
+	case strings.HasPrefix(path, pathRestAPIPrefix):
+		return strings.TrimPrefix(path, pathRestAPIPrefix)
+	case strings.HasPrefix(path, pathMetricsPrefix):
+		return strings.TrimPrefix(path, pathMetricsPrefix)
+	case strings.HasPrefix(path, pathTagsPrefix):
+		return strings.TrimPrefix(path, pathTagsPrefix)
 	}
 
 	return ""
@@ -184,19 +199,19 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 	path := c.Request().URL.Path
 
 	switch {
-	case strings.HasPrefix(path, "/clitoken/"):
+	case strings.HasPrefix(path, pathCliTokenPrefix):
 		return h.dispatchCliToken(c, path)
-	case strings.HasPrefix(path, "/webtoken/"):
+	case strings.HasPrefix(path, pathWebTokenPrefix):
 		return h.dispatchWebToken(c, path)
-	case strings.HasPrefix(path, "/restapi/"):
+	case strings.HasPrefix(path, pathRestAPIPrefix):
 		return h.dispatchRestAPI(c, path)
-	case strings.HasPrefix(path, "/metrics/environments/"):
+	case strings.HasPrefix(path, pathMetricsPrefix):
 		return h.dispatchMetrics(c, path)
-	case strings.HasPrefix(path, "/tags/"):
+	case strings.HasPrefix(path, pathTagsPrefix):
 		return h.dispatchTags(c, path)
-	case path == "/environments" || path == "/environments/":
+	case path == pathEnvironments || path == pathEnvironments+"/":
 		return h.dispatchEnvironmentList(c)
-	case strings.HasPrefix(path, "/environments/"):
+	case strings.HasPrefix(path, pathEnvironments+"/"):
 		return h.dispatchEnvironment(c, path)
 	}
 
@@ -208,7 +223,7 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 }
 
 func (h *Handler) dispatchCliToken(c *echo.Context, path string) error {
-	name := strings.TrimPrefix(path, "/clitoken/")
+	name := strings.TrimPrefix(path, pathCliTokenPrefix)
 	if c.Request().Method == http.MethodPost {
 		return h.handleCreateCliToken(c, name)
 	}
@@ -217,7 +232,7 @@ func (h *Handler) dispatchCliToken(c *echo.Context, path string) error {
 }
 
 func (h *Handler) dispatchWebToken(c *echo.Context, path string) error {
-	name := strings.TrimPrefix(path, "/webtoken/")
+	name := strings.TrimPrefix(path, pathWebTokenPrefix)
 	if c.Request().Method == http.MethodPost {
 		return h.handleCreateWebLoginToken(c, name)
 	}
@@ -226,7 +241,7 @@ func (h *Handler) dispatchWebToken(c *echo.Context, path string) error {
 }
 
 func (h *Handler) dispatchTags(c *echo.Context, path string) error {
-	resourceARN := strings.TrimPrefix(path, "/tags/")
+	resourceARN := strings.TrimPrefix(path, pathTagsPrefix)
 
 	switch c.Request().Method {
 	case http.MethodGet:
@@ -249,7 +264,7 @@ func (h *Handler) dispatchEnvironmentList(c *echo.Context) error {
 }
 
 func (h *Handler) dispatchEnvironment(c *echo.Context, path string) error {
-	name := strings.TrimPrefix(path, "/environments/")
+	name := strings.TrimPrefix(path, pathEnvironments+"/")
 
 	switch c.Request().Method {
 	case http.MethodGet:
@@ -447,8 +462,17 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 }
 
 func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
+	token, err := h.Backend.CreateCliToken(name)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+	}
+
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"CliToken":          "stub-cli-token-" + name,
+		"CliToken":          token,
 		"WebServerHostname": name + ".airflow." + h.DefaultRegion + ".amazonaws.com",
 	})
 
@@ -456,8 +480,17 @@ func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error {
+	token, err := h.Backend.CreateWebLoginToken(name)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+	}
+
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"WebToken":          "stub-web-token-" + name,
+		"WebToken":          token,
 		"WebServerHostname": name + ".airflow." + h.DefaultRegion + ".amazonaws.com",
 	})
 
@@ -465,7 +498,7 @@ func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error 
 }
 
 func (h *Handler) dispatchRestAPI(c *echo.Context, path string) error {
-	name := strings.TrimPrefix(path, "/restapi/")
+	name := strings.TrimPrefix(path, pathRestAPIPrefix)
 	if c.Request().Method == http.MethodPost {
 		return h.handleInvokeRestAPI(c, name)
 	}
@@ -504,7 +537,7 @@ func (h *Handler) handleInvokeRestAPI(c *echo.Context, name string) error {
 }
 
 func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
-	name := strings.TrimPrefix(path, "/metrics/environments/")
+	name := strings.TrimPrefix(path, pathMetricsPrefix)
 	if c.Request().Method == http.MethodPost {
 		return h.handlePublishMetrics(c, name)
 	}
