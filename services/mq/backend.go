@@ -847,15 +847,15 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 // Promote promotes a standby broker to the primary role.
 // In the in-memory stub this is a no-op that validates the broker exists.
 func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
+	b.mu.RLock("Promote")
+	defer b.mu.RUnlock()
+
 	if mode != PromoteModeFailover && mode != PromoteModeSwitchover {
 		return nil, fmt.Errorf(
 			"%w: mode must be FAILOVER or SWITCHOVER, got %q",
 			ErrValidation, mode,
 		)
 	}
-
-	b.mu.RLock("Promote")
-	defer b.mu.RUnlock()
 
 	br := b.lookupBroker(brokerID)
 	if br == nil {

@@ -1,13 +1,10 @@
 package mq_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,38 +17,6 @@ func newRefinement1Backend(t *testing.T) *mq.InMemoryBackend {
 	t.Helper()
 
 	return mq.NewInMemoryBackend("000000000000", "us-east-1")
-}
-
-func doRefinementRequest(t *testing.T, h *mq.Handler, method, path string, body any) *httptest.ResponseRecorder {
-	t.Helper()
-
-	e := echo.New()
-
-	var reqBody *bytes.Reader
-
-	if body != nil {
-		b, err := json.Marshal(body)
-		require.NoError(t, err)
-
-		reqBody = bytes.NewReader(b)
-	} else {
-		reqBody = bytes.NewReader(nil)
-	}
-
-	req := httptest.NewRequest(method, path, reqBody)
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
 }
 
 // --- Tests ---
@@ -191,7 +156,7 @@ func TestRefinement1_CreateBroker_InvalidEngineType_Returns400(t *testing.T) {
 	b := newRefinement1Backend(t)
 	h := mq.NewHandler(b)
 
-	rec := doRefinementRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
+	rec := doMQRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
 		"brokerName": "bad-broker",
 		"engineType": "INVALID",
 	})
@@ -226,7 +191,7 @@ func TestRefinement1_CreateConfiguration_InvalidEngineType_Returns400(t *testing
 	b := newRefinement1Backend(t)
 	h := mq.NewHandler(b)
 
-	rec := doRefinementRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
+	rec := doMQRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
 		"name":       "bad-config",
 		"engineType": "BAD",
 	})
@@ -291,7 +256,7 @@ func TestRefinement1_Promote_Returns400_InvalidMode(t *testing.T) {
 
 	h := mq.NewHandler(b)
 
-	rec := doRefinementRequest(t, h, http.MethodPost, "/v1/brokers/"+br.BrokerID+"/promote", map[string]any{
+	rec := doMQRequest(t, h, http.MethodPost, "/v1/brokers/"+br.BrokerID+"/promote", map[string]any{
 		"mode": "INVALID",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -328,7 +293,7 @@ func TestRefinement1_BrokerUsersInResponseAreSorted(t *testing.T) {
 	require.NoError(t, err)
 
 	h := mq.NewHandler(b)
-	rec := doRefinementRequest(t, h, http.MethodGet, "/v1/brokers/"+br.BrokerID, nil)
+	rec := doMQRequest(t, h, http.MethodGet, "/v1/brokers/"+br.BrokerID, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
