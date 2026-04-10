@@ -590,9 +590,9 @@ func (b *InMemoryBackend) DisassociateCertificate(certARN string) error {
 	return nil
 }
 
-// GetJobsQueryResults returns an empty jobs query result set.
+// GetJobsQueryResults returns an empty jobs query result set for the given query ID.
 // Because StartJobsQuery is not implemented, all query IDs return an empty result.
-func (b *InMemoryBackend) GetJobsQueryResults() []*Job {
+func (b *InMemoryBackend) GetJobsQueryResults(_ string) []*Job {
 	b.mu.RLock("GetJobsQueryResults")
 	defer b.mu.RUnlock()
 

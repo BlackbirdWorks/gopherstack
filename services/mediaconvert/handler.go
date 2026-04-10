@@ -138,7 +138,8 @@ func (h *Handler) dispatch(c *echo.Context, route mcRoute) error {
 	return h.dispatchMutating(c, route, readBody)
 }
 
-// dispatchReadOnly handles read-only operations that do not require a request body.
+// dispatchReadOnly handles operations that do not require a request body.
+// This includes both read operations and DELETE operations where no body is needed.
 func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error) {
 	switch route.operation {
 	case "ListQueues":
@@ -170,7 +171,8 @@ func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error)
 	return h.dispatchReadOnlyNewOps(c, route)
 }
 
-// dispatchReadOnlyNewOps handles newer read-only operations.
+// dispatchReadOnlyNewOps handles newer operations that do not require a request body.
+// This includes both read operations and DELETE operations where no body is needed.
 func (h *Handler) dispatchReadOnlyNewOps(c *echo.Context, route mcRoute) (bool, error) {
 	switch route.operation {
 	case "ListPresets":
@@ -186,7 +188,7 @@ func (h *Handler) dispatchReadOnlyNewOps(c *echo.Context, route mcRoute) (bool, 
 	case "DisassociateCertificate":
 		return true, h.handleDisassociateCertificate(c, route.resource)
 	case "GetJobsQueryResults":
-		return true, h.handleGetJobsQueryResults(c)
+		return true, h.handleGetJobsQueryResults(c, route.resource)
 	}
 
 	return false, nil
@@ -828,8 +830,8 @@ type jobsQueryResultsOutput struct {
 	Jobs []*Job `json:"jobs"`
 }
 
-func (h *Handler) handleGetJobsQueryResults(c *echo.Context) error {
-	jobs := h.Backend.GetJobsQueryResults()
+func (h *Handler) handleGetJobsQueryResults(c *echo.Context, queryID string) error {
+	jobs := h.Backend.GetJobsQueryResults(queryID)
 
 	return c.JSON(http.StatusOK, jobsQueryResultsOutput{Jobs: jobs})
 }
