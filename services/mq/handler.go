@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,11 +31,11 @@ const (
 
 // Handler is the Echo HTTP handler for Amazon MQ REST operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Amazon MQ handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -79,6 +80,9 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 
 // ChaosRegions returns all regions this handler instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
+
+// Reset clears the handler's backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // RouteMatcher returns a function that matches Amazon MQ REST API requests.
 // MQ uses /v1/brokers, and MQ-signed /v1/configurations and /v1/tags paths.
@@ -573,6 +577,8 @@ func toBrokerResponse(br *Broker) brokerResponse {
 		users = append(users, UserSummary{Username: u.Username, Console: u.Console})
 	}
 
+	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+
 	return brokerResponse{
 		BrokerArn:               br.BrokerArn,
 		BrokerID:                br.BrokerID,
@@ -897,6 +903,8 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", err.Error()))
 	}

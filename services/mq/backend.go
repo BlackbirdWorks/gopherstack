@@ -19,6 +19,8 @@ var (
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when a request contains an invalid parameter.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -28,11 +30,33 @@ const (
 	BrokerStateCreating = "CREATION_IN_PROGRESS"
 	// BrokerStateDeleting indicates a broker being removed.
 	BrokerStateDeleting = "DELETION_IN_PROGRESS"
+	// BrokerStateRebooting indicates a broker reboot in progress.
+	BrokerStateRebooting = "REBOOT_IN_PROGRESS"
 
 	// EngineTypeActiveMQ is the ActiveMQ engine type.
 	EngineTypeActiveMQ = "ACTIVEMQ"
 	// EngineTypeRabbitMQ is the RabbitMQ engine type.
 	EngineTypeRabbitMQ = "RABBITMQ"
+
+	// DeploymentModeSingleInstance is the single-instance deployment mode.
+	DeploymentModeSingleInstance = "SINGLE_INSTANCE"
+	// DeploymentModeActiveStandby is the active/standby multi-AZ deployment mode.
+	DeploymentModeActiveStandby = "ACTIVE_STANDBY_MULTI_AZ"
+	// DeploymentModeCluster is the cluster multi-AZ deployment mode (RabbitMQ).
+	DeploymentModeCluster = "CLUSTER_MULTI_AZ"
+
+	// StorageTypeEFS is the EFS storage type (ActiveMQ).
+	StorageTypeEFS = "efs"
+	// StorageTypeEBS is the EBS storage type (RabbitMQ).
+	StorageTypeEBS = "ebs"
+
+	// PromoteModeFailover is the failover promote mode.
+	PromoteModeFailover = "FAILOVER"
+	// PromoteModeSwitchover is the switchover promote mode.
+	PromoteModeSwitchover = "SWITCHOVER"
+
+	// defaultHostInstanceType is the default broker instance type.
+	defaultHostInstanceType = "mq.m5.large"
 
 	// maxConfigurationRevisions is the maximum number of revisions retained per configuration.
 	// AWS MQ supports up to 50 revisions; older ones are pruned when this limit is exceeded.
@@ -140,6 +164,19 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the region configured for this backend.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the account ID configured for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all backend state, preserving only the account ID and region.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.brokers = make(map[string]*Broker)
+	b.configurations = make(map[string]*Configuration)
+	b.tags = make(map[string]map[string]string)
+}
+
 // --- Broker operations ---
 
 // CreateBroker creates a new Amazon MQ broker.
@@ -153,6 +190,10 @@ func (b *InMemoryBackend) CreateBroker(
 	b.mu.Lock("CreateBroker")
 	defer b.mu.Unlock()
 
+	if engineType != EngineTypeActiveMQ && engineType != EngineTypeRabbitMQ {
+		return nil, fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
+	}
+
 	// Check for duplicate by name.
 	for _, br := range b.brokers {
 		if br.BrokerName == name {
@@ -161,7 +202,7 @@ func (b *InMemoryBackend) CreateBroker(
 	}
 
 	if deploymentMode == "" {
-		deploymentMode = "SINGLE_INSTANCE"
+		deploymentMode = DeploymentModeSingleInstance
 	}
 
 	if engineVersion == "" {
@@ -170,6 +211,10 @@ func (b *InMemoryBackend) CreateBroker(
 		} else {
 			engineVersion = "5.15.14"
 		}
+	}
+
+	if hostInstanceType == "" {
+		hostInstanceType = defaultHostInstanceType
 	}
 
 	id := uuid.NewString()
@@ -484,6 +529,10 @@ func (b *InMemoryBackend) CreateConfiguration(
 	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
 
+	if engineType != EngineTypeActiveMQ && engineType != EngineTypeRabbitMQ {
+		return nil, fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
+	}
+
 	for _, c := range b.configurations {
 		if c.Name == name {
 			return nil, fmt.Errorf("%w: configuration %s already exists", ErrAlreadyExists, name)
@@ -797,9 +846,16 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 
 // Promote promotes a standby broker to the primary role.
 // In the in-memory stub this is a no-op that validates the broker exists.
-func (b *InMemoryBackend) Promote(brokerID, _ string) (*Broker, error) {
-	b.mu.Lock("Promote")
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
+	if mode != PromoteModeFailover && mode != PromoteModeSwitchover {
+		return nil, fmt.Errorf(
+			"%w: mode must be FAILOVER or SWITCHOVER, got %q",
+			ErrValidation, mode,
+		)
+	}
+
+	b.mu.RLock("Promote")
+	defer b.mu.RUnlock()
 
 	br := b.lookupBroker(brokerID)
 	if br == nil {
@@ -824,6 +880,8 @@ func (b *InMemoryBackend) ListTags(resourceARN string) map[string]string {
 }
 
 // CreateTags adds or updates tags for a resource ARN.
+// Note: b.tags[arn] and the corresponding broker/config Tags field share
+// the same map pointer, so a single write here updates both automatically.
 func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string) {
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
@@ -833,43 +891,16 @@ func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string)
 	}
 
 	maps.Copy(b.tags[resourceARN], tags)
-
-	// Keep broker/config tags in sync.
-	for _, br := range b.brokers {
-		if br.BrokerArn == resourceARN {
-			maps.Copy(br.Tags, tags)
-
-			break
-		}
-	}
-
-	for _, cfg := range b.configurations {
-		if cfg.Arn == resourceARN {
-			maps.Copy(cfg.Tags, tags)
-
-			break
-		}
-	}
 }
 
 // DeleteTags removes the specified tag keys from a resource ARN.
+// Note: b.tags[arn] and the corresponding broker/config Tags field share
+// the same map pointer, so a single delete here updates both automatically.
 func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) {
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
 	for _, k := range tagKeys {
 		delete(b.tags[resourceARN], k)
-
-		for _, br := range b.brokers {
-			if br.BrokerArn == resourceARN {
-				delete(br.Tags, k)
-			}
-		}
-
-		for _, cfg := range b.configurations {
-			if cfg.Arn == resourceARN {
-				delete(cfg.Tags, k)
-			}
-		}
 	}
 }

@@ -1,9 +1,14 @@
 package mq
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when the AppContext passed to Init is nil.
+var ErrNilAppContext = errors.New("mq: nil AppContext")
 
 // Provider implements service.Provider for Amazon MQ.
 type Provider struct{}
@@ -15,6 +20,10 @@ func (p *Provider) Name() string { return "MQ" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 
