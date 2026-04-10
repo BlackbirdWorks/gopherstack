@@ -124,7 +124,14 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 }
 
 // fixNilTagsInSnapshot ensures all restored resources have non-nil tag maps.
+// Split into sub-helpers to keep cognitive complexity within bounds.
 func fixNilTagsInSnapshot(snap *backendSnapshot) {
+	fixCoreResourceTags(snap)
+	fixExtendedResourceTags(snap)
+}
+
+// fixCoreResourceTags ensures clusters, ACLs, subnet groups and users have non-nil tags.
+func fixCoreResourceTags(snap *backendSnapshot) {
 	for _, c := range snap.Clusters {
 		if c.Tags == nil {
 			c.Tags = make(map[string]string)
@@ -148,7 +155,11 @@ func fixNilTagsInSnapshot(snap *backendSnapshot) {
 			u.Tags = make(map[string]string)
 		}
 	}
+}
 
+// fixExtendedResourceTags ensures parameter groups, snapshots and multi-region resources
+// have non-nil tag maps (and that parameter groups have a non-nil parameter map).
+func fixExtendedResourceTags(snap *backendSnapshot) {
 	for _, pg := range snap.ParameterGroups {
 		if pg.Tags == nil {
 			pg.Tags = make(map[string]string)

@@ -3,7 +3,7 @@ package memorydb_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -606,8 +606,9 @@ func TestRefinement1_MultiRegionParameterGroupNotFound(t *testing.T) {
 func TestRefinement1_ErrValidationIs(t *testing.T) {
 	t.Parallel()
 
-	wrapped := errors.New("wrap: " + memorydb.ErrValidation.Error())
-	assert.Error(t, wrapped)
+	wrapped := fmt.Errorf("wrap: %w", memorydb.ErrValidation)
+	require.Error(t, wrapped)
+	require.ErrorIs(t, wrapped, memorydb.ErrValidation)
 }
 
 // TestRefinement1_AddEventCapEnforced verifies AddEvent does not grow beyond cap.

@@ -141,7 +141,7 @@ type StorageBackend interface {
 
 	// Snapshot operations
 	CreateSnapshot(region, accountID string, req *createSnapshotRequest) (*Snapshot, error)
-	DescribeSnapshots(name string) ([]*Snapshot, error)
+	DescribeSnapshots(name, clusterName string) ([]*Snapshot, error)
 	CopySnapshot(region, accountID string, req *copySnapshotRequest) (*Snapshot, error)
 	DeleteSnapshot(name string) (*Snapshot, error)
 
@@ -158,9 +158,21 @@ type StorageBackend interface {
 	) (*MultiRegionCluster, error)
 	DeleteMultiRegionCluster(name string) (*MultiRegionCluster, error)
 	DescribeMultiRegionClusters(name string) ([]*MultiRegionCluster, error)
+	UpdateMultiRegionCluster(req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error)
 
 	// MultiRegionParameterGroup operations
 	DescribeMultiRegionParameterGroups(name string) ([]*MultiRegionParameterGroup, error)
+
+	// ParameterGroup operations
+	DescribeParameters(parameterGroupName string) (map[string]string, error)
+	ResetParameterGroup(name string) (*ParameterGroup, error)
+
+	// Shard operations
+	FailoverShard(clusterName, shardConfiguration string) (*Cluster, error)
+
+	// Node type update operations
+	ListAllowedNodeTypeUpdates(clusterName string) ([]string, error)
+	ListAllowedMultiRegionClusterUpdates(clusterName string) ([]string, error)
 
 	// BatchUpdateCluster operation
 	BatchUpdateCluster(clusterNames []string) map[string]*Cluster
@@ -189,8 +201,8 @@ type InMemoryBackend struct {
 }
 
 type resourceRef struct {
-	kind string
-	name string
+	Kind string `json:"kind"`
+	Name string `json:"name"`
 }
 
 // NewInMemoryBackend creates a new MemoryDB in-memory backend.
@@ -227,7 +239,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		CreatedAt: time.Now(),
 		Tags:      make(map[string]string),
 	}
-	b.arnToResource[openAccessARN] = resourceRef{kind: resourceKindACL, name: openAccessACL}
+	b.arnToResource[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 
 	return b
 }
@@ -258,7 +270,7 @@ func (b *InMemoryBackend) Reset() {
 		CreatedAt: time.Now(),
 		Tags:      make(map[string]string),
 	}
-	b.arnToResource[openAccessARN] = resourceRef{kind: resourceKindACL, name: openAccessACL}
+	b.arnToResource[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 }
 
 // -- Cluster operations ----------------------------------------------------------
@@ -338,7 +350,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	}
 
 	b.clusters[req.ClusterName] = c
-	b.arnToResource[clusterARN] = resourceRef{kind: resourceKindCluster, name: req.ClusterName}
+	b.arnToResource[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
 
 	return cloneCluster(c), nil
 }
@@ -409,7 +421,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			CreatedAt:   time.Now(),
 		}
 		b.snapshots[snapshotName] = s
-		b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: snapshotName}
+		b.arnToResource[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}
 	}
 
 	delete(b.clusters, clusterName)
@@ -499,7 +511,7 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 	}
 
 	b.acls[req.ACLName] = a
-	b.arnToResource[aclARN] = resourceRef{kind: resourceKindACL, name: req.ACLName}
+	b.arnToResource[aclARN] = resourceRef{Kind: resourceKindACL, Name: req.ACLName}
 
 	return a, nil
 }
@@ -515,13 +527,13 @@ func (b *InMemoryBackend) DescribeACLs(name string) ([]*ACL, error) {
 			return nil, ErrACLNotFound
 		}
 
-		return []*ACL{a}, nil
+		return []*ACL{cloneACL(a)}, nil
 	}
 
 	result := make([]*ACL, 0, len(b.acls))
 
 	for _, a := range b.acls {
-		result = append(result, a)
+		result = append(result, cloneACL(a))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -619,7 +631,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	}
 
 	b.subnetGroups[req.SubnetGroupName] = sg
-	b.arnToResource[sgARN] = resourceRef{kind: resourceKindSubnetGroup, name: req.SubnetGroupName}
+	b.arnToResource[sgARN] = resourceRef{Kind: resourceKindSubnetGroup, Name: req.SubnetGroupName}
 
 	return sg, nil
 }
@@ -635,13 +647,13 @@ func (b *InMemoryBackend) DescribeSubnetGroups(name string) ([]*SubnetGroup, err
 			return nil, ErrSubnetGroupNotFound
 		}
 
-		return []*SubnetGroup{sg}, nil
+		return []*SubnetGroup{cloneSubnetGroup(sg)}, nil
 	}
 
 	result := make([]*SubnetGroup, 0, len(b.subnetGroups))
 
 	for _, sg := range b.subnetGroups {
-		result = append(result, sg)
+		result = append(result, cloneSubnetGroup(sg))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -713,7 +725,7 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 	}
 
 	b.users[req.UserName] = u
-	b.arnToResource[userARN] = resourceRef{kind: resourceKindUser, name: req.UserName}
+	b.arnToResource[userARN] = resourceRef{Kind: resourceKindUser, Name: req.UserName}
 
 	return u, nil
 }
@@ -729,13 +741,13 @@ func (b *InMemoryBackend) DescribeUsers(name string) ([]*User, error) {
 			return nil, ErrUserNotFound
 		}
 
-		return []*User{u}, nil
+		return []*User{cloneUser(u)}, nil
 	}
 
 	result := make([]*User, 0, len(b.users))
 
 	for _, u := range b.users {
-		result = append(result, u)
+		result = append(result, cloneUser(u))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -799,7 +811,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 	defer b.mu.Unlock()
 
 	if req.Family == "" {
-		return nil, fmt.Errorf("Family is required: %w", ErrValidation)
+		return nil, fmt.Errorf("family is required: %w", ErrValidation)
 	}
 
 	if _, exists := b.parameterGroups[req.ParameterGroupName]; exists {
@@ -819,7 +831,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 	}
 
 	b.parameterGroups[req.ParameterGroupName] = pg
-	b.arnToResource[pgARN] = resourceRef{kind: resourceKindParameterGroup, name: req.ParameterGroupName}
+	b.arnToResource[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: req.ParameterGroupName}
 
 	return pg, nil
 }
@@ -835,13 +847,13 @@ func (b *InMemoryBackend) DescribeParameterGroups(name string) ([]*ParameterGrou
 			return nil, ErrParameterGroupNotFound
 		}
 
-		return []*ParameterGroup{pg}, nil
+		return []*ParameterGroup{cloneParameterGroup(pg)}, nil
 	}
 
 	result := make([]*ParameterGroup, 0, len(b.parameterGroups))
 
 	for _, pg := range b.parameterGroups {
-		result = append(result, pg)
+		result = append(result, cloneParameterGroup(pg))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -935,29 +947,29 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 func (b *InMemoryBackend) tagsForRef(ref resourceRef) map[string]string {
 	var src map[string]string
 
-	switch ref.kind {
+	switch ref.Kind {
 	case resourceKindCluster:
-		if c, ok := b.clusters[ref.name]; ok {
+		if c, ok := b.clusters[ref.Name]; ok {
 			src = c.Tags
 		}
 	case resourceKindACL:
-		if a, ok := b.acls[ref.name]; ok {
+		if a, ok := b.acls[ref.Name]; ok {
 			src = a.Tags
 		}
 	case resourceKindSubnetGroup:
-		if sg, ok := b.subnetGroups[ref.name]; ok {
+		if sg, ok := b.subnetGroups[ref.Name]; ok {
 			src = sg.Tags
 		}
 	case resourceKindUser:
-		if u, ok := b.users[ref.name]; ok {
+		if u, ok := b.users[ref.Name]; ok {
 			src = u.Tags
 		}
 	case resourceKindParameterGroup:
-		if pg, ok := b.parameterGroups[ref.name]; ok {
+		if pg, ok := b.parameterGroups[ref.Name]; ok {
 			src = pg.Tags
 		}
 	case resourceKindSnapshot:
-		if s, ok := b.snapshots[ref.name]; ok {
+		if s, ok := b.snapshots[ref.Name]; ok {
 			src = s.Tags
 		}
 	}
@@ -976,29 +988,29 @@ func mergeTags(dst *map[string]string, src map[string]string) {
 }
 
 func (b *InMemoryBackend) applyTags(ref resourceRef, tags map[string]string) {
-	switch ref.kind {
+	switch ref.Kind {
 	case resourceKindCluster:
-		if c, ok := b.clusters[ref.name]; ok {
+		if c, ok := b.clusters[ref.Name]; ok {
 			mergeTags(&c.Tags, tags)
 		}
 	case resourceKindACL:
-		if a, ok := b.acls[ref.name]; ok {
+		if a, ok := b.acls[ref.Name]; ok {
 			mergeTags(&a.Tags, tags)
 		}
 	case resourceKindSubnetGroup:
-		if sg, ok := b.subnetGroups[ref.name]; ok {
+		if sg, ok := b.subnetGroups[ref.Name]; ok {
 			mergeTags(&sg.Tags, tags)
 		}
 	case resourceKindUser:
-		if u, ok := b.users[ref.name]; ok {
+		if u, ok := b.users[ref.Name]; ok {
 			mergeTags(&u.Tags, tags)
 		}
 	case resourceKindParameterGroup:
-		if pg, ok := b.parameterGroups[ref.name]; ok {
+		if pg, ok := b.parameterGroups[ref.Name]; ok {
 			mergeTags(&pg.Tags, tags)
 		}
 	case resourceKindSnapshot:
-		if s, ok := b.snapshots[ref.name]; ok {
+		if s, ok := b.snapshots[ref.Name]; ok {
 			mergeTags(&s.Tags, tags)
 		}
 	}
@@ -1018,29 +1030,29 @@ func (b *InMemoryBackend) removeTags(ref resourceRef, tagKeys []string) {
 
 // tagsMapForRef returns a direct (mutable) reference to the tag map for a resource (must hold Lock).
 func (b *InMemoryBackend) tagsMapForRef(ref resourceRef) map[string]string {
-	switch ref.kind {
+	switch ref.Kind {
 	case resourceKindCluster:
-		if c, ok := b.clusters[ref.name]; ok {
+		if c, ok := b.clusters[ref.Name]; ok {
 			return c.Tags
 		}
 	case resourceKindACL:
-		if a, ok := b.acls[ref.name]; ok {
+		if a, ok := b.acls[ref.Name]; ok {
 			return a.Tags
 		}
 	case resourceKindSubnetGroup:
-		if sg, ok := b.subnetGroups[ref.name]; ok {
+		if sg, ok := b.subnetGroups[ref.Name]; ok {
 			return sg.Tags
 		}
 	case resourceKindUser:
-		if u, ok := b.users[ref.name]; ok {
+		if u, ok := b.users[ref.Name]; ok {
 			return u.Tags
 		}
 	case resourceKindParameterGroup:
-		if pg, ok := b.parameterGroups[ref.name]; ok {
+		if pg, ok := b.parameterGroups[ref.Name]; ok {
 			return pg.Tags
 		}
 	case resourceKindSnapshot:
-		if s, ok := b.snapshots[ref.name]; ok {
+		if s, ok := b.snapshots[ref.Name]; ok {
 			return s.Tags
 		}
 	}
@@ -1077,13 +1089,13 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	}
 
 	b.snapshots[req.SnapshotName] = s
-	b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: req.SnapshotName}
+	b.arnToResource[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.SnapshotName}
 
 	return s, nil
 }
 
-// DescribeSnapshots returns snapshots, optionally filtered by name.
-func (b *InMemoryBackend) DescribeSnapshots(name string) ([]*Snapshot, error) {
+// DescribeSnapshots returns snapshots, optionally filtered by name or cluster name.
+func (b *InMemoryBackend) DescribeSnapshots(name, clusterName string) ([]*Snapshot, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1093,13 +1105,17 @@ func (b *InMemoryBackend) DescribeSnapshots(name string) ([]*Snapshot, error) {
 			return nil, ErrSnapshotNotFound
 		}
 
-		return []*Snapshot{s}, nil
+		return []*Snapshot{cloneSnapshot(s)}, nil
 	}
 
 	result := make([]*Snapshot, 0, len(b.snapshots))
 
 	for _, s := range b.snapshots {
-		result = append(result, s)
+		if clusterName != "" && s.ClusterName != clusterName {
+			continue
+		}
+
+		result = append(result, cloneSnapshot(s))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1149,7 +1165,7 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 	}
 
 	b.snapshots[req.TargetSnapshotName] = dst
-	b.arnToResource[targetARN] = resourceRef{kind: resourceKindSnapshot, name: req.TargetSnapshotName}
+	b.arnToResource[targetARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.TargetSnapshotName}
 
 	return dst, nil
 }
@@ -1311,8 +1327,9 @@ func (b *InMemoryBackend) DeleteMultiRegionCluster(name string) (*MultiRegionClu
 	}
 
 	delete(b.multiRegionClusters, name)
+	delete(b.arnToResource, mrc.ARN)
 
-	return mrc, nil
+	return cloneMultiRegionCluster(mrc), nil
 }
 
 // DescribeMultiRegionClusters returns multi-region clusters, optionally filtered by name.
@@ -1326,13 +1343,13 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(name string) ([]*MultiRegi
 			return nil, ErrMultiRegionClusterNotFound
 		}
 
-		return []*MultiRegionCluster{mrc}, nil
+		return []*MultiRegionCluster{cloneMultiRegionCluster(mrc)}, nil
 	}
 
 	result := make([]*MultiRegionCluster, 0, len(b.multiRegionClusters))
 
 	for _, mrc := range b.multiRegionClusters {
-		result = append(result, mrc)
+		result = append(result, cloneMultiRegionCluster(mrc))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1340,6 +1357,35 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(name string) ([]*MultiRegi
 	})
 
 	return result, nil
+}
+
+// UpdateMultiRegionCluster modifies an existing multi-region cluster.
+func (b *InMemoryBackend) UpdateMultiRegionCluster(req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	mrc, ok := b.multiRegionClusters[req.MultiRegionClusterName]
+	if !ok {
+		return nil, ErrMultiRegionClusterNotFound
+	}
+
+	if req.Description != "" {
+		mrc.Description = req.Description
+	}
+
+	if req.NodeType != "" {
+		mrc.NodeType = req.NodeType
+	}
+
+	if req.EngineVersion != "" {
+		mrc.EngineVersion = req.EngineVersion
+	}
+
+	if req.MultiRegionParameterGroupName != "" {
+		mrc.MultiRegionParameterGroupName = req.MultiRegionParameterGroupName
+	}
+
+	return cloneMultiRegionCluster(mrc), nil
 }
 
 // -- MultiRegionParameterGroup operations ----------------------------------------
@@ -1558,6 +1604,94 @@ func cloneCluster(c *Cluster) *Cluster {
 	return &cp
 }
 
+// cloneACL returns a shallow copy of the ACL with separate tag and user slices.
+func cloneACL(a *ACL) *ACL {
+	if a == nil {
+		return nil
+	}
+
+	cp := *a
+	cp.Tags = maps.Clone(a.Tags)
+	cp.UserNames = append([]string(nil), a.UserNames...)
+
+	return &cp
+}
+
+// cloneSubnetGroup returns a shallow copy of the subnet group with separate slices.
+func cloneSubnetGroup(sg *SubnetGroup) *SubnetGroup {
+	if sg == nil {
+		return nil
+	}
+
+	cp := *sg
+	cp.Tags = maps.Clone(sg.Tags)
+	cp.SubnetIDs = append([]string(nil), sg.SubnetIDs...)
+
+	return &cp
+}
+
+// cloneUser returns a shallow copy of the user with separate tag and password slices.
+func cloneUser(u *User) *User {
+	if u == nil {
+		return nil
+	}
+
+	cp := *u
+	cp.Tags = maps.Clone(u.Tags)
+	cp.Passwords = append([]string(nil), u.Passwords...)
+
+	return &cp
+}
+
+// cloneParameterGroup returns a shallow copy of the parameter group with separate maps.
+func cloneParameterGroup(pg *ParameterGroup) *ParameterGroup {
+	if pg == nil {
+		return nil
+	}
+
+	cp := *pg
+	cp.Tags = maps.Clone(pg.Tags)
+	cp.Parameters = maps.Clone(pg.Parameters)
+
+	return &cp
+}
+
+// cloneSnapshot returns a shallow copy of the snapshot with a separate tags map.
+func cloneSnapshot(s *Snapshot) *Snapshot {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+	cp.Tags = maps.Clone(s.Tags)
+
+	return &cp
+}
+
+// cloneMultiRegionCluster returns a shallow copy of the multi-region cluster with separate tags.
+func cloneMultiRegionCluster(mrc *MultiRegionCluster) *MultiRegionCluster {
+	if mrc == nil {
+		return nil
+	}
+
+	cp := *mrc
+	cp.Tags = maps.Clone(mrc.Tags)
+
+	return &cp
+}
+
+// cloneMultiRegionParameterGroup returns a shallow copy with separate tags.
+func cloneMultiRegionParameterGroup(mrpg *MultiRegionParameterGroup) *MultiRegionParameterGroup {
+	if mrpg == nil {
+		return nil
+	}
+
+	cp := *mrpg
+	cp.Tags = maps.Clone(mrpg.Tags)
+
+	return &cp
+}
+
 // -- Seed helpers (for testing) --------------------------------------------------
 
 // AddClusterInternal inserts a cluster directly into the backend for testing.
@@ -1577,7 +1711,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, nodeType string) *Cluster {
 		Region:    b.region,
 	}
 	b.clusters[name] = c
-	b.arnToResource[clusterARN] = resourceRef{kind: resourceKindCluster, name: name}
+	b.arnToResource[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: name}
 
 	return c
 }
@@ -1597,7 +1731,7 @@ func (b *InMemoryBackend) AddACLInternal(name string) *ACL {
 		CreatedAt: time.Now(),
 	}
 	b.acls[name] = a
-	b.arnToResource[aclARN] = resourceRef{kind: resourceKindACL, name: name}
+	b.arnToResource[aclARN] = resourceRef{Kind: resourceKindACL, Name: name}
 
 	return a
 }
@@ -1617,7 +1751,7 @@ func (b *InMemoryBackend) AddSnapshotInternal(name, clusterName string) *Snapsho
 		CreatedAt:   time.Now(),
 	}
 	b.snapshots[name] = s
-	b.arnToResource[snapshotARN] = resourceRef{kind: resourceKindSnapshot, name: name}
+	b.arnToResource[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: name}
 
 	return s
 }
@@ -1637,7 +1771,7 @@ func (b *InMemoryBackend) AddUserInternal(name, accessString string) *User {
 		CreatedAt:    time.Now(),
 	}
 	b.users[name] = u
-	b.arnToResource[userARN] = resourceRef{kind: resourceKindUser, name: name}
+	b.arnToResource[userARN] = resourceRef{Kind: resourceKindUser, Name: name}
 
 	return u
 }
@@ -1655,7 +1789,7 @@ func (b *InMemoryBackend) AddSubnetGroupInternal(name string) *SubnetGroup {
 		CreatedAt: time.Now(),
 	}
 	b.subnetGroups[name] = sg
-	b.arnToResource[sgARN] = resourceRef{kind: resourceKindSubnetGroup, name: name}
+	b.arnToResource[sgARN] = resourceRef{Kind: resourceKindSubnetGroup, Name: name}
 
 	return sg
 }
@@ -1675,7 +1809,7 @@ func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *Parame
 		CreatedAt:  time.Now(),
 	}
 	b.parameterGroups[name] = pg
-	b.arnToResource[pgARN] = resourceRef{kind: resourceKindParameterGroup, name: name}
+	b.arnToResource[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: name}
 
 	return pg
 }

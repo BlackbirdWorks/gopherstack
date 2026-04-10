@@ -8,72 +8,72 @@ import (
 
 // Cluster represents an in-memory MemoryDB cluster.
 type Cluster struct {
-	CreatedAt              time.Time
-	Tags                   map[string]string
-	ARN                    string
-	Name                   string
-	Description            string
-	NodeType               string
-	EngineVersion          string
-	ACLName                string
-	SubnetGroupName        string
-	ParameterGroupName     string
-	Status                 string
-	Region                 string
-	KmsKeyID               string
-	SnsTopicArn            string
-	MaintenanceWindow      string
-	SnapshotWindow         string
-	SecurityGroupIDs       []string
-	NumShards              int32
-	NumReplicasPerShard    int32
-	SnapshotRetentionLimit int32
-	Port                   int32
-	TLSEnabled             bool
+	CreatedAt              time.Time         `json:"createdAt"`
+	Tags                   map[string]string `json:"tags"`
+	ARN                    string            `json:"arn"`
+	Name                   string            `json:"name"`
+	Description            string            `json:"description"`
+	NodeType               string            `json:"nodeType"`
+	EngineVersion          string            `json:"engineVersion"`
+	ACLName                string            `json:"aclName"`
+	SubnetGroupName        string            `json:"subnetGroupName"`
+	ParameterGroupName     string            `json:"parameterGroupName"`
+	Status                 string            `json:"status"`
+	Region                 string            `json:"region"`
+	KmsKeyID               string            `json:"kmsKeyID"`
+	SnsTopicArn            string            `json:"snsTopicArn"`
+	MaintenanceWindow      string            `json:"maintenanceWindow"`
+	SnapshotWindow         string            `json:"snapshotWindow"`
+	SecurityGroupIDs       []string          `json:"securityGroupIDs"`
+	NumShards              int32             `json:"numShards"`
+	NumReplicasPerShard    int32             `json:"numReplicasPerShard"`
+	SnapshotRetentionLimit int32             `json:"snapshotRetentionLimit"`
+	Port                   int32             `json:"port"`
+	TLSEnabled             bool              `json:"tlsEnabled"`
 }
 
 // ACL represents an in-memory MemoryDB Access Control List.
 type ACL struct {
-	CreatedAt time.Time
-	Tags      map[string]string
-	ARN       string
-	Name      string
-	Status    string
-	UserNames []string
+	CreatedAt time.Time         `json:"createdAt"`
+	Tags      map[string]string `json:"tags"`
+	ARN       string            `json:"arn"`
+	Name      string            `json:"name"`
+	Status    string            `json:"status"`
+	UserNames []string          `json:"userNames"`
 }
 
 // SubnetGroup represents an in-memory MemoryDB subnet group.
 type SubnetGroup struct {
-	CreatedAt   time.Time
-	Tags        map[string]string
-	ARN         string
-	Name        string
-	Description string
-	VPCID       string
-	SubnetIDs   []string
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags"`
+	ARN         string            `json:"arn"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	VPCID       string            `json:"vpcID"`
+	SubnetIDs   []string          `json:"subnetIDs"`
 }
 
 // User represents an in-memory MemoryDB user.
 type User struct {
-	CreatedAt    time.Time
-	Tags         map[string]string
-	ARN          string
-	Name         string
-	AccessString string
-	Status       string
-	AuthType     string
-	Passwords    []string
+	CreatedAt    time.Time         `json:"createdAt"`
+	Tags         map[string]string `json:"tags"`
+	ARN          string            `json:"arn"`
+	Name         string            `json:"name"`
+	AccessString string            `json:"accessString"`
+	Status       string            `json:"status"`
+	AuthType     string            `json:"authType"`
+	Passwords    []string          `json:"passwords"`
 }
 
 // ParameterGroup represents an in-memory MemoryDB parameter group.
 type ParameterGroup struct {
-	CreatedAt   time.Time
-	Tags        map[string]string
-	Parameters  map[string]string
-	ARN         string
-	Name        string
-	Description string
-	Family      string
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags"`
+	Parameters  map[string]string `json:"parameters"`
+	ARN         string            `json:"arn"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Family      string            `json:"family"`
 }
 
 // -- Request types ----------------------------------------------------------------
@@ -448,53 +448,53 @@ type tagEntry struct {
 
 // Snapshot represents an in-memory MemoryDB snapshot.
 type Snapshot struct {
-	CreatedAt   time.Time
-	Tags        map[string]string
-	ARN         string
-	Name        string
-	ClusterName string
-	Status      string
-	KmsKeyID    string
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags"`
+	ARN         string            `json:"arn"`
+	Name        string            `json:"name"`
+	ClusterName string            `json:"clusterName"`
+	Status      string            `json:"status"`
+	KmsKeyID    string            `json:"kmsKeyID"`
 }
 
 // EngineVersion describes a supported MemoryDB engine version.
 type EngineVersion struct {
-	EngineVersion        string
-	EnginePatchVersion   string
-	ParameterGroupFamily string
-	Description          string
+	EngineVersion        string `json:"engineVersion"`
+	EnginePatchVersion   string `json:"enginePatchVersion"`
+	ParameterGroupFamily string `json:"parameterGroupFamily"`
+	Description          string `json:"description"`
 }
 
 // Event represents a MemoryDB event.
 type Event struct {
-	Date       time.Time
-	SourceName string
-	SourceType string
-	Message    string
+	Date       time.Time `json:"date"`
+	SourceName string    `json:"sourceName"`
+	SourceType string    `json:"sourceType"`
+	Message    string    `json:"message"`
 }
 
 // MultiRegionCluster represents an in-memory MemoryDB multi-region cluster.
 type MultiRegionCluster struct {
-	CreatedAt                     time.Time
-	Tags                          map[string]string
-	ARN                           string
-	MultiRegionClusterName        string
-	Description                   string
-	NodeType                      string
-	Engine                        string
-	EngineVersion                 string
-	MultiRegionParameterGroupName string
-	Status                        string
+	CreatedAt                     time.Time         `json:"createdAt"`
+	Tags                          map[string]string `json:"tags"`
+	ARN                           string            `json:"arn"`
+	MultiRegionClusterName        string            `json:"multiRegionClusterName"`
+	Description                   string            `json:"description"`
+	NodeType                      string            `json:"nodeType"`
+	Engine                        string            `json:"engine"`
+	EngineVersion                 string            `json:"engineVersion"`
+	MultiRegionParameterGroupName string            `json:"multiRegionParameterGroupName"`
+	Status                        string            `json:"status"`
 }
 
 // MultiRegionParameterGroup represents an in-memory MemoryDB multi-region parameter group.
 type MultiRegionParameterGroup struct {
-	CreatedAt   time.Time
-	Tags        map[string]string
-	ARN         string
-	Name        string
-	Description string
-	Family      string
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags"`
+	ARN         string            `json:"arn"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Family      string            `json:"family"`
 }
 
 // -- Snapshot request/response types ------------------------------------------
