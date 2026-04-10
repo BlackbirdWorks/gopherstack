@@ -160,11 +160,11 @@ type InMemoryBackend struct {
 	permissions              map[string]map[string]*FunctionPermission
 	codeSigningConfigs       map[string]*CodeSigningConfig
 	fnCodeSigningConfigs     map[string]string
-	capacityProviders           map[string]*CapacityProvider
-	runtimeManagementConfigs    map[string]*RuntimeManagementConfig
-	functionRecursionConfigs    map[string]*FunctionRecursionConfig
-	functionScalingConfigs      map[string]*FunctionScalingConfig
-	mu                          *lockmetrics.RWMutex
+	capacityProviders        map[string]*CapacityProvider
+	runtimeManagementConfigs map[string]*RuntimeManagementConfig
+	functionRecursionConfigs map[string]*FunctionRecursionConfig
+	functionScalingConfigs   map[string]*FunctionScalingConfig
+	mu                       *lockmetrics.RWMutex
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
 	region                   string
@@ -3395,160 +3395,171 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 }
 
 // UpdateEventSourceMapping updates an existing event source mapping.
-func (b *InMemoryBackend) UpdateEventSourceMapping(id string, input *UpdateEventSourceMappingInput) (*EventSourceMapping, error) {
-b.mu.Lock("UpdateEventSourceMapping")
-defer b.mu.Unlock()
+func (b *InMemoryBackend) UpdateEventSourceMapping(
+	id string,
+	input *UpdateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
+	b.mu.Lock("UpdateEventSourceMapping")
+	defer b.mu.Unlock()
 
-esm, ok := b.eventSourceMappings[id]
-if !ok {
-return nil, ErrESMNotFound
-}
+	esm, ok := b.eventSourceMappings[id]
+	if !ok {
+		return nil, ErrESMNotFound
+	}
 
-if input.Enabled != nil {
-esm.Enabled = *input.Enabled
-if esm.Enabled {
-esm.State = "Enabled"
-} else {
-esm.State = "Disabled"
-}
-}
+	if input.Enabled != nil {
+		if *input.Enabled {
+			esm.State = ESMStateEnabled
+		} else {
+			esm.State = ESMStateDisabled
+		}
+	}
 
-if input.BatchSize != nil {
-esm.BatchSize = *input.BatchSize
-}
+	if input.BatchSize > 0 {
+		esm.BatchSize = input.BatchSize
+	}
 
-return esm, nil
+	return esm, nil
 }
 
 // GetRuntimeManagementConfig returns the runtime management config for a function.
 func (b *InMemoryBackend) GetRuntimeManagementConfig(name string) (*RuntimeManagementConfig, error) {
-b.mu.RLock("GetRuntimeManagementConfig")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetRuntimeManagementConfig")
+	defer b.mu.RUnlock()
 
-fn, ok := b.functions[name]
-if !ok {
-return nil, ErrFunctionNotFound
-}
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
 
-cfg, ok := b.runtimeManagementConfigs[name]
-if !ok {
-return &RuntimeManagementConfig{UpdateRuntimeOn: "Auto", FunctionArn: fn.FunctionArn}, nil
-}
+	cfg, ok := b.runtimeManagementConfigs[name]
+	if !ok {
+		return &RuntimeManagementConfig{UpdateRuntimeOn: "Auto", FunctionArn: fn.FunctionArn}, nil
+	}
 
-out := *cfg
-out.FunctionArn = fn.FunctionArn
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
 
-return &out, nil
+	return &out, nil
 }
 
 // PutRuntimeManagementConfig sets the runtime management config for a function.
-func (b *InMemoryBackend) PutRuntimeManagementConfig(name string, input *PutRuntimeManagementConfigInput) (*RuntimeManagementConfig, error) {
-b.mu.Lock("PutRuntimeManagementConfig")
-defer b.mu.Unlock()
+func (b *InMemoryBackend) PutRuntimeManagementConfig(
+	name string,
+	input *PutRuntimeManagementConfigInput,
+) (*RuntimeManagementConfig, error) {
+	b.mu.Lock("PutRuntimeManagementConfig")
+	defer b.mu.Unlock()
 
-fn, ok := b.functions[name]
-if !ok {
-return nil, ErrFunctionNotFound
-}
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
 
-if input.UpdateRuntimeOn == "" {
-return nil, ErrInvalidParameterValue
-}
+	if input.UpdateRuntimeOn == "" {
+		return nil, ErrInvalidParameterValue
+	}
 
-cfg := &RuntimeManagementConfig{
-UpdateRuntimeOn:   input.UpdateRuntimeOn,
-RuntimeVersionArn: input.RuntimeVersionArn,
-}
-b.runtimeManagementConfigs[name] = cfg
+	cfg := &RuntimeManagementConfig{
+		UpdateRuntimeOn:   input.UpdateRuntimeOn,
+		RuntimeVersionArn: input.RuntimeVersionArn,
+	}
+	b.runtimeManagementConfigs[name] = cfg
 
-out := *cfg
-out.FunctionArn = fn.FunctionArn
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
 
-return &out, nil
+	return &out, nil
 }
 
 // GetFunctionRecursionConfig returns the recursion config for a function.
 func (b *InMemoryBackend) GetFunctionRecursionConfig(name string) (*FunctionRecursionConfig, error) {
-b.mu.RLock("GetFunctionRecursionConfig")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetFunctionRecursionConfig")
+	defer b.mu.RUnlock()
 
-if _, ok := b.functions[name]; !ok {
-return nil, ErrFunctionNotFound
-}
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
 
-cfg, ok := b.functionRecursionConfigs[name]
-if !ok {
-return &FunctionRecursionConfig{RecursiveLoop: "Terminate"}, nil
-}
+	cfg, ok := b.functionRecursionConfigs[name]
+	if !ok {
+		return &FunctionRecursionConfig{RecursiveLoop: "Terminate"}, nil
+	}
 
-return cfg, nil
+	return cfg, nil
 }
 
 // PutFunctionRecursionConfig sets the recursion config for a function.
-func (b *InMemoryBackend) PutFunctionRecursionConfig(name string, input *PutFunctionRecursionConfigInput) (*FunctionRecursionConfig, error) {
-b.mu.Lock("PutFunctionRecursionConfig")
-defer b.mu.Unlock()
+func (b *InMemoryBackend) PutFunctionRecursionConfig(
+	name string,
+	input *PutFunctionRecursionConfigInput,
+) (*FunctionRecursionConfig, error) {
+	b.mu.Lock("PutFunctionRecursionConfig")
+	defer b.mu.Unlock()
 
-if _, ok := b.functions[name]; !ok {
-return nil, ErrFunctionNotFound
-}
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
 
-if input.RecursiveLoop == "" {
-return nil, ErrInvalidParameterValue
-}
+	if input.RecursiveLoop == "" {
+		return nil, ErrInvalidParameterValue
+	}
 
-cfg := &FunctionRecursionConfig{RecursiveLoop: input.RecursiveLoop}
-b.functionRecursionConfigs[name] = cfg
+	cfg := &FunctionRecursionConfig{RecursiveLoop: input.RecursiveLoop}
+	b.functionRecursionConfigs[name] = cfg
 
-return cfg, nil
+	return cfg, nil
 }
 
 // GetFunctionScalingConfig returns the scaling config for a function.
 func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*FunctionScalingConfig, error) {
-b.mu.RLock("GetFunctionScalingConfig")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetFunctionScalingConfig")
+	defer b.mu.RUnlock()
 
-fn, ok := b.functions[name]
-if !ok {
-return nil, ErrFunctionNotFound
-}
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
 
-cfg, ok := b.functionScalingConfigs[name]
-if !ok {
-return &FunctionScalingConfig{FunctionArn: fn.FunctionArn}, nil
-}
+	cfg, ok := b.functionScalingConfigs[name]
+	if !ok {
+		return &FunctionScalingConfig{FunctionArn: fn.FunctionArn}, nil
+	}
 
-out := *cfg
-out.FunctionArn = fn.FunctionArn
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
 
-return &out, nil
+	return &out, nil
 }
 
 // PutFunctionScalingConfig sets the scaling config for a function.
-func (b *InMemoryBackend) PutFunctionScalingConfig(name string, input *PutFunctionScalingConfigInput) (*FunctionScalingConfig, error) {
-b.mu.Lock("PutFunctionScalingConfig")
-defer b.mu.Unlock()
+func (b *InMemoryBackend) PutFunctionScalingConfig(
+	name string,
+	input *PutFunctionScalingConfigInput,
+) (*FunctionScalingConfig, error) {
+	b.mu.Lock("PutFunctionScalingConfig")
+	defer b.mu.Unlock()
 
-fn, ok := b.functions[name]
-if !ok {
-return nil, ErrFunctionNotFound
-}
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
 
-cfg := &FunctionScalingConfig{MaximumConcurrency: input.MaximumConcurrency}
-b.functionScalingConfigs[name] = cfg
+	cfg := &FunctionScalingConfig{MaximumConcurrency: input.MaximumConcurrency}
+	b.functionScalingConfigs[name] = cfg
 
-out := *cfg
-out.FunctionArn = fn.FunctionArn
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
 
-return &out, nil
+	return &out, nil
 }
 
 // GetLayerVersionByArn retrieves a layer version by its full ARN.
 func (b *InMemoryBackend) GetLayerVersionByArn(layerVersionARN string) (*GetLayerVersionOutput, error) {
-layerName, version := parseLayerARN(layerVersionARN)
-if layerName == "" || version == 0 {
-return nil, ErrLayerVersionNotFound
-}
+	layerName, version := parseLayerARN(layerVersionARN)
+	if layerName == "" || version == 0 {
+		return nil, ErrLayerVersionNotFound
+	}
 
-return b.GetLayerVersion(layerName, version)
+	return b.GetLayerVersion(layerName, version)
 }

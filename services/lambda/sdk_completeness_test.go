@@ -35,15 +35,7 @@ func TestSDKCompleteness(t *testing.T) {
 		"InvokeWithResponseStream",
 		// Miscellaneous operations not yet implemented.
 		"GetFunctionConfiguration",
-		"GetFunctionRecursionConfig",
-		"GetFunctionScalingConfig",
-		"GetLayerVersionByArn",
 		"GetPolicy",
-		"GetRuntimeManagementConfig",
-		"PutFunctionRecursionConfig",
-		"PutFunctionScalingConfig",
-		"PutRuntimeManagementConfig",
 		"RemovePermission",
-		"UpdateEventSourceMapping",
 	})
 }

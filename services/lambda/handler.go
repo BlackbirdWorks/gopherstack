@@ -80,6 +80,9 @@ const lambdaDurableExecPathPrefix = "/2025-12-01/durable-executions"
 // lambdaAccountSettingsPath is the exact path for the GetAccountSettings endpoint.
 const lambdaAccountSettingsPath = "/2016-08-19/account-settings"
 
+// lambdaLayersByArnPath is the path prefix for GetLayerVersionByArn (query-param based).
+const lambdaLayersByArnPath = "/2018-10-31/layers-by-arn"
+
 type lambdaTagsInput struct {
 	Tags *tags.Tags `json:"Tags"`
 }
@@ -259,7 +262,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetFunction",
 		"GetFunctionCodeSigningConfig",
 		"GetFunctionConcurrency",
-		"GetFunctionConfiguration",
 		"GetFunctionEventInvokeConfig",
 		"GetFunctionRecursionConfig",
 		"GetFunctionScalingConfig",
@@ -267,7 +269,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetLayerVersion",
 		"GetLayerVersionByArn",
 		"GetLayerVersionPolicy",
-		"GetPolicy",
 		"GetProvisionedConcurrencyConfig",
 		"GetRuntimeManagementConfig",
 		"InvokeFunction",
@@ -295,7 +296,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutProvisionedConcurrencyConfig",
 		"PutRuntimeManagementConfig",
 		"RemoveLayerVersionPermission",
-		"RemovePermission",
 		"TagResource",
 		"UntagResource",
 		"UpdateAlias",
@@ -324,20 +324,43 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(path, lambdaPathPrefix) ||
-			strings.HasPrefix(path, lambda2017PathPrefix) ||
-			strings.HasPrefix(path, lambda2019PathPrefix) ||
-			strings.HasPrefix(path, lambda2020PathPrefix) ||
-			strings.HasPrefix(path, lambda2021PathPrefix) ||
-			strings.HasPrefix(path, esmPathPrefix) ||
-			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
-			strings.HasPrefix(path, lambdaLayersPathPrefix) ||
-			strings.HasPrefix(path, lambdaCodeSigningPathPrefix) ||
-			strings.HasPrefix(path, lambdaCapacityPathPrefix) ||
-			strings.HasPrefix(path, lambdaDurableExecPathPrefix) ||
-			path == lambdaAccountSettingsPath ||
-			strings.HasPrefix(target, "AWSLambda")
+		return isLambdaPath(path) || strings.HasPrefix(target, "AWSLambda")
 	}
+}
+
+// lambdaPathPrefixes holds all path prefixes handled by the Lambda service.
+//
+//nolint:gochecknoglobals // intentional package-level prefix table
+var lambdaPathPrefixes = []string{
+	lambdaPathPrefix,
+	lambda2017PathPrefix,
+	lambda2019PathPrefix,
+	lambda2020PathPrefix,
+	lambda2021PathPrefix,
+	lambda2021RuntimeMgmtPathPrefix,
+	lambda2023ScalingPathPrefix,
+	lambda2024RecursionPathPrefix,
+	esmPathPrefix,
+	lambdaTagsPathPrefix,
+	lambdaLayersPathPrefix,
+	lambdaCodeSigningPathPrefix,
+	lambdaCapacityPathPrefix,
+	lambdaDurableExecPathPrefix,
+}
+
+// isLambdaPath returns true when the given path belongs to the Lambda service.
+func isLambdaPath(path string) bool {
+	if path == lambdaAccountSettingsPath || path == lambdaLayersByArnPath {
+		return true
+	}
+
+	for _, prefix := range lambdaPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // normalizeFunctionPath strips the date-versioned /functions prefix from path and
@@ -872,6 +895,14 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleDurableExecRoute(c, path, method)
 	case strings.HasPrefix(path, lambda2021PathPrefix):
 		return true, h.handleFunctionURLRoute2021(c, path, method)
+	case strings.HasPrefix(path, lambda2021RuntimeMgmtPathPrefix):
+		return true, h.handleRuntimeMgmtRoute(c, path, method)
+	case strings.HasPrefix(path, lambda2024RecursionPathPrefix):
+		return true, h.handleRecursionConfigRoute(c, path, method)
+	case strings.HasPrefix(path, lambda2023ScalingPathPrefix):
+		return true, h.handleScalingConfigRoute(c, path, method)
+	case path == lambdaLayersByArnPath:
+		return true, h.handleGetLayerVersionByArn(c)
 	}
 
 	if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {
@@ -929,6 +960,8 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 		return h.handleListESMs(c)
 	case method == http.MethodGet && rest != "":
 		return h.handleGetESM(c, rest)
+	case method == http.MethodPut && rest != "":
+		return h.handleUpdateESM(c, rest)
 	case method == http.MethodDelete && rest != "":
 		return h.handleDeleteESM(c, rest)
 	default:
@@ -1020,6 +1053,40 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+}
+
+// handleUpdateESMInput is the request body for UpdateEventSourceMapping.
+type handleUpdateESMInput struct {
+	Enabled   *bool `json:"Enabled"`
+	BatchSize int   `json:"BatchSize"`
+}
+
+// handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.
+func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var req handleUpdateESMInput
+	if err = json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	m, err := lambdaBk.UpdateEventSourceMapping(id, &UpdateEventSourceMappingInput{
+		Enabled:   req.Enabled,
+		BatchSize: req.BatchSize,
+	})
+	if err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
+	}
+
+	return c.JSON(http.StatusOK, toJSONESMResponse(m))
 }
 
 // validateCreateFunctionInput checks required fields and package-type-specific constraints.
@@ -3002,4 +3069,213 @@ func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) er
 	}
 
 	return c.JSON(http.StatusOK, cfg)
+}
+
+// handleRuntimeMgmtRoute handles /2021-07-20/functions/{name}/runtime-management-config routes.
+//
+//nolint:dupl // similar get/put pattern shared with handleRecursionConfigRoute by design
+func (h *Handler) handleRuntimeMgmtRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest, found := strings.CutPrefix(path, lambda2021RuntimeMgmtPathPrefix)
+	if !found {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
+
+	if len(parts) < 2 || parts[1] != "runtime-management-config" {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := parts[0]
+
+	switch method {
+	case http.MethodGet:
+		cfg, err := lambdaBk.GetRuntimeManagementConfig(name)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var input PutRuntimeManagementConfigInput
+		if len(body) > 0 {
+			if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+			}
+		}
+
+		cfg, putErr := lambdaBk.PutRuntimeManagementConfig(name, &input)
+		if putErr != nil {
+			if errors.Is(putErr, ErrFunctionNotFound) {
+				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+					fmt.Sprintf("Function not found: %s", name))
+			}
+
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleRecursionConfigRoute handles /2024-08-28/functions/{name}/recursion-config routes.
+//
+//nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute and handleScalingConfigRoute by design
+func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest, found := strings.CutPrefix(path, lambda2024RecursionPathPrefix)
+	if !found {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
+
+	if len(parts) < 2 || parts[1] != "recursion-config" {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := parts[0]
+
+	switch method {
+	case http.MethodGet:
+		cfg, err := lambdaBk.GetFunctionRecursionConfig(name)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var input PutFunctionRecursionConfigInput
+		if len(body) > 0 {
+			if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+			}
+		}
+
+		cfg, putErr := lambdaBk.PutFunctionRecursionConfig(name, &input)
+		if putErr != nil {
+			if errors.Is(putErr, ErrFunctionNotFound) {
+				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+					fmt.Sprintf("Function not found: %s", name))
+			}
+
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleScalingConfigRoute handles /2023-10-26/functions/{name}/scaling-config routes.
+//
+//nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute by design
+func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest, found := strings.CutPrefix(path, lambda2023ScalingPathPrefix)
+	if !found {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
+
+	if len(parts) < 2 || parts[1] != "scaling-config" {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := parts[0]
+
+	switch method {
+	case http.MethodGet:
+		cfg, err := lambdaBk.GetFunctionScalingConfig(name)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var input PutFunctionScalingConfigInput
+		if len(body) > 0 {
+			if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+			}
+		}
+
+		cfg, putErr := lambdaBk.PutFunctionScalingConfig(name, &input)
+		if putErr != nil {
+			if errors.Is(putErr, ErrFunctionNotFound) {
+				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+					fmt.Sprintf("Function not found: %s", name))
+			}
+
+			return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleGetLayerVersionByArn handles GET /2018-10-31/layers-by-arn?Arn={arn}.
+func (h *Handler) handleGetLayerVersionByArn(c *echo.Context) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	arn := c.Request().URL.Query().Get("Arn")
+	if arn == "" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"Arn query parameter is required",
+		)
+	}
+
+	out, err := lambdaBk.GetLayerVersionByArn(arn)
+	if err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			fmt.Sprintf("Layer version not found: %s", arn))
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
