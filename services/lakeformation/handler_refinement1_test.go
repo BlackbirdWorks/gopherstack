@@ -748,107 +748,107 @@ func TestRefinement1_GrantAndListPermissions(t *testing.T) {
 }
 
 func TestRefinement1_AddLFTagsToResource_TableResource(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-b := lakeformation.NewInMemoryBackend()
-h := lakeformation.NewHandler(b)
-b.AddLFTagInternal("cat", "classification", []string{"public", "private"})
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+	b.AddLFTagInternal("cat", "classification", []string{"public", "private"})
 
-rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
-"CatalogId": "cat",
-"Resource": map[string]any{
-"Table": map[string]any{"DatabaseName": "mydb", "Name": "mytbl"},
-},
-"LFTags": []map[string]any{
-{"TagKey": "classification", "TagValues": []string{"public"}},
-},
-})
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
+		"CatalogId": "cat",
+		"Resource": map[string]any{
+			"Table": map[string]any{"DatabaseName": "mydb", "Name": "mytbl"},
+		},
+		"LFTags": []map[string]any{
+			{"TagKey": "classification", "TagValues": []string{"public"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var out map[string]any
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-assert.Empty(t, out["Failures"])
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out["Failures"])
 }
 
 func TestRefinement1_AddLFTagsToResource_CatalogResource(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-b := lakeformation.NewInMemoryBackend()
-h := lakeformation.NewHandler(b)
-b.AddLFTagInternal("cat", "level", []string{"gold"})
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+	b.AddLFTagInternal("cat", "level", []string{"gold"})
 
-rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
-"CatalogId": "cat",
-"Resource":  map[string]any{"Catalog": map[string]any{}},
-"LFTags": []map[string]any{
-{"TagKey": "level", "TagValues": []string{"gold"}},
-},
-})
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
+		"CatalogId": "cat",
+		"Resource":  map[string]any{"Catalog": map[string]any{}},
+		"LFTags": []map[string]any{
+			{"TagKey": "level", "TagValues": []string{"gold"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var out map[string]any
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-assert.Empty(t, out["Failures"])
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out["Failures"])
 }
 
 func TestRefinement1_AddLFTagsToResource_DataLocationResource(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-b := lakeformation.NewInMemoryBackend()
-h := lakeformation.NewHandler(b)
-b.AddLFTagInternal("cat", "zone", []string{"raw"})
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+	b.AddLFTagInternal("cat", "zone", []string{"raw"})
 
-rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
-"CatalogId": "cat",
-"Resource": map[string]any{
-"DataLocation": map[string]any{"ResourceArn": "arn:aws:s3:::mybucket"},
-},
-"LFTags": []map[string]any{
-{"TagKey": "zone", "TagValues": []string{"raw"}},
-},
-})
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
+		"CatalogId": "cat",
+		"Resource": map[string]any{
+			"DataLocation": map[string]any{"ResourceArn": "arn:aws:s3:::mybucket"},
+		},
+		"LFTags": []map[string]any{
+			{"TagKey": "zone", "TagValues": []string{"raw"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var out map[string]any
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-assert.Empty(t, out["Failures"])
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out["Failures"])
 }
 
 func TestRefinement1_DeregisterResourceCleansPermissions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-b := lakeformation.NewInMemoryBackend()
-h := lakeformation.NewHandler(b)
-arn := "arn:aws:s3:::cleanup-bucket"
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+	arn := "arn:aws:s3:::cleanup-bucket"
 
-rec := postJSON(t, h, "/RegisterResource", map[string]any{
-"ResourceArn": arn,
-"RoleArn":     "arn:aws:iam::123:role/r",
-})
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := postJSON(t, h, "/RegisterResource", map[string]any{
+		"ResourceArn": arn,
+		"RoleArn":     "arn:aws:iam::123:role/r",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-b.AddPermissionInternal(&lakeformation.PermissionEntry{
-Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/a"},
-Resource:  &lakeformation.Resource{DataLocation: &lakeformation.DataLocationResource{ResourceArn: arn}},
-})
-require.Equal(t, 1, b.PermissionCount())
+	b.AddPermissionInternal(&lakeformation.PermissionEntry{
+		Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/a"},
+		Resource:  &lakeformation.Resource{DataLocation: &lakeformation.DataLocationResource{ResourceArn: arn}},
+	})
+	require.Equal(t, 1, b.PermissionCount())
 
-rec2 := postJSON(t, h, "/DeregisterResource", map[string]any{"ResourceArn": arn})
-require.Equal(t, http.StatusOK, rec2.Code)
+	rec2 := postJSON(t, h, "/DeregisterResource", map[string]any{"ResourceArn": arn})
+	require.Equal(t, http.StatusOK, rec2.Code)
 
-assert.Equal(t, 0, b.ResourceCount())
-assert.Equal(t, 0, b.PermissionCount(), "permissions should be cleaned up on deregister")
+	assert.Equal(t, 0, b.ResourceCount())
+	assert.Equal(t, 0, b.PermissionCount(), "permissions should be cleaned up on deregister")
 }
 
 func TestRefinement1_GrantPermissions_NilPrincipalReturns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-b := lakeformation.NewInMemoryBackend()
-h := lakeformation.NewHandler(b)
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
 
-rec := postJSON(t, h, "/GrantPermissions", map[string]any{
-"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
-"Permissions": []string{"SELECT"},
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	rec := postJSON(t, h, "/GrantPermissions", map[string]any{
+		"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
+		"Permissions": []string{"SELECT"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
