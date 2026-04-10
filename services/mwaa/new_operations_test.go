@@ -735,3 +735,487 @@ func TestHandlerExtractResource(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_InvokeRestApi(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		envName    string
+		seed       bool
+		wantStatus int
+	}{
+		{
+			name:    "invoke_get",
+			envName: "invoke-rest-api-env",
+			seed:    true,
+			body: map[string]any{
+				"Method": "GET",
+				"Path":   "/dags",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:    "invoke_post_with_body",
+			envName: "invoke-rest-api-env-post",
+			seed:    true,
+			body: map[string]any{
+				"Method": "POST",
+				"Path":   "/dags/run",
+				"Body":   map[string]any{"dag_run_id": "run-1"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:    "env_not_found",
+			envName: "nonexistent-env",
+			seed:    false,
+			body: map[string]any{
+				"Method": "GET",
+				"Path":   "/dags",
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "missing_method",
+			envName:    "missing-method-env",
+			seed:       true,
+			body:       map[string]any{"Path": "/dags"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_path",
+			envName:    "missing-path-env",
+			seed:       true,
+			body:       map[string]any{"Method": "GET"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_json",
+			envName:    "invalid-json-env",
+			seed:       true,
+			body:       nil,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "method_not_allowed",
+			envName:    "method-not-allowed-env",
+			seed:       false,
+			body:       nil,
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+
+			if tt.seed {
+				seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
+					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				})
+				require.Equal(t, http.StatusOK, seedRec.Code)
+			}
+
+			method := http.MethodPost
+			if tt.name == "method_not_allowed" {
+				method = http.MethodGet
+			}
+
+			var body any
+			if tt.name == "invalid_json" {
+				// Send raw invalid JSON via the recorder directly.
+				e := echo.New()
+				req := httptest.NewRequest(http.MethodPost, "/restapi/"+tt.envName, strings.NewReader("{invalid"))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				c := e.NewContext(req, rec)
+				require.NoError(t, h.Handler()(c))
+				assert.Equal(t, tt.wantStatus, rec.Code)
+
+				return
+			}
+
+			body = tt.body
+
+			rec := doMWAARequest(t, h, method, "/restapi/"+tt.envName, body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.InDelta(t, float64(200), resp["RestApiStatusCode"], 0)
+			}
+		})
+	}
+}
+
+func TestHandler_PublishMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		envName    string
+		seed       bool
+		wantStatus int
+	}{
+		{
+			name:    "publish_metrics",
+			envName: "publish-metrics-env",
+			seed:    true,
+			body: map[string]any{
+				"MetricData": []map[string]any{
+					{"MetricName": "TaskInstance", "Value": 1.0, "Unit": "Count"},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:    "publish_empty_metrics",
+			envName: "publish-empty-metrics-env",
+			seed:    true,
+			body: map[string]any{
+				"MetricData": []map[string]any{},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:    "env_not_found",
+			envName: "nonexistent-metrics-env",
+			seed:    false,
+			body: map[string]any{
+				"MetricData": []map[string]any{},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "method_not_allowed",
+			envName:    "metrics-method-not-allowed",
+			seed:       false,
+			body:       nil,
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "invalid_json",
+			envName:    "metrics-invalid-json-env",
+			seed:       true,
+			body:       nil,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+
+			if tt.seed {
+				seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
+					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				})
+				require.Equal(t, http.StatusOK, seedRec.Code)
+			}
+
+			if tt.name == "method_not_allowed" {
+				rec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/"+tt.envName, nil)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+
+				return
+			}
+
+			if tt.name == "invalid_json" {
+				e := echo.New()
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/metrics/environments/"+tt.envName,
+					strings.NewReader("{invalid"),
+				)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				c := e.NewContext(req, rec)
+				require.NoError(t, h.Handler()(c))
+				assert.Equal(t, tt.wantStatus, rec.Code)
+
+				return
+			}
+
+			rec := doMWAARequest(t, h, http.MethodPost, "/metrics/environments/"+tt.envName, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ExtractOperation_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		{
+			name:   "invoke_rest_api",
+			method: http.MethodPost,
+			path:   "/restapi/my-env",
+			wantOp: "InvokeRestApi",
+		},
+		{
+			name:   "publish_metrics",
+			method: http.MethodPost,
+			path:   "/metrics/environments/my-env",
+			wantOp: "PublishMetrics",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		path     string
+		wantName string
+	}{
+		{
+			name:     "restapi_path",
+			path:     "/restapi/my-env",
+			wantName: "my-env",
+		},
+		{
+			name:     "metrics_path",
+			path:     "/metrics/environments/my-env",
+			wantName: "my-env",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantName, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_RouteMatcher_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		authService string
+		wantMatch   bool
+	}{
+		{
+			name:        "restapi_path_matches",
+			path:        "/restapi/myenv",
+			authService: "airflow",
+			wantMatch:   true,
+		},
+		{
+			name:        "metrics_path_matches",
+			path:        "/metrics/environments/myenv",
+			authService: "airflow",
+			wantMatch:   true,
+		},
+		{
+			name:        "restapi_wrong_service_no_match",
+			path:        "/restapi/myenv",
+			authService: "s3",
+			wantMatch:   false,
+		},
+		{
+			name:        "metrics_wrong_service_no_match",
+			path:        "/metrics/environments/myenv",
+			authService: "s3",
+			wantMatch:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+			matcher := h.RouteMatcher()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req.Header.Set(
+				"Authorization",
+				"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/"+tt.authService+"/aws4_request",
+			)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
+
+func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	ops := h.GetSupportedOperations()
+
+	tests := []struct {
+		name   string
+		wantOp string
+	}{
+		{name: "InvokeRestApi", wantOp: "InvokeRestApi"},
+		{name: "PublishMetrics", wantOp: "PublishMetrics"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Contains(t, ops, tt.wantOp)
+		})
+	}
+}
+
+func TestBackend_InvokeRestApi(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		req     *mwaa.ExportedInvokeRestAPIRequest
+		name    string
+		envName string
+		seed    bool
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			envName: "invoke-env",
+			seed:    true,
+			req:     &mwaa.ExportedInvokeRestAPIRequest{Method: "GET", Path: "/dags"},
+		},
+		{
+			name:    "env_not_found",
+			envName: "nonexistent",
+			seed:    false,
+			req:     &mwaa.ExportedInvokeRestAPIRequest{Method: "GET", Path: "/dags"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_method",
+			envName: "invoke-env-missing-method",
+			seed:    true,
+			req:     &mwaa.ExportedInvokeRestAPIRequest{Path: "/dags"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_path",
+			envName: "invoke-env-missing-path",
+			seed:    true,
+			req:     &mwaa.ExportedInvokeRestAPIRequest{Method: "GET"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if tt.seed {
+				_, err := b.CreateEnvironment(testRegion, testAccountID, tt.envName, newCreateReq())
+				require.NoError(t, err)
+			}
+
+			resp, err := b.InvokeRestAPI(tt.envName, tt.req)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, resp)
+			assert.Equal(t, int32(200), resp.RestAPIStatusCode)
+		})
+	}
+}
+
+func TestBackend_PublishMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		req     *mwaa.ExportedPublishMetricsRequest
+		name    string
+		envName string
+		seed    bool
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			envName: "metrics-env",
+			seed:    true,
+			req: &mwaa.ExportedPublishMetricsRequest{
+				MetricData: []mwaa.ExportedMetricDatum{
+					{MetricName: "TaskInstance"},
+				},
+			},
+		},
+		{
+			name:    "empty_metrics",
+			envName: "metrics-env-empty",
+			seed:    true,
+			req:     &mwaa.ExportedPublishMetricsRequest{MetricData: []mwaa.ExportedMetricDatum{}},
+		},
+		{
+			name:    "env_not_found",
+			envName: "nonexistent",
+			seed:    false,
+			req:     &mwaa.ExportedPublishMetricsRequest{MetricData: []mwaa.ExportedMetricDatum{}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if tt.seed {
+				_, err := b.CreateEnvironment(testRegion, testAccountID, tt.envName, newCreateReq())
+				require.NoError(t, err)
+			}
+
+			err := b.PublishMetrics(tt.envName, tt.req)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

@@ -19,6 +19,7 @@ const (
 	defaultMinWorkers          = int32(1)
 	defaultWebserverAccessMode = "PUBLIC_ONLY"
 	environmentStatusAvailable = "AVAILABLE"
+	restAPISuccessCode         = int32(200)
 )
 
 // Errors used by the backend.
@@ -44,12 +45,17 @@ type StorageBackend interface {
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
+	InvokeRestAPI(envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error)
+	PublishMetrics(envName string, req *publishMetricsRequest) error
 }
+
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	environments map[string]*Environment
 	arnIndex     map[string]string // ARN -> name
+	metrics      map[string][]MetricDatum
 	region       string
 	accountID    string
 	mu           sync.RWMutex
@@ -62,6 +68,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		accountID:    accountID,
 		environments: make(map[string]*Environment),
 		arnIndex:     make(map[string]string),
+		metrics:      make(map[string][]MetricDatum),
 	}
 }
 
@@ -307,4 +314,41 @@ func (b *InMemoryBackend) findByARN(resourceARN string) *Environment {
 	}
 
 	return b.environments[name]
+}
+
+// InvokeRestAPI simulates calling the Apache Airflow REST API on the specified environment's webserver.
+func (b *InMemoryBackend) InvokeRestAPI(envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return nil, ErrEnvironmentNotFound
+	}
+
+	if req.Method == "" {
+		return nil, fmt.Errorf("%w: Method is required", ErrInvalidParameter)
+	}
+
+	if req.Path == "" {
+		return nil, fmt.Errorf("%w: Path is required", ErrInvalidParameter)
+	}
+
+	return &InvokeRestAPIResponse{
+		RestAPIStatusCode: restAPISuccessCode,
+		RestAPIResponse:   map[string]any{},
+	}, nil
+}
+
+// PublishMetrics stores internal environment metrics for the specified environment.
+func (b *InMemoryBackend) PublishMetrics(envName string, req *publishMetricsRequest) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return ErrEnvironmentNotFound
+	}
+
+	b.metrics[envName] = append(b.metrics[envName], req.MetricData...)
+
+	return nil
 }

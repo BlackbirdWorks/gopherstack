@@ -17,6 +17,7 @@ import (
 const (
 	mwaaService       = "airflow"
 	mwaaMatchPriority = 87
+	opUnknown         = "Unknown"
 )
 
 // Handler is the HTTP handler for the AWS MWAA REST API.
@@ -47,6 +48,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagResource",
 		"CreateCliToken",
 		"CreateWebLoginToken",
+		"InvokeRestApi",
+		"PublishMetrics",
 	}
 }
 
@@ -70,7 +73,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		for _, prefix := range []string{"/environments", "/tags/", "/clitoken/", "/webtoken/"} {
+		mwaaPathPrefixes := []string{
+			"/environments", "/tags/", "/clitoken/",
+			"/webtoken/", "/restapi/", "/metrics/environments/",
+		}
+		for _, prefix := range mwaaPathPrefixes {
 			if strings.HasPrefix(path, prefix) {
 				return true
 			}
@@ -93,33 +100,58 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "CreateCliToken"
 	case strings.HasPrefix(path, "/webtoken/"):
 		return "CreateWebLoginToken"
+	case strings.HasPrefix(path, "/restapi/"):
+		return "InvokeRestApi"
+	case strings.HasPrefix(path, "/metrics/environments/"):
+		return "PublishMetrics"
 	case strings.HasPrefix(path, "/tags/"):
-		switch method {
-		case http.MethodGet:
-			return "ListTagsForResource"
-		case http.MethodPost:
-			return "TagResource"
-		case http.MethodDelete:
-			return "UntagResource"
-		}
+		return extractTagOperation(method)
 	case path == "/environments" || path == "/environments/":
-		if method == http.MethodGet {
-			return "ListEnvironments"
-		}
+		return extractEnvironmentListOperation(method)
 	case strings.HasPrefix(path, "/environments/"):
-		switch method {
-		case http.MethodGet:
-			return "GetEnvironment"
-		case http.MethodPut:
-			return "CreateEnvironment"
-		case http.MethodDelete:
-			return "DeleteEnvironment"
-		case http.MethodPatch:
-			return "UpdateEnvironment"
-		}
+		return extractEnvironmentOperation(method)
 	}
 
-	return "Unknown"
+	return opUnknown
+}
+
+// extractTagOperation returns the operation name for a /tags/ path.
+func extractTagOperation(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "ListTagsForResource"
+	case http.MethodPost:
+		return "TagResource"
+	case http.MethodDelete:
+		return "UntagResource"
+	}
+
+	return opUnknown
+}
+
+// extractEnvironmentListOperation returns the operation name for the /environments list path.
+func extractEnvironmentListOperation(method string) string {
+	if method == http.MethodGet {
+		return "ListEnvironments"
+	}
+
+	return opUnknown
+}
+
+// extractEnvironmentOperation returns the operation name for a /environments/{name} path.
+func extractEnvironmentOperation(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetEnvironment"
+	case http.MethodPut:
+		return "CreateEnvironment"
+	case http.MethodDelete:
+		return "DeleteEnvironment"
+	case http.MethodPatch:
+		return "UpdateEnvironment"
+	}
+
+	return opUnknown
 }
 
 // ExtractResource extracts the environment name from the request path.
@@ -133,6 +165,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return strings.TrimPrefix(path, "/clitoken/")
 	case strings.HasPrefix(path, "/webtoken/"):
 		return strings.TrimPrefix(path, "/webtoken/")
+	case strings.HasPrefix(path, "/restapi/"):
+		return strings.TrimPrefix(path, "/restapi/")
+	case strings.HasPrefix(path, "/metrics/environments/"):
+		return strings.TrimPrefix(path, "/metrics/environments/")
 	}
 
 	return ""
@@ -152,6 +188,10 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 		return h.dispatchCliToken(c, path)
 	case strings.HasPrefix(path, "/webtoken/"):
 		return h.dispatchWebToken(c, path)
+	case strings.HasPrefix(path, "/restapi/"):
+		return h.dispatchRestAPI(c, path)
+	case strings.HasPrefix(path, "/metrics/environments/"):
+		return h.dispatchMetrics(c, path)
 	case strings.HasPrefix(path, "/tags/"):
 		return h.dispatchTags(c, path)
 	case path == "/environments" || path == "/environments/":
@@ -420,6 +460,79 @@ func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error 
 		"WebToken":          "stub-web-token-" + name,
 		"WebServerHostname": name + ".airflow." + h.DefaultRegion + ".amazonaws.com",
 	})
+
+	return nil
+}
+
+func (h *Handler) dispatchRestAPI(c *echo.Context, path string) error {
+	name := strings.TrimPrefix(path, "/restapi/")
+	if c.Request().Method == http.MethodPost {
+		return h.handleInvokeRestAPI(c, name)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) handleInvokeRestAPI(c *echo.Context, name string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req invokeRestAPIRequest
+
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	resp, err := h.Backend.InvokeRestAPI(name, &req)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+
+	return nil
+}
+
+func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
+	name := strings.TrimPrefix(path, "/metrics/environments/")
+	if c.Request().Method == http.MethodPost {
+		return h.handlePublishMetrics(c, name)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) handlePublishMetrics(c *echo.Context, name string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req publishMetricsRequest
+
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if pubErr := h.Backend.PublishMetrics(name, &req); pubErr != nil {
+		if errors.Is(pubErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", pubErr.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", pubErr.Error())
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{})
 
 	return nil
 }
