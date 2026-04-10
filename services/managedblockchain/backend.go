@@ -714,8 +714,7 @@ func (b *InMemoryBackend) CreateProposal(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	network, exists := b.networks[networkID]
-	if !exists {
+	if _, exists := b.networks[networkID]; !exists {
 		return nil, ErrNetworkNotFound
 	}
 
@@ -734,8 +733,6 @@ func (b *InMemoryBackend) CreateProposal(
 
 	t := make(map[string]string)
 	maps.Copy(t, tags)
-
-	_ = network
 
 	proposal := &Proposal{
 		ProposalID:           proposalID,
