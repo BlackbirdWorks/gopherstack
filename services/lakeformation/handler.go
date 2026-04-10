@@ -26,6 +26,7 @@ func isLakeFormationPath(path string) bool {
 	case "/GetDataLakeSettings",
 		"/PutDataLakeSettings",
 		"/RegisterResource",
+		"/UpdateResource",
 		"/DeregisterResource",
 		"/DescribeResource",
 		"/ListResources",
@@ -38,7 +39,27 @@ func isLakeFormationPath(path string) bool {
 		"/UpdateLFTag",
 		"/ListLFTags",
 		"/BatchGrantPermissions",
-		"/BatchRevokePermissions":
+		"/BatchRevokePermissions",
+		"/AddLFTagsToResource",
+		"/RemoveLFTagsFromResource",
+		"/GetResourceLFTags",
+		"/AssumeDecoratedRoleWithSAML",
+		"/StartTransaction",
+		"/CancelTransaction",
+		"/CommitTransaction",
+		"/DescribeTransaction",
+		"/ListTransactions",
+		"/CreateDataCellsFilter",
+		"/ListDataCellsFilter",
+		"/CreateLFTagExpression",
+		"/ListLFTagExpressions",
+		"/CreateLakeFormationIdentityCenterConfiguration",
+		"/CreateLakeFormationOptIn",
+		"/DeleteLakeFormationOptIn",
+		"/ListLakeFormationOptIns",
+		"/DeleteDataCellsFilter",
+		"/DeleteLFTagExpression",
+		"/GetDataLakePrincipal":
 		return true
 	}
 
@@ -48,13 +69,22 @@ func isLakeFormationPath(path string) bool {
 // Handler is the HTTP handler for the Lake Formation REST API.
 type Handler struct {
 	Backend       StorageBackend
+	ops           map[string]func(context.Context, *echo.Context, []byte) error
 	AccountID     string
 	DefaultRegion string
 }
 
 // NewHandler creates a new Lake Formation handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset resets the backend to a clean state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -63,22 +93,43 @@ func (h *Handler) Name() string { return "LakeFormation" }
 // GetSupportedOperations returns the list of supported Lake Formation operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"GetDataLakeSettings",
-		"PutDataLakeSettings",
-		"RegisterResource",
-		"DeregisterResource",
-		"DescribeResource",
-		"ListResources",
-		"GrantPermissions",
-		"RevokePermissions",
-		"ListPermissions",
-		"CreateLFTag",
-		"DeleteLFTag",
-		"GetLFTag",
-		"UpdateLFTag",
-		"ListLFTags",
+		"AddLFTagsToResource",
+		"AssumeDecoratedRoleWithSAML",
 		"BatchGrantPermissions",
 		"BatchRevokePermissions",
+		"CancelTransaction",
+		"CommitTransaction",
+		"CreateDataCellsFilter",
+		"CreateLFTag",
+		"CreateLFTagExpression",
+		"CreateLakeFormationIdentityCenterConfiguration",
+		"CreateLakeFormationOptIn",
+		"DeleteDataCellsFilter",
+		"DeleteLFTag",
+		"DeleteLFTagExpression",
+		"DeleteLakeFormationOptIn",
+		"DeregisterResource",
+		"DescribeResource",
+		"DescribeTransaction",
+		"GetDataLakePrincipal",
+		"GetDataLakeSettings",
+		"GetLFTag",
+		"GetResourceLFTags",
+		"GrantPermissions",
+		"ListDataCellsFilter",
+		"ListLFTagExpressions",
+		"ListLFTags",
+		"ListLakeFormationOptIns",
+		"ListPermissions",
+		"ListResources",
+		"ListTransactions",
+		"PutDataLakeSettings",
+		"RegisterResource",
+		"RemoveLFTagsFromResource",
+		"RevokePermissions",
+		"StartTransaction",
+		"UpdateLFTag",
+		"UpdateResource",
 	}
 }
 
@@ -144,13 +195,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
-	type dispatchFn func(context.Context, *echo.Context, []byte) error
-
-	table := map[string]dispatchFn{
+func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []byte) error {
+	return map[string]func(context.Context, *echo.Context, []byte) error{
 		"GetDataLakeSettings":    h.handleGetDataLakeSettings,
 		"PutDataLakeSettings":    h.handlePutDataLakeSettings,
 		"RegisterResource":       h.handleRegisterResource,
+		"UpdateResource":         h.handleUpdateResource,
 		"DeregisterResource":     h.handleDeregisterResource,
 		"DescribeResource":       h.handleDescribeResource,
 		"ListResources":          h.handleListResources,
@@ -164,9 +214,40 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body
 		"ListLFTags":             h.handleListLFTags,
 		"BatchGrantPermissions":  h.handleBatchGrantPermissions,
 		"BatchRevokePermissions": h.handleBatchRevokePermissions,
-	}
 
-	fn, ok := table[op]
+		"AddLFTagsToResource":      h.handleAddLFTagsToResource,
+		"RemoveLFTagsFromResource": h.handleRemoveLFTagsFromResource,
+		"GetResourceLFTags":        h.handleGetResourceLFTags,
+
+		"AssumeDecoratedRoleWithSAML": h.handleAssumeDecoratedRoleWithSAML,
+
+		"StartTransaction":    h.handleStartTransaction,
+		"CancelTransaction":   h.handleCancelTransaction,
+		"CommitTransaction":   h.handleCommitTransaction,
+		"DescribeTransaction": h.handleDescribeTransaction,
+		"ListTransactions":    h.handleListTransactions,
+
+		"CreateDataCellsFilter": h.handleCreateDataCellsFilter,
+		"ListDataCellsFilter":   h.handleListDataCellsFilter,
+
+		"CreateLFTagExpression": h.handleCreateLFTagExpression,
+		"ListLFTagExpressions":  h.handleListLFTagExpressions,
+
+		"CreateLakeFormationIdentityCenterConfiguration": h.handleCreateLakeFormationIdentityCenterConfiguration,
+
+		"CreateLakeFormationOptIn": h.handleCreateLakeFormationOptIn,
+		"DeleteLakeFormationOptIn": h.handleDeleteLakeFormationOptIn,
+		"ListLakeFormationOptIns":  h.handleListLakeFormationOptIns,
+
+		"DeleteDataCellsFilter": h.handleDeleteDataCellsFilter,
+		"DeleteLFTagExpression": h.handleDeleteLFTagExpression,
+
+		"GetDataLakePrincipal": h.handleGetDataLakePrincipal,
+	}
+}
+
+func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
+	fn, ok := h.ops[op]
 	if !ok {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "unknown operation: "+op)
 	}
@@ -176,10 +257,14 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrValidation):
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "EntityNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "AlreadyExistsException", err.Error())
+	case errors.Is(err, awserr.ErrConflict):
+		return h.writeError(c, http.StatusBadRequest, "TransactionCanceledException", err.Error())
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalServiceException", err.Error())
 	}
@@ -442,4 +527,393 @@ func (h *Handler) handleBatchRevokePermissions(_ context.Context, c *echo.Contex
 	}
 
 	return c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) handleAddLFTagsToResource(_ context.Context, c *echo.Context, body []byte) error {
+	var in addLFTagsToResourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if in.Resource == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
+	}
+
+	if len(in.LFTags) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "LFTags is required")
+	}
+
+	failures := h.Backend.AddLFTagsToResource(in.CatalogID, in.Resource, in.LFTags)
+
+	out := addLFTagsToResourceOutput{Failures: make([]LFTagError, 0, len(failures))}
+	out.Failures = append(out.Failures, failures...)
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleAssumeDecoratedRoleWithSAML(_ context.Context, c *echo.Context, body []byte) error {
+	var in assumeDecoratedRoleWithSAMLInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if strings.TrimSpace(in.PrincipalArn) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PrincipalArn is required")
+	}
+
+	if strings.TrimSpace(in.RoleArn) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "RoleArn is required")
+	}
+
+	if strings.TrimSpace(in.SAMLAssertion) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "SAMLAssertion is required")
+	}
+
+	out := h.Backend.AssumeDecoratedRoleWithSAML(in.PrincipalArn, in.RoleArn, in.SAMLAssertion, in.DurationSeconds)
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleCancelTransaction(_ context.Context, c *echo.Context, body []byte) error {
+	var in cancelTransactionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if strings.TrimSpace(in.TransactionID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TransactionId is required")
+	}
+
+	if err := h.Backend.CancelTransaction(in.TransactionID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, cancelTransactionOutput{})
+}
+
+func (h *Handler) handleCommitTransaction(_ context.Context, c *echo.Context, body []byte) error {
+	var in commitTransactionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if strings.TrimSpace(in.TransactionID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TransactionId is required")
+	}
+
+	status, err := h.Backend.CommitTransaction(in.TransactionID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, commitTransactionOutput{TransactionStatus: status})
+}
+
+func (h *Handler) handleCreateDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
+	var in createDataCellsFilterInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if in.TableData == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableData is required")
+	}
+
+	if strings.TrimSpace(in.TableData.Name) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableData.Name is required")
+	}
+
+	if err := h.Backend.CreateDataCellsFilter(in.TableData); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createDataCellsFilterOutput{})
+}
+
+func (h *Handler) handleCreateLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
+	var in createLFTagExpressionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if strings.TrimSpace(in.Name) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Name is required")
+	}
+
+	if len(in.Expression) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Expression is required")
+	}
+
+	if err := h.Backend.CreateLFTagExpression(in.Name, in.Description, in.CatalogID, in.Expression); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createLFTagExpressionOutput{})
+}
+
+func (h *Handler) handleCreateLakeFormationIdentityCenterConfiguration(
+	_ context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
+	var in createLakeFormationIdentityCenterConfigurationInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	catalogID := in.CatalogID
+	if catalogID == "" {
+		catalogID = h.AccountID
+	}
+
+	appArn := h.Backend.CreateLakeFormationIdentityCenterConfiguration(catalogID, in.InstanceArn)
+
+	return c.JSON(http.StatusOK, createLakeFormationIdentityCenterConfigurationOutput{ApplicationArn: appArn})
+}
+
+func (h *Handler) handleCreateLakeFormationOptIn(_ context.Context, c *echo.Context, body []byte) error {
+	var in createLakeFormationOptInInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if in.Principal == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Principal is required")
+	}
+
+	if in.Resource == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
+	}
+
+	if err := h.Backend.CreateLakeFormationOptIn(in.Principal, in.Resource); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createLakeFormationOptInOutput{})
+}
+
+func (h *Handler) handleDeleteDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
+	var in deleteDataCellsFilterInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if err := h.Backend.DeleteDataCellsFilter(in.TableCatalogID, in.DatabaseName, in.TableName, in.Name); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteDataCellsFilterOutput{})
+}
+
+func (h *Handler) handleDeleteLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
+	var in deleteLFTagExpressionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if strings.TrimSpace(in.Name) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Name is required")
+	}
+
+	if err := h.Backend.DeleteLFTagExpression(in.Name, in.CatalogID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteLFTagExpressionOutput{})
+}
+
+func (h *Handler) handleUpdateResource(_ context.Context, c *echo.Context, body []byte) error {
+	var in updateResourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if err := h.Backend.UpdateResource(in.ResourceArn, in.RoleArn); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateResourceOutput{})
+}
+
+func (h *Handler) handleStartTransaction(_ context.Context, c *echo.Context, _ []byte) error {
+	id := h.Backend.StartTransaction()
+
+	return c.JSON(http.StatusOK, startTransactionOutput{TransactionID: id})
+}
+
+func (h *Handler) handleDescribeTransaction(_ context.Context, c *echo.Context, body []byte) error {
+	var in describeTransactionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if strings.TrimSpace(in.TransactionID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TransactionId is required")
+	}
+
+	tx, err := h.Backend.DescribeTransaction(in.TransactionID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeTransactionOutput{TransactionDescription: tx})
+}
+
+func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, body []byte) error {
+	var in listTransactionsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+
+	txns, nextToken := h.Backend.ListTransactions(in.MaxResults, in.NextToken)
+
+	return c.JSON(http.StatusOK, listTransactionsOutput{
+		Transactions: txns,
+		NextToken:    nextToken,
+	})
+}
+
+func (h *Handler) handleRemoveLFTagsFromResource(_ context.Context, c *echo.Context, body []byte) error {
+	var in removeLFTagsFromResourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if in.Resource == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
+	}
+
+	if len(in.LFTags) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "LFTags is required")
+	}
+
+	failures := h.Backend.RemoveLFTagsFromResource(in.CatalogID, in.Resource, in.LFTags)
+
+	out := removeLFTagsFromResourceOutput{Failures: make([]LFTagError, 0, len(failures))}
+	out.Failures = append(out.Failures, failures...)
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleGetResourceLFTags(_ context.Context, c *echo.Context, body []byte) error {
+	var in getResourceLFTagsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if in.Resource == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
+	}
+
+	pairs, err := h.Backend.GetResourceLFTags(in.CatalogID, in.Resource)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	// Return tags in the appropriate output field based on resource type.
+	out := getResourceLFTagsOutput{}
+	switch {
+	case in.Resource.Database != nil:
+		out.LFTagOnDatabase = pairs
+	case in.Resource.Table != nil:
+		out.LFTagsOnTable = pairs
+	default:
+		out.LFTagsOnTable = pairs
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
+	var in listDataCellsFilterInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+
+	var tableCatalogID, databaseName, tableName string
+	if in.Table != nil {
+		databaseName = in.Table.DatabaseName
+		tableName = in.Table.Name
+	}
+
+	filters, nextToken := h.Backend.ListDataCellsFilter(
+		tableCatalogID,
+		databaseName,
+		tableName,
+		in.MaxResults,
+		in.NextToken,
+	)
+
+	return c.JSON(http.StatusOK, listDataCellsFilterOutput{
+		DataCellsFilters: filters,
+		NextToken:        nextToken,
+	})
+}
+
+func (h *Handler) handleListLFTagExpressions(_ context.Context, c *echo.Context, body []byte) error {
+	var in listLFTagExpressionsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+
+	exprs, nextToken := h.Backend.ListLFTagExpressions(in.CatalogID, in.MaxResults, in.NextToken)
+
+	return c.JSON(http.StatusOK, listLFTagExpressionsOutput{
+		LFTagExpressions: exprs,
+		NextToken:        nextToken,
+	})
+}
+
+func (h *Handler) handleDeleteLakeFormationOptIn(_ context.Context, c *echo.Context, body []byte) error {
+	var in deleteLakeFormationOptInInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if in.Principal == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Principal is required")
+	}
+
+	if in.Resource == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
+	}
+
+	if err := h.Backend.DeleteLakeFormationOptIn(in.Principal, in.Resource); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteLakeFormationOptInOutput{})
+}
+
+func (h *Handler) handleListLakeFormationOptIns(_ context.Context, c *echo.Context, body []byte) error {
+	var in listLakeFormationOptInsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+
+	principalIdentifier := ""
+	if in.Principal != nil {
+		principalIdentifier = in.Principal.DataLakePrincipalIdentifier
+	}
+
+	optIns, nextToken := h.Backend.ListLakeFormationOptIns(principalIdentifier, in.MaxResults, in.NextToken)
+
+	return c.JSON(http.StatusOK, listLakeFormationOptInsOutput{
+		LakeFormationOptInsInfoList: optIns,
+		NextToken:                   nextToken,
+	})
+}
+
+func (h *Handler) handleGetDataLakePrincipal(_ context.Context, c *echo.Context, _ []byte) error {
+	principal := h.Backend.GetDataLakePrincipal()
+
+	return c.JSON(http.StatusOK, getDataLakePrincipalOutput{Identity: principal.DataLakePrincipalIdentifier})
 }
