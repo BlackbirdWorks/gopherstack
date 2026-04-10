@@ -1192,3 +1192,581 @@ func TestHandler_DeleteClusterSnapshot(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "DeleteDBClusterSnapshotResponse")
 }
+
+func TestHandler_NewOps_AddRoleToDBCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*neptune.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "add_role_success",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "role-cluster")
+			},
+			vals: url.Values{
+				"Action":              {"AddRoleToDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"role-cluster"},
+				"RoleArn":             {"arn:aws:iam::000000000000:role/neptune-role"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "AddRoleToDBClusterResponse",
+		},
+		{
+			name: "add_role_cluster_not_found",
+			vals: url.Values{
+				"Action":              {"AddRoleToDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"no-such-cluster"},
+				"RoleArn":             {"arn:aws:iam::000000000000:role/neptune-role"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterNotFoundFault",
+		},
+		{
+			name: "add_role_missing_role_arn",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "role-cluster2")
+			},
+			vals: url.Values{
+				"Action":              {"AddRoleToDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"role-cluster2"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_CreateEventSubscription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*neptune.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_subscription_success",
+			vals: url.Values{
+				"Action":           {"CreateEventSubscription"},
+				"Version":          {"2014-10-31"},
+				"SubscriptionName": {"test-sub"},
+				"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:neptune-events"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "test-sub",
+		},
+		{
+			name: "create_subscription_duplicate",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":           {"CreateEventSubscription"},
+					"Version":          {"2014-10-31"},
+					"SubscriptionName": {"test-sub"},
+					"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:neptune-events"},
+				})
+			},
+			vals: url.Values{
+				"Action":           {"CreateEventSubscription"},
+				"Version":          {"2014-10-31"},
+				"SubscriptionName": {"test-sub"},
+				"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:neptune-events"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "SubscriptionAlreadyExistFault",
+		},
+		{
+			name: "create_subscription_missing_topic",
+			vals: url.Values{
+				"Action":           {"CreateEventSubscription"},
+				"Version":          {"2014-10-31"},
+				"SubscriptionName": {"test-sub2"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "add_source_id_success",
+			vals: url.Values{
+				"Action":           {"AddSourceIdentifierToSubscription"},
+				"Version":          {"2014-10-31"},
+				"SubscriptionName": {"src-sub"},
+				"SourceIdentifier": {"my-cluster"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "my-cluster",
+		},
+		{
+			name: "add_source_id_not_found",
+			vals: url.Values{
+				"Action":           {"AddSourceIdentifierToSubscription"},
+				"Version":          {"2014-10-31"},
+				"SubscriptionName": {"no-such-sub"},
+				"SourceIdentifier": {"my-cluster"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "SubscriptionNotFoundFault",
+		},
+		{
+			name: "add_source_id_missing_source",
+			vals: url.Values{
+				"Action":           {"AddSourceIdentifierToSubscription"},
+				"Version":          {"2014-10-31"},
+				"SubscriptionName": {"src-sub"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":           {"CreateEventSubscription"},
+		"Version":          {"2014-10-31"},
+		"SubscriptionName": {"src-sub"},
+		"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:events"},
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_ApplyPendingMaintenanceAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "apply_action_success",
+			vals: url.Values{
+				"Action":             {"ApplyPendingMaintenanceAction"},
+				"Version":            {"2014-10-31"},
+				"ResourceIdentifier": {"arn:aws:rds:us-east-1:000000000000:cluster:test"},
+				"ApplyAction":        {"system-update"},
+				"OptInType":          {"immediate"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "ApplyPendingMaintenanceActionResponse",
+		},
+		{
+			name: "apply_action_missing_resource",
+			vals: url.Values{
+				"Action":      {"ApplyPendingMaintenanceAction"},
+				"Version":     {"2014-10-31"},
+				"ApplyAction": {"system-update"},
+				"OptInType":   {"immediate"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_CopyDBClusterParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "copy_pg_success",
+			vals: url.Values{
+				"Action":  {"CopyDBClusterParameterGroup"},
+				"Version": {"2014-10-31"},
+				"SourceDBClusterParameterGroupIdentifier":  {"src-pg"},
+				"TargetDBClusterParameterGroupIdentifier":  {"dst-pg"},
+				"TargetDBClusterParameterGroupDescription": {"copy of src-pg"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "dst-pg",
+		},
+		{
+			name: "copy_pg_source_not_found",
+			vals: url.Values{
+				"Action":  {"CopyDBClusterParameterGroup"},
+				"Version": {"2014-10-31"},
+				"SourceDBClusterParameterGroupIdentifier": {"no-such-pg"},
+				"TargetDBClusterParameterGroupIdentifier": {"new-pg"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterParameterGroupNotFoundFault",
+		},
+	}
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":                      {"CreateDBClusterParameterGroup"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterParameterGroupName": {"src-pg"},
+		"DBParameterGroupFamily":      {"neptune1.3"},
+		"Description":                 {"source group"},
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_CopyDBClusterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "copy_snapshot_success",
+			vals: url.Values{
+				"Action":                            {"CopyDBClusterSnapshot"},
+				"Version":                           {"2014-10-31"},
+				"SourceDBClusterSnapshotIdentifier": {"src-snap"},
+				"TargetDBClusterSnapshotIdentifier": {"dst-snap"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "dst-snap",
+		},
+		{
+			name: "copy_snapshot_source_not_found",
+			vals: url.Values{
+				"Action":                            {"CopyDBClusterSnapshot"},
+				"Version":                           {"2014-10-31"},
+				"SourceDBClusterSnapshotIdentifier": {"no-such-snap"},
+				"TargetDBClusterSnapshotIdentifier": {"new-snap"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterSnapshotNotFoundFault",
+		},
+	}
+
+	h := newTestHandler(t)
+	createCluster(t, h, "snap-copy-cluster")
+	doRequest(t, h, url.Values{
+		"Action":                      {"CreateDBClusterSnapshot"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterSnapshotIdentifier": {"src-snap"},
+		"DBClusterIdentifier":         {"snap-copy-cluster"},
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_DBParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_pg_success",
+			vals: url.Values{
+				"Action":                 {"CreateDBParameterGroup"},
+				"Version":                {"2014-10-31"},
+				"DBParameterGroupName":   {"test-param-group"},
+				"DBParameterGroupFamily": {"neptune1.3"},
+				"Description":            {"test parameter group"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "test-param-group",
+		},
+		{
+			name: "create_pg_missing_name",
+			vals: url.Values{
+				"Action":                 {"CreateDBParameterGroup"},
+				"Version":                {"2014-10-31"},
+				"DBParameterGroupFamily": {"neptune1.3"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_CopyDBParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "copy_pg_success",
+			vals: url.Values{
+				"Action":                            {"CopyDBParameterGroup"},
+				"Version":                           {"2014-10-31"},
+				"SourceDBParameterGroupIdentifier":  {"src-param-group"},
+				"TargetDBParameterGroupIdentifier":  {"dst-param-group"},
+				"TargetDBParameterGroupDescription": {"copy"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "dst-param-group",
+		},
+		{
+			name: "copy_pg_source_not_found",
+			vals: url.Values{
+				"Action":                           {"CopyDBParameterGroup"},
+				"Version":                          {"2014-10-31"},
+				"SourceDBParameterGroupIdentifier": {"no-such-pg"},
+				"TargetDBParameterGroupIdentifier": {"dst-pg"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBParameterGroupNotFoundFault",
+		},
+	}
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":                 {"CreateDBParameterGroup"},
+		"Version":                {"2014-10-31"},
+		"DBParameterGroupName":   {"src-param-group"},
+		"DBParameterGroupFamily": {"neptune1.3"},
+		"Description":            {"source param group"},
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_CreateDBClusterEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*neptune.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_endpoint_success",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "ep-cluster")
+			},
+			vals: url.Values{
+				"Action":                      {"CreateDBClusterEndpoint"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterEndpointIdentifier": {"my-endpoint"},
+				"DBClusterIdentifier":         {"ep-cluster"},
+				"EndpointType":                {"READER"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "my-endpoint",
+		},
+		{
+			name: "create_endpoint_cluster_not_found",
+			vals: url.Values{
+				"Action":                      {"CreateDBClusterEndpoint"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterEndpointIdentifier": {"ep2"},
+				"DBClusterIdentifier":         {"no-such-cluster"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterNotFoundFault",
+		},
+		{
+			name: "create_endpoint_missing_id",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "ep-cluster3")
+			},
+			vals: url.Values{
+				"Action":              {"CreateDBClusterEndpoint"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"ep-cluster3"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_NewOps_CreateGlobalCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*neptune.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_global_cluster_success",
+			vals: url.Values{
+				"Action":                  {"CreateGlobalCluster"},
+				"Version":                 {"2014-10-31"},
+				"GlobalClusterIdentifier": {"my-global-cluster"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "my-global-cluster",
+		},
+		{
+			name: "create_global_cluster_with_source",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "source-cluster")
+			},
+			vals: url.Values{
+				"Action":                    {"CreateGlobalCluster"},
+				"Version":                   {"2014-10-31"},
+				"GlobalClusterIdentifier":   {"global-with-source"},
+				"SourceDBClusterIdentifier": {"source-cluster"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "global-with-source",
+		},
+		{
+			name: "create_global_cluster_duplicate",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":                  {"CreateGlobalCluster"},
+					"Version":                 {"2014-10-31"},
+					"GlobalClusterIdentifier": {"my-global-cluster"},
+				})
+			},
+			vals: url.Values{
+				"Action":                  {"CreateGlobalCluster"},
+				"Version":                 {"2014-10-31"},
+				"GlobalClusterIdentifier": {"my-global-cluster"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "GlobalClusterAlreadyExistsFault",
+		},
+		{
+			name: "create_global_cluster_missing_id",
+			vals: url.Values{
+				"Action":  {"CreateGlobalCluster"},
+				"Version": {"2014-10-31"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}

@@ -3,6 +3,7 @@ package neptune
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -19,6 +20,14 @@ var (
 	ErrClusterParameterGroupAlreadyExists = errors.New("DBClusterParameterGroupAlreadyExists")
 	ErrClusterSnapshotNotFound            = errors.New("DBClusterSnapshotNotFound")
 	ErrClusterSnapshotAlreadyExists       = errors.New("DBClusterSnapshotAlreadyExists")
+	ErrParameterGroupNotFound             = errors.New("DBParameterGroupNotFound")
+	ErrParameterGroupAlreadyExists        = errors.New("DBParameterGroupAlreadyExists")
+	ErrClusterEndpointNotFound            = errors.New("DBClusterEndpointNotFound")
+	ErrClusterEndpointAlreadyExists       = errors.New("DBClusterEndpointAlreadyExists")
+	ErrSubscriptionNotFound               = errors.New("SubscriptionNotFound")
+	ErrSubscriptionAlreadyExists          = errors.New("SubscriptionAlreadyExists")
+	ErrGlobalClusterNotFound              = errors.New("GlobalClusterNotFound")
+	ErrGlobalClusterAlreadyExists         = errors.New("GlobalClusterAlreadyExists")
 	ErrInvalidParameter                   = errors.New("InvalidParameterValue")
 	ErrUnknownAction                      = errors.New("InvalidAction")
 )
@@ -87,6 +96,43 @@ type DBClusterSnapshot struct {
 	Status                      string
 }
 
+// DBParameterGroup represents a Neptune DB parameter group.
+type DBParameterGroup struct {
+	DBParameterGroupName   string
+	DBParameterGroupFamily string
+	Description            string
+}
+
+// DBClusterEndpoint represents a Neptune DB cluster custom endpoint.
+type DBClusterEndpoint struct {
+	DBClusterEndpointIdentifier string
+	DBClusterIdentifier         string
+	EndpointType                string
+	Status                      string
+	Endpoint                    string
+}
+
+// EventSubscription represents a Neptune event subscription.
+type EventSubscription struct {
+	CustSubscriptionID string
+	SnsTopicARN        string
+	Status             string
+	SourceIDs          []string
+}
+
+// GlobalCluster represents a Neptune global cluster.
+type GlobalCluster struct {
+	GlobalClusterIdentifier string
+	Status                  string
+	GlobalClusterMembers    []GlobalClusterMember
+}
+
+// GlobalClusterMember represents a member cluster in a global cluster.
+type GlobalClusterMember struct {
+	DBClusterARN string
+	IsWriter     bool
+}
+
 // InMemoryBackend is a thread-safe in-memory backend for Neptune.
 type InMemoryBackend struct {
 	clusters               map[string]*DBCluster
@@ -94,6 +140,11 @@ type InMemoryBackend struct {
 	subnetGroups           map[string]*DBSubnetGroup
 	clusterParameterGroups map[string]*DBClusterParameterGroup
 	clusterSnapshots       map[string]*DBClusterSnapshot
+	parameterGroups        map[string]*DBParameterGroup
+	clusterEndpoints       map[string]*DBClusterEndpoint
+	eventSubscriptions     map[string]*EventSubscription
+	globalClusters         map[string]*GlobalCluster
+	clusterRoles           map[string][]string
 	tags                   map[string][]Tag
 	mu                     *lockmetrics.RWMutex
 	accountID              string
@@ -108,6 +159,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		subnetGroups:           make(map[string]*DBSubnetGroup),
 		clusterParameterGroups: make(map[string]*DBClusterParameterGroup),
 		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
+		parameterGroups:        make(map[string]*DBParameterGroup),
+		clusterEndpoints:       make(map[string]*DBClusterEndpoint),
+		eventSubscriptions:     make(map[string]*EventSubscription),
+		globalClusters:         make(map[string]*GlobalCluster),
+		clusterRoles:           make(map[string][]string),
 		tags:                   make(map[string][]Tag),
 		accountID:              accountID,
 		region:                 region,
@@ -641,4 +697,296 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
 	copy(cp, src)
 
 	return cp
+}
+
+// AddRoleToDBCluster associates an IAM role with a Neptune DB cluster.
+func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN string) error {
+	if clusterID == "" {
+		return fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if roleARN == "" {
+		return fmt.Errorf("%w: RoleArn is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("AddRoleToDBCluster")
+	defer b.mu.Unlock()
+	if _, exists := b.clusters[clusterID]; !exists {
+		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+	if slices.Contains(b.clusterRoles[clusterID], roleARN) {
+		return nil
+	}
+	b.clusterRoles[clusterID] = append(b.clusterRoles[clusterID], roleARN)
+
+	return nil
+}
+
+// AddSourceIdentifierToSubscription adds a source identifier to an event subscription.
+func (b *InMemoryBackend) AddSourceIdentifierToSubscription(name, sourceID string) (*EventSubscription, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	if sourceID == "" {
+		return nil, fmt.Errorf("%w: SourceIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("AddSourceIdentifierToSubscription")
+	defer b.mu.Unlock()
+	sub, exists := b.eventSubscriptions[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrSubscriptionNotFound, name)
+	}
+	if slices.Contains(sub.SourceIDs, sourceID) {
+		cp := *sub
+		cp.SourceIDs = make([]string, len(sub.SourceIDs))
+		copy(cp.SourceIDs, sub.SourceIDs)
+
+		return &cp, nil
+	}
+	sub.SourceIDs = append(sub.SourceIDs, sourceID)
+	cp := *sub
+	cp.SourceIDs = make([]string, len(sub.SourceIDs))
+	copy(cp.SourceIDs, sub.SourceIDs)
+
+	return &cp, nil
+}
+
+// ApplyPendingMaintenanceAction applies a pending maintenance action to a resource.
+func (b *InMemoryBackend) ApplyPendingMaintenanceAction(resourceID, applyAction, optInType string) error {
+	if resourceID == "" {
+		return fmt.Errorf("%w: ResourceIdentifier is required", ErrInvalidParameter)
+	}
+	if applyAction == "" {
+		return fmt.Errorf("%w: ApplyAction is required", ErrInvalidParameter)
+	}
+	if optInType == "" {
+		return fmt.Errorf("%w: OptInType is required", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// CopyDBClusterParameterGroup copies a Neptune DB cluster parameter group.
+func (b *InMemoryBackend) CopyDBClusterParameterGroup(
+	sourceName, targetName, targetDescription string,
+) (*DBClusterParameterGroup, error) {
+	if sourceName == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterParameterGroupIdentifier is required", ErrInvalidParameter)
+	}
+	if targetName == "" {
+		return nil, fmt.Errorf("%w: TargetDBClusterParameterGroupIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CopyDBClusterParameterGroup")
+	defer b.mu.Unlock()
+	src, exists := b.clusterParameterGroups[sourceName]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, sourceName)
+	}
+	_, targetExists := b.clusterParameterGroups[targetName]
+	if targetExists {
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s already exists",
+			ErrClusterParameterGroupAlreadyExists,
+			targetName,
+		)
+	}
+	description := targetDescription
+	if description == "" {
+		description = src.Description
+	}
+	pg := &DBClusterParameterGroup{
+		DBClusterParameterGroupName: targetName,
+		DBParameterGroupFamily:      src.DBParameterGroupFamily,
+		Description:                 description,
+	}
+	b.clusterParameterGroups[targetName] = pg
+	cp := *pg
+
+	return &cp, nil
+}
+
+// CopyDBClusterSnapshot copies a Neptune DB cluster snapshot.
+func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error) {
+	if sourceSnapshotID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	if targetSnapshotID == "" {
+		return nil, fmt.Errorf("%w: TargetDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CopyDBClusterSnapshot")
+	defer b.mu.Unlock()
+	src, exists := b.clusterSnapshots[sourceSnapshotID]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
+	}
+	_, targetExists := b.clusterSnapshots[targetSnapshotID]
+	if targetExists {
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s already exists",
+			ErrClusterSnapshotAlreadyExists,
+			targetSnapshotID,
+		)
+	}
+	snap := &DBClusterSnapshot{
+		DBClusterSnapshotIdentifier: targetSnapshotID,
+		DBClusterIdentifier:         src.DBClusterIdentifier,
+		Engine:                      src.Engine,
+		Status:                      "available",
+	}
+	b.clusterSnapshots[targetSnapshotID] = snap
+	cp := *snap
+
+	return &cp, nil
+}
+
+// CopyDBParameterGroup copies a Neptune DB parameter group.
+func (b *InMemoryBackend) CopyDBParameterGroup(
+	sourceName, targetName, targetDescription string,
+) (*DBParameterGroup, error) {
+	if sourceName == "" {
+		return nil, fmt.Errorf("%w: SourceDBParameterGroupIdentifier is required", ErrInvalidParameter)
+	}
+	if targetName == "" {
+		return nil, fmt.Errorf("%w: TargetDBParameterGroupIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CopyDBParameterGroup")
+	defer b.mu.Unlock()
+	src, exists := b.parameterGroups[sourceName]
+	if !exists {
+		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, sourceName)
+	}
+	_, targetExists := b.parameterGroups[targetName]
+	if targetExists {
+		return nil, fmt.Errorf("%w: parameter group %s already exists", ErrParameterGroupAlreadyExists, targetName)
+	}
+	description := targetDescription
+	if description == "" {
+		description = src.Description
+	}
+	pg := &DBParameterGroup{
+		DBParameterGroupName:   targetName,
+		DBParameterGroupFamily: src.DBParameterGroupFamily,
+		Description:            description,
+	}
+	b.parameterGroups[targetName] = pg
+	cp := *pg
+
+	return &cp, nil
+}
+
+// CreateDBClusterEndpoint creates a Neptune DB cluster custom endpoint.
+func (b *InMemoryBackend) CreateDBClusterEndpoint(
+	endpointID, clusterID, endpointType string,
+) (*DBClusterEndpoint, error) {
+	if endpointID == "" {
+		return nil, fmt.Errorf("%w: DBClusterEndpointIdentifier is required", ErrInvalidParameter)
+	}
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateDBClusterEndpoint")
+	defer b.mu.Unlock()
+	if _, exists := b.clusterEndpoints[endpointID]; exists {
+		return nil, fmt.Errorf("%w: cluster endpoint %s already exists", ErrClusterEndpointAlreadyExists, endpointID)
+	}
+	if _, exists := b.clusters[clusterID]; !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+	if endpointType == "" {
+		endpointType = "READER"
+	}
+	ep := &DBClusterEndpoint{
+		DBClusterEndpointIdentifier: endpointID,
+		DBClusterIdentifier:         clusterID,
+		EndpointType:                endpointType,
+		Status:                      "available",
+		Endpoint:                    fmt.Sprintf("%s.cluster-custom.neptune.%s.amazonaws.com", endpointID, b.region),
+	}
+	b.clusterEndpoints[endpointID] = ep
+	cp := *ep
+
+	return &cp, nil
+}
+
+// CreateDBParameterGroup creates a Neptune DB parameter group.
+func (b *InMemoryBackend) CreateDBParameterGroup(name, family, description string) (*DBParameterGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: DBParameterGroupName is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateDBParameterGroup")
+	defer b.mu.Unlock()
+	if _, exists := b.parameterGroups[name]; exists {
+		return nil, fmt.Errorf("%w: parameter group %s already exists", ErrParameterGroupAlreadyExists, name)
+	}
+	pg := &DBParameterGroup{
+		DBParameterGroupName:   name,
+		DBParameterGroupFamily: family,
+		Description:            description,
+	}
+	b.parameterGroups[name] = pg
+	cp := *pg
+
+	return &cp, nil
+}
+
+// CreateEventSubscription creates a Neptune event notification subscription.
+func (b *InMemoryBackend) CreateEventSubscription(
+	name, snsTopicARN string,
+	sourceIDs []string,
+) (*EventSubscription, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	if snsTopicARN == "" {
+		return nil, fmt.Errorf("%w: SnsTopicArn is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateEventSubscription")
+	defer b.mu.Unlock()
+	if _, exists := b.eventSubscriptions[name]; exists {
+		return nil, fmt.Errorf("%w: subscription %s already exists", ErrSubscriptionAlreadyExists, name)
+	}
+	ids := make([]string, len(sourceIDs))
+	copy(ids, sourceIDs)
+	sub := &EventSubscription{
+		CustSubscriptionID: name,
+		SnsTopicARN:        snsTopicARN,
+		Status:             "active",
+		SourceIDs:          ids,
+	}
+	b.eventSubscriptions[name] = sub
+	cp := *sub
+	cp.SourceIDs = make([]string, len(ids))
+	copy(cp.SourceIDs, ids)
+
+	return &cp, nil
+}
+
+// CreateGlobalCluster creates a Neptune global cluster.
+func (b *InMemoryBackend) CreateGlobalCluster(globalClusterID, sourceDBClusterID string) (*GlobalCluster, error) {
+	if globalClusterID == "" {
+		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateGlobalCluster")
+	defer b.mu.Unlock()
+	if _, exists := b.globalClusters[globalClusterID]; exists {
+		return nil, fmt.Errorf("%w: global cluster %s already exists", ErrGlobalClusterAlreadyExists, globalClusterID)
+	}
+	gc := &GlobalCluster{
+		GlobalClusterIdentifier: globalClusterID,
+		Status:                  "available",
+	}
+	if sourceDBClusterID != "" {
+		if cl, exists := b.clusters[sourceDBClusterID]; exists {
+			gc.GlobalClusterMembers = []GlobalClusterMember{
+				{
+					DBClusterARN: b.clusterARN(cl.DBClusterIdentifier),
+					IsWriter:     true,
+				},
+			}
+		}
+	}
+	b.globalClusters[globalClusterID] = gc
+	cp := *gc
+	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
+	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)
+
+	return &cp, nil
 }
