@@ -246,7 +246,6 @@ func (b *InMemoryBackend) CreateDBCluster(id, paramGroupName string, port int) (
 	}
 	b.clusters[id] = cluster
 	cp := *cluster
-	cp.DBClusterMembers = make([]DBClusterMember, 0)
 
 	return &cp, nil
 }
