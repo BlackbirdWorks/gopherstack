@@ -32,8 +32,8 @@ const (
 
 // Package/connection state constants.
 const (
-	pkgStateActive        = "ACTIVE"
-	connectionStatusActive = "ACTIVE"
+	pkgStateActive          = "ACTIVE"
+	connectionStatusActive  = "ACTIVE"
 	softwareUpdateCompleted = "COMPLETED"
 )
 

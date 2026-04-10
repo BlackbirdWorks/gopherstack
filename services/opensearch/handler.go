@@ -24,6 +24,10 @@ const (
 	openSearchPackagesPath    = "/2021-01-01/packages"
 	openSearchServiceSwPath   = "/2021-01-01/opensearch/serviceSoftwareUpdate"
 	openSearchApplicationPath = "/2021-01-01/opensearch/application"
+	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
+	pkgPathParts = 2
+	// opUnknown is the sentinel returned when no operation can be determined from a request.
+	opUnknown = "Unknown"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -97,55 +101,79 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
 
-	// Cross-cluster connection: PUT /2021-01-01/opensearch/cc/inboundConnection/{id}/accept
-	if strings.HasPrefix(path, openSearchCCPath) &&
+	if op := extractNonDomainOperation(path, method); op != "" {
+		return op
+	}
+
+	return extractDomainOperation(path, method)
+}
+
+// extractNonDomainOperation derives the operation name from non-domain paths.
+// Returns an empty string when the path does not match any known non-domain route.
+func extractNonDomainOperation(path, method string) string {
+	if op := extractCCOrDirectQueryOp(path, method); op != "" {
+		return op
+	}
+
+	if op := extractPackageOp(path, method); op != "" {
+		return op
+	}
+
+	return extractTagOrSoftwareOp(path, method)
+}
+
+// extractCCOrDirectQueryOp handles cross-cluster and direct-query operation extraction.
+func extractCCOrDirectQueryOp(path, method string) string {
+	switch {
+	case strings.HasPrefix(path, openSearchCCPath) &&
 		strings.Contains(path, "/inboundConnection/") && strings.HasSuffix(path, "/accept") &&
-		method == http.MethodPut {
+		method == http.MethodPut:
 		return "AcceptInboundConnection"
-	}
-
-	// Direct query data source: POST /2021-01-01/opensearch/directQueryDataSource
-	if strings.HasPrefix(path, openSearchDirectQueryPath) && method == http.MethodPost {
+	case strings.HasPrefix(path, openSearchDirectQueryPath) && method == http.MethodPost:
 		return "AddDirectQueryDataSource"
-	}
-
-	// Packages: POST /2021-01-01/packages/associate/...
-	if strings.HasPrefix(path, openSearchPackagesPath) {
-		rest := strings.TrimPrefix(path, openSearchPackagesPath)
-		if strings.HasPrefix(rest, "/associate/") && method == http.MethodPost {
-			return "AssociatePackage"
-		}
-
-		if rest == "/associateMultiple" && method == http.MethodPost {
-			return "AssociatePackages"
-		}
-	}
-
-	// Service software update: POST /2021-01-01/opensearch/serviceSoftwareUpdate/cancel
-	if strings.HasPrefix(path, openSearchServiceSwPath) && method == http.MethodPost {
+	case strings.HasPrefix(path, openSearchApplicationPath) && method == http.MethodPost:
+		return "CreateApplication"
+	case strings.HasPrefix(path, openSearchServiceSwPath) && method == http.MethodPost:
 		return "CancelServiceSoftwareUpdate"
 	}
 
-	// Application: POST /2021-01-01/opensearch/application
-	if strings.HasPrefix(path, openSearchApplicationPath) && method == http.MethodPost {
-		return "CreateApplication"
+	return ""
+}
+
+// extractPackageOp handles package route operation extraction.
+func extractPackageOp(path, method string) string {
+	after, ok := strings.CutPrefix(path, openSearchPackagesPath)
+	if !ok {
+		return ""
 	}
 
-	// Tag routes
-	if path == openSearchTagsPath {
-		if method == http.MethodGet {
-			return "ListTags"
-		}
-
-		if method == http.MethodPost {
-			return "AddTags"
-		}
+	if strings.HasPrefix(after, "/associate/") && method == http.MethodPost {
+		return "AssociatePackage"
 	}
 
-	if path == openSearchTagsRemoval && method == http.MethodPost {
+	if after == "/associateMultiple" && method == http.MethodPost {
+		return "AssociatePackages"
+	}
+
+	return ""
+}
+
+// extractTagOrSoftwareOp handles tag and service-software route operation extraction.
+func extractTagOrSoftwareOp(path, method string) string {
+	switch {
+	case path == openSearchTagsPath && method == http.MethodGet:
+		return "ListTags"
+	case path == openSearchTagsPath && method == http.MethodPost:
+		return "AddTags"
+	case path == openSearchTagsRemoval && method == http.MethodPost:
 		return "RemoveTags"
 	}
 
+	return ""
+}
+
+// extractDomainOperation derives the operation name from domain-prefix paths.
+func extractDomainOperation(path, method string) string {
 	rest := strings.TrimPrefix(path, openSearchPathPrefix)
 
 	switch {
@@ -158,25 +186,32 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 			return "ListDomainNames"
 		}
 
-		return "Unknown"
+		return opUnknown
 	case strings.HasPrefix(rest, "/") && method == http.MethodGet:
 		return "DescribeDomain"
 	case strings.HasPrefix(rest, "/") && method == http.MethodDelete:
 		return "DeleteDomain"
 	case strings.HasPrefix(rest, "/") && method == http.MethodPost:
-		// Domain sub-routes
-		trimmed := strings.TrimPrefix(rest, "/")
-		switch {
-		case strings.HasSuffix(trimmed, "/dataSource"):
-			return "AddDataSource"
-		case strings.HasSuffix(trimmed, "/authorizeVpcEndpointAccess"):
-			return "AuthorizeVpcEndpointAccess"
-		case strings.HasSuffix(trimmed, "/config/cancel"):
-			return "CancelDomainConfigChange"
-		}
+		return extractDomainSubOperation(rest)
 	}
 
-	return "Unknown"
+	return opUnknown
+}
+
+// extractDomainSubOperation derives the operation from a domain POST sub-route.
+func extractDomainSubOperation(rest string) string {
+	trimmed := strings.TrimPrefix(rest, "/")
+
+	switch {
+	case strings.HasSuffix(trimmed, "/dataSource"):
+		return "AddDataSource"
+	case strings.HasSuffix(trimmed, "/authorizeVpcEndpointAccess"):
+		return "AuthorizeVpcEndpointAccess"
+	case strings.HasSuffix(trimmed, "/config/cancel"):
+		return "CancelDomainConfigChange"
+	}
+
+	return opUnknown
 }
 
 // ExtractResource returns the primary resource identifier from the request path.
@@ -186,6 +221,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	// Cross-cluster: extract connection ID
 	if strings.HasPrefix(path, openSearchCCPath) {
 		rest := strings.TrimPrefix(path, openSearchCCPath+"/inboundConnection/")
+
 		return strings.TrimSuffix(rest, "/accept")
 	}
 
@@ -197,7 +233,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	// Packages: extract package ID
 	if strings.HasPrefix(path, openSearchPackagesPath) {
 		rest := strings.TrimPrefix(path, openSearchPackagesPath+"/associate/")
-		parts := strings.SplitN(rest, "/", 2) //nolint:mnd // 2 parts: packageID/domainName
+		parts := strings.SplitN(rest, "/", pkgPathParts)
 		if len(parts) > 0 {
 			return parts[0]
 		}
@@ -217,8 +253,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	// Extract domain name (first segment)
-	if idx := strings.Index(rest, "/"); idx != -1 {
-		return rest[:idx]
+	if before, _, ok := strings.Cut(rest, "/"); ok {
+		return before
 	}
 
 	return strings.TrimSuffix(rest, "/")
@@ -740,7 +776,6 @@ func (h *Handler) handlePackageRoutes(w http.ResponseWriter, r *http.Request) {
 	switch {
 	// POST /2021-01-01/packages/associate/{PackageID}/{DomainName}
 	case strings.HasPrefix(rest, "/associate/") && r.Method == http.MethodPost:
-		const pkgPathParts = 2
 		parts := strings.SplitN(strings.TrimPrefix(rest, "/associate/"), "/", pkgPathParts)
 		if len(parts) != pkgPathParts {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid associate package path")

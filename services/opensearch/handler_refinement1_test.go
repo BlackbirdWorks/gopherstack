@@ -254,10 +254,10 @@ func TestRefinement1_ExtractOperation_NewRoutes(t *testing.T) {
 	h := newTestHandler()
 
 	tests := []struct {
-		name      string
-		method    string
-		path      string
-		wantOp    string
+		name   string
+		method string
+		path   string
+		wantOp string
 	}{
 		{
 			name:   "accept_inbound_connection",

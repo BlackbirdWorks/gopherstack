@@ -4236,7 +4236,12 @@ func wireOpenSearchDNS(osReg service.Registerable, dns opensearchbackend.DNSRegi
 		return
 	}
 
-	osH.Backend.SetDNSRegistrar(dns)
+	bk, ok := osH.Backend.(*opensearchbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	bk.SetDNSRegistrar(dns)
 }
 
 // wireElasticsearchDNS sets the DNS registrar on the Elasticsearch backend so that domain
