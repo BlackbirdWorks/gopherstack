@@ -1053,9 +1053,11 @@ func doMQRequest(t *testing.T, h *mq.Handler, method, path string, body any) *ht
 	e := echo.New()
 
 	var reqBody *bytes.Reader
+
 	if body != nil {
 		b, err := json.Marshal(body)
 		require.NoError(t, err)
+
 		reqBody = bytes.NewReader(b)
 	} else {
 		reqBody = bytes.NewReader(nil)
@@ -1234,7 +1236,8 @@ func TestMQ_DescribeBrokerInstanceOptions(t *testing.T) {
 
 			h := newTestHandler(t)
 			path := "/v1/broker-instance-options"
-			params := []string{}
+
+			var params []string
 
 			if tt.engineType != "" {
 				params = append(params, "engineType="+tt.engineType)

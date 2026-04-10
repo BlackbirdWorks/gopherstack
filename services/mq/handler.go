@@ -3,9 +3,9 @@ package mq
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -868,11 +868,12 @@ func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configID str
 }
 
 func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, configID, revisionStr string) error {
-	var revision int32
-
-	if _, err := fmt.Sscanf(revisionStr, "%d", &revision); err != nil {
+	parsed, err := strconv.ParseInt(revisionStr, 10, 32)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid revision number"))
 	}
+
+	revision := int32(parsed)
 
 	rev, data, err := h.Backend.DescribeConfigurationRevision(configID, revision)
 	if err != nil {
