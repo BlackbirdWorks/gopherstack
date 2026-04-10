@@ -1,6 +1,7 @@
 package lakeformation
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -17,8 +18,13 @@ const (
 	transactionStatusAborted   = "ABORTED"
 )
 
+// ErrValidation is returned when input validation fails.
+var ErrValidation = errors.New("validation error")
+
 // StorageBackend is the interface for Lake Formation backend operations.
 type StorageBackend interface {
+	Reset()
+
 	GetDataLakeSettings() *DataLakeSettings
 	PutDataLakeSettings(settings *DataLakeSettings)
 
@@ -109,6 +115,92 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// Reset restores the backend to a clean initial state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.dataLakeSettings = &DataLakeSettings{}
+	b.resources = make(map[string]*ResourceInfo)
+	b.permissions = make([]*PermissionEntry, 0)
+	b.lfTags = make(map[lfTagKey]*LFTag)
+	b.transactions = make(map[string]string)
+	b.dataCellsFilters = make(map[dataCellsFilterKey]*DataCellsFilter)
+	b.lfTagExpressions = make(map[lfTagExpressionKey]*LFTagExpression)
+	b.identityCenterConfigs = make(map[string]*IdentityCenterConfiguration)
+	b.lakeFormationOptIns = make([]*LFOptIn, 0)
+	b.resourceLFTags = make(map[string][]LFTagPair)
+}
+
+// AddLFTagInternal seeds an LF-tag directly for testing.
+func (b *InMemoryBackend) AddLFTagInternal(catalogID, tagKey string, tagValues []string) {
+	b.mu.Lock("AddLFTagInternal")
+	defer b.mu.Unlock()
+
+	vals := make([]string, len(tagValues))
+	copy(vals, tagValues)
+
+	b.lfTags[lfTagKey{CatalogID: catalogID, TagKey: tagKey}] = &LFTag{
+		CatalogID: catalogID,
+		TagKey:    tagKey,
+		TagValues: vals,
+	}
+}
+
+// AddResourceInternal seeds a registered resource directly for testing.
+func (b *InMemoryBackend) AddResourceInternal(resourceArn, roleArn string) {
+	b.mu.Lock("AddResourceInternal")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	b.resources[resourceArn] = &ResourceInfo{
+		ResourceArn:  resourceArn,
+		RoleArn:      roleArn,
+		LastModified: &now,
+	}
+}
+
+// AddPermissionInternal seeds a permission entry directly for testing.
+func (b *InMemoryBackend) AddPermissionInternal(entry *PermissionEntry) {
+	b.mu.Lock("AddPermissionInternal")
+	defer b.mu.Unlock()
+
+	b.permissions = append(b.permissions, entry)
+}
+
+// AddDataCellsFilterInternal seeds a DataCellsFilter directly for testing.
+func (b *InMemoryBackend) AddDataCellsFilterInternal(filter *DataCellsFilter) {
+	b.mu.Lock("AddDataCellsFilterInternal")
+	defer b.mu.Unlock()
+
+	k := dataCellsFilterKey{
+		TableCatalogID: filter.TableCatalogID,
+		DatabaseName:   filter.DatabaseName,
+		TableName:      filter.TableName,
+		Name:           filter.Name,
+	}
+
+	cp := *filter
+	b.dataCellsFilters[k] = &cp
+}
+
+// AddLFTagExpressionInternal seeds an LFTagExpression directly for testing.
+func (b *InMemoryBackend) AddLFTagExpressionInternal(expr *LFTagExpression) {
+	b.mu.Lock("AddLFTagExpressionInternal")
+	defer b.mu.Unlock()
+
+	k := lfTagExpressionKey{CatalogID: expr.CatalogID, Name: expr.Name}
+
+	cp := *expr
+
+	if expr.Expression != nil {
+		cp.Expression = make([]LFTag, len(expr.Expression))
+		copy(cp.Expression, expr.Expression)
+	}
+
+	b.lfTagExpressions[k] = &cp
+}
+
 // GetDataLakeSettings returns the current data lake settings.
 func (b *InMemoryBackend) GetDataLakeSettings() *DataLakeSettings {
 	b.mu.RLock("GetDataLakeSettings")
@@ -131,6 +223,10 @@ func (b *InMemoryBackend) PutDataLakeSettings(settings *DataLakeSettings) {
 
 // RegisterResource registers an S3 location as a data lake resource.
 func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("ResourceArn is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("RegisterResource")
 	defer b.mu.Unlock()
 
@@ -153,6 +249,10 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 
 // DeregisterResource removes a registered data lake resource and its associated permissions.
 func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
+	if resourceArn == "" {
+		return fmt.Errorf("ResourceArn is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("DeregisterResource")
 	defer b.mu.Unlock()
 
@@ -179,6 +279,10 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 
 // DescribeResource returns information about a registered resource.
 func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, error) {
+	if resourceArn == "" {
+		return nil, fmt.Errorf("ResourceArn is required: %w", ErrValidation)
+	}
+
 	b.mu.RLock("DescribeResource")
 	defer b.mu.RUnlock()
 
@@ -190,7 +294,9 @@ func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, e
 		)
 	}
 
-	return info, nil
+	cp := *info
+
+	return &cp, nil
 }
 
 const defaultMaxResults = 100
@@ -202,7 +308,8 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 
 	all := make([]*ResourceInfo, 0, len(b.resources))
 	for _, v := range b.resources {
-		all = append(all, v)
+		cp := *v
+		all = append(all, &cp)
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -214,6 +321,18 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 
 // GrantPermissions adds a permission entry.
 func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
+	if entry == nil {
+		return fmt.Errorf("entry is required: %w", ErrValidation)
+	}
+
+	if entry.Principal == nil {
+		return fmt.Errorf("principal is required: %w", ErrValidation)
+	}
+
+	if entry.Resource == nil {
+		return fmt.Errorf("resource is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("GrantPermissions")
 	defer b.mu.Unlock()
 
@@ -249,11 +368,12 @@ func (b *InMemoryBackend) ListPermissions(
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
-	var filtered []*PermissionEntry
+	filtered := make([]*PermissionEntry, 0)
 
 	for _, p := range b.permissions {
 		if resourceArn == "" || permissionMatchesARN(p, resourceArn) {
-			filtered = append(filtered, p)
+			cp := *p
+			filtered = append(filtered, &cp)
 		}
 	}
 
@@ -262,6 +382,14 @@ func (b *InMemoryBackend) ListPermissions(
 
 // CreateLFTag creates a new LF tag with the given values.
 func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []string) error {
+	if tagKey == "" {
+		return fmt.Errorf("TagKey is required: %w", ErrValidation)
+	}
+
+	if len(tagValues) == 0 {
+		return fmt.Errorf("TagValues must not be empty: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateLFTag")
 	defer b.mu.Unlock()
 
@@ -288,6 +416,10 @@ func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []stri
 
 // DeleteLFTag removes a LF tag.
 func (b *InMemoryBackend) DeleteLFTag(catalogID, tagKey string) error {
+	if tagKey == "" {
+		return fmt.Errorf("TagKey is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteLFTag")
 	defer b.mu.Unlock()
 
@@ -307,6 +439,10 @@ func (b *InMemoryBackend) DeleteLFTag(catalogID, tagKey string) error {
 
 // GetLFTag returns the LF tag for the given catalog and key.
 func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
+	if tagKey == "" {
+		return nil, fmt.Errorf("TagKey is required: %w", ErrValidation)
+	}
+
 	b.mu.RLock("GetLFTag")
 	defer b.mu.RUnlock()
 
@@ -325,6 +461,10 @@ func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
 
 // UpdateLFTag adds and removes values from an existing LF tag.
 func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, tagValuesToDelete []string) error {
+	if tagKey == "" {
+		return fmt.Errorf("TagKey is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("UpdateLFTag")
 	defer b.mu.Unlock()
 
@@ -360,11 +500,11 @@ func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken
 	b.mu.RLock("ListLFTags")
 	defer b.mu.RUnlock()
 
-	var all []*LFTag
+	all := make([]*LFTag, 0)
 
 	for k, t := range b.lfTags {
 		if catalogID == "" || k.CatalogID == catalogID {
-			all = append(all, t)
+			all = append(all, copyLFTag(t))
 		}
 	}
 
@@ -592,12 +732,15 @@ func copyLFTag(t *LFTag) *LFTag {
 }
 
 // AddLFTagsToResource attaches LF-tags to the specified resource.
-// All tag attachments are stored in memory; failures are returned for any tag not found.
+// Valid tags are always stored; failures are returned for any tag not found.
+// This mirrors AWS behavior where valid tags are applied even if some fail.
 func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError {
 	b.mu.Lock("AddLFTagsToResource")
 	defer b.mu.Unlock()
 
-	var failures []LFTagError
+	failures := make([]LFTagError, 0)
+	resourceKey := resourceToKey(resource)
+	existing := b.resourceLFTags[resourceKey]
 
 	for _, pair := range lfTags {
 		k := lfTagKey{CatalogID: catalogID, TagKey: pair.TagKey}
@@ -612,31 +755,25 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 
 			continue
 		}
-	}
 
-	if len(failures) == 0 {
-		resourceKey := resourceToKey(resource)
-		existing := b.resourceLFTags[resourceKey]
+		// Store the valid tag association.
+		found := false
 
-		for _, pair := range lfTags {
-			found := false
+		for i, ex := range existing {
+			if ex.TagKey == pair.TagKey {
+				existing[i] = pair
+				found = true
 
-			for i, ex := range existing {
-				if ex.TagKey == pair.TagKey {
-					existing[i] = pair
-					found = true
-
-					break
-				}
-			}
-
-			if !found {
-				existing = append(existing, pair)
+				break
 			}
 		}
 
-		b.resourceLFTags[resourceKey] = existing
+		if !found {
+			existing = append(existing, pair)
+		}
 	}
+
+	b.resourceLFTags[resourceKey] = existing
 
 	return failures
 }

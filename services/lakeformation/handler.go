@@ -58,13 +58,22 @@ func isLakeFormationPath(path string) bool {
 // Handler is the HTTP handler for the Lake Formation REST API.
 type Handler struct {
 	Backend       StorageBackend
+	ops           map[string]func(context.Context, *echo.Context, []byte) error
 	AccountID     string
 	DefaultRegion string
 }
 
 // NewHandler creates a new Lake Formation handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset resets the backend to a clean state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -164,10 +173,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
-	type dispatchFn func(context.Context, *echo.Context, []byte) error
-
-	table := map[string]dispatchFn{
+func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []byte) error {
+	return map[string]func(context.Context, *echo.Context, []byte) error{
 		"GetDataLakeSettings":    h.handleGetDataLakeSettings,
 		"PutDataLakeSettings":    h.handlePutDataLakeSettings,
 		"RegisterResource":       h.handleRegisterResource,
@@ -196,8 +203,10 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body
 		"DeleteDataCellsFilter":                          h.handleDeleteDataCellsFilter,
 		"DeleteLFTagExpression":                          h.handleDeleteLFTagExpression,
 	}
+}
 
-	fn, ok := table[op]
+func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
+	fn, ok := h.ops[op]
 	if !ok {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "unknown operation: "+op)
 	}
@@ -207,6 +216,8 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrValidation):
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "EntityNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
