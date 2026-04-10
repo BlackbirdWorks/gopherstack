@@ -354,7 +354,17 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "DescribeDomain")
 	assert.Contains(t, ops, "DeleteDomain")
 	assert.Contains(t, ops, "ListDomainNames")
-	assert.Len(t, ops, 4)
+	assert.Contains(t, ops, "AcceptInboundConnection")
+	assert.Contains(t, ops, "AddDataSource")
+	assert.Contains(t, ops, "AddDirectQueryDataSource")
+	assert.Contains(t, ops, "AddTags")
+	assert.Contains(t, ops, "AssociatePackage")
+	assert.Contains(t, ops, "AssociatePackages")
+	assert.Contains(t, ops, "AuthorizeVpcEndpointAccess")
+	assert.Contains(t, ops, "CancelDomainConfigChange")
+	assert.Contains(t, ops, "CancelServiceSoftwareUpdate")
+	assert.Contains(t, ops, "CreateApplication")
+	assert.Len(t, ops, 14)
 }
 
 func newEchoContext(method, path string, body string) *echo.Context {
@@ -674,4 +684,962 @@ func TestOpenSearchBackend_DNSRegistrar(t *testing.T) {
 			assert.Equal(t, tt.wantRegistered, registrar.registered[domain.Endpoint])
 		})
 	}
+}
+
+func TestOpenSearchHandler_AcceptInboundConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		connectionID string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "success",
+			connectionID: "conn-123",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"conn-123", "ACTIVE"},
+		},
+		{
+			name:         "empty_id",
+			connectionID: "",
+			wantCode:     http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			path := "/2021-01-01/opensearch/cc/inboundConnection/" + tt.connectionID + "/accept"
+			resp := doRequest(t, h, http.MethodPut, path, nil)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_AddDataSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		domainName   string
+		dsName       string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			dsName:     "my-datasource",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Message"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			dsName:     "ds",
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "duplicate_datasource",
+			domainName: "dup-domain",
+			dsName:     "dup-ds",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "dup-domain"})
+				r.Body.Close()
+				r2 := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/dup-domain/dataSource",
+					map[string]any{"Name": "dup-ds", "DataSourceType": map[string]any{}})
+				r2.Body.Close()
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:       "invalid_json",
+			domainName: "my-domain",
+			dsName:     "",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var body any
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/2021-01-01/opensearch/domain/my-domain/dataSource",
+					strings.NewReader("bad-json"),
+				)
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				resp := rw.Result()
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+				return
+			}
+
+			if tt.dsName != "" {
+				body = map[string]any{
+					"Name":           tt.dsName,
+					"DataSourceType": map[string]any{},
+				}
+			}
+
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/"+tt.domainName+"/dataSource", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_AddDirectQueryDataSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		dsName       string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "success",
+			dsName:       "my-dq-source",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DataSourceArn"},
+		},
+		{
+			name:     "no_name",
+			dsName:   "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "duplicate",
+			dsName:   "dup-source",
+			wantCode: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.name == "duplicate" {
+				r := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2021-01-01/opensearch/directQueryDataSource",
+					map[string]any{
+						"DataSourceName": "dup-source",
+						"DataSourceType": map[string]any{},
+						"OpenSearchArns": []string{},
+					},
+				)
+				r.Body.Close()
+			}
+
+			body := map[string]any{
+				"DataSourceName": tt.dsName,
+				"DataSourceType": map[string]any{},
+				"OpenSearchArns": []string{"arn:aws:opensearch:us-east-1:123456789012:domain/test"},
+			}
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/directQueryDataSource", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_AssociatePackage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		packageID    string
+		domainName   string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			packageID:  "pkg-001",
+			domainName: "my-domain",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"pkg-001", "my-domain", "ACTIVE"},
+		},
+		{
+			name:       "domain_not_found",
+			packageID:  "pkg-002",
+			domainName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			path := "/2021-01-01/packages/associate/" + tt.packageID + "/" + tt.domainName
+			resp := doRequest(t, h, http.MethodPost, path, nil)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_AssociatePackages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		domainName   string
+		packageIDs   []string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			packageIDs: []string{"pkg-001", "pkg-002"},
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DomainPackageDetailsList", "pkg-001"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			packageIDs: []string{"pkg-001"},
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "invalid_json",
+			domainName: "",
+			packageIDs: nil,
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/2021-01-01/packages/associateMultiple",
+					strings.NewReader("bad-json"),
+				)
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				resp := rw.Result()
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+				return
+			}
+
+			pkgList := make([]map[string]string, 0, len(tt.packageIDs))
+			for _, id := range tt.packageIDs {
+				pkgList = append(pkgList, map[string]string{"PackageID": id})
+			}
+
+			body := map[string]any{
+				"DomainName":  tt.domainName,
+				"PackageList": pkgList,
+			}
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/packages/associateMultiple", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_AuthorizeVpcEndpointAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		domainName   string
+		account      string
+		service      string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success_account",
+			domainName: "vpc-domain",
+			account:    "111122223333",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "vpc-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"111122223333", "AWS_ACCOUNT"},
+		},
+		{
+			name:       "success_service",
+			domainName: "svc-domain",
+			service:    "delivery.logs.amazonaws.com",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "svc-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"delivery.logs.amazonaws.com", "AWS_SERVICE"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			account:    "111122223333",
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "invalid_json",
+			domainName: "any-domain",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			path := "/2021-01-01/opensearch/domain/" + tt.domainName + "/authorizeVpcEndpointAccess"
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("bad-json"))
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				resp := rw.Result()
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+				return
+			}
+
+			body := map[string]any{
+				"Account": tt.account,
+				"Service": tt.service,
+			}
+			resp := doRequest(t, h, http.MethodPost, path, body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_CancelDomainConfigChange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		domainName   string
+		wantContains []string
+		wantCode     int
+		dryRun       bool
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CancelledChangeIds"},
+		},
+		{
+			name:       "dry_run",
+			domainName: "dr-domain",
+			dryRun:     true,
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "dr-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"true"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{"DryRun": tt.dryRun}
+			path := "/2021-01-01/opensearch/domain/" + tt.domainName + "/config/cancel"
+			resp := doRequest(t, h, http.MethodPost, path, body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_CancelServiceSoftwareUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		domainName   string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "success",
+			domainName: "my-domain",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ServiceSoftwareOptions", "COMPLETED"},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "invalid_json",
+			domainName: "",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/2021-01-01/opensearch/serviceSoftwareUpdate/cancel",
+					strings.NewReader("bad-json"),
+				)
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				resp := rw.Result()
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+				return
+			}
+
+			body := map[string]any{"DomainName": tt.domainName}
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/serviceSoftwareUpdate/cancel", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_CreateApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		appName      string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "success",
+			appName:      "my-app",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"my-app", "Id", "Arn"},
+		},
+		{
+			name:     "no_name",
+			appName:  "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "duplicate",
+			appName:  "dup-app",
+			wantCode: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.name == "duplicate" {
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/application",
+					map[string]any{"Name": "dup-app"})
+				r.Body.Close()
+			}
+
+			body := map[string]any{"Name": tt.appName}
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/application", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_NewOps_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		path      string
+		method    string
+		wantMatch bool
+	}{
+		{
+			name:      "cc_inbound_connection",
+			path:      "/2021-01-01/opensearch/cc/inboundConnection/conn-1/accept",
+			method:    http.MethodPut,
+			wantMatch: true,
+		},
+		{
+			name:      "direct_query_datasource",
+			path:      "/2021-01-01/opensearch/directQueryDataSource",
+			method:    http.MethodPost,
+			wantMatch: true,
+		},
+		{
+			name:      "packages_associate",
+			path:      "/2021-01-01/packages/associate/pkg-1/domain-1",
+			method:    http.MethodPost,
+			wantMatch: true,
+		},
+		{
+			name:      "packages_associate_multiple",
+			path:      "/2021-01-01/packages/associateMultiple",
+			method:    http.MethodPost,
+			wantMatch: true,
+		},
+		{
+			name:      "service_software_cancel",
+			path:      "/2021-01-01/opensearch/serviceSoftwareUpdate/cancel",
+			method:    http.MethodPost,
+			wantMatch: true,
+		},
+		{
+			name:      "application",
+			path:      "/2021-01-01/opensearch/application",
+			method:    http.MethodPost,
+			wantMatch: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			c := newEchoContext(tt.method, tt.path, "")
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
+
+func TestOpenSearchHandler_NewOps_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		method       string
+		path         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:     "package_route_not_found",
+			method:   http.MethodGet,
+			path:     "/2021-01-01/packages/unknown",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "service_software_route_not_found",
+			method:   http.MethodGet,
+			path:     "/2021-01-01/opensearch/serviceSoftwareUpdate/other",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "application_route_not_found",
+			method:   http.MethodGet,
+			path:     "/2021-01-01/opensearch/application/some-id",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "cc_route_not_found",
+			method:   http.MethodGet,
+			path:     "/2021-01-01/opensearch/cc/unknown",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "direct_query_route_not_found",
+			method:   http.MethodGet,
+			path:     "/2021-01-01/opensearch/directQueryDataSource",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "cancel_domain_config_change_invalid_json",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/opensearch/domain/my-domain/config/cancel",
+			body:     "not-json",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "domain_subroute_not_found",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/opensearch/domain/my-domain/unknownSuffix",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "create_application_invalid_json",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/opensearch/application",
+			body:     "not-json",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "add_direct_query_invalid_json",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/opensearch/directQueryDataSource",
+			body:     "not-json",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "authorize_vpc_access_invalid_body",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/opensearch/domain/vpc-domain/authorizeVpcEndpointAccess",
+			body:     "not-json",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "associate_packages_invalid_pkg_path",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/packages/associate/only-one-segment",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "add_datasource_invalid_json",
+			method:   http.MethodPost,
+			path:     "/2021-01-01/opensearch/domain/my-domain/dataSource",
+			body:     "not-json",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var reader io.Reader
+			if tt.body != "" {
+				reader = strings.NewReader(tt.body)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, reader)
+			if tt.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+
+			rw := httptest.NewRecorder()
+			h.ServeHTTP(rw, req)
+			resp := rw.Result()
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	// Set up state with new ops
+	_, err := b.CreateDomain("snap-domain", "OpenSearch_2.11", opensearch.ClusterConfig{})
+	require.NoError(t, err)
+
+	_, err = b.AcceptInboundConnection("conn-abc")
+	require.NoError(t, err)
+
+	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", "S3GLUE")
+	require.NoError(t, err)
+
+	_, err = b.AddDirectQueryDataSource("my-dq", "desc", "CloudWatchLogs", []string{})
+	require.NoError(t, err)
+
+	_, err = b.AssociatePackage("pkg-001", "snap-domain")
+	require.NoError(t, err)
+
+	_, err = b.AuthorizeVpcEndpointAccess("snap-domain", "111122223333", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateApplication("my-app", nil, nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(snap))
+
+	// Verify domain persists
+	domain, err := fresh.DescribeDomain("snap-domain")
+	require.NoError(t, err)
+	assert.Equal(t, "snap-domain", domain.Name)
+
+	// Verify inbound connection persists
+	conn, err := fresh.AcceptInboundConnection("conn-abc")
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", conn.Status)
+
+	// Verify application persists
+	app, err := fresh.CreateApplication("another-app", nil, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, app.ID)
+}
+
+func TestOpenSearchHandler_CreateApplication_WithConfigs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	body := map[string]any{
+		"Name": "configured-app",
+		"AppConfigs": []map[string]string{
+			{"Key": "opensearchDashboards.enabled", "Value": "true"},
+		},
+		"DataSources": []map[string]string{
+			{"DataSourceArn": "arn:aws:opensearch:us-east-1:123456789012:domain/test"},
+		},
+	}
+
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/application", body)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(bodyBytes), "configured-app")
+	assert.Contains(t, string(bodyBytes), "opensearchDashboards.enabled")
+}
+
+func TestOpenSearchBackend_AddTags_DomainNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/tags", map[string]any{
+		"ARN":     "arn:aws:es:us-east-1:123456789012:domain/nonexistent",
+		"TagList": []map[string]string{{"Key": "k", "Value": "v"}},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestOpenSearchBackend_RemoveTags_DomainNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/tags-removal", map[string]any{
+		"ARN":     "arn:aws:es:us-east-1:123456789012:domain/nonexistent",
+		"TagKeys": []string{"env"},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestOpenSearchBackend_AddDataSource_MissingName(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := b.CreateDomain("my-domain", "", opensearch.ClusterConfig{})
+	require.NoError(t, err)
+
+	_, err = b.AddDataSource("my-domain", "", "desc", "S3GLUE")
+	require.Error(t, err)
 }
