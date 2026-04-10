@@ -2,6 +2,8 @@ package lambda
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +37,18 @@ const lambda2019PathPrefix = "/2019-09-30/functions"
 // lambda2020PathPrefix is the path prefix for Lambda REST API v2 endpoints (e.g. code signing configs).
 const lambda2020PathPrefix = "/2020-06-30/functions"
 
+// lambda2021PathPrefix is the path prefix for Lambda function URL config endpoints (SDK "Url" casing).
+const lambda2021PathPrefix = "/2021-10-31/functions"
+
+// lambda2021RuntimeMgmtPathPrefix is the path prefix for runtime management config endpoints.
+const lambda2021RuntimeMgmtPathPrefix = "/2021-07-20/functions"
+
+// lambda2024RecursionPathPrefix is the path prefix for function recursion config endpoints.
+const lambda2024RecursionPathPrefix = "/2024-08-28/functions"
+
+// lambda2023ScalingPathPrefix is the path prefix for function scaling config endpoints.
+const lambda2023ScalingPathPrefix = "/2023-10-26/functions"
+
 // lambdaFunctionPrefixes holds all the date-versioned /functions path prefixes that
 // Gopherstack normalises to lambdaPathPrefix for route matching.
 //
@@ -56,11 +70,24 @@ const lambdaTagsPathPrefix = "/2015-03-31/tags"
 // The Lambda Layers API uses the 2018-10-31 date version.
 const lambdaLayersPathPrefix = "/2018-10-31/layers"
 
+// lambdaCodeSigningPathPrefix is the path prefix for Lambda code signing config endpoints.
+const lambdaCodeSigningPathPrefix = "/2020-04-22/code-signing-configs"
+
+// lambdaCapacityPathPrefix is the path prefix for Lambda capacity provider endpoints.
+const lambdaCapacityPathPrefix = "/2025-11-30/capacity-providers"
+
+// lambdaDurableExecPathPrefix is the path prefix for Lambda durable execution endpoints.
+const lambdaDurableExecPathPrefix = "/2025-12-01/durable-executions"
+
+// lambdaAccountSettingsPath is the exact path for the GetAccountSettings endpoint.
+const lambdaAccountSettingsPath = "/2016-08-19/account-settings"
+
+// lambdaLayersByArnPath is the path prefix for GetLayerVersionByArn (query-param based).
+const lambdaLayersByArnPath = "/2018-10-31/layers-by-arn"
+
 type lambdaTagsInput struct {
 	Tags *tags.Tags `json:"Tags"`
 }
-
-type lambdaEmptyOutput struct{}
 
 type getTagsOutput struct {
 	Tags map[string]string `json:"Tags"`
@@ -86,11 +113,15 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodGet, isNameOnly, "GetFunction"},
 	{http.MethodDelete, isNameOnly, "DeleteFunction"},
 	{http.MethodPut, hasSuffixCode, "UpdateFunctionCode"},
+	{http.MethodGet, hasSuffixConfiguration, "GetFunctionConfiguration"},
 	{http.MethodPut, hasSuffixConfiguration, "UpdateFunctionConfiguration"},
 	{http.MethodPost, hasSuffixInvocations, "InvokeFunction"},
 	{http.MethodPost, hasSuffixURL, "CreateFunctionURLConfig"},
 	{http.MethodGet, hasSuffixURL, "GetFunctionURLConfig"},
 	{http.MethodDelete, hasSuffixURL, "DeleteFunctionURLConfig"},
+	{http.MethodPost, hasSuffixPolicy, "AddPermission"},
+	{http.MethodGet, hasSuffixPolicy, "GetPolicy"},
+	{http.MethodDelete, hasSuffixPolicy, "RemovePermission"},
 	{http.MethodPut, hasSuffixEventInvokeConfig, "PutFunctionEventInvokeConfig"},
 	{http.MethodGet, hasSuffixEventInvokeConfig, "GetFunctionEventInvokeConfig"},
 	{http.MethodPost, hasSuffixEventInvokeConfig, "UpdateFunctionEventInvokeConfig"},
@@ -102,6 +133,9 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPut, hasSuffixProvisionedConcurrency, "PutProvisionedConcurrencyConfig"},
 	{http.MethodGet, hasSuffixProvisionedConcurrency, "ListProvisionedConcurrencyConfigs"},
 	{http.MethodDelete, hasSuffixProvisionedConcurrency, "DeleteProvisionedConcurrencyConfig"},
+	{http.MethodGet, hasSuffixCodeSigningConfig, "GetFunctionCodeSigningConfig"},
+	{http.MethodPut, hasSuffixCodeSigningConfig, "PutFunctionCodeSigningConfig"},
+	{http.MethodDelete, hasSuffixCodeSigningConfig, "DeleteFunctionCodeSigningConfig"},
 }
 
 func isEmptyRest(rest string) bool            { return rest == "" }
@@ -122,6 +156,7 @@ func hasSuffixEventInvokeConfigs(rest string) bool {
 func hasSuffixCodeSigningConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/code-signing-config")
 }
+func hasSuffixPolicy(rest string) bool   { return strings.HasSuffix(rest, "/policy") }
 func hasSuffixVersions(rest string) bool { return strings.HasSuffix(rest, "/versions") }
 func hasSuffixAliasPath(rest string) bool {
 	trimmed := strings.TrimPrefix(rest, "/")
@@ -205,50 +240,80 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // GetSupportedOperations returns the list of supported Lambda operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AddPermission",
+		"CheckpointDurableExecution",
+		"CreateCapacityProvider",
+		"CreateCodeSigningConfig",
 		"CreateFunction",
-		"GetFunction",
-		"ListFunctions",
-		"DeleteFunction",
-		"UpdateFunctionCode",
-		"UpdateFunctionConfiguration",
-		"InvokeFunction",
+		"CreateFunctionUrlConfig",
 		"CreateEventSourceMapping",
-		"GetEventSourceMapping",
-		"ListEventSourceMappings",
-		"DeleteEventSourceMapping",
-		"CreateFunctionURLConfig",
-		"GetFunctionURLConfig",
-		"DeleteFunctionURLConfig",
-		"PublishVersion",
-		"ListVersionsByFunction",
 		"CreateAlias",
-		"GetAlias",
-		"ListAliases",
-		"UpdateAlias",
 		"DeleteAlias",
+		"DeleteCapacityProvider",
+		"DeleteCodeSigningConfig",
+		"DeleteFunction",
+		"DeleteFunctionCodeSigningConfig",
+		"DeleteFunctionConcurrency",
+		"DeleteFunctionEventInvokeConfig",
+		"DeleteFunctionUrlConfig",
+		"DeleteEventSourceMapping",
+		"DeleteLayerVersion",
+		"DeleteProvisionedConcurrencyConfig",
+		"GetAccountSettings",
+		"GetAlias",
+		"GetCapacityProvider",
+		"GetCodeSigningConfig",
+		"GetEventSourceMapping",
+		"GetFunction",
+		"GetFunctionCodeSigningConfig",
+		"GetFunctionConcurrency",
+		"GetFunctionConfiguration",
+		"GetFunctionEventInvokeConfig",
+		"GetFunctionRecursionConfig",
+		"GetFunctionScalingConfig",
+		"GetFunctionUrlConfig",
+		"GetLayerVersion",
+		"GetLayerVersionByArn",
+		"GetLayerVersionPolicy",
+		"GetPolicy",
+		"GetProvisionedConcurrencyConfig",
+		"GetRuntimeManagementConfig",
+		"InvokeFunction",
+		"ListAliases",
+		"ListCapacityProviders",
+		"ListCodeSigningConfigs",
+		"ListEventSourceMappings",
+		"ListFunctionEventInvokeConfigs",
+		"ListFunctions",
+		"ListFunctionsByCodeSigningConfig",
+		"ListFunctionUrlConfigs",
+		"ListLayerVersions",
+		"ListLayers",
+		"ListProvisionedConcurrencyConfigs",
 		"ListTags",
+		"ListVersionsByFunction",
+		"AddLayerVersionPermission",
+		"PublishLayerVersion",
+		"PublishVersion",
+		"PutFunctionCodeSigningConfig",
+		"PutFunctionConcurrency",
+		"PutFunctionEventInvokeConfig",
+		"PutFunctionRecursionConfig",
+		"PutFunctionScalingConfig",
+		"PutProvisionedConcurrencyConfig",
+		"PutRuntimeManagementConfig",
+		"RemoveLayerVersionPermission",
+		"RemovePermission",
 		"TagResource",
 		"UntagResource",
-		"PublishLayerVersion",
-		"GetLayerVersion",
-		"ListLayers",
-		"ListLayerVersions",
-		"DeleteLayerVersion",
-		"GetLayerVersionPolicy",
-		"AddLayerVersionPermission",
-		"RemoveLayerVersionPermission",
-		"PutFunctionEventInvokeConfig",
-		"GetFunctionEventInvokeConfig",
+		"UpdateAlias",
+		"UpdateCapacityProvider",
+		"UpdateCodeSigningConfig",
+		"UpdateEventSourceMapping",
+		"UpdateFunctionCode",
+		"UpdateFunctionConfiguration",
 		"UpdateFunctionEventInvokeConfig",
-		"DeleteFunctionEventInvokeConfig",
-		"ListFunctionEventInvokeConfigs",
-		"PutFunctionConcurrency",
-		"GetFunctionConcurrency",
-		"DeleteFunctionConcurrency",
-		"PutProvisionedConcurrencyConfig",
-		"GetProvisionedConcurrencyConfig",
-		"DeleteProvisionedConcurrencyConfig",
-		"ListProvisionedConcurrencyConfigs",
+		"UpdateFunctionUrlConfig",
 	}
 }
 
@@ -267,15 +332,43 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(path, lambdaPathPrefix) ||
-			strings.HasPrefix(path, lambda2017PathPrefix) ||
-			strings.HasPrefix(path, lambda2019PathPrefix) ||
-			strings.HasPrefix(path, lambda2020PathPrefix) ||
-			strings.HasPrefix(path, esmPathPrefix) ||
-			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
-			strings.HasPrefix(path, lambdaLayersPathPrefix) ||
-			strings.HasPrefix(target, "AWSLambda")
+		return isLambdaPath(path) || strings.HasPrefix(target, "AWSLambda")
 	}
+}
+
+// lambdaPathPrefixes holds all path prefixes handled by the Lambda service.
+//
+//nolint:gochecknoglobals // intentional package-level prefix table
+var lambdaPathPrefixes = []string{
+	lambdaPathPrefix,
+	lambda2017PathPrefix,
+	lambda2019PathPrefix,
+	lambda2020PathPrefix,
+	lambda2021PathPrefix,
+	lambda2021RuntimeMgmtPathPrefix,
+	lambda2023ScalingPathPrefix,
+	lambda2024RecursionPathPrefix,
+	esmPathPrefix,
+	lambdaTagsPathPrefix,
+	lambdaLayersPathPrefix,
+	lambdaCodeSigningPathPrefix,
+	lambdaCapacityPathPrefix,
+	lambdaDurableExecPathPrefix,
+}
+
+// isLambdaPath returns true when the given path belongs to the Lambda service.
+func isLambdaPath(path string) bool {
+	if path == lambdaAccountSettingsPath || path == lambdaLayersByArnPath {
+		return true
+	}
+
+	for _, prefix := range lambdaPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // normalizeFunctionPath strips the date-versioned /functions prefix from path and
@@ -493,8 +586,13 @@ func (h *Handler) buildRouteHandlers() []handlerEntry {
 	)
 }
 
-// buildCoreRoutes returns the core function CRUD + invoke + URL routes.
+// buildCoreRoutes returns the core function CRUD + invoke + URL + policy routes.
 func (h *Handler) buildCoreRoutes() []handlerEntry {
+	return append(h.buildFunctionCRUDRoutes(), h.buildFunctionURLPolicyRoutes()...)
+}
+
+// buildFunctionCRUDRoutes returns the basic function CRUD and invoke routes.
+func (h *Handler) buildFunctionCRUDRoutes() []handlerEntry {
 	return []handlerEntry{
 		{
 			method:  http.MethodPost,
@@ -526,6 +624,15 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 			},
 		},
 		{
+			method: http.MethodGet,
+			match:  hasSuffixConfiguration,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/configuration")
+
+				return h.handleGetFunctionConfiguration(c, name)
+			},
+		},
+		{
 			method: http.MethodPut,
 			match:  hasSuffixConfiguration,
 			execute: func(c *echo.Context, rest string) error {
@@ -543,6 +650,12 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 				return h.handleInvoke(c, name)
 			},
 		},
+	}
+}
+
+// buildFunctionURLPolicyRoutes returns the function URL and resource policy routes.
+func (h *Handler) buildFunctionURLPolicyRoutes() []handlerEntry {
+	return []handlerEntry{
 		{
 			method: http.MethodPost,
 			match:  hasSuffixURL,
@@ -571,11 +684,30 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 			},
 		},
 		{
+			method: http.MethodPost,
+			match:  hasSuffixPolicy,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
+
+				return h.handleAddPermission(c, name)
+			},
+		},
+		{
 			method: http.MethodGet,
-			match:  hasSuffixCodeSigningConfig,
-			execute: func(c *echo.Context, _ string) error {
-				// Stub: no code signing config → empty 200 response.
-				return c.JSON(http.StatusOK, &lambdaEmptyOutput{})
+			match:  hasSuffixPolicy,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
+
+				return h.handleGetPolicy(c, name)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixPolicy,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
+
+				return h.handleRemovePermission(c, name)
 			},
 		},
 	}
@@ -771,28 +903,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		path := c.Request().URL.Path
 		method := c.Request().Method
 
-		// Handle event-source-mappings routes
-		if strings.HasPrefix(path, esmPathPrefix) {
-			return h.handleESMRoute(c, path, method)
-		}
-
-		// Handle tags routes
-		if strings.HasPrefix(path, lambdaTagsPathPrefix) {
-			return h.handleTagsRoute(c, method)
-		}
-
-		// Handle layers routes
-		if strings.HasPrefix(path, lambdaLayersPathPrefix) {
-			return h.handleLayersRoute(c, path, method)
-		}
-
-		// Handle 2020-06-30 API routes (e.g. GetFunctionCodeSigningConfig)
-		if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {
-			if method == http.MethodGet && hasSuffixCodeSigningConfig(rest2020) {
-				return c.JSON(http.StatusOK, &lambdaEmptyOutput{})
-			}
-
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+		if handled, err := h.dispatchSpecialRoutes(c, path, method); handled {
+			return err
 		}
 
 		rest := normalizeFunctionPath(path)
@@ -807,6 +919,43 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+// dispatchSpecialRoutes handles non-function-path routes. It returns (true, err) when it
+// matched and dispatched the request, or (false, nil) when the caller should continue.
+func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case strings.HasPrefix(path, esmPathPrefix):
+		return true, h.handleESMRoute(c, path, method)
+	case strings.HasPrefix(path, lambdaTagsPathPrefix):
+		return true, h.handleTagsRoute(c, method)
+	case strings.HasPrefix(path, lambdaLayersPathPrefix):
+		return true, h.handleLayersRoute(c, path, method)
+	case path == lambdaAccountSettingsPath:
+		return true, h.handleGetAccountSettings(c)
+	case strings.HasPrefix(path, lambdaCodeSigningPathPrefix):
+		return true, h.handleCodeSigningRoute(c, path, method)
+	case strings.HasPrefix(path, lambdaCapacityPathPrefix):
+		return true, h.handleCapacityProviderRoute(c, path, method)
+	case strings.HasPrefix(path, lambdaDurableExecPathPrefix):
+		return true, h.handleDurableExecRoute(c, path, method)
+	case strings.HasPrefix(path, lambda2021PathPrefix):
+		return true, h.handleFunctionURLRoute2021(c, path, method)
+	case strings.HasPrefix(path, lambda2021RuntimeMgmtPathPrefix):
+		return true, h.handleRuntimeMgmtRoute(c, path, method)
+	case strings.HasPrefix(path, lambda2024RecursionPathPrefix):
+		return true, h.handleRecursionConfigRoute(c, path, method)
+	case strings.HasPrefix(path, lambda2023ScalingPathPrefix):
+		return true, h.handleScalingConfigRoute(c, path, method)
+	case path == lambdaLayersByArnPath:
+		return true, h.handleGetLayerVersionByArn(c)
+	}
+
+	if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {
+		return true, h.handle2020FunctionRoute(c, rest2020, method)
+	}
+
+	return false, nil
 }
 
 // handleTagsRoute handles GET/POST/DELETE /2015-03-31/tags/{arn}.
@@ -857,6 +1006,8 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 		return h.handleListESMs(c)
 	case method == http.MethodGet && rest != "":
 		return h.handleGetESM(c, rest)
+	case method == http.MethodPut && rest != "":
+		return h.handleUpdateESM(c, rest)
 	case method == http.MethodDelete && rest != "":
 		return h.handleDeleteESM(c, rest)
 	default:
@@ -950,6 +1101,40 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 }
 
+// handleUpdateESMInput is the request body for UpdateEventSourceMapping.
+type handleUpdateESMInput struct {
+	Enabled   *bool `json:"Enabled"`
+	BatchSize int   `json:"BatchSize"`
+}
+
+// handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.
+func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var req handleUpdateESMInput
+	if err = json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	m, err := lambdaBk.UpdateEventSourceMapping(id, &UpdateEventSourceMappingInput{
+		Enabled:   req.Enabled,
+		BatchSize: req.BatchSize,
+	})
+	if err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
+	}
+
+	return c.JSON(http.StatusOK, toJSONESMResponse(m))
+}
+
 // validateCreateFunctionInput checks required fields and package-type-specific constraints.
 // It normalizes PackageType to Image when omitted. Returns true if validation passes.
 // If validation fails, it writes the HTTP error response and returns false.
@@ -957,6 +1142,10 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 	if input.FunctionName == "" {
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionName is required")
 
+		return false
+	}
+
+	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
 		return false
 	}
 
@@ -971,6 +1160,30 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
+	return h.validateCreateFunctionCode(c, input)
+}
+
+// validateMemoryAndTimeout validates MemorySize and Timeout values (both 0 means use defaults).
+func (h *Handler) validateMemoryAndTimeout(c *echo.Context, memorySize, timeout int) bool {
+	if memorySize != 0 && (memorySize < minMemorySize || memorySize > maxMemorySize) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("MemorySize must be between %d and %d MB", minMemorySize, maxMemorySize))
+
+		return false
+	}
+
+	if timeout != 0 && (timeout < minTimeout || timeout > maxTimeout) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("Timeout must be between %d and %d seconds", minTimeout, maxTimeout))
+
+		return false
+	}
+
+	return true
+}
+
+// validateCreateFunctionCode validates the Code field based on PackageType.
+func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunctionInput) bool {
 	if input.Code == nil {
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Code is required")
 
@@ -1054,6 +1267,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	if len(fn.ZipData) > 0 {
 		fn.CodeSize = int64(len(fn.ZipData))
+		sum := sha256.Sum256(fn.ZipData)
+		fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
 	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
@@ -1180,6 +1395,8 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 
 		if len(fn.ZipData) > 0 {
 			fn.CodeSize = int64(len(fn.ZipData))
+			sum := sha256.Sum256(fn.ZipData)
+			fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
 		}
 	}
 
@@ -1205,6 +1422,10 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
+	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
+		return nil
+	}
+
 	fn, getFnErr := h.Backend.GetFunction(name)
 	if getFnErr != nil {
 		if errors.Is(getFnErr, ErrFunctionNotFound) {
@@ -1215,6 +1436,21 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
 	}
 
+	applyFunctionConfigurationUpdate(fn, &input)
+
+	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
+	fn.RevisionID = uuid.New().String()
+	fn.LastUpdateStatus = LastUpdateStatusSuccessful
+
+	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, fn)
+}
+
+// applyFunctionConfigurationUpdate applies non-zero fields from input onto fn.
+func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
 	if input.Description != "" {
 		fn.Description = input.Description
 	}
@@ -1246,16 +1482,6 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	if input.Layers != nil {
 		fn.Layers = layerARNsToFunctionLayers(input.Layers)
 	}
-
-	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
-	fn.RevisionID = uuid.New().String()
-	fn.LastUpdateStatus = LastUpdateStatusSuccessful
-
-	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
-	}
-
-	return c.JSON(http.StatusOK, fn)
 }
 
 func (h *Handler) handleInvoke(c *echo.Context, name string) error {
@@ -1454,6 +1680,18 @@ const defaultMemorySize = 128
 // defaultTimeout is the default Lambda function timeout in seconds.
 const defaultTimeout = 3
 
+// minMemorySize is the minimum allowed Lambda function memory in MB.
+const minMemorySize = 128
+
+// maxMemorySize is the maximum allowed Lambda function memory in MB.
+const maxMemorySize = 10240
+
+// minTimeout is the minimum allowed Lambda function timeout in seconds.
+const minTimeout = 1
+
+// maxTimeout is the maximum allowed Lambda function timeout in seconds.
+const maxTimeout = 900
+
 // extractNameFromAliasPath extracts the function name from a rest path like /{name}/aliases
 // or /{name}/aliases/{aliasName}.
 func extractNameFromAliasPath(rest string) string {
@@ -1485,6 +1723,8 @@ func extractNameAndAlias(rest string) (string, string) {
 }
 
 // handlePublishVersion handles POST /2015-03-31/functions/{name}/versions.
+//
+//nolint:dupl // similar JSON-body-parse-and-call pattern shared with handleUpdateFunctionURLConfig by design
 func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
@@ -2373,4 +2613,837 @@ func (h *Handler) Reset() {
 	}
 
 	h.tags = make(map[string]*tags.Tags)
+}
+
+// --- AddPermission handler ---
+
+// handleAddPermission handles POST /2015-03-31/functions/{name}/policy.
+func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input AddPermissionInput
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	if input.StatementID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "StatementId is required")
+	}
+
+	if input.Action == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Action is required")
+	}
+
+	if input.Principal == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Principal is required")
+	}
+
+	out, addErr := lambdaBk.AddPermission(name, &input)
+	if addErr != nil {
+		if errors.Is(addErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(addErr, ErrFunctionAlreadyExists) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				fmt.Sprintf("Permission already exists: %s", input.StatementID))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", addErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, out)
+}
+
+// handleGetPolicy handles GET /2015-03-31/functions/{name}/policy.
+func (h *Handler) handleGetPolicy(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	out, err := lambdaBk.GetPolicy(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrNoPolicyFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("No policy is associated with the given resource: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// handleRemovePermission handles DELETE /2015-03-31/functions/{name}/policy?StatementId=xxx.
+func (h *Handler) handleRemovePermission(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	statementID := c.Request().URL.Query().Get("StatementId")
+	if statementID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "StatementId is required")
+	}
+
+	if err := lambdaBk.RemovePermission(name, statementID); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleGetFunctionConfiguration handles GET /2015-03-31/functions/{name}/configuration.
+// Real AWS returns the function configuration without the code location.
+func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) error {
+	fn, err := h.Backend.GetFunction(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	// GetFunctionConfiguration returns the configuration only (no code location).
+	return c.JSON(http.StatusOK, fn)
+}
+
+// handle2020FunctionRoute handles routes under /2020-06-30/functions/{name}/...
+func (h *Handler) handle2020FunctionRoute(c *echo.Context, rest2020, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	if !hasSuffixCodeSigningConfig(rest2020) {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := strings.TrimSuffix(strings.TrimPrefix(rest2020, "/"), "/code-signing-config")
+
+	switch method {
+	case http.MethodGet:
+		return h.handleGetFunctionCodeSigningConfig(c, lambdaBk, name)
+	case http.MethodPut:
+		return h.handlePutFunctionCodeSigningConfig(c, lambdaBk, name)
+	case http.MethodDelete:
+		return h.handleDeleteFunctionCodeSigningConfig(c, lambdaBk, name)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleGetFunctionCodeSigningConfig handles GET /2020-06-30/functions/{name}/code-signing-config.
+// Real AWS returns HTTP 200 with an empty CodeSigningConfigArn when the function exists but
+// has no code signing config associated (not a 404).
+func (h *Handler) handleGetFunctionCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, name string) error {
+	cscARN, err := bk.GetFunctionCodeSigningConfig(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrCodeSigningConfigNotFound) {
+			// Real AWS returns 200 with empty ARN when no code signing config is associated.
+			return c.JSON(http.StatusOK, &GetFunctionCodeSigningConfigOutput{
+				CodeSigningConfigArn: "",
+				FunctionName:         name,
+			})
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &GetFunctionCodeSigningConfigOutput{
+		CodeSigningConfigArn: cscARN,
+		FunctionName:         name,
+	})
+}
+
+// handlePutFunctionCodeSigningConfig handles PUT /2020-06-30/functions/{name}/code-signing-config.
+func (h *Handler) handlePutFunctionCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, name string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input PutFunctionCodeSigningConfigInput
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	if input.CodeSigningConfigArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"CodeSigningConfigArn is required")
+	}
+
+	if putErr := bk.PutFunctionCodeSigningConfig(name, input.CodeSigningConfigArn); putErr != nil {
+		if errors.Is(putErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function or code signing config not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, &PutFunctionCodeSigningConfigOutput{
+		CodeSigningConfigArn: input.CodeSigningConfigArn,
+		FunctionName:         name,
+	})
+}
+
+// handleDeleteFunctionCodeSigningConfig handles DELETE /2020-06-30/functions/{name}/code-signing-config.
+func (h *Handler) handleDeleteFunctionCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, name string) error {
+	if err := bk.DeleteFunctionCodeSigningConfig(name); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Code signing config handlers ---
+
+// handleCodeSigningRoute dispatches /2020-04-22/code-signing-configs routes.
+func (h *Handler) handleCodeSigningRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest := strings.TrimPrefix(path, lambdaCodeSigningPathPrefix)
+	rest = strings.TrimPrefix(rest, "/")
+
+	// /2020-04-22/code-signing-configs → Create / List
+	if rest == "" {
+		switch method {
+		case http.MethodPost:
+			return h.handleCreateCodeSigningConfig(c, lambdaBk)
+		case http.MethodGet:
+			return h.handleListCodeSigningConfigs(c, lambdaBk)
+		default:
+			return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+		}
+	}
+
+	// /2020-04-22/code-signing-configs/{cscArn}/functions → ListFunctionsByCodeSigningConfig
+	if before, ok0 := strings.CutSuffix(rest, "/functions"); ok0 {
+		cscARN := before
+		if method == http.MethodGet {
+			return h.handleListFunctionsByCodeSigningConfig(c, lambdaBk, cscARN)
+		}
+
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+
+	// /2020-04-22/code-signing-configs/{cscArn} → Get / Delete / Update
+	cscARN := rest
+
+	switch method {
+	case http.MethodGet:
+		return h.handleGetCodeSigningConfig(c, lambdaBk, cscARN)
+	case http.MethodDelete:
+		return h.handleDeleteCodeSigningConfig(c, lambdaBk, cscARN)
+	case http.MethodPut:
+		return h.handleUpdateCodeSigningConfig(c, lambdaBk, cscARN)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleCreateCodeSigningConfig handles POST /2020-04-22/code-signing-configs.
+func (h *Handler) handleCreateCodeSigningConfig(c *echo.Context, bk *InMemoryBackend) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input CreateCodeSigningConfigInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	if input.AllowedPublishers == nil {
+		input.AllowedPublishers = &AllowedPublishers{SigningProfileVersionArns: []string{}}
+	}
+
+	cfg, createErr := bk.CreateCodeSigningConfig(&input)
+	if createErr != nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, &CreateCodeSigningConfigOutput{CodeSigningConfig: cfg})
+}
+
+// handleGetCodeSigningConfig handles GET /2020-04-22/code-signing-configs/{cscArn}.
+func (h *Handler) handleGetCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, cscARN string) error {
+	cfg, err := bk.GetCodeSigningConfig(cscARN)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Code signing config not found: %s", cscARN))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &CreateCodeSigningConfigOutput{CodeSigningConfig: cfg})
+}
+
+// handleDeleteCodeSigningConfig handles DELETE /2020-04-22/code-signing-configs/{cscArn}.
+func (h *Handler) handleDeleteCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, cscARN string) error {
+	if err := bk.DeleteCodeSigningConfig(cscARN); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Code signing config not found: %s", cscARN))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleUpdateCodeSigningConfig handles PUT /2020-04-22/code-signing-configs/{cscArn}.
+//
+//nolint:dupl // similar update-handler structure shared with handleUpdateCapacityProvider by design
+func (h *Handler) handleUpdateCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, cscARN string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input UpdateCodeSigningConfigInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	cfg, updateErr := bk.UpdateCodeSigningConfig(cscARN, &input)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Code signing config not found: %s", cscARN))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, &UpdateCodeSigningConfigOutput{CodeSigningConfig: cfg})
+}
+
+// handleListCodeSigningConfigs handles GET /2020-04-22/code-signing-configs.
+func (h *Handler) handleListCodeSigningConfigs(c *echo.Context, bk *InMemoryBackend) error {
+	cfgs := bk.ListCodeSigningConfigs()
+
+	return c.JSON(http.StatusOK, &ListCodeSigningConfigsOutput{CodeSigningConfigs: cfgs})
+}
+
+// handleListFunctionsByCodeSigningConfig handles GET /2020-04-22/code-signing-configs/{cscArn}/functions.
+func (h *Handler) handleListFunctionsByCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, cscARN string) error {
+	arns, err := bk.ListFunctionsByCodeSigningConfig(cscARN)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Code signing config not found: %s", cscARN))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &ListFunctionsByCodeSigningConfigOutput{FunctionArns: arns})
+}
+
+// --- Capacity provider handlers ---
+
+// handleCapacityProviderRoute dispatches /2025-11-30/capacity-providers routes.
+func (h *Handler) handleCapacityProviderRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest := strings.TrimPrefix(path, lambdaCapacityPathPrefix)
+	rest = strings.TrimPrefix(rest, "/")
+
+	// /2025-11-30/capacity-providers → Create / List
+	if rest == "" {
+		switch method {
+		case http.MethodPost:
+			return h.handleCreateCapacityProvider(c, lambdaBk)
+		case http.MethodGet:
+			return h.handleListCapacityProviders(c, lambdaBk)
+		default:
+			return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+		}
+	}
+
+	// /2025-11-30/capacity-providers/{name} → Get / Delete / Update
+	name := rest
+
+	switch method {
+	case http.MethodGet:
+		return h.handleGetCapacityProvider(c, lambdaBk, name)
+	case http.MethodDelete:
+		return h.handleDeleteCapacityProvider(c, lambdaBk, name)
+	case http.MethodPut:
+		return h.handleUpdateCapacityProvider(c, lambdaBk, name)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleCreateCapacityProvider handles POST /2025-11-30/capacity-providers.
+func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBackend) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input CreateCapacityProviderInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	if input.Name == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Name is required")
+	}
+
+	cp, createErr := bk.CreateCapacityProvider(&input)
+	if createErr != nil {
+		if errors.Is(createErr, ErrFunctionAlreadyExists) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				fmt.Sprintf("Capacity provider already exists: %s", input.Name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, &CreateCapacityProviderOutput{CapacityProvider: cp})
+}
+
+// handleGetCapacityProvider handles GET /2025-11-30/capacity-providers/{name}.
+func (h *Handler) handleGetCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
+	cp, err := bk.GetCapacityProvider(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Capacity provider not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &CreateCapacityProviderOutput{CapacityProvider: cp})
+}
+
+// handleDeleteCapacityProvider handles DELETE /2025-11-30/capacity-providers/{name}.
+func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
+	if err := bk.DeleteCapacityProvider(name); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Capacity provider not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleUpdateCapacityProvider handles PUT /2025-11-30/capacity-providers/{name}.
+//
+//nolint:dupl // similar update-handler structure shared with handleUpdateCodeSigningConfig by design
+func (h *Handler) handleUpdateCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input UpdateCapacityProviderInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	cp, updateErr := bk.UpdateCapacityProvider(name, &input)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Capacity provider not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, &UpdateCapacityProviderOutput{CapacityProvider: cp})
+}
+
+// handleListCapacityProviders handles GET /2025-11-30/capacity-providers.
+func (h *Handler) handleListCapacityProviders(c *echo.Context, bk *InMemoryBackend) error {
+	cps := bk.ListCapacityProviders()
+
+	return c.JSON(http.StatusOK, &ListCapacityProvidersOutput{CapacityProviders: cps})
+}
+
+// --- Durable execution handler (stub) ---
+
+// handleDurableExecRoute handles routes under /2025-12-01/durable-executions/...
+func (h *Handler) handleDurableExecRoute(c *echo.Context, path, method string) error {
+	// CheckpointDurableExecution: POST /2025-12-01/durable-executions/{arn}/checkpoint
+	if method == http.MethodPost && strings.HasSuffix(path, "/checkpoint") {
+		return c.JSON(http.StatusOK, &CheckpointDurableExecutionOutput{})
+	}
+
+	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// --- Account settings handler ---
+
+// handleGetAccountSettings handles GET /2016-08-19/account-settings.
+func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	return c.JSON(http.StatusOK, lambdaBk.GetAccountSettings())
+}
+
+// --- Function URL config 2021-10-31 route handler ---
+
+// handleFunctionURLRoute2021 dispatches /2021-10-31/functions/{name}/url routes (SDK "Url" casing).
+func (h *Handler) handleFunctionURLRoute2021(c *echo.Context, path, method string) error {
+	rest := strings.TrimPrefix(path, lambda2021PathPrefix)
+
+	// /2021-10-31/functions/{name}/urls → ListFunctionUrlConfigs
+	if strings.HasSuffix(rest, "/urls") {
+		name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/urls")
+		if method == http.MethodGet {
+			return h.handleListFunctionURLConfigs(c, name)
+		}
+
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+
+	// /2021-10-31/functions/{name}/url → Create / Get / Delete / Update
+	if strings.HasSuffix(rest, "/url") {
+		name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/url")
+
+		switch method {
+		case http.MethodPost:
+			return h.handleCreateFunctionURLConfig(c, name)
+		case http.MethodGet:
+			return h.handleGetFunctionURLConfig(c, name)
+		case http.MethodDelete:
+			return h.handleDeleteFunctionURLConfig(c, name)
+		case http.MethodPut:
+			return h.handleUpdateFunctionURLConfig(c, name)
+		default:
+			return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+		}
+	}
+
+	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// handleListFunctionURLConfigs handles GET /2021-10-31/functions/{name}/urls.
+func (h *Handler) handleListFunctionURLConfigs(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	// If name is provided, filter to that function only.
+	if name != "" {
+		cfg, err := lambdaBk.GetFunctionURLConfig(name)
+		if err != nil {
+			// Return empty list rather than 404 for a missing URL config.
+			return c.JSON(http.StatusOK, &ListFunctionURLConfigsOutput{FunctionURLConfigs: []*FunctionURLConfig{}})
+		}
+
+		return c.JSON(http.StatusOK, &ListFunctionURLConfigsOutput{
+			FunctionURLConfigs: []*FunctionURLConfig{cfg},
+		})
+	}
+
+	cfgs := lambdaBk.ListFunctionURLConfigs()
+
+	return c.JSON(http.StatusOK, &ListFunctionURLConfigsOutput{FunctionURLConfigs: cfgs})
+}
+
+// handleUpdateFunctionURLConfig handles PUT /2021-10-31/functions/{name}/url.
+//
+//nolint:dupl // similar JSON-body-parse-and-call pattern shared with handlePublishVersion by design
+func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input UpdateFunctionURLConfigInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	cfg, updateErr := lambdaBk.UpdateFunctionURLConfig(name, input.AuthType)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrFunctionURLNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function URL config not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, cfg)
+}
+
+// handleRuntimeMgmtRoute handles /2021-07-20/functions/{name}/runtime-management-config routes.
+//
+//nolint:dupl // similar get/put pattern shared with handleRecursionConfigRoute by design
+func (h *Handler) handleRuntimeMgmtRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest, found := strings.CutPrefix(path, lambda2021RuntimeMgmtPathPrefix)
+	if !found {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
+
+	if len(parts) < 2 || parts[1] != "runtime-management-config" {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := parts[0]
+
+	switch method {
+	case http.MethodGet:
+		cfg, err := lambdaBk.GetRuntimeManagementConfig(name)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var input PutRuntimeManagementConfigInput
+		if len(body) > 0 {
+			if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+			}
+		}
+
+		cfg, putErr := lambdaBk.PutRuntimeManagementConfig(name, &input)
+		if putErr != nil {
+			if errors.Is(putErr, ErrFunctionNotFound) {
+				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+					fmt.Sprintf("Function not found: %s", name))
+			}
+
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleRecursionConfigRoute handles /2024-08-28/functions/{name}/recursion-config routes.
+//
+//nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute and handleScalingConfigRoute by design
+func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest, found := strings.CutPrefix(path, lambda2024RecursionPathPrefix)
+	if !found {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
+
+	if len(parts) < 2 || parts[1] != "recursion-config" {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := parts[0]
+
+	switch method {
+	case http.MethodGet:
+		cfg, err := lambdaBk.GetFunctionRecursionConfig(name)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var input PutFunctionRecursionConfigInput
+		if len(body) > 0 {
+			if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+			}
+		}
+
+		cfg, putErr := lambdaBk.PutFunctionRecursionConfig(name, &input)
+		if putErr != nil {
+			if errors.Is(putErr, ErrFunctionNotFound) {
+				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+					fmt.Sprintf("Function not found: %s", name))
+			}
+
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleScalingConfigRoute handles /2023-10-26/functions/{name}/scaling-config routes.
+//
+//nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute by design
+func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest, found := strings.CutPrefix(path, lambda2023ScalingPathPrefix)
+	if !found {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
+
+	if len(parts) < 2 || parts[1] != "scaling-config" {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	name := parts[0]
+
+	switch method {
+	case http.MethodGet:
+		cfg, err := lambdaBk.GetFunctionScalingConfig(name)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var input PutFunctionScalingConfigInput
+		if len(body) > 0 {
+			if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+			}
+		}
+
+		cfg, putErr := lambdaBk.PutFunctionScalingConfig(name, &input)
+		if putErr != nil {
+			if errors.Is(putErr, ErrFunctionNotFound) {
+				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+					fmt.Sprintf("Function not found: %s", name))
+			}
+
+			return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
+		}
+
+		return c.JSON(http.StatusOK, cfg)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleGetLayerVersionByArn handles GET /2018-10-31/layers-by-arn?Arn={arn}.
+func (h *Handler) handleGetLayerVersionByArn(c *echo.Context) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	arn := c.Request().URL.Query().Get("Arn")
+	if arn == "" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"Arn query parameter is required",
+		)
+	}
+
+	out, err := lambdaBk.GetLayerVersionByArn(arn)
+	if err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			fmt.Sprintf("Layer version not found: %s", arn))
+	}
+
+	return c.JSON(http.StatusOK, out)
 }

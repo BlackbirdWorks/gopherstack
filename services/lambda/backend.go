@@ -63,6 +63,10 @@ var (
 	ErrFunctionConcurrencyNotFound = errors.New("ResourceNotFoundException")
 	// ErrProvisionedConcurrencyConfigNotFound is returned when no provisioned concurrency config exists for the qualifier.
 	ErrProvisionedConcurrencyConfigNotFound = errors.New("ResourceNotFoundException")
+	// ErrCodeSigningConfigNotFound is returned when a function has no code signing config associated.
+	ErrCodeSigningConfigNotFound = errors.New("CodeSigningConfigNotFoundException")
+	// ErrNoPolicyFound is returned when a function has no resource-based policy (no permissions).
+	ErrNoPolicyFound = errors.New("ResourceNotFoundException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -135,44 +139,40 @@ type functionURLServer struct {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
-	cwLogs              CWLogsBackend
-	s3Fetcher           S3CodeFetcher
-	docker              container.Runtime
-	dnsRegistrar        DNSRegistrar
-	kinesisPoller       *EventSourcePoller
-	eventSourceMappings map[string]*EventSourceMapping
-	aliases             map[string]map[string]*FunctionAlias
-	versionCounters     map[string]int
-	functions           map[string]*FunctionConfiguration
-	functionURLServers  map[string]*functionURLServer
-	functionURLConfigs  map[string]*FunctionURLConfig
-	versions            map[string][]*FunctionVersion
-	// eventInvokeConfigs stores async invocation config keyed by function name.
-	eventInvokeConfigs map[string]*FunctionEventInvokeConfig
-	// functionConcurrencies stores reserved concurrent executions per function name.
-	// If a function name is not present in the map, no limit is set (use account default).
-	functionConcurrencies map[string]int
-	// activeConcurrencies tracks the number of active synchronous invocations per function name.
-	activeConcurrencies map[string]int
-	// provisionedConcurrencies stores provisioned concurrency configs keyed by
-	// function name → qualifier → config.
+	cwLogs                   CWLogsBackend
+	s3Fetcher                S3CodeFetcher
+	docker                   container.Runtime
+	dnsRegistrar             DNSRegistrar
+	activeConcurrencies      map[string]int
+	layerVersionCounters     map[string]int64
+	aliases                  map[string]map[string]*FunctionAlias
+	versionCounters          map[string]int
+	functions                map[string]*FunctionConfiguration
+	functionURLServers       map[string]*functionURLServer
+	functionURLConfigs       map[string]*FunctionURLConfig
+	versions                 map[string][]*FunctionVersion
+	eventInvokeConfigs       map[string]*FunctionEventInvokeConfig
+	functionConcurrencies    map[string]int
+	kinesisPoller            *EventSourcePoller
 	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
-	// layers stores layer versions keyed by layerName → []LayerVersion (ordered by version).
-	layers map[string][]*LayerVersion
-	// layerVersionCounters tracks the next version number per layer.
-	layerVersionCounters map[string]int64
-	// layerPolicies stores per-version resource policy statements keyed by
-	// layerName → versionNumber → statementID → LayerVersionStatement.
-	layerPolicies map[string]map[int64]map[string]*LayerVersionStatement
-	// fisFaults maps function names to FIS invocation fault configuration.
-	// When a function is in this map, invocations return an error with the given probability.
-	fisFaults map[string]*FISInvocationFault
-	portAlloc *portalloc.Allocator
-	runtimes  map[string]*functionRuntime
-	mu        *lockmetrics.RWMutex
-	region    string
-	accountID string
-	settings  Settings
+	layers                   map[string][]*LayerVersion
+	eventSourceMappings      map[string]*EventSourceMapping
+	layerPolicies            map[string]map[int64]map[string]*LayerVersionStatement
+	fisFaults                map[string]*FISInvocationFault
+	permissions              map[string]map[string]*FunctionPermission
+	codeSigningConfigs       map[string]*CodeSigningConfig
+	fnCodeSigningConfigs     map[string]string
+	capacityProviders        map[string]*CapacityProvider
+	runtimeManagementConfigs map[string]*RuntimeManagementConfig
+	functionRecursionConfigs map[string]*FunctionRecursionConfig
+	functionScalingConfigs   map[string]*FunctionScalingConfig
+	mu                       *lockmetrics.RWMutex
+	portAlloc                *portalloc.Allocator
+	runtimes                 map[string]*functionRuntime
+	region                   string
+	accountID                string
+	settings                 Settings
+	cscIDCounter             int
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -199,6 +199,13 @@ func NewInMemoryBackend(
 		activeConcurrencies:      make(map[string]int),
 		provisionedConcurrencies: make(map[string]map[string]*ProvisionedConcurrencyConfig),
 		fisFaults:                make(map[string]*FISInvocationFault),
+		permissions:              make(map[string]map[string]*FunctionPermission),
+		codeSigningConfigs:       make(map[string]*CodeSigningConfig),
+		fnCodeSigningConfigs:     make(map[string]string),
+		capacityProviders:        make(map[string]*CapacityProvider),
+		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),
+		functionRecursionConfigs: make(map[string]*FunctionRecursionConfig),
+		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
 		docker:                   dockerClient,
 		portAlloc:                portAlloc,
 		settings:                 settings,
@@ -2824,6 +2831,13 @@ func (b *InMemoryBackend) Reset() {
 	b.runtimes = make(map[string]*functionRuntime)
 	b.functionURLServers = make(map[string]*functionURLServer)
 	b.functionURLConfigs = make(map[string]*FunctionURLConfig)
+	b.permissions = make(map[string]map[string]*FunctionPermission)
+	b.codeSigningConfigs = make(map[string]*CodeSigningConfig)
+	b.fnCodeSigningConfigs = make(map[string]string)
+	b.capacityProviders = make(map[string]*CapacityProvider)
+	b.runtimeManagementConfigs = make(map[string]*RuntimeManagementConfig)
+	b.functionRecursionConfigs = make(map[string]*FunctionRecursionConfig)
+	b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
 
 	b.mu.Unlock()
 
@@ -2936,4 +2950,618 @@ func (b *InMemoryBackend) shutdownPurgedResources(urlServers []*functionURLServe
 	}
 
 	wg.Wait()
+}
+
+// --- AddPermission / resource-based policy ---
+
+// AddPermission adds a permission statement to a function's resource-based policy.
+func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissionInput) (*AddPermissionOutput, error) {
+	b.mu.Lock("AddPermission")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if b.permissions[functionName] == nil {
+		b.permissions[functionName] = make(map[string]*FunctionPermission)
+	}
+
+	if _, exists := b.permissions[functionName][input.StatementID]; exists {
+		return nil, ErrFunctionAlreadyExists
+	}
+
+	perm := &FunctionPermission{
+		StatementID:   input.StatementID,
+		Action:        input.Action,
+		Principal:     input.Principal,
+		SourceArn:     input.SourceArn,
+		SourceAccount: input.SourceAccount,
+		Effect:        "Allow",
+		FunctionName:  functionName,
+	}
+
+	b.permissions[functionName][input.StatementID] = perm
+
+	stmtJSON := fmt.Sprintf(
+		`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q}`,
+		input.StatementID, input.Principal, input.Action,
+	)
+
+	return &AddPermissionOutput{Statement: &stmtJSON}, nil
+}
+
+// RemovePermission removes a permission statement from a function's resource-based policy.
+func (b *InMemoryBackend) RemovePermission(functionName, statementID string) error {
+	b.mu.Lock("RemovePermission")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	perms := b.permissions[functionName]
+	if perms == nil {
+		return ErrFunctionNotFound
+	}
+
+	if _, ok := perms[statementID]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	delete(perms, statementID)
+
+	return nil
+}
+
+// GetPolicy returns the resource-based policy JSON for a function.
+func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, error) {
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	perms := b.permissions[functionName]
+	if len(perms) == 0 {
+		return nil, ErrNoPolicyFound
+	}
+
+	stmts := make([]string, 0, len(perms))
+
+	for _, p := range perms {
+		stmts = append(stmts, fmt.Sprintf(
+			`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q}`,
+			p.StatementID, p.Principal, p.Action,
+		))
+	}
+
+	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[%s]}`, strings.Join(stmts, ","))
+	rev := "1"
+
+	return &GetPolicyOutput{Policy: &policy, RevisionID: &rev}, nil
+}
+
+// --- Code signing configs ---
+
+// CreateCodeSigningConfig creates a new Lambda code signing configuration.
+func (b *InMemoryBackend) CreateCodeSigningConfig(input *CreateCodeSigningConfigInput) (*CodeSigningConfig, error) {
+	b.mu.Lock("CreateCodeSigningConfig")
+	defer b.mu.Unlock()
+
+	b.cscIDCounter++
+	cscID := fmt.Sprintf("csc-%08d", b.cscIDCounter)
+	cscARN := buildCodeSigningConfigARN(b.region, b.accountID, cscID)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	cfg := &CodeSigningConfig{
+		CodeSigningConfigId:  cscID,
+		CodeSigningConfigArn: cscARN,
+		AllowedPublishers:    input.AllowedPublishers,
+		CodeSigningPolicies:  input.CodeSigningPolicies,
+		Description:          input.Description,
+		LastModified:         now,
+	}
+
+	if cfg.AllowedPublishers == nil {
+		cfg.AllowedPublishers = &AllowedPublishers{SigningProfileVersionArns: []string{}}
+	}
+
+	if cfg.CodeSigningPolicies == nil {
+		cfg.CodeSigningPolicies = &CodeSigningPolicies{UntrustedArtifactOnDeployment: "Warn"}
+	}
+
+	b.codeSigningConfigs[cscARN] = cfg
+
+	return cfg, nil
+}
+
+// GetCodeSigningConfig retrieves a code signing config by ARN.
+func (b *InMemoryBackend) GetCodeSigningConfig(cscARN string) (*CodeSigningConfig, error) {
+	b.mu.RLock("GetCodeSigningConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.codeSigningConfigs[cscARN]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	return cfg, nil
+}
+
+// DeleteCodeSigningConfig removes a code signing config by ARN.
+func (b *InMemoryBackend) DeleteCodeSigningConfig(cscARN string) error {
+	b.mu.Lock("DeleteCodeSigningConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.codeSigningConfigs[cscARN]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	delete(b.codeSigningConfigs, cscARN)
+
+	return nil
+}
+
+// UpdateCodeSigningConfig updates an existing code signing config.
+func (b *InMemoryBackend) UpdateCodeSigningConfig(
+	cscARN string,
+	input *UpdateCodeSigningConfigInput,
+) (*CodeSigningConfig, error) {
+	b.mu.Lock("UpdateCodeSigningConfig")
+	defer b.mu.Unlock()
+
+	cfg, ok := b.codeSigningConfigs[cscARN]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if input.AllowedPublishers != nil {
+		cfg.AllowedPublishers = input.AllowedPublishers
+	}
+
+	if input.CodeSigningPolicies != nil {
+		cfg.CodeSigningPolicies = input.CodeSigningPolicies
+	}
+
+	if input.Description != "" {
+		cfg.Description = input.Description
+	}
+
+	cfg.LastModified = time.Now().UTC().Format(time.RFC3339)
+	b.codeSigningConfigs[cscARN] = cfg
+
+	return cfg, nil
+}
+
+// ListCodeSigningConfigs returns all code signing configs.
+func (b *InMemoryBackend) ListCodeSigningConfigs() []*CodeSigningConfig {
+	b.mu.RLock("ListCodeSigningConfigs")
+	defer b.mu.RUnlock()
+
+	cfgs := make([]*CodeSigningConfig, 0, len(b.codeSigningConfigs))
+	for _, cfg := range b.codeSigningConfigs {
+		cfgs = append(cfgs, cfg)
+	}
+
+	sort.Slice(cfgs, func(i, j int) bool {
+		return cfgs[i].CodeSigningConfigId < cfgs[j].CodeSigningConfigId
+	})
+
+	return cfgs
+}
+
+// PutFunctionCodeSigningConfig associates a code signing config with a function.
+func (b *InMemoryBackend) PutFunctionCodeSigningConfig(functionName, cscARN string) error {
+	b.mu.Lock("PutFunctionCodeSigningConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	if _, ok := b.codeSigningConfigs[cscARN]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	b.fnCodeSigningConfigs[functionName] = cscARN
+
+	return nil
+}
+
+// GetFunctionCodeSigningConfig returns the code signing config ARN associated with a function.
+func (b *InMemoryBackend) GetFunctionCodeSigningConfig(functionName string) (string, error) {
+	b.mu.RLock("GetFunctionCodeSigningConfig")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return "", ErrFunctionNotFound
+	}
+
+	cscARN, ok := b.fnCodeSigningConfigs[functionName]
+	if !ok {
+		return "", ErrCodeSigningConfigNotFound
+	}
+
+	return cscARN, nil
+}
+
+// DeleteFunctionCodeSigningConfig removes the code signing config association from a function.
+func (b *InMemoryBackend) DeleteFunctionCodeSigningConfig(functionName string) error {
+	b.mu.Lock("DeleteFunctionCodeSigningConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	delete(b.fnCodeSigningConfigs, functionName)
+
+	return nil
+}
+
+// ListFunctionsByCodeSigningConfig returns function ARNs associated with a code signing config.
+func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(cscARN string) ([]string, error) {
+	b.mu.RLock("ListFunctionsByCodeSigningConfig")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.codeSigningConfigs[cscARN]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	var arns []string
+
+	for fnName, arn := range b.fnCodeSigningConfigs {
+		if arn == cscARN {
+			fn, ok := b.functions[fnName]
+			if ok {
+				arns = append(arns, fn.FunctionArn)
+			}
+		}
+	}
+
+	sort.Strings(arns)
+
+	return arns, nil
+}
+
+// --- Capacity providers ---
+
+// CreateCapacityProvider creates a new Lambda capacity provider.
+func (b *InMemoryBackend) CreateCapacityProvider(input *CreateCapacityProviderInput) (*CapacityProvider, error) {
+	b.mu.Lock("CreateCapacityProvider")
+	defer b.mu.Unlock()
+
+	if _, exists := b.capacityProviders[input.Name]; exists {
+		return nil, ErrFunctionAlreadyExists
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	cp := &CapacityProvider{
+		Name:                      input.Name,
+		CapacityProviderArn:       buildCapacityProviderARN(b.region, b.accountID, input.Name),
+		TargetOnDemandConcurrency: input.TargetOnDemandConcurrency,
+		Status:                    "ACTIVE",
+		LastModifiedTime:          now,
+	}
+
+	b.capacityProviders[input.Name] = cp
+
+	return cp, nil
+}
+
+// GetCapacityProvider retrieves a capacity provider by name.
+func (b *InMemoryBackend) GetCapacityProvider(name string) (*CapacityProvider, error) {
+	b.mu.RLock("GetCapacityProvider")
+	defer b.mu.RUnlock()
+
+	cp, ok := b.capacityProviders[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	return cp, nil
+}
+
+// DeleteCapacityProvider removes a capacity provider by name.
+func (b *InMemoryBackend) DeleteCapacityProvider(name string) error {
+	b.mu.Lock("DeleteCapacityProvider")
+	defer b.mu.Unlock()
+
+	if _, ok := b.capacityProviders[name]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	delete(b.capacityProviders, name)
+
+	return nil
+}
+
+// UpdateCapacityProvider updates an existing capacity provider.
+func (b *InMemoryBackend) UpdateCapacityProvider(
+	name string,
+	input *UpdateCapacityProviderInput,
+) (*CapacityProvider, error) {
+	b.mu.Lock("UpdateCapacityProvider")
+	defer b.mu.Unlock()
+
+	cp, ok := b.capacityProviders[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if input.TargetOnDemandConcurrency > 0 {
+		cp.TargetOnDemandConcurrency = input.TargetOnDemandConcurrency
+	}
+
+	cp.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	b.capacityProviders[name] = cp
+
+	return cp, nil
+}
+
+// ListCapacityProviders returns all capacity providers.
+func (b *InMemoryBackend) ListCapacityProviders() []*CapacityProvider {
+	b.mu.RLock("ListCapacityProviders")
+	defer b.mu.RUnlock()
+
+	cps := make([]*CapacityProvider, 0, len(b.capacityProviders))
+	for _, cp := range b.capacityProviders {
+		cps = append(cps, cp)
+	}
+
+	sort.Slice(cps, func(i, j int) bool {
+		return cps[i].Name < cps[j].Name
+	})
+
+	return cps
+}
+
+// --- Account settings ---
+
+// accountDefaultCodeSizeZipped is the default Lambda zip package size limit (50 MB).
+const accountDefaultCodeSizeZipped = 50 * 1024 * 1024
+
+// accountDefaultCodeSizeUnzipped is the default Lambda unzipped package size limit (250 MB).
+const accountDefaultCodeSizeUnzipped = 250 * 1024 * 1024
+
+// accountDefaultTotalCodeSize is the default Lambda total code storage limit (75 GB).
+const accountDefaultTotalCodeSize = 75 * 1024 * 1024 * 1024
+
+// accountDefaultConcurrentExecutions is the default Lambda concurrent execution limit.
+const accountDefaultConcurrentExecutions = 1000
+
+// GetAccountSettings returns the Lambda account settings for this in-memory backend.
+func (b *InMemoryBackend) GetAccountSettings() *AccountSettingsOutput {
+	b.mu.RLock("GetAccountSettings")
+	defer b.mu.RUnlock()
+
+	fnCount := len(b.functions)
+	totalCodeSize := int64(0)
+
+	for _, fn := range b.functions {
+		totalCodeSize += fn.CodeSize
+	}
+
+	return &AccountSettingsOutput{
+		AccountLimit: &AccountLimit{
+			CodeSizeUnzipped:               accountDefaultCodeSizeUnzipped,
+			CodeSizeZipped:                 accountDefaultCodeSizeZipped,
+			ConcurrentExecutions:           accountDefaultConcurrentExecutions,
+			TotalCodeSize:                  accountDefaultTotalCodeSize,
+			UnreservedConcurrentExecutions: accountDefaultConcurrentExecutions,
+		},
+		AccountUsage: &AccountUsage{
+			FunctionCount: fnCount,
+			TotalCodeSize: totalCodeSize,
+		},
+	}
+}
+
+// UpdateFunctionURLConfig updates an existing function URL config.
+func (b *InMemoryBackend) UpdateFunctionURLConfig(functionName, authType string) (*FunctionURLConfig, error) {
+	b.mu.Lock("UpdateFunctionURLConfig")
+	defer b.mu.Unlock()
+
+	cfg, ok := b.functionURLConfigs[functionName]
+	if !ok {
+		return nil, ErrFunctionURLNotFound
+	}
+
+	if authType != "" {
+		cfg.AuthType = authType
+	}
+
+	cfg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	b.functionURLConfigs[functionName] = cfg
+
+	return cfg, nil
+}
+
+// ListFunctionURLConfigs returns all function URL configs.
+func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
+	b.mu.RLock("ListFunctionURLConfigs")
+	defer b.mu.RUnlock()
+
+	cfgs := make([]*FunctionURLConfig, 0, len(b.functionURLConfigs))
+	for _, cfg := range b.functionURLConfigs {
+		cfgs = append(cfgs, cfg)
+	}
+
+	sort.Slice(cfgs, func(i, j int) bool {
+		return cfgs[i].FunctionArn < cfgs[j].FunctionArn
+	})
+
+	return cfgs
+}
+
+// UpdateEventSourceMapping updates an existing event source mapping.
+func (b *InMemoryBackend) UpdateEventSourceMapping(
+	id string,
+	input *UpdateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
+	b.mu.Lock("UpdateEventSourceMapping")
+	defer b.mu.Unlock()
+
+	esm, ok := b.eventSourceMappings[id]
+	if !ok {
+		return nil, ErrESMNotFound
+	}
+
+	if input.Enabled != nil {
+		if *input.Enabled {
+			esm.State = ESMStateEnabled
+		} else {
+			esm.State = ESMStateDisabled
+		}
+	}
+
+	if input.BatchSize > 0 {
+		esm.BatchSize = input.BatchSize
+	}
+
+	return esm, nil
+}
+
+// GetRuntimeManagementConfig returns the runtime management config for a function.
+func (b *InMemoryBackend) GetRuntimeManagementConfig(name string) (*RuntimeManagementConfig, error) {
+	b.mu.RLock("GetRuntimeManagementConfig")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	cfg, ok := b.runtimeManagementConfigs[name]
+	if !ok {
+		return &RuntimeManagementConfig{UpdateRuntimeOn: "Auto", FunctionArn: fn.FunctionArn}, nil
+	}
+
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
+
+	return &out, nil
+}
+
+// PutRuntimeManagementConfig sets the runtime management config for a function.
+func (b *InMemoryBackend) PutRuntimeManagementConfig(
+	name string,
+	input *PutRuntimeManagementConfigInput,
+) (*RuntimeManagementConfig, error) {
+	b.mu.Lock("PutRuntimeManagementConfig")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if input.UpdateRuntimeOn == "" {
+		return nil, ErrInvalidParameterValue
+	}
+
+	cfg := &RuntimeManagementConfig{
+		UpdateRuntimeOn:   input.UpdateRuntimeOn,
+		RuntimeVersionArn: input.RuntimeVersionArn,
+	}
+	b.runtimeManagementConfigs[name] = cfg
+
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
+
+	return &out, nil
+}
+
+// GetFunctionRecursionConfig returns the recursion config for a function.
+func (b *InMemoryBackend) GetFunctionRecursionConfig(name string) (*FunctionRecursionConfig, error) {
+	b.mu.RLock("GetFunctionRecursionConfig")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	cfg, ok := b.functionRecursionConfigs[name]
+	if !ok {
+		return &FunctionRecursionConfig{RecursiveLoop: "Terminate"}, nil
+	}
+
+	return cfg, nil
+}
+
+// PutFunctionRecursionConfig sets the recursion config for a function.
+func (b *InMemoryBackend) PutFunctionRecursionConfig(
+	name string,
+	input *PutFunctionRecursionConfigInput,
+) (*FunctionRecursionConfig, error) {
+	b.mu.Lock("PutFunctionRecursionConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if input.RecursiveLoop == "" {
+		return nil, ErrInvalidParameterValue
+	}
+
+	cfg := &FunctionRecursionConfig{RecursiveLoop: input.RecursiveLoop}
+	b.functionRecursionConfigs[name] = cfg
+
+	return cfg, nil
+}
+
+// GetFunctionScalingConfig returns the scaling config for a function.
+func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*FunctionScalingConfig, error) {
+	b.mu.RLock("GetFunctionScalingConfig")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	cfg, ok := b.functionScalingConfigs[name]
+	if !ok {
+		return &FunctionScalingConfig{FunctionArn: fn.FunctionArn}, nil
+	}
+
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
+
+	return &out, nil
+}
+
+// PutFunctionScalingConfig sets the scaling config for a function.
+func (b *InMemoryBackend) PutFunctionScalingConfig(
+	name string,
+	input *PutFunctionScalingConfigInput,
+) (*FunctionScalingConfig, error) {
+	b.mu.Lock("PutFunctionScalingConfig")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	cfg := &FunctionScalingConfig{MaximumConcurrency: input.MaximumConcurrency}
+	b.functionScalingConfigs[name] = cfg
+
+	out := *cfg
+	out.FunctionArn = fn.FunctionArn
+
+	return &out, nil
+}
+
+// GetLayerVersionByArn retrieves a layer version by its full ARN.
+func (b *InMemoryBackend) GetLayerVersionByArn(layerVersionARN string) (*GetLayerVersionOutput, error) {
+	layerName, version := parseLayerARN(layerVersionARN)
+	if layerName == "" || version == 0 {
+		return nil, ErrLayerVersionNotFound
+	}
+
+	return b.GetLayerVersion(layerName, version)
 }
