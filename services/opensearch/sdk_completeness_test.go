@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
 	h := opensearch.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &opensearchsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AcceptInboundConnection",
-		"AddDataSource",
-		"AddDirectQueryDataSource",
-		"AddTags",
-		"AssociatePackage",
-		"AssociatePackages",
-		"AuthorizeVpcEndpointAccess",
-		"CancelDomainConfigChange",
-		"CancelServiceSoftwareUpdate",
-		"CreateApplication",
 		"CreateIndex",
 		"CreateOutboundConnection",
 		"CreatePackage",
