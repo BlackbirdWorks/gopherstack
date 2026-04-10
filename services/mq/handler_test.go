@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -1043,4 +1044,447 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		})
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
+}
+
+// doMQRequest performs an HTTP request with an MQ-signed Authorization header.
+func doMQRequest(t *testing.T, h *mq.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+
+	var reqBody *bytes.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		require.NoError(t, err)
+		reqBody = bytes.NewReader(b)
+	} else {
+		reqBody = bytes.NewReader(nil)
+	}
+
+	req := httptest.NewRequest(method, path, reqBody)
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestMQ_DeleteConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		preCreate  bool
+	}{
+		{
+			name:       "delete_existing",
+			preCreate:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete_nonexistent",
+			preCreate:  false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			configID := "nonexistent-config-id"
+
+			if tt.preCreate {
+				rec := doMQRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
+					"name":       "delete-me-config",
+					"engineType": "ACTIVEMQ",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				configID = createResp["id"].(string)
+			}
+
+			rec := doMQRequest(t, h, http.MethodDelete, "/v1/configurations/"+configID, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.preCreate {
+				// Verify it's gone.
+				rec = doMQRequest(t, h, http.MethodGet, "/v1/configurations/"+configID, nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			}
+		})
+	}
+}
+
+func TestMQ_DescribeBrokerEngineTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		engineType     string
+		wantEngineType string
+		wantMinCount   int
+	}{
+		{
+			name:         "all_engine_types",
+			engineType:   "",
+			wantMinCount: 2,
+		},
+		{
+			name:           "activemq_only",
+			engineType:     "ACTIVEMQ",
+			wantMinCount:   1,
+			wantEngineType: "ACTIVEMQ",
+		},
+		{
+			name:           "rabbitmq_only",
+			engineType:     "RABBITMQ",
+			wantMinCount:   1,
+			wantEngineType: "RABBITMQ",
+		},
+		{
+			name:         "unknown_engine_type",
+			engineType:   "UNKNOWN",
+			wantMinCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			path := "/v1/broker-engine-types"
+
+			if tt.engineType != "" {
+				path += "?engineType=" + tt.engineType
+			}
+
+			rec := doMQRequest(t, h, http.MethodGet, path, nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			types, ok := resp["brokerEngineTypes"].([]any)
+			require.True(t, ok)
+			assert.GreaterOrEqual(t, len(types), tt.wantMinCount)
+
+			if tt.wantEngineType != "" && len(types) > 0 {
+				first := types[0].(map[string]any)
+				assert.Equal(t, tt.wantEngineType, first["engineType"])
+			}
+		})
+	}
+}
+
+func TestMQ_DescribeBrokerInstanceOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		engineType       string
+		hostInstanceType string
+		storageType      string
+		wantMinCount     int
+	}{
+		{
+			name:         "all_options",
+			wantMinCount: 1,
+		},
+		{
+			name:         "activemq_only",
+			engineType:   "ACTIVEMQ",
+			wantMinCount: 1,
+		},
+		{
+			name:             "specific_instance_type",
+			engineType:       "ACTIVEMQ",
+			hostInstanceType: "mq.m5.large",
+			wantMinCount:     1,
+		},
+		{
+			name:         "ebs_storage_type",
+			storageType:  "ebs",
+			wantMinCount: 1,
+		},
+		{
+			name:         "unknown_engine_type",
+			engineType:   "UNKNOWN",
+			wantMinCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			path := "/v1/broker-instance-options"
+			params := []string{}
+
+			if tt.engineType != "" {
+				params = append(params, "engineType="+tt.engineType)
+			}
+
+			if tt.hostInstanceType != "" {
+				params = append(params, "hostInstanceType="+tt.hostInstanceType)
+			}
+
+			if tt.storageType != "" {
+				params = append(params, "storageType="+tt.storageType)
+			}
+
+			if len(params) > 0 {
+				path += "?" + strings.Join(params, "&")
+			}
+
+			rec := doMQRequest(t, h, http.MethodGet, path, nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			opts, ok := resp["brokerInstanceOptions"].([]any)
+			require.True(t, ok)
+			assert.GreaterOrEqual(t, len(opts), tt.wantMinCount)
+		})
+	}
+}
+
+func TestMQ_DescribeConfigurationRevision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		revision   string
+		wantStatus int
+	}{
+		{
+			name:       "valid_revision_1",
+			revision:   "1",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "nonexistent_revision",
+			revision:   "99",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "invalid_revision_format",
+			revision:   "not-a-number",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create configuration.
+			rec := doMQRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
+				"name":        "revision-test-config",
+				"engineType":  "ACTIVEMQ",
+				"description": "initial",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			configID := createResp["id"].(string)
+
+			rec = doMQRequest(t, h, http.MethodGet, "/v1/configurations/"+configID+"/revisions/"+tt.revision, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, configID, resp["configurationId"])
+				assert.NotNil(t, resp["revision"])
+			}
+		})
+	}
+}
+
+func TestMQ_DescribeConfigurationRevision_NotFoundConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doMQRequest(t, h, http.MethodGet, "/v1/configurations/nonexistent-id/revisions/1", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestMQ_ListConfigurationRevisions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		configID    string
+		numUpdates  int
+		wantRevs    int
+		wantStatus  int
+		usePrebuilt bool
+	}{
+		{
+			name:       "initial_revision",
+			numUpdates: 0,
+			wantRevs:   1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "after_two_updates",
+			numUpdates: 2,
+			wantRevs:   3,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "config_not_found",
+			wantStatus:  http.StatusNotFound,
+			configID:    "nonexistent-config",
+			usePrebuilt: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			configID := tt.configID
+			if !tt.usePrebuilt {
+				rec := doMQRequest(t, h, http.MethodPost, "/v1/configurations", map[string]any{
+					"name":       "revisions-test-config",
+					"engineType": "ACTIVEMQ",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				configID = createResp["id"].(string)
+
+				for range tt.numUpdates {
+					rec = doMQRequest(t, h, http.MethodPut, "/v1/configurations/"+configID, map[string]any{
+						"description": "updated",
+						"data":        "<broker></broker>",
+					})
+					require.Equal(t, http.StatusOK, rec.Code)
+				}
+			}
+
+			rec := doMQRequest(t, h, http.MethodGet, "/v1/configurations/"+configID+"/revisions", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				revs, ok := resp["revisions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, revs, tt.wantRevs)
+			}
+		})
+	}
+}
+
+func TestMQ_Promote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		mode       string
+		wantStatus int
+		preCreate  bool
+	}{
+		{
+			name:       "promote_failover",
+			mode:       "FAILOVER",
+			preCreate:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "promote_switchover",
+			mode:       "SWITCHOVER",
+			preCreate:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "promote_nonexistent_broker",
+			mode:       "FAILOVER",
+			preCreate:  false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			brokerID := "nonexistent-broker"
+			if tt.preCreate {
+				rec := doRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
+					"brokerName": "promotable-broker",
+					"engineType": "ACTIVEMQ",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var createResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				brokerID = createResp["brokerId"]
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/promote", map[string]any{
+				"mode": tt.mode,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, brokerID, resp["brokerId"])
+			}
+		})
+	}
+}
+
+func TestMQ_Promote_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create broker.
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
+		"brokerName": "promote-invalid-body-broker",
+		"engineType": "ACTIVEMQ",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	brokerID := createResp["brokerId"]
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/brokers/"+brokerID+"/promote", bytes.NewReader([]byte("not-json")))
+	req.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	c := e.NewContext(req, rec2)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }

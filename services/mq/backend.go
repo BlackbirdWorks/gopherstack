@@ -616,6 +616,199 @@ func (b *InMemoryBackend) copyConfiguration(c *Configuration) *Configuration {
 	return &cp
 }
 
+// DeleteConfiguration removes a configuration by ID.
+func (b *InMemoryBackend) DeleteConfiguration(configID string) error {
+	b.mu.Lock("DeleteConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.configurations[configID]; !ok {
+		return fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
+	}
+
+	cfg := b.configurations[configID]
+	delete(b.configurations, configID)
+	delete(b.tags, cfg.Arn)
+
+	return nil
+}
+
+// DescribeConfigurationRevision returns a specific revision of a configuration.
+func (b *InMemoryBackend) DescribeConfigurationRevision(
+	configID string,
+	revision int32,
+) (*ConfigurationRevision, string, error) {
+	b.mu.RLock("DescribeConfigurationRevision")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.configurations[configID]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
+	}
+
+	for _, rev := range cfg.Revisions {
+		if rev.Revision == revision {
+			cp := rev
+			data := cfg.Data[revision]
+
+			return &cp, data, nil
+		}
+	}
+
+	return nil, "", fmt.Errorf("%w: revision %d not found for configuration %s", ErrNotFound, revision, configID)
+}
+
+// ListConfigurationRevisions returns all revisions for a configuration.
+func (b *InMemoryBackend) ListConfigurationRevisions(configID string) ([]ConfigurationRevision, error) {
+	b.mu.RLock("ListConfigurationRevisions")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.configurations[configID]
+	if !ok {
+		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
+	}
+
+	revisions := make([]ConfigurationRevision, len(cfg.Revisions))
+	copy(revisions, cfg.Revisions)
+
+	return revisions, nil
+}
+
+// EngineVersion holds a single engine version entry.
+type EngineVersion struct {
+	Name string `json:"name"`
+}
+
+// BrokerEngineType describes an engine type and its available versions.
+type BrokerEngineType struct {
+	EngineType     string          `json:"engineType"`
+	EngineVersions []EngineVersion `json:"engineVersions"`
+}
+
+// DescribeBrokerEngineTypes returns supported broker engine types and versions.
+// If engineType is non-empty, the result is filtered to that engine type.
+func (b *InMemoryBackend) DescribeBrokerEngineTypes(engineType string) []BrokerEngineType {
+	all := []BrokerEngineType{
+		{
+			EngineType: EngineTypeActiveMQ,
+			EngineVersions: []EngineVersion{
+				{Name: "5.18.3"},
+				{Name: "5.17.6"},
+				{Name: "5.16.7"},
+				{Name: "5.15.16"},
+			},
+		},
+		{
+			EngineType: EngineTypeRabbitMQ,
+			EngineVersions: []EngineVersion{
+				{Name: "3.13.2"},
+				{Name: "3.12.13"},
+				{Name: "3.11.28"},
+				{Name: "3.10.25"},
+			},
+		},
+	}
+
+	if engineType == "" {
+		return all
+	}
+
+	for _, et := range all {
+		if et.EngineType == engineType {
+			return []BrokerEngineType{et}
+		}
+	}
+
+	return []BrokerEngineType{}
+}
+
+// AvailabilityZone describes a single availability zone.
+type AvailabilityZone struct {
+	Name string `json:"name"`
+}
+
+// BrokerInstanceOption describes a broker host instance type and its options.
+type BrokerInstanceOption struct {
+	EngineType               string             `json:"engineType"`
+	HostInstanceType         string             `json:"hostInstanceType"`
+	StorageType              string             `json:"storageType"`
+	AvailabilityZones        []AvailabilityZone `json:"availabilityZones"`
+	SupportedEngineVersions  []string           `json:"supportedEngineVersions"`
+	SupportedDeploymentModes []string           `json:"supportedDeploymentModes"`
+}
+
+// DescribeBrokerInstanceOptions returns broker instance options.
+// Filters are optional; empty string means no filter applied.
+func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
+	engineType, hostInstanceType, storageType string,
+) []BrokerInstanceOption {
+	zones := []AvailabilityZone{
+		{Name: b.region + "a"},
+		{Name: b.region + "b"},
+		{Name: b.region + "c"},
+	}
+
+	all := []BrokerInstanceOption{
+		{
+			EngineType:               EngineTypeActiveMQ,
+			HostInstanceType:         "mq.m5.large",
+			StorageType:              "efs",
+			AvailabilityZones:        zones,
+			SupportedDeploymentModes: []string{"SINGLE_INSTANCE", "ACTIVE_STANDBY_MULTI_AZ"},
+			SupportedEngineVersions:  []string{"5.18.3", "5.17.6", "5.16.7", "5.15.16"},
+		},
+		{
+			EngineType:               EngineTypeActiveMQ,
+			HostInstanceType:         "mq.m5.xlarge",
+			StorageType:              "efs",
+			AvailabilityZones:        zones,
+			SupportedDeploymentModes: []string{"SINGLE_INSTANCE", "ACTIVE_STANDBY_MULTI_AZ"},
+			SupportedEngineVersions:  []string{"5.18.3", "5.17.6", "5.16.7", "5.15.16"},
+		},
+		{
+			EngineType:               EngineTypeRabbitMQ,
+			HostInstanceType:         "mq.m5.large",
+			StorageType:              "ebs",
+			AvailabilityZones:        zones,
+			SupportedDeploymentModes: []string{"SINGLE_INSTANCE", "CLUSTER_MULTI_AZ"},
+			SupportedEngineVersions:  []string{"3.13.2", "3.12.13", "3.11.28", "3.10.25"},
+		},
+	}
+
+	result := make([]BrokerInstanceOption, 0, len(all))
+
+	for _, opt := range all {
+		if engineType != "" && opt.EngineType != engineType {
+			continue
+		}
+
+		if hostInstanceType != "" && opt.HostInstanceType != hostInstanceType {
+			continue
+		}
+
+		if storageType != "" && opt.StorageType != storageType {
+			continue
+		}
+
+		result = append(result, opt)
+	}
+
+	return result
+}
+
+// Promote promotes a standby broker to the primary role.
+// In the in-memory stub this is a no-op that validates the broker exists.
+func (b *InMemoryBackend) Promote(brokerID, _ string) (*Broker, error) {
+	b.mu.Lock("Promote")
+	defer b.mu.Unlock()
+
+	br := b.lookupBroker(brokerID)
+	if br == nil {
+		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
+	}
+
+	return b.copyBroker(br), nil
+}
+
 // --- Tag operations ---
 
 // ListTags returns tags for a resource ARN.
