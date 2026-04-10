@@ -734,14 +734,9 @@ func (b *InMemoryBackend) AddSourceIdentifierToSubscription(name, sourceID strin
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrSubscriptionNotFound, name)
 	}
-	if slices.Contains(sub.SourceIDs, sourceID) {
-		cp := *sub
-		cp.SourceIDs = make([]string, len(sub.SourceIDs))
-		copy(cp.SourceIDs, sub.SourceIDs)
-
-		return &cp, nil
+	if !slices.Contains(sub.SourceIDs, sourceID) {
+		sub.SourceIDs = append(sub.SourceIDs, sourceID)
 	}
-	sub.SourceIDs = append(sub.SourceIDs, sourceID)
 	cp := *sub
 	cp.SourceIDs = make([]string, len(sub.SourceIDs))
 	copy(cp.SourceIDs, sub.SourceIDs)

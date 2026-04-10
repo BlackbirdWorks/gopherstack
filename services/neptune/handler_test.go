@@ -1326,6 +1326,7 @@ func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(*neptune.Handler)
 		vals         url.Values
 		name         string
 		wantContains string
@@ -1333,6 +1334,14 @@ func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
 	}{
 		{
 			name: "add_source_id_success",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":           {"CreateEventSubscription"},
+					"Version":          {"2014-10-31"},
+					"SubscriptionName": {"src-sub"},
+					"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:events"},
+				})
+			},
 			vals: url.Values{
 				"Action":           {"AddSourceIdentifierToSubscription"},
 				"Version":          {"2014-10-31"},
@@ -1355,6 +1364,14 @@ func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
 		},
 		{
 			name: "add_source_id_missing_source",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":           {"CreateEventSubscription"},
+					"Version":          {"2014-10-31"},
+					"SubscriptionName": {"src-sub"},
+					"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:events"},
+				})
+			},
 			vals: url.Values{
 				"Action":           {"AddSourceIdentifierToSubscription"},
 				"Version":          {"2014-10-31"},
@@ -1365,17 +1382,13 @@ func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
-	doRequest(t, h, url.Values{
-		"Action":           {"CreateEventSubscription"},
-		"Version":          {"2014-10-31"},
-		"SubscriptionName": {"src-sub"},
-		"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:events"},
-	})
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
@@ -1432,6 +1445,7 @@ func TestHandler_NewOps_CopyDBClusterParameterGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(*neptune.Handler)
 		vals         url.Values
 		name         string
 		wantContains string
@@ -1439,6 +1453,15 @@ func TestHandler_NewOps_CopyDBClusterParameterGroup(t *testing.T) {
 	}{
 		{
 			name: "copy_pg_success",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":                      {"CreateDBClusterParameterGroup"},
+					"Version":                     {"2014-10-31"},
+					"DBClusterParameterGroupName": {"src-pg"},
+					"DBParameterGroupFamily":      {"neptune1.3"},
+					"Description":                 {"source group"},
+				})
+			},
 			vals: url.Values{
 				"Action":  {"CopyDBClusterParameterGroup"},
 				"Version": {"2014-10-31"},
@@ -1462,18 +1485,13 @@ func TestHandler_NewOps_CopyDBClusterParameterGroup(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
-	doRequest(t, h, url.Values{
-		"Action":                      {"CreateDBClusterParameterGroup"},
-		"Version":                     {"2014-10-31"},
-		"DBClusterParameterGroupName": {"src-pg"},
-		"DBParameterGroupFamily":      {"neptune1.3"},
-		"Description":                 {"source group"},
-	})
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
@@ -1485,6 +1503,7 @@ func TestHandler_NewOps_CopyDBClusterSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(*neptune.Handler)
 		vals         url.Values
 		name         string
 		wantContains string
@@ -1492,6 +1511,15 @@ func TestHandler_NewOps_CopyDBClusterSnapshot(t *testing.T) {
 	}{
 		{
 			name: "copy_snapshot_success",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "snap-copy-cluster")
+				doRequest(t, h, url.Values{
+					"Action":                      {"CreateDBClusterSnapshot"},
+					"Version":                     {"2014-10-31"},
+					"DBClusterSnapshotIdentifier": {"src-snap"},
+					"DBClusterIdentifier":         {"snap-copy-cluster"},
+				})
+			},
 			vals: url.Values{
 				"Action":                            {"CopyDBClusterSnapshot"},
 				"Version":                           {"2014-10-31"},
@@ -1514,18 +1542,13 @@ func TestHandler_NewOps_CopyDBClusterSnapshot(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
-	createCluster(t, h, "snap-copy-cluster")
-	doRequest(t, h, url.Values{
-		"Action":                      {"CreateDBClusterSnapshot"},
-		"Version":                     {"2014-10-31"},
-		"DBClusterSnapshotIdentifier": {"src-snap"},
-		"DBClusterIdentifier":         {"snap-copy-cluster"},
-	})
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
@@ -1581,6 +1604,7 @@ func TestHandler_NewOps_CopyDBParameterGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(*neptune.Handler)
 		vals         url.Values
 		name         string
 		wantContains string
@@ -1588,6 +1612,15 @@ func TestHandler_NewOps_CopyDBParameterGroup(t *testing.T) {
 	}{
 		{
 			name: "copy_pg_success",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":                 {"CreateDBParameterGroup"},
+					"Version":                {"2014-10-31"},
+					"DBParameterGroupName":   {"src-param-group"},
+					"DBParameterGroupFamily": {"neptune1.3"},
+					"Description":            {"source param group"},
+				})
+			},
 			vals: url.Values{
 				"Action":                            {"CopyDBParameterGroup"},
 				"Version":                           {"2014-10-31"},
@@ -1611,18 +1644,13 @@ func TestHandler_NewOps_CopyDBParameterGroup(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
-	doRequest(t, h, url.Values{
-		"Action":                 {"CreateDBParameterGroup"},
-		"Version":                {"2014-10-31"},
-		"DBParameterGroupName":   {"src-param-group"},
-		"DBParameterGroupFamily": {"neptune1.3"},
-		"Description":            {"source param group"},
-	})
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
