@@ -177,7 +177,7 @@ func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error)
 }
 
 // dispatchReadOnlyNewOps handles newer operations that do not require a request body.
-// This includes both read operations and DELETE operations where no body is needed.
+// These are the operations added after the initial implementation.
 func (h *Handler) dispatchReadOnlyNewOps(c *echo.Context, route mcRoute) (bool, error) {
 	switch route.operation {
 	case "ListPresets":
