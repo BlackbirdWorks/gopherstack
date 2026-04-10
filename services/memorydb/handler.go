@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,14 +70,21 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeMultiRegionClusters",
 		"DescribeMultiRegionParameterGroups",
 		"DescribeParameterGroups",
+		"DescribeParameters",
+		"DescribeServiceUpdates",
 		"DescribeSnapshots",
 		"DescribeSubnetGroups",
 		"DescribeUsers",
+		"FailoverShard",
+		"ListAllowedMultiRegionClusterUpdates",
+		"ListAllowedNodeTypeUpdates",
 		"ListTags",
+		"ResetParameterGroup",
 		"TagResource",
 		"UntagResource",
 		"UpdateACL",
 		"UpdateCluster",
+		"UpdateMultiRegionCluster",
 		"UpdateParameterGroup",
 		"UpdateSubnetGroup",
 		"UpdateUser",
@@ -274,6 +282,20 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 		return true, h.handleDescribeMultiRegionParameterGroups(c, body)
 	case "BatchUpdateCluster":
 		return true, h.handleBatchUpdateCluster(c, body)
+	case "DescribeParameters":
+		return true, h.handleDescribeParameters(c, body)
+	case "ResetParameterGroup":
+		return true, h.handleResetParameterGroup(c, body)
+	case "FailoverShard":
+		return true, h.handleFailoverShard(c, body)
+	case "ListAllowedNodeTypeUpdates":
+		return true, h.handleListAllowedNodeTypeUpdates(c, body)
+	case "ListAllowedMultiRegionClusterUpdates":
+		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
+	case "UpdateMultiRegionCluster":
+		return true, h.handleUpdateMultiRegionCluster(c, body)
+	case "DescribeServiceUpdates":
+		return true, h.handleDescribeServiceUpdates(c, body)
 	}
 
 	return false, nil
@@ -840,7 +862,7 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName)
+	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1047,6 +1069,136 @@ func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
 		ProcessedClusters:   processedObjs,
 		UnprocessedClusters: unprocessedObjs,
 	})
+}
+
+// -- New handler functions (refinement check 2) ----------------------------------
+
+func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
+	var req describeParametersRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	params, err := h.Backend.DescribeParameters(req.ParameterGroupName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]parameterObject, 0, len(params))
+
+	for k, v := range params {
+		objs = append(objs, parameterObject{
+			Name:     k,
+			Value:    v,
+			DataType: "string",
+		})
+	}
+
+	sort.Slice(objs, func(i, j int) bool { return objs[i].Name < objs[j].Name })
+
+	return c.JSON(http.StatusOK, describeParametersResponse{Parameters: objs})
+}
+
+func (h *Handler) handleResetParameterGroup(c *echo.Context, body []byte) error {
+	var req resetParameterGroupRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, resetParameterGroupResponse{ParameterGroup: toParameterGroupObject(pg)})
+}
+
+func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
+	var req failoverShardRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.ClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
+	}
+
+	cl, err := h.Backend.FailoverShard(req.ClusterName, req.ShardConfiguration)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, failoverShardResponse{Cluster: toClusterObject(cl)})
+}
+
+func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte) error {
+	var req listAllowedNodeTypeUpdatesRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.ClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
+	}
+
+	nodeTypes, err := h.Backend.ListAllowedNodeTypeUpdates(req.ClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listAllowedNodeTypeUpdatesResponse{
+		ScaleUpNodeTypes:   nodeTypes,
+		ScaleDownNodeTypes: nodeTypes,
+	})
+}
+
+func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, body []byte) error {
+	var req listAllowedMultiRegionClusterUpdatesRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.MultiRegionClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "MultiRegionClusterName is required")
+	}
+
+	nodeTypes, err := h.Backend.ListAllowedMultiRegionClusterUpdates(req.MultiRegionClusterName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listAllowedMultiRegionClusterUpdatesResponse{
+		ScaleUpNodeTypes:   nodeTypes,
+		ScaleDownNodeTypes: nodeTypes,
+	})
+}
+
+func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) error {
+	var req updateMultiRegionClusterRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.MultiRegionClusterName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "MultiRegionClusterName is required")
+	}
+
+	mrc, err := h.Backend.UpdateMultiRegionCluster(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+}
+
+func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, _ []byte) error {
+	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: []serviceUpdateObject{}})
 }
 
 // -- helpers ---------------------------------------------------------------------

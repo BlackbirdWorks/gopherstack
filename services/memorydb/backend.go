@@ -284,6 +284,16 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		return nil, ErrClusterAlreadyExists
 	}
 
+	// Validate that the requested ACL exists (if not the default).
+	aclName := req.ACLName
+	if aclName == "" {
+		aclName = openAccessACL
+	}
+
+	if _, ok := b.acls[aclName]; !ok {
+		return nil, fmt.Errorf("ACL %q not found: %w", aclName, ErrACLNotFound)
+	}
+
 	engineVersion := req.EngineVersion
 	if engineVersion == "" {
 		engineVersion = defaultEngineVersion
@@ -315,11 +325,6 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	}
 
 	clusterARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("cluster/%s", req.ClusterName))
-
-	aclName := req.ACLName
-	if aclName == "" {
-		aclName = openAccessACL
-	}
 
 	c := &Cluster{
 		Name:                req.ClusterName,
@@ -1401,13 +1406,13 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(name string) ([]*Mu
 			return nil, ErrMultiRegionParameterGroupNotFound
 		}
 
-		return []*MultiRegionParameterGroup{mrpg}, nil
+		return []*MultiRegionParameterGroup{cloneMultiRegionParameterGroup(mrpg)}, nil
 	}
 
 	result := make([]*MultiRegionParameterGroup, 0, len(b.multiRegionParameterGroups))
 
 	for _, mrpg := range b.multiRegionParameterGroups {
-		result = append(result, mrpg)
+		result = append(result, cloneMultiRegionParameterGroup(mrpg))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1417,7 +1422,93 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(name string) ([]*Mu
 	return result, nil
 }
 
-// -- BatchUpdateCluster operation -----------------------------------------------
+// -- ParameterGroup parameter operations -----------------------------------------
+
+// DescribeParameters returns the parameters map for a given parameter group.
+func (b *InMemoryBackend) DescribeParameters(parameterGroupName string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if parameterGroupName == "" {
+		return nil, fmt.Errorf("parameter group name is required: %w", ErrValidation)
+	}
+
+	pg, ok := b.parameterGroups[parameterGroupName]
+	if !ok {
+		return nil, ErrParameterGroupNotFound
+	}
+
+	return maps.Clone(pg.Parameters), nil
+}
+
+// ResetParameterGroup resets all parameters in a parameter group to their default (empty) values.
+func (b *InMemoryBackend) ResetParameterGroup(name string) (*ParameterGroup, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	pg, ok := b.parameterGroups[name]
+	if !ok {
+		return nil, ErrParameterGroupNotFound
+	}
+
+	pg.Parameters = make(map[string]string)
+
+	return cloneParameterGroup(pg), nil
+}
+
+// -- Shard operations -----------------------------------------------------------
+
+// FailoverShard simulates a shard failover for a cluster, returning the cluster state.
+func (b *InMemoryBackend) FailoverShard(clusterName, _ string) (*Cluster, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters[clusterName]
+	if !ok {
+		return nil, ErrClusterNotFound
+	}
+
+	return cloneCluster(c), nil
+}
+
+// -- Node type update operations ------------------------------------------------
+
+// defaultNodeTypes lists the node types available for upgrade/downgrade.
+var defaultNodeTypes = []string{
+	"db.r6g.large",
+	"db.r6g.xlarge",
+	"db.r6g.2xlarge",
+	"db.r6g.4xlarge",
+	"db.r6gd.xlarge",
+	"db.t4g.small",
+	"db.t4g.medium",
+}
+
+// ListAllowedNodeTypeUpdates returns the set of node types a cluster can be updated to.
+func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(clusterName string) ([]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterName]; !ok {
+		return nil, ErrClusterNotFound
+	}
+
+	return append([]string(nil), defaultNodeTypes...), nil
+}
+
+// ListAllowedMultiRegionClusterUpdates returns the set of node types a multi-region cluster can be updated to.
+func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(clusterName string) ([]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.multiRegionClusters[clusterName]; !ok {
+		return nil, ErrMultiRegionClusterNotFound
+	}
+
+	return append([]string(nil), defaultNodeTypes...), nil
+}
+
+
 
 // BatchUpdateCluster looks up each named cluster and returns a map of name→cluster
 // for all clusters that were found. Unknown names are omitted from the result.

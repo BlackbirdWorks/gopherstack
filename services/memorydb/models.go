@@ -687,3 +687,107 @@ type batchUpdateClusterResponse struct {
 
 // errorResponse is the standard JSON error response body.
 type errorResponse = service.JSONErrorResponse
+
+// -- DescribeParameters request/response types --------------------------------
+
+type describeParametersRequest struct {
+	ParameterGroupName string `json:"ParameterGroupName"`
+	MaxResults         *int32 `json:"MaxResults,omitempty"`
+	NextToken          string `json:"NextToken,omitempty"`
+}
+
+type parameterObject struct {
+	Name        string `json:"Name,omitempty"`
+	Value       string `json:"Value,omitempty"`
+	Description string `json:"Description,omitempty"`
+	DataType    string `json:"DataType,omitempty"`
+	AllowedValues string `json:"AllowedValues,omitempty"`
+}
+
+type describeParametersResponse struct {
+	NextToken  string            `json:"NextToken,omitempty"`
+	Parameters []parameterObject `json:"Parameters"`
+}
+
+// -- ResetParameterGroup request/response types ------------------------------
+
+type resetParameterGroupRequest struct {
+	ParameterGroupName string   `json:"ParameterGroupName"`
+	AllParameters      bool     `json:"AllParameters,omitempty"`
+	ParameterNames     []string `json:"ParameterNames,omitempty"`
+}
+
+type resetParameterGroupResponse struct {
+	ParameterGroup parameterGroupObject `json:"ParameterGroup"`
+}
+
+// -- FailoverShard request/response types ------------------------------------
+
+type failoverShardRequest struct {
+	ClusterName string `json:"ClusterName"`
+	ShardConfiguration string `json:"ShardConfiguration,omitempty"`
+}
+
+type failoverShardResponse struct {
+	Cluster clusterObject `json:"Cluster"`
+}
+
+// -- ListAllowedNodeTypeUpdates request/response types -----------------------
+
+type listAllowedNodeTypeUpdatesRequest struct {
+	ClusterName string `json:"ClusterName"`
+}
+
+type listAllowedNodeTypeUpdatesResponse struct {
+	ScaleUpNodeTypes   []string `json:"ScaleUpNodeTypes"`
+	ScaleDownNodeTypes []string `json:"ScaleDownNodeTypes"`
+}
+
+// -- ListAllowedMultiRegionClusterUpdates request/response types -------------
+
+type listAllowedMultiRegionClusterUpdatesRequest struct {
+	MultiRegionClusterName string `json:"MultiRegionClusterName"`
+}
+
+type listAllowedMultiRegionClusterUpdatesResponse struct {
+	ScaleUpNodeTypes   []string `json:"ScaleUpNodeTypes"`
+	ScaleDownNodeTypes []string `json:"ScaleDownNodeTypes"`
+}
+
+// -- UpdateMultiRegionCluster request/response types -------------------------
+
+type updateMultiRegionClusterRequest struct {
+	MultiRegionClusterName        string `json:"MultiRegionClusterName"`
+	Description                   string `json:"Description,omitempty"`
+	NodeType                      string `json:"NodeType,omitempty"`
+	EngineVersion                 string `json:"EngineVersion,omitempty"`
+	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName,omitempty"`
+}
+
+type updateMultiRegionClusterResponse struct {
+	MultiRegionCluster multiRegionClusterObject `json:"MultiRegionCluster"`
+}
+
+// -- DescribeServiceUpdates request/response types ---------------------------
+
+type describeServiceUpdatesRequest struct {
+	MaxResults          *int32   `json:"MaxResults,omitempty"`
+	ServiceUpdateName   string   `json:"ServiceUpdateName,omitempty"`
+	NextToken           string   `json:"NextToken,omitempty"`
+	Status              []string `json:"Status,omitempty"`
+	ClusterNames        []string `json:"ClusterNames,omitempty"`
+}
+
+type serviceUpdateObject struct {
+	ServiceUpdateName   string `json:"ServiceUpdateName,omitempty"`
+	ReleaseDate         string `json:"ReleaseDate,omitempty"`
+	Description         string `json:"Description,omitempty"`
+	Status              string `json:"Status,omitempty"`
+	Type                string `json:"Type,omitempty"`
+	AutoUpdateStartDate string `json:"AutoUpdateStartDate,omitempty"`
+}
+
+type describeServiceUpdatesResponse struct {
+	NextToken      string                `json:"NextToken,omitempty"`
+	ServiceUpdates []serviceUpdateObject `json:"ServiceUpdates"`
+}
