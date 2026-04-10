@@ -42,6 +42,8 @@ var (
 	ErrInvitationNotFound = awserr.New("ResourceNotFoundException: invitation not found", awserr.ErrNotFound)
 	// ErrMissingMemberID is returned when the member ID is missing for a proposal.
 	ErrMissingMemberID = errors.New("MemberId is required for CreateProposal")
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("InvalidRequestException: validation error", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -61,6 +63,8 @@ const (
 	accessorDefaultType = "BILLING_TOKEN"
 	// proposalStatusInProgress is the status for an in-progress proposal.
 	proposalStatusInProgress = "IN_PROGRESS"
+	// proposalExpirationHours is the number of hours before a proposal expires.
+	proposalExpirationHours = 24
 	// invitationStatusPending is the status for a pending invitation.
 	invitationStatusPending = "PENDING"
 	// invitationStatusRejected is the status for a rejected invitation.
@@ -109,13 +113,16 @@ type InMemoryBackend struct {
 	networks      map[string]*Network
 	members       map[string]map[string]*Member          // networkID → memberID → Member
 	nodes         map[string]map[string]map[string]*Node // networkID → memberID → nodeID → Node
-	arnToResource map[string]any                         // ARN → *Network, *Member, or *Node
+	arnToResource map[string]any                         // ARN → *Network, *Member, *Node, or *Accessor
 	accessors     map[string]*Accessor                   // accessorID → Accessor
 	proposals     map[string]map[string]*Proposal        // networkID → proposalID → Proposal
 	proposalVotes map[string][]*ProposalVote             // proposalID → votes
 	invitations   map[string]*Invitation                 // invitationID → Invitation
 	mu            sync.RWMutex
 }
+
+// var _ assertion ensures InMemoryBackend implements StorageBackend at compile time.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new in-memory Managed Blockchain backend.
 func NewInMemoryBackend() *InMemoryBackend {
@@ -357,7 +364,7 @@ func (b *InMemoryBackend) ListMembers(networkID string) ([]*Member, error) {
 	return all, nil
 }
 
-// DeleteMember removes a member from a network.
+// DeleteMember removes a member from a network, cascading the delete to all of its nodes.
 func (b *InMemoryBackend) DeleteMember(networkID, memberID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -374,6 +381,15 @@ func (b *InMemoryBackend) DeleteMember(networkID, memberID string) error {
 	m := members[memberID]
 	delete(b.arnToResource, m.Arn)
 	delete(members, memberID)
+
+	// Cascade-delete all nodes that belong to this member.
+	if b.nodes[networkID] != nil {
+		for _, node := range b.nodes[networkID][memberID] {
+			delete(b.arnToResource, node.Arn)
+		}
+
+		delete(b.nodes[networkID], memberID)
+	}
 
 	return nil
 }
@@ -395,6 +411,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 		return result, nil
 	case *Member:
+		result := make(map[string]string, len(r.Tags))
+		maps.Copy(result, r.Tags)
+
+		return result, nil
+	case *Node:
+		result := make(map[string]string, len(r.Tags))
+		maps.Copy(result, r.Tags)
+
+		return result, nil
+	case *Accessor:
 		result := make(map[string]string, len(r.Tags))
 		maps.Copy(result, r.Tags)
 
@@ -431,6 +457,22 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		maps.Copy(r.Tags, tags)
 
 		return nil
+	case *Node:
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+
+		maps.Copy(r.Tags, tags)
+
+		return nil
+	case *Accessor:
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+
+		maps.Copy(r.Tags, tags)
+
+		return nil
 	}
 
 	return ErrResourceNotFound
@@ -454,6 +496,18 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 		return nil
 	case *Member:
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	case *Node:
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	case *Accessor:
 		for _, k := range tagKeys {
 			delete(r.Tags, k)
 		}
@@ -649,6 +703,7 @@ func (b *InMemoryBackend) CreateAccessor(
 	}
 
 	b.accessors[accessorID] = accessor
+	b.arnToResource[accessor.Arn] = accessor
 
 	return cloneAccessor(accessor), nil
 }
@@ -671,10 +726,12 @@ func (b *InMemoryBackend) DeleteAccessor(accessorID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.accessors[accessorID]; !ok {
+	accessor, ok := b.accessors[accessorID]
+	if !ok {
 		return ErrAccessorNotFound
 	}
 
+	delete(b.arnToResource, accessor.Arn)
 	delete(b.accessors, accessorID)
 
 	return nil
@@ -729,6 +786,7 @@ func (b *InMemoryBackend) CreateProposal(
 	}
 
 	now := time.Now().UTC()
+	expiry := now.Add(proposalExpirationHours * time.Hour)
 	proposalID := uuid.NewString()
 
 	t := make(map[string]string)
@@ -743,6 +801,7 @@ func (b *InMemoryBackend) CreateProposal(
 		Description:          description,
 		Status:               proposalStatusInProgress,
 		CreationDate:         &now,
+		ExpirationDate:       &expiry,
 		Tags:                 t,
 	}
 
@@ -890,4 +949,160 @@ func (b *InMemoryBackend) AddInvitationInternal(region, accountID, networkID, ne
 	b.invitations[invitationID] = inv
 
 	return cloneInvitation(inv)
+}
+
+// AddNetworkInternal adds a network directly to the backend (for testing and seeding).
+func (b *InMemoryBackend) AddNetworkInternal(region, accountID, name string) *Network {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	networkID := uuid.NewString()
+
+	network := &Network{
+		ID:               networkID,
+		Arn:              networkARN(region, accountID, networkID),
+		Name:             name,
+		Framework:        defaultFramework,
+		FrameworkVersion: defaultFrameworkVersion,
+		Status:           networkStatusAvailable,
+		CreationDate:     &now,
+		Tags:             make(map[string]string),
+	}
+
+	b.networks[networkID] = network
+	b.members[networkID] = make(map[string]*Member)
+	b.arnToResource[network.Arn] = network
+
+	return cloneNetwork(network)
+}
+
+// AddMemberInternal adds a member directly to the backend (for testing and seeding).
+// The network must already exist.
+func (b *InMemoryBackend) AddMemberInternal(region, accountID, networkID, name string) *Member {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	memberID := uuid.NewString()
+
+	member := &Member{
+		ID:           memberID,
+		Arn:          memberARN(region, accountID, memberID),
+		Name:         name,
+		NetworkID:    networkID,
+		Status:       memberStatusAvailable,
+		CreationDate: &now,
+		Tags:         make(map[string]string),
+	}
+
+	if b.members[networkID] == nil {
+		b.members[networkID] = make(map[string]*Member)
+	}
+
+	b.members[networkID][memberID] = member
+	b.arnToResource[member.Arn] = member
+
+	return cloneMember(member)
+}
+
+// AddNodeInternal adds a node directly to the backend (for testing and seeding).
+// The network and member must already exist.
+func (b *InMemoryBackend) AddNodeInternal(region, accountID, networkID, memberID, instanceType string) *Node {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	nodeID := uuid.NewString()
+
+	node := &Node{
+		ID:           nodeID,
+		Arn:          nodeARN(region, accountID, nodeID),
+		NetworkID:    networkID,
+		MemberID:     memberID,
+		InstanceType: instanceType,
+		Status:       nodeStatusAvailable,
+		CreationDate: &now,
+		Tags:         make(map[string]string),
+	}
+
+	if b.nodes[networkID] == nil {
+		b.nodes[networkID] = make(map[string]map[string]*Node)
+	}
+
+	if b.nodes[networkID][memberID] == nil {
+		b.nodes[networkID][memberID] = make(map[string]*Node)
+	}
+
+	b.nodes[networkID][memberID][nodeID] = node
+	b.arnToResource[node.Arn] = node
+
+	return cloneNode(node)
+}
+
+// AddAccessorInternal adds an accessor directly to the backend (for testing and seeding).
+func (b *InMemoryBackend) AddAccessorInternal(region, accountID, accessorType, networkType string) *Accessor {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	accessorID := uuid.NewString()
+	billingToken := uuid.NewString()
+
+	accessor := &Accessor{
+		ID:           accessorID,
+		Arn:          accessorARN(region, accountID, accessorID),
+		BillingToken: billingToken,
+		Type:         accessorType,
+		NetworkType:  networkType,
+		Status:       accessorStatusAvailable,
+		CreationDate: &now,
+		Tags:         make(map[string]string),
+	}
+
+	b.accessors[accessorID] = accessor
+	b.arnToResource[accessor.Arn] = accessor
+
+	return cloneAccessor(accessor)
+}
+
+// AddProposalInternal adds a proposal directly to the backend (for testing and seeding).
+// The network and member must already exist.
+func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memberID, description string) *Proposal {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	expiry := now.Add(proposalExpirationHours * time.Hour)
+	proposalID := uuid.NewString()
+
+	var memberName string
+
+	if members, ok := b.members[networkID]; ok {
+		if m, exists := members[memberID]; exists {
+			memberName = m.Name
+		}
+	}
+
+	proposal := &Proposal{
+		ProposalID:           proposalID,
+		Arn:                  proposalARN(region, accountID, networkID, proposalID),
+		NetworkID:            networkID,
+		ProposedByMemberID:   memberID,
+		ProposedByMemberName: memberName,
+		Description:          description,
+		Status:               proposalStatusInProgress,
+		CreationDate:         &now,
+		ExpirationDate:       &expiry,
+		Tags:                 make(map[string]string),
+	}
+
+	if b.proposals[networkID] == nil {
+		b.proposals[networkID] = make(map[string]*Proposal)
+	}
+
+	b.proposals[networkID][proposalID] = proposal
+	b.proposalVotes[proposalID] = []*ProposalVote{}
+
+	return cloneProposal(proposal)
 }

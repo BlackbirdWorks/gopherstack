@@ -75,6 +75,7 @@ type NodeSummary struct {
 
 // createNetworkRequest is the request body for POST /networks.
 type createNetworkRequest struct {
+	Tags                map[string]string   `json:"Tags"`
 	ClientRequestToken  string              `json:"ClientRequestToken"`
 	Description         string              `json:"Description"`
 	Framework           string              `json:"Framework"`
@@ -133,9 +134,17 @@ type listNetworksResponse struct {
 
 // createMemberRequest is the request body for POST /networks/{networkId}/members.
 type createMemberRequest struct {
+	Tags                map[string]string   `json:"Tags"`
 	ClientRequestToken  string              `json:"ClientRequestToken"`
 	InvitationID        string              `json:"InvitationId"`
 	MemberConfiguration memberConfiguration `json:"MemberConfiguration"`
+}
+
+// createNodeRequest is the request body for POST /networks/{networkId}/members/{memberId}/nodes.
+type createNodeRequest struct {
+	Tags               map[string]string `json:"Tags"`
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	NodeConfiguration  nodeConfiguration `json:"NodeConfiguration"`
 }
 
 // createMemberResponse is the response body for POST /networks/{networkId}/members.
@@ -195,12 +204,6 @@ type errorResponse struct {
 type nodeConfiguration struct {
 	AvailabilityZone string `json:"AvailabilityZone"`
 	InstanceType     string `json:"InstanceType"`
-}
-
-// createNodeRequest is the request body for POST /networks/{networkId}/members/{memberId}/nodes.
-type createNodeRequest struct {
-	ClientRequestToken string            `json:"ClientRequestToken"`
-	NodeConfiguration  nodeConfiguration `json:"NodeConfiguration"`
 }
 
 // createNodeResponse is the response body for POST /networks/{networkId}/members/{memberId}/nodes.

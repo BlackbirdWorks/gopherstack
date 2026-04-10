@@ -38,30 +38,30 @@ func (h *Handler) Name() string { return "ManagedBlockchain" }
 // GetSupportedOperations returns the list of supported Managed Blockchain operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateNetwork",
-		"GetNetwork",
-		"ListNetworks",
+		"CreateAccessor",
 		"CreateMember",
-		"GetMember",
-		"ListMembers",
-		"DeleteMember",
+		"CreateNetwork",
 		"CreateNode",
-		"GetNode",
-		"ListNodes",
+		"CreateProposal",
+		"DeleteAccessor",
+		"DeleteMember",
 		"DeleteNode",
+		"GetAccessor",
+		"GetMember",
+		"GetNetwork",
+		"GetNode",
+		"GetProposal",
+		"ListAccessors",
+		"ListInvitations",
+		"ListMembers",
+		"ListNetworks",
+		"ListNodes",
+		"ListProposalVotes",
+		"ListProposals",
+		"ListTagsForResource",
+		"RejectInvitation",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
-		"CreateAccessor",
-		"GetAccessor",
-		"DeleteAccessor",
-		"ListAccessors",
-		"CreateProposal",
-		"GetProposal",
-		"ListProposals",
-		"ListProposalVotes",
-		"ListInvitations",
-		"RejectInvitation",
 	}
 }
 
@@ -548,7 +548,7 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 		req.FrameworkVersion,
 		req.MemberConfiguration.Name,
 		req.MemberConfiguration.Description,
-		nil,
+		req.Tags,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -607,7 +607,7 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		networkID,
 		req.MemberConfiguration.Name,
 		req.MemberConfiguration.Description,
-		nil,
+		req.Tags,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -682,7 +682,7 @@ func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte
 		memberID,
 		req.NodeConfiguration.InstanceType,
 		req.NodeConfiguration.AvailabilityZone,
-		nil,
+		req.Tags,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -961,6 +961,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeError(c, http.StatusConflict, err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return writeError(c, http.StatusBadRequest, err.Error())
 	default:
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
