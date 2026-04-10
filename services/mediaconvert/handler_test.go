@@ -564,7 +564,7 @@ func TestMediaConvert_TagLeakOnDeleteQueue(t *testing.T) {
 
 			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
 
-			q, err := b.CreateQueue("my-queue", "", "", "")
+			q, err := b.CreateQueue("my-queue", "", "", "", nil)
 			require.NoError(t, err)
 
 			b.TagResource(q.Arn, map[string]string{"env": "test"})
@@ -593,7 +593,7 @@ func TestMediaConvert_TagLeakOnDeleteJobTemplate(t *testing.T) {
 
 			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
 
-			jt, err := b.CreateJobTemplate("my-template", "desc", "", "", 0, nil)
+			jt, err := b.CreateJobTemplate("my-template", "desc", "", "", 0, nil, nil)
 			require.NoError(t, err)
 
 			b.TagResource(jt.Arn, map[string]string{"team": "infra"})
@@ -640,7 +640,7 @@ func TestMediaConvert_UntagResource_RemovesEntryOnLastKey(t *testing.T) {
 
 			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
 
-			q, err := b.CreateQueue("untag-queue-"+tt.name, "", "", "")
+			q, err := b.CreateQueue("untag-queue-"+tt.name, "", "", "", nil)
 			require.NoError(t, err)
 
 			tt.setup(b, q.Arn)

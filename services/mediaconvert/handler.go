@@ -30,12 +30,17 @@ const (
 
 // Handler is the Echo HTTP handler for Amazon MediaConvert operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new MediaConvert handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// Reset clears all backend state. Implements service.Resettable.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -413,10 +418,11 @@ func parseJobsQueriesRoute(method, suffix string) mcRoute {
 // --- Queue handlers ---
 
 type createQueueInput struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	PricingPlan string `json:"pricingPlan,omitempty"`
-	Status      string `json:"status,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	PricingPlan string            `json:"pricingPlan,omitempty"`
+	Status      string            `json:"status,omitempty"`
 }
 
 type queueWrapper struct {
@@ -437,7 +443,7 @@ func (h *Handler) handleCreateQueue(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	q, err := h.Backend.CreateQueue(in.Name, in.Description, in.PricingPlan, in.Status)
+	q, err := h.Backend.CreateQueue(in.Name, in.Description, in.PricingPlan, in.Status, in.Tags)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -493,12 +499,13 @@ func (h *Handler) handleDeleteQueue(c *echo.Context, name string) error {
 // --- Job Template handlers ---
 
 type createJobTemplateInput struct {
-	Settings    map[string]any `json:"settings,omitempty"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Category    string         `json:"category,omitempty"`
-	Queue       string         `json:"queue,omitempty"`
-	Priority    int            `json:"priority"`
+	Settings    map[string]any    `json:"settings,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Category    string            `json:"category,omitempty"`
+	Queue       string            `json:"queue,omitempty"`
+	Priority    int               `json:"priority"`
 }
 
 type jobTemplateWrapper struct {
@@ -519,7 +526,15 @@ func (h *Handler) handleCreateJobTemplate(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	jt, err := h.Backend.CreateJobTemplate(in.Name, in.Description, in.Category, in.Queue, in.Priority, in.Settings)
+	jt, err := h.Backend.CreateJobTemplate(
+		in.Name,
+		in.Description,
+		in.Category,
+		in.Queue,
+		in.Priority,
+		in.Settings,
+		in.Tags,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -578,10 +593,11 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context, name string) error {
 // --- Job handlers ---
 
 type createJobInput struct {
-	Settings    map[string]any `json:"settings,omitempty"`
-	Role        string         `json:"role"`
-	Queue       string         `json:"queue,omitempty"`
-	JobTemplate string         `json:"jobTemplate,omitempty"`
+	Settings    map[string]any    `json:"settings,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Role        string            `json:"role"`
+	Queue       string            `json:"queue,omitempty"`
+	JobTemplate string            `json:"jobTemplate,omitempty"`
 }
 
 type jobWrapper struct {
@@ -602,7 +618,7 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "role is required"))
 	}
 
-	j, err := h.Backend.CreateJob(in.Role, in.Queue, in.JobTemplate, in.Settings)
+	j, err := h.Backend.CreateJob(in.Role, in.Queue, in.JobTemplate, in.Settings, in.Tags)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -712,10 +728,11 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 // --- Preset handlers ---
 
 type createPresetInput struct {
-	Settings    map[string]any `json:"settings,omitempty"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Category    string         `json:"category,omitempty"`
+	Settings    map[string]any    `json:"settings,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Category    string            `json:"category,omitempty"`
 }
 
 type presetWrapper struct {
@@ -736,7 +753,7 @@ func (h *Handler) handleCreatePreset(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	p, err := h.Backend.CreatePreset(in.Name, in.Description, in.Category, in.Settings)
+	p, err := h.Backend.CreatePreset(in.Name, in.Description, in.Category, in.Settings, in.Tags)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -867,6 +884,8 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", err.Error()))
 	}

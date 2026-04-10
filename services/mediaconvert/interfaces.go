@@ -1,0 +1,68 @@
+package mediaconvert
+
+// StorageBackend defines the interface for MediaConvert backend implementations.
+// All mutating methods must be safe for concurrent use.
+type StorageBackend interface {
+	// Queue operations
+	CreateQueue(name, description, pricingPlan, status string, tags map[string]string) (*Queue, error)
+	GetQueue(name string) (*Queue, error)
+	ListQueues() []*Queue
+	UpdateQueue(name, description, status string) (*Queue, error)
+	DeleteQueue(name string) error
+
+	// Job Template operations
+	CreateJobTemplate(
+		name, description, category, queue string,
+		priority int,
+		settings map[string]any,
+		tags map[string]string,
+	) (*JobTemplate, error)
+	GetJobTemplate(name string) (*JobTemplate, error)
+	ListJobTemplates() []*JobTemplate
+	UpdateJobTemplate(
+		name, description, category, queue string,
+		priority *int,
+		settings map[string]any,
+	) (*JobTemplate, error)
+	DeleteJobTemplate(name string) error
+
+	// Job operations
+	CreateJob(role, queue, jobTemplate string, settings map[string]any, tags map[string]string) (*Job, error)
+	GetJob(id string) (*Job, error)
+	ListJobs() []*Job
+	CancelJob(id string) error
+
+	// Preset operations
+	CreatePreset(name, description, category string, settings map[string]any, tags map[string]string) (*Preset, error)
+	GetPreset(name string) (*Preset, error)
+	ListPresets() []*Preset
+	DeletePreset(name string) error
+
+	// Policy operations
+	GetPolicy() (*Policy, error)
+	PutPolicy(httpInputs, httpsInputs, s3Inputs string) *Policy
+	DeletePolicy() error
+
+	// Certificate operations
+	AssociateCertificate(certARN string) error
+	DisassociateCertificate(certARN string) error
+
+	// Jobs query / resource share operations
+	GetJobsQueryResults(queryID string) []*Job
+	CreateResourceShare(jobID string) (string, error)
+
+	// Tag operations
+	GetTags(resourceARN string) map[string]string
+	TagResource(resourceARN string, tags map[string]string)
+	UntagResource(resourceARN string, tagKeys []string)
+
+	// Lifecycle
+	Reset()
+	Region() string
+	AccountID() string
+	Snapshot() []byte
+	Restore(data []byte) error
+}
+
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
