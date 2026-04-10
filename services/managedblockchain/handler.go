@@ -52,6 +52,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
+		"CreateAccessor",
+		"GetAccessor",
+		"DeleteAccessor",
+		"ListAccessors",
+		"CreateProposal",
+		"GetProposal",
+		"ListProposals",
+		"ListProposalVotes",
+		"ListInvitations",
+		"RejectInvitation",
 	}
 }
 
@@ -74,6 +84,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		if strings.HasPrefix(path, "/tags/") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == managedblockchainService
+		}
+
+		if path == "/accessors" || strings.HasPrefix(path, "/accessors/") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == managedblockchainService
+		}
+
+		if path == "/invitations" || strings.HasPrefix(path, "/invitations/") {
 			return httputils.ExtractServiceFromRequest(c.Request()) == managedblockchainService
 		}
 
@@ -148,9 +166,19 @@ const (
 //	GET    /networks/{networkId}/members/{memberId}/nodes                         → ListNodes, networkId/memberId
 //	GET    /networks/{networkId}/members/{memberId}/nodes/{nodeId}                → GetNode, networkId/memberId/nodeId
 //	DELETE /networks/{networkId}/members/{memberId}/nodes/{nodeId}                → DeleteNode, networkId/memberId/nodeId
+//	POST   /networks/{networkId}/proposals                                         → CreateProposal, networkId
+//	GET    /networks/{networkId}/proposals                                         → ListProposals, networkId
+//	GET    /networks/{networkId}/proposals/{proposalId}   → GetProposal, networkId/proposalId
+//	GET    /networks/{networkId}/proposals/{proposalId}/votes → ListProposalVotes, networkId/proposalId
 //	GET    /tags/{resourceArn}                                                     → ListTagsForResource, arn
 //	POST   /tags/{resourceArn}                                                     → TagResource, arn
 //	DELETE /tags/{resourceArn}                                                     → UntagResource, arn
+//	POST   /accessors                                                              → CreateAccessor, ""
+//	GET    /accessors                                                              → ListAccessors, ""
+//	GET    /accessors/{accessorId}                                                 → GetAccessor, accessorId
+//	DELETE /accessors/{accessorId}                                                 → DeleteAccessor, accessorId
+//	GET    /invitations                                                            → ListInvitations, ""
+//	DELETE /invitations/{invitationId}                                             → RejectInvitation, invitationId
 func parsePath(method, path string) (string, string) {
 	trimmed := strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(trimmed, "/", maxPathParts)
@@ -182,6 +210,12 @@ func parsePath(method, path string) (string, string) {
 
 	case "networks":
 		return parseNetworksPath(method, parts)
+
+	case "accessors":
+		return parseAccessorsPath(method, parts)
+
+	case "invitations":
+		return parseInvitationsPath(method, parts)
 	}
 
 	return "", ""
@@ -208,6 +242,11 @@ func parseNetworksPath(method string, parts []string) (string, string) {
 	// /networks/{networkId}/members/...
 	if parts[2] == "members" {
 		return parseMembersPath(method, parts, networkID)
+	}
+
+	// /networks/{networkId}/proposals/...
+	if parts[2] == "proposals" {
+		return parseProposalsPath(method, parts, networkID)
 	}
 
 	return "", ""
@@ -292,10 +331,121 @@ func parseNodesPath(method string, parts []string, networkID, memberID string) (
 	return "", ""
 }
 
+// parseProposalsPath handles routing for /networks/{networkId}/proposals/... paths.
+func parseProposalsPath(method string, parts []string, networkID string) (string, string) {
+	// /networks/{networkId}/proposals  or  /networks/{networkId}/proposals/
+	if len(parts) == 3 || (len(parts) == 4 && parts[3] == "") {
+		switch method {
+		case http.MethodPost:
+			return "CreateProposal", networkID
+		case http.MethodGet:
+			return "ListProposals", networkID
+		}
+
+		return "", ""
+	}
+
+	// /networks/{networkId}/proposals/{proposalId}[/votes]
+	if len(parts) >= 4 && parts[3] != "" {
+		proposalID := parts[3]
+		resource := networkID + "/" + proposalID
+
+		// /networks/{networkId}/proposals/{proposalId}/votes
+		if len(parts) >= 5 && parts[4] == "votes" && method == http.MethodGet {
+			return "ListProposalVotes", resource
+		}
+
+		// /networks/{networkId}/proposals/{proposalId}
+		if len(parts) == 4 || (len(parts) == 5 && parts[4] == "") {
+			if method == http.MethodGet {
+				return "GetProposal", resource
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// parseAccessorsPath handles routing for /accessors and /accessors/{id} paths.
+func parseAccessorsPath(method string, parts []string) (string, string) {
+	// /accessors  or  /accessors/
+	if len(parts) == 1 || (len(parts) == 2 && parts[1] == "") {
+		switch method {
+		case http.MethodPost:
+			return "CreateAccessor", ""
+		case http.MethodGet:
+			return "ListAccessors", ""
+		}
+
+		return "", ""
+	}
+
+	// /accessors/{accessorId}
+	if len(parts) >= 2 && parts[1] != "" {
+		accessorID := parts[1]
+
+		switch method {
+		case http.MethodGet:
+			return "GetAccessor", accessorID
+		case http.MethodDelete:
+			return "DeleteAccessor", accessorID
+		}
+	}
+
+	return "", ""
+}
+
+// parseInvitationsPath handles routing for /invitations and /invitations/{id} paths.
+func parseInvitationsPath(method string, parts []string) (string, string) {
+	// /invitations  or  /invitations/
+	if len(parts) == 1 || (len(parts) == 2 && parts[1] == "") {
+		if method == http.MethodGet {
+			return "ListInvitations", ""
+		}
+
+		return "", ""
+	}
+
+	// /invitations/{invitationId}
+	if len(parts) >= 2 && parts[1] != "" {
+		invitationID := parts[1]
+
+		if method == http.MethodDelete {
+			return "RejectInvitation", invitationID
+		}
+	}
+
+	return "", ""
+}
+
 // dispatch routes to the appropriate handler based on the operation name.
 func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, query url.Values) error {
-	_ = query
+	if err := h.dispatchNetworkOps(c, op, resource, body, query); !errors.Is(err, errUnknownOp) {
+		return err
+	}
 
+	if err := h.dispatchAccessorOps(c, op, resource, body); !errors.Is(err, errUnknownOp) {
+		return err
+	}
+
+	if err := h.dispatchProposalOps(c, op, resource, body); !errors.Is(err, errUnknownOp) {
+		return err
+	}
+
+	if err := h.dispatchInvitationOps(c, op, resource); !errors.Is(err, errUnknownOp) {
+		return err
+	}
+
+	return writeError(c, http.StatusNotFound, "unknown operation")
+}
+
+// errUnknownOp is a sentinel returned by sub-dispatch helpers when the operation is not handled.
+var errUnknownOp = errors.New("unknown operation")
+
+// dispatchNetworkOps handles network, member, node, and tag operations.
+func (h *Handler) dispatchNetworkOps(
+	c *echo.Context, op, resource string, body []byte, query url.Values,
+) error {
 	switch op {
 	case "CreateNetwork":
 		return h.handleCreateNetwork(c, body)
@@ -327,7 +477,51 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 		return h.handleUntagResource(c, resource, query)
 	}
 
-	return writeError(c, http.StatusNotFound, "unknown operation")
+	return errUnknownOp
+}
+
+// dispatchAccessorOps handles accessor operations.
+func (h *Handler) dispatchAccessorOps(c *echo.Context, op, resource string, body []byte) error {
+	switch op {
+	case "CreateAccessor":
+		return h.handleCreateAccessor(c, body)
+	case "GetAccessor":
+		return h.handleGetAccessor(c, resource)
+	case "DeleteAccessor":
+		return h.handleDeleteAccessor(c, resource)
+	case "ListAccessors":
+		return h.handleListAccessors(c)
+	}
+
+	return errUnknownOp
+}
+
+// dispatchProposalOps handles proposal operations.
+func (h *Handler) dispatchProposalOps(c *echo.Context, op, resource string, body []byte) error {
+	switch op {
+	case "CreateProposal":
+		return h.handleCreateProposal(c, resource, body)
+	case "GetProposal":
+		return h.handleGetProposal(c, resource)
+	case "ListProposals":
+		return h.handleListProposals(c, resource)
+	case "ListProposalVotes":
+		return h.handleListProposalVotes(c, resource)
+	}
+
+	return errUnknownOp
+}
+
+// dispatchInvitationOps handles invitation operations.
+func (h *Handler) dispatchInvitationOps(c *echo.Context, op, resource string) error {
+	switch op {
+	case "ListInvitations":
+		return h.handleListInvitations(c)
+	case "RejectInvitation":
+		return h.handleRejectInvitation(c, resource)
+	}
+
+	return errUnknownOp
 }
 
 func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
@@ -591,6 +785,175 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, query
 	return c.NoContent(http.StatusNoContent)
 }
 
+func (h *Handler) handleCreateAccessor(c *echo.Context, body []byte) error {
+	var req createAccessorRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	accessor, err := h.Backend.CreateAccessor(
+		h.DefaultRegion,
+		h.AccountID,
+		req.AccessorType,
+		req.NetworkType,
+		req.Tags,
+	)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createAccessorResponse{
+		AccessorID:   accessor.ID,
+		BillingToken: accessor.BillingToken,
+		NetworkType:  accessor.NetworkType,
+	})
+}
+
+func (h *Handler) handleGetAccessor(c *echo.Context, accessorID string) error {
+	accessor, err := h.Backend.GetAccessor(accessorID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getAccessorResponse{
+		Accessor: toAccessorObject(accessor),
+	})
+}
+
+func (h *Handler) handleDeleteAccessor(c *echo.Context, accessorID string) error {
+	if err := h.Backend.DeleteAccessor(accessorID); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListAccessors(c *echo.Context) error {
+	accessors, err := h.Backend.ListAccessors()
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	summaries := make([]accessorSummaryObject, 0, len(accessors))
+
+	for _, a := range accessors {
+		summaries = append(summaries, toAccessorSummaryObject(a))
+	}
+
+	return c.JSON(http.StatusOK, listAccessorsResponse{Accessors: summaries})
+}
+
+func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body []byte) error {
+	if networkID == "" {
+		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
+	}
+
+	var req createProposalRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	if req.MemberID == "" {
+		return writeError(c, http.StatusBadRequest, ErrMissingMemberID.Error())
+	}
+
+	proposal, err := h.Backend.CreateProposal(
+		h.DefaultRegion,
+		h.AccountID,
+		networkID,
+		req.MemberID,
+		req.Description,
+		req.Tags,
+	)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createProposalResponse{ProposalID: proposal.ProposalID})
+}
+
+func (h *Handler) handleGetProposal(c *echo.Context, resource string) error {
+	networkID, proposalID, ok := splitResource(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	proposal, err := h.Backend.GetProposal(networkID, proposalID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getProposalResponse{Proposal: toProposalObject(proposal)})
+}
+
+func (h *Handler) handleListProposals(c *echo.Context, networkID string) error {
+	if networkID == "" {
+		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
+	}
+
+	proposals, err := h.Backend.ListProposals(networkID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	summaries := make([]proposalSummaryObject, 0, len(proposals))
+
+	for _, p := range proposals {
+		summaries = append(summaries, toProposalSummaryObject(p))
+	}
+
+	return c.JSON(http.StatusOK, listProposalsResponse{Proposals: summaries})
+}
+
+func (h *Handler) handleListProposalVotes(c *echo.Context, resource string) error {
+	networkID, proposalID, ok := splitResource(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	votes, err := h.Backend.ListProposalVotes(networkID, proposalID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	summaries := make([]voteSummaryObject, 0, len(votes))
+
+	for _, v := range votes {
+		summaries = append(summaries, voteSummaryObject{
+			MemberID:   v.MemberID,
+			MemberName: v.MemberName,
+			Vote:       v.Vote,
+		})
+	}
+
+	return c.JSON(http.StatusOK, listProposalVotesResponse{ProposalVotes: summaries})
+}
+
+func (h *Handler) handleListInvitations(c *echo.Context) error {
+	invitations, err := h.Backend.ListInvitations()
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]invitationObject, 0, len(invitations))
+
+	for _, inv := range invitations {
+		objs = append(objs, toInvitationObject(inv))
+	}
+
+	return c.JSON(http.StatusOK, listInvitationsResponse{Invitations: objs})
+}
+
+func (h *Handler) handleRejectInvitation(c *echo.Context, invitationID string) error {
+	if err := h.Backend.RejectInvitation(invitationID); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
 // writeBackendError translates a backend error to an HTTP response.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
@@ -711,5 +1074,77 @@ func toNodeSummaryObject(n *Node) nodeSummaryObject {
 		InstanceType: n.InstanceType,
 		Status:       n.Status,
 		CreationDate: n.CreationDate,
+	}
+}
+
+// toAccessorObject converts an Accessor to its JSON representation.
+func toAccessorObject(a *Accessor) accessorObject {
+	return accessorObject{
+		ID:           a.ID,
+		Arn:          a.Arn,
+		BillingToken: a.BillingToken,
+		Type:         a.Type,
+		NetworkType:  a.NetworkType,
+		Status:       a.Status,
+		CreationDate: a.CreationDate,
+		Tags:         a.Tags,
+	}
+}
+
+// toAccessorSummaryObject converts an Accessor to its summary JSON representation.
+func toAccessorSummaryObject(a *Accessor) accessorSummaryObject {
+	return accessorSummaryObject{
+		ID:           a.ID,
+		Arn:          a.Arn,
+		Type:         a.Type,
+		NetworkType:  a.NetworkType,
+		Status:       a.Status,
+		CreationDate: a.CreationDate,
+	}
+}
+
+// toProposalObject converts a Proposal to its JSON representation.
+func toProposalObject(p *Proposal) proposalObject {
+	return proposalObject{
+		ProposalID:           p.ProposalID,
+		Arn:                  p.Arn,
+		NetworkID:            p.NetworkID,
+		ProposedByMemberID:   p.ProposedByMemberID,
+		ProposedByMemberName: p.ProposedByMemberName,
+		Description:          p.Description,
+		Status:               p.Status,
+		CreationDate:         p.CreationDate,
+		ExpirationDate:       p.ExpirationDate,
+		YesVoteCount:         p.YesVoteCount,
+		NoVoteCount:          p.NoVoteCount,
+		OutstandingVoteCount: p.OutstandingVoteCount,
+		Tags:                 p.Tags,
+	}
+}
+
+// toProposalSummaryObject converts a Proposal to its summary JSON representation.
+func toProposalSummaryObject(p *Proposal) proposalSummaryObject {
+	return proposalSummaryObject{
+		ProposalID:           p.ProposalID,
+		Arn:                  p.Arn,
+		ProposedByMemberID:   p.ProposedByMemberID,
+		ProposedByMemberName: p.ProposedByMemberName,
+		Description:          p.Description,
+		Status:               p.Status,
+		CreationDate:         p.CreationDate,
+		ExpirationDate:       p.ExpirationDate,
+	}
+}
+
+// toInvitationObject converts an Invitation to its JSON representation.
+func toInvitationObject(inv *Invitation) invitationObject {
+	return invitationObject{
+		InvitationID:   inv.InvitationID,
+		Arn:            inv.Arn,
+		NetworkID:      inv.NetworkID,
+		NetworkName:    inv.NetworkName,
+		Status:         inv.Status,
+		CreationDate:   inv.CreationDate,
+		ExpirationDate: inv.ExpirationDate,
 	}
 }

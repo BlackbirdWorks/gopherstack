@@ -3,8 +3,12 @@ package managedblockchain
 import "encoding/json"
 
 type backendSnapshot struct {
-	Networks map[string]*Network           `json:"networks"`
-	Members  map[string]map[string]*Member `json:"members"`
+	Networks      map[string]*Network             `json:"networks"`
+	Members       map[string]map[string]*Member   `json:"members"`
+	Accessors     map[string]*Accessor            `json:"accessors"`
+	Proposals     map[string]map[string]*Proposal `json:"proposals"`
+	ProposalVotes map[string][]*ProposalVote      `json:"proposalVotes"`
+	Invitations   map[string]*Invitation          `json:"invitations"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -13,8 +17,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Networks: b.networks,
-		Members:  b.members,
+		Networks:      b.networks,
+		Members:       b.members,
+		Accessors:     b.accessors,
+		Proposals:     b.proposals,
+		ProposalVotes: b.proposalVotes,
+		Invitations:   b.invitations,
 	}
 
 	data, err := json.Marshal(snap)
@@ -44,8 +52,28 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Members = make(map[string]map[string]*Member)
 	}
 
+	if snap.Accessors == nil {
+		snap.Accessors = make(map[string]*Accessor)
+	}
+
+	if snap.Proposals == nil {
+		snap.Proposals = make(map[string]map[string]*Proposal)
+	}
+
+	if snap.ProposalVotes == nil {
+		snap.ProposalVotes = make(map[string][]*ProposalVote)
+	}
+
+	if snap.Invitations == nil {
+		snap.Invitations = make(map[string]*Invitation)
+	}
+
 	b.networks = snap.Networks
 	b.members = snap.Members
+	b.accessors = snap.Accessors
+	b.proposals = snap.Proposals
+	b.proposalVotes = snap.ProposalVotes
+	b.invitations = snap.Invitations
 
 	// Rebuild ARN index from restored state.
 	b.arnToResource = make(map[string]any)

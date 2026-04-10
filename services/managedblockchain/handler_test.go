@@ -807,3 +807,825 @@ func TestHandler_DeleteNode(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_CreateAccessor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"AccessorType": "BILLING_TOKEN",
+				"NetworkType":  "ETHEREUM_MAINNET",
+			},
+			wantStatus: http.StatusOK,
+			wantKey:    "AccessorId",
+		},
+		{
+			name:       "empty body still creates accessor",
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantKey:    "AccessorId",
+		},
+		{
+			name:       "invalid json",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var rec *httptest.ResponseRecorder
+			if tt.body == nil {
+				e := echo.New()
+				req := httptest.NewRequest(http.MethodPost, "/accessors", bytes.NewReader([]byte("{bad json")))
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				c := e.NewContext(req, w)
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				rec = w
+			} else {
+				rec = doRequest(t, h, http.MethodPost, "/accessors", tt.body)
+			}
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantKey != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestHandler_GetAccessor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		accessorID string
+		wantStatus int
+	}{
+		{
+			name:       "get existing accessor",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			accessorID: "nonexistent-accessor-id",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
+				"AccessorType": "BILLING_TOKEN",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var out struct {
+				AccessorID string `json:"AccessorId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&out))
+
+			id := tt.accessorID
+			if id == "" {
+				id = out.AccessorID
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/accessors/"+id, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, "Accessor")
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteAccessor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{name: "success", wantStatus: http.StatusNoContent},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
+				"AccessorType": "BILLING_TOKEN",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var out struct {
+				AccessorID string `json:"AccessorId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&out))
+
+			rec := doRequest(t, h, http.MethodDelete, "/accessors/"+out.AccessorID, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			// Verify deleted.
+			getRec := doRequest(t, h, http.MethodGet, "/accessors/"+out.AccessorID, nil)
+			assert.Equal(t, http.StatusNotFound, getRec.Code)
+		})
+	}
+}
+
+func TestHandler_ListAccessors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		createCount int
+		wantLen     int
+		wantStatus  int
+	}{
+		{name: "empty list", createCount: 0, wantLen: 0, wantStatus: http.StatusOK},
+		{name: "two accessors", createCount: 2, wantLen: 2, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for range tt.createCount {
+				rec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
+					"AccessorType": "BILLING_TOKEN",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/accessors", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			accessors, ok := resp["Accessors"].([]any)
+			require.True(t, ok)
+			assert.Len(t, accessors, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_CreateProposal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		networkID  string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"MemberId":    "placeholder",
+				"Description": "add member",
+			},
+			wantStatus: http.StatusOK,
+			wantKey:    "ProposalId",
+		},
+		{
+			name:       "missing member id",
+			body:       map[string]any{"Description": "no member"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "network not found",
+			body:       map[string]any{"MemberId": "some-member"},
+			networkID:  "nonexistent-network",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+
+			if tt.networkID != "" {
+				netID = tt.networkID
+			}
+
+			// Use the real member ID for success cases.
+			body := tt.body
+			if body["MemberId"] == "placeholder" {
+				body = map[string]any{
+					"MemberId":    memID,
+					"Description": tt.body["Description"],
+				}
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantKey != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestHandler_GetProposal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		proposalID string
+		wantStatus int
+	}{
+		{
+			name:       "get existing proposal",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			proposalID: "nonexistent-proposal",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+
+			createRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
+				"MemberId":    memID,
+				"Description": "test proposal",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				ProposalID string `json:"ProposalId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+
+			pid := tt.proposalID
+			if pid == "" {
+				pid = createOut.ProposalID
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/networks/"+netID+"/proposals/"+pid, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, "Proposal")
+			}
+		})
+	}
+}
+
+func TestHandler_ListProposals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		createCount int
+		wantLen     int
+	}{
+		{name: "empty", createCount: 0, wantLen: 0},
+		{name: "two proposals", createCount: 2, wantLen: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+
+			for range tt.createCount {
+				rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
+					"MemberId": memID,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/networks/"+netID+"/proposals", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Proposals []map[string]any `json:"Proposals"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			assert.Len(t, resp.Proposals, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_ListProposalVotes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		wantLen    int
+	}{
+		{name: "empty votes", wantStatus: http.StatusOK, wantLen: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+
+			createRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
+				"MemberId": memID,
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				ProposalID string `json:"ProposalId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+
+			path := fmt.Sprintf("/networks/%s/proposals/%s/votes", netID, createOut.ProposalID)
+			rec := doRequest(t, h, http.MethodGet, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp struct {
+				ProposalVotes []map[string]any `json:"ProposalVotes"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			assert.Len(t, resp.ProposalVotes, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_ListInvitations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		addSeed bool
+		wantLen int
+	}{
+		{name: "empty", addSeed: false, wantLen: 0},
+		{name: "with seed invitation", addSeed: true, wantLen: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := managedblockchain.NewInMemoryBackend()
+			h := managedblockchain.NewHandler(b)
+			h.AccountID = testAccountID
+			h.DefaultRegion = testRegion
+
+			if tt.addSeed {
+				b.AddInvitationInternal(testRegion, testAccountID, "net-id", "net-name")
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/invitations", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Invitations []map[string]any `json:"Invitations"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			assert.Len(t, resp.Invitations, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_RejectInvitation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		invitationID string
+		wantStatus   int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:         "not found",
+			invitationID: "nonexistent-invitation",
+			wantStatus:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := managedblockchain.NewInMemoryBackend()
+			h := managedblockchain.NewHandler(b)
+			h.AccountID = testAccountID
+			h.DefaultRegion = testRegion
+
+			inv := b.AddInvitationInternal(testRegion, testAccountID, "net-id", "net-name")
+
+			id := tt.invitationID
+			if id == "" {
+				id = inv.InvitationID
+			}
+
+			rec := doRequest(t, h, http.MethodDelete, "/invitations/"+id, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteNodeErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		nodeID     string
+		wantStatus int
+	}{
+		{
+			name:       "delete nonexistent node",
+			nodeID:     "nonexistent-node",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+			path := fmt.Sprintf("/networks/%s/members/%s/nodes/%s", netID, memID, tt.nodeID)
+
+			rec := doRequest(t, h, http.MethodDelete, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_UntagResourceQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "untag resource with tags",
+			wantStatus: http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, _ := createTestNetwork(t, h)
+
+			// Get network ARN.
+			netRec := doRequest(t, h, http.MethodGet, "/networks/"+netID, nil)
+			require.Equal(t, http.StatusOK, netRec.Code)
+
+			var netResp map[string]any
+			require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+			network := netResp["Network"].(map[string]any)
+			arn := network["Arn"].(string)
+
+			// Tag it.
+			tagRec := doRequest(t, h, http.MethodPost, "/tags/"+arn,
+				map[string]any{"Tags": map[string]string{"key1": "val1", "key2": "val2"}})
+			require.Equal(t, http.StatusNoContent, tagRec.Code)
+
+			// Untag.
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodDelete, "/tags/"+arn+"?tagKeys=key1", http.NoBody)
+			w := httptest.NewRecorder()
+			c := e.NewContext(req, w)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, w.Code)
+		})
+	}
+}
+
+func TestHandler_CreateProposalInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "invalid json for create proposal"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, _ := createTestNetwork(t, h)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/networks/"+netID+"/proposals",
+				bytes.NewReader([]byte("{bad json")))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			c := e.NewContext(req, w)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
+}
+
+func TestHandler_AccessorRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "create get list delete accessor"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create.
+			createRec := doRequest(t, h, http.MethodPost, "/accessors", map[string]any{
+				"AccessorType": "BILLING_TOKEN",
+				"NetworkType":  "ETHEREUM_MAINNET",
+				"Tags":         map[string]string{"env": "test"},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				AccessorID   string `json:"AccessorId"`
+				BillingToken string `json:"BillingToken"`
+				NetworkType  string `json:"NetworkType"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			assert.NotEmpty(t, createOut.AccessorID)
+			assert.NotEmpty(t, createOut.BillingToken)
+			assert.Equal(t, "ETHEREUM_MAINNET", createOut.NetworkType)
+
+			// Get.
+			getRec := doRequest(t, h, http.MethodGet, "/accessors/"+createOut.AccessorID, nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var getOut struct {
+				Accessor map[string]any `json:"Accessor"`
+			}
+			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			assert.Equal(t, "AVAILABLE", getOut.Accessor["Status"])
+
+			// List.
+			listRec := doRequest(t, h, http.MethodGet, "/accessors", nil)
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var listOut struct {
+				Accessors []map[string]any `json:"Accessors"`
+			}
+			require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+			assert.Len(t, listOut.Accessors, 1)
+
+			// Delete.
+			delRec := doRequest(t, h, http.MethodDelete, "/accessors/"+createOut.AccessorID, nil)
+			assert.Equal(t, http.StatusNoContent, delRec.Code)
+
+			// Verify gone.
+			listRec2 := doRequest(t, h, http.MethodGet, "/accessors", nil)
+			require.Equal(t, http.StatusOK, listRec2.Code)
+
+			var listOut2 struct {
+				Accessors []map[string]any `json:"Accessors"`
+			}
+			require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&listOut2))
+			assert.Empty(t, listOut2.Accessors)
+		})
+	}
+}
+
+func TestHandler_ProposalRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "create get list proposal with votes"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+
+			// Create proposal.
+			createRec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
+				"MemberId":    memID,
+				"Description": "test governance proposal",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				ProposalID string `json:"ProposalId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			assert.NotEmpty(t, createOut.ProposalID)
+
+			// Get.
+			getRec := doRequest(t, h, http.MethodGet,
+				"/networks/"+netID+"/proposals/"+createOut.ProposalID, nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var getOut struct {
+				Proposal map[string]any `json:"Proposal"`
+			}
+			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			assert.Equal(t, "IN_PROGRESS", getOut.Proposal["Status"])
+
+			// List votes.
+			votesRec := doRequest(t, h, http.MethodGet,
+				"/networks/"+netID+"/proposals/"+createOut.ProposalID+"/votes", nil)
+			require.Equal(t, http.StatusOK, votesRec.Code)
+
+			var votesOut struct {
+				ProposalVotes []map[string]any `json:"ProposalVotes"`
+			}
+			require.NoError(t, json.NewDecoder(votesRec.Body).Decode(&votesOut))
+			assert.Empty(t, votesOut.ProposalVotes)
+		})
+	}
+}
+
+func TestHandler_ProposalNotFoundErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name:       "get proposal bad network",
+			op:         "get_bad_network",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "list proposals bad network",
+			op:         "list_bad_network",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "list proposal votes bad network",
+			op:         "votes_bad_network",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var rec *httptest.ResponseRecorder
+
+			switch tt.op {
+			case "get_bad_network":
+				rec = doRequest(t, h, http.MethodGet, "/networks/nonexistent/proposals/pid", nil)
+			case "list_bad_network":
+				rec = doRequest(t, h, http.MethodGet, "/networks/nonexistent/proposals", nil)
+			case "votes_bad_network":
+				rec = doRequest(t, h, http.MethodGet, "/networks/nonexistent/proposals/pid/votes", nil)
+			}
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AccessorDeleteNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{name: "delete nonexistent accessor", wantStatus: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodDelete, "/accessors/nonexistent", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_RouteMatcherNewPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		serviceName string
+		wantMatch   bool
+	}{
+		{
+			name:        "matches accessors path",
+			path:        "/accessors",
+			serviceName: "managedblockchain",
+			wantMatch:   true,
+		},
+		{
+			name:        "matches accessors sub-path",
+			path:        "/accessors/some-id",
+			serviceName: "managedblockchain",
+			wantMatch:   true,
+		},
+		{
+			name:        "matches invitations path",
+			path:        "/invitations",
+			serviceName: "managedblockchain",
+			wantMatch:   true,
+		},
+		{
+			name:        "matches invitations sub-path",
+			path:        "/invitations/inv-id",
+			serviceName: "managedblockchain",
+			wantMatch:   true,
+		},
+		{
+			name:        "does not match accessors with wrong service",
+			path:        "/accessors",
+			serviceName: "kms",
+			wantMatch:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			matcher := h.RouteMatcher()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, http.NoBody)
+
+			if tt.serviceName != "" {
+				req.Header.Set("Authorization",
+					"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/"+tt.serviceName+"/aws4_request")
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
