@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -24,48 +25,59 @@ const (
 
 // Handler is the Echo HTTP handler for Neptune operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Neptune handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Neptune" }
 
-// GetSupportedOperations returns supported Neptune operations.
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
+// clusterARN builds a Neptune cluster ARN using the backend's region and account.
+func (h *Handler) clusterARN(id string) string {
+	return arn.Build("neptune", h.Backend.Region(), h.Backend.AccountID(), "cluster:"+id)
+}
+
+// GetSupportedOperations returns supported Neptune operations (sorted).
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AddRoleToDBCluster",
 		"AddSourceIdentifierToSubscription",
+		"AddTagsToResource",
 		"ApplyPendingMaintenanceAction",
 		"CopyDBClusterParameterGroup",
 		"CopyDBClusterSnapshot",
 		"CopyDBParameterGroup",
 		"CreateDBCluster",
 		"CreateDBClusterEndpoint",
+		"CreateDBClusterParameterGroup",
+		"CreateDBClusterSnapshot",
 		"CreateDBInstance",
 		"CreateDBParameterGroup",
 		"CreateDBSubnetGroup",
-		"CreateDBClusterParameterGroup",
-		"CreateDBClusterSnapshot",
 		"CreateEventSubscription",
 		"CreateGlobalCluster",
-		"DescribeDBClusters",
-		"DescribeDBClusterParameterGroups",
-		"DescribeDBClusterSnapshots",
-		"DescribeDBEngineVersions",
-		"DescribeDBInstances",
-		"DescribeDBSubnetGroups",
-		"DescribeGlobalClusters",
-		"DescribeOrderableDBInstanceOptions",
 		"DeleteDBCluster",
 		"DeleteDBClusterParameterGroup",
 		"DeleteDBClusterSnapshot",
 		"DeleteDBInstance",
 		"DeleteDBSubnetGroup",
+		"DescribeDBClusterParameterGroups",
+		"DescribeDBClusterSnapshots",
+		"DescribeDBClusters",
+		"DescribeDBEngineVersions",
+		"DescribeDBInstances",
+		"DescribeDBSubnetGroups",
+		"DescribeGlobalClusters",
+		"DescribeOrderableDBInstanceOptions",
 		"FailoverDBCluster",
 		"ListTagsForResource",
 		"ModifyDBCluster",
@@ -75,7 +87,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTagsFromResource",
 		"StartDBCluster",
 		"StopDBCluster",
-		"AddTagsToResource",
 	}
 }
 
@@ -278,9 +289,19 @@ func (h *Handler) dispatchNewOps(action string, vals url.Values) (any, error) {
 func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, 0)
+	port := 0
+	if portStr := vals.Get("Port"); portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, port)
 	if err != nil {
 		return nil, err
+	}
+	tags := parseTagEntries(vals)
+	if len(tags) > 0 {
+		h.Backend.AddTagsToResource(h.clusterARN(cluster.DBClusterIdentifier), tags)
 	}
 
 	return &createDBClusterResponse{
@@ -670,7 +691,19 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 }
 
 func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
-	return &describeGlobalClustersResponse{Xmlns: neptuneXMLNS}, nil
+	gcs := h.Backend.DescribeGlobalClusters()
+	members := make([]xmlGlobalCluster, 0, len(gcs))
+	for _, gc := range gcs {
+		cp := gc
+		members = append(members, toXMLGlobalCluster(&cp))
+	}
+
+	return &describeGlobalClustersResponse{
+		Xmlns: neptuneXMLNS,
+		Result: describeGlobalClustersResult{
+			GlobalClusters: xmlGlobalClusterList{Members: members},
+		},
+	}, nil
 }
 
 func (h *Handler) handleAddRoleToDBCluster(vals url.Values) (any, error) {
@@ -923,6 +956,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	return xmlDBCluster{
 		DBClusterIdentifier:         c.DBClusterIdentifier,
 		Engine:                      c.Engine,
+		EngineVersion:               c.EngineVersion,
 		Status:                      c.Status,
 		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
 		Endpoint:                    c.Endpoint,
@@ -1055,6 +1089,7 @@ type xmlDBClusterMemberList struct {
 type xmlDBCluster struct {
 	DBClusterIdentifier         string                 `xml:"DBClusterIdentifier"`
 	Engine                      string                 `xml:"Engine"`
+	EngineVersion               string                 `xml:"EngineVersion,omitempty"`
 	Status                      string                 `xml:"Status"`
 	DBClusterParameterGroupName string                 `xml:"DBClusterParameterGroup,omitempty"`
 	Endpoint                    string                 `xml:"Endpoint,omitempty"`
@@ -1331,12 +1366,14 @@ type describeOrderableDBInstanceOptionsResponse struct {
 	Result  describeOrderableDBInstanceOptionsResult `xml:"DescribeOrderableDBInstanceOptionsResult"`
 }
 
+type describeGlobalClustersResult struct {
+	GlobalClusters xmlGlobalClusterList `xml:"GlobalClusters"`
+}
+
 type describeGlobalClustersResponse struct {
-	Result struct {
-		GlobalClusters struct{} `xml:"GlobalClusters"`
-	} `xml:"DescribeGlobalClustersResult"`
-	XMLName xml.Name `xml:"DescribeGlobalClustersResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name                     `xml:"DescribeGlobalClustersResponse"`
+	Xmlns   string                       `xml:"xmlns,attr"`
+	Result  describeGlobalClustersResult `xml:"DescribeGlobalClustersResult"`
 }
 
 type addRoleToDBClusterResponse struct {
@@ -1427,6 +1464,10 @@ type xmlGlobalClusterMember struct {
 
 type xmlGlobalClusterMemberList struct {
 	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
+}
+
+type xmlGlobalClusterList struct {
+	Members []xmlGlobalCluster `xml:"GlobalCluster"`
 }
 
 type xmlGlobalCluster struct {
