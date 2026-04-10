@@ -17,12 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := mq.NewInMemoryBackend("000000000000", "us-east-1")
 	h := mq.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &mqsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteConfiguration",
-		"DescribeBrokerEngineTypes",
-		"DescribeBrokerInstanceOptions",
-		"DescribeConfigurationRevision",
-		"ListConfigurationRevisions",
-		"Promote",
-	})
+	sdkcheck.CheckCompleteness(t, &mqsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

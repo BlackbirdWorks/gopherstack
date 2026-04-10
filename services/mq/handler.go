@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -15,21 +17,25 @@ import (
 )
 
 const (
-	mqMatchPriority    = service.PriorityPathVersioned + 1 // 86 – higher than Kafka (85) to win /v1/configurations
-	brokersPath        = "/v1/brokers"
-	configurationsPath = "/v1/configurations"
-	tagsPath           = "/v1/tags"
-	rebootSuffix       = "/reboot"
-	usersSuffix        = "/users"
+	mqMatchPriority       = service.PriorityPathVersioned + 1 // 86 – higher than Kafka (85) to win /v1/configurations
+	brokersPath           = "/v1/brokers"
+	configurationsPath    = "/v1/configurations"
+	tagsPath              = "/v1/tags"
+	brokerEngineTypesPath = "/v1/broker-engine-types"
+	brokerInstanceOptPath = "/v1/broker-instance-options"
+	rebootSuffix          = "/reboot"
+	promoteSuffix         = "/promote"
+	usersSuffix           = "/users"
+	revisionsSuffix       = "/revisions"
 )
 
 // Handler is the Echo HTTP handler for Amazon MQ REST operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Amazon MQ handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -40,23 +46,29 @@ func (h *Handler) Name() string { return "MQ" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateBroker",
-		"DescribeBroker",
-		"ListBrokers",
-		"UpdateBroker",
-		"DeleteBroker",
-		"RebootBroker",
-		"CreateUser",
-		"DescribeUser",
-		"UpdateUser",
-		"DeleteUser",
-		"ListUsers",
 		"CreateConfiguration",
-		"DescribeConfiguration",
-		"ListConfigurations",
-		"UpdateConfiguration",
-		"ListTags",
 		"CreateTags",
+		"CreateUser",
+		"DeleteBroker",
+		"DeleteConfiguration",
 		"DeleteTags",
+		"DeleteUser",
+		"DescribeBroker",
+		"DescribeBrokerEngineTypes",
+		"DescribeBrokerInstanceOptions",
+		"DescribeConfiguration",
+		"DescribeConfigurationRevision",
+		"DescribeUser",
+		"ListBrokers",
+		"ListConfigurationRevisions",
+		"ListConfigurations",
+		"ListTags",
+		"ListUsers",
+		"Promote",
+		"RebootBroker",
+		"UpdateBroker",
+		"UpdateConfiguration",
+		"UpdateUser",
 	}
 }
 
@@ -69,6 +81,9 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this handler instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
+// Reset clears the handler's backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
+
 // RouteMatcher returns a function that matches Amazon MQ REST API requests.
 // MQ uses /v1/brokers, and MQ-signed /v1/configurations and /v1/tags paths.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -77,6 +92,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		if strings.HasPrefix(p, brokersPath) {
 			return true
+		}
+
+		if strings.HasPrefix(p, brokerEngineTypesPath) || strings.HasPrefix(p, brokerInstanceOptPath) {
+			return isMQRequest(c.Request())
 		}
 
 		if strings.HasPrefix(p, configurationsPath) || strings.HasPrefix(p, tagsPath) {
@@ -131,6 +150,14 @@ func parseRoute(method, path string) mqRoute {
 		return parseConfigurationRoute(method, strings.TrimPrefix(path, configurationsPath))
 	case strings.HasPrefix(path, tagsPath):
 		return parseTagRoute(method, strings.TrimPrefix(path, tagsPath))
+	case strings.HasPrefix(path, brokerEngineTypesPath):
+		if method == http.MethodGet {
+			return mqRoute{operation: "DescribeBrokerEngineTypes"}
+		}
+	case strings.HasPrefix(path, brokerInstanceOptPath):
+		if method == http.MethodGet {
+			return mqRoute{operation: "DescribeBrokerInstanceOptions"}
+		}
 	}
 
 	return mqRoute{operation: "Unknown"}
@@ -152,6 +179,13 @@ func parseBrokerRoute(method, suffix string) mqRoute {
 	if before, ok := strings.CutSuffix(id, rebootSuffix); ok {
 		if method == http.MethodPost {
 			return mqRoute{operation: "RebootBroker", resource: before}
+		}
+	}
+
+	// /v1/brokers/{id}/promote
+	if before, ok := strings.CutSuffix(id, promoteSuffix); ok {
+		if method == http.MethodPost {
+			return mqRoute{operation: "Promote", resource: before}
 		}
 	}
 
@@ -208,14 +242,34 @@ func parseConfigurationRoute(method, suffix string) mqRoute {
 		}
 	}
 
+	// /v1/configurations/{id}/revisions[/{revision}]
+	if before, after, ok := strings.Cut(id, revisionsSuffix); ok {
+		return parseRevisionRoute(method, strings.TrimSuffix(before, "/"), strings.TrimPrefix(after, "/"))
+	}
+
 	switch method {
 	case http.MethodGet:
 		return mqRoute{operation: "DescribeConfiguration", resource: id}
 	case http.MethodPut:
 		return mqRoute{operation: "UpdateConfiguration", resource: id}
+	case http.MethodDelete:
+		return mqRoute{operation: "DeleteConfiguration", resource: id}
 	}
 
 	return mqRoute{operation: "Unknown"}
+}
+
+// parseRevisionRoute returns the route for /v1/configurations/{id}/revisions[/{revision}] paths.
+func parseRevisionRoute(method, configID, rev string) mqRoute {
+	if method != http.MethodGet {
+		return mqRoute{operation: "Unknown"}
+	}
+
+	if rev == "" {
+		return mqRoute{operation: "ListConfigurationRevisions", resource: configID}
+	}
+
+	return mqRoute{operation: "DescribeConfigurationRevision", resource: configID, subresource: rev}
 }
 
 func parseTagRoute(method, suffix string) mqRoute {
@@ -253,32 +307,61 @@ func (h *Handler) dispatch(c *echo.Context, route mqRoute) error {
 		return body, true
 	}
 
-	switch route.operation {
-	case "ListBrokers":
-		return h.handleListBrokers(c)
-	case "DescribeBroker":
-		return h.handleDescribeBroker(c, route.resource)
-	case "DeleteBroker":
-		return h.handleDeleteBroker(c, route.resource)
-	case "RebootBroker":
-		return h.handleRebootBroker(c, route.resource)
-	case "ListUsers":
-		return h.handleListUsers(c, route.resource)
-	case "DescribeUser":
-		return h.handleDescribeUser(c, route.resource, route.subresource)
-	case "DeleteUser":
-		return h.handleDeleteUser(c, route.resource, route.subresource)
-	case "ListConfigurations":
-		return h.handleListConfigurations(c)
-	case "DescribeConfiguration":
-		return h.handleDescribeConfiguration(c, route.resource)
-	case "ListTags":
-		return h.handleListTags(c, route.resource)
-	case "DeleteTags":
-		return h.handleDeleteTags(c, route.resource)
+	if handled, err := h.dispatchReadOps(c, route); handled {
+		return err
 	}
 
 	return h.dispatchMutating(c, route, readBody)
+}
+
+// dispatchReadOps handles read-only (no request body) operations.
+// Returns (true, err) if the operation was matched, (false, nil) if not.
+func (h *Handler) dispatchReadOps(c *echo.Context, route mqRoute) (bool, error) {
+	switch route.operation {
+	case "ListBrokers":
+		return true, h.handleListBrokers(c)
+	case "DescribeBroker":
+		return true, h.handleDescribeBroker(c, route.resource)
+	case "DeleteBroker":
+		return true, h.handleDeleteBroker(c, route.resource)
+	case "RebootBroker":
+		return true, h.handleRebootBroker(c, route.resource)
+	case "DescribeBrokerEngineTypes":
+		return true, h.handleDescribeBrokerEngineTypes(c)
+	case "DescribeBrokerInstanceOptions":
+		return true, h.handleDescribeBrokerInstanceOptions(c)
+	case "ListUsers":
+		return true, h.handleListUsers(c, route.resource)
+	case "DescribeUser":
+		return true, h.handleDescribeUser(c, route.resource, route.subresource)
+	case "DeleteUser":
+		return true, h.handleDeleteUser(c, route.resource, route.subresource)
+	}
+
+	return h.dispatchReadConfigOps(c, route)
+}
+
+// dispatchReadConfigOps handles read-only configuration and tag operations.
+// Returns (true, err) if the operation was matched, (false, nil) if not.
+func (h *Handler) dispatchReadConfigOps(c *echo.Context, route mqRoute) (bool, error) {
+	switch route.operation {
+	case "ListConfigurations":
+		return true, h.handleListConfigurations(c)
+	case "DescribeConfiguration":
+		return true, h.handleDescribeConfiguration(c, route.resource)
+	case "DeleteConfiguration":
+		return true, h.handleDeleteConfiguration(c, route.resource)
+	case "ListConfigurationRevisions":
+		return true, h.handleListConfigurationRevisions(c, route.resource)
+	case "DescribeConfigurationRevision":
+		return true, h.handleDescribeConfigurationRevision(c, route.resource, route.subresource)
+	case "ListTags":
+		return true, h.handleListTags(c, route.resource)
+	case "DeleteTags":
+		return true, h.handleDeleteTags(c, route.resource)
+	}
+
+	return false, nil
 }
 
 // dispatchMutating handles write operations that require reading a request body.
@@ -293,6 +376,8 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mqRoute, readBody func
 		return h.handleCreateBroker(c, body)
 	case "UpdateBroker":
 		return h.handleUpdateBroker(c, route.resource, body)
+	case "Promote":
+		return h.handlePromote(c, route.resource, body)
 	case "CreateUser":
 		return h.handleCreateUser(c, route.resource, route.subresource, body)
 	case "UpdateUser":
@@ -491,6 +576,8 @@ func toBrokerResponse(br *Broker) brokerResponse {
 	for _, u := range br.Users {
 		users = append(users, UserSummary{Username: u.Username, Console: u.Console})
 	}
+
+	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
 
 	return brokerResponse{
 		BrokerArn:               br.BrokerArn,
@@ -724,6 +811,90 @@ func (h *Handler) handleDeleteTags(c *echo.Context, resourceARN string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// --- Broker Engine Types and Instance Options handlers ---
+
+func (h *Handler) handleDescribeBrokerEngineTypes(c *echo.Context) error {
+	engineType := c.Request().URL.Query().Get("engineType")
+	types := h.Backend.DescribeBrokerEngineTypes(engineType)
+
+	return c.JSON(http.StatusOK, map[string]any{"brokerEngineTypes": types})
+}
+
+func (h *Handler) handleDescribeBrokerInstanceOptions(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	engineType := q.Get("engineType")
+	hostInstanceType := q.Get("hostInstanceType")
+	storageType := q.Get("storageType")
+
+	opts := h.Backend.DescribeBrokerInstanceOptions(engineType, hostInstanceType, storageType)
+
+	return c.JSON(http.StatusOK, map[string]any{"brokerInstanceOptions": opts})
+}
+
+// --- Promote handler ---
+
+type promoteInput struct {
+	Mode string `json:"mode"`
+}
+
+func (h *Handler) handlePromote(c *echo.Context, brokerID string, body []byte) error {
+	var in promoteInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	br, err := h.Backend.Promote(brokerID, in.Mode)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"brokerId": br.BrokerID})
+}
+
+// --- Configuration revision handlers ---
+
+func (h *Handler) handleDeleteConfiguration(c *echo.Context, configID string) error {
+	if err := h.Backend.DeleteConfiguration(configID); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configID string) error {
+	revisions, err := h.Backend.ListConfigurationRevisions(configID)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"configurationId": configID,
+		"revisions":       revisions,
+	})
+}
+
+func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, configID, revisionStr string) error {
+	parsed, err := strconv.ParseInt(revisionStr, 10, 32)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid revision number"))
+	}
+
+	revision := int32(parsed)
+
+	rev, data, err := h.Backend.DescribeConfigurationRevision(configID, revision)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"configurationId": configID,
+		"created":         rev.Created,
+		"description":     rev.Description,
+		"revision":        rev.Revision,
+		"data":            data,
+	})
+}
+
 // --- Error handling ---
 
 func (h *Handler) writeError(c *echo.Context, err error) error {
@@ -732,6 +903,8 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", err.Error()))
 	}
