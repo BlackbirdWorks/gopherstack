@@ -18,18 +18,56 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
+// Deep copies are taken before serialisation to avoid races with concurrent writes.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	// Deep-copy each resource to avoid sharing references.
+	queues := make(map[string]*Queue, len(b.queues))
+	for k, v := range b.queues {
+		queues[k] = cloneQueue(v)
+	}
+
+	jobTemplates := make(map[string]*JobTemplate, len(b.jobTemplates))
+	for k, v := range b.jobTemplates {
+		jobTemplates[k] = cloneJobTemplate(v)
+	}
+
+	jobs := make(map[string]*Job, len(b.jobs))
+	for k, v := range b.jobs {
+		jobs[k] = cloneJob(v)
+	}
+
+	presets := make(map[string]*Preset, len(b.presets))
+	for k, v := range b.presets {
+		presets[k] = clonePreset(v)
+	}
+
+	tags := make(map[string]map[string]string, len(b.tags))
+	for k, v := range b.tags {
+		tags[k] = nonNilTagsCopy(v)
+	}
+
+	certs := make(map[string]struct{}, len(b.certificates))
+	for k := range b.certificates {
+		certs[k] = struct{}{}
+	}
+
+	var pol *Policy
+	if b.policy != nil {
+		cp := *b.policy
+		pol = &cp
+	}
+
 	snap := backendSnapshot{
-		Queues:       b.queues,
-		JobTemplates: b.jobTemplates,
-		Jobs:         b.jobs,
-		Presets:      b.presets,
-		Tags:         b.tags,
-		Certificates: b.certificates,
-		Policy:       b.policy,
+		Queues:       queues,
+		JobTemplates: jobTemplates,
+		Jobs:         jobs,
+		Presets:      presets,
+		Tags:         tags,
+		Certificates: certs,
+		Policy:       pol,
 		AccountID:    b.accountID,
 		Region:       b.region,
 	}

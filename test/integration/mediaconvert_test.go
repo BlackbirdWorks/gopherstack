@@ -280,3 +280,147 @@ func TestIntegration_MediaConvert_CreateResourceShare(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegration_MediaConvert_UpdatePreset tests the preset update lifecycle.
+func TestIntegration_MediaConvert_UpdatePreset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		presetName string
+	}{
+		{
+			name:       "update_desc_and_category",
+			presetName: "integration-update-preset",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			client := createMediaConvertClient(t)
+			presetName := tt.presetName + "-" + t.Name()
+
+			// Create preset.
+			_, err := client.CreatePreset(ctx, &mediaconvertsdk.CreatePresetInput{
+				Name:        aws.String(presetName),
+				Description: aws.String("original description"),
+				Category:    aws.String("OriginalCat"),
+			})
+			require.NoError(t, err, "CreatePreset should succeed")
+
+			// Update preset.
+			updateOut, err := client.UpdatePreset(ctx, &mediaconvertsdk.UpdatePresetInput{
+				Name:        aws.String(presetName),
+				Description: aws.String("updated description"),
+				Category:    aws.String("UpdatedCat"),
+			})
+			require.NoError(t, err, "UpdatePreset should succeed")
+			require.NotNil(t, updateOut.Preset)
+			assert.Equal(t, "updated description", aws.ToString(updateOut.Preset.Description))
+
+			// Get to verify persistence.
+			getOut, err := client.GetPreset(ctx, &mediaconvertsdk.GetPresetInput{
+				Name: aws.String(presetName),
+			})
+			require.NoError(t, err, "GetPreset after update should succeed")
+			assert.Equal(t, "updated description", aws.ToString(getOut.Preset.Description))
+
+			// Cleanup.
+			_, err = client.DeletePreset(ctx, &mediaconvertsdk.DeletePresetInput{
+				Name: aws.String(presetName),
+			})
+			require.NoError(t, err, "DeletePreset should succeed")
+		})
+	}
+}
+
+// TestIntegration_MediaConvert_PutGetDeletePolicy tests the policy lifecycle.
+func TestIntegration_MediaConvert_PutGetDeletePolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "policy_lifecycle"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			client := createMediaConvertClient(t)
+
+			// Delete any pre-existing policy to start clean.
+			_, _ = client.DeletePolicy(ctx, &mediaconvertsdk.DeletePolicyInput{})
+
+			// Get policy — should 404.
+			_, err := client.GetPolicy(ctx, &mediaconvertsdk.GetPolicyInput{})
+			require.Error(t, err, "GetPolicy with no policy should fail")
+
+			// Put policy.
+			_, err = client.PutPolicy(ctx, &mediaconvertsdk.PutPolicyInput{
+				Policy: &mediaconvertsdk.Policy{
+					HttpInputs:  mediaconvertsdk.InputPolicy("ALLOWED"),
+					HttpsInputs: mediaconvertsdk.InputPolicy("ALLOWED"),
+					S3Inputs:    mediaconvertsdk.InputPolicy("ALLOWED"),
+				},
+			})
+			require.NoError(t, err, "PutPolicy should succeed")
+
+			// Get policy.
+			getOut, err := client.GetPolicy(ctx, &mediaconvertsdk.GetPolicyInput{})
+			require.NoError(t, err, "GetPolicy after Put should succeed")
+			require.NotNil(t, getOut.Policy)
+
+			// Delete policy.
+			_, err = client.DeletePolicy(ctx, &mediaconvertsdk.DeletePolicyInput{})
+			require.NoError(t, err, "DeletePolicy should succeed")
+
+			// Get policy after delete — should 404 again.
+			_, err = client.GetPolicy(ctx, &mediaconvertsdk.GetPolicyInput{})
+			require.Error(t, err, "GetPolicy after delete should fail")
+		})
+	}
+}
+
+// TestIntegration_MediaConvert_JobUserMetadata tests that userMetadata is persisted.
+func TestIntegration_MediaConvert_JobUserMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		meta map[string]string
+	}{
+		{
+			name: "with_user_metadata",
+			meta: map[string]string{"project": "test-project", "env": "integration"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			client := createMediaConvertClient(t)
+
+			createOut, err := client.CreateJob(ctx, &mediaconvertsdk.CreateJobInput{
+				Role:         aws.String("arn:aws:iam::123456789012:role/MediaConvert_Default_Role"),
+				UserMetadata: tt.meta,
+			})
+			require.NoError(t, err, "CreateJob with userMetadata should succeed")
+			require.NotNil(t, createOut.Job)
+
+			// Get job and verify metadata.
+			getOut, err := client.GetJob(ctx, &mediaconvertsdk.GetJobInput{
+				Id: createOut.Job.Id,
+			})
+			require.NoError(t, err, "GetJob should succeed")
+			assert.Equal(t, tt.meta, getOut.Job.UserMetadata)
+		})
+	}
+}

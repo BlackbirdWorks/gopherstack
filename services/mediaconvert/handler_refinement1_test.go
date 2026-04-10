@@ -237,7 +237,7 @@ func TestRefinement1_CancelJob_InvalidStatus(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	j, err := b.CreateJob("arn:aws:iam::123:role/role", "", "", nil, nil)
+	j, err := b.CreateJob("arn:aws:iam::123:role/role", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 
 	require.NoError(t, b.CancelJob(j.ID))
@@ -332,7 +332,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b1.CreatePreset("p1", "preset1", "", nil, nil)
 	require.NoError(t, err)
-	_, err = b1.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil)
+	_, err = b1.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 	_, err = b1.CreateJobTemplate("jt1", "tmpl", "", "", 0, nil, nil)
 	require.NoError(t, err)
@@ -402,7 +402,7 @@ func TestRefinement1_ListJobs_SortedNewestFirst(t *testing.T) {
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
 
 	for range 3 {
-		_, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil)
+		_, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
 		require.NoError(t, err)
 	}
 
@@ -452,7 +452,7 @@ func TestRefinement1_ARNsFormat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, p.Arn, "presets/arn-test-preset")
 
-	j, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil)
+	j, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, j.Arn, "jobs/")
 }
@@ -472,7 +472,7 @@ func TestRefinement1_JobInitialStatus(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	j, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil)
+	j, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 	assert.Equal(t, "SUBMITTED", j.Status)
 }
@@ -482,7 +482,7 @@ func TestRefinement1_JobsCanceledAfterCancel(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	j, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil)
+	j, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 	require.NoError(t, b.CancelJob(j.ID))
 
@@ -592,7 +592,7 @@ func TestRefinement1_CreateJob_MissingRole_Returns400(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateJob("", "", "", nil, nil)
+	_, err := b.CreateJob("", "", "", nil, nil, nil, "")
 	require.ErrorIs(t, err, mediaconvert.ErrValidation)
 }
 
@@ -629,7 +629,7 @@ func TestRefinement1_GetJobsQueryResultsAlwaysEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil)
+	_, err := b.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
 	require.NoError(t, err)
 
 	results := b.GetJobsQueryResults("any-query-id")

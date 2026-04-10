@@ -20,9 +20,7 @@ func TestSDKCompleteness(t *testing.T) {
 	sdkcheck.CheckCompleteness(t, &mediaconvertsdk.Client{}, h.GetSupportedOperations(), []string{
 		"ListVersions",
 		"Probe",
-		"PutPolicy",
 		"SearchJobs",
 		"StartJobsQuery",
-		"UpdatePreset",
 	})
 }

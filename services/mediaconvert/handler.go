@@ -73,9 +73,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListPresets",
 		"ListQueues",
 		"ListTagsForResource",
+		"PutPolicy",
 		"TagResource",
 		"UntagResource",
 		"UpdateJobTemplate",
+		"UpdatePreset",
 		"UpdateQueue",
 	}
 }
@@ -221,6 +223,10 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 		return h.handleTagResource(c, route.resource, body)
 	case "CreatePreset":
 		return h.handleCreatePreset(c, body)
+	case "UpdatePreset":
+		return h.handleUpdatePreset(c, route.resource, body)
+	case "PutPolicy":
+		return h.handlePutPolicy(c, body)
 	case "AssociateCertificate":
 		return h.handleAssociateCertificate(c, body)
 	case "CreateResourceShare":
@@ -369,6 +375,8 @@ func parsePresetRoute(method, suffix string) mcRoute {
 	switch method {
 	case http.MethodGet:
 		return mcRoute{operation: "GetPreset", resource: name}
+	case http.MethodPut:
+		return mcRoute{operation: "UpdatePreset", resource: name}
 	case http.MethodDelete:
 		return mcRoute{operation: "DeletePreset", resource: name}
 	}
@@ -380,6 +388,8 @@ func parsePolicyRoute(method string) mcRoute {
 	switch method {
 	case http.MethodGet:
 		return mcRoute{operation: "GetPolicy"}
+	case http.MethodPut:
+		return mcRoute{operation: "PutPolicy"}
 	case http.MethodDelete:
 		return mcRoute{operation: "DeletePolicy"}
 	}
@@ -593,11 +603,13 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context, name string) error {
 // --- Job handlers ---
 
 type createJobInput struct {
-	Settings    map[string]any    `json:"settings,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Role        string            `json:"role"`
-	Queue       string            `json:"queue,omitempty"`
-	JobTemplate string            `json:"jobTemplate,omitempty"`
+	Settings          map[string]any    `json:"settings,omitempty"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	UserMetadata      map[string]string `json:"userMetadata,omitempty"`
+	Role              string            `json:"role"`
+	Queue             string            `json:"queue,omitempty"`
+	JobTemplate       string            `json:"jobTemplate,omitempty"`
+	BillingTagsSource string            `json:"billingTagsSource,omitempty"`
 }
 
 type jobWrapper struct {
@@ -605,7 +617,9 @@ type jobWrapper struct {
 }
 
 type jobsListOutput struct {
-	Jobs []*Job `json:"jobs"`
+	NextToken  string `json:"nextToken,omitempty"`
+	Jobs       []*Job `json:"jobs"`
+	TotalCount int    `json:"totalCount"`
 }
 
 func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
@@ -618,7 +632,15 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "role is required"))
 	}
 
-	j, err := h.Backend.CreateJob(in.Role, in.Queue, in.JobTemplate, in.Settings, in.Tags)
+	j, err := h.Backend.CreateJob(
+		in.Role,
+		in.Queue,
+		in.JobTemplate,
+		in.Settings,
+		in.Tags,
+		in.UserMetadata,
+		in.BillingTagsSource,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -641,7 +663,7 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		jobs = []*Job{}
 	}
 
-	return c.JSON(http.StatusOK, jobsListOutput{Jobs: jobs})
+	return c.JSON(http.StatusOK, jobsListOutput{Jobs: jobs, TotalCount: len(jobs)})
 }
 
 func (h *Handler) handleCancelJob(c *echo.Context, id string) error {
@@ -787,6 +809,26 @@ func (h *Handler) handleDeletePreset(c *echo.Context, name string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+type updatePresetInput struct {
+	Settings    map[string]any `json:"settings,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Category    string         `json:"category,omitempty"`
+}
+
+func (h *Handler) handleUpdatePreset(c *echo.Context, name string, body []byte) error {
+	var in updatePresetInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	p, err := h.Backend.UpdatePreset(name, in.Description, in.Category, in.Settings)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, presetWrapper{Preset: p})
+}
+
 // --- Policy handlers ---
 
 type policyWrapper struct {
@@ -808,6 +850,34 @@ func (h *Handler) handleDeletePolicy(c *echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+type putPolicyInput struct {
+	Policy *policyInputEntry `json:"policy"`
+}
+
+type policyInputEntry struct {
+	HTTPInputs  string `json:"httpInputs,omitempty"`
+	HTTPSInputs string `json:"httpsInputs,omitempty"`
+	S3Inputs    string `json:"s3Inputs,omitempty"`
+}
+
+func (h *Handler) handlePutPolicy(c *echo.Context, body []byte) error {
+	var in putPolicyInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	var httpInputs, httpsInputs, s3Inputs string
+	if in.Policy != nil {
+		httpInputs = in.Policy.HTTPInputs
+		httpsInputs = in.Policy.HTTPSInputs
+		s3Inputs = in.Policy.S3Inputs
+	}
+
+	p := h.Backend.PutPolicy(httpInputs, httpsInputs, s3Inputs)
+
+	return c.JSON(http.StatusOK, policyWrapper{Policy: p})
 }
 
 // --- Certificate handlers ---
