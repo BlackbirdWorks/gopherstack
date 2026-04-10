@@ -6,14 +6,17 @@ import (
 	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // SHA-1 is required for RSA-OAEP-SHA-1 (AWS compatibility)
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"math/big"
 	"slices"
@@ -31,6 +34,18 @@ const (
 	keySpecSymmetric = "SYMMETRIC_DEFAULT"
 	// keySpecRSA2048 is the key spec for RSA-2048 asymmetric keys.
 	keySpecRSA2048 = "RSA_2048"
+	// keySpecHMAC256 is the key spec for HMAC-SHA-256 keys.
+	keySpecHMAC256 = "HMAC_256"
+	// keySpecHMAC384 is the key spec for HMAC-SHA-384 keys.
+	keySpecHMAC384 = "HMAC_384"
+	// keySpecHMAC512 is the key spec for HMAC-SHA-512 keys.
+	keySpecHMAC512 = "HMAC_512"
+	// hmac256Bytes is the key size in bytes for HMAC-SHA-256.
+	hmac256Bytes = 32
+	// hmac384Bytes is the key size in bytes for HMAC-SHA-384.
+	hmac384Bytes = 48
+	// hmac512Bytes is the key size in bytes for HMAC-SHA-512.
+	hmac512Bytes = 64
 )
 
 var (
@@ -93,6 +108,12 @@ func generateKeyMaterial(keySpec string) (*keyMaterial, error) {
 		return generateECKeyMaterial(elliptic.P384())
 	case keySpecECCP521:
 		return generateECKeyMaterial(elliptic.P521())
+	case keySpecHMAC256:
+		return generateHMACKeyMaterial(hmac256Bytes)
+	case keySpecHMAC384:
+		return generateHMACKeyMaterial(hmac384Bytes)
+	case keySpecHMAC512:
+		return generateHMACKeyMaterial(hmac512Bytes)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedKeySpec, keySpec)
 	}
@@ -114,6 +135,105 @@ func generateECKeyMaterial(curve elliptic.Curve) (*keyMaterial, error) {
 	}
 
 	return &keyMaterial{ecKey: k}, nil
+}
+
+func generateHMACKeyMaterial(size int) (*keyMaterial, error) {
+	key := make([]byte, size)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, fmt.Errorf("generating HMAC key: %w", err)
+	}
+
+	return &keyMaterial{symmetricKey: key}, nil
+}
+
+// computeHMAC computes an HMAC tag over message using the key material and algorithm.
+// Supported algorithms: HMAC_SHA_256, HMAC_SHA_384, HMAC_SHA_512.
+func computeHMAC(message []byte, macAlgorithm string, km *keyMaterial) ([]byte, error) {
+	if km.symmetricKey == nil {
+		return nil, errMissingSymmetricKey
+	}
+
+	newHash, ok := hmacHashFor(macAlgorithm)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnsupportedAlgorithm, macAlgorithm)
+	}
+
+	h := hmac.New(newHash, km.symmetricKey)
+	h.Write(message)
+
+	return h.Sum(nil), nil
+}
+
+// hmacHashFor returns the hash constructor for the given HMAC algorithm name.
+func hmacHashFor(macAlgorithm string) (func() hash.Hash, bool) {
+	switch macAlgorithm {
+	case "HMAC_SHA_256":
+		return sha256.New, true
+	case "HMAC_SHA_384":
+		return sha512.New384, true
+	case "HMAC_SHA_512":
+		return sha512.New, true
+	default:
+		return nil, false
+	}
+}
+
+// deriveECDH performs ECDH key agreement using the stored EC private key and the provided DER-encoded
+// peer public key (SubjectPublicKeyInfo). Returns the raw shared secret bytes.
+func deriveECDH(peerPublicKeyDER []byte, km *keyMaterial) ([]byte, error) {
+	if km.ecKey == nil {
+		return nil, fmt.Errorf("%w: no EC key available for ECDH", errNoAsymmetricKey)
+	}
+
+	peerPub, err := x509.ParsePKIXPublicKey(peerPublicKeyDER)
+	if err != nil {
+		return nil, fmt.Errorf("%w: parsing peer public key: %w", ErrInvalidKeyUsage, err)
+	}
+
+	peerECPub, ok := peerPub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("%w: peer public key is not an EC key", ErrInvalidKeyUsage)
+	}
+
+	// Convert ecdsa.PrivateKey to ecdh.PrivateKey.
+	privECDH, convErr := km.ecKey.ECDH()
+	if convErr != nil {
+		return nil, fmt.Errorf("converting EC private key to ECDH: %w", convErr)
+	}
+
+	// Convert ecdsa.PublicKey to ecdh.PublicKey.
+	peerECDH, convErr := peerECPub.ECDH()
+	if convErr != nil {
+		return nil, fmt.Errorf("%w: converting peer EC public key to ECDH: %w", ErrInvalidKeyUsage, convErr)
+	}
+
+	secret, err := privECDH.ECDH(peerECDH)
+	if err != nil {
+		return nil, fmt.Errorf("ECDH key agreement: %w", err)
+	}
+
+	return secret, nil
+}
+
+// privateKeyPKCS8DER returns the PKCS#8 DER-encoded private key from key material.
+func privateKeyPKCS8DER(km *keyMaterial) ([]byte, error) {
+	var privKey crypto.PrivateKey
+
+	switch {
+	case km.rsaKey != nil:
+		privKey = km.rsaKey
+	case km.ecKey != nil:
+		privKey = km.ecKey
+	default:
+		return nil, errNoAsymmetricKey
+	}
+
+	der, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling private key to PKCS8: %w", err)
+	}
+
+	return der, nil
 }
 
 // padKeyID pads or truncates a key ID to exactly keyIDPrefixLen bytes.
@@ -503,6 +623,83 @@ func defaultSigningAlgorithms(keySpec string) []string {
 	default:
 		return nil
 	}
+}
+
+// defaultMacAlgorithms returns the HMAC algorithms supported by a key spec.
+func defaultMacAlgorithms(keySpec string) []string {
+	switch keySpec {
+	case keySpecHMAC256:
+		return []string{"HMAC_SHA_256"}
+	case keySpecHMAC384:
+		return []string{"HMAC_SHA_384"}
+	case keySpecHMAC512:
+		return []string{"HMAC_SHA_512"}
+	default:
+		return nil
+	}
+}
+
+// keyAgreementAlgorithms returns the key agreement algorithms supported by a key usage.
+func keyAgreementAlgorithms(keyUsage string) []string {
+	if keyUsage == KeyUsageKeyAgreement {
+		return []string{"ECDH"}
+	}
+
+	return nil
+}
+
+// defaultSigningAlgorithmsForUsage returns signing algorithms for the given key spec and usage.
+// For KEY_AGREEMENT keys, signing algorithms are not applicable and nil is returned.
+func defaultSigningAlgorithmsForUsage(keySpec, keyUsage string) []string {
+	if keyUsage == KeyUsageKeyAgreement {
+		return nil
+	}
+
+	return defaultSigningAlgorithms(keySpec)
+}
+
+// encryptRSAOAEP encrypts plaintext using RSA-OAEP-SHA-256 with the given key material.
+func encryptRSAOAEP(plaintext []byte, km *keyMaterial) ([]byte, error) {
+	if km.rsaKey == nil {
+		return nil, fmt.Errorf("%w: not an RSA key", ErrInvalidKeyUsage)
+	}
+
+	return rsa.EncryptOAEP(sha256.New(), rand.Reader, &km.rsaKey.PublicKey, plaintext, nil)
+}
+
+// decryptRSAOAEP decrypts ciphertext using RSA-OAEP-SHA-256 with the given key material.
+// It first tries SHA-256 (primary) then SHA-1 for backward compatibility with RSAES_OAEP_SHA_1 blobs.
+func decryptRSAOAEP(ciphertext []byte, km *keyMaterial) ([]byte, error) {
+	if km.rsaKey == nil {
+		return nil, fmt.Errorf("%w: not an RSA key", ErrInvalidKeyUsage)
+	}
+
+	// Try SHA-256 first (RSAES_OAEP_SHA_256).
+	plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, km.rsaKey, ciphertext, nil)
+	if err == nil {
+		return plaintext, nil
+	}
+
+	// Fall back to SHA-1 (RSAES_OAEP_SHA_1) for AWS compatibility.
+	plaintext, err = tryDecryptRSAOAEPSHA1(ciphertext, km)
+	if err != nil {
+		return nil, fmt.Errorf("%w: RSA-OAEP decryption failed", ErrInvalidCiphertext)
+	}
+
+	return plaintext, nil
+}
+
+// tryDecryptRSAOAEPSHA1 attempts RSA-OAEP decryption with SHA-1 hash for RSAES_OAEP_SHA_1 blobs.
+// SHA-1 is used here solely for AWS SDK compatibility; it is not used for hashing security-sensitive data.
+//
+//nolint:gosec // SHA-1 is required for AWS RSAES_OAEP_SHA_1 compatibility, not for security hashing
+func tryDecryptRSAOAEPSHA1(ciphertext []byte, km *keyMaterial) ([]byte, error) {
+	return rsa.DecryptOAEP(sha1.New(), rand.Reader, km.rsaKey, ciphertext, nil)
+}
+
+// hmacEqual is a constant-time comparison of two HMAC byte slices.
+func hmacEqual(a, b []byte) bool {
+	return hmac.Equal(a, b)
 }
 
 // validateSigningAlgorithm returns an error if signingAlgorithm is not in the set of

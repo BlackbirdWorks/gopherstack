@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -25,10 +26,15 @@ var (
 	errUnknownAction   = errors.New("unknown action")
 	errApplicationName = errors.New("ApplicationName is required")
 	errResourceARN     = errors.New("ResourceARN is required")
+	errInputID         = errors.New("InputId is required")
+	errOutputID        = errors.New("OutputId is required")
+	errReferenceID     = errors.New("ReferenceId is required")
+	errCWLOptionID     = errors.New("CloudWatchLoggingOptionId is required")
 )
 
 // Handler is the HTTP handler for the Kinesis Analytics v1 API.
 type Handler struct {
+	ops           map[string]service.JSONOpFunc
 	Backend       StorageBackend
 	AccountID     string
 	DefaultRegion string
@@ -36,7 +42,49 @@ type Handler struct {
 
 // NewHandler creates a new Kinesis Analytics handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears handler state (delegates to backend if supported).
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+}
+
+// buildOps constructs the dispatch map once at handler creation time.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateApplication":                     service.WrapOp(h.handleCreateApplication),
+		"DeleteApplication":                     service.WrapOp(h.handleDeleteApplication),
+		"DescribeApplication":                   service.WrapOp(h.handleDescribeApplication),
+		"ListApplications":                      service.WrapOp(h.handleListApplications),
+		"StartApplication":                      service.WrapOp(h.handleStartApplication),
+		"StopApplication":                       service.WrapOp(h.handleStopApplication),
+		"UpdateApplication":                     service.WrapOp(h.handleUpdateApplication),
+		"ListTagsForResource":                   service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                           service.WrapOp(h.handleTagResource),
+		"UntagResource":                         service.WrapOp(h.handleUntagResource),
+		"AddApplicationCloudWatchLoggingOption": service.WrapOp(h.handleAddApplicationCloudWatchLoggingOption),
+		"AddApplicationInput":                   service.WrapOp(h.handleAddApplicationInput),
+		"AddApplicationInputProcessingConfiguration": service.WrapOp(
+			h.handleAddApplicationInputProcessingConfiguration,
+		),
+		"AddApplicationOutput":              service.WrapOp(h.handleAddApplicationOutput),
+		"AddApplicationReferenceDataSource": service.WrapOp(h.handleAddApplicationReferenceDataSource),
+		"DeleteApplicationCloudWatchLoggingOption": service.WrapOp(
+			h.handleDeleteApplicationCloudWatchLoggingOption,
+		),
+		"DeleteApplicationInputProcessingConfiguration": service.WrapOp(
+			h.handleDeleteApplicationInputProcessingConfiguration,
+		),
+		"DeleteApplicationOutput":              service.WrapOp(h.handleDeleteApplicationOutput),
+		"DeleteApplicationReferenceDataSource": service.WrapOp(h.handleDeleteApplicationReferenceDataSource),
+		"DiscoverInputSchema":                  service.WrapOp(h.handleDiscoverInputSchema),
+	}
 }
 
 // Name returns the service name.
@@ -55,6 +103,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"AddApplicationCloudWatchLoggingOption",
+		"AddApplicationInput",
+		"AddApplicationInputProcessingConfiguration",
+		"AddApplicationOutput",
+		"AddApplicationReferenceDataSource",
+		"DeleteApplicationCloudWatchLoggingOption",
+		"DeleteApplicationInputProcessingConfiguration",
+		"DeleteApplicationOutput",
+		"DeleteApplicationReferenceDataSource",
+		"DiscoverInputSchema",
 	}
 }
 
@@ -119,23 +177,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateApplication":   service.WrapOp(h.handleCreateApplication),
-		"DeleteApplication":   service.WrapOp(h.handleDeleteApplication),
-		"DescribeApplication": service.WrapOp(h.handleDescribeApplication),
-		"ListApplications":    service.WrapOp(h.handleListApplications),
-		"StartApplication":    service.WrapOp(h.handleStartApplication),
-		"StopApplication":     service.WrapOp(h.handleStopApplication),
-		"UpdateApplication":   service.WrapOp(h.handleUpdateApplication),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"UntagResource":       service.WrapOp(h.handleUntagResource),
-	}
-}
-
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -159,15 +202,23 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "ResourceInUseException", Message: err.Error()})
-	case errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
 	case errors.Is(err, ErrConcurrentUpdate):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "ConcurrentModificationException", Message: err.Error()})
-	case errors.Is(err, errApplicationName), errors.Is(err, errResourceARN):
+	case errors.Is(err, errUnknownAction),
+		errors.As(err, &syntaxErr),
+		errors.As(err, &typeErr):
+		return c.JSON(http.StatusBadRequest,
+			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
+	case errors.Is(err, errApplicationName),
+		errors.Is(err, errResourceARN),
+		errors.Is(err, errInputID),
+		errors.Is(err, errOutputID),
+		errors.Is(err, errReferenceID),
+		errors.Is(err, errCWLOptionID):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
 	default:
@@ -332,10 +383,18 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	entries := make([]tagEntry, 0, len(tagMap))
+	keys := make([]string, 0, len(tagMap))
 
-	for k, v := range tagMap {
-		entries = append(entries, tagEntry{Key: k, Value: v})
+	for k := range tagMap {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	entries := make([]tagEntry, 0, len(keys))
+
+	for _, k := range keys {
+		entries = append(entries, tagEntry{Key: k, Value: tagMap[k]})
 	}
 
 	return &listTagsForResourceOutput{Tags: entries}, nil
@@ -380,12 +439,16 @@ func (h *Handler) handleUntagResource(
 // toApplicationDetail converts an Application to the API detail struct.
 func toApplicationDetail(app *Application) applicationDetail {
 	detail := applicationDetail{
-		ApplicationARN:         app.ApplicationARN,
-		ApplicationName:        app.ApplicationName,
-		ApplicationStatus:      app.ApplicationStatus,
-		ApplicationVersionID:   app.ApplicationVersionID,
-		ApplicationCode:        app.ApplicationCode,
-		ApplicationDescription: app.ApplicationDescription,
+		ApplicationARN:                      app.ApplicationARN,
+		ApplicationName:                     app.ApplicationName,
+		ApplicationStatus:                   app.ApplicationStatus,
+		ApplicationVersionID:                app.ApplicationVersionID,
+		ApplicationCode:                     app.ApplicationCode,
+		ApplicationDescription:              app.ApplicationDescription,
+		CloudWatchLoggingOptionDescriptions: app.CloudWatchLoggingOptions,
+		InputDescriptions:                   app.Inputs,
+		OutputDescriptions:                  app.Outputs,
+		ReferenceDataSourceDescriptions:     app.ReferenceDataSources,
 	}
 
 	if app.CreateTimestamp != nil {
@@ -397,4 +460,287 @@ func toApplicationDetail(app *Application) applicationDetail {
 	}
 
 	return detail
+}
+
+func (h *Handler) handleAddApplicationCloudWatchLoggingOption(
+	_ context.Context,
+	in *addApplicationCloudWatchLoggingOptionInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	var opt CloudWatchLoggingOptionDesc
+	if in.CloudWatchLoggingOption != nil {
+		opt.LogStreamARN = in.CloudWatchLoggingOption.LogStreamARN
+		opt.RoleARN = in.CloudWatchLoggingOption.RoleARN
+	}
+
+	if err := h.Backend.AddApplicationCloudWatchLoggingOption(
+		in.ApplicationName, in.CurrentApplicationVersionID, opt,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleAddApplicationInput(
+	_ context.Context,
+	in *addApplicationInputInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	var desc InputDescription
+	if in.Input != nil {
+		desc.NamePrefix = in.Input.NamePrefix
+
+		if in.Input.KinesisStreamsInput != nil {
+			desc.KinesisStreamsInputDescription = &KinesisStreamsInputDesc{
+				ResourceARN: in.Input.KinesisStreamsInput.ResourceARN,
+				RoleARN:     in.Input.KinesisStreamsInput.RoleARN,
+			}
+		}
+
+		if in.Input.KinesisFirehoseInput != nil {
+			desc.KinesisFirehoseInputDescription = &KinesisFirehoseInputDesc{
+				ResourceARN: in.Input.KinesisFirehoseInput.ResourceARN,
+				RoleARN:     in.Input.KinesisFirehoseInput.RoleARN,
+			}
+		}
+	}
+
+	if err := h.Backend.AddApplicationInput(
+		in.ApplicationName, in.CurrentApplicationVersionID, desc,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleAddApplicationInputProcessingConfiguration(
+	_ context.Context,
+	in *addApplicationInputProcessingConfigurationInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	var cfg *InputProcessingConfigurationDesc
+	if in.InputProcessingConfiguration != nil && in.InputProcessingConfiguration.InputLambdaProcessor != nil {
+		cfg = &InputProcessingConfigurationDesc{
+			InputLambdaProcessor: &LambdaProcessorDesc{
+				ResourceARN: in.InputProcessingConfiguration.InputLambdaProcessor.ResourceARN,
+				RoleARN:     in.InputProcessingConfiguration.InputLambdaProcessor.RoleARN,
+			},
+		}
+	}
+
+	if err := h.Backend.AddApplicationInputProcessingConfiguration(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, cfg,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleAddApplicationOutput(
+	_ context.Context,
+	in *addApplicationOutputInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	var desc OutputDescription
+	if in.Output != nil {
+		desc.Name = in.Output.Name
+
+		if in.Output.KinesisStreamsOutput != nil {
+			desc.KinesisStreamsOutputDescription = &KinesisStreamsOutputDesc{
+				ResourceARN: in.Output.KinesisStreamsOutput.ResourceARN,
+				RoleARN:     in.Output.KinesisStreamsOutput.RoleARN,
+			}
+		}
+
+		if in.Output.KinesisFirehoseOutput != nil {
+			desc.KinesisFirehoseOutputDescription = &KinesisFirehoseOutputDesc{
+				ResourceARN: in.Output.KinesisFirehoseOutput.ResourceARN,
+				RoleARN:     in.Output.KinesisFirehoseOutput.RoleARN,
+			}
+		}
+
+		if in.Output.LambdaOutput != nil {
+			desc.LambdaOutputDescription = &LambdaOutputDesc{
+				ResourceARN: in.Output.LambdaOutput.ResourceARN,
+				RoleARN:     in.Output.LambdaOutput.RoleARN,
+			}
+		}
+
+		if in.Output.DestinationSchema != nil {
+			desc.DestinationSchema = &DestinationSchemaDesc{
+				RecordFormatType: in.Output.DestinationSchema.RecordFormatType,
+			}
+		}
+	}
+
+	if err := h.Backend.AddApplicationOutput(
+		in.ApplicationName, in.CurrentApplicationVersionID, desc,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleAddApplicationReferenceDataSource(
+	_ context.Context,
+	in *addApplicationReferenceDataSourceInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	var ref ReferenceDataSourceDescription
+	if in.ReferenceDataSource != nil {
+		ref.TableName = in.ReferenceDataSource.TableName
+
+		if in.ReferenceDataSource.S3ReferenceDataSource != nil {
+			ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
+				BucketARN: in.ReferenceDataSource.S3ReferenceDataSource.BucketARN,
+				FileKey:   in.ReferenceDataSource.S3ReferenceDataSource.FileKey,
+				RoleARN:   in.ReferenceDataSource.S3ReferenceDataSource.RoleARN,
+			}
+		}
+
+		if in.ReferenceDataSource.ReferenceSchema != nil {
+			schema := &SourceSchema{
+				RecordEncoding: in.ReferenceDataSource.ReferenceSchema.RecordEncoding,
+				RecordColumns:  in.ReferenceDataSource.ReferenceSchema.RecordColumns,
+				RecordFormat: RecordFormat{
+					RecordFormatType:  in.ReferenceDataSource.ReferenceSchema.RecordFormat.RecordFormatType,
+					MappingParameters: in.ReferenceDataSource.ReferenceSchema.RecordFormat.MappingParameters,
+				},
+			}
+			ref.ReferenceSchema = schema
+		}
+	}
+
+	if err := h.Backend.AddApplicationReferenceDataSource(
+		in.ApplicationName, in.CurrentApplicationVersionID, ref,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
+	_ context.Context,
+	in *deleteApplicationCloudWatchLoggingOptionInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	if in.CloudWatchLoggingOptionID == "" {
+		return nil, errCWLOptionID
+	}
+
+	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
+	_ context.Context,
+	in *deleteApplicationInputProcessingConfigurationInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	if in.InputID == "" {
+		return nil, errInputID
+	}
+
+	if err := h.Backend.DeleteApplicationInputProcessingConfiguration(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleDeleteApplicationOutput(
+	_ context.Context,
+	in *deleteApplicationOutputInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	if in.OutputID == "" {
+		return nil, errOutputID
+	}
+
+	if err := h.Backend.DeleteApplicationOutput(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleDeleteApplicationReferenceDataSource(
+	_ context.Context,
+	in *deleteApplicationReferenceDataSourceInput,
+) (*struct{}, error) {
+	if in.ApplicationName == "" {
+		return nil, errApplicationName
+	}
+
+	if in.ReferenceID == "" {
+		return nil, errReferenceID
+	}
+
+	if err := h.Backend.DeleteApplicationReferenceDataSource(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.ReferenceID,
+	); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleDiscoverInputSchema(
+	_ context.Context,
+	_ *discoverInputSchemaInput,
+) (*discoverInputSchemaOutput, error) {
+	return &discoverInputSchemaOutput{
+		InputSchema: &SourceSchema{
+			RecordFormat: RecordFormat{
+				RecordFormatType: "JSON",
+				MappingParameters: &MappingParameters{
+					JSONMappingParameters: &JSONMappingParameters{RecordRowPath: "$"},
+				},
+			},
+			RecordColumns: []RecordColumn{
+				{Name: "COL_1", SQLType: "VARCHAR(4)"},
+			},
+		},
+		ParsedInputRecords:    [][]string{{"value1"}},
+		ProcessedInputRecords: []string{`{"COL_1":"value1"}`},
+		RawInputRecords:       []string{`{"COL_1":"value1"}`},
+	}, nil
 }

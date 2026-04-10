@@ -23,6 +23,10 @@ var (
 	ErrAliasNotFound = errors.New("NotFoundException")
 	// ErrAliasAlreadyExists is returned when an alias with the given name already exists.
 	ErrAliasAlreadyExists = errors.New("AlreadyExistsException")
+	// ErrCustomKeyStoreAlreadyExists is returned when a custom key store with the given name already exists.
+	ErrCustomKeyStoreAlreadyExists = errors.New("CustomKeyStoreNameInUseException")
+	// ErrCustomKeyStoreNotFound is returned when a custom key store ID does not exist.
+	ErrCustomKeyStoreNotFound = errors.New("CustomKeyStoreNotFoundException")
 	// ErrKeyDisabled is returned when an operation is attempted on a disabled key.
 	ErrKeyDisabled = errors.New("DisabledException")
 	// ErrKeyInvalidState is returned when a key is in a state that does not allow the requested
@@ -46,6 +50,8 @@ var (
 	ErrKeyMaterialUnavailable = errors.New("key material unavailable for this key")
 	// ErrUnsupportedOrigin is returned when an operation is incompatible with the key's origin.
 	ErrUnsupportedOrigin = errors.New("UnsupportedOperationException")
+	// ErrValidation is returned for invalid request parameters (maps to ValidationException).
+	ErrValidation = errors.New("ValidationException")
 )
 
 const (
@@ -120,7 +126,23 @@ type StorageBackend interface {
 	GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error)
 	ImportKeyMaterial(input *ImportKeyMaterialInput) error
 	DeleteImportedKeyMaterial(input *DeleteImportedKeyMaterialInput) error
+	ConnectCustomKeyStore(input *ConnectCustomKeyStoreInput) error
+	CreateCustomKeyStore(input *CreateCustomKeyStoreInput) (*CreateCustomKeyStoreOutput, error)
+	DeleteCustomKeyStore(input *DeleteCustomKeyStoreInput) error
+	DeriveSharedSecret(input *DeriveSharedSecretInput) (*DeriveSharedSecretOutput, error)
+	DescribeCustomKeyStores(input *DescribeCustomKeyStoresInput) (*DescribeCustomKeyStoresOutput, error)
+	DisconnectCustomKeyStore(input *DisconnectCustomKeyStoreInput) error
+	GenerateDataKeyPair(input *GenerateDataKeyPairInput) (*GenerateDataKeyPairOutput, error)
+	GenerateDataKeyPairWithoutPlaintext(
+		input *GenerateDataKeyPairWithoutPlaintextInput,
+	) (*GenerateDataKeyPairWithoutPlaintextOutput, error)
+	GenerateMac(input *GenerateMacInput) (*GenerateMacOutput, error)
+	GenerateRandom(input *GenerateRandomInput) (*GenerateRandomOutput, error)
+	VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, error)
 }
+
+// ensure InMemoryBackend satisfies StorageBackend at compile time.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
@@ -130,6 +152,7 @@ type InMemoryBackend struct {
 	policies           map[string]string
 	keyMaterials       map[string]*keyMaterial
 	keyMaterialHistory map[string][]*keyMaterial
+	customKeyStores    map[string]*CustomKeyStore
 	mu                 *lockmetrics.RWMutex
 	accountID          string
 	region             string
@@ -149,6 +172,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		policies:           make(map[string]string),
 		keyMaterials:       make(map[string]*keyMaterial),
 		keyMaterialHistory: make(map[string][]*keyMaterial),
+		customKeyStores:    make(map[string]*CustomKeyStore),
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("kms"),
@@ -201,7 +225,9 @@ func (b *InMemoryBackend) requireKeyMaterial(keyID string) (*keyMaterial, error)
 
 // validateKeySpecUsage returns an error when keySpec and keyUsage are incompatible.
 // Symmetric specs (SYMMETRIC_DEFAULT) are only valid for ENCRYPT_DECRYPT;
-// asymmetric specs (RSA_*, ECC_*) are only valid for SIGN_VERIFY.
+// RSA specs (RSA_*) are valid for SIGN_VERIFY or ENCRYPT_DECRYPT (RSA-OAEP);
+// ECC specs (ECC_*) are valid for SIGN_VERIFY or KEY_AGREEMENT;
+// HMAC specs (HMAC_*) are only valid for GENERATE_VERIFY_MAC.
 func validateKeySpecUsage(keySpec, keyUsage string) error {
 	switch keySpec {
 	case keySpecSymmetric:
@@ -211,17 +237,63 @@ func validateKeySpecUsage(keySpec, keyUsage string) error {
 				ErrInvalidKeyUsage, keySpec, keyUsage,
 			)
 		}
-	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096,
-		keySpecECCP256, keySpecECCP384, keySpecECCP521:
-		if keyUsage != "" && keyUsage != KeyUsageSignVerify {
+	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096:
+		if keyUsage != "" && keyUsage != KeyUsageSignVerify && keyUsage != KeyUsageEncryptDecrypt {
 			return fmt.Errorf(
-				"%w: key spec %q is not compatible with key usage %q; asymmetric keys require SIGN_VERIFY",
+				"%w: key spec %q supports KeyUsage=%s or KeyUsage=%s only",
+				ErrInvalidKeyUsage, keySpec, KeyUsageSignVerify, KeyUsageEncryptDecrypt,
+			)
+		}
+	case keySpecECCP256, keySpecECCP384, keySpecECCP521:
+		if keyUsage != "" && keyUsage != KeyUsageSignVerify && keyUsage != KeyUsageKeyAgreement {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; ECC keys require SIGN_VERIFY or KEY_AGREEMENT",
+				ErrInvalidKeyUsage, keySpec, keyUsage,
+			)
+		}
+	case keySpecHMAC256, keySpecHMAC384, keySpecHMAC512:
+		if keyUsage != "" && keyUsage != KeyUsageGenerateMac {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; HMAC keys require GENERATE_VERIFY_MAC",
 				ErrInvalidKeyUsage, keySpec, keyUsage,
 			)
 		}
 	}
 
 	return nil
+}
+
+// deriveKeySpecUsage fills in missing KeySpec and KeyUsage defaults, returning the resolved pair.
+// If keyUsage is empty, it is inferred from keySpec; if keySpec is empty it is inferred from keyUsage.
+func deriveKeySpecUsage(keySpec, keyUsage string) (string, string) {
+	if keyUsage == "" {
+		switch keySpec {
+		case keySpecSymmetric, "":
+			keyUsage = KeyUsageEncryptDecrypt
+		case keySpecHMAC256, keySpecHMAC384, keySpecHMAC512:
+			keyUsage = KeyUsageGenerateMac
+		default:
+			// RSA and ECC specs default to SIGN_VERIFY unless the caller specified otherwise.
+			keyUsage = KeyUsageSignVerify
+		}
+	}
+
+	if keySpec == "" {
+		switch keyUsage {
+		case KeyUsageEncryptDecrypt:
+			keySpec = keySpecSymmetric
+		case KeyUsageGenerateMac:
+			keySpec = keySpecHMAC256
+		case KeyUsageSignVerify:
+			keySpec = keySpecRSA2048
+		case KeyUsageKeyAgreement:
+			keySpec = keySpecECCP256
+		default:
+			keySpec = keySpecSymmetric
+		}
+	}
+
+	return keySpec, keyUsage
 }
 
 // CreateKey creates a new KMS key and stores it in the backend.
@@ -238,27 +310,7 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		return nil, err
 	}
 
-	// Derive keyUsage from keySpec when not explicitly specified.
-	if keyUsage == "" {
-		switch keySpec {
-		case keySpecSymmetric, "":
-			keyUsage = KeyUsageEncryptDecrypt
-		default:
-			keyUsage = KeyUsageSignVerify
-		}
-	}
-
-	// Derive keySpec from keyUsage when not explicitly specified.
-	if keySpec == "" {
-		switch keyUsage {
-		case KeyUsageEncryptDecrypt:
-			keySpec = keySpecSymmetric
-		case KeyUsageSignVerify:
-			keySpec = keySpecRSA2048
-		default:
-			keySpec = keySpecSymmetric
-		}
-	}
+	keySpec, keyUsage = deriveKeySpecUsage(keySpec, keyUsage)
 
 	// Resolve origin: EXTERNAL keys require the caller to import key material later.
 	origin := input.Origin
@@ -388,15 +440,41 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, err
 	}
 
-	blob, encErr := encryptData(input.Plaintext, key.KeyID, input.EncryptionContext, km)
-	if encErr != nil {
-		return nil, encErr
+	blob, err := b.encryptPayload(input.Plaintext, key.KeyID, input.EncryptionContext, km)
+	if err != nil {
+		return nil, err
 	}
 
 	return &EncryptOutput{
 		CiphertextBlob: blob,
 		KeyID:          key.Arn,
 	}, nil
+}
+
+// encryptPayload dispatches to RSA-OAEP or symmetric encryption depending on key type.
+// Must be called with at least a read lock held.
+func (*InMemoryBackend) encryptPayload(
+	plaintext []byte,
+	keyID string,
+	encCtx map[string]string,
+	km *keyMaterial,
+) ([]byte, error) {
+	if km.rsaKey != nil {
+		// RSA ENCRYPT_DECRYPT keys use RSA-OAEP-SHA256.
+		// Prepend the key ID prefix so Decrypt can identify the key.
+		rsaBlob, encErr := encryptRSAOAEP(plaintext, km)
+		if encErr != nil {
+			return nil, encErr
+		}
+
+		full := make([]byte, keyIDPrefixLen+len(rsaBlob))
+		copy(full[:keyIDPrefixLen], padKeyID(keyID))
+		copy(full[keyIDPrefixLen:], rsaBlob)
+
+		return full, nil
+	}
+
+	return encryptData(plaintext, keyID, encCtx, km)
 }
 
 // Decrypt decrypts the given ciphertext blob.
@@ -429,19 +507,38 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 		return nil, err
 	}
 
-	plaintext, _, decErr := decryptData(input.CiphertextBlob, input.EncryptionContext, km)
-	if decErr != nil {
-		// Try previous key material versions (produced by key rotation).
-		plaintext, decErr = b.decryptWithHistory(input.CiphertextBlob, input.EncryptionContext, key.KeyID)
-		if decErr != nil {
-			return nil, decErr
-		}
+	cipherPayload := input.CiphertextBlob[keyIDPrefixLen:]
+
+	plaintext, err := b.decryptPayload(input.CiphertextBlob, cipherPayload, input.EncryptionContext, key, km)
+	if err != nil {
+		return nil, err
 	}
 
 	return &DecryptOutput{
 		Plaintext: plaintext,
 		KeyID:     key.Arn,
 	}, nil
+}
+
+// decryptPayload dispatches to RSA-OAEP or symmetric decryption depending on key type.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) decryptPayload(
+	fullBlob, rsaPayload []byte,
+	encCtx map[string]string,
+	key *Key,
+	km *keyMaterial,
+) ([]byte, error) {
+	if km.rsaKey != nil {
+		return decryptRSAOAEP(rsaPayload, km)
+	}
+
+	plaintext, _, err := decryptData(fullBlob, encCtx, km)
+	if err == nil {
+		return plaintext, nil
+	}
+
+	// Try previous key material versions (produced by key rotation).
+	return b.decryptWithHistory(fullBlob, encCtx, key.KeyID)
 }
 
 // decryptWithHistory attempts to decrypt a blob using previous key material versions.
@@ -679,7 +776,7 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 		return nil, keyStateError(key)
 	}
 
-	if key.KeyUsage != KeyUsageSignVerify {
+	if key.KeyUsage != KeyUsageSignVerify && key.KeyUsage != KeyUsageKeyAgreement {
 		return nil, fmt.Errorf("%w: key %q does not have an asymmetric public key", ErrInvalidKeyUsage, key.KeyID)
 	}
 
@@ -694,11 +791,12 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 	}
 
 	return &GetPublicKeyOutput{
-		KeyID:             key.KeyID,
-		PublicKey:         der,
-		KeySpec:           key.KeySpec,
-		KeyUsage:          key.KeyUsage,
-		SigningAlgorithms: defaultSigningAlgorithms(key.KeySpec),
+		KeyID:                  key.KeyID,
+		PublicKey:              der,
+		KeySpec:                key.KeySpec,
+		KeyUsage:               key.KeyUsage,
+		SigningAlgorithms:      defaultSigningAlgorithmsForUsage(key.KeySpec, key.KeyUsage),
+		KeyAgreementAlgorithms: keyAgreementAlgorithms(key.KeyUsage),
 	}, nil
 }
 
@@ -990,7 +1088,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (
 	if days < minPendingWindowDays || days > maxPendingWindowDays {
 		return nil, fmt.Errorf(
 			"%w: PendingWindowInDays must be between %d and %d, got %d",
-			ErrInvalidKeyUsage, minPendingWindowDays, maxPendingWindowDays, days,
+			ErrValidation, minPendingWindowDays, maxPendingWindowDays, days,
 		)
 	}
 
@@ -1067,16 +1165,18 @@ func keyToMetadata(k *Key) KeyMetadata {
 	}
 
 	meta := KeyMetadata{
-		KeyID:        k.KeyID,
-		Arn:          k.Arn,
-		Description:  k.Description,
-		KeyState:     k.KeyState,
-		KeyUsage:     k.KeyUsage,
-		KeySpec:      k.KeySpec,
-		CreationDate: k.CreationDate,
-		KeyManager:   "CUSTOMER",
-		Origin:       origin,
-		MultiRegion:  false,
+		KeyID:                 k.KeyID,
+		Arn:                   k.Arn,
+		Description:           k.Description,
+		KeyState:              k.KeyState,
+		KeyUsage:              k.KeyUsage,
+		KeySpec:               k.KeySpec,
+		CustomerMasterKeySpec: k.KeySpec,
+		CreationDate:          k.CreationDate,
+		KeyManager:            "CUSTOMER",
+		Origin:                origin,
+		MultiRegion:           false,
+		Enabled:               k.Enabled,
 	}
 
 	// DeletionDate is only meaningful (and set by AWS) for PendingDeletion keys.
@@ -1086,9 +1186,17 @@ func keyToMetadata(k *Key) KeyMetadata {
 
 	switch k.KeyUsage {
 	case KeyUsageEncryptDecrypt:
-		meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
+		if k.KeySpec == keySpecRSA2048 || k.KeySpec == keySpecRSA3072 || k.KeySpec == keySpecRSA4096 {
+			meta.EncryptionAlgorithms = []string{"RSAES_OAEP_SHA_1", "RSAES_OAEP_SHA_256"}
+		} else {
+			meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
+		}
 	case KeyUsageSignVerify:
 		meta.SigningAlgorithms = defaultSigningAlgorithms(k.KeySpec)
+	case KeyUsageGenerateMac:
+		meta.MacAlgorithms = defaultMacAlgorithms(k.KeySpec)
+	case KeyUsageKeyAgreement:
+		meta.KeyAgreementAlgorithms = []string{"ECDH"}
 	}
 
 	return meta
@@ -1473,4 +1581,448 @@ func (b *InMemoryBackend) Reset() {
 	b.policies = make(map[string]string)
 	b.keyMaterials = make(map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string][]*keyMaterial)
+	b.customKeyStores = make(map[string]*CustomKeyStore)
+}
+
+// CreateCustomKeyStore creates a new in-memory custom key store entry in DISCONNECTED state.
+func (b *InMemoryBackend) CreateCustomKeyStore(
+	input *CreateCustomKeyStoreInput,
+) (*CreateCustomKeyStoreOutput, error) {
+	if strings.TrimSpace(input.CustomKeyStoreName) == "" {
+		return nil, fmt.Errorf("%w: CustomKeyStoreName must not be empty", ErrValidation)
+	}
+
+	storeType := input.CustomKeyStoreType
+	if storeType == "" {
+		storeType = "AWS_CLOUDHSM"
+	}
+
+	if storeType != "AWS_CLOUDHSM" && storeType != "EXTERNAL_KEY_STORE" {
+		return nil, fmt.Errorf("%w: CustomKeyStoreType must be AWS_CLOUDHSM or EXTERNAL_KEY_STORE", ErrValidation)
+	}
+
+	b.mu.Lock("CreateCustomKeyStore")
+	defer b.mu.Unlock()
+
+	// Ensure name is unique.
+	for _, ks := range b.customKeyStores {
+		if ks.CustomKeyStoreName == input.CustomKeyStoreName {
+			return nil, fmt.Errorf(
+				"%w: custom key store with name %q already exists",
+				ErrCustomKeyStoreAlreadyExists, input.CustomKeyStoreName,
+			)
+		}
+	}
+
+	storeID := uuid.New().String()
+
+	b.customKeyStores[storeID] = &CustomKeyStore{
+		CustomKeyStoreID:   storeID,
+		CustomKeyStoreName: input.CustomKeyStoreName,
+		ConnectionState:    ConnectionStateDisconnected,
+		CreationDate:       UnixTimeFloat(time.Now()),
+		CustomKeyStoreType: storeType,
+	}
+
+	return &CreateCustomKeyStoreOutput{CustomKeyStoreID: storeID}, nil
+}
+
+// DeleteCustomKeyStore removes an existing custom key store. It must be in DISCONNECTED state.
+func (b *InMemoryBackend) DeleteCustomKeyStore(input *DeleteCustomKeyStoreInput) error {
+	if input.CustomKeyStoreID == "" {
+		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteCustomKeyStore")
+	defer b.mu.Unlock()
+
+	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	if !ok {
+		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
+	}
+
+	if ks.ConnectionState != ConnectionStateDisconnected {
+		return fmt.Errorf(
+			"%w: custom key store must be DISCONNECTED before deletion; current state: %s",
+			ErrKeyInvalidState, ks.ConnectionState,
+		)
+	}
+
+	delete(b.customKeyStores, input.CustomKeyStoreID)
+
+	return nil
+}
+
+// DescribeCustomKeyStores returns a list of custom key stores matching optional filters.
+func (b *InMemoryBackend) DescribeCustomKeyStores(
+	input *DescribeCustomKeyStoresInput,
+) (*DescribeCustomKeyStoresOutput, error) {
+	b.mu.RLock("DescribeCustomKeyStores")
+	defer b.mu.RUnlock()
+
+	stores := make([]CustomKeyStore, 0, len(b.customKeyStores))
+
+	for _, ks := range b.customKeyStores {
+		if input.CustomKeyStoreID != "" && ks.CustomKeyStoreID != input.CustomKeyStoreID {
+			continue
+		}
+
+		if input.CustomKeyStoreName != "" && ks.CustomKeyStoreName != input.CustomKeyStoreName {
+			continue
+		}
+
+		stores = append(stores, *ks)
+	}
+
+	sort.Slice(stores, func(i, j int) bool {
+		return stores[i].CustomKeyStoreID < stores[j].CustomKeyStoreID
+	})
+
+	startIdx := parseMarker(input.Marker)
+	limit := int32(defaultListLimit)
+
+	if input.Limit != nil && *input.Limit > 0 {
+		limit = *input.Limit
+	}
+
+	if startIdx >= len(stores) {
+		return &DescribeCustomKeyStoresOutput{CustomKeyStores: []CustomKeyStore{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextMarker string
+	if end < len(stores) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(stores)
+	}
+
+	return &DescribeCustomKeyStoresOutput{
+		CustomKeyStores: stores[startIdx:end],
+		NextMarker:      nextMarker,
+		Truncated:       nextMarker != "",
+	}, nil
+}
+
+// ConnectCustomKeyStore transitions a custom key store from DISCONNECTED to CONNECTED.
+func (b *InMemoryBackend) ConnectCustomKeyStore(input *ConnectCustomKeyStoreInput) error {
+	if input.CustomKeyStoreID == "" {
+		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
+	}
+
+	b.mu.Lock("ConnectCustomKeyStore")
+	defer b.mu.Unlock()
+
+	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	if !ok {
+		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
+	}
+
+	if ks.ConnectionState == ConnectionStateConnected {
+		return fmt.Errorf(
+			"%w: custom key store %q is already connected",
+			ErrKeyInvalidState, input.CustomKeyStoreID,
+		)
+	}
+
+	ks.ConnectionState = ConnectionStateConnected
+
+	return nil
+}
+
+// DisconnectCustomKeyStore transitions a custom key store from CONNECTED to DISCONNECTED.
+func (b *InMemoryBackend) DisconnectCustomKeyStore(input *DisconnectCustomKeyStoreInput) error {
+	if input.CustomKeyStoreID == "" {
+		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
+	}
+
+	b.mu.Lock("DisconnectCustomKeyStore")
+	defer b.mu.Unlock()
+
+	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	if !ok {
+		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
+	}
+
+	if ks.ConnectionState == ConnectionStateDisconnected {
+		return fmt.Errorf(
+			"%w: custom key store %q is already disconnected",
+			ErrKeyInvalidState, input.CustomKeyStoreID,
+		)
+	}
+
+	ks.ConnectionState = ConnectionStateDisconnected
+
+	return nil
+}
+
+// DeriveSharedSecret computes an ECDH shared secret using an ECC KEY_AGREEMENT KMS key
+// and the provided DER-encoded peer public key.
+func (b *InMemoryBackend) DeriveSharedSecret(
+	input *DeriveSharedSecretInput,
+) (*DeriveSharedSecretOutput, error) {
+	if input.KeyAgreementAlgorithm != "" && input.KeyAgreementAlgorithm != "ECDH" {
+		return nil, fmt.Errorf(
+			"%w: KeyAgreementAlgorithm must be ECDH, got %q",
+			ErrValidation, input.KeyAgreementAlgorithm,
+		)
+	}
+
+	b.mu.RLock("DeriveSharedSecret")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageKeyAgreement {
+		return nil, fmt.Errorf(
+			"%w: key %q must have KeyUsage=%s for DeriveSharedSecret",
+			ErrInvalidKeyUsage, key.KeyID, KeyUsageKeyAgreement,
+		)
+	}
+
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	sharedSecret, err := deriveECDH(input.PublicKey, km)
+	if err != nil {
+		return nil, err
+	}
+
+	algo := input.KeyAgreementAlgorithm
+	if algo == "" {
+		algo = "ECDH"
+	}
+
+	return &DeriveSharedSecretOutput{
+		KeyID:                 key.Arn,
+		SharedSecret:          sharedSecret,
+		KeyAgreementAlgorithm: algo,
+	}, nil
+}
+
+// GenerateDataKeyPair generates a new ephemeral asymmetric key pair, returning the public key,
+// plaintext private key (DER-encoded PKCS#8), and the private key encrypted under the specified
+// KMS wrapping key.
+func (b *InMemoryBackend) GenerateDataKeyPair(
+	input *GenerateDataKeyPairInput,
+) (*GenerateDataKeyPairOutput, error) {
+	if input.KeyPairSpec == "" {
+		return nil, fmt.Errorf("%w: KeyPairSpec must not be empty", ErrValidation)
+	}
+
+	b.mu.RLock("GenerateDataKeyPair")
+	defer b.mu.RUnlock()
+
+	wrapKey, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if wrapKey.KeyState != KeyStateEnabled {
+		return nil, keyStateError(wrapKey)
+	}
+
+	if wrapKey.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf("%w: wrapping key %q must have ENCRYPT_DECRYPT usage", ErrInvalidKeyUsage, wrapKey.KeyID)
+	}
+
+	wrapKM, err := b.requireKeyMaterial(wrapKey.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	pairKM, err := generateKeyMaterial(input.KeyPairSpec)
+	if err != nil {
+		return nil, fmt.Errorf("generating key pair for spec %q: %w", input.KeyPairSpec, err)
+	}
+
+	privDER, err := privateKeyPKCS8DER(pairKM)
+	if err != nil {
+		return nil, err
+	}
+
+	pubDER, err := publicKeyDER(pairKM)
+	if err != nil {
+		return nil, err
+	}
+
+	encPriv, err := encryptData(privDER, wrapKey.KeyID, input.EncryptionContext, wrapKM)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting private key: %w", err)
+	}
+
+	return &GenerateDataKeyPairOutput{
+		KeyID:                    wrapKey.Arn,
+		KeyPairSpec:              input.KeyPairSpec,
+		PrivateKeyCiphertextBlob: encPriv,
+		PrivateKeyPlaintext:      privDER,
+		PublicKey:                pubDER,
+	}, nil
+}
+
+// GenerateDataKeyPairWithoutPlaintext generates an asymmetric key pair but omits the plaintext
+// private key from the response.
+func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
+	input *GenerateDataKeyPairWithoutPlaintextInput,
+) (*GenerateDataKeyPairWithoutPlaintextOutput, error) {
+	out, err := b.GenerateDataKeyPair(&GenerateDataKeyPairInput{
+		KeyID:             input.KeyID,
+		KeyPairSpec:       input.KeyPairSpec,
+		EncryptionContext: input.EncryptionContext,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &GenerateDataKeyPairWithoutPlaintextOutput{
+		KeyID:                    out.KeyID,
+		KeyPairSpec:              out.KeyPairSpec,
+		PrivateKeyCiphertextBlob: out.PrivateKeyCiphertextBlob,
+		PublicKey:                out.PublicKey,
+	}, nil
+}
+
+// GenerateMac computes an HMAC tag over the provided message using an HMAC KMS key.
+func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutput, error) {
+	if input.MacAlgorithm == "" {
+		return nil, fmt.Errorf("%w: MacAlgorithm must not be empty", ErrValidation)
+	}
+
+	b.mu.RLock("GenerateMac")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageGenerateMac {
+		return nil, fmt.Errorf(
+			"%w: key %q must have KeyUsage=%s for GenerateMac",
+			ErrInvalidKeyUsage, key.KeyID, KeyUsageGenerateMac,
+		)
+	}
+
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	mac, err := computeHMAC(input.Message, input.MacAlgorithm, km)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GenerateMacOutput{
+		KeyID:        key.Arn,
+		Mac:          mac,
+		MacAlgorithm: input.MacAlgorithm,
+	}, nil
+}
+
+// GenerateRandom returns the requested number of cryptographically secure random bytes.
+// NumberOfBytes defaults to 32 when not specified; maximum is 1024.
+func (b *InMemoryBackend) GenerateRandom(input *GenerateRandomInput) (*GenerateRandomOutput, error) {
+	n := int32(aes256Bytes)
+
+	if input.NumberOfBytes != nil {
+		n = *input.NumberOfBytes
+	}
+
+	if n <= 0 || n > maxDataKeyBytes {
+		return nil, fmt.Errorf(
+			"%w: NumberOfBytes must be between 1 and %d, got %d",
+			ErrValidation, maxDataKeyBytes, n,
+		)
+	}
+
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+		return nil, fmt.Errorf("generating random bytes: %w", err)
+	}
+
+	return &GenerateRandomOutput{Plaintext: buf}, nil
+}
+
+// VerifyMac verifies an HMAC tag over the provided message using an HMAC KMS key.
+// Returns an error if the MAC does not match; on success returns the key ARN and algorithm.
+func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, error) {
+	if input.MacAlgorithm == "" {
+		return nil, fmt.Errorf("%w: MacAlgorithm must not be empty", ErrValidation)
+	}
+
+	b.mu.RLock("VerifyMac")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageGenerateMac {
+		return nil, fmt.Errorf(
+			"%w: key %q must have KeyUsage=%s for VerifyMac",
+			ErrInvalidKeyUsage, key.KeyID, KeyUsageGenerateMac,
+		)
+	}
+
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	expected, err := computeHMAC(input.Message, input.MacAlgorithm, km)
+	if err != nil {
+		return nil, err
+	}
+
+	if !hmacEqual(expected, input.Mac) {
+		return nil, fmt.Errorf("%w: MAC verification failed", ErrInvalidSignature)
+	}
+
+	return &VerifyMacOutput{
+		KeyID:        key.Arn,
+		MacAlgorithm: input.MacAlgorithm,
+		MacValid:     true,
+	}, nil
+}
+
+// AddKeyInternal inserts a key directly into the backend without going through CreateKey.
+// It also inserts the provided key material if non-nil. This is intended for test seeding only.
+func (b *InMemoryBackend) AddKeyInternal(key *Key, km *keyMaterial) {
+	b.mu.Lock("AddKeyInternal")
+	defer b.mu.Unlock()
+
+	b.keys[key.KeyID] = key
+
+	if km != nil {
+		b.keyMaterials[key.KeyID] = km
+	}
+}
+
+// AddCustomKeyStoreInternal inserts a custom key store directly into the backend.
+// This is intended for test seeding only.
+func (b *InMemoryBackend) AddCustomKeyStoreInternal(ks *CustomKeyStore) {
+	b.mu.Lock("AddCustomKeyStoreInternal")
+	defer b.mu.Unlock()
+
+	b.customKeyStores[ks.CustomKeyStoreID] = ks
 }

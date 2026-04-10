@@ -14,6 +14,43 @@ func (h *Handler) RemoveTags(resourceID string, keys []string) { h.removeTags(re
 // GetTags exposes getTags for testing.
 func (h *Handler) GetTags(resourceID string) map[string]string { return h.getTags(resourceID) }
 
+// HandlerOpsLen returns the number of pre-built dispatch operations.
+func HandlerOpsLen(h *Handler) int {
+	return len(h.actions)
+}
+
+// KeyCount returns the number of keys stored in the backend.
+func KeyCount(b *InMemoryBackend) int {
+	b.mu.RLock("KeyCount")
+	defer b.mu.RUnlock()
+
+	return len(b.keys)
+}
+
+// AliasCount returns the number of aliases stored in the backend.
+func AliasCount(b *InMemoryBackend) int {
+	b.mu.RLock("AliasCount")
+	defer b.mu.RUnlock()
+
+	return len(b.aliases)
+}
+
+// GrantCount returns the number of grants stored in the backend.
+func GrantCount(b *InMemoryBackend) int {
+	b.mu.RLock("GrantCount")
+	defer b.mu.RUnlock()
+
+	return len(b.grants)
+}
+
+// CustomKeyStoreCount returns the number of custom key stores in the backend.
+func CustomKeyStoreCount(b *InMemoryBackend) int {
+	b.mu.RLock("CustomKeyStoreCount")
+	defer b.mu.RUnlock()
+
+	return len(b.customKeyStores)
+}
+
 // SetDeletionDateForTest directly sets a key's DeletionDate to the given time.
 // Used to simulate elapsed deletion windows without sleeping.
 func (b *InMemoryBackend) SetDeletionDateForTest(keyID string, t time.Time) {

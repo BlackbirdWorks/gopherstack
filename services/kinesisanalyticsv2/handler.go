@@ -21,12 +21,23 @@ const (
 
 // Handler is the HTTP handler for the Kinesis Data Analytics v2 JSON API.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]func(*echo.Context, []byte) error
 }
 
 // NewHandler creates a new Kinesis Data Analytics v2 handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears handler state by delegating to the backend if it supports it.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -35,20 +46,30 @@ func (h *Handler) Name() string { return "KinesisAnalyticsV2" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AddApplicationCloudWatchLoggingOption",
+		"AddApplicationInput",
+		"AddApplicationInputProcessingConfiguration",
+		"AddApplicationOutput",
+		"AddApplicationReferenceDataSource",
+		"AddApplicationVpcConfiguration",
 		"CreateApplication",
-		"DescribeApplication",
-		"ListApplications",
-		"UpdateApplication",
+		"CreateApplicationPresignedUrl",
 		"DeleteApplication",
+		"DeleteApplicationCloudWatchLoggingOption",
+		"DeleteApplicationInputProcessingConfiguration",
+		"DeleteApplicationOutput",
+		"DeleteApplicationSnapshot",
+		"DescribeApplication",
+		"DescribeApplicationSnapshot",
+		"ListApplications",
+		"ListApplicationSnapshots",
+		"ListTagsForResource",
 		"StartApplication",
 		"StopApplication",
-		"CreateApplicationSnapshot",
-		"DescribeApplicationSnapshot",
-		"ListApplicationSnapshots",
-		"DeleteApplicationSnapshot",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
+		"UpdateApplication",
+		"CreateApplicationSnapshot",
 	}
 }
 
@@ -120,46 +141,46 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "kinesisanalyticsv2 request", "op", op)
 
-		return h.dispatch(c, op, body)
+		fn, ok := h.ops[op]
+		if !ok {
+			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "unknown operation: "+op)
+		}
+
+		return fn(c, body)
 	}
 }
 
-// dispatch routes a parsed operation to the appropriate handler.
-//
-
-func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "CreateApplication":
-		return h.handleCreateApplication(c, body)
-	case "DescribeApplication":
-		return h.handleDescribeApplication(c, body)
-	case "ListApplications":
-		return h.handleListApplications(c, body)
-	case "UpdateApplication":
-		return h.handleUpdateApplication(c, body)
-	case "DeleteApplication":
-		return h.handleDeleteApplication(c, body)
-	case "StartApplication":
-		return h.handleStartApplication(c, body)
-	case "StopApplication":
-		return h.handleStopApplication(c, body)
-	case "CreateApplicationSnapshot":
-		return h.handleCreateApplicationSnapshot(c, body)
-	case "DescribeApplicationSnapshot":
-		return h.handleDescribeApplicationSnapshot(c, body)
-	case "ListApplicationSnapshots":
-		return h.handleListApplicationSnapshots(c, body)
-	case "DeleteApplicationSnapshot":
-		return h.handleDeleteApplicationSnapshot(c, body)
-	case "TagResource":
-		return h.handleTagResource(c, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, body)
+// buildOps constructs the dispatch map once at handler-creation time.
+func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
+	return map[string]func(*echo.Context, []byte) error{
+		// Add operations
+		"AddApplicationCloudWatchLoggingOption":      h.handleAddApplicationCloudWatchLoggingOption,
+		"AddApplicationInput":                        h.handleAddApplicationInput,
+		"AddApplicationInputProcessingConfiguration": h.handleAddApplicationInputProcessingConfiguration,
+		"AddApplicationOutput":                       h.handleAddApplicationOutput,
+		"AddApplicationReferenceDataSource":          h.handleAddApplicationReferenceDataSource,
+		"AddApplicationVpcConfiguration":             h.handleAddApplicationVpcConfiguration,
+		// Delete operations
+		"DeleteApplicationCloudWatchLoggingOption":      h.handleDeleteApplicationCloudWatchLoggingOption,
+		"DeleteApplicationInputProcessingConfiguration": h.handleDeleteApplicationInputProcessingConfiguration,
+		"DeleteApplicationOutput":                       h.handleDeleteApplicationOutput,
+		"DeleteApplication":                             h.handleDeleteApplication,
+		"DeleteApplicationSnapshot":                     h.handleDeleteApplicationSnapshot,
+		// Core operations
+		"CreateApplication":             h.handleCreateApplication,
+		"CreateApplicationPresignedUrl": h.handleCreateApplicationPresignedURL,
+		"CreateApplicationSnapshot":     h.handleCreateApplicationSnapshot,
+		"DescribeApplication":           h.handleDescribeApplication,
+		"DescribeApplicationSnapshot":   h.handleDescribeApplicationSnapshot,
+		"ListApplications":              h.handleListApplications,
+		"ListApplicationSnapshots":      h.handleListApplicationSnapshots,
+		"ListTagsForResource":           h.handleListTagsForResource,
+		"StartApplication":              h.handleStartApplication,
+		"StopApplication":               h.handleStopApplication,
+		"TagResource":                   h.handleTagResource,
+		"UntagResource":                 h.handleUntagResource,
+		"UpdateApplication":             h.handleUpdateApplication,
 	}
-
-	return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "unknown operation: "+op)
 }
 
 // ----------------------------------------
@@ -176,16 +197,31 @@ type createApplicationInput struct {
 }
 
 type applicationDetailOutput struct {
-	ApplicationARN         string  `json:"ApplicationARN"`
-	ApplicationName        string  `json:"ApplicationName"`
-	ApplicationStatus      string  `json:"ApplicationStatus"`
-	RuntimeEnvironment     string  `json:"RuntimeEnvironment"`
-	ServiceExecutionRole   string  `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription string  `json:"ApplicationDescription,omitempty"`
-	ApplicationMode        string  `json:"ApplicationMode,omitempty"`
-	Tags                   []Tag   `json:"Tags,omitempty"`
-	ApplicationVersionID   int64   `json:"ApplicationVersionId"`
-	CreateTimestamp        float64 `json:"CreateTimestamp"`
+	ApplicationConfigurationDescription *appConfigDesc                `json:"ApplicationConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	ApplicationMode                     string                        `json:"ApplicationMode,omitempty"`
+	ApplicationStatus                   string                        `json:"ApplicationStatus"`
+	RuntimeEnvironment                  string                        `json:"RuntimeEnvironment"`
+	ServiceExecutionRole                string                        `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription              string                        `json:"ApplicationDescription,omitempty"`
+	ApplicationARN                      string                        `json:"ApplicationARN"`
+	ApplicationName                     string                        `json:"ApplicationName"`
+	Tags                                []Tag                         `json:"Tags,omitempty"`
+	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions,omitempty"` //nolint:lll // AWS API name
+	VpcConfigurationDescriptions        []VpcConfigurationDescription `json:"VpcConfigurationDescriptions,omitempty"`
+	ApplicationVersionID                int64                         `json:"ApplicationVersionId"`
+	CreateTimestamp                     float64                       `json:"CreateTimestamp"`
+}
+
+// appConfigDesc holds the SQL-based application configuration.
+type appConfigDesc struct {
+	SQLApplicationConfigurationDescription *sqlAppConfigDesc `json:"SqlApplicationConfigurationDescription,omitempty"` //nolint:lll,tagliatelle // AWS API name
+}
+
+// sqlAppConfigDesc holds inputs, outputs, and reference data sources.
+type sqlAppConfigDesc struct {
+	InputDescriptions               []InputDescription               `json:"InputDescriptions"`
+	OutputDescriptions              []OutputDescription              `json:"OutputDescriptions"`
+	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"` //nolint:lll // AWS API name
 }
 
 type createApplicationOutput struct {
@@ -283,13 +319,520 @@ type errorResponse struct {
 }
 
 // ----------------------------------------
+// New operation request / response types
+// ----------------------------------------
+
+type cwlOptionInput struct {
+	LogStreamARN string `json:"LogStreamARN"`
+	RoleARN      string `json:"RoleARN,omitempty"`
+}
+
+type addApplicationCWLOptionInput struct {
+	CloudWatchLoggingOption     *cwlOptionInput `json:"CloudWatchLoggingOption"`
+	ApplicationName             string          `json:"ApplicationName"`
+	CurrentApplicationVersionID int64           `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type addApplicationCWLOptionOutput struct {
+	ApplicationARN                      string                        `json:"ApplicationARN"`
+	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions"`
+	ApplicationVersionID                int64                         `json:"ApplicationVersionId"`
+}
+
+type kinesisStreamsInputConfig struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type kinesisFirehoseInputConfig struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type lambdaProcessorInput struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type inputProcessingConfigInput struct {
+	InputLambdaProcessor *lambdaProcessorInput `json:"InputLambdaProcessor,omitempty"`
+}
+
+type inputConfig struct {
+	KinesisStreamsInput          *kinesisStreamsInputConfig  `json:"KinesisStreamsInput,omitempty"`
+	KinesisFirehoseInput         *kinesisFirehoseInputConfig `json:"KinesisFirehoseInput,omitempty"`
+	InputProcessingConfiguration *inputProcessingConfigInput `json:"InputProcessingConfiguration,omitempty"`
+	NamePrefix                   string                      `json:"NamePrefix,omitempty"`
+}
+
+type addApplicationInputInput struct {
+	Input                       *inputConfig `json:"Input"`
+	ApplicationName             string       `json:"ApplicationName"`
+	CurrentApplicationVersionID int64        `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type addApplicationInputOutput struct {
+	ApplicationARN       string             `json:"ApplicationARN"`
+	InputDescriptions    []InputDescription `json:"InputDescriptions"`
+	ApplicationVersionID int64              `json:"ApplicationVersionId"`
+}
+
+type addInputProcessingConfigInput struct {
+	InputProcessingConfiguration *inputProcessingConfigInput `json:"InputProcessingConfiguration"`
+	ApplicationName              string                      `json:"ApplicationName"`
+	InputID                      string                      `json:"InputId"`
+	CurrentApplicationVersionID  int64                       `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type addInputProcessingConfigOutput struct {
+	InputProcessingConfigurationDescription *InputProcessingConfigurationDesc `json:"InputProcessingConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	ApplicationARN                          string                            `json:"ApplicationARN"`
+	InputID                                 string                            `json:"InputId"`
+	ApplicationVersionID                    int64                             `json:"ApplicationVersionId"`
+}
+
+type kinesisStreamsOutputConfig struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type kinesisFirehoseOutputConfig struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type lambdaOutputConfig struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type destinationSchemaInput struct {
+	RecordFormatType string `json:"RecordFormatType"`
+}
+
+type outputConfig struct {
+	KinesisStreamsOutput  *kinesisStreamsOutputConfig  `json:"KinesisStreamsOutput,omitempty"`
+	KinesisFirehoseOutput *kinesisFirehoseOutputConfig `json:"KinesisFirehoseOutput,omitempty"`
+	LambdaOutput          *lambdaOutputConfig          `json:"LambdaOutput,omitempty"`
+	DestinationSchema     *destinationSchemaInput      `json:"DestinationSchema,omitempty"`
+	Name                  string                       `json:"Name,omitempty"`
+}
+
+type addApplicationOutputInput struct {
+	Output                      *outputConfig `json:"Output"`
+	ApplicationName             string        `json:"ApplicationName"`
+	CurrentApplicationVersionID int64         `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type addApplicationOutputOutput struct {
+	ApplicationARN       string              `json:"ApplicationARN"`
+	OutputDescriptions   []OutputDescription `json:"OutputDescriptions"`
+	ApplicationVersionID int64               `json:"ApplicationVersionId"`
+}
+
+type s3ReferenceDataSourceConfig struct {
+	BucketARN string `json:"BucketARN"`
+	FileKey   string `json:"FileKey"`
+}
+
+type refDataSourceConfig struct {
+	S3ReferenceDataSource *s3ReferenceDataSourceConfig `json:"S3ReferenceDataSource,omitempty"`
+	TableName             string                       `json:"TableName,omitempty"`
+}
+
+type addApplicationRefDataSourceInput struct {
+	ReferenceDataSource         *refDataSourceConfig `json:"ReferenceDataSource"`
+	ApplicationName             string               `json:"ApplicationName"`
+	CurrentApplicationVersionID int64                `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type addApplicationRefDataSourceOutput struct {
+	ApplicationARN                  string                           `json:"ApplicationARN"`
+	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"`
+	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
+}
+
+type vpcConfigInput struct {
+	SubnetIDs        []string `json:"SubnetIds"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+}
+
+type addApplicationVpcConfigInput struct {
+	VpcConfiguration            *vpcConfigInput `json:"VpcConfiguration"`
+	ApplicationName             string          `json:"ApplicationName"`
+	CurrentApplicationVersionID int64           `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type addApplicationVpcConfigOutput struct {
+	VpcConfigurationDescription *VpcConfigurationDescription `json:"VpcConfigurationDescription,omitempty"`
+	ApplicationARN              string                       `json:"ApplicationARN"`
+	ApplicationVersionID        int64                        `json:"ApplicationVersionId"`
+}
+
+type createPresignedURLInput struct {
+	ApplicationName                    string `json:"ApplicationName"`
+	URLType                            string `json:"URLType"`
+	SessionExpirationDurationInSeconds int64  `json:"SessionExpirationDurationInSeconds,omitempty"`
+}
+
+type createPresignedURLOutput struct {
+	AuthorizedURL string `json:"AuthorizedUrl,omitempty"` //nolint:tagliatelle // AWS API field is AuthorizedUrl
+}
+
+type deleteApplicationCWLOptionInput struct {
+	CloudWatchLoggingOptionID   string `json:"CloudWatchLoggingOptionId"`
+	ApplicationName             string `json:"ApplicationName"`
+	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type deleteApplicationCWLOptionOutput struct {
+	ApplicationARN                      string                        `json:"ApplicationARN"`
+	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions"`
+	ApplicationVersionID                int64                         `json:"ApplicationVersionId"`
+}
+
+type deleteInputProcessingConfigInput struct {
+	ApplicationName             string `json:"ApplicationName"`
+	InputID                     string `json:"InputId"`
+	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type deleteInputProcessingConfigOutput struct {
+	ApplicationARN       string `json:"ApplicationARN"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+type deleteApplicationOutputInput struct {
+	ApplicationName             string `json:"ApplicationName"`
+	OutputID                    string `json:"OutputId"`
+	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type deleteApplicationOutputOutput struct {
+	ApplicationARN       string `json:"ApplicationARN"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+// ----------------------------------------
 // Application handlers
 // ----------------------------------------
+
+func (h *Handler) handleAddApplicationCloudWatchLoggingOption(c *echo.Context, body []byte) error {
+	var in addApplicationCWLOptionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.CloudWatchLoggingOption == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "CloudWatchLoggingOption is required")
+	}
+
+	if err := h.Backend.AddApplicationCloudWatchLoggingOption(
+		in.ApplicationName,
+		in.CurrentApplicationVersionID,
+		in.CloudWatchLoggingOption.LogStreamARN,
+		in.CloudWatchLoggingOption.RoleARN,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, addApplicationCWLOptionOutput{
+		ApplicationARN:                      app.ApplicationARN,
+		ApplicationVersionID:                app.ApplicationVersionID,
+		CloudWatchLoggingOptionDescriptions: app.CloudWatchLoggingOptionDescs,
+	})
+}
+
+//nolint:dupl // add input/output handlers share structure but are semantically distinct operations
+func (h *Handler) handleAddApplicationInput(
+	c *echo.Context,
+	body []byte,
+) error {
+	var in addApplicationInputInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.Input == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "Input is required")
+	}
+
+	desc := buildInputDescription(in.Input)
+
+	if err := h.Backend.AddApplicationInput(in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, addApplicationInputOutput{
+		ApplicationARN:       app.ApplicationARN,
+		ApplicationVersionID: app.ApplicationVersionID,
+		InputDescriptions:    app.InputDescriptions,
+	})
+}
+
+func (h *Handler) handleAddApplicationInputProcessingConfiguration(c *echo.Context, body []byte) error {
+	var in addInputProcessingConfigInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	var config *InputProcessingConfigurationDesc
+	if in.InputProcessingConfiguration != nil && in.InputProcessingConfiguration.InputLambdaProcessor != nil {
+		config = &InputProcessingConfigurationDesc{
+			InputLambdaProcessor: &LambdaProcessorDesc{
+				ResourceARN: in.InputProcessingConfiguration.InputLambdaProcessor.ResourceARN,
+			},
+		}
+	}
+
+	if err := h.Backend.AddApplicationInputProcessingConfiguration(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, config,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	var desc *InputProcessingConfigurationDesc
+
+	for i := range app.InputDescriptions {
+		if app.InputDescriptions[i].InputID == in.InputID {
+			desc = app.InputDescriptions[i].InputProcessingConfigurationDescription
+
+			break
+		}
+	}
+
+	return c.JSON(http.StatusOK, addInputProcessingConfigOutput{
+		ApplicationARN:                          app.ApplicationARN,
+		ApplicationVersionID:                    app.ApplicationVersionID,
+		InputID:                                 in.InputID,
+		InputProcessingConfigurationDescription: desc,
+	})
+}
+
+//nolint:dupl // add input/output handlers share structure but are semantically distinct operations
+func (h *Handler) handleAddApplicationOutput(
+	c *echo.Context,
+	body []byte,
+) error {
+	var in addApplicationOutputInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.Output == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "Output is required")
+	}
+
+	desc := buildOutputDescription(in.Output)
+
+	if err := h.Backend.AddApplicationOutput(in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, addApplicationOutputOutput{
+		ApplicationARN:       app.ApplicationARN,
+		ApplicationVersionID: app.ApplicationVersionID,
+		OutputDescriptions:   app.OutputDescriptions,
+	})
+}
+
+func (h *Handler) handleAddApplicationReferenceDataSource(c *echo.Context, body []byte) error {
+	var in addApplicationRefDataSourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.ReferenceDataSource == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "ReferenceDataSource is required")
+	}
+
+	ref := ReferenceDataSourceDescription{
+		TableName: in.ReferenceDataSource.TableName,
+	}
+
+	if in.ReferenceDataSource.S3ReferenceDataSource != nil {
+		ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
+			BucketARN: in.ReferenceDataSource.S3ReferenceDataSource.BucketARN,
+			FileKey:   in.ReferenceDataSource.S3ReferenceDataSource.FileKey,
+		}
+	}
+
+	if err := h.Backend.AddApplicationReferenceDataSource(
+		in.ApplicationName, in.CurrentApplicationVersionID, ref,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, addApplicationRefDataSourceOutput{
+		ApplicationARN:                  app.ApplicationARN,
+		ApplicationVersionID:            app.ApplicationVersionID,
+		ReferenceDataSourceDescriptions: app.ReferenceDataSourceDescriptions,
+	})
+}
+
+func (h *Handler) handleAddApplicationVpcConfiguration(c *echo.Context, body []byte) error {
+	var in addApplicationVpcConfigInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.VpcConfiguration == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "VpcConfiguration is required")
+	}
+
+	vpc := VpcConfigurationDescription{
+		SubnetIDs:        in.VpcConfiguration.SubnetIDs,
+		SecurityGroupIDs: in.VpcConfiguration.SecurityGroupIDs,
+	}
+
+	if err := h.Backend.AddApplicationVpcConfiguration(
+		in.ApplicationName, in.CurrentApplicationVersionID, vpc,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	var vpcDesc *VpcConfigurationDescription
+
+	if len(app.VpcConfigurationDescriptions) > 0 {
+		last := app.VpcConfigurationDescriptions[len(app.VpcConfigurationDescriptions)-1]
+		vpcDesc = &last
+	}
+
+	return c.JSON(http.StatusOK, addApplicationVpcConfigOutput{
+		ApplicationARN:              app.ApplicationARN,
+		ApplicationVersionID:        app.ApplicationVersionID,
+		VpcConfigurationDescription: vpcDesc,
+	})
+}
+
+func (h *Handler) handleCreateApplicationPresignedURL(c *echo.Context, body []byte) error {
+	var in createPresignedURLInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.URLType == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "URLType is required")
+	}
+
+	// Verify the application exists.
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	// Return a synthetic presigned URL based on the application ARN.
+	presignedURL := "https://flink.amazonaws.com/dashboard/" + app.ApplicationARN + "?type=" + in.URLType
+
+	return c.JSON(http.StatusOK, createPresignedURLOutput{AuthorizedURL: presignedURL})
+}
+
+func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(c *echo.Context, body []byte) error {
+	var in deleteApplicationCWLOptionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteApplicationCWLOptionOutput{
+		ApplicationARN:                      app.ApplicationARN,
+		ApplicationVersionID:                app.ApplicationVersionID,
+		CloudWatchLoggingOptionDescriptions: app.CloudWatchLoggingOptionDescs,
+	})
+}
+
+func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(c *echo.Context, body []byte) error {
+	var in deleteInputProcessingConfigInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if err := h.Backend.DeleteApplicationInputProcessingConfiguration(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteInputProcessingConfigOutput{
+		ApplicationARN:       app.ApplicationARN,
+		ApplicationVersionID: app.ApplicationVersionID,
+	})
+}
+
+func (h *Handler) handleDeleteApplicationOutput(c *echo.Context, body []byte) error {
+	var in deleteApplicationOutputInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if err := h.Backend.DeleteApplicationOutput(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteApplicationOutputOutput{
+		ApplicationARN:       app.ApplicationARN,
+		ApplicationVersionID: app.ApplicationVersionID,
+	})
+}
 
 func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	var in createApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if in.ApplicationName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "ApplicationName is required")
+	}
+
+	if in.RuntimeEnvironment == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "RuntimeEnvironment is required")
 	}
 
 	app, err := h.Backend.CreateApplication(
@@ -301,7 +844,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		in.Tags,
 	)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, createApplicationOutput{
@@ -317,7 +860,7 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 
 	app, err := h.Backend.DescribeApplication(in.ApplicationName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, describeApplicationOutput{
@@ -353,7 +896,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 		in.ApplicationDescription,
 	)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, updateApplicationOutput{
@@ -368,7 +911,7 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.DeleteApplication(in.ApplicationName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -381,7 +924,7 @@ func (h *Handler) handleStartApplication(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.StartApplication(in.ApplicationName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -394,7 +937,7 @@ func (h *Handler) handleStopApplication(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.StopApplication(in.ApplicationName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -412,7 +955,7 @@ func (h *Handler) handleCreateApplicationSnapshot(c *echo.Context, body []byte) 
 
 	snap, err := h.Backend.CreateApplicationSnapshot(in.ApplicationName, in.SnapshotName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct {
@@ -426,18 +969,12 @@ func (h *Handler) handleDescribeApplicationSnapshot(c *echo.Context, body []byte
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snaps, _, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, "")
+	snap, err := h.Backend.DescribeApplicationSnapshot(in.ApplicationName, in.SnapshotName)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
-	for _, s := range snaps {
-		if s.SnapshotName == in.SnapshotName {
-			return c.JSON(http.StatusOK, describeSnapshotOutput{SnapshotDetails: toSnapshotDetail(s)})
-		}
-	}
-
-	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "snapshot not found: "+in.SnapshotName)
+	return c.JSON(http.StatusOK, describeSnapshotOutput{SnapshotDetails: toSnapshotDetail(snap)})
 }
 
 func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) error {
@@ -448,7 +985,7 @@ func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) e
 
 	snaps, outToken, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, in.NextToken)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	details := make([]snapshotDetail, 0, len(snaps))
@@ -466,7 +1003,7 @@ func (h *Handler) handleDeleteApplicationSnapshot(c *echo.Context, body []byte) 
 	}
 
 	if err := h.Backend.DeleteApplicationSnapshot(in.ApplicationName, in.SnapshotName); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -483,7 +1020,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -496,7 +1033,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
@@ -510,7 +1047,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 
 	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
 	if err != nil {
-		return h.writeBackendError(c, err)
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, listTagsOutput{Tags: tags})
@@ -522,7 +1059,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 
 // toDetailOutput converts an Application to an API detail output.
 func toDetailOutput(app *Application) applicationDetailOutput {
-	return applicationDetailOutput{
+	out := applicationDetailOutput{
 		ApplicationARN:         app.ApplicationARN,
 		ApplicationName:        app.ApplicationName,
 		ApplicationStatus:      app.ApplicationStatus,
@@ -534,6 +1071,27 @@ func toDetailOutput(app *Application) applicationDetailOutput {
 		Tags:                   app.Tags,
 		CreateTimestamp:        float64(app.CreatedAt.Unix()),
 	}
+
+	if len(app.CloudWatchLoggingOptionDescs) > 0 {
+		out.CloudWatchLoggingOptionDescriptions = app.CloudWatchLoggingOptionDescs
+	}
+
+	if len(app.VpcConfigurationDescriptions) > 0 {
+		out.VpcConfigurationDescriptions = app.VpcConfigurationDescriptions
+	}
+
+	if len(app.InputDescriptions) > 0 || len(app.OutputDescriptions) > 0 ||
+		len(app.ReferenceDataSourceDescriptions) > 0 {
+		out.ApplicationConfigurationDescription = &appConfigDesc{
+			SQLApplicationConfigurationDescription: &sqlAppConfigDesc{
+				InputDescriptions:               app.InputDescriptions,
+				OutputDescriptions:              app.OutputDescriptions,
+				ReferenceDataSourceDescriptions: app.ReferenceDataSourceDescriptions,
+			},
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
@@ -543,13 +1101,78 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 	})
 }
 
-func (h *Handler) writeBackendError(c *echo.Context, err error) error {
+// handleError maps a backend error to the appropriate HTTP response.
+func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+}
+
+// buildInputDescription converts an inputConfig to an InputDescription.
+func buildInputDescription(in *inputConfig) InputDescription {
+	desc := InputDescription{
+		NamePrefix: in.NamePrefix,
+	}
+
+	if in.KinesisStreamsInput != nil {
+		desc.KinesisStreamsInputDescription = &KinesisStreamsInputDesc{
+			ResourceARN: in.KinesisStreamsInput.ResourceARN,
+		}
+	}
+
+	if in.KinesisFirehoseInput != nil {
+		desc.KinesisFirehoseInputDescription = &KinesisFirehoseInputDesc{
+			ResourceARN: in.KinesisFirehoseInput.ResourceARN,
+		}
+	}
+
+	if in.InputProcessingConfiguration != nil && in.InputProcessingConfiguration.InputLambdaProcessor != nil {
+		desc.InputProcessingConfigurationDescription = &InputProcessingConfigurationDesc{
+			InputLambdaProcessor: &LambdaProcessorDesc{
+				ResourceARN: in.InputProcessingConfiguration.InputLambdaProcessor.ResourceARN,
+			},
+		}
+	}
+
+	return desc
+}
+
+// buildOutputDescription converts an outputConfig to an OutputDescription.
+func buildOutputDescription(out *outputConfig) OutputDescription {
+	desc := OutputDescription{
+		Name: out.Name,
+	}
+
+	if out.KinesisStreamsOutput != nil {
+		desc.KinesisStreamsOutputDescription = &KinesisStreamsOutputDesc{
+			ResourceARN: out.KinesisStreamsOutput.ResourceARN,
+		}
+	}
+
+	if out.KinesisFirehoseOutput != nil {
+		desc.KinesisFirehoseOutputDescription = &KinesisFirehoseOutputDesc{
+			ResourceARN: out.KinesisFirehoseOutput.ResourceARN,
+		}
+	}
+
+	if out.LambdaOutput != nil {
+		desc.LambdaOutputDescription = &LambdaOutputDesc{
+			ResourceARN: out.LambdaOutput.ResourceARN,
+		}
+	}
+
+	if out.DestinationSchema != nil {
+		desc.DestinationSchema = &DestinationSchemaDesc{
+			RecordFormatType: out.DestinationSchema.RecordFormatType,
+		}
+	}
+
+	return desc
 }

@@ -99,6 +99,26 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+// Reset clears all state in the backend and the handler's tag store.
+// It is used by the POST /_gopherstack/reset endpoint for CI pipelines.
+func (h *Handler) Reset() {
+	type resetter interface{ Reset() }
+	if r, ok := h.Backend.(resetter); ok {
+		r.Reset()
+	}
+
+	h.tagsMu.Lock("Reset")
+	defer h.tagsMu.Unlock()
+
+	for _, t := range h.tags {
+		if t != nil {
+			t.Close()
+		}
+	}
+
+	h.tags = make(map[string]*tags.Tags)
+}
+
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
@@ -133,43 +153,54 @@ func (h *Handler) Name() string {
 	return "KMS"
 }
 
-// GetSupportedOperations returns the list of supported KMS operations.
+// GetSupportedOperations returns the list of supported KMS operations (sorted alphabetically).
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CancelKeyDeletion",
+		"ConnectCustomKeyStore",
+		"CreateAlias",
+		"CreateCustomKeyStore",
+		"CreateGrant",
 		"CreateKey",
+		"Decrypt",
+		"DeleteAlias",
+		"DeleteCustomKeyStore",
+		"DeleteImportedKeyMaterial",
+		"DeriveSharedSecret",
+		"DescribeCustomKeyStores",
 		"DescribeKey",
 		"DisableKey",
 		"DisableKeyRotation",
-		"Decrypt",
-		"DeleteImportedKeyMaterial",
+		"DisconnectCustomKeyStore",
 		"EnableKey",
 		"EnableKeyRotation",
 		"Encrypt",
 		"GenerateDataKey",
+		"GenerateDataKeyPair",
+		"GenerateDataKeyPairWithoutPlaintext",
 		"GenerateDataKeyWithoutPlaintext",
+		"GenerateMac",
+		"GenerateRandom",
+		"GetKeyPolicy",
 		"GetKeyRotationStatus",
 		"GetPublicKey",
 		"ImportKeyMaterial",
 		"ListAliases",
-		"ListKeys",
-		"ReEncrypt",
-		"ScheduleKeyDeletion",
-		"Sign",
-		"Verify",
-		"CreateAlias",
-		"UpdateAlias",
-		"DeleteAlias",
-		"CreateGrant",
 		"ListGrants",
-		"RevokeGrant",
-		"RetireGrant",
+		"ListKeys",
+		"ListResourceTags",
 		"ListRetirableGrants",
 		"PutKeyPolicy",
-		"GetKeyPolicy",
-		"ListResourceTags",
+		"ReEncrypt",
+		"RetireGrant",
+		"RevokeGrant",
+		"ScheduleKeyDeletion",
+		"Sign",
 		"TagResource",
 		"UntagResource",
+		"UpdateAlias",
+		"Verify",
+		"VerifyMac",
 	}
 }
 
@@ -252,6 +283,7 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 	maps.Copy(table, h.buildAliasRotationActions())
 	maps.Copy(table, h.buildGrantPolicyActions())
 	maps.Copy(table, h.buildTagActions())
+	maps.Copy(table, h.buildNewOpsActions())
 
 	return table
 }
@@ -596,6 +628,116 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	}
 }
 
+// buildNewOpsActions returns dispatch entries for the 10 newly implemented operations.
+// Delegates to sub-builders to stay within gocognit limits.
+func (h *Handler) buildNewOpsActions() map[string]kmsActionFn {
+	m := make(map[string]kmsActionFn)
+	maps.Copy(m, h.buildCustomKeyStoreActions())
+	maps.Copy(m, h.buildGenerateAndMacActions())
+
+	return m
+}
+
+// buildCustomKeyStoreActions returns dispatch entries for custom key store and ECDH operations.
+func (h *Handler) buildCustomKeyStoreActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"CreateCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input CreateCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateCustomKeyStore(&input)
+		},
+		"DeleteCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input DeleteCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteCustomKeyStore(&input)
+		},
+		"DescribeCustomKeyStores": func(_ string, b []byte) (any, error) {
+			var input DescribeCustomKeyStoresInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeCustomKeyStores(&input)
+		},
+		"ConnectCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input ConnectCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.ConnectCustomKeyStore(&input)
+		},
+		"DisconnectCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input DisconnectCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DisconnectCustomKeyStore(&input)
+		},
+		"DeriveSharedSecret": func(_ string, b []byte) (any, error) {
+			var input DeriveSharedSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeriveSharedSecret(&input)
+		},
+	}
+}
+
+// buildGenerateAndMacActions returns dispatch entries for data key pair, MAC, and random operations.
+func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"GenerateDataKeyPair": func(_ string, b []byte) (any, error) {
+			var input GenerateDataKeyPairInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateDataKeyPair(&input)
+		},
+		"GenerateDataKeyPairWithoutPlaintext": func(_ string, b []byte) (any, error) {
+			var input GenerateDataKeyPairWithoutPlaintextInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateDataKeyPairWithoutPlaintext(&input)
+		},
+		"GenerateMac": func(_ string, b []byte) (any, error) {
+			var input GenerateMacInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateMac(&input)
+		},
+		"GenerateRandom": func(_ string, b []byte) (any, error) {
+			var input GenerateRandomInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateRandom(&input)
+		},
+		"VerifyMac": func(_ string, b []byte) (any, error) {
+			var input VerifyMacInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.VerifyMac(&input)
+		},
+	}
+}
+
 // dispatch routes the KMS operation to the appropriate backend method.
 func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
@@ -625,6 +767,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	switch {
 	case errors.Is(reqErr, ErrKeyNotFound), errors.Is(reqErr, ErrAliasNotFound), errors.Is(reqErr, ErrGrantNotFound):
 		errorType = "NotFoundException"
+	case errors.Is(reqErr, ErrCustomKeyStoreNotFound):
+		errorType = "CustomKeyStoreNotFoundException"
 	case errors.Is(reqErr, ErrKeyDisabled):
 		errorType = "DisabledException"
 	case errors.Is(reqErr, ErrKeyInvalidState):
@@ -633,12 +777,16 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "InvalidKeyUsageException"
 	case errors.Is(reqErr, ErrAliasAlreadyExists):
 		errorType = "AlreadyExistsException"
+	case errors.Is(reqErr, ErrCustomKeyStoreAlreadyExists):
+		errorType = "CustomKeyStoreNameInUseException"
 	case errors.Is(reqErr, ErrInvalidCiphertext), errors.Is(reqErr, ErrCiphertextTooShort):
 		errorType = "InvalidCiphertextException"
 	case errors.Is(reqErr, ErrInvalidSignature):
 		errorType = "KMSInvalidSignatureException"
 	case errors.Is(reqErr, ErrUnsupportedOrigin):
 		errorType = "UnsupportedOperationException"
+	case errors.Is(reqErr, ErrValidation), errors.Is(reqErr, ErrInvalidDataKeySize):
+		errorType = "ValidationException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:
@@ -726,24 +874,4 @@ func (h *Handler) UntagKeyByARN(keyARN string, tagKeys []string) error {
 	}
 
 	return fmt.Errorf("%w: %s", ErrKeyNotFound, keyARN)
-}
-
-// Reset clears all in-memory state from the backend. It is used by the
-// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
-func (h *Handler) Reset() {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		b.Reset()
-	}
-
-	// Close and clear the handler-level tag store.
-	h.tagsMu.Lock("Reset")
-	defer h.tagsMu.Unlock()
-
-	for _, t := range h.tags {
-		if t != nil {
-			t.Close()
-		}
-	}
-
-	h.tags = make(map[string]*tags.Tags)
 }

@@ -44,3 +44,24 @@ type Destination struct {
 	RoleArn        string            `json:"roleArn,omitempty"`
 	Description    string            `json:"description,omitempty"`
 }
+
+// DeviceProfile contains LoRaWAN device profile settings.
+type DeviceProfile struct {
+	CreatedAt time.Time         `json:"createdAt"`
+	Tags      map[string]string `json:"tags,omitempty"`
+	Name      string            `json:"name"`
+	ID        string            `json:"id"`
+	ARN       string            `json:"arn"`
+}
+
+// FuotaTask represents a Firmware Update Over the Air (FUOTA) task.
+type FuotaTask struct {
+	CreatedAt           time.Time         `json:"createdAt"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	Name                string            `json:"name"`
+	ID                  string            `json:"id"`
+	ARN                 string            `json:"arn"`
+	Description         string            `json:"description,omitempty"`
+	FirmwareUpdateImage string            `json:"firmwareUpdateImage,omitempty"`
+	FirmwareUpdateRole  string            `json:"firmwareUpdateRole,omitempty"`
+}

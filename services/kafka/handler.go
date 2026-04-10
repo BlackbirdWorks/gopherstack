@@ -22,39 +22,65 @@ const (
 	configurationsPrefix   = "/v1/configurations/"
 	tagsPrefix             = "/v1/tags/"
 	bootstrapBrokersSuffix = "/bootstrap-brokers"
+	scramSecretsSuffix     = "/scram-secrets"
+	topicsSuffix           = "/topics"
+	policySuffix           = "/policy"
+	operationsPrefix       = "/v1/operations/"
+	replicatorsPrefix      = "/replication/v1/replicators/"
+	replicatorsRoot        = "/replication/v1/replicators"
+	vpcConnectionPrefix    = "/v1/vpc-connection/"
+	vpcConnectionRoot      = "/v1/vpc-connection"
 
 	arnMaxParts           = 6 // arn:partition:service:region:account:resource
 	arnMinPartsForService = 3 // minimum ARN parts needed to read service field at index 2
+
+	topicKeySeparator      = "|" // separator between clusterArn and topicName in resource field
+	topicKeySeparatorParts = 2   // number of parts after splitting on topicKeySeparator
 )
 
 // Handler is the HTTP handler for the MSK REST API.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Kafka handler backed by backend.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Kafka" }
 
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // GetSupportedOperations returns the list of supported MSK operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"BatchAssociateScramSecret",
+		"BatchDisassociateScramSecret",
 		"CreateCluster",
 		"CreateClusterV2",
+		"CreateConfiguration",
+		"CreateReplicator",
+		"CreateTopic",
+		"CreateVpcConnection",
+		"DeleteCluster",
+		"DeleteClusterPolicy",
+		"DeleteConfiguration",
+		"DeleteReplicator",
+		"DeleteTopic",
+		"DeleteVpcConnection",
+		"DescribeCluster",
+		"DescribeClusterOperation",
+		"DescribeClusterV2",
+		"DescribeConfiguration",
+		"GetBootstrapBrokers",
 		"ListClusters",
 		"ListClustersV2",
-		"DescribeCluster",
-		"DescribeClusterV2",
-		"DeleteCluster",
-		"GetBootstrapBrokers",
-		"CreateConfiguration",
 		"ListConfigurations",
-		"DescribeConfiguration",
-		"DeleteConfiguration",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
@@ -78,6 +104,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(p, "/v1/clusters") ||
 			strings.HasPrefix(p, "/api/v2/clusters") ||
 			strings.HasPrefix(p, "/v1/configurations") ||
+			strings.HasPrefix(p, "/v1/operations/") ||
+			strings.HasPrefix(p, "/replication/v1/replicators") ||
+			p == vpcConnectionRoot ||
+			strings.HasPrefix(p, vpcConnectionPrefix) ||
 			isKafkaTagsPath(p)
 	}
 }
@@ -172,6 +202,15 @@ func effectivePath(r *http.Request) string {
 
 // parseKafkaPath parses an HTTP method + path into an operation name and resource ARN.
 func parseKafkaPath(method, path string) (string, string) {
+	if op, resource := parseClusterAndConfigPath(method, path); op != "" {
+		return op, resource
+	}
+
+	return parseExtendedOpsPath(method, path)
+}
+
+// parseClusterAndConfigPath handles cluster (v1/v2), configuration, and tag paths.
+func parseClusterAndConfigPath(method, path string) (string, string) {
 	switch {
 	case path == "/v1/clusters" || path == "/v1/clusters/":
 		return parseClusterRootV1(method)
@@ -192,6 +231,24 @@ func parseKafkaPath(method, path string) (string, string) {
 	return "", ""
 }
 
+// parseExtendedOpsPath handles operations, replicators, and VPC connection paths.
+func parseExtendedOpsPath(method, path string) (string, string) {
+	switch {
+	case strings.HasPrefix(path, operationsPrefix):
+		return parseOperationResource(method, path[len(operationsPrefix):])
+	case path == replicatorsRoot || path == replicatorsRoot+"/":
+		return parseReplicatorsRoot(method)
+	case strings.HasPrefix(path, replicatorsPrefix):
+		return parseReplicatorResource(method, path[len(replicatorsPrefix):])
+	case path == vpcConnectionRoot || path == vpcConnectionRoot+"/":
+		return parseVpcConnectionRoot(method)
+	case strings.HasPrefix(path, vpcConnectionPrefix):
+		return parseVpcConnectionResource(method, path[len(vpcConnectionPrefix):])
+	}
+
+	return "", ""
+}
+
 func parseClusterRootV1(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
@@ -206,6 +263,55 @@ func parseClusterRootV1(method string) (string, string) {
 func parseClusterResourceV1(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
+	// /topics/{topicName}: must be checked before /topics suffix.
+	if idx := strings.Index(decoded, topicsSuffix+"/"); idx != -1 {
+		arnStr := decoded[:idx]
+		topicName := decoded[idx+len(topicsSuffix)+1:]
+
+		if method == http.MethodDelete {
+			return "DeleteTopic", arnStr + topicKeySeparator + topicName
+		}
+
+		return "", ""
+	}
+
+	// /topics (no trailing topic name): CreateTopic.
+	if strings.HasSuffix(decoded, topicsSuffix) {
+		arnStr := decoded[:len(decoded)-len(topicsSuffix)]
+
+		if method == http.MethodPost {
+			return "CreateTopic", arnStr
+		}
+
+		return "", ""
+	}
+
+	// /scram-secrets: BatchAssociateScramSecret (POST) or BatchDisassociateScramSecret (PATCH).
+	if strings.HasSuffix(decoded, scramSecretsSuffix) {
+		arnStr := decoded[:len(decoded)-len(scramSecretsSuffix)]
+
+		switch method {
+		case http.MethodPost:
+			return "BatchAssociateScramSecret", arnStr
+		case http.MethodPatch:
+			return "BatchDisassociateScramSecret", arnStr
+		}
+
+		return "", ""
+	}
+
+	// /policy: DeleteClusterPolicy.
+	if strings.HasSuffix(decoded, policySuffix) {
+		arnStr := decoded[:len(decoded)-len(policySuffix)]
+
+		if method == http.MethodDelete {
+			return "DeleteClusterPolicy", arnStr
+		}
+
+		return "", ""
+	}
+
+	// /bootstrap-brokers: GetBootstrapBrokers.
 	if strings.HasSuffix(decoded, bootstrapBrokersSuffix) {
 		arnStr := decoded[:len(decoded)-len(bootstrapBrokersSuffix)]
 
@@ -286,44 +392,133 @@ func parseTagsResource(method, remainder string) (string, string) {
 	return "", ""
 }
 
+func parseOperationResource(method, remainder string) (string, string) {
+	decoded, _ := url.PathUnescape(remainder)
+
+	if method == http.MethodGet {
+		return "DescribeClusterOperation", decoded
+	}
+
+	return "", ""
+}
+
+func parseReplicatorsRoot(method string) (string, string) {
+	if method == http.MethodPost {
+		return "CreateReplicator", ""
+	}
+
+	return "", ""
+}
+
+func parseReplicatorResource(method, remainder string) (string, string) {
+	decoded, _ := url.PathUnescape(remainder)
+
+	if method == http.MethodDelete {
+		return "DeleteReplicator", decoded
+	}
+
+	return "", ""
+}
+
+func parseVpcConnectionRoot(method string) (string, string) {
+	if method == http.MethodPost {
+		return "CreateVpcConnection", ""
+	}
+
+	return "", ""
+}
+
+func parseVpcConnectionResource(method, remainder string) (string, string) {
+	decoded, _ := url.PathUnescape(remainder)
+
+	if method == http.MethodDelete {
+		return "DeleteVpcConnection", decoded
+	}
+
+	return "", ""
+}
+
 // dispatch routes a parsed operation to the appropriate handler.
-//
-//nolint:cyclop // dispatch table has necessary branches for each operation
 func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
-	switch op {
-	case "CreateCluster":
-		return h.handleCreateCluster(c, body)
-	case "CreateClusterV2":
-		return h.handleCreateClusterV2(c, body)
-	case "ListClusters":
-		return h.handleListClusters(c)
-	case "ListClustersV2":
-		return h.handleListClustersV2(c)
-	case "DescribeCluster":
-		return h.handleDescribeCluster(c, resource)
-	case "DescribeClusterV2":
-		return h.handleDescribeClusterV2(c, resource)
-	case "DeleteCluster":
-		return h.handleDeleteCluster(c, resource)
-	case "GetBootstrapBrokers":
-		return h.handleGetBootstrapBrokers(c, resource)
-	case "CreateConfiguration":
-		return h.handleCreateConfiguration(c, body)
-	case "ListConfigurations":
-		return h.handleListConfigurations(c)
-	case "DescribeConfiguration":
-		return h.handleDescribeConfiguration(c, resource)
-	case "DeleteConfiguration":
-		return h.handleDeleteConfiguration(c, resource)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, resource)
-	case "TagResource":
-		return h.handleTagResource(c, resource, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, resource, c.Request().URL)
+	if ok, err := h.dispatchCoreOps(c, op, resource, body); ok {
+		return err
+	}
+
+	if ok, err := h.dispatchNewOps(c, op, resource, body); ok {
+		return err
 	}
 
 	return h.writeError(c, http.StatusNotFound, "NotFoundException", "unknown operation: "+op)
+}
+
+// dispatchCoreOps handles cluster, configuration, and tag operations.
+// Returns (true, err) if the operation was handled, (false, nil) otherwise.
+//
+//nolint:cyclop // dispatch switch complexity is inherent to the number of operations
+func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case "CreateCluster":
+		return true, h.handleCreateCluster(c, body)
+	case "CreateClusterV2":
+		return true, h.handleCreateClusterV2(c, body)
+	case "ListClusters":
+		return true, h.handleListClusters(c)
+	case "ListClustersV2":
+		return true, h.handleListClustersV2(c)
+	case "DescribeCluster":
+		return true, h.handleDescribeCluster(c, resource)
+	case "DescribeClusterV2":
+		return true, h.handleDescribeClusterV2(c, resource)
+	case "DeleteCluster":
+		return true, h.handleDeleteCluster(c, resource)
+	case "GetBootstrapBrokers":
+		return true, h.handleGetBootstrapBrokers(c, resource)
+	case "CreateConfiguration":
+		return true, h.handleCreateConfiguration(c, body)
+	case "ListConfigurations":
+		return true, h.handleListConfigurations(c)
+	case "DescribeConfiguration":
+		return true, h.handleDescribeConfiguration(c, resource)
+	case "DeleteConfiguration":
+		return true, h.handleDeleteConfiguration(c, resource)
+	case "ListTagsForResource":
+		return true, h.handleListTagsForResource(c, resource)
+	case "TagResource":
+		return true, h.handleTagResource(c, resource, body)
+	case "UntagResource":
+		return true, h.handleUntagResource(c, resource, c.Request().URL)
+	}
+
+	return false, nil
+}
+
+// dispatchNewOps handles SCRAM secrets, replicator, topic, VPC connection, and cluster policy operations.
+// Returns (true, err) if the operation was handled, (false, nil) otherwise.
+func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case "BatchAssociateScramSecret":
+		return true, h.handleBatchAssociateScramSecret(c, resource, body)
+	case "BatchDisassociateScramSecret":
+		return true, h.handleBatchDisassociateScramSecret(c, resource, body)
+	case "CreateReplicator":
+		return true, h.handleCreateReplicator(c, body)
+	case "DeleteReplicator":
+		return true, h.handleDeleteReplicator(c, resource)
+	case "CreateTopic":
+		return true, h.handleCreateTopic(c, resource, body)
+	case "DeleteTopic":
+		return true, h.handleDeleteTopic(c, resource)
+	case "CreateVpcConnection":
+		return true, h.handleCreateVpcConnection(c, body)
+	case "DeleteVpcConnection":
+		return true, h.handleDeleteVpcConnection(c, resource)
+	case "DeleteClusterPolicy":
+		return true, h.handleDeleteClusterPolicy(c, resource)
+	case "DescribeClusterOperation":
+		return true, h.handleDescribeClusterOperation(c, resource)
+	}
+
+	return false, nil
 }
 
 // ----------------------------------------
@@ -710,6 +905,246 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, u *ur
 }
 
 // ----------------------------------------
+// SCRAM secret request / response types
+// ----------------------------------------
+
+type scramSecretInput struct {
+	SecretArnList []string `json:"secretArnList"`
+}
+
+type batchScramSecretOutput struct {
+	UnprocessedScramSecrets []ScramSecretError `json:"unprocessedScramSecrets"`
+}
+
+// ----------------------------------------
+// SCRAM secret handlers
+// ----------------------------------------
+
+func (h *Handler) handleBatchAssociateScramSecret(c *echo.Context, clusterArn string, body []byte) error {
+	var in scramSecretInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
+	}
+
+	errs, err := h.Backend.BatchAssociateScramSecret(clusterArn, in.SecretArnList)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, batchScramSecretOutput{UnprocessedScramSecrets: errs})
+}
+
+func (h *Handler) handleBatchDisassociateScramSecret(c *echo.Context, clusterArn string, body []byte) error {
+	var in scramSecretInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
+	}
+
+	errs, err := h.Backend.BatchDisassociateScramSecret(clusterArn, in.SecretArnList)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, batchScramSecretOutput{UnprocessedScramSecrets: errs})
+}
+
+// ----------------------------------------
+// Replicator request / response types
+// ----------------------------------------
+
+type createReplicatorInput struct {
+	Tags                    map[string]string `json:"tags,omitempty"`
+	ReplicatorName          string            `json:"replicatorName"`
+	Description             string            `json:"description,omitempty"`
+	ServiceExecutionRoleArn string            `json:"serviceExecutionRoleArn"`
+}
+
+type createReplicatorOutput struct {
+	ReplicatorArn   string `json:"replicatorArn"`
+	ReplicatorName  string `json:"replicatorName"`
+	ReplicatorState string `json:"replicatorState"`
+}
+
+// ----------------------------------------
+// Replicator handlers
+// ----------------------------------------
+
+func (h *Handler) handleCreateReplicator(c *echo.Context, body []byte) error {
+	var in createReplicatorInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
+	}
+
+	replicator, err := h.Backend.CreateReplicator(
+		in.ReplicatorName,
+		in.Description,
+		in.ServiceExecutionRoleArn,
+		in.Tags,
+	)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createReplicatorOutput{
+		ReplicatorArn:   replicator.ReplicatorArn,
+		ReplicatorName:  replicator.ReplicatorName,
+		ReplicatorState: replicator.ReplicatorState,
+	})
+}
+
+func (h *Handler) handleDeleteReplicator(c *echo.Context, replicatorArn string) error {
+	if err := h.Backend.DeleteReplicator(replicatorArn); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// ----------------------------------------
+// Topic request / response types
+// ----------------------------------------
+
+type createTopicInput struct {
+	ConfigEntries     map[string]string `json:"configEntries,omitempty"`
+	TopicName         string            `json:"topicName"`
+	ReplicationFactor int32             `json:"replicationFactor"`
+	NumPartitions     int32             `json:"numPartitions"`
+}
+
+type createTopicOutput struct {
+	ConfigEntries     map[string]string `json:"configEntries,omitempty"`
+	TopicName         string            `json:"topicName"`
+	ReplicationFactor int32             `json:"replicationFactor"`
+	NumPartitions     int32             `json:"numPartitions"`
+}
+
+// ----------------------------------------
+// Topic handlers
+// ----------------------------------------
+
+func (h *Handler) handleCreateTopic(c *echo.Context, clusterArn string, body []byte) error {
+	var in createTopicInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
+	}
+
+	topic, err := h.Backend.CreateTopic(
+		clusterArn,
+		in.TopicName,
+		in.ReplicationFactor,
+		in.NumPartitions,
+		in.ConfigEntries,
+	)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createTopicOutput{
+		TopicName:         topic.TopicName,
+		ReplicationFactor: topic.ReplicationFactor,
+		NumPartitions:     topic.NumPartitions,
+		ConfigEntries:     topic.ConfigEntries,
+	})
+}
+
+func (h *Handler) handleDeleteTopic(c *echo.Context, resource string) error {
+	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
+	if len(parts) != topicKeySeparatorParts {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid resource: missing topic name")
+	}
+
+	clusterArn, topicName := parts[0], parts[1]
+
+	if err := h.Backend.DeleteTopic(clusterArn, topicName); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// ----------------------------------------
+// VPC connection request / response types
+// ----------------------------------------
+
+type createVpcConnectionInput struct {
+	Tags             map[string]string `json:"tags,omitempty"`
+	TargetClusterArn string            `json:"targetClusterArn"`
+	VpcID            string            `json:"vpcId"`
+	Authentication   string            `json:"authentication,omitempty"`
+}
+
+type createVpcConnectionOutput struct {
+	VpcConnectionArn string `json:"vpcConnectionArn"`
+	TargetClusterArn string `json:"targetClusterArn"`
+	VpcID            string `json:"vpcId"`
+	State            string `json:"state"`
+}
+
+// ----------------------------------------
+// VPC connection handlers
+// ----------------------------------------
+
+func (h *Handler) handleCreateVpcConnection(c *echo.Context, body []byte) error {
+	var in createVpcConnectionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
+	}
+
+	conn, err := h.Backend.CreateVpcConnection(in.TargetClusterArn, in.VpcID, in.Authentication, in.Tags)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createVpcConnectionOutput{
+		VpcConnectionArn: conn.VpcConnectionArn,
+		TargetClusterArn: conn.TargetClusterArn,
+		VpcID:            conn.VpcID,
+		State:            conn.State,
+	})
+}
+
+func (h *Handler) handleDeleteVpcConnection(c *echo.Context, vpcConnectionArn string) error {
+	if err := h.Backend.DeleteVpcConnection(vpcConnectionArn); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// ----------------------------------------
+// Cluster policy handlers
+// ----------------------------------------
+
+func (h *Handler) handleDeleteClusterPolicy(c *echo.Context, clusterArn string) error {
+	if err := h.Backend.DeleteClusterPolicy(clusterArn); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// ----------------------------------------
+// Cluster operation request / response types
+// ----------------------------------------
+
+type describeClusterOperationOutput struct {
+	ClusterOperationInfo *ClusterOperation `json:"clusterOperationInfo"`
+}
+
+// ----------------------------------------
+// Cluster operation handlers
+// ----------------------------------------
+
+func (h *Handler) handleDescribeClusterOperation(c *echo.Context, clusterOperationArn string) error {
+	op, err := h.Backend.DescribeClusterOperation(clusterOperationArn)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeClusterOperationOutput{ClusterOperationInfo: op})
+}
+
+// ----------------------------------------
 // Error helpers
 // ----------------------------------------
 
@@ -726,6 +1161,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "NotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

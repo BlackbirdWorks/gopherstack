@@ -18,6 +18,10 @@ import (
 const (
 	iotMatchPriority = 90
 	unknownOperation = "Unknown"
+	// headerIoTPrincipal is the HTTP header name for the IoT principal (certificate ARN or Cognito identity).
+	headerIoTPrincipal = "X-Amzn-Principal"
+	// headerIoTThingName is the HTTP header name for the thing name used in AttachPrincipalPolicy.
+	headerIoTThingName = "X-Amzn-Iot-Thingname"
 )
 
 // Handler is the Echo HTTP handler for IoT control-plane operations.
@@ -31,6 +35,13 @@ func NewHandler(backend StorageBackend, broker *Broker) *Handler {
 	return &Handler{Backend: backend, broker: broker}
 }
 
+// Reset clears all backend state and resets the handler. Used for test isolation.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(Resettable); ok {
+		r.Reset()
+	}
+}
+
 // Broker returns the embedded MQTT broker (used for cross-service wiring).
 func (h *Handler) Broker() *Broker { return h.broker }
 
@@ -40,15 +51,35 @@ func (h *Handler) Name() string { return "IoT" }
 // GetSupportedOperations returns the list of supported IoT control-plane operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateThing",
-		"DescribeThing",
-		"DeleteThing",
-		"CreateTopicRule",
-		"GetTopicRule",
-		"DeleteTopicRule",
+		"AcceptCertificateTransfer",
+		"AddThingToBillingGroup",
+		"AddThingToThingGroup",
+		"AssociateSbomWithPackageVersion",
+		"AssociateTargetsWithJob",
+		"AttachPolicy",
 		"AttachPrincipalPolicy",
+		"AttachSecurityProfile",
+		"AttachThingPrincipal",
+		"CancelAuditMitigationActionsTask",
+		"CancelAuditTask",
 		"CreatePolicy",
+		"CreateThing",
+		"CreateTopicRule",
+		"DeletePolicy",
+		"DeleteThing",
+		"DeleteTopicRule",
 		"DescribeEndpoint",
+		"DescribeThing",
+		"DisableTopicRule",
+		"EnableTopicRule",
+		"GetPolicy",
+		"GetTopicRule",
+		"ListPolicies",
+		"ListThingPrincipals",
+		"ListThings",
+		"ListTopicRules",
+		"ReplaceTopicRule",
+		"UpdateThing",
 	}
 }
 
@@ -67,10 +98,20 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, "/things/") ||
+			path == "/things" ||
 			strings.HasPrefix(path, "/rules/") ||
+			path == "/rules" ||
 			strings.HasPrefix(path, "/target-policies/") ||
 			strings.HasPrefix(path, "/policies/") ||
-			path == "/endpoint"
+			path == "/policies" ||
+			path == "/endpoint" ||
+			strings.HasPrefix(path, "/accept-certificate-transfer/") ||
+			path == "/billing-groups/addThingToBillingGroup" ||
+			path == "/thing-groups/addThingToThingGroup" ||
+			strings.HasPrefix(path, "/packages/") ||
+			strings.HasPrefix(path, "/jobs/") ||
+			strings.HasPrefix(path, "/security-profiles/") ||
+			strings.HasPrefix(path, "/audit/")
 	}
 }
 
@@ -90,6 +131,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 
 	for _, prefix := range []string{"/things/", "/rules/", "/policies/", "/target-policies/"} {
+		if after, ok := strings.CutPrefix(path, prefix); ok {
+			return strings.SplitN(after, "/", maxPathSegments)[0]
+		}
+	}
+
+	for _, prefix := range []string{
+		"/accept-certificate-transfer/",
+		"/security-profiles/",
+		"/jobs/",
+		"/packages/",
+		"/audit/mitigationactions/tasks/",
+		"/audit/tasks/",
+	} {
 		if after, ok := strings.CutPrefix(path, prefix); ok {
 			return strings.SplitN(after, "/", maxPathSegments)[0]
 		}
@@ -118,22 +172,99 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 func resolveOperation(path, method string) string {
 	switch {
+	case path == "/things" && method == http.MethodGet:
+		return "ListThings"
 	case strings.HasPrefix(path, "/things/"):
-		return thingOperation(method)
+		return thingOperation(path, method)
+	case path == "/rules" && method == http.MethodGet:
+		return "ListTopicRules"
 	case strings.HasPrefix(path, "/rules/"):
-		return ruleOperation(method)
-	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPost:
-		return "AttachPrincipalPolicy"
-	case strings.HasPrefix(path, "/policies/") && method == http.MethodPost:
-		return "CreatePolicy"
+		return ruleOperation(path, method)
 	case path == "/endpoint" && method == http.MethodGet:
 		return "DescribeEndpoint"
+	}
+
+	if op := resolvePolicyAndCertOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveGroupAndPackageOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveJobAndAuditOps(path, method)
+}
+
+func resolvePolicyAndCertOps(path, method string) string {
+	switch {
+	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPost:
+		return "AttachPrincipalPolicy"
+	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPut:
+		return "AttachPolicy"
+	case path == "/policies" && method == http.MethodGet:
+		return "ListPolicies"
+	case strings.HasPrefix(path, "/policies/") && method == http.MethodPost:
+		return "CreatePolicy"
+	case strings.HasPrefix(path, "/policies/") && method == http.MethodGet:
+		return "GetPolicy"
+	case strings.HasPrefix(path, "/policies/") && method == http.MethodDelete:
+		return "DeletePolicy"
+	case strings.HasPrefix(path, "/accept-certificate-transfer/") && method == http.MethodPatch:
+		return "AcceptCertificateTransfer"
 	}
 
 	return unknownOperation
 }
 
-func thingOperation(method string) string {
+func resolveGroupAndPackageOps(path, method string) string {
+	switch {
+	case path == "/billing-groups/addThingToBillingGroup" && method == http.MethodPut:
+		return "AddThingToBillingGroup"
+	case path == "/thing-groups/addThingToThingGroup" && method == http.MethodPut:
+		return "AddThingToThingGroup"
+	case strings.HasPrefix(path, "/packages/") &&
+		strings.HasSuffix(path, "/sbom") &&
+		method == http.MethodPut:
+		return "AssociateSbomWithPackageVersion"
+	}
+
+	return unknownOperation
+}
+
+func resolveJobAndAuditOps(path, method string) string {
+	switch {
+	case strings.HasPrefix(path, "/jobs/") &&
+		strings.HasSuffix(path, "/targets") &&
+		method == http.MethodPost:
+		return "AssociateTargetsWithJob"
+	case strings.HasPrefix(path, "/security-profiles/") &&
+		strings.HasSuffix(path, "/targets") &&
+		method == http.MethodPut:
+		return "AttachSecurityProfile"
+	case strings.HasPrefix(path, "/audit/mitigationactions/tasks/") &&
+		strings.HasSuffix(path, "/cancel") &&
+		method == http.MethodPut:
+		return "CancelAuditMitigationActionsTask"
+	case strings.HasPrefix(path, "/audit/tasks/") &&
+		strings.HasSuffix(path, "/cancel") &&
+		method == http.MethodPut:
+		return "CancelAuditTask"
+	}
+
+	return unknownOperation
+}
+
+func thingOperation(path, method string) string {
+	// GET /things/{thingName}/principals → ListThingPrincipals
+	if method == http.MethodGet && strings.HasSuffix(path, "/principals") {
+		return "ListThingPrincipals"
+	}
+
+	// PUT /things/{thingName}/principals → AttachThingPrincipal
+	if method == http.MethodPut && strings.HasSuffix(path, "/principals") {
+		return "AttachThingPrincipal"
+	}
+
 	switch method {
 	case http.MethodPost:
 		return "CreateThing"
@@ -141,12 +272,24 @@ func thingOperation(method string) string {
 		return "DescribeThing"
 	case http.MethodDelete:
 		return "DeleteThing"
+	case http.MethodPatch:
+		return "UpdateThing"
 	}
 
 	return unknownOperation
 }
 
-func ruleOperation(method string) string {
+func ruleOperation(path, method string) string {
+	// PATCH /rules/{ruleName}/disable → DisableTopicRule
+	if method == http.MethodPatch && strings.HasSuffix(path, "/disable") {
+		return "DisableTopicRule"
+	}
+
+	// PATCH /rules/{ruleName}/enable → EnableTopicRule
+	if method == http.MethodPatch && strings.HasSuffix(path, "/enable") {
+		return "EnableTopicRule"
+	}
+
 	switch method {
 	case http.MethodPost:
 		return "CreateTopicRule"
@@ -154,6 +297,8 @@ func ruleOperation(method string) string {
 		return "GetTopicRule"
 	case http.MethodDelete:
 		return "DeleteTopicRule"
+	case http.MethodPatch:
+		return "ReplaceTopicRule"
 	}
 
 	return unknownOperation
@@ -167,28 +312,129 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.Debug("iot request", "operation", op, "path", c.Request().URL.Path)
 
-		switch op {
-		case "CreateThing":
-			return h.handleCreateThing(c)
-		case "DescribeThing":
-			return h.handleDescribeThing(c)
-		case "DeleteThing":
-			return h.handleDeleteThing(c)
-		case "CreateTopicRule":
-			return h.handleCreateTopicRule(c)
-		case "GetTopicRule":
-			return h.handleGetTopicRule(c)
-		case "DeleteTopicRule":
-			return h.handleDeleteTopicRule(c)
-		case "AttachPrincipalPolicy":
-			return h.handleAttachPrincipalPolicy(c)
-		case "CreatePolicy":
-			return h.handleCreatePolicy(c)
-		case "DescribeEndpoint":
-			return h.handleDescribeEndpoint(c)
+		if handled, err := h.dispatchCoreOp(c, op); handled {
+			return err
+		}
+
+		if handled, err := h.dispatchNewOp(c, op); handled {
+			return err
 		}
 
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "unknown operation: " + op})
+	}
+}
+
+func (h *Handler) dispatchCoreOp(c *echo.Context, op string) (bool, error) {
+	if handled, err := h.dispatchThingOps(c, op); handled {
+		return true, err
+	}
+
+	if handled, err := h.dispatchRuleOps(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchPolicyOps(c, op)
+}
+
+func (h *Handler) dispatchThingOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case "CreateThing":
+		return true, h.handleCreateThing(c)
+	case "DescribeThing":
+		return true, h.handleDescribeThing(c)
+	case "DeleteThing":
+		return true, h.handleDeleteThing(c)
+	case "UpdateThing":
+		return true, h.handleUpdateThing(c)
+	case "ListThings":
+		return true, h.handleListThings(c)
+	case "ListThingPrincipals":
+		return true, h.handleListThingPrincipals(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchRuleOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case "CreateTopicRule":
+		return true, h.handleCreateTopicRule(c)
+	case "GetTopicRule":
+		return true, h.handleGetTopicRule(c)
+	case "DeleteTopicRule":
+		return true, h.handleDeleteTopicRule(c)
+	case "DisableTopicRule":
+		return true, h.handleDisableTopicRule(c)
+	case "EnableTopicRule":
+		return true, h.handleEnableTopicRule(c)
+	case "ReplaceTopicRule":
+		return true, h.handleReplaceTopicRule(c)
+	case "ListTopicRules":
+		return true, h.handleListTopicRules(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchPolicyOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case "AttachPrincipalPolicy":
+		return true, h.handleAttachPrincipalPolicy(c)
+	case "CreatePolicy":
+		return true, h.handleCreatePolicy(c)
+	case "GetPolicy":
+		return true, h.handleGetPolicy(c)
+	case "DeletePolicy":
+		return true, h.handleDeletePolicy(c)
+	case "ListPolicies":
+		return true, h.handleListPolicies(c)
+	case "DescribeEndpoint":
+		return true, h.handleDescribeEndpoint(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case "AcceptCertificateTransfer":
+		return true, h.handleAcceptCertificateTransfer(c)
+	case "AddThingToBillingGroup":
+		return true, h.handleAddThingToBillingGroup(c)
+	case "AddThingToThingGroup":
+		return true, h.handleAddThingToThingGroup(c)
+	case "AssociateSbomWithPackageVersion":
+		return true, h.handleAssociateSbomWithPackageVersion(c)
+	case "AssociateTargetsWithJob":
+		return true, h.handleAssociateTargetsWithJob(c)
+	case "AttachPolicy":
+		return true, h.handleAttachPolicy(c)
+	case "AttachSecurityProfile":
+		return true, h.handleAttachSecurityProfile(c)
+	case "AttachThingPrincipal":
+		return true, h.handleAttachThingPrincipal(c)
+	case "CancelAuditMitigationActionsTask":
+		return true, h.handleCancelAuditMitigationActionsTask(c)
+	case "CancelAuditTask":
+		return true, h.handleCancelAuditTask(c)
+	}
+
+	return false, nil
+}
+
+// handleError maps backend errors to appropriate HTTP responses.
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrThingNotFound),
+		errors.Is(err, ErrRuleNotFound),
+		errors.Is(err, ErrPolicyNotFound):
+		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	case errors.Is(err, ErrAlreadyExists):
+		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 }
 
@@ -210,7 +456,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 		AttributePayload: body.AttributePayload,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -225,15 +471,16 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 
 	t, err := h.Backend.DescribeThing(thingName)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"thingName":  t.ThingName,
-		"thingArn":   t.ARN,
-		"thingType":  t.ThingType,
-		"attributes": t.Attributes,
-		"version":    t.Version,
+		"thingName":     t.ThingName,
+		"thingArn":      t.ARN,
+		"thingId":       t.ThingID,
+		"thingTypeName": t.ThingTypeName,
+		"attributes":    t.Attributes,
+		"version":       t.Version,
 	})
 }
 
@@ -241,7 +488,7 @@ func (h *Handler) handleDeleteThing(c *echo.Context) error {
 	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
 
 	if err := h.Backend.DeleteThing(thingName); err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -260,7 +507,7 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 		RuleName:         ruleName,
 		TopicRulePayload: &payload,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -271,16 +518,20 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 
 	r, err := h.Backend.GetTopicRule(ruleName)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ruleName":     r.RuleName,
-		"sql":          r.SQL,
-		"description":  r.Description,
-		"actions":      r.Actions,
-		"ruleDisabled": !r.Enabled,
-		"createdAt":    r.CreatedAt,
+		"ruleArn": r.ARN,
+		"rule": map[string]any{
+			"ruleName":         r.RuleName,
+			"sql":              r.SQL,
+			"awsIotSqlVersion": r.AWSIoTSQLVersion,
+			"description":      r.Description,
+			"actions":          r.Actions,
+			"ruleDisabled":     !r.Enabled,
+			"createdAt":        r.CreatedAt,
+		},
 	})
 }
 
@@ -288,7 +539,7 @@ func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
 	if err := h.Backend.DeleteTopicRule(ruleName); err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -296,7 +547,7 @@ func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
 
 func (h *Handler) handleAttachPrincipalPolicy(c *echo.Context) error {
 	policyName := strings.TrimPrefix(c.Request().URL.Path, "/target-policies/")
-	principal := c.Request().Header.Get("X-Amzn-Iot-Thingname")
+	principal := c.Request().Header.Get(headerIoTThingName)
 
 	if err := h.Backend.AttachPrincipalPolicy(&AttachPrincipalPolicyInput{
 		PolicyName: policyName,
@@ -324,7 +575,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 		PolicyDocument: body.PolicyDocument,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -345,4 +596,346 @@ func (h *Handler) handleDescribeEndpoint(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"endpointAddress": out.EndpointAddress,
 	})
+}
+
+func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
+	certID := strings.TrimPrefix(c.Request().URL.Path, "/accept-certificate-transfer/")
+
+	var body struct {
+		SetAsActive bool `json:"setAsActive"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	if err := h.Backend.AcceptCertificateTransfer(&AcceptCertificateTransferInput{
+		CertificateID: certID,
+		SetAsActive:   body.SetAsActive,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
+	var body AddThingToBillingGroupInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	if err := h.Backend.AddThingToBillingGroup(&body); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
+	var body AddThingToThingGroupInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	if err := h.Backend.AddThingToThingGroup(&body); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// maxPackagePathSegments is the number of segments in /packages/{pkg}/versions/{ver}/sbom.
+const maxPackagePathSegments = 6
+
+// packageVersionPartsMin is the minimum number of split parts to extract package/version from the path.
+const packageVersionPartsMin = 3
+
+func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
+	// Path: /packages/{packageName}/versions/{versionName}/sbom
+	parts := strings.SplitN(strings.TrimPrefix(c.Request().URL.Path, "/packages/"), "/", maxPackagePathSegments)
+
+	var packageName, versionName string
+	// len(parts) >= packageVersionPartsMin guarantees indices 0, 1, 2 are valid.
+	if len(parts) >= packageVersionPartsMin {
+		packageName = parts[0]
+		versionName = parts[2]
+	}
+
+	var body struct {
+		Sbom *SbomDocument `json:"sbom"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	out, err := h.Backend.AssociateSbomWithPackageVersion(&AssociateSbomWithPackageVersionInput{
+		PackageName: packageName,
+		VersionName: versionName,
+		Sbom:        body.Sbom,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
+	// Path: /jobs/{jobId}/targets
+	after := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	jobID := strings.SplitN(after, "/", maxPathSegments)[0]
+
+	var body struct {
+		Comment     string   `json:"comment"`
+		NamespaceID string   `json:"namespaceId"`
+		Targets     []string `json:"targets"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	out, err := h.Backend.AssociateTargetsWithJob(&AssociateTargetsWithJobInput{
+		JobID:       jobID,
+		Targets:     body.Targets,
+		Comment:     body.Comment,
+		NamespaceID: body.NamespaceID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleAttachPolicy(c *echo.Context) error {
+	policyName := strings.TrimPrefix(c.Request().URL.Path, "/target-policies/")
+
+	var body struct {
+		Target string `json:"target"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	if err := h.Backend.AttachPolicy(&AttachPolicyInput{
+		PolicyName: policyName,
+		Target:     body.Target,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleAttachSecurityProfile(c *echo.Context) error {
+	// Path: /security-profiles/{securityProfileName}/targets
+	after := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
+	profileName := strings.SplitN(after, "/", maxPathSegments)[0]
+	targetArn := c.QueryParam("securityProfileTargetArn")
+
+	if err := h.Backend.AttachSecurityProfile(&AttachSecurityProfileInput{
+		SecurityProfileName:      profileName,
+		SecurityProfileTargetArn: targetArn,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleAttachThingPrincipal(c *echo.Context) error {
+	// Path: /things/{thingName}/principals
+	after := strings.TrimPrefix(c.Request().URL.Path, "/things/")
+	thingName := strings.SplitN(after, "/", maxPathSegments)[0]
+	principal := c.Request().Header.Get(headerIoTPrincipal)
+
+	if err := h.Backend.AttachThingPrincipal(&AttachThingPrincipalInput{
+		ThingName: thingName,
+		Principal: principal,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleCancelAuditMitigationActionsTask(c *echo.Context) error {
+	// Path: /audit/mitigationactions/tasks/{taskId}/cancel
+	after := strings.TrimPrefix(c.Request().URL.Path, "/audit/mitigationactions/tasks/")
+	taskID := strings.SplitN(after, "/", maxPathSegments)[0]
+
+	if err := h.Backend.CancelAuditMitigationActionsTask(&CancelAuditMitigationActionsTaskInput{
+		TaskID: taskID,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleCancelAuditTask(c *echo.Context) error {
+	// Path: /audit/tasks/{taskId}/cancel
+	after := strings.TrimPrefix(c.Request().URL.Path, "/audit/tasks/")
+	taskID := strings.SplitN(after, "/", maxPathSegments)[0]
+
+	if err := h.Backend.CancelAuditTask(&CancelAuditTaskInput{
+		AuditTaskID: taskID,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetPolicy(c *echo.Context) error {
+	policyName := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
+
+	out, err := h.Backend.GetPolicy(policyName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"policyName":     out.PolicyName,
+		"policyArn":      out.PolicyARN,
+		"policyDocument": out.PolicyDocument,
+	})
+}
+
+func (h *Handler) handleDeletePolicy(c *echo.Context) error {
+	policyName := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
+
+	if err := h.Backend.DeletePolicy(policyName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListPolicies(c *echo.Context) error {
+	policies := h.Backend.ListPolicies()
+
+	out := make([]map[string]string, 0, len(policies))
+	for _, p := range policies {
+		out = append(out, map[string]string{
+			"policyName": p.PolicyName,
+			"policyArn":  p.ARN,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"policies": out})
+}
+
+func (h *Handler) handleListThings(c *echo.Context) error {
+	things := h.Backend.ListThings()
+
+	out := make([]map[string]any, 0, len(things))
+	for _, t := range things {
+		out = append(out, map[string]any{
+			"thingName":     t.ThingName,
+			"thingArn":      t.ARN,
+			"thingTypeName": t.ThingTypeName,
+			"attributes":    t.Attributes,
+			"version":       t.Version,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"things": out})
+}
+
+func (h *Handler) handleListTopicRules(c *echo.Context) error {
+	rules := h.Backend.ListTopicRules()
+
+	out := make([]map[string]any, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, map[string]any{
+			"ruleName":     r.RuleName,
+			"ruleArn":      r.ARN,
+			"sql":          r.SQL,
+			"ruleDisabled": !r.Enabled,
+			"createdAt":    r.CreatedAt,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"rules": out})
+}
+
+func (h *Handler) handleUpdateThing(c *echo.Context) error {
+	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
+
+	var body UpdateThingInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	body.ThingName = thingName
+
+	if err := h.Backend.UpdateThing(&body); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDisableTopicRule(c *echo.Context) error {
+	// Path: /rules/{ruleName}/disable
+	after := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
+	ruleName := strings.TrimSuffix(after, "/disable")
+
+	if err := h.Backend.DisableTopicRule(ruleName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleEnableTopicRule(c *echo.Context) error {
+	// Path: /rules/{ruleName}/enable
+	after := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
+	ruleName := strings.TrimSuffix(after, "/enable")
+
+	if err := h.Backend.EnableTopicRule(ruleName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
+	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
+
+	var payload TopicRulePayload
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	if err := h.Backend.ReplaceTopicRule(&ReplaceTopicRuleInput{
+		RuleName:         ruleName,
+		TopicRulePayload: &payload,
+	}); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleListThingPrincipals(c *echo.Context) error {
+	// Path: /things/{thingName}/principals
+	after := strings.TrimPrefix(c.Request().URL.Path, "/things/")
+	thingName := strings.TrimSuffix(after, "/principals")
+
+	principals, err := h.Backend.ListThingPrincipals(thingName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"principals": principals})
 }

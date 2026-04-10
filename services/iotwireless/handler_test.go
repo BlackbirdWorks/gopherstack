@@ -584,3 +584,409 @@ func TestHandler_PersistenceSnapshotRestore(t *testing.T) {
 	assert.Len(t, devices, 1)
 	assert.Equal(t, "persist-dev", devices[0].Name)
 }
+
+func TestHandler_CreateDeviceProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		profileName string
+		wantStatus  int
+	}{
+		{
+			name:        "create_device_profile",
+			profileName: "my-device-profile",
+			wantStatus:  http.StatusCreated,
+		},
+		{
+			name:        "create_with_empty_name",
+			profileName: "",
+			wantStatus:  http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			body := `{"Name":"` + tt.profileName + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPost, "/device-profiles", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.NotEmpty(t, resp["Id"])
+			assert.NotEmpty(t, resp["Arn"])
+		})
+	}
+}
+
+func TestHandler_CreateFuotaTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		taskName    string
+		description string
+		wantStatus  int
+	}{
+		{
+			name:        "create_fuota_task",
+			taskName:    "my-fuota-task",
+			description: "firmware update task",
+			wantStatus:  http.StatusCreated,
+		},
+		{
+			name:       "create_without_description",
+			taskName:   "bare-fuota-task",
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			body := `{"Name":"` + tt.taskName + `","Description":"` + tt.description +
+				`","FirmwareUpdateImage":"s3://bucket/fw.bin","FirmwareUpdateRole":"arn:aws:iam::000000000000:role/r"}`
+			rec := doIoTWRequest(t, h, http.MethodPost, "/fuota-tasks", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.NotEmpty(t, resp["Id"])
+			assert.NotEmpty(t, resp["Arn"])
+		})
+	}
+}
+
+func TestHandler_AssociateAwsAccountWithPartnerAccount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		partnerAccountID string
+		wantStatus       int
+	}{
+		{
+			name:             "associate_partner_account",
+			partnerAccountID: "partner-123",
+			wantStatus:       http.StatusOK,
+		},
+		{
+			name:             "idempotent_reassociation",
+			partnerAccountID: "partner-456",
+			wantStatus:       http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			body := `{"Tags":{"env":"prod"}}`
+			rec := doIoTWRequest(t, h, http.MethodPut, "/partner-accounts/"+tt.partnerAccountID, body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.NotEmpty(t, resp["Arn"])
+		})
+	}
+}
+
+func TestHandler_AssociateMulticastGroupWithFuotaTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		fuotaTaskID      string
+		multicastGroupID string
+		wantStatus       int
+	}{
+		{
+			name:             "associate_multicast_group",
+			fuotaTaskID:      "fuota-task-001",
+			multicastGroupID: "multicast-group-001",
+			wantStatus:       http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			body := `{"MulticastGroupId":"` + tt.multicastGroupID + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/multicast-groups", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateWirelessDeviceWithFuotaTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		fuotaTaskID      string
+		wirelessDeviceID string
+		wantStatus       int
+	}{
+		{
+			name:             "associate_wireless_device",
+			fuotaTaskID:      "fuota-task-002",
+			wirelessDeviceID: "dev-001",
+			wantStatus:       http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			body := `{"WirelessDeviceId":"` + tt.wirelessDeviceID + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/wireless-devices", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateWirelessDeviceWithMulticastGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		multicastGroupID string
+		wirelessDeviceID string
+		wantStatus       int
+	}{
+		{
+			name:             "associate_wireless_device",
+			multicastGroupID: "multicast-group-002",
+			wirelessDeviceID: "dev-002",
+			wantStatus:       http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			body := `{"WirelessDeviceId":"` + tt.wirelessDeviceID + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPut,
+				"/multicast-groups/"+tt.multicastGroupID+"/wireless-devices", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateWirelessDeviceWithThing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		thingArn   string
+		createDev  bool
+		wantStatus int
+	}{
+		{
+			name:       "associate_existing_device",
+			thingArn:   "arn:aws:iot:us-east-1:000000000000:thing/my-thing",
+			createDev:  true,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "device_not_found",
+			thingArn:   "arn:aws:iot:us-east-1:000000000000:thing/other-thing",
+			createDev:  false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+
+			devID := "no-such-device"
+
+			if tt.createDev {
+				createRec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices",
+					`{"Name":"dev-thing","Type":"LoRaWAN","DestinationName":"d"}`)
+				require.Equal(t, http.StatusCreated, createRec.Code)
+
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				devID = createResp["Id"].(string)
+			}
+
+			body := `{"ThingArn":"` + tt.thingArn + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPut, "/wireless-devices/"+devID+"/thing", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateWirelessGatewayWithCertificate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		iotCertificateID string
+		createGateway    bool
+		wantStatus       int
+	}{
+		{
+			name:             "associate_existing_gateway",
+			iotCertificateID: "cert-abc123",
+			createGateway:    true,
+			wantStatus:       http.StatusOK,
+		},
+		{
+			name:             "gateway_not_found",
+			iotCertificateID: "cert-xyz789",
+			createGateway:    false,
+			wantStatus:       http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+
+			gwID := "no-such-gateway"
+
+			if tt.createGateway {
+				createRec := doIoTWRequest(t, h, http.MethodPost, "/wireless-gateways",
+					`{"Name":"gw-cert","Description":"cert gw"}`)
+				require.Equal(t, http.StatusCreated, createRec.Code)
+
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				gwID = createResp["Id"].(string)
+			}
+
+			body := `{"IotCertificateId":"` + tt.iotCertificateID + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPut, "/wireless-gateways/"+gwID+"/certificate", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["IotCertificateArn"])
+			}
+		})
+	}
+}
+
+func TestHandler_AssociateWirelessGatewayWithThing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		thingArn      string
+		createGateway bool
+		wantStatus    int
+	}{
+		{
+			name:          "associate_existing_gateway",
+			thingArn:      "arn:aws:iot:us-east-1:000000000000:thing/gw-thing",
+			createGateway: true,
+			wantStatus:    http.StatusNoContent,
+		},
+		{
+			name:          "gateway_not_found",
+			thingArn:      "arn:aws:iot:us-east-1:000000000000:thing/other-thing",
+			createGateway: false,
+			wantStatus:    http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+
+			gwID := "no-such-gateway"
+
+			if tt.createGateway {
+				createRec := doIoTWRequest(t, h, http.MethodPost, "/wireless-gateways",
+					`{"Name":"gw-thing","Description":"thing gw"}`)
+				require.Equal(t, http.StatusCreated, createRec.Code)
+
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				gwID = createResp["Id"].(string)
+			}
+
+			body := `{"ThingArn":"` + tt.thingArn + `"}`
+			rec := doIoTWRequest(t, h, http.MethodPut, "/wireless-gateways/"+gwID+"/thing", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CancelMulticastGroupSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		multicastGroupID string
+		wantStatus       int
+	}{
+		{
+			name:             "cancel_existing_session",
+			multicastGroupID: "multicast-group-session-01",
+			wantStatus:       http.StatusNoContent,
+		},
+		{
+			name:             "cancel_nonexistent_session_is_idempotent",
+			multicastGroupID: "nonexistent-group",
+			wantStatus:       http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			rec := doIoTWRequest(t, h, http.MethodDelete, "/multicast-groups/"+tt.multicastGroupID+"/session", "")
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+	ops := h.GetSupportedOperations()
+
+	newOps := []string{
+		"AssociateAwsAccountWithPartnerAccount",
+		"AssociateMulticastGroupWithFuotaTask",
+		"AssociateWirelessDeviceWithFuotaTask",
+		"AssociateWirelessDeviceWithMulticastGroup",
+		"AssociateWirelessDeviceWithThing",
+		"AssociateWirelessGatewayWithCertificate",
+		"AssociateWirelessGatewayWithThing",
+		"CancelMulticastGroupSession",
+		"CreateDeviceProfile",
+		"CreateFuotaTask",
+	}
+
+	for _, op := range newOps {
+		assert.Contains(t, ops, op, "GetSupportedOperations should contain %q", op)
+	}
+}

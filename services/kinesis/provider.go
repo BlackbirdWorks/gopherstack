@@ -1,9 +1,14 @@
 package kinesis
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when the AppContext is nil.
+var ErrNilAppContext = errors.New("kinesis: AppContext must not be nil")
 
 // ConfigProvider is a private interface to extract Kinesis configuration
 // from the abstract AppContext Config.
@@ -21,6 +26,10 @@ func (p *Provider) Name() string { return "Kinesis" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	var backend *InMemoryBackend
 	var defaultRegion, accountID string
 

@@ -17,17 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := iotanalytics.NewInMemoryBackend()
 	h := iotanalytics.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &iotanalyticssdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchPutMessage",
-		"CancelPipelineReprocessing",
-		"CreateDatasetContent",
-		"DeleteDatasetContent",
-		"DescribeLoggingOptions",
-		"GetDatasetContent",
-		"ListDatasetContents",
-		"PutLoggingOptions",
-		"RunPipelineActivity",
-		"SampleChannelData",
-		"StartPipelineReprocessing",
-	})
+	sdkcheck.CheckCompleteness(t, &iotanalyticssdk.Client{}, h.GetSupportedOperations(), []string{})
 }
