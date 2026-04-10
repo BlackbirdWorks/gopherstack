@@ -1,9 +1,14 @@
 package opensearch
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when a nil AppContext is passed.
+var ErrNilAppContext = errors.New("nil AppContext passed to OpenSearch Provider.Init")
 
 // EngineConfig is the interface for accessing the OpenSearch engine mode configuration.
 type EngineConfig interface {
@@ -26,6 +31,10 @@ func (p *Provider) Name() string { return "OpenSearch" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 	engineMode := EngineStub

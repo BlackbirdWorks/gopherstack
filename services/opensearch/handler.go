@@ -28,13 +28,13 @@ const (
 
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new OpenSearch Handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -80,6 +80,9 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// Reset clears the handler's backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
+
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return "es" }
 
@@ -93,6 +96,55 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
+
+	// Cross-cluster connection: PUT /2021-01-01/opensearch/cc/inboundConnection/{id}/accept
+	if strings.HasPrefix(path, openSearchCCPath) &&
+		strings.Contains(path, "/inboundConnection/") && strings.HasSuffix(path, "/accept") &&
+		method == http.MethodPut {
+		return "AcceptInboundConnection"
+	}
+
+	// Direct query data source: POST /2021-01-01/opensearch/directQueryDataSource
+	if strings.HasPrefix(path, openSearchDirectQueryPath) && method == http.MethodPost {
+		return "AddDirectQueryDataSource"
+	}
+
+	// Packages: POST /2021-01-01/packages/associate/...
+	if strings.HasPrefix(path, openSearchPackagesPath) {
+		rest := strings.TrimPrefix(path, openSearchPackagesPath)
+		if strings.HasPrefix(rest, "/associate/") && method == http.MethodPost {
+			return "AssociatePackage"
+		}
+
+		if rest == "/associateMultiple" && method == http.MethodPost {
+			return "AssociatePackages"
+		}
+	}
+
+	// Service software update: POST /2021-01-01/opensearch/serviceSoftwareUpdate/cancel
+	if strings.HasPrefix(path, openSearchServiceSwPath) && method == http.MethodPost {
+		return "CancelServiceSoftwareUpdate"
+	}
+
+	// Application: POST /2021-01-01/opensearch/application
+	if strings.HasPrefix(path, openSearchApplicationPath) && method == http.MethodPost {
+		return "CreateApplication"
+	}
+
+	// Tag routes
+	if path == openSearchTagsPath {
+		if method == http.MethodGet {
+			return "ListTags"
+		}
+
+		if method == http.MethodPost {
+			return "AddTags"
+		}
+	}
+
+	if path == openSearchTagsRemoval && method == http.MethodPost {
+		return "RemoveTags"
+	}
 
 	rest := strings.TrimPrefix(path, openSearchPathPrefix)
 
@@ -111,18 +163,62 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "DescribeDomain"
 	case strings.HasPrefix(rest, "/") && method == http.MethodDelete:
 		return "DeleteDomain"
+	case strings.HasPrefix(rest, "/") && method == http.MethodPost:
+		// Domain sub-routes
+		trimmed := strings.TrimPrefix(rest, "/")
+		switch {
+		case strings.HasSuffix(trimmed, "/dataSource"):
+			return "AddDataSource"
+		case strings.HasSuffix(trimmed, "/authorizeVpcEndpointAccess"):
+			return "AuthorizeVpcEndpointAccess"
+		case strings.HasSuffix(trimmed, "/config/cancel"):
+			return "CancelDomainConfigChange"
+		}
 	}
 
 	return "Unknown"
 }
 
-// ExtractResource returns the domain name from the request path.
+// ExtractResource returns the primary resource identifier from the request path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
-	rest := strings.TrimPrefix(path, openSearchPathPrefix+"/")
 
+	// Cross-cluster: extract connection ID
+	if strings.HasPrefix(path, openSearchCCPath) {
+		rest := strings.TrimPrefix(path, openSearchCCPath+"/inboundConnection/")
+		return strings.TrimSuffix(rest, "/accept")
+	}
+
+	// Direct query data source: no ID in path
+	if strings.HasPrefix(path, openSearchDirectQueryPath) {
+		return ""
+	}
+
+	// Packages: extract package ID
+	if strings.HasPrefix(path, openSearchPackagesPath) {
+		rest := strings.TrimPrefix(path, openSearchPackagesPath+"/associate/")
+		parts := strings.SplitN(rest, "/", 2) //nolint:mnd // 2 parts: packageID/domainName
+		if len(parts) > 0 {
+			return parts[0]
+		}
+
+		return ""
+	}
+
+	// Tag routes: no domain name in path
+	if path == openSearchTagsPath || path == openSearchTagsRemoval {
+		return ""
+	}
+
+	// Domain path prefix
+	rest := strings.TrimPrefix(path, openSearchPathPrefix+"/")
 	if rest == path {
 		return ""
+	}
+
+	// Extract domain name (first segment)
+	if idx := strings.Index(rest, "/"); idx != -1 {
+		return rest[:idx]
 	}
 
 	return strings.TrimSuffix(rest, "/")
@@ -415,7 +511,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		EngineVersion:               d.EngineVersion,
 		Endpoint:                    d.Endpoint,
 		Processing:                  false,
-		DomainProcessingStatus:      "Active",
+		DomainProcessingStatus:      domainStatusActive,
 		EBSOptions:                  ebsOptionsJSON{EBSEnabled: false},
 		CognitoOptions:              cognitoOptionsJSON{Enabled: false},
 		EncryptionAtRestOptions:     encryptAtRestOptionsJSON{Enabled: false},
@@ -559,7 +655,7 @@ func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Request, name string) {
-	_, err := h.Backend.DescribeDomain(name)
+	domain, err := h.Backend.DescribeDomain(name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException",
@@ -571,10 +667,16 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	activeStatus := opensearchConfigStatus{State: "Active"}
+	activeStatus := opensearchConfigStatus{State: domainStatusActive}
 	out := describeDomainConfigOutput{}
-	out.DomainConfig.EngineVersion = opensearchConfigValue{Options: "", Status: activeStatus}
-	out.DomainConfig.ClusterConfig = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
+	out.DomainConfig.EngineVersion = opensearchConfigValue{Options: domain.EngineVersion, Status: activeStatus}
+	out.DomainConfig.ClusterConfig = opensearchConfigValue{
+		Options: map[string]any{
+			"InstanceType":  domain.ClusterConfig.InstanceType,
+			"InstanceCount": domain.ClusterConfig.InstanceCount,
+		},
+		Status: activeStatus,
+	}
 	out.DomainConfig.EBSOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
 	out.DomainConfig.AccessPolicies = opensearchConfigValue{Options: "", Status: activeStatus}
 	out.DomainConfig.AdvancedOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}

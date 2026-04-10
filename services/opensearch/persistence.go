@@ -3,6 +3,9 @@ package opensearch
 import (
 	"encoding/json"
 	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
@@ -56,9 +59,36 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+	fixNilDomainTags(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	// Release tags resources from the domains being replaced.
+	for _, d := range b.domains {
+		d.Tags.Close()
+	}
+
+	b.domains = snap.Domains
+	b.inboundConnections = snap.InboundConnections
+	b.domainDataSources = snap.DomainDataSources
+	b.directQueryDataSources = snap.DirectQueryDataSources
+	b.packageAssociations = snap.PackageAssociations
+	b.vpcAuthorizations = snap.VpcAuthorizations
+	b.applications = snap.Applications
+	b.appIDCounter = snap.AppIDCounter
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	// Rebuild the ARN index from restored domains.
+	b.arnIndex = rebuildARNIndex(snap.Domains, snap.AccountID, snap.Region)
+
+	return nil
+}
+
+// ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
+func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Domains == nil {
 		snap.Domains = make(map[string]*Domain)
 	}
@@ -86,19 +116,29 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Applications == nil {
 		snap.Applications = make(map[string]*Application)
 	}
+}
 
-	b.domains = snap.Domains
-	b.inboundConnections = snap.InboundConnections
-	b.domainDataSources = snap.DomainDataSources
-	b.directQueryDataSources = snap.DirectQueryDataSources
-	b.packageAssociations = snap.PackageAssociations
-	b.vpcAuthorizations = snap.VpcAuthorizations
-	b.applications = snap.Applications
-	b.appIDCounter = snap.AppIDCounter
-	b.accountID = snap.AccountID
-	b.region = snap.Region
+// fixNilDomainTags ensures that every restored domain has a valid Tags instance.
+// When a domain is round-tripped through JSON the tags.Tags.UnmarshalJSON creates
+// a new underlying safemap, but if the JSON value was null we still need a usable Tags.
+func fixNilDomainTags(snap *backendSnapshot) {
+	for name, d := range snap.Domains {
+		if d != nil && d.Tags == nil {
+			d.Tags = tags.New("opensearch." + name + ".tags")
+		}
+	}
+}
 
-	return nil
+// rebuildARNIndex reconstructs the arnIndex map from a set of restored domains.
+func rebuildARNIndex(domains map[string]*Domain, accountID, region string) map[string]string {
+	idx := make(map[string]string, len(domains))
+
+	for name := range domains {
+		domainARN := arn.Build("es", region, accountID, "domain/"+name)
+		idx[domainARN] = name
+	}
+
+	return idx
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

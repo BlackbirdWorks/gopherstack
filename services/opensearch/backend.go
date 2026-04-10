@@ -3,6 +3,7 @@ package opensearch
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -15,6 +16,7 @@ var (
 	ErrDomainNotFound           = errors.New("ResourceNotFoundException")
 	ErrDomainAlreadyExists      = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidParameter         = errors.New("ValidationException")
+	ErrValidation               = errors.New("ValidationException")
 	ErrConnectionNotFound       = errors.New("ResourceNotFoundException")
 	ErrDataSourceNotFound       = errors.New("ResourceNotFoundException")
 	ErrDataSourceAlreadyExists  = errors.New("ResourceAlreadyExistsException")
@@ -22,6 +24,21 @@ var (
 	ErrApplicationNotFound      = errors.New("ResourceNotFoundException")
 	ErrApplicationAlreadyExists = errors.New("ResourceAlreadyExistsException")
 )
+
+// Domain status constants.
+const (
+	domainStatusActive = "Active"
+)
+
+// Package/connection state constants.
+const (
+	pkgStateActive        = "ACTIVE"
+	connectionStatusActive = "ACTIVE"
+	softwareUpdateCompleted = "COMPLETED"
+)
+
+// Default engine version applied when CreateDomain receives an empty EngineVersion.
+const defaultEngineVersion = "OpenSearch_2.11"
 
 // InboundConnection represents an OpenSearch inbound cross-cluster connection.
 type InboundConnection struct {
@@ -168,7 +185,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 	}
 
 	if engineVersion == "" {
-		engineVersion = "OpenSearch_2.11"
+		engineVersion = defaultEngineVersion
 	}
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
@@ -203,7 +220,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 	return &cp, nil
 }
 
-// DeleteDomain removes a domain by name.
+// DeleteDomain removes a domain by name and cleans up all associated resources.
 func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
@@ -217,6 +234,18 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	delete(b.domains, name)
 	delete(b.arnIndex, d.ARN)
 	d.Tags.Close()
+
+	// Cascade-clean all domain-scoped resources.
+	delete(b.domainDataSources, name)
+	delete(b.vpcAuthorizations, name)
+
+	for pkgID, domains := range b.packageAssociations {
+		delete(domains, name)
+
+		if len(domains) == 0 {
+			delete(b.packageAssociations, pkgID)
+		}
+	}
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
@@ -240,7 +269,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	return &cp, nil
 }
 
-// ListDomainNames returns the names of all domains.
+// ListDomainNames returns the names of all domains in sorted order.
 func (b *InMemoryBackend) ListDomainNames() []string {
 	b.mu.RLock("ListDomainNames")
 	defer b.mu.RUnlock()
@@ -249,6 +278,8 @@ func (b *InMemoryBackend) ListDomainNames() []string {
 	for name := range b.domains {
 		names = append(names, name)
 	}
+
+	slices.Sort(names)
 
 	return names
 }
@@ -320,11 +351,11 @@ func (b *InMemoryBackend) AcceptInboundConnection(connectionID string) (*Inbound
 	if !exists {
 		conn = &InboundConnection{
 			ConnectionID: connectionID,
-			Status:       "ACTIVE",
+			Status:       connectionStatusActive,
 		}
 		b.inboundConnections[connectionID] = conn
 	} else {
-		conn.Status = "ACTIVE"
+		conn.Status = connectionStatusActive
 	}
 
 	cp := *conn
@@ -425,7 +456,7 @@ func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) (*Domai
 	return &DomainPackageDetails{
 		PackageID:  packageID,
 		DomainName: domainName,
-		State:      "ACTIVE",
+		State:      pkgStateActive,
 	}, nil
 }
 
@@ -433,6 +464,10 @@ func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) (*Domai
 func (b *InMemoryBackend) AssociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error) {
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	if len(packageIDs) == 0 {
+		return nil, fmt.Errorf("%w: PackageList must not be empty", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("AssociatePackages")
@@ -453,7 +488,7 @@ func (b *InMemoryBackend) AssociatePackages(domainName string, packageIDs []stri
 		results = append(results, DomainPackageDetails{
 			PackageID:  pkgID,
 			DomainName: domainName,
-			State:      "ACTIVE",
+			State:      pkgStateActive,
 		})
 	}
 
@@ -522,11 +557,11 @@ func (b *InMemoryBackend) CancelServiceSoftwareUpdate(domainName string) (*Servi
 	}
 
 	return &ServiceSoftwareOptions{
-		CurrentVersion:  "OpenSearch_2.11",
+		CurrentVersion:  defaultEngineVersion,
 		NewVersion:      "",
 		UpdateAvailable: false,
 		Cancellable:     false,
-		UpdateStatus:    "COMPLETED",
+		UpdateStatus:    softwareUpdateCompleted,
 		Description:     "There is no software update available for this domain.",
 	}, nil
 }
@@ -578,4 +613,63 @@ func (b *InMemoryBackend) CreateApplication(
 	copy(cp.DataSources, app.DataSources)
 
 	return &cp, nil
+}
+
+// Reset clears all backend state, releasing any resources held.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, d := range b.domains {
+		d.Tags.Close()
+	}
+
+	b.domains = make(map[string]*Domain)
+	b.arnIndex = make(map[string]string)
+	b.inboundConnections = make(map[string]*InboundConnection)
+	b.domainDataSources = make(map[string]map[string]*DataSource)
+	b.directQueryDataSources = make(map[string]*DirectQueryDataSource)
+	b.packageAssociations = make(map[string]map[string]bool)
+	b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
+	b.applications = make(map[string]*Application)
+	b.appIDCounter = 0
+}
+
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string {
+	b.mu.RLock("Region")
+	defer b.mu.RUnlock()
+
+	return b.region
+}
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string {
+	b.mu.RLock("AccountID")
+	defer b.mu.RUnlock()
+
+	return b.accountID
+}
+
+// AddDomainInternal seeds a domain directly for use in tests.
+func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
+	if engineVersion == "" {
+		engineVersion = defaultEngineVersion
+	}
+
+	b.mu.Lock("AddDomainInternal")
+	defer b.mu.Unlock()
+
+	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
+	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, b.region)
+	b.domains[name] = &Domain{
+		Name:          name,
+		ARN:           domainARN,
+		EngineVersion: engineVersion,
+		Endpoint:      endpoint,
+		Status:        domainStatusActive,
+		ClusterConfig: ClusterConfig{InstanceType: "t3.small.search", InstanceCount: 1},
+		Tags:          tags.New("opensearch." + name + ".tags"),
+	}
+	b.arnIndex[domainARN] = name
 }
