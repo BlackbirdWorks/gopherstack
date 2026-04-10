@@ -812,10 +812,33 @@ func warmProviderCache(logger *slog.Logger) {
 
 	// Warm all provider block variants used by tests so no test pays the
 	// first-access initialization cost.
-	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), logger)
-	preInitDirRDS = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), logger)
-	preInitDirDocDB = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, docdbProviderBlock(endpoint), logger)
-	preInitDirNeptune = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, neptuneProviderBlock(endpoint), logger)
+	//
+	// The main block is warmed first. Its generated .terraform.lock.hcl is
+	// seeded into subsequent warm-up directories so that tofu init can
+	// resolve provider checksums from the local plugin cache without
+	// contacting registry.opentofu.org. All variants pin the same
+	// hashicorp/aws version so the lock file is reusable across them.
+	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), nil, logger)
+
+	// Read the lock file produced by the main warm-up so that subsequent
+	// calls can skip the registry entirely.
+	var seedLockFile []byte
+
+	if preInitDirMain != "" {
+		if data, readErr := os.ReadFile(filepath.Join(preInitDirMain, ".terraform.lock.hcl")); readErr == nil {
+			seedLockFile = data
+		}
+	}
+
+	preInitDirRDS = warmWithHCL(
+		tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), seedLockFile, logger,
+	)
+	preInitDirDocDB = warmWithHCL(
+		tofuBinaryPath, tofuProviderCacheDir, docdbProviderBlock(endpoint), seedLockFile, logger,
+	)
+	preInitDirNeptune = warmWithHCL(
+		tofuBinaryPath, tofuProviderCacheDir, neptuneProviderBlock(endpoint), seedLockFile, logger,
+	)
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
@@ -824,7 +847,11 @@ func warmProviderCache(logger *slog.Logger) {
 // so callers can reuse the initialized .terraform/ subtree via hardLinkDir; the
 // caller is responsible for cleanup (os.RemoveAll). Returns an empty string on
 // failure.
-func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
+//
+// seedLockFile, if non-nil, is written as .terraform.lock.hcl before init so
+// that tofu can resolve provider checksums from the local plugin cache without
+// needing to contact registry.opentofu.org.
+func warmWithHCL(tofuBin, cacheDir, hcl string, seedLockFile []byte, logger *slog.Logger) string {
 	dir, err := os.MkdirTemp("", "tofu-warmup-*")
 	if err != nil {
 		logger.Warn("skipping provider cache warm-up", "error", err)
@@ -839,6 +866,15 @@ func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
 		}
 
 		return ""
+	}
+
+	// Seed the lock file when provided so that tofu init can skip the
+	// provider registry and resolve checksums from the on-disk cache.
+	if seedLockFile != nil {
+		if writeErr := os.WriteFile(filepath.Join(dir, ".terraform.lock.hcl"), seedLockFile, 0o644); writeErr != nil {
+			logger.Warn("failed to seed lock file for warm-up", "error", writeErr)
+			// Non-fatal: tofu init will regenerate it (may need network).
+		}
 	}
 
 	cmd := exec.Command(tofuBin, "init", "-no-color")
