@@ -23,12 +23,21 @@ const (
 
 // Handler is the Echo HTTP handler for Redshift operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]redshiftActionFn
 }
 
 // NewHandler creates a new Redshift handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all backend state and rebuilds the dispatch table.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -48,12 +57,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchModifyClusterSnapshots",
 		"CancelResize",
 		"CreateCluster",
+		"CreateTags",
 		"DeleteCluster",
+		"DeleteTags",
 		"DescribeClusters",
 		"DescribeLoggingStatus",
 		"DescribeTags",
-		"CreateTags",
-		"DeleteTags",
 	}
 }
 
@@ -140,7 +149,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type redshiftActionFn func(vals url.Values) (any, error)
 
-func (h *Handler) dispatchTable() map[string]redshiftActionFn {
+func (h *Handler) buildOps() map[string]redshiftActionFn {
 	return map[string]redshiftActionFn{
 		"AcceptReservedNodeExchange":           h.handleAcceptReservedNodeExchange,
 		"AddPartner":                           h.handleAddPartner,
@@ -153,18 +162,18 @@ func (h *Handler) dispatchTable() map[string]redshiftActionFn {
 		"BatchModifyClusterSnapshots":          h.handleBatchModifyClusterSnapshots,
 		"CancelResize":                         h.handleCancelResize,
 		"CreateCluster":                        h.handleCreateCluster,
+		"CreateTags":                           h.handleCreateTags,
 		"DeleteCluster":                        h.handleDeleteCluster,
+		"DeleteTags":                           h.handleDeleteTags,
 		"DescribeClusters":                     h.handleDescribeClusters,
 		"DescribeLoggingStatus":                func(_ url.Values) (any, error) { return h.loggingStatusResponse(), nil },
 		"DescribeTags":                         func(_ url.Values) (any, error) { return h.describeTagsResponse(), nil },
-		"CreateTags":                           h.handleCreateTags,
-		"DeleteTags":                           h.handleDeleteTags,
 	}
 }
 
 // dispatch routes the Redshift action to the appropriate handler function.
 func (h *Handler) dispatch(c *echo.Context, action string, vals url.Values) error {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 			fmt.Sprintf("%s is not a valid Redshift action", action))
@@ -230,11 +239,16 @@ func toXMLCluster(c *Cluster) xmlCluster {
 	return xmlCluster{
 		ClusterIdentifier:                c.ClusterIdentifier,
 		NodeType:                         c.NodeType,
+		ClusterType:                      c.ClusterType,
 		Endpoint:                         c.Endpoint,
+		EndpointPort:                     c.Port,
 		ClusterStatus:                    c.Status,
 		ClusterAvailabilityStatus:        "Available",
 		AvailabilityZoneRelocationStatus: "disabled",
 		MultiAZ:                          "Disabled",
+		NumberOfNodes:                    c.NumberOfNodes,
+		Encrypted:                        c.Encrypted,
+		EnhancedVpcRouting:               c.EnhancedVpcRouting,
 		AquaConfiguration:                xmlAquaConfig{AquaConfigurationStatus: "disabled", AquaStatus: "disabled"},
 		ClusterNodes: xmlClusterNodes{
 			Members: []xmlClusterNode{{
@@ -263,7 +277,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	case errors.Is(opErr, ErrClusterAlreadyExists):
 		code = "ClusterAlreadyExists"
 	case errors.Is(opErr, ErrInvalidParameter):
-		code = "RedshiftInvalidParameter"
+		code = "InvalidParameterValue"
 	case errors.Is(opErr, ErrReservedNodeNotFound):
 		code = "ReservedNodeNotFound"
 	case errors.Is(opErr, ErrReservedNodeAlreadyExists):
@@ -282,6 +296,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "EndpointAuthorizationAlreadyExists"
 	case errors.Is(opErr, ErrResizeNotFound):
 		code = "ResizeNotFound"
+	case errors.Is(opErr, ErrResizeNotCancellable):
+		code = "InvalidClusterState"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
@@ -329,17 +345,22 @@ type redshiftErrorResponse struct {
 
 type xmlCluster struct {
 	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
-	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
-	NodeType                         string                `xml:"NodeType"`
+	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
+	DBName                           string                `xml:"DBName"`
+	ClusterType                      string                `xml:"ClusterType,omitempty"`
 	Endpoint                         string                `xml:"Endpoint>Address"`
 	ClusterStatus                    string                `xml:"ClusterStatus"`
+	NodeType                         string                `xml:"NodeType"`
 	ClusterAvailabilityStatus        string                `xml:"ClusterAvailabilityStatus"`
-	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
 	MultiAZ                          string                `xml:"MultiAZ"`
-	DBName                           string                `xml:"DBName"`
+	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
 	MasterUsername                   string                `xml:"MasterUsername"`
-	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
 	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
+	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
+	NumberOfNodes                    int                   `xml:"NumberOfNodes,omitempty"`
+	EndpointPort                     int                   `xml:"Endpoint>Port,omitempty"`
+	EnhancedVpcRouting               bool                  `xml:"EnhancedVpcRouting"`
+	Encrypted                        bool                  `xml:"Encrypted"`
 }
 
 type xmlAquaConfig struct {
@@ -486,10 +507,11 @@ func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
 }
 
 // parseRedshiftTags extracts Tags.Tag.N.Key/Tags.Tag.N.Value from form values.
+// At most maxListItems tags are returned to prevent resource exhaustion.
 func parseRedshiftTags(vals url.Values) map[string]string {
 	tags := make(map[string]string)
 
-	for i := 1; ; i++ {
+	for i := 1; i <= maxListItems; i++ {
 		prefix := fmt.Sprintf("Tags.Tag.%d.", i)
 		key := vals.Get(prefix + "Key")
 
@@ -499,13 +521,16 @@ func parseRedshiftTags(vals url.Values) map[string]string {
 
 		tags[key] = vals.Get(prefix + "Value")
 	}
+
+	return tags
 }
 
 // parseRedshiftTagKeys extracts TagKeys.TagKey.N from form values.
+// At most maxListItems keys are returned to prevent resource exhaustion.
 func parseRedshiftTagKeys(vals url.Values) []string {
 	var keys []string
 
-	for i := 1; ; i++ {
+	for i := 1; i <= maxListItems; i++ {
 		key := vals.Get(fmt.Sprintf("TagKeys.TagKey.%d", i))
 		if key == "" {
 			return keys
@@ -513,6 +538,8 @@ func parseRedshiftTagKeys(vals url.Values) []string {
 
 		keys = append(keys, key)
 	}
+
+	return keys
 }
 
 const maxListItems = 1000
@@ -587,10 +614,11 @@ func (h *Handler) handleAcceptReservedNodeExchange(vals url.Values) (any, error)
 // ---- AddPartner ----
 
 type addPartnerResponse struct {
-	XMLName      xml.Name `xml:"AddPartnerResponse"`
-	Xmlns        string   `xml:"xmlns,attr"`
-	DatabaseName string   `xml:"AddPartnerResult>DatabaseName"`
-	PartnerName  string   `xml:"AddPartnerResult>PartnerIntegrationId"`
+	XMLName           xml.Name `xml:"AddPartnerResponse"`
+	Xmlns             string   `xml:"xmlns,attr"`
+	ClusterIdentifier string   `xml:"AddPartnerResult>ClusterIdentifier"`
+	DatabaseName      string   `xml:"AddPartnerResult>DatabaseName"`
+	PartnerName       string   `xml:"AddPartnerResult>PartnerIntegrationId"`
 }
 
 func (h *Handler) handleAddPartner(vals url.Values) (any, error) {
@@ -609,9 +637,10 @@ func (h *Handler) handleAddPartner(vals url.Values) (any, error) {
 	}
 
 	return &addPartnerResponse{
-		Xmlns:        redshiftXMLNS,
-		DatabaseName: partner.DatabaseName,
-		PartnerName:  partner.PartnerName,
+		Xmlns:             redshiftXMLNS,
+		ClusterIdentifier: partner.ClusterIdentifier,
+		DatabaseName:      partner.DatabaseName,
+		PartnerName:       partner.PartnerName,
 	}, nil
 }
 

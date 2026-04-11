@@ -54,7 +54,7 @@ func TestRedshiftHandler_CreateCluster(t *testing.T) {
 			name:         "empty_id",
 			body:         "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"RedshiftInvalidParameter"},
+			wantContains: []string{"InvalidParameterValue"},
 		},
 	}
 

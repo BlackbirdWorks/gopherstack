@@ -18,6 +18,33 @@ type backendSnapshot struct {
 	Region         string                            `json:"region"`
 }
 
+func (s *backendSnapshot) ensureNonNilMaps() {
+	if s.Clusters == nil {
+		s.Clusters = make(map[string]*Cluster)
+	}
+	if s.ReservedNodes == nil {
+		s.ReservedNodes = make(map[string]*ReservedNode)
+	}
+	if s.Partners == nil {
+		s.Partners = make(map[string]*Partner)
+	}
+	if s.DataShares == nil {
+		s.DataShares = make(map[string]*DataShare)
+	}
+	if s.SecurityGroups == nil {
+		s.SecurityGroups = make(map[string]*ClusterSecurityGroup)
+	}
+	if s.Snapshots == nil {
+		s.Snapshots = make(map[string]*Snapshot)
+	}
+	if s.EndpointAuths == nil {
+		s.EndpointAuths = make(map[string]*EndpointAuthorization)
+	}
+	if s.ActiveResizes == nil {
+		s.ActiveResizes = make(map[string]*ResizeProgress)
+	}
+}
+
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
@@ -56,33 +83,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.ensureNonNilMaps()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*Cluster)
-	}
-	if snap.ReservedNodes == nil {
-		snap.ReservedNodes = make(map[string]*ReservedNode)
-	}
-	if snap.Partners == nil {
-		snap.Partners = make(map[string]*Partner)
-	}
-	if snap.DataShares == nil {
-		snap.DataShares = make(map[string]*DataShare)
-	}
-	if snap.SecurityGroups == nil {
-		snap.SecurityGroups = make(map[string]*ClusterSecurityGroup)
-	}
-	if snap.Snapshots == nil {
-		snap.Snapshots = make(map[string]*Snapshot)
-	}
-	if snap.EndpointAuths == nil {
-		snap.EndpointAuths = make(map[string]*EndpointAuthorization)
-	}
-	if snap.ActiveResizes == nil {
-		snap.ActiveResizes = make(map[string]*ResizeProgress)
-	}
 
 	b.clusters = snap.Clusters
 	b.reservedNodes = snap.ReservedNodes

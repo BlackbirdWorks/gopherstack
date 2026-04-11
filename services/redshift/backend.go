@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -23,6 +22,24 @@ var (
 	ErrEndpointAuthNotFound      = errors.New("EndpointAuthorizationNotFound")
 	ErrEndpointAuthAlreadyExists = errors.New("EndpointAuthorizationAlreadyExists")
 	ErrResizeNotFound            = errors.New("ResizeNotFound")
+	ErrResizeNotCancellable      = errors.New("InvalidClusterState")
+)
+
+// Named status constants for cluster and resource states.
+const (
+	clusterStatusAvailable       = "available"
+	partnerStatusActive          = "Active"
+	dataShareStatusAuthorized    = "AUTHORIZED"
+	dataShareStatusActive        = "ACTIVE"
+	endpointAuthStatusAuthorized = "Authorized"
+	ingressStatusAuthorized      = "authorized"
+	resizeStatusCancelled        = "CANCELLED"
+	clusterTypeMultiNode         = "multi-node"
+	clusterTypeSingleNode        = "single-node"
+	defaultNodeType              = "dc2.large"
+	defaultDBName                = "dev"
+	defaultMasterUsername        = "admin"
+	defaultPort                  = 5439
 )
 
 // ReservedNode represents an in-memory Redshift reserved node.
@@ -100,6 +117,7 @@ type AccountWithRestoreAccess struct {
 type Snapshot struct {
 	SnapshotIdentifier            string                     `json:"snapshotIdentifier"`
 	ClusterIdentifier             string                     `json:"clusterIdentifier"`
+	SnapshotType                  string                     `json:"snapshotType"`
 	Status                        string                     `json:"status"`
 	AccountsWithRestoreAccess     []AccountWithRestoreAccess `json:"accountsWithRestoreAccess"`
 	ManualSnapshotRetentionPeriod int                        `json:"manualSnapshotRetentionPeriod"`
@@ -148,13 +166,19 @@ type DNSRegistrar interface {
 
 // Cluster represents a Redshift cluster.
 type Cluster struct {
-	Tags              *tags.Tags `json:"tags,omitempty"`
-	ClusterIdentifier string     `json:"clusterIdentifier"`
-	NodeType          string     `json:"nodeType"`
-	Endpoint          string     `json:"endpoint"`
-	Status            string     `json:"status"`
-	DBName            string     `json:"dbName"`
-	MasterUsername    string     `json:"masterUsername"`
+	Tags               *tags.Tags `json:"tags,omitempty"`
+	ClusterIdentifier  string     `json:"clusterIdentifier"`
+	NodeType           string     `json:"nodeType"`
+	ClusterType        string     `json:"clusterType"`
+	Endpoint           string     `json:"endpoint"`
+	Status             string     `json:"status"`
+	DBName             string     `json:"dbName"`
+	MasterUsername     string     `json:"masterUsername"`
+	VpcID              string     `json:"vpcId,omitempty"`
+	Port               int        `json:"port"`
+	NumberOfNodes      int        `json:"numberOfNodes"`
+	Encrypted          bool       `json:"encrypted"`
+	EnhancedVpcRouting bool       `json:"enhancedVpcRouting"`
 }
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
@@ -190,6 +214,25 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all backend state while preserving configuration.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters {
+		c.Tags.Close()
+	}
+
+	b.clusters = make(map[string]*Cluster)
+	b.reservedNodes = make(map[string]*ReservedNode)
+	b.partners = make(map[string]*Partner)
+	b.dataShares = make(map[string]*DataShare)
+	b.securityGroups = make(map[string]*ClusterSecurityGroup)
+	b.snapshots = make(map[string]*Snapshot)
+	b.endpointAuths = make(map[string]*EndpointAuthorization)
+	b.activeResizes = make(map[string]*ResizeProgress)
+}
+
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
@@ -201,6 +244,17 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
 	defer b.mu.Unlock()
 	b.dnsRegistrar = dns
+}
+
+// cloneCluster returns a deep copy of a Cluster, excluding the live Tags pointer.
+// The caller receives a value copy with a nil Tags field; use Tags.Clone() to get tag data.
+func cloneCluster(c *Cluster) Cluster {
+	cp := *c
+	// Tags is a live pointer; callers that need tag data must call c.Tags.Clone() separately.
+	// Setting to nil prevents callers from accidentally mutating the backend via the copy.
+	cp.Tags = nil
+
+	return cp
 }
 
 // CreateCluster creates a new Redshift cluster.
@@ -217,23 +271,26 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 	}
 
 	if nodeType == "" {
-		nodeType = "dc2.large"
+		nodeType = defaultNodeType
 	}
 	if dbName == "" {
-		dbName = "dev"
+		dbName = defaultDBName
 	}
 	if masterUser == "" {
-		masterUser = "admin"
+		masterUser = defaultMasterUsername
 	}
 
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
 	cluster := &Cluster{
 		ClusterIdentifier: id,
 		NodeType:          nodeType,
+		ClusterType:       clusterTypeMultiNode,
 		Endpoint:          endpoint,
-		Status:            "available",
+		Status:            clusterStatusAvailable,
 		DBName:            dbName,
 		MasterUsername:    masterUser,
+		Port:              defaultPort,
+		NumberOfNodes:     1,
 		Tags:              tags.New("redshift.cluster." + id + ".tags"),
 	}
 	b.clusters[id] = cluster
@@ -242,7 +299,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		b.dnsRegistrar.Register(endpoint)
 	}
 
-	cp := *cluster
+	cp := cloneCluster(cluster)
 
 	return &cp, nil
 }
@@ -257,7 +314,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
-	cp := *cluster
+	cp := cloneCluster(cluster)
 	cluster.Tags.Close()
 	delete(b.clusters, id)
 
@@ -279,12 +336,12 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 
-		return []Cluster{*c}, nil
+		return []Cluster{cloneCluster(c)}, nil
 	}
 
 	clusters := make([]Cluster, 0, len(b.clusters))
 	for _, c := range b.clusters {
-		clusters = append(clusters, *c)
+		clusters = append(clusters, cloneCluster(c))
 	}
 
 	return clusters, nil
@@ -405,7 +462,7 @@ func (b *InMemoryBackend) AddPartner(accountID, clusterID, databaseName, partner
 		ClusterIdentifier: clusterID,
 		DatabaseName:      databaseName,
 		PartnerName:       partnerName,
-		Status:            "Active",
+		Status:            partnerStatusActive,
 		StatusMessage:     "",
 	}
 	b.partners[key] = partner
@@ -437,16 +494,12 @@ func (b *InMemoryBackend) AssociateDataShareConsumer(
 		ConsumerRegion:     consumerRegion,
 		CreatedDate:        time.Now(),
 		StatusChangeDate:   time.Now(),
-		Status:             "ACTIVE",
+		Status:             dataShareStatusActive,
 		Type:               "CONSUMER",
 	}
 	ds.DataShareAssociations = append(ds.DataShareAssociations, assoc)
 
-	cp := *ds
-	cp.DataShareAssociations = make([]DataShareAssociation, len(ds.DataShareAssociations))
-	copy(cp.DataShareAssociations, ds.DataShareAssociations)
-
-	return &cp, nil
+	return cloneDataShare(ds), nil
 }
 
 // AuthorizeClusterSecurityGroupIngress adds an ingress rule to a cluster security group.
@@ -469,23 +522,17 @@ func (b *InMemoryBackend) AuthorizeClusterSecurityGroupIngress(
 	}
 
 	if cidrIP != "" {
-		sg.IPRanges = append(sg.IPRanges, IPRange{CIDRIP: cidrIP, Status: "authorized"})
+		sg.IPRanges = append(sg.IPRanges, IPRange{CIDRIP: cidrIP, Status: ingressStatusAuthorized})
 	}
 	if ec2GroupName != "" {
 		sg.EC2SecurityGroups = append(sg.EC2SecurityGroups, EC2SecurityGroup{
 			EC2SecurityGroupName:    ec2GroupName,
 			EC2SecurityGroupOwnerID: ec2GroupOwnerID,
-			Status:                  "authorized",
+			Status:                  ingressStatusAuthorized,
 		})
 	}
 
-	cp := *sg
-	cp.IPRanges = make([]IPRange, len(sg.IPRanges))
-	copy(cp.IPRanges, sg.IPRanges)
-	cp.EC2SecurityGroups = make([]EC2SecurityGroup, len(sg.EC2SecurityGroups))
-	copy(cp.EC2SecurityGroups, sg.EC2SecurityGroups)
-
-	return &cp, nil
+	return cloneSecurityGroup(sg), nil
 }
 
 // AuthorizeDataShare authorizes a data share to a consumer.
@@ -509,16 +556,12 @@ func (b *InMemoryBackend) AuthorizeDataShare(dataShareArn, consumerIdentifier st
 		ConsumerIdentifier: consumerIdentifier,
 		CreatedDate:        time.Now(),
 		StatusChangeDate:   time.Now(),
-		Status:             "AUTHORIZED",
+		Status:             dataShareStatusAuthorized,
 		Type:               "CONSUMER",
 	}
 	ds.DataShareAssociations = append(ds.DataShareAssociations, assoc)
 
-	cp := *ds
-	cp.DataShareAssociations = make([]DataShareAssociation, len(ds.DataShareAssociations))
-	copy(cp.DataShareAssociations, ds.DataShareAssociations)
-
-	return &cp, nil
+	return cloneDataShare(ds), nil
 }
 
 // AuthorizeEndpointAccess authorizes an account to create a VPC endpoint to the cluster.
@@ -554,19 +597,15 @@ func (b *InMemoryBackend) AuthorizeEndpointAccess(
 		Grantee:           grantee,
 		ClusterIdentifier: clusterID,
 		AuthorizeTime:     time.Now(),
-		ClusterStatus:     "active",
-		Status:            "Authorized",
+		ClusterStatus:     clusterStatusAvailable,
+		Status:            endpointAuthStatusAuthorized,
 		AllowedAllVPCs:    len(vpcIDs) == 0,
 		AllowedVPCs:       allowedVPCs,
 		EndpointCount:     0,
 	}
 	b.endpointAuths[key] = auth
 
-	cp := *auth
-	cp.AllowedVPCs = make([]string, len(auth.AllowedVPCs))
-	copy(cp.AllowedVPCs, auth.AllowedVPCs)
-
-	return &cp, nil
+	return cloneEndpointAuth(auth), nil
 }
 
 // AuthorizeSnapshotAccess grants another account restore access to a snapshot.
@@ -590,11 +629,7 @@ func (b *InMemoryBackend) AuthorizeSnapshotAccess(snapshotID, accountWithRestore
 		AccountID: accountWithRestoreAccess,
 	})
 
-	cp := *snap
-	cp.AccountsWithRestoreAccess = make([]AccountWithRestoreAccess, len(snap.AccountsWithRestoreAccess))
-	copy(cp.AccountsWithRestoreAccess, snap.AccountsWithRestoreAccess)
-
-	return &cp, nil
+	return cloneSnapshot(snap), nil
 }
 
 // BatchDeleteClusterSnapshots deletes multiple cluster snapshots. It returns the list of errors for
@@ -677,11 +712,55 @@ func (b *InMemoryBackend) CancelResize(clusterID string) (*ResizeProgress, error
 		return nil, fmt.Errorf("%w: no active resize for cluster %s", ErrResizeNotFound, clusterID)
 	}
 
+	if !resize.AllowCancelResize {
+		return nil, fmt.Errorf(
+			"%w: resize for cluster %s cannot be cancelled at this stage",
+			ErrResizeNotCancellable,
+			clusterID,
+		)
+	}
+
 	cp := *resize
-	cp.Status = "CANCELLED"
+	cp.Status = resizeStatusCancelled
 	delete(b.activeResizes, clusterID)
 
 	return &cp, nil
+}
+
+// --- Deep-copy helpers ---
+
+func cloneDataShare(ds *DataShare) *DataShare {
+	cp := *ds
+	cp.DataShareAssociations = make([]DataShareAssociation, len(ds.DataShareAssociations))
+	copy(cp.DataShareAssociations, ds.DataShareAssociations)
+
+	return &cp
+}
+
+func cloneSecurityGroup(sg *ClusterSecurityGroup) *ClusterSecurityGroup {
+	cp := *sg
+	cp.IPRanges = make([]IPRange, len(sg.IPRanges))
+	copy(cp.IPRanges, sg.IPRanges)
+	cp.EC2SecurityGroups = make([]EC2SecurityGroup, len(sg.EC2SecurityGroups))
+	copy(cp.EC2SecurityGroups, sg.EC2SecurityGroups)
+
+	return &cp
+}
+
+func cloneEndpointAuth(ea *EndpointAuthorization) *EndpointAuthorization {
+	cp := *ea
+	cp.AllowedVPCs = make([]string, len(ea.AllowedVPCs))
+	copy(cp.AllowedVPCs, ea.AllowedVPCs)
+
+	return &cp
+}
+
+func cloneSnapshot(snap *Snapshot) *Snapshot {
+	cp := *snap
+	cp.AccountsWithRestoreAccess = make([]AccountWithRestoreAccess, len(snap.AccountsWithRestoreAccess))
+	copy(cp.AccountsWithRestoreAccess, snap.AccountsWithRestoreAccess)
+
+	return &cp
 }
 
 // --- Internal seed helpers (used by tests) ---
