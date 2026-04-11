@@ -15,10 +15,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -158,7 +158,7 @@ func (r *realDockerClient) Close() error {
 // NewClient creates a new Docker Client using the host's Docker daemon.
 // Returns ErrDockerUnavailable if Docker is not reachable.
 func NewClient(cfg Config) (*Client, error) {
-	sdkClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	sdkClient, err := client.NewClientWithOpts(client.FromEnv(), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDockerUnavailable, err)
 	}

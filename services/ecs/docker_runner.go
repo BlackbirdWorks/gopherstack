@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"strconv"
 	"sync"
 
-	dockertypes "github.com/docker/docker/api/types/container"
-	dockerimage "github.com/docker/docker/api/types/image"
-	dockernetwork "github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
+	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	dockerimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -40,7 +40,7 @@ type dockerClient interface {
 // It uses the standard DOCKER_HOST / DOCKER_TLS_VERIFY environment variables
 // via client.FromEnv, so it works both locally and inside docker-in-docker.
 func NewDockerRunner() (TaskRunner, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.NewClientWithOpts(client.FromEnv(), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
@@ -178,10 +178,10 @@ func (r *realDockerRunner) createContainer(ctx context.Context, task *Task, cd C
 	return resp.ID, nil
 }
 
-// buildPortMappings converts PortMappings to Docker nat.PortMap and nat.PortSet.
-func buildPortMappings(mappings []PortMapping) (nat.PortMap, nat.PortSet) {
-	portBindings := nat.PortMap{}
-	exposedPorts := nat.PortSet{}
+// buildPortMappings converts PortMappings to Moby network.PortMap and network.PortSet.
+func buildPortMappings(mappings []PortMapping) (dockernetwork.PortMap, dockernetwork.PortSet) {
+	portBindings := dockernetwork.PortMap{}
+	exposedPorts := dockernetwork.PortSet{}
 
 	for _, pm := range mappings {
 		proto := pm.Protocol
@@ -189,12 +189,16 @@ func buildPortMappings(mappings []PortMapping) (nat.PortMap, nat.PortSet) {
 			proto = "tcp"
 		}
 
-		containerPort := nat.Port(fmt.Sprintf("%d/%s", pm.ContainerPort, proto))
+		containerPort, err := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", pm.ContainerPort, proto))
+		if err != nil {
+			continue
+		}
+
 		exposedPorts[containerPort] = struct{}{}
 
 		if pm.HostPort > 0 {
-			portBindings[containerPort] = []nat.PortBinding{
-				{HostIP: "0.0.0.0", HostPort: strconv.Itoa(pm.HostPort)},
+			portBindings[containerPort] = []dockernetwork.PortBinding{
+				{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: strconv.Itoa(pm.HostPort)},
 			}
 		}
 	}
