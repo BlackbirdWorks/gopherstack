@@ -674,12 +674,6 @@ const reportStatusSucceeded = "SUCCEEDED"
 // reportStatusNoReport is the status when no report has been generated in the last 90 days.
 const reportStatusNoReport = "NO REPORT"
 
-// ReportStatusRunning is the status when a report is currently being created.
-const ReportStatusRunning = "RUNNING"
-
-// ReportStatusFailed is the status when report creation failed.
-const ReportStatusFailed = "FAILED"
-
 // reportS3PathTemplate is the S3 path template for generated reports.
 const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 

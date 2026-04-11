@@ -2,6 +2,7 @@ package resourcegroupstaggingapi_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -160,7 +161,7 @@ func TestRefinement2_TagResources_TooManyTags(t *testing.T) {
 	tags := make(map[string]string, 51)
 
 	for i := range 51 {
-		tags[strings.Repeat("k", i+1)] = "v"
+		tags[fmt.Sprintf("key%d", i)] = "v"
 	}
 
 	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
