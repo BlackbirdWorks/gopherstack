@@ -126,7 +126,7 @@ import (
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 
-	"github.com/docker/docker/api/types/build"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -177,7 +177,7 @@ func TestMain(m *testing.M) {
 			Context:       "../../",
 			Dockerfile:    dockerfile,
 			PrintBuildLog: true,
-			BuildOptionsModifier: func(options *build.ImageBuildOptions) {
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 				options.NoCache = false
 				options.PullParent = false
 			},

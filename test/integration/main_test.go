@@ -62,8 +62,8 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
-	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -124,7 +124,7 @@ func TestMain(m *testing.M) {
 			Context:       "../../",
 			Dockerfile:    dockerfile,
 			PrintBuildLog: true,
-			BuildOptionsModifier: func(options *build.ImageBuildOptions) {
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 				options.NoCache = false
 				options.PullParent = false
 			},

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/docker/docker/client"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 )
 
 // ErrUnknownRuntime is returned when an unrecognised runtime name is provided.

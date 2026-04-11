@@ -6,10 +6,10 @@ import (
 	"io"
 	"time"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
+	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -122,7 +122,7 @@ type DockerRuntime struct {
 // newDockerRuntime creates a DockerRuntime connected to the Docker daemon.
 // Returns ErrUnavailable if Docker is not reachable.
 func newDockerRuntime(cfg Config) (*DockerRuntime, error) {
-	sdkClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	sdkClient, err := client.NewClientWithOpts(client.FromEnv(), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}

@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/docker/docker/client"
+	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 )
 
 // socketProbeTimeout is the deadline for probing whether a container socket is reachable.

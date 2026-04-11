@@ -17,8 +17,8 @@ import (
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	dockerapibuild "github.com/docker/docker/api/types/build"
-	dockerclient "github.com/docker/docker/client"
+	dockerapibuild "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/build"
+	dockerclient "github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -347,7 +347,7 @@ func buildRotationLambdaImage(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "failed to create rotation Lambda Docker build context")
 
-	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv(), dockerclient.WithAPIVersionNegotiation())
 	require.NoError(t, err, "failed to create Docker SDK client")
 
 	defer cli.Close()

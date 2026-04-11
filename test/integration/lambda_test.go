@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	dockerapibuild "github.com/docker/docker/api/types/build"
-	dockerapicontainer "github.com/docker/docker/api/types/container"
-	dockerapifilters "github.com/docker/docker/api/types/filters"
-	dockerapiimage "github.com/docker/docker/api/types/image"
-	dockerclient "github.com/docker/docker/client"
+	dockerapibuild "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/build"
+	dockerapicontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	dockerapifilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
+	dockerapiimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	dockerclient "github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -248,7 +248,7 @@ func buildEchoLambdaImage(ctx context.Context, t *testing.T) {
 	})
 	require.NoError(t, err, "failed to create Docker build context")
 
-	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv(), dockerclient.WithAPIVersionNegotiation())
 	require.NoError(t, err, "failed to create Docker SDK client")
 
 	defer cli.Close()
@@ -311,7 +311,7 @@ func removeLambdaTestArtifacts(imageTag string) {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv(), dockerclient.WithAPIVersionNegotiation())
 	if err != nil {
 		return
 	}
