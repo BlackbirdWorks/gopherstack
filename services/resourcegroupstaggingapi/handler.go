@@ -37,9 +37,13 @@ func (h *Handler) Name() string { return "ResourceGroupsTaggingAPI" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"DescribeReportCreation",
+		"GetComplianceSummary",
 		"GetResources",
 		"GetTagKeys",
 		"GetTagValues",
+		"ListRequiredTags",
+		"StartReportCreation",
 		"TagResources",
 		"UntagResources",
 	}
@@ -95,11 +99,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"GetResources":   service.WrapOp(h.handleGetResources),
-		"GetTagKeys":     service.WrapOp(h.handleGetTagKeys),
-		"GetTagValues":   service.WrapOp(h.handleGetTagValues),
-		"TagResources":   service.WrapOp(h.handleTagResources),
-		"UntagResources": service.WrapOp(h.handleUntagResources),
+		"DescribeReportCreation": service.WrapOp(h.handleDescribeReportCreation),
+		"GetComplianceSummary":   service.WrapOp(h.handleGetComplianceSummary),
+		"GetResources":           service.WrapOp(h.handleGetResources),
+		"GetTagKeys":             service.WrapOp(h.handleGetTagKeys),
+		"GetTagValues":           service.WrapOp(h.handleGetTagValues),
+		"ListRequiredTags":       service.WrapOp(h.handleListRequiredTags),
+		"StartReportCreation":    service.WrapOp(h.handleStartReportCreation),
+		"TagResources":           service.WrapOp(h.handleTagResources),
+		"UntagResources":         service.WrapOp(h.handleUntagResources),
 	}
 }
 
@@ -128,6 +136,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrUnknownOperation):
 		code = http.StatusBadRequest
 		errType = "UnknownOperationException"
+	case errors.Is(err, ErrMissingS3Bucket):
+		code = http.StatusBadRequest
+		errType = "ValidationException"
 	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
 		errType = "ValidationException"
@@ -163,4 +174,32 @@ func (h *Handler) handleTagResources(_ context.Context, in *TagResourcesInput) (
 
 func (h *Handler) handleUntagResources(_ context.Context, in *UntagResourcesInput) (*UntagResourcesOutput, error) {
 	return h.Backend.UntagResources(in), nil
+}
+
+func (h *Handler) handleStartReportCreation(
+	_ context.Context,
+	in *StartReportCreationInput,
+) (*StartReportCreationOutput, error) {
+	return h.Backend.StartReportCreation(in)
+}
+
+func (h *Handler) handleDescribeReportCreation(
+	_ context.Context,
+	_ *DescribeReportCreationInput,
+) (*DescribeReportCreationOutput, error) {
+	return h.Backend.DescribeReportCreation(), nil
+}
+
+func (h *Handler) handleGetComplianceSummary(
+	_ context.Context,
+	in *GetComplianceSummaryInput,
+) (*GetComplianceSummaryOutput, error) {
+	return h.Backend.GetComplianceSummary(in), nil
+}
+
+func (h *Handler) handleListRequiredTags(
+	_ context.Context,
+	in *ListRequiredTagsInput,
+) (*ListRequiredTagsOutput, error) {
+	return h.Backend.ListRequiredTags(in), nil
 }

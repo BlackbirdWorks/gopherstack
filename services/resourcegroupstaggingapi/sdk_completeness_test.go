@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := resourcegroupstaggingapi.NewInMemoryBackend("000000000000", "us-east-1")
 	h := resourcegroupstaggingapi.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &resourcegroupstaggingapisdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeReportCreation",
-		"GetComplianceSummary",
-		"ListRequiredTags",
-		"StartReportCreation",
-	})
+	sdkcheck.CheckCompleteness(t, &resourcegroupstaggingapisdk.Client{}, h.GetSupportedOperations(), []string{})
 }

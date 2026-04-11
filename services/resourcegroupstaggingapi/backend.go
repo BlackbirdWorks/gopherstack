@@ -4,12 +4,17 @@
 package resourcegroupstaggingapi
 
 import (
+	"errors"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// ErrMissingS3Bucket is returned when StartReportCreation is called without an S3 bucket.
+var ErrMissingS3Bucket = errors.New("S3Bucket is required")
 
 // TaggedResource represents a resource with its ARN, type, and tag set.
 type TaggedResource struct {
@@ -43,12 +48,13 @@ type ARNUntagger func(arn string, keys []string) (bool, error)
 // InMemoryBackend is the in-memory store for the Resource Groups Tagging API.
 // It maintains a registry of service-specific resource providers and tagging adapters.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
-	providers []ResourceProvider
-	taggers   []ARNTagger
-	untaggers []ARNUntagger
+	mu          *lockmetrics.RWMutex
+	reportState *reportCreationState
+	accountID   string
+	region      string
+	providers   []ResourceProvider
+	taggers     []ARNTagger
+	untaggers   []ARNUntagger
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -62,6 +68,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// now returns the current time in RFC3339 format. Extracted for testability.
+func (b *InMemoryBackend) now() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
 
 // RegisterProvider adds a tagged-resource provider to the registry.
 // Providers are called in registration order on every GetResources request.
@@ -466,4 +477,153 @@ func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) *UntagResou
 	}
 
 	return out
+}
+
+// reportStatusSucceeded is the status for a successfully created report.
+const reportStatusSucceeded = "SUCCEEDED"
+
+// reportStatusNoReport is the status when no report has been generated.
+const reportStatusNoReport = "NO REPORT"
+
+// reportCreationState holds the state of a StartReportCreation job.
+type reportCreationState struct {
+	s3Location string
+	startDate  string
+	status     string
+}
+
+// StartReportCreationInput is the request payload for StartReportCreation.
+type StartReportCreationInput struct {
+	// S3Bucket is the Amazon S3 bucket to store the report in.
+	S3Bucket string `json:"S3Bucket"`
+}
+
+// StartReportCreationOutput is the response payload for StartReportCreation.
+type StartReportCreationOutput struct{}
+
+// StartReportCreation records a new report creation request.
+// In the in-memory backend, the report is immediately set to SUCCEEDED.
+func (b *InMemoryBackend) StartReportCreation(input *StartReportCreationInput) (*StartReportCreationOutput, error) {
+	if input.S3Bucket == "" {
+		return nil, ErrMissingS3Bucket
+	}
+
+	b.mu.Lock("StartReportCreation")
+	defer b.mu.Unlock()
+
+	b.reportState = &reportCreationState{
+		s3Location: "s3://" + input.S3Bucket + "/AwsTagPolicies/report.csv",
+		startDate:  b.now(),
+		status:     reportStatusSucceeded,
+	}
+
+	return &StartReportCreationOutput{}, nil
+}
+
+// DescribeReportCreationInput is the request payload for DescribeReportCreation.
+type DescribeReportCreationInput struct{}
+
+// DescribeReportCreationOutput is the response payload for DescribeReportCreation.
+type DescribeReportCreationOutput struct {
+	// ErrorMessage is set when Status is FAILED.
+	ErrorMessage *string `json:"ErrorMessage,omitempty"`
+	// S3Location is the path to the report in the S3 bucket.
+	S3Location *string `json:"S3Location,omitempty"`
+	// StartDate is the date and time that the report was started.
+	StartDate *string `json:"StartDate,omitempty"`
+	// Status is the current status of the report (RUNNING, SUCCEEDED, FAILED, NO REPORT).
+	Status *string `json:"Status"`
+}
+
+// DescribeReportCreation returns the status of the most recent StartReportCreation operation.
+func (b *InMemoryBackend) DescribeReportCreation() *DescribeReportCreationOutput {
+	b.mu.RLock("DescribeReportCreation")
+	defer b.mu.RUnlock()
+
+	if b.reportState == nil {
+		s := reportStatusNoReport
+
+		return &DescribeReportCreationOutput{Status: &s}
+	}
+
+	s3Loc := b.reportState.s3Location
+	startDate := b.reportState.startDate
+	status := b.reportState.status
+
+	return &DescribeReportCreationOutput{
+		S3Location: &s3Loc,
+		StartDate:  &startDate,
+		Status:     &status,
+	}
+}
+
+// GetComplianceSummaryInput is the request payload for GetComplianceSummary.
+type GetComplianceSummaryInput struct {
+	// GroupBy specifies attributes to group noncompliant resource counts by.
+	GroupBy []string `json:"GroupBy,omitempty"`
+	// MaxResults is the maximum number of results per page.
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	// PaginationToken is the cursor from a previous call.
+	PaginationToken *string `json:"PaginationToken,omitempty"`
+	// RegionFilters restricts output to specified regions.
+	RegionFilters []string `json:"RegionFilters,omitempty"`
+	// ResourceTypeFilters restricts output to specified resource types.
+	ResourceTypeFilters []string `json:"ResourceTypeFilters,omitempty"`
+	// TagKeyFilters restricts output to resources with specified tag keys.
+	TagKeyFilters []string `json:"TagKeyFilters,omitempty"`
+	// TargetIDFilters restricts output to specified target IDs.
+	TargetIDFilters []string `json:"TargetIdFilters,omitempty"`
+}
+
+// ComplianceSummary is a count of noncompliant resources.
+type ComplianceSummary struct {
+	LastUpdated           *string `json:"LastUpdated,omitempty"`
+	Region                *string `json:"Region,omitempty"`
+	ResourceType          *string `json:"ResourceType,omitempty"`
+	TargetID              *string `json:"TargetId,omitempty"`
+	TargetIDType          *string `json:"TargetIdType,omitempty"`
+	NonCompliantResources int64   `json:"NonCompliantResources"`
+}
+
+// GetComplianceSummaryOutput is the response payload for GetComplianceSummary.
+type GetComplianceSummaryOutput struct {
+	// PaginationToken is the cursor for the next page.
+	PaginationToken *string `json:"PaginationToken,omitempty"`
+	// SummaryList contains the noncompliant resource counts.
+	SummaryList []ComplianceSummary `json:"SummaryList"`
+}
+
+// GetComplianceSummary returns compliance summary data.
+// The in-memory backend always returns an empty SummaryList.
+func (b *InMemoryBackend) GetComplianceSummary(_ *GetComplianceSummaryInput) *GetComplianceSummaryOutput {
+	return &GetComplianceSummaryOutput{SummaryList: []ComplianceSummary{}}
+}
+
+// ListRequiredTagsInput is the request payload for ListRequiredTags.
+type ListRequiredTagsInput struct {
+	// MaxResults is the maximum number of results per page.
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	// NextToken is the cursor from a previous call.
+	NextToken *string `json:"NextToken,omitempty"`
+}
+
+// RequiredTag describes required tags for a resource type.
+type RequiredTag struct {
+	ResourceType                *string  `json:"ResourceType,omitempty"`
+	CloudFormationResourceTypes []string `json:"CloudFormationResourceTypes,omitempty"`
+	ReportingTagKeys            []string `json:"ReportingTagKeys,omitempty"`
+}
+
+// ListRequiredTagsOutput is the response payload for ListRequiredTags.
+type ListRequiredTagsOutput struct {
+	// NextToken is the cursor for the next page.
+	NextToken *string `json:"NextToken,omitempty"`
+	// RequiredTags lists the required tags for supported resource types.
+	RequiredTags []RequiredTag `json:"RequiredTags"`
+}
+
+// ListRequiredTags returns required tags for supported resource types.
+// The in-memory backend always returns an empty list.
+func (b *InMemoryBackend) ListRequiredTags(_ *ListRequiredTagsInput) *ListRequiredTagsOutput {
+	return &ListRequiredTagsOutput{RequiredTags: []RequiredTag{}}
 }
