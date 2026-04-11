@@ -3,6 +3,7 @@ package qldb
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,16 +13,43 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
+
 const (
-	// stateActive is the active state for a ledger.
-	stateActive = "ACTIVE"
+	// StateActive is the active state for a ledger.
+	StateActive = "ACTIVE"
+	// StateCreating is the creating state for a ledger.
+	StateCreating = "CREATING"
+	// StateDeleting is the deleting state for a ledger.
+	StateDeleting = "DELETING"
+	// StateFailed is the failed state for a ledger.
+	StateFailed = "FAILED"
 
-	// defaultPermissionsMode is the default QLDB permissions mode.
-	defaultPermissionsMode = "ALLOW_ALL"
+	// permissionsModeAllowAll is the ALLOW_ALL permissions mode.
+	permissionsModeAllowAll = "ALLOW_ALL"
+	// permissionsModeSuperuser is the SUPERUSER permissions mode.
+	permissionsModeSuperuser = "SUPERUSER"
+	// permissionsModeStandard is the STANDARD permissions mode.
+	permissionsModeStandard = "STANDARD"
 
+	// StreamStatusActive is the active status for a journal kinesis stream.
+	StreamStatusActive = "ACTIVE"
+	// StreamStatusFailed is the failed status for a journal kinesis stream.
+	StreamStatusFailed = "FAILED"
+	// StreamStatusImpaired is the impaired status for a journal kinesis stream.
+	StreamStatusImpaired = "IMPAIRED"
+	// StreamStatusCompleted is the completed status for a journal kinesis stream.
+	StreamStatusCompleted = "COMPLETED"
 	// streamStatusCanceled is the canceled status for a journal kinesis stream.
 	streamStatusCanceled = "CANCELED"
 
+	// ExportStatusCompleted is the completed status for a journal S3 export.
+	ExportStatusCompleted = "COMPLETED"
+	// ExportStatusFailed is the failed status for a journal S3 export.
+	ExportStatusFailed = "FAILED"
+	// ExportStatusCancelled is the cancelled status for a journal S3 export.
+	ExportStatusCancelled = "CANCELLED"
 	// exportStatusInProgress is the in-progress status for a journal S3 export.
 	exportStatusInProgress = "IN_PROGRESS"
 
@@ -43,6 +71,8 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
 	// ErrDeletionProtection is returned when deletion protection is enabled.
 	ErrDeletionProtection = awserr.New("ResourcePreconditionNotMetException", awserr.ErrConflict)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // Ledger represents a QLDB ledger.
@@ -150,6 +180,20 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all state, returning the backend to a clean empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.ledgers = make(map[string]*Ledger)
+	b.ledgerARNIndex = make(map[string]string)
+	b.journalStreams = make(map[string]map[string]*JournalKinesisStream)
+	b.s3Exports = make(map[string]*JournalS3Export)
+}
+
 // CreateLedger creates a new ledger.
 func (b *InMemoryBackend) CreateLedger(
 	name, permissionsMode string,
@@ -164,14 +208,21 @@ func (b *InMemoryBackend) CreateLedger(
 	}
 
 	if permissionsMode == "" {
-		permissionsMode = defaultPermissionsMode
+		permissionsMode = permissionsModeAllowAll
+	}
+
+	switch permissionsMode {
+	case permissionsModeAllowAll, permissionsModeSuperuser, permissionsModeStandard:
+		// valid
+	default:
+		return nil, fmt.Errorf("%w: invalid permissions mode %q", ErrValidation, permissionsMode)
 	}
 
 	ledgerARN := arn.Build("qldb", b.region, b.accountID, "ledger/"+name)
 	l := &Ledger{
 		Name:              name,
 		ARN:               ledgerARN,
-		State:             stateActive,
+		State:             StateActive,
 		PermissionsMode:   permissionsMode,
 		DeletionProtected: deletionProtected,
 		AccountID:         b.accountID,
@@ -208,6 +259,10 @@ func (b *InMemoryBackend) ListLedgers() []*Ledger {
 		list = append(list, cloneLedger(l))
 	}
 
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Name < list[j].Name
+	})
+
 	return list
 }
 
@@ -242,6 +297,13 @@ func (b *InMemoryBackend) DeleteLedger(name string) error {
 
 	delete(b.ledgers, name)
 	delete(b.ledgerARNIndex, l.ARN)
+	delete(b.journalStreams, name)
+
+	for id, e := range b.s3Exports {
+		if e.LedgerName == name {
+			delete(b.s3Exports, id)
+		}
+	}
 
 	return nil
 }
@@ -380,6 +442,10 @@ func (b *InMemoryBackend) ListJournalKinesisStreamsForLedger(ledgerName string) 
 		list = append(list, cloneStream(s))
 	}
 
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].StreamName < list[j].StreamName
+	})
+
 	return list, nil
 }
 
@@ -443,6 +509,10 @@ func (b *InMemoryBackend) ListJournalS3Exports() []*JournalS3Export {
 		list = append(list, cloneExport(e))
 	}
 
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ExportID < list[j].ExportID
+	})
+
 	return list
 }
 
@@ -462,6 +532,10 @@ func (b *InMemoryBackend) ListJournalS3ExportsForLedger(ledgerName string) ([]*J
 			list = append(list, cloneExport(e))
 		}
 	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ExportID < list[j].ExportID
+	})
 
 	return list, nil
 }

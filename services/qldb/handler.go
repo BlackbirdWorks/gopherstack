@@ -12,6 +12,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -53,22 +55,27 @@ var (
 
 // Handler is the HTTP handler for the QLDB REST API.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new QLDB handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		AccountID: backend.AccountID(),
+		Region:    backend.Region(),
 	}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "QLDB" }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
 
 // GetSupportedOperations returns the list of supported QLDB operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -379,25 +386,14 @@ func (h *Handler) dispatchJournalOps(
 	return nil, false, nil
 }
 
-func (h *Handler) handleError(c *echo.Context, err error) error {
+// writeBackendError maps backend errors to HTTP responses.
+func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceNotFoundException",
-			"message": err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusNotFound, payload)
-	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceAlreadyExistsException",
-			"message": err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusConflict, payload)
+	case errors.Is(err, ErrValidation), errors.Is(err, awserr.ErrInvalidParameter):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	case errors.Is(err, ErrDeletionProtection):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ResourcePreconditionNotMetException",
@@ -405,12 +401,35 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrNotFound), errors.Is(err, awserr.ErrNotFound):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "ResourceNotFoundException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusNotFound, payload)
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, awserr.ErrConflict):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "ResourceAlreadyExistsException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
+}
+
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	return h.writeBackendError(c, err)
+}
+
+// ledgerARN builds an ARN for a QLDB ledger.
+func (h *Handler) ledgerARN(name string) string {
+	return arn.Build("qldb", h.Region, h.AccountID, "ledger/"+name)
 }
 
 // epochSeconds converts a [time.Time] to Unix epoch seconds as float64,
@@ -462,6 +481,9 @@ func (h *Handler) handleCreateLedger(_ context.Context, body []byte) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
+
+	// Ensure the ARN in the response matches the canonical ARN for this handler.
+	l.ARN = h.ledgerARN(l.Name)
 
 	return json.Marshal(toLedgerResponse(l))
 }
