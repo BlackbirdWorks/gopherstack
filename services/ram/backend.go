@@ -25,6 +25,12 @@ const (
 	associationTypePrincipal = "PRINCIPAL"
 	// associationTypeResource is the resource association type.
 	associationTypeResource = "RESOURCE"
+	// invitationStatusPending is the pending status for an invitation.
+	invitationStatusPending = "PENDING"
+	// invitationStatusAccepted is the accepted status for an invitation.
+	invitationStatusAccepted = "ACCEPTED"
+	// permissionTypeCustomer is the customer managed permission type.
+	permissionTypeCustomer = "CUSTOMER_MANAGED"
 )
 
 var (
@@ -32,6 +38,14 @@ var (
 	ErrNotFound = awserr.New("UnknownResourceException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource share already exists.
 	ErrAlreadyExists = awserr.New("ResourceShareAlreadyExistsException", awserr.ErrConflict)
+	// ErrPermissionNotFound is returned when a permission does not exist.
+	ErrPermissionNotFound = awserr.New("UnknownResourceException", awserr.ErrNotFound)
+	// ErrInvitationNotFound is returned when an invitation does not exist.
+	ErrInvitationNotFound = awserr.New("ResourceShareInvitationArnNotFoundException", awserr.ErrNotFound)
+	// ErrInvitationAlreadyAccepted is returned when accepting an already-accepted invitation.
+	ErrInvitationAlreadyAccepted = awserr.New("ResourceShareInvitationAlreadyAcceptedException", awserr.ErrConflict)
+	// ErrPermissionVersionNotFound is returned when a permission version does not exist.
+	ErrPermissionVersionNotFound = awserr.New("UnknownResourceException", awserr.ErrNotFound)
 )
 
 // ResourceShare represents an AWS RAM resource share.
@@ -59,6 +73,61 @@ type ResourceShareAssociation struct {
 	External          bool      `json:"external"`
 }
 
+// PermissionVersion holds a single versioned policy document for a managed permission.
+type PermissionVersion struct {
+	CreationTime    time.Time `json:"creationTime"`
+	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
+	PolicyTemplate  string    `json:"policyTemplate"`
+	Version         int32     `json:"version"`
+}
+
+// Permission represents a customer-managed RAM permission.
+type Permission struct {
+	CreationTime    time.Time                    `json:"creationTime"`
+	LastUpdatedTime time.Time                    `json:"lastUpdatedTime"`
+	Tags            map[string]string            `json:"tags,omitempty"`
+	Versions        map[int32]*PermissionVersion `json:"versions"`
+	ARN             string                       `json:"arn"`
+	Name            string                       `json:"name"`
+	ResourceType    string                       `json:"resourceType"`
+	LatestVersion   int32                        `json:"latestVersion"`
+	DefaultVersion  int32                        `json:"defaultVersion"`
+	Deleted         bool                         `json:"deleted"`
+}
+
+// clonePermission returns a deep copy of p.
+func clonePermission(p *Permission) *Permission {
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+	cp.Versions = make(map[int32]*PermissionVersion, len(p.Versions))
+
+	for v, pv := range p.Versions {
+		pvCopy := *pv
+		cp.Versions[v] = &pvCopy
+	}
+
+	return &cp
+}
+
+// ResourceShareInvitation represents an invitation to access a resource share.
+type ResourceShareInvitation struct {
+	CreationTime      time.Time `json:"creationTime"`
+	LastUpdatedTime   time.Time `json:"lastUpdatedTime"`
+	InvitationARN     string    `json:"invitationArn"`
+	ResourceShareARN  string    `json:"resourceShareArn"`
+	ResourceShareName string    `json:"resourceShareName"`
+	SenderAccountID   string    `json:"senderAccountId"`
+	ReceiverAccountID string    `json:"receiverAccountId"`
+	Status            string    `json:"status"`
+}
+
+// cloneInvitation returns a deep copy of an invitation.
+func cloneInvitation(inv *ResourceShareInvitation) *ResourceShareInvitation {
+	cp := *inv
+
+	return &cp
+}
+
 // cloneResourceShare returns a deep copy of rs with the Tags map cloned.
 func cloneResourceShare(rs *ResourceShare) *ResourceShare {
 	cp := *rs
@@ -76,21 +145,27 @@ func cloneAssociation(a *ResourceShareAssociation) *ResourceShareAssociation {
 
 // InMemoryBackend is an in-memory store for AWS RAM resources.
 type InMemoryBackend struct {
-	resourceShares map[string]*ResourceShare
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
-	associations   []*ResourceShareAssociation
+	resourceShares   map[string]*ResourceShare
+	permissions      map[string]*Permission
+	sharePermissions map[string]map[string]int32 // shareARN -> permissionARN -> version
+	invitations      map[string]*ResourceShareInvitation
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
+	associations     []*ResourceShareAssociation
 }
 
 // NewInMemoryBackend creates a new in-memory RAM backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		resourceShares: make(map[string]*ResourceShare),
-		associations:   make([]*ResourceShareAssociation, 0),
-		accountID:      accountID,
-		region:         region,
-		mu:             lockmetrics.New("ram"),
+		resourceShares:   make(map[string]*ResourceShare),
+		associations:     make([]*ResourceShareAssociation, 0),
+		permissions:      make(map[string]*Permission),
+		sharePermissions: make(map[string]map[string]int32),
+		invitations:      make(map[string]*ResourceShareInvitation),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("ram"),
 	}
 }
 
@@ -477,4 +552,332 @@ func (b *InMemoryBackend) Reset() {
 
 	b.resourceShares = make(map[string]*ResourceShare)
 	b.associations = make([]*ResourceShareAssociation, 0)
+	b.permissions = make(map[string]*Permission)
+	b.sharePermissions = make(map[string]map[string]int32)
+	b.invitations = make(map[string]*ResourceShareInvitation)
+}
+
+// permissionARN builds an ARN for a customer-managed RAM permission.
+func (b *InMemoryBackend) permissionARN(name string) string {
+	return arn.Build("ram", b.region, b.accountID, "permission/"+name)
+}
+
+// invitationARN builds an ARN for a resource share invitation.
+func (b *InMemoryBackend) invitationARN(id string) string {
+	return arn.Build("ram", b.region, b.accountID, "resource-share-invitation/"+id)
+}
+
+// CreatePermission creates a new customer-managed RAM permission.
+func (b *InMemoryBackend) CreatePermission(
+	name, resourceType, policyTemplate string,
+	tags map[string]string,
+) (*Permission, error) {
+	b.mu.Lock("CreatePermission")
+	defer b.mu.Unlock()
+
+	permARN := b.permissionARN(name)
+
+	if p, ok := b.permissions[permARN]; ok && !p.Deleted {
+		return nil, fmt.Errorf("%w: permission %s already exists", ErrAlreadyExists, name)
+	}
+
+	now := time.Now()
+	version := int32(1)
+	pv := &PermissionVersion{
+		Version:         version,
+		PolicyTemplate:  policyTemplate,
+		CreationTime:    now,
+		LastUpdatedTime: now,
+	}
+	p := &Permission{
+		ARN:             permARN,
+		Name:            name,
+		ResourceType:    resourceType,
+		Tags:            mergeTags(nil, tags),
+		CreationTime:    now,
+		LastUpdatedTime: now,
+		DefaultVersion:  version,
+		LatestVersion:   version,
+		Versions:        map[int32]*PermissionVersion{version: pv},
+	}
+	b.permissions[permARN] = p
+
+	return clonePermission(p), nil
+}
+
+// CreatePermissionVersion creates a new version of an existing customer-managed RAM permission.
+func (b *InMemoryBackend) CreatePermissionVersion(permissionARN, policyTemplate string) (*Permission, error) {
+	b.mu.Lock("CreatePermissionVersion")
+	defer b.mu.Unlock()
+
+	p, ok := b.permissions[permissionARN]
+	if !ok || p.Deleted {
+		return nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	now := time.Now()
+	newVersion := p.LatestVersion + 1
+	p.Versions[newVersion] = &PermissionVersion{
+		Version:         newVersion,
+		PolicyTemplate:  policyTemplate,
+		CreationTime:    now,
+		LastUpdatedTime: now,
+	}
+	p.LatestVersion = newVersion
+	p.LastUpdatedTime = now
+
+	return clonePermission(p), nil
+}
+
+// DeletePermission soft-deletes a customer-managed RAM permission.
+func (b *InMemoryBackend) DeletePermission(permissionARN string) error {
+	b.mu.Lock("DeletePermission")
+	defer b.mu.Unlock()
+
+	p, ok := b.permissions[permissionARN]
+	if !ok || p.Deleted {
+		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	p.Deleted = true
+
+	return nil
+}
+
+// DeletePermissionVersion deletes a specific version of a customer-managed RAM permission.
+func (b *InMemoryBackend) DeletePermissionVersion(permissionARN string, permissionVersion int32) error {
+	b.mu.Lock("DeletePermissionVersion")
+	defer b.mu.Unlock()
+
+	p, ok := b.permissions[permissionARN]
+	if !ok || p.Deleted {
+		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	if _, exists := p.Versions[permissionVersion]; !exists {
+		return fmt.Errorf(
+			"%w: version %d of permission %s not found",
+			ErrPermissionVersionNotFound,
+			permissionVersion,
+			permissionARN,
+		)
+	}
+
+	if p.DefaultVersion == permissionVersion {
+		return fmt.Errorf("%w: cannot delete the default version of a permission", ErrPermissionVersionNotFound)
+	}
+
+	delete(p.Versions, permissionVersion)
+	p.LastUpdatedTime = time.Now()
+
+	return nil
+}
+
+// GetPermission returns the details of a RAM permission, optionally at a specific version.
+func (b *InMemoryBackend) GetPermission(
+	permissionARN string,
+	permissionVersion *int32,
+) (*Permission, *PermissionVersion, error) {
+	b.mu.RLock("GetPermission")
+	defer b.mu.RUnlock()
+
+	p, ok := b.permissions[permissionARN]
+	if !ok || p.Deleted {
+		return nil, nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	version := p.DefaultVersion
+	if permissionVersion != nil {
+		version = *permissionVersion
+	}
+
+	pv, exists := p.Versions[version]
+	if !exists {
+		return nil, nil, fmt.Errorf(
+			"%w: version %d of permission %s not found",
+			ErrPermissionVersionNotFound,
+			version,
+			permissionARN,
+		)
+	}
+
+	pvCopy := *pv
+
+	return clonePermission(p), &pvCopy, nil
+}
+
+// AssociateResourceSharePermission associates a managed permission with a resource share.
+func (b *InMemoryBackend) AssociateResourceSharePermission(
+	shareARN, permissionARN string,
+	replace bool,
+	permissionVersion *int32,
+) error {
+	b.mu.Lock("AssociateResourceSharePermission")
+	defer b.mu.Unlock()
+
+	rs, ok := b.resourceShares[shareARN]
+	if !ok || rs.Status == statusDeleted {
+		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
+	}
+
+	p, ok := b.permissions[permissionARN]
+	if !ok || p.Deleted {
+		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	version := p.DefaultVersion
+	if permissionVersion != nil {
+		version = *permissionVersion
+	}
+
+	if _, exists := p.Versions[version]; !exists {
+		return fmt.Errorf(
+			"%w: version %d of permission %s not found",
+			ErrPermissionVersionNotFound,
+			version,
+			permissionARN,
+		)
+	}
+
+	if b.sharePermissions[shareARN] == nil {
+		b.sharePermissions[shareARN] = make(map[string]int32)
+	}
+
+	if replace {
+		b.sharePermissions[shareARN] = map[string]int32{permissionARN: version}
+	} else {
+		b.sharePermissions[shareARN][permissionARN] = version
+	}
+
+	return nil
+}
+
+// DisassociateResourceSharePermission removes a managed permission from a resource share.
+func (b *InMemoryBackend) DisassociateResourceSharePermission(shareARN, permissionARN string) error {
+	b.mu.Lock("DisassociateResourceSharePermission")
+	defer b.mu.Unlock()
+
+	rs, ok := b.resourceShares[shareARN]
+	if !ok || rs.Status == statusDeleted {
+		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
+	}
+
+	perms := b.sharePermissions[shareARN]
+	if perms == nil {
+		return nil
+	}
+
+	delete(perms, permissionARN)
+
+	return nil
+}
+
+// AddInvitationInternal adds a pre-built invitation for testing or seeding.
+func (b *InMemoryBackend) AddInvitationInternal(inv *ResourceShareInvitation) {
+	b.mu.Lock("AddInvitationInternal")
+	defer b.mu.Unlock()
+
+	b.invitations[inv.InvitationARN] = inv
+}
+
+// AcceptResourceShareInvitation accepts a pending resource share invitation.
+func (b *InMemoryBackend) AcceptResourceShareInvitation(invitationARN string) (*ResourceShareInvitation, error) {
+	b.mu.Lock("AcceptResourceShareInvitation")
+	defer b.mu.Unlock()
+
+	inv, ok := b.invitations[invitationARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
+	}
+
+	if inv.Status == invitationStatusAccepted {
+		return nil, fmt.Errorf("%w: invitation %s already accepted", ErrInvitationAlreadyAccepted, invitationARN)
+	}
+
+	inv.Status = invitationStatusAccepted
+	inv.LastUpdatedTime = time.Now()
+
+	return cloneInvitation(inv), nil
+}
+
+// CreateInvitation creates a pending invitation for a resource share.
+// This is a helper for the mock that mirrors what AWS does when AssociateResourceShare is called with principals.
+func (b *InMemoryBackend) CreateInvitation(
+	shareARN, shareNm, senderAcctID, receiverAcctID string,
+) *ResourceShareInvitation {
+	b.mu.Lock("CreateInvitation")
+	defer b.mu.Unlock()
+
+	invID := uuid.NewString()
+	invARN := b.invitationARN(invID)
+	now := time.Now()
+
+	inv := &ResourceShareInvitation{
+		InvitationARN:     invARN,
+		ResourceShareARN:  shareARN,
+		ResourceShareName: shareNm,
+		SenderAccountID:   senderAcctID,
+		ReceiverAccountID: receiverAcctID,
+		Status:            invitationStatusPending,
+		CreationTime:      now,
+		LastUpdatedTime:   now,
+	}
+	b.invitations[invARN] = inv
+
+	return cloneInvitation(inv)
+}
+
+// GetResourceShareInvitations returns invitations filtered by ARN or resource share ARN.
+func (b *InMemoryBackend) GetResourceShareInvitations(
+	invitationARNs, shareARNs []string,
+) []*ResourceShareInvitation {
+	b.mu.RLock("GetResourceShareInvitations")
+	defer b.mu.RUnlock()
+
+	arnSet := make(map[string]struct{}, len(invitationARNs))
+
+	for _, a := range invitationARNs {
+		arnSet[a] = struct{}{}
+	}
+
+	shareSet := make(map[string]struct{}, len(shareARNs))
+
+	for _, s := range shareARNs {
+		shareSet[s] = struct{}{}
+	}
+
+	result := make([]*ResourceShareInvitation, 0)
+
+	for _, inv := range b.invitations {
+		if len(arnSet) > 0 {
+			if _, ok := arnSet[inv.InvitationARN]; !ok {
+				continue
+			}
+		}
+
+		if len(shareSet) > 0 {
+			if _, ok := shareSet[inv.ResourceShareARN]; !ok {
+				continue
+			}
+		}
+
+		result = append(result, cloneInvitation(inv))
+	}
+
+	return result
+}
+
+// GetResourcePolicies returns resource-based policy documents for shared resources.
+// In the mock, we return empty strings since we do not track actual resource policies.
+func (b *InMemoryBackend) GetResourcePolicies(resourceARNs []string) []string {
+	b.mu.RLock("GetResourcePolicies")
+	defer b.mu.RUnlock()
+
+	result := make([]string, 0, len(resourceARNs))
+
+	for range resourceARNs {
+		result = append(result, "{}")
+	}
+
+	return result
 }

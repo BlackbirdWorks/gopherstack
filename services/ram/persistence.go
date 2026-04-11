@@ -1,12 +1,18 @@
 package ram
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
-	ResourceShares map[string]*ResourceShare   `json:"resourceShares"`
-	AccountID      string                      `json:"accountID"`
-	Region         string                      `json:"region"`
-	Associations   []*ResourceShareAssociation `json:"associations"`
+	ResourceShares   map[string]*ResourceShare           `json:"resourceShares"`
+	Permissions      map[string]*Permission              `json:"permissions"`
+	SharePermissions map[string]map[string]int32         `json:"sharePermissions"`
+	Invitations      map[string]*ResourceShareInvitation `json:"invitations"`
+	AccountID        string                              `json:"accountID"`
+	Region           string                              `json:"region"`
+	Associations     []*ResourceShareAssociation         `json:"associations"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -15,14 +21,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		ResourceShares: b.resourceShares,
-		Associations:   b.associations,
-		AccountID:      b.accountID,
-		Region:         b.region,
+		ResourceShares:   b.resourceShares,
+		Associations:     b.associations,
+		Permissions:      b.permissions,
+		SharePermissions: b.sharePermissions,
+		Invitations:      b.invitations,
+		AccountID:        b.accountID,
+		Region:           b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("ram: failed to snapshot backend state", "error", err)
+
 		return nil
 	}
 
@@ -48,8 +59,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Associations = make([]*ResourceShareAssociation, 0)
 	}
 
+	if snap.Permissions == nil {
+		snap.Permissions = make(map[string]*Permission)
+	}
+
+	if snap.SharePermissions == nil {
+		snap.SharePermissions = make(map[string]map[string]int32)
+	}
+
+	if snap.Invitations == nil {
+		snap.Invitations = make(map[string]*ResourceShareInvitation)
+	}
+
 	b.resourceShares = snap.ResourceShares
 	b.associations = snap.Associations
+	b.permissions = snap.Permissions
+	b.sharePermissions = snap.SharePermissions
+	b.invitations = snap.Invitations
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
