@@ -70,7 +70,7 @@ func (h *DashboardHandler) ramIndex(c *echo.Context) error {
 		return nil
 	}
 
-	list := h.RAMOps.Backend.ListResourceShares("SELF")
+	list := h.RAMOps.Backend.ListResourceShares("SELF", "")
 	views := make([]ramShareView, 0, len(list))
 
 	for _, rs := range list {

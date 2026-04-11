@@ -946,9 +946,11 @@ func TestRAM_Backend_DeleteResourceShare_RemovesFromMemory(t *testing.T) {
 			_, err = b.GetResourceShare(rs.ARN)
 			require.Error(t, err)
 
-			// Associations for the deleted share should be gone.
+			// Associations for the deleted share should be DISASSOCIATED (AWS soft-deletes them).
 			assocs := b.GetResourceShareAssociations("", []string{rs.ARN})
-			assert.Empty(t, assocs, "associations for deleted share should be removed")
+			for _, a := range assocs {
+				assert.Equal(t, "DISASSOCIATED", a.Status, "associations for deleted share should be DISASSOCIATED")
+			}
 		})
 	}
 }
@@ -1029,7 +1031,7 @@ func TestRAM_Backend_Reset(t *testing.T) {
 
 			b.Reset()
 
-			shares := b.ListResourceShares("SELF")
+			shares := b.ListResourceShares("SELF", "")
 			assert.Len(t, shares, tt.wantAfterReset)
 		})
 	}
