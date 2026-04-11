@@ -1,6 +1,7 @@
 package organizations
 
 import (
+	"cmp"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -71,16 +72,42 @@ var (
 		"ConstraintViolationException: maximum policies per target exceeded",
 		awserr.ErrConflict,
 	)
+	// ErrHandshakeNotFound is returned when a handshake does not exist.
+	ErrHandshakeNotFound = awserr.New(
+		"HandshakeNotFoundException: handshake not found",
+		awserr.ErrNotFound,
+	)
+	// ErrHandshakeConstraintViolation is returned when a handshake state transition is invalid.
+	ErrHandshakeConstraintViolation = awserr.New(
+		"HandshakeConstraintViolationException: handshake is not in a valid state for this transition",
+		awserr.ErrConflict,
+	)
+	// ErrResourcePolicyNotFound is returned when no resource policy exists.
+	ErrResourcePolicyNotFound = awserr.New(
+		"ResourcePolicyNotFoundException: resource policy not found",
+		awserr.ErrNotFound,
+	)
+	// ErrEffectivePolicyNotFound is returned when no effective policy exists for a target.
+	ErrEffectivePolicyNotFound = awserr.New(
+		"EffectivePolicyNotFoundException: no effective policy of the given type",
+		awserr.ErrNotFound,
+	)
 )
 
 const (
-	accountStatusActive = "ACTIVE"
-	joinedMethodInvited = "INVITED"
-	joinedMethodCreated = "CREATED"
+	accountStatusActive    = "ACTIVE"
+	accountStatusSuspended = "SUSPENDED"
+	joinedMethodInvited    = "INVITED"
+	joinedMethodCreated    = "CREATED"
 
 	policyStatusEnabled = "ENABLED"
 
 	createAccountStateSucceeded = "SUCCEEDED"
+
+	handshakeStateOpen     = "OPEN"
+	handshakeStateCanceled = "CANCELED"
+	handshakeStateAccepted = "ACCEPTED"
+	handshakeStateDeclined = "DECLINED"
 
 	// managementAccountCounter is the starting account counter (management account = 1).
 	managementAccountCounter = 1
@@ -95,10 +122,28 @@ const (
 	ouRandomLen = 8
 	// policyIDLen is the number of random chars in a policy ID.
 	policyIDLen = 8
+	// handshakeIDLen is the number of random chars in a handshake ID.
+	handshakeIDLen = 8
+
+	// govCloudAccountIDOffset is added to the account counter to generate a GovCloud account ID.
+	govCloudAccountIDOffset = 1_000_000_000
 
 	// maxPoliciesPerTarget is the AWS limit for the number of policies of the same type attached to a target.
 	maxPoliciesPerTarget = 5
+
+	// handshakeExpirationDuration is the default lifetime of a handshake (AWS default: 15 days).
+	handshakeExpirationDuration = 15 * 24 * time.Hour
 )
+
+// validPolicyTypes returns the policy types supported by AWS Organizations.
+func validPolicyTypes() []string {
+	return []string{
+		"SERVICE_CONTROL_POLICY",
+		"TAG_POLICY",
+		"BACKUP_POLICY",
+		"AISERVICES_OPT_OUT_POLICY",
+	}
+}
 
 const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -151,7 +196,12 @@ func newOUID(rootID string) string {
 
 	return "ou-" + base + "-" + randomChars(ouRandomLen)
 }
-func newPolicyID() string { return "p-" + randomChars(policyIDLen) }
+
+func newPolicyID() string    { return "p-" + randomChars(policyIDLen) }
+func newHandshakeID() string { return "h-" + randomChars(handshakeIDLen) }
+func newGovCloudAccountID(counter int) string {
+	return fmt.Sprintf("%012d", counter+govCloudAccountIDOffset)
+}
 
 // newAccountID generates a 12-digit account ID from an integer counter.
 func newAccountID(counter int) string {
@@ -163,8 +213,10 @@ type InMemoryBackend struct {
 	serviceAccess   map[string]time.Time
 	targetPolicies  map[string][]string
 	delegatedAdmins map[string]map[string]*DelegatedAdmin
+	handshakes      map[string]*Handshake
 	org             *Organization
 	root            *Root
+	resourcePolicy  *ResourcePolicy
 	accounts        map[string]*Account
 	ous             map[string]*OrganizationalUnit
 	policies        map[string]*Policy
@@ -196,6 +248,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		createStatuses:  make(map[string]*CreateAccountStatus),
 		serviceAccess:   make(map[string]time.Time),
 		delegatedAdmins: make(map[string]map[string]*DelegatedAdmin),
+		handshakes:      make(map[string]*Handshake),
 		accountCounter:  managementAccountCounter,
 		mu:              lockmetrics.New("organizations"),
 	}
@@ -229,6 +282,32 @@ func (b *InMemoryBackend) ouARN(orgID, ouID string) string {
 // policyARN builds an ARN for a policy.
 func (b *InMemoryBackend) policyARN(orgID, policyType, policyID string) string {
 	return fmt.Sprintf("arn:aws:organizations::%s:policy/%s/%s/%s", b.accountID, orgID, policyType, policyID)
+}
+
+// resourcePolicyARN builds an ARN for the organization resource policy.
+func (b *InMemoryBackend) resourcePolicyARN(orgID string) string {
+	return fmt.Sprintf("arn:aws:organizations::%s:resourcepolicy/%s/p-rp-default", b.accountID, orgID)
+}
+
+// handshakeARN builds an ARN for a handshake.
+func (b *InMemoryBackend) handshakeARN(orgID, handshakeID string) string {
+	return fmt.Sprintf("arn:aws:organizations::%s:handshake/%s/invite/%s", b.accountID, orgID, handshakeID)
+}
+
+// AccountID returns the configured AWS account ID.
+func (b *InMemoryBackend) AccountID() string {
+	b.mu.RLock("AccountID")
+	defer b.mu.RUnlock()
+
+	return b.accountID
+}
+
+// Region returns the configured AWS region.
+func (b *InMemoryBackend) Region() string {
+	b.mu.RLock("Region")
+	defer b.mu.RUnlock()
+
+	return b.region
 }
 
 // -- Organization operations --
@@ -320,6 +399,8 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 	b.createStatuses = make(map[string]*CreateAccountStatus)
 	b.serviceAccess = make(map[string]time.Time)
 	b.delegatedAdmins = make(map[string]map[string]*DelegatedAdmin)
+	b.handshakes = make(map[string]*Handshake)
+	b.resourcePolicy = nil
 	b.accountCounter = managementAccountCounter
 
 	return nil
@@ -327,17 +408,16 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 
 // -- Account operations --
 
-// CreateAccount creates a new account and returns its status.
-func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*CreateAccountStatus, error) {
-	b.mu.Lock("CreateAccount")
-	defer b.mu.Unlock()
-
-	if b.org == nil {
-		return nil, ErrOrgNotFound
-	}
-
+// createAccountLocked creates an account and status record.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) createAccountLocked(
+	name, email string,
+	acctIDFn func(counter int) string,
+	govCloudID string,
+	tags []Tag,
+) *CreateAccountStatus {
 	b.accountCounter++
-	acctID := newAccountID(b.accountCounter)
+	acctID := acctIDFn(b.accountCounter)
 
 	now := time.Now()
 	acct := &Account{
@@ -360,6 +440,7 @@ func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*Create
 	status := &CreateAccountStatus{
 		ID:                 statusID,
 		AccountID:          acctID,
+		GovCloudAccountID:  govCloudID,
 		AccountName:        name,
 		State:              createAccountStateSucceeded,
 		RequestedTimestamp: epochSeconds(now),
@@ -368,7 +449,19 @@ func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*Create
 
 	b.createStatuses[statusID] = status
 
-	return status, nil
+	return status
+}
+
+// CreateAccount creates a new account and returns its status.
+func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*CreateAccountStatus, error) {
+	b.mu.Lock("CreateAccount")
+	defer b.mu.Unlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	return b.createAccountLocked(name, email, newAccountID, "", tags), nil
 }
 
 // DescribeCreateAccountStatus returns the status of a CreateAccount request.
@@ -412,6 +505,8 @@ func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 	for _, a := range b.accounts {
 		out = append(out, copyAccount(a))
 	}
+
+	slices.SortFunc(out, func(a, b *Account) int { return cmp.Compare(a.ID, b.ID) })
 
 	return out, nil
 }
@@ -475,6 +570,44 @@ func (b *InMemoryBackend) MoveAccount(accountID, sourceParentID, destParentID st
 	return nil
 }
 
+// CloseAccount marks an account as suspended.
+func (b *InMemoryBackend) CloseAccount(accountID string) error {
+	b.mu.Lock("CloseAccount")
+	defer b.mu.Unlock()
+
+	if b.org == nil {
+		return ErrOrgNotFound
+	}
+
+	acct, ok := b.accounts[accountID]
+	if !ok {
+		return ErrAccountNotFound
+	}
+
+	if accountID == b.org.MasterAccountID {
+		return ErrInvalidInput
+	}
+
+	acct.Status = accountStatusSuspended
+
+	return nil
+}
+
+// CreateGovCloudAccount creates a commercial account paired with a GovCloud account.
+func (b *InMemoryBackend) CreateGovCloudAccount(name, email string, tags []Tag) (*CreateAccountStatus, error) {
+	b.mu.Lock("CreateGovCloudAccount")
+	defer b.mu.Unlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	// Pre-calculate the GovCloud account ID using the next counter value.
+	govCloudID := newGovCloudAccountID(b.accountCounter + 1)
+
+	return b.createAccountLocked(name, email, newAccountID, govCloudID, tags), nil
+}
+
 // parentExists checks if a parentID refers to the root or an existing OU.
 func (b *InMemoryBackend) parentExists(parentID string) bool {
 	if b.root != nil && b.root.ID == parentID {
@@ -497,7 +630,7 @@ func (b *InMemoryBackend) ListRoots() ([]*Root, error) {
 		return nil, ErrOrgNotFound
 	}
 
-	return []*Root{b.root}, nil
+	return []*Root{copyRoot(b.root)}, nil
 }
 
 // -- OU operations --
@@ -552,6 +685,20 @@ func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
 		return ErrOUNotFound
 	}
 
+	// AWS rejects deletion of OUs that still contain accounts.
+	for _, parentID := range b.accountParent {
+		if parentID == ouID {
+			return ErrInvalidInput
+		}
+	}
+
+	// AWS rejects deletion of OUs that still contain child OUs.
+	for _, parentID := range b.ouParent {
+		if parentID == ouID {
+			return ErrInvalidInput
+		}
+	}
+
 	delete(b.ous, ouID)
 	delete(b.ouParent, ouID)
 	delete(b.tags, ouID)
@@ -596,6 +743,8 @@ func (b *InMemoryBackend) ListOrganizationalUnitsForParent(parentID string) ([]*
 		}
 	}
 
+	slices.SortFunc(out, func(a, b *OrganizationalUnit) int { return cmp.Compare(a.Name, b.Name) })
+
 	return out, nil
 }
 
@@ -621,6 +770,8 @@ func (b *InMemoryBackend) ListAccountsForParent(parentID string) ([]*Account, er
 			}
 		}
 	}
+
+	slices.SortFunc(out, func(a, b *Account) int { return cmp.Compare(a.ID, b.ID) })
 
 	return out, nil
 }
@@ -692,6 +843,8 @@ func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSumma
 		return nil, ErrInvalidInput
 	}
 
+	slices.SortFunc(out, func(a, b ChildSummary) int { return cmp.Compare(a.ID, b.ID) })
+
 	return out, nil
 }
 
@@ -704,6 +857,10 @@ func (b *InMemoryBackend) CreatePolicy(name, description, content, policyType st
 
 	if b.org == nil {
 		return nil, ErrOrgNotFound
+	}
+
+	if !slices.Contains(validPolicyTypes(), policyType) {
+		return nil, ErrInvalidInput
 	}
 
 	policyID := newPolicyID()
@@ -801,6 +958,8 @@ func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
 			out = append(out, copyPolicy(p))
 		}
 	}
+
+	slices.SortFunc(out, func(a, b *Policy) int { return cmp.Compare(a.PolicySummary.Name, b.PolicySummary.Name) })
 
 	return out, nil
 }
@@ -901,6 +1060,8 @@ func (b *InMemoryBackend) ListTargetsForPolicy(policyID string) ([]PolicyTargetS
 		summary := b.resolveTargetSummary(tid)
 		out = append(out, summary)
 	}
+
+	slices.SortFunc(out, func(a, b PolicyTargetSummary) int { return cmp.Compare(a.TargetID, b.TargetID) })
 
 	return out, nil
 }
@@ -1041,6 +1202,8 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) 
 		out = append(out, Tag{Key: k, Value: v})
 	}
 
+	slices.SortFunc(out, func(a, b Tag) int { return cmp.Compare(a.Key, b.Key) })
+
 	return out, nil
 }
 
@@ -1106,6 +1269,10 @@ func (b *InMemoryBackend) ListAWSServiceAccessForOrganization() ([]EnabledServic
 			DateEnabled:      t,
 		})
 	}
+
+	slices.SortFunc(out, func(a, b EnabledServicePrincipal) int {
+		return cmp.Compare(a.ServicePrincipal, b.ServicePrincipal)
+	})
 
 	return out, nil
 }
@@ -1187,17 +1354,249 @@ func (b *InMemoryBackend) ListDelegatedAdministrators(servicePrincipal string) (
 		for _, da := range b.delegatedAdmins[servicePrincipal] {
 			out = append(out, da)
 		}
-
-		return out, nil
-	}
-
-	for _, admins := range b.delegatedAdmins {
-		for _, da := range admins {
-			out = append(out, da)
+	} else {
+		for _, admins := range b.delegatedAdmins {
+			for _, da := range admins {
+				out = append(out, da)
+			}
 		}
 	}
 
+	slices.SortFunc(out, func(a, b *DelegatedAdmin) int { return cmp.Compare(a.AccountID, b.AccountID) })
+
 	return out, nil
+}
+
+// -- Handshake operations --
+
+// AcceptHandshake accepts an OPEN handshake.
+func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error) {
+	b.mu.Lock("AcceptHandshake")
+	defer b.mu.Unlock()
+
+	h, ok := b.handshakes[handshakeID]
+	if !ok {
+		return nil, ErrHandshakeNotFound
+	}
+
+	if h.State != handshakeStateOpen {
+		return nil, ErrHandshakeConstraintViolation
+	}
+
+	h.State = handshakeStateAccepted
+
+	return copyHandshake(h), nil
+}
+
+// CancelHandshake cancels an OPEN handshake.
+func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error) {
+	b.mu.Lock("CancelHandshake")
+	defer b.mu.Unlock()
+
+	h, ok := b.handshakes[handshakeID]
+	if !ok {
+		return nil, ErrHandshakeNotFound
+	}
+
+	if h.State != handshakeStateOpen {
+		return nil, ErrHandshakeConstraintViolation
+	}
+
+	h.State = handshakeStateCanceled
+
+	return copyHandshake(h), nil
+}
+
+// DeclineHandshake declines an OPEN handshake.
+func (b *InMemoryBackend) DeclineHandshake(handshakeID string) (*Handshake, error) {
+	b.mu.Lock("DeclineHandshake")
+	defer b.mu.Unlock()
+
+	h, ok := b.handshakes[handshakeID]
+	if !ok {
+		return nil, ErrHandshakeNotFound
+	}
+
+	if h.State != handshakeStateOpen {
+		return nil, ErrHandshakeConstraintViolation
+	}
+
+	h.State = handshakeStateDeclined
+
+	return copyHandshake(h), nil
+}
+
+// DescribeHandshake returns a handshake by ID.
+func (b *InMemoryBackend) DescribeHandshake(handshakeID string) (*Handshake, error) {
+	b.mu.RLock("DescribeHandshake")
+	defer b.mu.RUnlock()
+
+	h, ok := b.handshakes[handshakeID]
+	if !ok {
+		return nil, ErrHandshakeNotFound
+	}
+
+	return copyHandshake(h), nil
+}
+
+// DescribeResponsibilityTransfer returns a responsibility-transfer handshake by ID.
+func (b *InMemoryBackend) DescribeResponsibilityTransfer(handshakeID string) (*Handshake, error) {
+	b.mu.RLock("DescribeResponsibilityTransfer")
+	defer b.mu.RUnlock()
+
+	h, ok := b.handshakes[handshakeID]
+	if !ok {
+		return nil, ErrHandshakeNotFound
+	}
+
+	return copyHandshake(h), nil
+}
+
+// AddHandshakeInternal seeds a handshake directly for testing.
+// If h.ID is empty, a new ID is generated. If h.ExpirationTimestamp is zero,
+// it is set to now + handshakeExpirationDuration.
+func (b *InMemoryBackend) AddHandshakeInternal(h *Handshake) {
+	b.mu.Lock("AddHandshakeInternal")
+	defer b.mu.Unlock()
+
+	if h.ID == "" {
+		h.ID = newHandshakeID()
+	}
+
+	if h.ExpirationTimestamp.IsZero() {
+		h.ExpirationTimestamp = time.Now().Add(handshakeExpirationDuration)
+	}
+
+	if h.ARN == "" && b.org != nil {
+		h.ARN = b.handshakeARN(b.org.ID, h.ID)
+	}
+
+	b.handshakes[h.ID] = h
+}
+
+// -- ResourcePolicy operations --
+
+// DeleteResourcePolicy removes the organization resource policy.
+func (b *InMemoryBackend) DeleteResourcePolicy() error {
+	b.mu.Lock("DeleteResourcePolicy")
+	defer b.mu.Unlock()
+
+	if b.org == nil {
+		return ErrOrgNotFound
+	}
+
+	if b.resourcePolicy == nil {
+		return ErrResourcePolicyNotFound
+	}
+
+	b.resourcePolicy = nil
+
+	return nil
+}
+
+// DescribeResourcePolicy returns the organization resource policy.
+func (b *InMemoryBackend) DescribeResourcePolicy() (*ResourcePolicy, error) {
+	b.mu.RLock("DescribeResourcePolicy")
+	defer b.mu.RUnlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	if b.resourcePolicy == nil {
+		return nil, ErrResourcePolicyNotFound
+	}
+
+	cp := *b.resourcePolicy
+
+	return &cp, nil
+}
+
+// PutResourcePolicy creates or replaces the organization resource policy.
+func (b *InMemoryBackend) PutResourcePolicy(content string) (*ResourcePolicy, error) {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	rpID := "p-rp-default"
+
+	rp := &ResourcePolicy{
+		ID:      rpID,
+		ARN:     b.resourcePolicyARN(b.org.ID),
+		Content: content,
+	}
+
+	b.resourcePolicy = rp
+
+	cp := *rp
+
+	return &cp, nil
+}
+
+// -- EffectivePolicy operations --
+
+// DescribeEffectivePolicy returns the effective policy of a given type for a target.
+func (b *InMemoryBackend) DescribeEffectivePolicy(policyType, targetID string) (*EffectivePolicy, error) {
+	b.mu.RLock("DescribeEffectivePolicy")
+	defer b.mu.RUnlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	if targetID == "" {
+		targetID = b.org.MasterAccountID
+	}
+
+	content, policyID := b.findEffectivePolicyLocked(policyType, targetID)
+	if content == "" {
+		return nil, ErrEffectivePolicyNotFound
+	}
+
+	return &EffectivePolicy{
+		PolicyContent:        content,
+		PolicyID:             policyID,
+		PolicyType:           policyType,
+		TargetID:             targetID,
+		LastUpdatedTimestamp: time.Now(),
+	}, nil
+}
+
+// findEffectivePolicyLocked walks the hierarchy upward looking for an attached policy of the given type.
+// Must be called with a read lock held.
+func (b *InMemoryBackend) findEffectivePolicyLocked(policyType, targetID string) (string, string) {
+	current := targetID
+
+	for current != "" {
+		for _, pid := range b.targetPolicies[current] {
+			if p, ok := b.policies[pid]; ok && p.PolicySummary.Type == policyType {
+				return p.Content, p.PolicySummary.ID
+			}
+		}
+
+		if b.root != nil && current == b.root.ID {
+			break
+		}
+
+		if parentID, ok := b.accountParent[current]; ok {
+			current = parentID
+
+			continue
+		}
+
+		if parentID, ok := b.ouParent[current]; ok {
+			current = parentID
+
+			continue
+		}
+
+		break
+	}
+
+	return "", ""
 }
 
 // -- Helpers --
@@ -1247,6 +1646,39 @@ func copyRoot(r *Root) *Root {
 	return &cp
 }
 
+// copyHandshake returns a deep copy of a Handshake.
+func copyHandshake(h *Handshake) *Handshake {
+	cp := *h
+
+	if h.Parties != nil {
+		cp.Parties = make([]HandshakeParty, len(h.Parties))
+		copy(cp.Parties, h.Parties)
+	}
+
+	cp.Resources = copyHandshakeResources(h.Resources)
+
+	return &cp
+}
+
+// copyHandshakeResources returns a deep copy of a HandshakeResource slice.
+func copyHandshakeResources(rs []HandshakeResource) []HandshakeResource {
+	if rs == nil {
+		return nil
+	}
+
+	out := make([]HandshakeResource, len(rs))
+
+	for i, r := range rs {
+		out[i] = HandshakeResource{
+			Type:      r.Type,
+			Value:     r.Value,
+			Resources: copyHandshakeResources(r.Resources),
+		}
+	}
+
+	return out
+}
+
 // EnsureOrgExists returns ErrOrgNotFound if no org exists (for operations that require it).
 func (b *InMemoryBackend) EnsureOrgExists() error {
 	b.mu.RLock("EnsureOrgExists")
@@ -1280,6 +1712,49 @@ func (b *InMemoryBackend) Reset() {
 	b.createStatuses = make(map[string]*CreateAccountStatus)
 	b.serviceAccess = make(map[string]time.Time)
 	b.delegatedAdmins = make(map[string]map[string]*DelegatedAdmin)
+	b.handshakes = make(map[string]*Handshake)
+	b.resourcePolicy = nil
 	b.accountCounter = managementAccountCounter
 	b.statusCounter = 0
+}
+
+// AddAccountInternal seeds an account directly under the root for testing.
+// Requires an organization to have been created first.
+func (b *InMemoryBackend) AddAccountInternal(a *Account) {
+	b.mu.Lock("AddAccountInternal")
+	defer b.mu.Unlock()
+
+	b.accounts[a.ID] = a
+
+	if b.root != nil {
+		b.accountParent[a.ID] = b.root.ID
+	}
+}
+
+// AddOUInternal seeds an OU directly for testing.
+// Requires an organization to have been created first.
+func (b *InMemoryBackend) AddOUInternal(ou *OrganizationalUnit) {
+	b.mu.Lock("AddOUInternal")
+	defer b.mu.Unlock()
+
+	b.ous[ou.ID] = ou
+
+	if ou.ParentID != "" {
+		b.ouParent[ou.ID] = ou.ParentID
+	} else if b.root != nil {
+		b.ouParent[ou.ID] = b.root.ID
+		ou.ParentID = b.root.ID
+	}
+}
+
+// AddPolicyInternal seeds a policy directly for testing.
+func (b *InMemoryBackend) AddPolicyInternal(p *Policy) {
+	b.mu.Lock("AddPolicyInternal")
+	defer b.mu.Unlock()
+
+	b.policies[p.PolicySummary.ID] = p
+
+	if b.policyTargets[p.PolicySummary.ID] == nil {
+		b.policyTargets[p.PolicySummary.ID] = []string{}
+	}
 }

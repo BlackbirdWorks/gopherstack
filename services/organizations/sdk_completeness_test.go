@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := organizations.NewInMemoryBackend("000000000000", "us-east-1")
 	h := organizations.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &organizationssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AcceptHandshake",
-		"CancelHandshake",
-		"CloseAccount",
-		"CreateGovCloudAccount",
-		"DeclineHandshake",
-		"DeleteResourcePolicy",
-		"DescribeEffectivePolicy",
-		"DescribeHandshake",
-		"DescribeResourcePolicy",
-		"DescribeResponsibilityTransfer",
 		"InviteAccountToOrganization",
 		"InviteOrganizationToTransferResponsibility",
 		"LeaveOrganization",
@@ -39,7 +29,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListHandshakesForOrganization",
 		"ListInboundResponsibilityTransfers",
 		"ListOutboundResponsibilityTransfers",
-		"PutResourcePolicy",
 		"TerminateResponsibilityTransfer",
 		"UpdateResponsibilityTransfer",
 	})

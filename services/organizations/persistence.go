@@ -2,13 +2,16 @@ package organizations
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 )
 
 type backendSnapshot struct {
 	DelegatedAdmins map[string]map[string]*DelegatedAdmin `json:"delegatedAdmins"`
+	Handshakes      map[string]*Handshake                 `json:"handshakes"`
 	Org             *Organization                         `json:"org"`
 	Root            *Root                                 `json:"root"`
+	ResourcePolicy  *ResourcePolicy                       `json:"resourcePolicy,omitempty"`
 	Accounts        map[string]*Account                   `json:"accounts"`
 	OUs             map[string]*OrganizationalUnit        `json:"ous"`
 	Policies        map[string]*Policy                    `json:"policies"`
@@ -25,47 +28,8 @@ type backendSnapshot struct {
 	StatusCounter   int                                   `json:"statusCounter"`
 }
 
-// Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	snap := backendSnapshot{
-		Org:             b.org,
-		Root:            b.root,
-		Accounts:        b.accounts,
-		OUs:             b.ous,
-		Policies:        b.policies,
-		PolicyTargets:   b.policyTargets,
-		TargetPolicies:  b.targetPolicies,
-		AccountParent:   b.accountParent,
-		OUParent:        b.ouParent,
-		Tags:            b.tags,
-		CreateStatuses:  b.createStatuses,
-		ServiceAccess:   b.serviceAccess,
-		DelegatedAdmins: b.delegatedAdmins,
-		AccountID:       b.accountID,
-		Region:          b.region,
-		AccountCounter:  b.accountCounter,
-		StatusCounter:   b.statusCounter,
-	}
-
-	data, _ := json.Marshal(snap)
-
-	return data
-}
-
-// Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
-	var snap backendSnapshot
-
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
+// ensureNonNilMaps replaces nil maps in snap with empty allocations.
+func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Accounts == nil {
 		snap.Accounts = make(map[string]*Account)
 	}
@@ -110,6 +74,61 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.DelegatedAdmins = make(map[string]map[string]*DelegatedAdmin)
 	}
 
+	if snap.Handshakes == nil {
+		snap.Handshakes = make(map[string]*Handshake)
+	}
+}
+
+// Snapshot serialises the backend state to JSON.
+func (b *InMemoryBackend) Snapshot() []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	snap := backendSnapshot{
+		Org:             b.org,
+		Root:            b.root,
+		Accounts:        b.accounts,
+		OUs:             b.ous,
+		Policies:        b.policies,
+		PolicyTargets:   b.policyTargets,
+		TargetPolicies:  b.targetPolicies,
+		AccountParent:   b.accountParent,
+		OUParent:        b.ouParent,
+		Tags:            b.tags,
+		CreateStatuses:  b.createStatuses,
+		ServiceAccess:   b.serviceAccess,
+		DelegatedAdmins: b.delegatedAdmins,
+		Handshakes:      b.handshakes,
+		ResourcePolicy:  b.resourcePolicy,
+		AccountID:       b.accountID,
+		Region:          b.region,
+		AccountCounter:  b.accountCounter,
+		StatusCounter:   b.statusCounter,
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("organizations: failed to marshal snapshot", "error", err)
+
+		return nil
+	}
+
+	return data
+}
+
+// Restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	ensureNonNilMaps(&snap)
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
 	b.org = snap.Org
 	b.root = snap.Root
 	b.accounts = snap.Accounts
@@ -123,6 +142,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.createStatuses = snap.CreateStatuses
 	b.serviceAccess = snap.ServiceAccess
 	b.delegatedAdmins = snap.DelegatedAdmins
+	b.handshakes = snap.Handshakes
+	b.resourcePolicy = snap.ResourcePolicy
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.accountCounter = snap.AccountCounter
