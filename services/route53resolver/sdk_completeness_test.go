@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
 	h := route53resolver.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &route53resolversdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateFirewallRuleGroup",
-		"AssociateResolverEndpointIpAddress",
-		"AssociateResolverQueryLogConfig",
-		"AssociateResolverRule",
-		"CreateFirewallDomainList",
-		"CreateFirewallRule",
-		"CreateFirewallRuleGroup",
-		"CreateOutpostResolver",
-		"CreateResolverQueryLogConfig",
-		"DeleteFirewallDomainList",
 		"DeleteFirewallRule",
 		"DeleteFirewallRuleGroup",
 		"DeleteOutpostResolver",

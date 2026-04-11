@@ -32,25 +32,71 @@ type resolverRuleIDInput struct {
 }
 
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"AssociateFirewallRuleGroup":         service.WrapOp(h.handleAssociateFirewallRuleGroup),
+		"AssociateResolverEndpointIpAddress": service.WrapOp(h.handleAssociateResolverEndpointIPAddress),
+		"AssociateResolverQueryLogConfig":    service.WrapOp(h.handleAssociateResolverQueryLogConfig),
+		"AssociateResolverRule":              service.WrapOp(h.handleAssociateResolverRule),
+		"CreateFirewallDomainList":           service.WrapOp(h.handleCreateFirewallDomainList),
+		"CreateFirewallRule":                 service.WrapOp(h.handleCreateFirewallRule),
+		"CreateFirewallRuleGroup":            service.WrapOp(h.handleCreateFirewallRuleGroup),
+		"CreateOutpostResolver":              service.WrapOp(h.handleCreateOutpostResolver),
+		"CreateResolverEndpoint":             service.WrapOp(h.handleCreateResolverEndpoint),
+		"CreateResolverQueryLogConfig":       service.WrapOp(h.handleCreateResolverQueryLogConfig),
+		"DeleteFirewallDomainList":           service.WrapOp(h.handleDeleteFirewallDomainList),
+		"DeleteResolverEndpoint":             service.WrapOp(h.handleDeleteResolverEndpoint),
+		"GetResolverEndpoint":                service.WrapOp(h.handleGetResolverEndpoint),
+		"ListResolverEndpoints":              service.WrapOp(h.handleListResolverEndpoints),
+		"ListResolverEndpointIpAddresses":    service.WrapOp(h.handleListResolverEndpointIPAddresses),
+		"CreateResolverRule":                 service.WrapOp(h.handleCreateResolverRule),
+		"GetResolverRule":                    service.WrapOp(h.handleGetResolverRule),
+		"DeleteResolverRule":                 service.WrapOp(h.handleDeleteResolverRule),
+		"ListResolverRules":                  service.WrapOp(h.handleListResolverRules),
+		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                        service.WrapOp(h.handleTagResource),
+		"UntagResource":                      service.WrapOp(h.handleUntagResource),
+	}
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 func (h *Handler) Name() string { return "Route53Resolver" }
 
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AssociateFirewallRuleGroup",
+		"AssociateResolverEndpointIpAddress",
+		"AssociateResolverQueryLogConfig",
+		"AssociateResolverRule",
+		"CreateFirewallDomainList",
+		"CreateFirewallRule",
+		"CreateFirewallRuleGroup",
+		"CreateOutpostResolver",
 		"CreateResolverEndpoint",
-		"DeleteResolverEndpoint",
-		"ListResolverEndpoints",
-		"GetResolverEndpoint",
-		"ListResolverEndpointIpAddresses",
+		"CreateResolverQueryLogConfig",
 		"CreateResolverRule",
-		"GetResolverRule",
+		"DeleteFirewallDomainList",
+		"DeleteResolverEndpoint",
 		"DeleteResolverRule",
+		"GetResolverEndpoint",
+		"GetResolverRule",
+		"ListResolverEndpointIpAddresses",
+		"ListResolverEndpoints",
 		"ListResolverRules",
 		"ListTagsForResource",
 		"TagResource",
@@ -112,25 +158,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateResolverEndpoint":          service.WrapOp(h.handleCreateResolverEndpoint),
-		"DeleteResolverEndpoint":          service.WrapOp(h.handleDeleteResolverEndpoint),
-		"ListResolverEndpoints":           service.WrapOp(h.handleListResolverEndpoints),
-		"GetResolverEndpoint":             service.WrapOp(h.handleGetResolverEndpoint),
-		"ListResolverEndpointIpAddresses": service.WrapOp(h.handleListResolverEndpointIPAddresses),
-		"CreateResolverRule":              service.WrapOp(h.handleCreateResolverRule),
-		"GetResolverRule":                 service.WrapOp(h.handleGetResolverRule),
-		"DeleteResolverRule":              service.WrapOp(h.handleDeleteResolverRule),
-		"ListResolverRules":               service.WrapOp(h.handleListResolverRules),
-		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                     service.WrapOp(h.handleTagResource),
-		"UntagResource":                   service.WrapOp(h.handleUntagResource),
-	}
-}
-
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -155,6 +184,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
+	case errors.Is(err, ErrValidation):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
@@ -187,7 +218,9 @@ type listResolverEndpointIPAddressesOutput struct {
 type handleCreateResolverEndpointInput struct {
 	Name             string                      `json:"Name"`
 	Direction        string                      `json:"Direction"`
+	VpcID            string                      `json:"VpcId"`
 	SecurityGroupIDs []string                    `json:"SecurityGroupIds"`
+	Tags             []svcTags.KV                `json:"Tags"`
 	IPAddresses      []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
@@ -204,12 +237,14 @@ type resolverEndpointIPOutput struct {
 }
 
 type resolverEndpointOutput struct {
-	ID          string                     `json:"Id"`
-	Arn         string                     `json:"Arn"`
-	Name        string                     `json:"Name"`
-	Direction   string                     `json:"Direction"`
-	Status      string                     `json:"Status"`
-	IPAddresses []resolverEndpointIPOutput `json:"IpAddresses"`
+	ID               string                     `json:"Id"`
+	Arn              string                     `json:"Arn"`
+	Name             string                     `json:"Name"`
+	Direction        string                     `json:"Direction"`
+	Status           string                     `json:"Status"`
+	VpcID            string                     `json:"VpcId"`
+	SecurityGroupIDs []string                   `json:"SecurityGroupIds"`
+	IPAddresses      []resolverEndpointIPOutput `json:"IpAddresses"`
 }
 
 type resolverRuleOutput struct {
@@ -260,9 +295,20 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
+	sgIDs := ep.SecurityGroupIDs
+	if sgIDs == nil {
+		sgIDs = []string{}
+	}
+
 	return resolverEndpointOutput{
-		ID: ep.ID, Arn: ep.ARN, Name: ep.Name,
-		Direction: ep.Direction, Status: ep.Status, IPAddresses: ips,
+		ID:               ep.ID,
+		Arn:              ep.ARN,
+		Name:             ep.Name,
+		Direction:        ep.Direction,
+		Status:           ep.Status,
+		VpcID:            ep.VpcID,
+		SecurityGroupIDs: sgIDs,
+		IPAddresses:      ips,
 	}
 }
 
@@ -287,9 +333,23 @@ func (h *Handler) handleCreateResolverEndpoint(
 		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
-	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, "", ips)
+	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, in.VpcID, ips)
 	if err != nil {
 		return nil, err
+	}
+
+	// Store the security group IDs on the endpoint struct.
+	if len(in.SecurityGroupIDs) > 0 {
+		ep.SecurityGroupIDs = make([]string, len(in.SecurityGroupIDs))
+		copy(ep.SecurityGroupIDs, in.SecurityGroupIDs)
+	}
+
+	// Store tags if provided.
+	if len(in.Tags) > 0 {
+		tagErr := h.Backend.TagResource(ep.ARN, in.Tags)
+		if tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
@@ -449,4 +509,523 @@ func (h *Handler) handleUntagResource(
 	}
 
 	return &untagResourceOutput{}, nil
+}
+
+// --- New operations ---
+
+// firewallRuleGroupOutput is the JSON representation of a FirewallRuleGroup.
+type firewallRuleGroupOutput struct {
+	ID               string `json:"Id"`
+	Arn              string `json:"Arn"`
+	Name             string `json:"Name"`
+	CreatorRequestID string `json:"CreatorRequestId"`
+	Status           string `json:"Status"`
+	OwnerID          string `json:"OwnerId"`
+	RuleCount        int32  `json:"RuleCount"`
+}
+
+// firewallRuleGroupAssociationOutput is the JSON representation of a FirewallRuleGroupAssociation.
+type firewallRuleGroupAssociationOutput struct {
+	ID                  string `json:"Id"`
+	Arn                 string `json:"Arn"`
+	Name                string `json:"Name"`
+	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+	VpcID               string `json:"VpcId"`
+	Status              string `json:"Status"`
+	Priority            int32  `json:"Priority"`
+}
+
+// firewallDomainListOutput is the JSON representation of a FirewallDomainList.
+type firewallDomainListOutput struct {
+	ID               string `json:"Id"`
+	Arn              string `json:"Arn"`
+	Name             string `json:"Name"`
+	CreatorRequestID string `json:"CreatorRequestId"`
+	Status           string `json:"Status"`
+	DomainCount      int32  `json:"DomainCount"`
+}
+
+// firewallRuleOutput is the JSON representation of a FirewallRule.
+type firewallRuleOutput struct {
+	ID                   string `json:"Id"`
+	Arn                  string `json:"Arn"`
+	Name                 string `json:"Name"`
+	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+	Action               string `json:"Action"`
+	BlockResponse        string `json:"BlockResponse,omitempty"`
+	Priority             int32  `json:"Priority"`
+}
+
+// outpostResolverOutput is the JSON representation of an OutpostResolver.
+type outpostResolverOutput struct {
+	ID                    string `json:"Id"`
+	Arn                   string `json:"Arn"`
+	Name                  string `json:"Name"`
+	CreatorRequestID      string `json:"CreatorRequestId"`
+	OutpostArn            string `json:"OutpostArn"`
+	PreferredInstanceType string `json:"PreferredInstanceType"`
+	Status                string `json:"Status"`
+	InstanceCount         int32  `json:"InstanceCount"`
+}
+
+// resolverQueryLogConfigOutput is the JSON representation of a ResolverQueryLogConfig.
+type resolverQueryLogConfigOutput struct {
+	ID               string `json:"Id"`
+	Arn              string `json:"Arn"`
+	Name             string `json:"Name"`
+	CreatorRequestID string `json:"CreatorRequestId"`
+	DestinationArn   string `json:"DestinationArn"`
+	Status           string `json:"Status"`
+	OwnerID          string `json:"OwnerId"`
+}
+
+// resolverQueryLogConfigAssociationOutput is the JSON representation of a ResolverQueryLogConfigAssociation.
+type resolverQueryLogConfigAssociationOutput struct {
+	ID                       string `json:"Id"`
+	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
+	ResourceID               string `json:"ResourceId"`
+	Status                   string `json:"Status"`
+}
+
+// resolverRuleAssociationOutput is the JSON representation of a ResolverRuleAssociation.
+type resolverRuleAssociationOutput struct {
+	ID             string `json:"Id"`
+	Name           string `json:"Name"`
+	ResolverRuleID string `json:"ResolverRuleId"`
+	VPCId          string `json:"VPCId"`
+	Status         string `json:"Status"`
+}
+
+// --- CreateFirewallRuleGroup ---
+
+type createFirewallRuleGroupInput struct {
+	CreatorRequestID string `json:"CreatorRequestId"`
+	Name             string `json:"Name"`
+}
+
+type createFirewallRuleGroupOutput struct {
+	FirewallRuleGroup firewallRuleGroupOutput `json:"FirewallRuleGroup"`
+}
+
+func firewallRuleGroupToOutput(g *FirewallRuleGroup) firewallRuleGroupOutput {
+	return firewallRuleGroupOutput{
+		ID:               g.ID,
+		Arn:              g.ARN,
+		Name:             g.Name,
+		CreatorRequestID: g.CreatorRequestID,
+		Status:           g.Status,
+		OwnerID:          g.OwnerID,
+		RuleCount:        g.RuleCount,
+	}
+}
+
+func (h *Handler) handleCreateFirewallRuleGroup(
+	_ context.Context,
+	in *createFirewallRuleGroupInput,
+) (*createFirewallRuleGroupOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	g, err := h.Backend.CreateFirewallRuleGroup(in.Name, in.CreatorRequestID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createFirewallRuleGroupOutput{FirewallRuleGroup: firewallRuleGroupToOutput(g)}, nil
+}
+
+// --- AssociateFirewallRuleGroup ---
+
+type associateFirewallRuleGroupInput struct {
+	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+	Name                string `json:"Name"`
+	VpcID               string `json:"VpcId"`
+	CreatorRequestID    string `json:"CreatorRequestId"`
+	Priority            int32  `json:"Priority"`
+}
+
+type associateFirewallRuleGroupOutput struct {
+	FirewallRuleGroupAssociation firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociation"`
+}
+
+func firewallRuleGroupAssociationToOutput(a *FirewallRuleGroupAssociation) firewallRuleGroupAssociationOutput {
+	return firewallRuleGroupAssociationOutput{
+		ID:                  a.ID,
+		Arn:                 a.ARN,
+		Name:                a.Name,
+		FirewallRuleGroupID: a.FirewallRuleGroupID,
+		VpcID:               a.VpcID,
+		Priority:            a.Priority,
+		Status:              a.Status,
+	}
+}
+
+func (h *Handler) handleAssociateFirewallRuleGroup(
+	_ context.Context,
+	in *associateFirewallRuleGroupInput,
+) (*associateFirewallRuleGroupOutput, error) {
+	if in.FirewallRuleGroupID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+	}
+
+	if in.VpcID == "" {
+		return nil, fmt.Errorf("%w: VpcId is required", ErrValidation)
+	}
+
+	assoc, err := h.Backend.AssociateFirewallRuleGroup(
+		in.FirewallRuleGroupID, in.VpcID, in.Name, in.CreatorRequestID, in.Priority,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateFirewallRuleGroupOutput{
+		FirewallRuleGroupAssociation: firewallRuleGroupAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- AssociateResolverEndpointIpAddress ---
+
+type ipAddressUpdateInput struct {
+	SubnetID string `json:"SubnetId"`
+	IP       string `json:"Ip"`
+}
+
+type associateResolverEndpointIPAddressInput struct {
+	ResolverEndpointID string               `json:"ResolverEndpointId"`
+	IPAddress          ipAddressUpdateInput `json:"IpAddress"`
+}
+
+type associateResolverEndpointIPAddressOutput struct {
+	ResolverEndpoint resolverEndpointOutput `json:"ResolverEndpoint"`
+}
+
+func (h *Handler) handleAssociateResolverEndpointIPAddress(
+	_ context.Context,
+	in *associateResolverEndpointIPAddressInput,
+) (*associateResolverEndpointIPAddressOutput, error) {
+	if in.ResolverEndpointID == "" {
+		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
+	}
+
+	ep, err := h.Backend.AssociateResolverEndpointIPAddress(
+		in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateResolverEndpointIPAddressOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
+}
+
+// --- CreateResolverQueryLogConfig ---
+
+type createResolverQueryLogConfigInput struct {
+	CreatorRequestID string `json:"CreatorRequestId"`
+	DestinationArn   string `json:"DestinationArn"`
+	Name             string `json:"Name"`
+}
+
+type createResolverQueryLogConfigOutput struct {
+	ResolverQueryLogConfig resolverQueryLogConfigOutput `json:"ResolverQueryLogConfig"`
+}
+
+func queryLogConfigToOutput(c *ResolverQueryLogConfig) resolverQueryLogConfigOutput {
+	return resolverQueryLogConfigOutput{
+		ID:               c.ID,
+		Arn:              c.ARN,
+		Name:             c.Name,
+		CreatorRequestID: c.CreatorRequestID,
+		DestinationArn:   c.DestinationARN,
+		Status:           c.Status,
+		OwnerID:          c.OwnerID,
+	}
+}
+
+func (h *Handler) handleCreateResolverQueryLogConfig(
+	_ context.Context,
+	in *createResolverQueryLogConfigInput,
+) (*createResolverQueryLogConfigOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if in.DestinationArn == "" {
+		return nil, fmt.Errorf("%w: DestinationArn is required", ErrValidation)
+	}
+
+	cfg, err := h.Backend.CreateResolverQueryLogConfig(in.Name, in.CreatorRequestID, in.DestinationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
+}
+
+// --- AssociateResolverQueryLogConfig ---
+
+type associateResolverQueryLogConfigInput struct {
+	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
+	ResourceID               string `json:"ResourceId"`
+}
+
+type associateResolverQueryLogConfigOutput struct {
+	ResolverQueryLogConfigAssociation resolverQueryLogConfigAssociationOutput `json:"ResolverQueryLogConfigAssociation"`
+}
+
+func queryLogConfigAssociationToOutput(a *ResolverQueryLogConfigAssociation) resolverQueryLogConfigAssociationOutput {
+	return resolverQueryLogConfigAssociationOutput{
+		ID:                       a.ID,
+		ResolverQueryLogConfigID: a.ResolverQueryLogConfigID,
+		ResourceID:               a.ResourceID,
+		Status:                   a.Status,
+	}
+}
+
+func (h *Handler) handleAssociateResolverQueryLogConfig(
+	_ context.Context,
+	in *associateResolverQueryLogConfigInput,
+) (*associateResolverQueryLogConfigOutput, error) {
+	if in.ResolverQueryLogConfigID == "" {
+		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
+	}
+
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+
+	assoc, err := h.Backend.AssociateResolverQueryLogConfig(in.ResolverQueryLogConfigID, in.ResourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateResolverQueryLogConfigOutput{
+		ResolverQueryLogConfigAssociation: queryLogConfigAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- AssociateResolverRule ---
+
+type associateResolverRuleInput struct {
+	ResolverRuleID string `json:"ResolverRuleId"`
+	VPCId          string `json:"VPCId"`
+	Name           string `json:"Name"`
+}
+
+type associateResolverRuleOutput struct {
+	ResolverRuleAssociation resolverRuleAssociationOutput `json:"ResolverRuleAssociation"`
+}
+
+func ruleAssociationToOutput(a *ResolverRuleAssociation) resolverRuleAssociationOutput {
+	return resolverRuleAssociationOutput{
+		ID:             a.ID,
+		Name:           a.Name,
+		ResolverRuleID: a.ResolverRuleID,
+		VPCId:          a.VPCID,
+		Status:         a.Status,
+	}
+}
+
+func (h *Handler) handleAssociateResolverRule(
+	_ context.Context,
+	in *associateResolverRuleInput,
+) (*associateResolverRuleOutput, error) {
+	if in.ResolverRuleID == "" {
+		return nil, fmt.Errorf("%w: ResolverRuleId is required", ErrValidation)
+	}
+
+	if in.VPCId == "" {
+		return nil, fmt.Errorf("%w: VPCId is required", ErrValidation)
+	}
+
+	assoc, err := h.Backend.AssociateResolverRule(in.ResolverRuleID, in.VPCId, in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateResolverRuleOutput{ResolverRuleAssociation: ruleAssociationToOutput(assoc)}, nil
+}
+
+// --- CreateFirewallDomainList ---
+
+type createFirewallDomainListInput struct {
+	CreatorRequestID string `json:"CreatorRequestId"`
+	Name             string `json:"Name"`
+}
+
+type createFirewallDomainListOutput struct {
+	FirewallDomainList firewallDomainListOutput `json:"FirewallDomainList"`
+}
+
+func firewallDomainListToOutput(dl *FirewallDomainList) firewallDomainListOutput {
+	return firewallDomainListOutput{
+		ID:               dl.ID,
+		Arn:              dl.ARN,
+		Name:             dl.Name,
+		CreatorRequestID: dl.CreatorRequestID,
+		Status:           dl.Status,
+		DomainCount:      dl.DomainCount,
+	}
+}
+
+func (h *Handler) handleCreateFirewallDomainList(
+	_ context.Context,
+	in *createFirewallDomainListInput,
+) (*createFirewallDomainListOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	dl, err := h.Backend.CreateFirewallDomainList(in.Name, in.CreatorRequestID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createFirewallDomainListOutput{FirewallDomainList: firewallDomainListToOutput(dl)}, nil
+}
+
+// --- DeleteFirewallDomainList ---
+
+type deleteFirewallDomainListInput struct {
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+}
+
+type deleteFirewallDomainListOutput struct {
+	FirewallDomainList firewallDomainListOutput `json:"FirewallDomainList"`
+}
+
+func (h *Handler) handleDeleteFirewallDomainList(
+	_ context.Context,
+	in *deleteFirewallDomainListInput,
+) (*deleteFirewallDomainListOutput, error) {
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	}
+
+	dl, err := h.Backend.DeleteFirewallDomainList(in.FirewallDomainListID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteFirewallDomainListOutput{FirewallDomainList: firewallDomainListToOutput(dl)}, nil
+}
+
+// --- CreateFirewallRule ---
+
+type createFirewallRuleInput struct {
+	Action               string `json:"Action"`
+	CreatorRequestID     string `json:"CreatorRequestId"`
+	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+	Name                 string `json:"Name"`
+	BlockResponse        string `json:"BlockResponse"`
+	Priority             int32  `json:"Priority"`
+}
+
+type createFirewallRuleOutput struct {
+	FirewallRule firewallRuleOutput `json:"FirewallRule"`
+}
+
+func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
+	return firewallRuleOutput{
+		ID:                   r.ID,
+		Arn:                  r.ARN,
+		Name:                 r.Name,
+		FirewallRuleGroupID:  r.FirewallRuleGroupID,
+		FirewallDomainListID: r.FirewallDomainListID,
+		Action:               r.Action,
+		Priority:             r.Priority,
+		BlockResponse:        r.BlockResponse,
+	}
+}
+
+func (h *Handler) handleCreateFirewallRule(
+	_ context.Context,
+	in *createFirewallRuleInput,
+) (*createFirewallRuleOutput, error) {
+	if in.FirewallRuleGroupID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+	}
+
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	switch in.Action {
+	case firewallActionAllow, firewallActionBlock, firewallActionAlert:
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: Action must be %s, %s, or %s",
+			ErrValidation,
+			firewallActionAllow,
+			firewallActionBlock,
+			firewallActionAlert,
+		)
+	}
+
+	rule, err := h.Backend.CreateFirewallRule(
+		in.FirewallRuleGroupID, in.Name, in.Action, in.CreatorRequestID,
+		in.Priority, in.FirewallDomainListID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createFirewallRuleOutput{FirewallRule: firewallRuleToOutput(rule)}, nil
+}
+
+// --- CreateOutpostResolver ---
+
+type createOutpostResolverInput struct {
+	CreatorRequestID      string `json:"CreatorRequestId"`
+	Name                  string `json:"Name"`
+	OutpostArn            string `json:"OutpostArn"`
+	PreferredInstanceType string `json:"PreferredInstanceType"`
+	InstanceCount         int32  `json:"InstanceCount"`
+}
+
+type createOutpostResolverOutput struct {
+	OutpostResolver outpostResolverOutput `json:"OutpostResolver"`
+}
+
+func outpostResolverToOutput(r *OutpostResolver) outpostResolverOutput {
+	return outpostResolverOutput{
+		ID:                    r.ID,
+		Arn:                   r.ARN,
+		Name:                  r.Name,
+		CreatorRequestID:      r.CreatorRequestID,
+		OutpostArn:            r.OutpostARN,
+		PreferredInstanceType: r.PreferredInstanceType,
+		InstanceCount:         r.InstanceCount,
+		Status:                r.Status,
+	}
+}
+
+func (h *Handler) handleCreateOutpostResolver(
+	_ context.Context,
+	in *createOutpostResolverInput,
+) (*createOutpostResolverOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if in.OutpostArn == "" {
+		return nil, fmt.Errorf("%w: OutpostArn is required", ErrValidation)
+	}
+
+	if in.PreferredInstanceType == "" {
+		return nil, fmt.Errorf("%w: PreferredInstanceType is required", ErrValidation)
+	}
+
+	r, err := h.Backend.CreateOutpostResolver(
+		in.Name, in.CreatorRequestID, in.OutpostArn, in.PreferredInstanceType, in.InstanceCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createOutpostResolverOutput{OutpostResolver: outpostResolverToOutput(r)}, nil
 }
