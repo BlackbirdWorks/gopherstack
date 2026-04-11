@@ -39,16 +39,8 @@ type Handler struct {
 }
 
 // NewHandler creates a new RDS Data handler.
+// NewHandler creates a new RDS Data handler.
 func NewHandler(backend StorageBackend) *Handler {
-	b, ok := backend.(*InMemoryBackend)
-	if ok {
-		return &Handler{
-			Backend:   backend,
-			AccountID: b.accountID,
-			Region:    b.region,
-		}
-	}
-
 	return &Handler{
 		Backend:   backend,
 		AccountID: backend.AccountID(),
