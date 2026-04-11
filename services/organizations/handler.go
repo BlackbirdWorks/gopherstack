@@ -21,11 +21,11 @@ const (
 
 // Handler is the HTTP handler for the AWS Organizations JSON 1.1 API.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Organizations handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -78,6 +78,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"ListTargetsForPolicy",
 		"MoveAccount",
+		"PutResourcePolicy",
 		"RegisterDelegatedAdministrator",
 		"RemoveAccountFromOrganization",
 		"TagResource",
@@ -94,7 +95,10 @@ func (h *Handler) ChaosServiceName() string { return orgService }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this handler handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.Backend.region} }
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
+
+// Reset clears all backend state (used in tests).
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // RouteMatcher returns a function that matches Organizations JSON 1.1 API requests.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -124,7 +128,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"AccountId", "OrganizationalUnitId", "PolicyId", "ResourceId"} {
+	for _, key := range []string{"AccountId", "HandshakeId", "OrganizationalUnitId", "PolicyId", "ResourceId"} {
 		if v, ok := data[key]; ok {
 			if s, isStr := v.(string); isStr {
 				return s
@@ -1047,6 +1051,8 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 		return true, h.handleDeleteResourcePolicy(c, body)
 	case "DescribeResourcePolicy":
 		return true, h.handleDescribeResourcePolicy(c, body)
+	case "PutResourcePolicy":
+		return true, h.handlePutResourcePolicy(c, body)
 	case "DescribeEffectivePolicy":
 		return true, h.handleDescribeEffectivePolicy(c, body)
 	}
@@ -1205,6 +1211,35 @@ func (h *Handler) handleDeleteResourcePolicy(c *echo.Context, _ []byte) error {
 
 func (h *Handler) handleDescribeResourcePolicy(c *echo.Context, _ []byte) error {
 	rp, err := h.Backend.DescribeResourcePolicy()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeResourcePolicyResponse{
+		ResourcePolicy: resourcePolicyObject{
+			Content: rp.Content,
+			ResourcePolicySummary: resourcePolicySummaryObject{
+				ARN: rp.ARN,
+				ID:  rp.ID,
+			},
+		},
+	})
+}
+
+func (h *Handler) handlePutResourcePolicy(c *echo.Context, body []byte) error {
+	var req struct {
+		Content string `json:"Content"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.Content == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Content is required")
+	}
+
+	rp, err := h.Backend.PutResourcePolicy(req.Content)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

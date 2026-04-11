@@ -29,7 +29,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListHandshakesForOrganization",
 		"ListInboundResponsibilityTransfers",
 		"ListOutboundResponsibilityTransfers",
-		"PutResourcePolicy",
 		"TerminateResponsibilityTransfer",
 		"UpdateResponsibilityTransfer",
 	})
