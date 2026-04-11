@@ -11,7 +11,7 @@ type StorageBackend interface {
 		principals, resourceARNs []string,
 	) (*ResourceShare, error)
 	GetResourceShare(shareARN string) (*ResourceShare, error)
-	ListResourceShares(resourceOwner string) []*ResourceShare
+	ListResourceShares(resourceOwner, status string) []*ResourceShare
 	UpdateResourceShare(shareARN, name string, allowExternalPrincipals *bool) (*ResourceShare, error)
 	DeleteResourceShare(shareARN string) error
 	AssociateResourceShare(shareARN string, principals, resourceARNs []string) ([]*ResourceShareAssociation, error)
@@ -31,12 +31,11 @@ type StorageBackend interface {
 	GetPermission(permissionARN string, permissionVersion *int32) (*Permission, *PermissionVersion, error)
 	AssociateResourceSharePermission(shareARN, permissionARN string, replace bool, permissionVersion *int32) error
 	DisassociateResourceSharePermission(shareARN, permissionARN string) error
+	ListResourceSharePermissions(shareARN string) []*Permission
 
 	// Invitation operations
 	AcceptResourceShareInvitation(invitationARN string) (*ResourceShareInvitation, error)
 	GetResourceShareInvitations(invitationARNs, shareARNs []string) []*ResourceShareInvitation
-	CreateInvitation(shareARN, shareNm, senderAcctID, receiverAcctID string) *ResourceShareInvitation
-	AddInvitationInternal(inv *ResourceShareInvitation)
 
 	// Resource policy operations
 	GetResourcePolicies(resourceARNs []string) []string

@@ -3,6 +3,7 @@ package ram
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type backendSnapshot struct {
@@ -16,19 +17,31 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
+// It acquires a read-lock and takes a deep copy of the maps before marshalling
+// to avoid serialising data that is concurrently mutated.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		ResourceShares:   b.resourceShares,
-		Associations:     b.associations,
-		Permissions:      b.permissions,
-		SharePermissions: b.sharePermissions,
-		Invitations:      b.invitations,
-		AccountID:        b.accountID,
-		Region:           b.region,
+		ResourceShares: maps.Clone(b.resourceShares),
+		Permissions:    maps.Clone(b.permissions),
+		Invitations:    maps.Clone(b.invitations),
+		AccountID:      b.accountID,
+		Region:         b.region,
 	}
+
+	// Deep-copy nested sharePermissions map.
+	snap.SharePermissions = make(map[string]map[string]int32, len(b.sharePermissions))
+
+	for k, v := range b.sharePermissions {
+		snap.SharePermissions[k] = maps.Clone(v)
+	}
+
+	// Copy associations slice.
+	snap.Associations = make([]*ResourceShareAssociation, len(b.associations))
+	copy(snap.Associations, b.associations)
+
+	b.mu.RUnlock()
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -48,9 +61,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.resourceShares = snap.ResourceShares
+	b.associations = snap.Associations
+	b.permissions = snap.Permissions
+	b.sharePermissions = snap.SharePermissions
+	b.invitations = snap.Invitations
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	return nil
+}
+
+// ensureNonNilMaps initialises nil maps in the snapshot to empty collections.
+func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.ResourceShares == nil {
 		snap.ResourceShares = make(map[string]*ResourceShare)
 	}
@@ -70,16 +98,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Invitations == nil {
 		snap.Invitations = make(map[string]*ResourceShareInvitation)
 	}
-
-	b.resourceShares = snap.ResourceShares
-	b.associations = snap.Associations
-	b.permissions = snap.Permissions
-	b.sharePermissions = snap.SharePermissions
-	b.invitations = snap.Invitations
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

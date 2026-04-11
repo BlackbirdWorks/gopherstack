@@ -518,7 +518,13 @@ func TestHandler_AcceptResourceShareInvitation(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("invite-share", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := h.Backend.CreateInvitation(rs.ARN, "invite-share", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"invite-share",
+					"111111111111",
+					"222222222222",
+				)
 
 				return inv.InvitationARN
 			},
@@ -531,7 +537,13 @@ func TestHandler_AcceptResourceShareInvitation(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("accepted-share", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := h.Backend.CreateInvitation(rs.ARN, "accepted-share", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"accepted-share",
+					"111111111111",
+					"222222222222",
+				)
 				_, err = h.Backend.AcceptResourceShareInvitation(inv.InvitationARN)
 				require.NoError(t, err)
 
@@ -595,7 +607,13 @@ func TestHandler_GetResourceShareInvitations(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("inv-share", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := h.Backend.CreateInvitation(rs.ARN, "inv-share", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"inv-share",
+					"111111111111",
+					"222222222222",
+				)
 
 				return inv.InvitationARN, rs.ARN
 			},
@@ -608,7 +626,13 @@ func TestHandler_GetResourceShareInvitations(t *testing.T) {
 				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("inv-share2", true, nil, nil, nil)
 				require.NoError(t, err)
-				inv := h.Backend.CreateInvitation(rs.ARN, "inv-share2", "111111111111", "222222222222")
+				inv := ram.CreateInvitation(
+					h.Backend.(*ram.InMemoryBackend),
+					rs.ARN,
+					"inv-share2",
+					"111111111111",
+					"222222222222",
+				)
 
 				return inv.InvitationARN, ""
 			},

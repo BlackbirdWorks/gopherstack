@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ func (h *Handler) Name() string { return "RAM" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AcceptResourceShareInvitation",
+		"AssociateResourceShare",
 		"AssociateResourceSharePermission",
 		"CreatePermission",
 		"CreatePermissionVersion",
@@ -57,15 +59,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeletePermission",
 		"DeletePermissionVersion",
 		"DeleteResourceShare",
-		"DisassociateResourceSharePermission",
 		"DisassociateResourceShare",
-		"AssociateResourceShare",
+		"DisassociateResourceSharePermission",
+		"EnableSharingWithAwsOrganization",
 		"GetPermission",
 		"GetResourcePolicies",
 		"GetResourceShareAssociations",
 		"GetResourceShareInvitations",
 		"GetResourceShares",
-		"EnableSharingWithAwsOrganization",
 		"ListResourceSharePermissions",
 		"ListTagsForResource",
 		"TagResource",
@@ -411,10 +412,23 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrPermissionNotFound),
-		errors.Is(err, ErrPermissionVersionNotFound), errors.Is(err, ErrInvitationNotFound):
+	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "UnknownResourceException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrPermissionNotFound), errors.Is(err, ErrPermissionVersionNotFound):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "InvalidParameterException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvitationNotFound):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "ResourceShareInvitationArnNotFoundException",
 			"message": err.Error(),
 		})
 
@@ -429,6 +443,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrInvitationAlreadyAccepted):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ResourceShareInvitationAlreadyAcceptedException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "MalformedQueryStringException",
 			"message": err.Error(),
 		})
 
@@ -453,12 +474,19 @@ type tagObject struct {
 	Value string `json:"value"`
 }
 
-// toTagObjects converts a map of tags to a slice of tag objects.
+// toTagObjects converts a map of tags to a slice of tag objects sorted by key.
 func toTagObjects(tags map[string]string) []tagObject {
-	result := make([]tagObject, 0, len(tags))
+	keys := make([]string, 0, len(tags))
 
-	for k, v := range tags {
-		result = append(result, tagObject{Key: k, Value: v})
+	for k := range tags {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+	result := make([]tagObject, 0, len(keys))
+
+	for _, k := range keys {
+		result = append(result, tagObject{Key: k, Value: tags[k]})
 	}
 
 	return result
@@ -573,10 +601,11 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 }
 
 type getResourceSharesRequest struct {
-	ResourceOwner     string   `json:"resourceOwner"`
-	Name              string   `json:"name"`
-	NextToken         string   `json:"nextToken"`
-	ResourceShareArns []string `json:"resourceShareArns"`
+	ResourceOwner       string   `json:"resourceOwner"`
+	Name                string   `json:"name"`
+	NextToken           string   `json:"nextToken"`
+	ResourceShareStatus string   `json:"resourceShareStatus"`
+	ResourceShareArns   []string `json:"resourceShareArns"`
 }
 
 type getResourceSharesResponse struct {
@@ -606,7 +635,7 @@ func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byt
 		return json.Marshal(getResourceSharesResponse{ResourceShares: shares})
 	}
 
-	list := h.Backend.ListResourceShares(req.ResourceOwner)
+	list := h.Backend.ListResourceShares(req.ResourceOwner, req.ResourceShareStatus)
 
 	// Filter by name if provided.
 	shares := make([]resourceShareObject, 0, len(list))
@@ -870,20 +899,29 @@ type listResourceSharePermissionsRequest struct {
 }
 
 type listResourceSharePermissionsResponse struct {
-	NextToken   string `json:"nextToken,omitempty"`
-	Permissions []any  `json:"permissions"`
+	NextToken   string                    `json:"nextToken,omitempty"`
+	Permissions []permissionSummaryObject `json:"permissions"`
 }
 
-// handleListResourceSharePermissions returns an empty permissions list.
-// The Terraform AWS provider calls this after creating a resource share to read
-// its managed permissions. Returning an empty list is sufficient for the mock.
+// handleListResourceSharePermissions returns the managed permissions associated with a resource share.
 func (h *Handler) handleListResourceSharePermissions(_ context.Context, body []byte) ([]byte, error) {
 	var req listResourceSharePermissionsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(listResourceSharePermissionsResponse{Permissions: []any{}})
+	if req.ResourceShareArn == "" {
+		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
+	}
+
+	perms := h.Backend.ListResourceSharePermissions(req.ResourceShareArn)
+	objs := make([]permissionSummaryObject, 0, len(perms))
+
+	for _, p := range perms {
+		objs = append(objs, toPermissionSummaryObject(p))
+	}
+
+	return json.Marshal(listResourceSharePermissionsResponse{Permissions: objs})
 }
 
 type enableSharingWithAwsOrganizationResponse struct {
