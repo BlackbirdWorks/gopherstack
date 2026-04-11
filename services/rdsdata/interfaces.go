@@ -1,0 +1,32 @@
+package rdsdata
+
+// StorageBackend defines the interface for RDS Data backend implementations.
+// All methods must be safe for concurrent use.
+type StorageBackend interface {
+	// Statement execution
+	ExecuteStatement(resourceARN, sql, transactionID string) ([][]Field, []ColumnMetadata, int64, error)
+	BatchExecuteStatement(
+		resourceARN, sql, transactionID string,
+		parameterSets [][]SQLParameter,
+	) ([]UpdateResult, error)
+	ExecuteSQL(resourceARN, sqlStatements string) ([]SQLStatementResult, error)
+
+	// Transaction management
+	BeginTransaction(resourceARN string) (string, error)
+	CommitTransaction(transactionID string) (string, error)
+	RollbackTransaction(transactionID string) (string, error)
+
+	// Introspection helpers (used by tests and dashboard)
+	ListExecutedStatements() []ExecutedStatement
+	ListTransactions() map[string]Transaction
+
+	// Lifecycle
+	Reset()
+	Region() string
+	AccountID() string
+	Snapshot() []byte
+	Restore(data []byte) error
+}
+
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)

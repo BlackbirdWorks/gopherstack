@@ -33,18 +33,32 @@ var (
 
 // Handler is the HTTP handler for the RDS Data REST API.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new RDS Data handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
+	b, ok := backend.(*InMemoryBackend)
+	if ok {
+		return &Handler{
+			Backend:   backend,
+			AccountID: b.accountID,
+			Region:    b.region,
+		}
+	}
+
 	return &Handler{
 		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		AccountID: backend.AccountID(),
+		Region:    backend.Region(),
 	}
+}
+
+// Reset clears all handler and backend state. Useful for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -178,6 +192,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "TransactionNotFoundException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errIsValidation(err):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "BadRequestException",
 			"message": err.Error(),
 		})
 
