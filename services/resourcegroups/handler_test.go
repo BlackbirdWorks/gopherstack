@@ -835,3 +835,526 @@ func TestResourceGroupsHandler_UpdateGroupQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestResourceGroupsHandler_GetAccountSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	rec := doResourceGroupsRequest(t, h, "GetAccountSettings", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AccountSettings")
+}
+
+func TestResourceGroupsHandler_PutGroupConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		group        string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:  "success",
+			group: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			group:    "nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{
+				"Group":         tt.group,
+				"Configuration": []map[string]any{{"Type": "AWS::NetworkFirewall::RuleGroup"}},
+			}
+			rec := doResourceGroupsRequest(t, h, "PutGroupConfiguration", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestResourceGroupsHandler_GroupResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		group        string
+		resourceARNs []string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:  "success",
+			group: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			resourceARNs: []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-12345"},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Succeeded"},
+		},
+		{
+			name:     "missing_group",
+			group:    "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "not_found",
+			group:    "nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{
+				"Group":        tt.group,
+				"ResourceArns": tt.resourceARNs,
+			}
+			rec := doResourceGroupsRequest(t, h, "GroupResources", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_ListGroupResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		group        string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:  "success_empty",
+			group: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Resources"},
+		},
+		{
+			name:  "success_with_resources",
+			group: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				doResourceGroupsRequest(t, h, "GroupResources", map[string]any{
+					"Group":        "my-group",
+					"ResourceArns": []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-123"},
+				})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Resources", "i-123"},
+		},
+		{
+			name:     "not_found",
+			group:    "nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doResourceGroupsRequest(t, h, "ListGroupResources", map[string]any{"Group": tt.group})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_ListGroupingStatuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		group        string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:  "success",
+			group: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				doResourceGroupsRequest(t, h, "GroupResources", map[string]any{
+					"Group":        "my-group",
+					"ResourceArns": []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-abc"},
+				})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GroupingStatuses", "i-abc"},
+		},
+		{
+			name:     "missing_group",
+			group:    "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "not_found",
+			group:    "nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doResourceGroupsRequest(t, h, "ListGroupingStatuses", map[string]any{"Group": tt.group})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_SearchResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "empty",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ResourceIdentifiers"},
+		},
+		{
+			name: "with_resources",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "g1"})
+				doResourceGroupsRequest(t, h, "GroupResources", map[string]any{
+					"Group":        "g1",
+					"ResourceArns": []string{"arn:aws:s3:::my-bucket"},
+				})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ResourceIdentifiers", "my-bucket"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{
+				"ResourceQuery": map[string]any{
+					"Type":  "TAG_FILTERS_1_0",
+					"Query": `{"ResourceTypeFilters":["AWS::AllSupported"]}`,
+				},
+			}
+			rec := doResourceGroupsRequest(t, h, "SearchResources", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_StartTagSyncTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		group        string
+		roleArn      string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:  "success",
+			group: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			roleArn:      "arn:aws:iam::000000000000:role/my-role",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TaskArn", "GroupName"},
+		},
+		{
+			name:     "missing_group",
+			group:    "",
+			roleArn:  "arn:aws:iam::000000000000:role/my-role",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing_role",
+			group:    "my-group",
+			roleArn:  "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "not_found",
+			group:    "nonexistent",
+			roleArn:  "arn:aws:iam::000000000000:role/my-role",
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{
+				"Group":    tt.group,
+				"RoleArn":  tt.roleArn,
+				"TagKey":   "env",
+				"TagValue": "prod",
+			}
+			rec := doResourceGroupsRequest(t, h, "StartTagSyncTask", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_GetTagSyncTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler) string
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *resourcegroups.Handler) string {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				rec := doResourceGroupsRequest(t, h, "StartTagSyncTask", map[string]any{
+					"Group":    "my-group",
+					"RoleArn":  "arn:aws:iam::000000000000:role/r",
+					"TagKey":   "env",
+					"TagValue": "prod",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				var out struct {
+					TaskArn string `json:"TaskArn"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return out.TaskArn
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TaskArn", "Status"},
+		},
+		{
+			name: "missing_task_arn",
+			setup: func(_ *testing.T, _ *resourcegroups.Handler) string {
+				return ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *testing.T, _ *resourcegroups.Handler) string {
+				return "arn:aws:resource-groups:us-east-1:000000000000:tag-sync-task/nonexistent"
+			},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			taskARN := tt.setup(t, h)
+
+			rec := doResourceGroupsRequest(t, h, "GetTagSyncTask", map[string]any{"TaskArn": taskARN})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_CancelTagSyncTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *resourcegroups.Handler) string
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *resourcegroups.Handler) string {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				rec := doResourceGroupsRequest(t, h, "StartTagSyncTask", map[string]any{
+					"Group":    "my-group",
+					"RoleArn":  "arn:aws:iam::000000000000:role/r",
+					"TagKey":   "env",
+					"TagValue": "prod",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				var out struct {
+					TaskArn string `json:"TaskArn"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return out.TaskArn
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "missing_task_arn",
+			setup: func(_ *testing.T, _ *resourcegroups.Handler) string {
+				return ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *testing.T, _ *resourcegroups.Handler) string {
+				return "arn:aws:resource-groups:us-east-1:000000000000:tag-sync-task/nonexistent"
+			},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			taskARN := tt.setup(t, h)
+
+			rec := doResourceGroupsRequest(t, h, "CancelTagSyncTask", map[string]any{"TaskArn": taskARN})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestResourceGroupsHandler_ListTagSyncTasks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		filters      []map[string]any
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "empty",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TagSyncTasks"},
+		},
+		{
+			name: "with_tasks",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				doResourceGroupsRequest(t, h, "StartTagSyncTask", map[string]any{
+					"Group":    "my-group",
+					"RoleArn":  "arn:aws:iam::000000000000:role/r",
+					"TagKey":   "env",
+					"TagValue": "prod",
+				})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TagSyncTasks", "my-group"},
+		},
+		{
+			name: "filtered_by_group_name",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				doResourceGroupsRequest(t, h, "StartTagSyncTask", map[string]any{
+					"Group":   "my-group",
+					"RoleArn": "arn:aws:iam::000000000000:role/r",
+				})
+			},
+			filters:      []map[string]any{{"GroupName": "my-group"}},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TagSyncTasks"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{}
+			if tt.filters != nil {
+				body["Filters"] = tt.filters
+			}
+
+			rec := doResourceGroupsRequest(t, h, "ListTagSyncTasks", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}

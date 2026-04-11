@@ -2,12 +2,20 @@ package resourcegroups
 
 import (
 	"encoding/json"
+	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
-	Groups    map[string]*Group `json:"groups"`
-	AccountID string            `json:"accountID"`
-	Region    string            `json:"region"`
+	Groups              map[string]*Group                   `json:"groups"`
+	GroupConfigurations map[string][]GroupConfigurationItem `json:"groupConfigurations"`
+	GroupResources      map[string][]string                 `json:"groupResources"`
+	GroupingStatuses    map[string][]GroupingStatusItem     `json:"groupingStatuses"`
+	TagSyncTasks        map[string]*TagSyncTask             `json:"tagSyncTasks"`
+	AccountSettings     AccountSettings                     `json:"accountSettings"`
+	AccountID           string                              `json:"accountID"`
+	Region              string                              `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -17,13 +25,20 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Groups:    b.groups,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Groups:              b.groups,
+		GroupConfigurations: b.groupConfigurations,
+		GroupResources:      b.groupResources,
+		GroupingStatuses:    b.groupingStatuses,
+		TagSyncTasks:        b.tagSyncTasks,
+		AccountSettings:     b.accountSettings,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("resourcegroups: failed to snapshot backend", "error", err)
+
 		return nil
 	}
 
@@ -46,17 +61,51 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Groups = make(map[string]*Group)
 	}
 
+	if snap.GroupConfigurations == nil {
+		snap.GroupConfigurations = make(map[string][]GroupConfigurationItem)
+	}
+
+	if snap.GroupResources == nil {
+		snap.GroupResources = make(map[string][]string)
+	}
+
+	if snap.GroupingStatuses == nil {
+		snap.GroupingStatuses = make(map[string][]GroupingStatusItem)
+	}
+
+	if snap.TagSyncTasks == nil {
+		snap.TagSyncTasks = make(map[string]*TagSyncTask)
+	}
+
 	// Close existing Tags to release Prometheus metrics before replacing state.
 	for _, g := range b.groups {
 		g.Tags.Close()
 	}
 
 	b.groups = snap.Groups
+	b.groupConfigurations = snap.GroupConfigurations
+	b.groupResources = snap.GroupResources
+	b.groupingStatuses = snap.GroupingStatuses
+	b.tagSyncTasks = snap.TagSyncTasks
+	b.accountSettings = snap.AccountSettings
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Re-initialize Tags with per-group names to avoid Prometheus label collisions
+	// from the "json.tags" name used during JSON deserialization.
+	for name, g := range b.groups {
+		if g.Tags != nil {
+			tagMap := g.Tags.Clone()
+			g.Tags.Close()
+			g.Tags = tags.FromMap("rg."+name+".tags", tagMap)
+		} else {
+			g.Tags = tags.New("rg." + name + ".tags")
+		}
+	}
+
 	// Rebuild ARN index.
 	b.arnIndex = make(map[string]string, len(b.groups))
+
 	for name, g := range b.groups {
 		b.arnIndex[g.ARN] = name
 	}
