@@ -6,20 +6,25 @@ import (
 )
 
 type backendSnapshot struct {
-	Instances              map[string]*DBInstance        `json:"instances"`
-	Snapshots              map[string]*DBSnapshot        `json:"snapshots"`
-	SubnetGroups           map[string]*DBSubnetGroup     `json:"subnetGroups"`
-	Tags                   map[string][]Tag              `json:"tags"`
-	ParameterGroups        map[string]*DBParameterGroup  `json:"parameterGroups"`
-	ClusterParameterGroups map[string]*DBParameterGroup  `json:"clusterParameterGroups"`
-	OptionGroups           map[string]*OptionGroup       `json:"optionGroups"`
-	Clusters               map[string]*DBCluster         `json:"clusters"`
-	ClusterSnapshots       map[string]*DBClusterSnapshot `json:"clusterSnapshots"`
-	ClusterEndpoints       map[string]*DBClusterEndpoint `json:"clusterEndpoints"`
-	ExportTasks            map[string]*ExportTask        `json:"exportTasks"`
-	GlobalClusters         map[string]*GlobalCluster     `json:"globalClusters"`
-	AccountID              string                        `json:"accountID"`
-	Region                 string                        `json:"region"`
+	Instances              map[string]*DBInstance          `json:"instances"`
+	Snapshots              map[string]*DBSnapshot          `json:"snapshots"`
+	SubnetGroups           map[string]*DBSubnetGroup       `json:"subnetGroups"`
+	Tags                   map[string][]Tag                `json:"tags"`
+	ParameterGroups        map[string]*DBParameterGroup    `json:"parameterGroups"`
+	ClusterParameterGroups map[string]*DBParameterGroup    `json:"clusterParameterGroups"`
+	OptionGroups           map[string]*OptionGroup         `json:"optionGroups"`
+	Clusters               map[string]*DBCluster           `json:"clusters"`
+	ClusterSnapshots       map[string]*DBClusterSnapshot   `json:"clusterSnapshots"`
+	ClusterEndpoints       map[string]*DBClusterEndpoint   `json:"clusterEndpoints"`
+	ExportTasks            map[string]*ExportTask          `json:"exportTasks"`
+	GlobalClusters         map[string]*GlobalCluster       `json:"globalClusters"`
+	ClusterRoles           map[string][]string             `json:"clusterRoles"`
+	InstanceRoles          map[string][]string             `json:"instanceRoles"`
+	EventSubscriptions     map[string]*EventSubscription   `json:"eventSubscriptions"`
+	DBSecurityGroups       map[string]*DBSecurityGroup     `json:"dbSecurityGroups"`
+	BlueGreenDeployments   map[string]*BlueGreenDeployment `json:"blueGreenDeployments"`
+	AccountID              string                          `json:"accountID"`
+	Region                 string                          `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -41,6 +46,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ClusterEndpoints:       b.clusterEndpoints,
 		ExportTasks:            b.exportTasks,
 		GlobalClusters:         b.globalClusters,
+		ClusterRoles:           b.clusterRoles,
+		InstanceRoles:          b.instanceRoles,
+		EventSubscriptions:     b.eventSubscriptions,
+		DBSecurityGroups:       b.dbSecurityGroups,
+		BlueGreenDeployments:   b.blueGreenDeployments,
 		AccountID:              b.accountID,
 		Region:                 b.region,
 	}
@@ -62,9 +72,46 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.instances = snap.Instances
+	b.snapshots = snap.Snapshots
+	b.subnetGroups = snap.SubnetGroups
+	b.tags = snap.Tags
+	b.parameterGroups = snap.ParameterGroups
+	b.clusterParameterGroups = snap.ClusterParameterGroups
+	b.optionGroups = snap.OptionGroups
+	b.clusters = snap.Clusters
+	b.clusterSnapshots = snap.ClusterSnapshots
+	b.clusterEndpoints = snap.ClusterEndpoints
+	b.exportTasks = snap.ExportTasks
+	b.globalClusters = snap.GlobalClusters
+	b.clusterRoles = snap.ClusterRoles
+	b.instanceRoles = snap.InstanceRoles
+	b.eventSubscriptions = snap.EventSubscriptions
+	b.dbSecurityGroups = snap.DBSecurityGroups
+	b.blueGreenDeployments = snap.BlueGreenDeployments
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+	// FIS fault state is transient — clear it on restore so stale faults are not retained.
+	b.fisFailoverFaults = make(map[string]time.Time)
+
+	return nil
+}
+
+// ensureNonNilMaps initialises any nil maps in a deserialized snapshot so the backend
+// never operates on nil maps after a restore.
+func ensureNonNilMaps(snap *backendSnapshot) {
+	ensureNonNilCoreMaps(snap)
+	ensureNonNilExtendedMaps(snap)
+}
+
+// ensureNonNilCoreMaps initialises the core resource maps (instances, snapshots, subnet groups, tags,
+// parameter groups, option groups, clusters, cluster snapshots, cluster endpoints, export tasks, global clusters).
+func ensureNonNilCoreMaps(snap *backendSnapshot) {
 	if snap.Instances == nil {
 		snap.Instances = make(map[string]*DBInstance)
 	}
@@ -112,25 +159,30 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.GlobalClusters == nil {
 		snap.GlobalClusters = make(map[string]*GlobalCluster)
 	}
+}
 
-	b.instances = snap.Instances
-	b.snapshots = snap.Snapshots
-	b.subnetGroups = snap.SubnetGroups
-	b.tags = snap.Tags
-	b.parameterGroups = snap.ParameterGroups
-	b.clusterParameterGroups = snap.ClusterParameterGroups
-	b.optionGroups = snap.OptionGroups
-	b.clusters = snap.Clusters
-	b.clusterSnapshots = snap.ClusterSnapshots
-	b.clusterEndpoints = snap.ClusterEndpoints
-	b.exportTasks = snap.ExportTasks
-	b.globalClusters = snap.GlobalClusters
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-	// FIS fault state is transient — clear it on restore so stale faults are not retained.
-	b.fisFailoverFaults = make(map[string]time.Time)
+// ensureNonNilExtendedMaps initialises the extended resource maps added later
+// (cluster/instance roles, event subscriptions, security groups, blue/green deployments).
+func ensureNonNilExtendedMaps(snap *backendSnapshot) {
+	if snap.ClusterRoles == nil {
+		snap.ClusterRoles = make(map[string][]string)
+	}
 
-	return nil
+	if snap.InstanceRoles == nil {
+		snap.InstanceRoles = make(map[string][]string)
+	}
+
+	if snap.EventSubscriptions == nil {
+		snap.EventSubscriptions = make(map[string]*EventSubscription)
+	}
+
+	if snap.DBSecurityGroups == nil {
+		snap.DBSecurityGroups = make(map[string]*DBSecurityGroup)
+	}
+
+	if snap.BlueGreenDeployments == nil {
+		snap.BlueGreenDeployments = make(map[string]*BlueGreenDeployment)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

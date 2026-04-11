@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	h := rds.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &rdssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddRoleToDBCluster",
-		"AddRoleToDBInstance",
-		"AddSourceIdentifierToSubscription",
-		"ApplyPendingMaintenanceAction",
-		"AuthorizeDBSecurityGroupIngress",
-		"BacktrackDBCluster",
-		"CopyDBClusterParameterGroup",
-		"CopyDBParameterGroup",
-		"CopyOptionGroup",
-		"CreateBlueGreenDeployment",
 		"CreateCustomDBEngineVersion",
 		"CreateDBProxy",
 		"CreateDBProxyEndpoint",
