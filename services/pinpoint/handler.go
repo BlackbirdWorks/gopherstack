@@ -30,13 +30,14 @@ const (
 	appSubPathParts         = 2
 	pinpointDefaultPageSize = 500
 
-	templateSubPathParts = 2
-	campaignStatus       = "ACTIVE"
-	journeyStateDraft    = "DRAFT"
-	jobStatusCreated     = "CREATED"
-	exportJobType        = "EXPORT"
-	importJobType        = "IMPORT"
-	unknownOperation     = "Unknown"
+	templateSubPathParts   = 2
+	campaignStatus         = "ACTIVE"
+	journeyStateDraft      = "DRAFT"
+	jobStatusCreated       = "CREATED"
+	exportJobType          = "EXPORT"
+	importJobType          = "IMPORT"
+	segmentTypeDimensional = "DIMENSIONAL"
+	unknownOperation       = "Unknown"
 )
 
 // Handler is the HTTP handler for the Amazon Pinpoint REST API.
@@ -49,6 +50,11 @@ type Handler struct {
 // NewHandler creates a new Pinpoint handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// Reset clears the handler's backend state (used for test isolation).
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -583,16 +589,19 @@ func (h *Handler) handleCreateTemplate(c *echo.Context, templateName, templateTy
 
 	templateARN, creationErr := h.createTemplateByType(body, region, templateName, templateType)
 	if creationErr != nil {
-		if errors.Is(creationErr, errInvalidRequestBody) {
+		switch {
+		case errors.Is(creationErr, errInvalidRequestBody):
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		case errors.Is(creationErr, ErrAlreadyExists):
+			return writeErrorResponse(c, http.StatusConflict, "ConflictException", creationErr.Error())
+		default:
+			return writeErrorResponse(
+				c,
+				http.StatusInternalServerError,
+				"InternalServerErrorException",
+				creationErr.Error(),
+			)
 		}
-
-		return writeErrorResponse(
-			c,
-			http.StatusInternalServerError,
-			"InternalServerErrorException",
-			creationErr.Error(),
-		)
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, createTemplateMessageBody{
@@ -680,6 +689,10 @@ func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
 
 	campaign, backendErr := h.Backend.CreateCampaign(region, h.AccountID, appID, req)
 	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
@@ -713,14 +726,31 @@ func (h *Handler) handleCreateExportJob(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	job, backendErr := h.Backend.CreateExportJob(appID, req)
+	if strings.TrimSpace(req.RoleArn) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "RoleArn is required")
+	}
+
+	if strings.TrimSpace(req.S3UrlPrefix) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "S3UrlPrefix is required")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	job, backendErr := h.Backend.CreateExportJob(region, h.AccountID, appID, req)
 	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, exportJobResponse{
+		ARN:           job.ARN,
 		ApplicationID: job.ApplicationID,
 		ID:            job.ID,
+		RoleArn:       job.RoleArn,
+		S3UrlPrefix:   job.S3UrlPrefix,
 		JobStatus:     job.JobStatus,
 		Type:          exportJobType,
 		CreationDate:  job.CreationDate,
@@ -741,14 +771,36 @@ func (h *Handler) handleCreateImportJob(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	job, backendErr := h.Backend.CreateImportJob(appID, req)
+	if strings.TrimSpace(req.RoleArn) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "RoleArn is required")
+	}
+
+	if strings.TrimSpace(req.S3Url) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "S3Url is required")
+	}
+
+	if strings.TrimSpace(req.Format) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Format is required")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	job, backendErr := h.Backend.CreateImportJob(region, h.AccountID, appID, req)
 	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, importJobResponse{
+		ARN:           job.ARN,
 		ApplicationID: job.ApplicationID,
 		ID:            job.ID,
+		RoleArn:       job.RoleArn,
+		S3Url:         job.S3Url,
+		Format:        job.Format,
 		JobStatus:     job.JobStatus,
 		Type:          importJobType,
 		CreationDate:  job.CreationDate,
@@ -779,6 +831,8 @@ func (h *Handler) handleCreateNamedAppResource(c *echo.Context, appID string, cr
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		case errors.Is(creationErr, errNameRequired):
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+		case errors.Is(creationErr, awserr.ErrNotFound):
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", creationErr.Error())
 		default:
 			return writeErrorResponse(
 				c,
@@ -813,6 +867,7 @@ func (h *Handler) handleCreateJourney(c *echo.Context, appID string) error {
 
 		return journeyResponse{
 			ApplicationID:    journey.ApplicationID,
+			ARN:              journey.ARN,
 			ID:               journey.ID,
 			Name:             journey.Name,
 			State:            journey.State,

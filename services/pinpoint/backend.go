@@ -4,63 +4,58 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-// ErrAppNotFound is returned when a Pinpoint application is not found.
-var ErrAppNotFound = awserr.New("NotFoundException: app not found", awserr.ErrNotFound)
+var (
+	// ErrAppNotFound is returned when a Pinpoint application is not found.
+	ErrAppNotFound = awserr.New("NotFoundException: app not found", awserr.ErrNotFound)
+	// ErrValidation is returned when request parameters fail validation.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrAlreadyExists is returned when a resource with the same key already exists.
+	ErrAlreadyExists = awserr.New("ConflictException: resource already exists", awserr.ErrConflict)
+)
 
-// StorageBackend is the storage interface for the Pinpoint service.
-type StorageBackend interface {
-	CreateApp(region, accountID, name string, tags map[string]string) (*App, error)
-	GetApp(appID string) (*App, error)
-	DeleteApp(appID string) (*App, error)
-	GetApps() ([]*App, error)
-	TagResource(resourceARN string, tags map[string]string) error
-	UntagResource(resourceARN string, tagKeys []string) error
-	ListTagsForResource(resourceARN string) (map[string]string, error)
-	CreateCampaign(region, accountID, appID string, req createCampaignRequest) (*Campaign, error)
-	CreateEmailTemplate(region, accountID, templateName string, req createEmailTemplateRequest) (*EmailTemplate, error)
-	CreateExportJob(appID string, req createExportJobRequest) (*ExportJob, error)
-	CreateImportJob(appID string, req createImportJobRequest) (*ImportJob, error)
-	CreateInAppTemplate(region, accountID, templateName string, req createInAppTemplateRequest) (*InAppTemplate, error)
-	CreateJourney(region, accountID, appID string, req createJourneyRequest) (*Journey, error)
-	CreatePushTemplate(region, accountID, templateName string, req createPushTemplateRequest) (*PushTemplate, error)
-	CreateRecommenderConfiguration(req createRecommenderConfigRequest) (*RecommenderConfiguration, error)
-	CreateSegment(region, accountID, appID string, req createSegmentRequest) (*Segment, error)
-	CreateSmsTemplate(region, accountID, templateName string, req createSmsTemplateRequest) (*SmsTemplate, error)
+// tagHolder is implemented by all resource types that carry tags and an ARN,
+// allowing the ARN index to support tag operations on any resource type.
+type tagHolder interface {
+	getARN() string
+	getTags() map[string]string
+	setTags(map[string]string)
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	apps           map[string]*App
+	inAppTemplates map[string]*InAppTemplate
+	segments       map[string]*Segment
 	campaigns      map[string]*Campaign
 	emailTemplates map[string]*EmailTemplate
 	exportJobs     map[string]*ExportJob
 	importJobs     map[string]*ImportJob
-	inAppTemplates map[string]*InAppTemplate
-	journeys       map[string]*Journey
+	arnIndex       map[string]tagHolder
 	pushTemplates  map[string]*PushTemplate
+	apps           map[string]*App
 	recommenders   map[string]*RecommenderConfiguration
-	segments       map[string]*Segment
+	journeys       map[string]*Journey
 	smsTemplates   map[string]*SmsTemplate
-	region         string
+	mu             *lockmetrics.RWMutex
 	accountID      string
-	mu             sync.RWMutex
+	region         string
 }
-
-var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new Pinpoint in-memory backend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		region:         region,
 		accountID:      accountID,
+		mu:             lockmetrics.New("pinpoint"),
 		apps:           make(map[string]*App),
+		arnIndex:       make(map[string]tagHolder),
 		campaigns:      make(map[string]*Campaign),
 		emailTemplates: make(map[string]*EmailTemplate),
 		exportJobs:     make(map[string]*ExportJob),
@@ -74,37 +69,100 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all stored state and returns the backend to a pristine state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.apps = make(map[string]*App)
+	b.arnIndex = make(map[string]tagHolder)
+	b.campaigns = make(map[string]*Campaign)
+	b.emailTemplates = make(map[string]*EmailTemplate)
+	b.exportJobs = make(map[string]*ExportJob)
+	b.importJobs = make(map[string]*ImportJob)
+	b.inAppTemplates = make(map[string]*InAppTemplate)
+	b.journeys = make(map[string]*Journey)
+	b.pushTemplates = make(map[string]*PushTemplate)
+	b.recommenders = make(map[string]*RecommenderConfiguration)
+	b.segments = make(map[string]*Segment)
+	b.smsTemplates = make(map[string]*SmsTemplate)
+}
+
+// Region returns the configured AWS region.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the configured AWS account ID.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// ──────────────────────────────────────────────────
+// Seed helpers (for testing / demo data)
+// ──────────────────────────────────────────────────
+
+// AddAppInternal seeds an application directly without going through the HTTP layer.
+func (b *InMemoryBackend) AddAppInternal(app *App) {
+	b.mu.Lock("AddAppInternal")
+	defer b.mu.Unlock()
+
+	b.apps[app.ID] = app
+	b.arnIndex[app.ARN] = app
+}
+
+// AddCampaignInternal seeds a campaign directly without going through the HTTP layer.
+func (b *InMemoryBackend) AddCampaignInternal(c *Campaign) {
+	b.mu.Lock("AddCampaignInternal")
+	defer b.mu.Unlock()
+
+	b.campaigns[c.ID] = c
+	b.arnIndex[c.ARN] = c
+}
+
+// AddSegmentInternal seeds a segment directly without going through the HTTP layer.
+func (b *InMemoryBackend) AddSegmentInternal(s *Segment) {
+	b.mu.Lock("AddSegmentInternal")
+	defer b.mu.Unlock()
+
+	b.segments[s.ID] = s
+	b.arnIndex[s.ARN] = s
+}
+
+// AddJourneyInternal seeds a journey directly without going through the HTTP layer.
+func (b *InMemoryBackend) AddJourneyInternal(j *Journey) {
+	b.mu.Lock("AddJourneyInternal")
+	defer b.mu.Unlock()
+
+	b.journeys[j.ID] = j
+	b.arnIndex[j.ARN] = j
+}
+
+// ──────────────────────────────────────────────────
+// App CRUD
+// ──────────────────────────────────────────────────
+
 // CreateApp creates a new Pinpoint application.
 func (b *InMemoryBackend) CreateApp(region, accountID, name string, tags map[string]string) (*App, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateApp")
 	defer b.mu.Unlock()
 
 	appID := uuid.NewString()
 	appARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s", appID))
 
-	appTags := make(map[string]string)
-	maps.Copy(appTags, tags)
-
 	app := &App{
 		ID:           appID,
 		Name:         name,
 		ARN:          appARN,
-		Tags:         appTags,
+		Tags:         nonNilTagsCopy(tags),
 		CreationDate: nowRFC3339(),
 	}
 
 	b.apps[appID] = app
+	b.arnIndex[appARN] = app
 
-	cp := *app
-	cp.Tags = make(map[string]string, len(app.Tags))
-	maps.Copy(cp.Tags, app.Tags)
-
-	return &cp, nil
+	return cloneApp(app), nil
 }
 
 // GetApp retrieves a Pinpoint application by ID.
 func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetApp")
 	defer b.mu.RUnlock()
 
 	app, ok := b.apps[appID]
@@ -112,16 +170,12 @@ func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
 		return nil, ErrAppNotFound
 	}
 
-	cp := *app
-	cp.Tags = make(map[string]string, len(app.Tags))
-	maps.Copy(cp.Tags, app.Tags)
-
-	return &cp, nil
+	return cloneApp(app), nil
 }
 
 // DeleteApp deletes a Pinpoint application by ID.
 func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
 	app, ok := b.apps[appID]
@@ -130,26 +184,20 @@ func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 	}
 
 	delete(b.apps, appID)
+	delete(b.arnIndex, app.ARN)
 
-	cp := *app
-	cp.Tags = make(map[string]string, len(app.Tags))
-	maps.Copy(cp.Tags, app.Tags)
-
-	return &cp, nil
+	return cloneApp(app), nil
 }
 
 // GetApps returns all Pinpoint applications sorted by name.
 func (b *InMemoryBackend) GetApps() ([]*App, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetApps")
 	defer b.mu.RUnlock()
 
 	apps := make([]*App, 0, len(b.apps))
 
 	for _, app := range b.apps {
-		cp := *app
-		cp.Tags = make(map[string]string, len(app.Tags))
-		maps.Copy(cp.Tags, app.Tags)
-		apps = append(apps, &cp)
+		apps = append(apps, cloneApp(app))
 	}
 
 	sort.Slice(apps, func(i, j int) bool {
@@ -159,37 +207,45 @@ func (b *InMemoryBackend) GetApps() ([]*App, error) {
 	return apps, nil
 }
 
+// ──────────────────────────────────────────────────
+// Tag operations (all ARN-indexed resource types)
+// ──────────────────────────────────────────────────
+
 // TagResource adds or updates tags on a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	app := b.findByARN(resourceARN)
-	if app == nil {
+	res := b.arnIndex[resourceARN]
+	if res == nil {
 		return ErrAppNotFound
 	}
 
-	if app.Tags == nil {
-		app.Tags = make(map[string]string)
+	current := res.getTags()
+	if current == nil {
+		current = make(map[string]string)
 	}
 
-	maps.Copy(app.Tags, tags)
+	maps.Copy(current, tags)
+	res.setTags(current)
 
 	return nil
 }
 
 // UntagResource removes tags from a resource identified by ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	app := b.findByARN(resourceARN)
-	if app == nil {
+	res := b.arnIndex[resourceARN]
+	if res == nil {
 		return ErrAppNotFound
 	}
 
+	tags := res.getTags()
+
 	for _, k := range tagKeys {
-		delete(app.Tags, k)
+		delete(tags, k)
 	}
 
 	return nil
@@ -197,45 +253,36 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // ListTagsForResource returns all tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	app := b.findByARN(resourceARN)
-	if app == nil {
+	res := b.arnIndex[resourceARN]
+	if res == nil {
 		return nil, ErrAppNotFound
 	}
 
-	result := make(map[string]string, len(app.Tags))
-	maps.Copy(result, app.Tags)
-
-	return result, nil
+	return nonNilTagsCopy(res.getTags()), nil
 }
 
-// findByARN looks up an app by its ARN. Must be called with lock held.
-func (b *InMemoryBackend) findByARN(resourceARN string) *App {
-	for _, app := range b.apps {
-		if app.ARN == resourceARN {
-			return app
-		}
-	}
-
-	return nil
-}
+// ──────────────────────────────────────────────────
+// Campaign
+// ──────────────────────────────────────────────────
 
 // CreateCampaign creates a new Pinpoint campaign for an application.
 func (b *InMemoryBackend) CreateCampaign(
 	region, accountID, appID string,
 	req createCampaignRequest,
 ) (*Campaign, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCampaign")
 	defer b.mu.Unlock()
+
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
 
 	id := uuid.NewString()
 	campaignARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/campaigns/%s", appID, id))
 	now := nowRFC3339()
-
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
 
 	c := &Campaign{
 		ApplicationID:    appID,
@@ -244,60 +291,155 @@ func (b *InMemoryBackend) CreateCampaign(
 		Name:             req.Name,
 		SegmentID:        req.SegmentID,
 		SegmentVersion:   req.SegmentVersion,
-		Tags:             tags,
+		Tags:             nonNilTagsCopy(req.Tags),
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
 
 	b.campaigns[id] = c
+	b.arnIndex[campaignARN] = c
 
-	cp := *c
-	cp.Tags = make(map[string]string, len(c.Tags))
-	maps.Copy(cp.Tags, c.Tags)
-
-	return &cp, nil
+	return cloneCampaign(c), nil
 }
+
+// ──────────────────────────────────────────────────
+// Templates
+// ──────────────────────────────────────────────────
 
 // CreateEmailTemplate creates a new Pinpoint email template.
 func (b *InMemoryBackend) CreateEmailTemplate(
 	region, accountID, templateName string,
 	req createEmailTemplateRequest,
 ) (*EmailTemplate, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateEmailTemplate")
 	defer b.mu.Unlock()
 
-	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/EMAIL", templateName))
+	if _, exists := b.emailTemplates[templateName]; exists {
+		return nil, ErrAlreadyExists
+	}
 
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
+	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/EMAIL", templateName))
 
 	t := &EmailTemplate{
 		ARN:          templateARN,
 		TemplateName: templateName,
-		Tags:         tags,
+		Tags:         nonNilTagsCopy(req.Tags),
 		CreationDate: nowRFC3339(),
 	}
 
 	b.emailTemplates[templateName] = t
+	b.arnIndex[templateARN] = t
 
-	cp := *t
-	cp.Tags = make(map[string]string, len(t.Tags))
-	maps.Copy(cp.Tags, t.Tags)
-
-	return &cp, nil
+	return cloneEmailTemplate(t), nil
 }
 
-// CreateExportJob creates a new Pinpoint export job for an application.
-func (b *InMemoryBackend) CreateExportJob(appID string, _ createExportJobRequest) (*ExportJob, error) {
-	b.mu.Lock()
+// CreateInAppTemplate creates a new Pinpoint in-app template.
+func (b *InMemoryBackend) CreateInAppTemplate(
+	region, accountID, templateName string,
+	req createInAppTemplateRequest,
+) (*InAppTemplate, error) {
+	b.mu.Lock("CreateInAppTemplate")
 	defer b.mu.Unlock()
 
+	if _, exists := b.inAppTemplates[templateName]; exists {
+		return nil, ErrAlreadyExists
+	}
+
+	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/INAPP", templateName))
+
+	t := &InAppTemplate{
+		ARN:          templateARN,
+		TemplateName: templateName,
+		Tags:         nonNilTagsCopy(req.Tags),
+		CreationDate: nowRFC3339(),
+	}
+
+	b.inAppTemplates[templateName] = t
+	b.arnIndex[templateARN] = t
+
+	return cloneInAppTemplate(t), nil
+}
+
+// CreatePushTemplate creates a new Pinpoint push notification template.
+func (b *InMemoryBackend) CreatePushTemplate(
+	region, accountID, templateName string,
+	req createPushTemplateRequest,
+) (*PushTemplate, error) {
+	b.mu.Lock("CreatePushTemplate")
+	defer b.mu.Unlock()
+
+	if _, exists := b.pushTemplates[templateName]; exists {
+		return nil, ErrAlreadyExists
+	}
+
+	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/PUSH", templateName))
+
+	t := &PushTemplate{
+		ARN:          templateARN,
+		TemplateName: templateName,
+		Tags:         nonNilTagsCopy(req.Tags),
+		CreationDate: nowRFC3339(),
+	}
+
+	b.pushTemplates[templateName] = t
+	b.arnIndex[templateARN] = t
+
+	return clonePushTemplate(t), nil
+}
+
+// CreateSmsTemplate creates a new Pinpoint SMS template.
+func (b *InMemoryBackend) CreateSmsTemplate(
+	region, accountID, templateName string,
+	req createSmsTemplateRequest,
+) (*SmsTemplate, error) {
+	b.mu.Lock("CreateSmsTemplate")
+	defer b.mu.Unlock()
+
+	if _, exists := b.smsTemplates[templateName]; exists {
+		return nil, ErrAlreadyExists
+	}
+
+	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/SMS", templateName))
+
+	t := &SmsTemplate{
+		ARN:          templateARN,
+		TemplateName: templateName,
+		Tags:         nonNilTagsCopy(req.Tags),
+		CreationDate: nowRFC3339(),
+	}
+
+	b.smsTemplates[templateName] = t
+	b.arnIndex[templateARN] = t
+
+	return cloneSmsTemplate(t), nil
+}
+
+// ──────────────────────────────────────────────────
+// Jobs
+// ──────────────────────────────────────────────────
+
+// CreateExportJob creates a new Pinpoint export job for an application.
+func (b *InMemoryBackend) CreateExportJob(
+	region, accountID, appID string,
+	req createExportJobRequest,
+) (*ExportJob, error) {
+	b.mu.Lock("CreateExportJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
+
 	id := uuid.NewString()
+	jobARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/jobs/export/%s", appID, id))
 
 	j := &ExportJob{
+		ARN:           jobARN,
 		ApplicationID: appID,
 		ID:            id,
-		JobStatus:     "CREATED",
+		RoleArn:       req.RoleArn,
+		S3UrlPrefix:   req.S3UrlPrefix,
+		JobStatus:     jobStatusCreated,
 		CreationDate:  nowRFC3339(),
 	}
 
@@ -309,16 +451,28 @@ func (b *InMemoryBackend) CreateExportJob(appID string, _ createExportJobRequest
 }
 
 // CreateImportJob creates a new Pinpoint import job for an application.
-func (b *InMemoryBackend) CreateImportJob(appID string, _ createImportJobRequest) (*ImportJob, error) {
-	b.mu.Lock()
+func (b *InMemoryBackend) CreateImportJob(
+	region, accountID, appID string,
+	req createImportJobRequest,
+) (*ImportJob, error) {
+	b.mu.Lock("CreateImportJob")
 	defer b.mu.Unlock()
 
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
+
 	id := uuid.NewString()
+	jobARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/jobs/import/%s", appID, id))
 
 	j := &ImportJob{
+		ARN:           jobARN,
 		ApplicationID: appID,
 		ID:            id,
-		JobStatus:     "CREATED",
+		RoleArn:       req.RoleArn,
+		S3Url:         req.S3Url,
+		Format:        req.Format,
+		JobStatus:     jobStatusCreated,
 		CreationDate:  nowRFC3339(),
 	}
 
@@ -329,109 +483,56 @@ func (b *InMemoryBackend) CreateImportJob(appID string, _ createImportJobRequest
 	return &cp, nil
 }
 
-// CreateInAppTemplate creates a new Pinpoint in-app template.
-func (b *InMemoryBackend) CreateInAppTemplate(
-	region, accountID, templateName string,
-	req createInAppTemplateRequest,
-) (*InAppTemplate, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/INAPP", templateName))
-
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
-
-	t := &InAppTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         tags,
-		CreationDate: nowRFC3339(),
-	}
-
-	b.inAppTemplates[templateName] = t
-
-	cp := *t
-	cp.Tags = make(map[string]string, len(t.Tags))
-	maps.Copy(cp.Tags, t.Tags)
-
-	return &cp, nil
-}
+// ──────────────────────────────────────────────────
+// Journey
+// ──────────────────────────────────────────────────
 
 // CreateJourney creates a new Pinpoint journey for an application.
-func (b *InMemoryBackend) CreateJourney(_, _, appID string, req createJourneyRequest) (*Journey, error) {
-	b.mu.Lock()
+func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req createJourneyRequest) (*Journey, error) {
+	b.mu.Lock("CreateJourney")
 	defer b.mu.Unlock()
 
-	id := uuid.NewString()
-	now := nowRFC3339()
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
 
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
+	id := uuid.NewString()
+	journeyARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/journeys/%s", appID, id))
+	now := nowRFC3339()
 
 	j := &Journey{
 		ApplicationID:    appID,
+		ARN:              journeyARN,
 		ID:               id,
 		Name:             req.Name,
-		State:            "DRAFT",
-		Tags:             tags,
+		State:            journeyStateDraft,
+		Tags:             nonNilTagsCopy(req.Tags),
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
 
 	b.journeys[id] = j
+	b.arnIndex[journeyARN] = j
 
-	cp := *j
-	cp.Tags = make(map[string]string, len(j.Tags))
-	maps.Copy(cp.Tags, j.Tags)
-
-	return &cp, nil
+	return cloneJourney(j), nil
 }
 
-// CreatePushTemplate creates a new Pinpoint push notification template.
-func (b *InMemoryBackend) CreatePushTemplate(
-	region, accountID, templateName string,
-	req createPushTemplateRequest,
-) (*PushTemplate, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/PUSH", templateName))
-
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
-
-	t := &PushTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         tags,
-		CreationDate: nowRFC3339(),
-	}
-
-	b.pushTemplates[templateName] = t
-
-	cp := *t
-	cp.Tags = make(map[string]string, len(t.Tags))
-	maps.Copy(cp.Tags, t.Tags)
-
-	return &cp, nil
-}
+// ──────────────────────────────────────────────────
+// Recommender
+// ──────────────────────────────────────────────────
 
 // CreateRecommenderConfiguration creates a new Pinpoint recommender configuration.
 func (b *InMemoryBackend) CreateRecommenderConfiguration(
 	req createRecommenderConfigRequest,
 ) (*RecommenderConfiguration, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateRecommenderConfiguration")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
 	now := nowRFC3339()
 
-	attrs := make(map[string]string, len(req.Attributes))
-	maps.Copy(attrs, req.Attributes)
-
 	r := &RecommenderConfiguration{
-		Attributes:                    attrs,
+		Attributes:                    nonNilAttrsCopy(req.Attributes),
 		ID:                            id,
 		Name:                          req.Name,
 		Description:                   req.Description,
@@ -446,67 +547,164 @@ func (b *InMemoryBackend) CreateRecommenderConfiguration(
 	b.recommenders[id] = r
 
 	cp := *r
-	cp.Attributes = make(map[string]string, len(r.Attributes))
-	maps.Copy(cp.Attributes, r.Attributes)
+	cp.Attributes = nonNilAttrsCopy(r.Attributes)
 
 	return &cp, nil
 }
 
+// ──────────────────────────────────────────────────
+// Segment
+// ──────────────────────────────────────────────────
+
 // CreateSegment creates a new Pinpoint segment for an application.
 func (b *InMemoryBackend) CreateSegment(region, accountID, appID string, req createSegmentRequest) (*Segment, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSegment")
 	defer b.mu.Unlock()
+
+	if _, ok := b.apps[appID]; !ok {
+		return nil, ErrAppNotFound
+	}
 
 	id := uuid.NewString()
 	segmentARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/segments/%s", appID, id))
-
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
 
 	s := &Segment{
 		ApplicationID: appID,
 		ARN:           segmentARN,
 		ID:            id,
 		Name:          req.Name,
-		SegmentType:   "DIMENSIONAL",
-		Tags:          tags,
+		SegmentType:   segmentTypeDimensional,
+		Tags:          nonNilTagsCopy(req.Tags),
 		CreationDate:  nowRFC3339(),
 	}
 
 	b.segments[id] = s
+	b.arnIndex[segmentARN] = s
 
-	cp := *s
-	cp.Tags = make(map[string]string, len(s.Tags))
-	maps.Copy(cp.Tags, s.Tags)
-
-	return &cp, nil
+	return cloneSegment(s), nil
 }
 
-// CreateSmsTemplate creates a new Pinpoint SMS template.
-func (b *InMemoryBackend) CreateSmsTemplate(
-	region, accountID, templateName string,
-	req createSmsTemplateRequest,
-) (*SmsTemplate, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// ──────────────────────────────────────────────────
+// Clone helpers (deep-copy per resource type)
+// ──────────────────────────────────────────────────
 
-	templateARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("templates/%s/SMS", templateName))
+func cloneApp(a *App) *App {
+	cp := *a
+	cp.Tags = nonNilTagsCopy(a.Tags)
 
-	tags := make(map[string]string, len(req.Tags))
-	maps.Copy(tags, req.Tags)
+	return &cp
+}
 
-	t := &SmsTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Tags:         tags,
-		CreationDate: nowRFC3339(),
-	}
+func cloneCampaign(c *Campaign) *Campaign {
+	cp := *c
+	cp.Tags = nonNilTagsCopy(c.Tags)
 
-	b.smsTemplates[templateName] = t
+	return &cp
+}
 
+func cloneEmailTemplate(t *EmailTemplate) *EmailTemplate {
 	cp := *t
-	cp.Tags = make(map[string]string, len(t.Tags))
-	maps.Copy(cp.Tags, t.Tags)
+	cp.Tags = nonNilTagsCopy(t.Tags)
 
-	return &cp, nil
+	return &cp
 }
+
+func cloneInAppTemplate(t *InAppTemplate) *InAppTemplate {
+	cp := *t
+	cp.Tags = nonNilTagsCopy(t.Tags)
+
+	return &cp
+}
+
+func clonePushTemplate(t *PushTemplate) *PushTemplate {
+	cp := *t
+	cp.Tags = nonNilTagsCopy(t.Tags)
+
+	return &cp
+}
+
+func cloneSmsTemplate(t *SmsTemplate) *SmsTemplate {
+	cp := *t
+	cp.Tags = nonNilTagsCopy(t.Tags)
+
+	return &cp
+}
+
+func cloneJourney(j *Journey) *Journey {
+	cp := *j
+	cp.Tags = nonNilTagsCopy(j.Tags)
+
+	return &cp
+}
+
+func cloneSegment(s *Segment) *Segment {
+	cp := *s
+	cp.Tags = nonNilTagsCopy(s.Tags)
+
+	return &cp
+}
+
+// ──────────────────────────────────────────────────
+// Tag/attr copy helpers
+// ──────────────────────────────────────────────────
+
+// nonNilTagsCopy returns a copy of the given tags map; never returns nil.
+func nonNilTagsCopy(tags map[string]string) map[string]string {
+	cp := make(map[string]string, len(tags))
+	maps.Copy(cp, tags)
+
+	return cp
+}
+
+// nonNilAttrsCopy returns a copy of the given attribute map; never returns nil.
+func nonNilAttrsCopy(attrs map[string]string) map[string]string {
+	return nonNilTagsCopy(attrs)
+}
+
+// ──────────────────────────────────────────────────
+// tagHolder implementations
+// ──────────────────────────────────────────────────
+
+// Compile-time assertions that all tag-bearing resource types implement tagHolder.
+var (
+	_ tagHolder = (*App)(nil)
+	_ tagHolder = (*Campaign)(nil)
+	_ tagHolder = (*EmailTemplate)(nil)
+	_ tagHolder = (*InAppTemplate)(nil)
+	_ tagHolder = (*Journey)(nil)
+	_ tagHolder = (*PushTemplate)(nil)
+	_ tagHolder = (*Segment)(nil)
+	_ tagHolder = (*SmsTemplate)(nil)
+)
+
+func (a *App) getARN() string              { return a.ARN }
+func (a *App) getTags() map[string]string  { return a.Tags }
+func (a *App) setTags(t map[string]string) { a.Tags = t }
+
+func (c *Campaign) getARN() string              { return c.ARN }
+func (c *Campaign) getTags() map[string]string  { return c.Tags }
+func (c *Campaign) setTags(t map[string]string) { c.Tags = t }
+
+func (e *EmailTemplate) getARN() string              { return e.ARN }
+func (e *EmailTemplate) getTags() map[string]string  { return e.Tags }
+func (e *EmailTemplate) setTags(t map[string]string) { e.Tags = t }
+
+func (i *InAppTemplate) getARN() string              { return i.ARN }
+func (i *InAppTemplate) getTags() map[string]string  { return i.Tags }
+func (i *InAppTemplate) setTags(t map[string]string) { i.Tags = t }
+
+func (j *Journey) getARN() string              { return j.ARN }
+func (j *Journey) getTags() map[string]string  { return j.Tags }
+func (j *Journey) setTags(t map[string]string) { j.Tags = t }
+
+func (p *PushTemplate) getARN() string              { return p.ARN }
+func (p *PushTemplate) getTags() map[string]string  { return p.Tags }
+func (p *PushTemplate) setTags(t map[string]string) { p.Tags = t }
+
+func (s *Segment) getARN() string              { return s.ARN }
+func (s *Segment) getTags() map[string]string  { return s.Tags }
+func (s *Segment) setTags(t map[string]string) { s.Tags = t }
+
+func (t *SmsTemplate) getARN() string              { return t.ARN }
+func (t *SmsTemplate) getTags() map[string]string  { return t.Tags }
+func (t *SmsTemplate) setTags(m map[string]string) { t.Tags = m }
