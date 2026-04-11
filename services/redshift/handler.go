@@ -508,6 +508,7 @@ func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
 
 // parseRedshiftTags extracts Tags.Tag.N.Key/Tags.Tag.N.Value from form values.
 // At most maxListItems tags are returned to prevent resource exhaustion.
+// Returns as soon as an empty key is found (tags are expected to be consecutive).
 func parseRedshiftTags(vals url.Values) map[string]string {
 	tags := make(map[string]string)
 
@@ -516,12 +517,14 @@ func parseRedshiftTags(vals url.Values) map[string]string {
 		key := vals.Get(prefix + "Key")
 
 		if key == "" {
+			// Tags are 1-indexed and consecutive; first missing key ends iteration.
 			return tags
 		}
 
 		tags[key] = vals.Get(prefix + "Value")
 	}
 
+	// maxListItems exhausted without finding a missing key.
 	return tags
 }
 
