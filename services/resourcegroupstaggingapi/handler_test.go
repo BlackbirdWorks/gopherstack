@@ -52,6 +52,17 @@ func doTaggingRequest(
 		bodyBytes = []byte("{}")
 	}
 
+	return doTaggingRequestRaw(t, h, action, bodyBytes)
+}
+
+func doTaggingRequestRaw(
+	t *testing.T,
+	h *resourcegroupstaggingapi.Handler,
+	action string,
+	bodyBytes []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -266,9 +277,210 @@ func TestHandler_ServiceInterface(t *testing.T) {
 
 	assert.Equal(t, "ResourceGroupsTaggingAPI", h.Name())
 	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
+	assert.Contains(t, h.GetSupportedOperations(), "DescribeReportCreation")
+	assert.Contains(t, h.GetSupportedOperations(), "GetComplianceSummary")
 	assert.Contains(t, h.GetSupportedOperations(), "GetResources")
 	assert.Contains(t, h.GetSupportedOperations(), "GetTagKeys")
 	assert.Contains(t, h.GetSupportedOperations(), "GetTagValues")
+	assert.Contains(t, h.GetSupportedOperations(), "ListRequiredTags")
+	assert.Contains(t, h.GetSupportedOperations(), "StartReportCreation")
 	assert.Contains(t, h.GetSupportedOperations(), "TagResources")
 	assert.Contains(t, h.GetSupportedOperations(), "UntagResources")
+}
+
+func TestHandler_StartReportCreation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name:     "valid_bucket",
+			body:     map[string]any{"S3Bucket": "my-report-bucket"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:         "missing_bucket",
+			body:         map[string]any{},
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ValidationException",
+		},
+		{
+			name:         "empty_bucket",
+			body:         map[string]any{"S3Bucket": ""},
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTaggingRequest(t, h, "StartReportCreation", tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeReportCreation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn      func(*resourcegroupstaggingapi.Handler)
+		name         string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name:         "no_report_created",
+			wantCode:     http.StatusOK,
+			wantContains: "NO REPORT",
+		},
+		{
+			name: "after_start_report_creation",
+			setupFn: func(h *resourcegroupstaggingapi.Handler) {
+				doTaggingRequest(t, h, "StartReportCreation", map[string]any{"S3Bucket": "my-bucket"})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: "SUCCEEDED",
+		},
+		{
+			name: "s3_location_present_after_start",
+			setupFn: func(h *resourcegroupstaggingapi.Handler) {
+				doTaggingRequest(t, h, "StartReportCreation", map[string]any{"S3Bucket": "test-bucket"})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: "test-bucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setupFn != nil {
+				tt.setupFn(h)
+			}
+
+			rec := doTaggingRequest(t, h, "DescribeReportCreation", map[string]any{})
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestHandler_GetComplianceSummary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name:         "empty_request",
+			body:         map[string]any{},
+			wantCode:     http.StatusOK,
+			wantContains: "SummaryList",
+		},
+		{
+			name: "with_filters",
+			body: map[string]any{
+				"RegionFilters":       []string{"us-east-1"},
+				"ResourceTypeFilters": []string{"ec2:instance"},
+				"TagKeyFilters":       []string{"env"},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: "SummaryList",
+		},
+		{
+			name: "with_pagination",
+			body: map[string]any{
+				"MaxResults": 10,
+			},
+			wantCode:     http.StatusOK,
+			wantContains: "SummaryList",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTaggingRequest(t, h, "GetComplianceSummary", tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestHandler_ListRequiredTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         any
+		name         string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name:         "empty_request",
+			body:         map[string]any{},
+			wantCode:     http.StatusOK,
+			wantContains: "RequiredTags",
+		},
+		{
+			name: "with_max_results",
+			body: map[string]any{
+				"MaxResults": 50,
+			},
+			wantCode:     http.StatusOK,
+			wantContains: "RequiredTags",
+		},
+		{
+			name: "with_next_token",
+			body: map[string]any{
+				"NextToken": "some-token",
+			},
+			wantCode:     http.StatusOK,
+			wantContains: "RequiredTags",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTaggingRequest(t, h, "ListRequiredTags", tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
 }

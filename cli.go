@@ -3614,7 +3614,7 @@ func arnServiceIs(a, serviceName string) bool {
 // the Resource Groups Tagging API backend. arnService is the AWS service name used to match
 // the service segment of an ARN (e.g., "sqs", "sns", "lambda").
 func registerTaggingService(
-	bk *resourcegroupstaggingapibackend.InMemoryBackend,
+	bk resourcegroupstaggingapibackend.StorageBackend,
 	provider resourcegroupstaggingapibackend.ResourceProvider,
 	arnService string,
 	tagger func(string, map[string]string) error,
@@ -3664,7 +3664,7 @@ func wireResourceGroupsTagging(
 	wireTaggingSM(bk, smReg)
 }
 
-func wireTaggingDDB(bk *resourcegroupstaggingapibackend.InMemoryBackend, ddbReg service.Registerable) {
+func wireTaggingDDB(bk resourcegroupstaggingapibackend.StorageBackend, ddbReg service.Registerable) {
 	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
 	if !ok {
 		return
@@ -3715,7 +3715,7 @@ func wireTaggingDDB(bk *resourcegroupstaggingapibackend.InMemoryBackend, ddbReg 
 	)
 }
 
-func wireTaggingSQS(bk *resourcegroupstaggingapibackend.InMemoryBackend, sqsReg service.Registerable) {
+func wireTaggingSQS(bk resourcegroupstaggingapibackend.StorageBackend, sqsReg service.Registerable) {
 	sqsH, ok := sqsReg.(*sqsbackend.Handler)
 	if !ok {
 		return
@@ -3746,7 +3746,7 @@ func wireTaggingSQS(bk *resourcegroupstaggingapibackend.InMemoryBackend, sqsReg 
 	)
 }
 
-func wireTaggingSNS(bk *resourcegroupstaggingapibackend.InMemoryBackend, snsReg service.Registerable) {
+func wireTaggingSNS(bk resourcegroupstaggingapibackend.StorageBackend, snsReg service.Registerable) {
 	snsH, ok := snsReg.(*snsbackend.Handler)
 	if !ok {
 		return
@@ -3777,7 +3777,7 @@ func wireTaggingSNS(bk *resourcegroupstaggingapibackend.InMemoryBackend, snsReg 
 	)
 }
 
-func wireTaggingLambda(bk *resourcegroupstaggingapibackend.InMemoryBackend, lambdaReg service.Registerable) {
+func wireTaggingLambda(bk resourcegroupstaggingapibackend.StorageBackend, lambdaReg service.Registerable) {
 	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
 	if !ok {
 		return
@@ -3803,7 +3803,7 @@ func wireTaggingLambda(bk *resourcegroupstaggingapibackend.InMemoryBackend, lamb
 	)
 }
 
-func wireTaggingKMS(bk *resourcegroupstaggingapibackend.InMemoryBackend, kmsReg service.Registerable) {
+func wireTaggingKMS(bk resourcegroupstaggingapibackend.StorageBackend, kmsReg service.Registerable) {
 	kmsH, ok := kmsReg.(*kmsbackend.Handler)
 	if !ok {
 		return
@@ -3829,7 +3829,7 @@ func wireTaggingKMS(bk *resourcegroupstaggingapibackend.InMemoryBackend, kmsReg 
 	)
 }
 
-func wireTaggingSM(bk *resourcegroupstaggingapibackend.InMemoryBackend, smReg service.Registerable) {
+func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg service.Registerable) {
 	smH, ok := smReg.(*secretsmanagerbackend.Handler)
 	if !ok {
 		return

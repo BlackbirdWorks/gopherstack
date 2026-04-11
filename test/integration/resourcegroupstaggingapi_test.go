@@ -179,3 +179,71 @@ func TestIntegration_TaggingAPI_UnknownOperation(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "body: %s", body)
 }
+
+func TestIntegration_TaggingAPI_StartReportCreation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "valid_bucket",
+			body:     map[string]any{"S3Bucket": "my-report-bucket"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "missing_bucket",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dumpContainerLogsOnFailure(t)
+
+			resp := taggingAPIPost(t, "StartReportCreation", tt.body)
+			body := taggingAPIBody(t, resp)
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode, "body: %s", body)
+		})
+	}
+}
+
+func TestIntegration_TaggingAPI_DescribeReportCreation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	// Describe before starting a report — should return NO REPORT.
+	resp := taggingAPIPost(t, "DescribeReportCreation", map[string]any{})
+	body := taggingAPIBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, body, "Status")
+}
+
+func TestIntegration_TaggingAPI_GetComplianceSummary(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	resp := taggingAPIPost(t, "GetComplianceSummary", map[string]any{})
+	body := taggingAPIBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, body, "SummaryList")
+}
+
+func TestIntegration_TaggingAPI_ListRequiredTags(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	resp := taggingAPIPost(t, "ListRequiredTags", map[string]any{})
+	body := taggingAPIBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, body, "RequiredTags")
+}
