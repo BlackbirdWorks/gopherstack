@@ -1,16 +1,19 @@
 package releaser
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 
 	copilot "github.com/github/copilot-sdk/go"
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
 )
 
 // Provider represents the AI provider to use for generating release notes.
@@ -28,6 +31,8 @@ var (
 	ErrUnsupportedProvider = errors.New("unsupported provider")
 	// ErrTokenRequired is returned when a required token/API key is missing.
 	ErrTokenRequired = errors.New("token required")
+	// ErrGeminiStatus is returned when the Gemini API returns a non-success status.
+	ErrGeminiStatus = errors.New("gemini api returned non-success status")
 	// ErrNoContent is returned when the AI model returns no content.
 	ErrNoContent = errors.New("no content generated")
 	// ErrNoCandidates is returned when the AI model returns no candidates.
@@ -37,8 +42,9 @@ var (
 )
 
 const (
-	defaultModel = "gemini-1.5-flash"
-	maxDiffBytes = 512 * 1024 // 512 KB limit for code diffs
+	defaultModel   = "gemini-1.5-flash"
+	maxDiffBytes   = 512 * 1024 // 512 KB limit for code diffs
+	geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s"
 )
 
 // GenerateReleaseNotes fetches git commits since the last tag and uses the specified provider to summarize them.
@@ -80,30 +86,100 @@ func GenerateReleaseNotes(
 }
 
 func generateWithGemini(ctx context.Context, apiKey, modelName, prompt string) (string, error) {
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return "", fmt.Errorf("failed to create genai client: %w", err)
-	}
-	defer client.Close()
-
-	model := client.GenerativeModel(modelName)
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
-	if err != nil {
-		return "", fmt.Errorf("failed to generate content: %w", err)
+	if apiKey == "" {
+		return "", ErrTokenRequired
 	}
 
-	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+	type geminiRequest struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+
+	type geminiResponse struct {
+		Candidates []struct {
+			Content *struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+
+	requestBody := geminiRequest{
+		Contents: []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		}{
+			{
+				Parts: []struct {
+					Text string `json:"text"`
+				}{
+					{Text: prompt},
+				},
+			},
+		},
+	}
+
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal gemini request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		fmt.Sprintf(geminiEndpoint, url.PathEscape(modelName), url.QueryEscape(apiKey)),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create gemini request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call gemini api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read gemini response: %w", err)
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf(
+			"%w: status %d: %s",
+			ErrGeminiStatus,
+			resp.StatusCode,
+			strings.TrimSpace(string(respBody)),
+		)
+	}
+
+	var parsed geminiResponse
+	if unmarshalErr := json.Unmarshal(respBody, &parsed); unmarshalErr != nil {
+		return "", fmt.Errorf("failed to decode gemini response: %w", unmarshalErr)
+	}
+
+	if len(parsed.Candidates) == 0 || parsed.Candidates[0].Content == nil {
 		return "", ErrNoCandidates
 	}
 
 	var out []string
-	for _, part := range resp.Candidates[0].Content.Parts {
-		text, ok := part.(genai.Text)
-		if !ok {
-			return "", ErrUnexpectedContent
+	for _, part := range parsed.Candidates[0].Content.Parts {
+		if part.Text == "" {
+			continue
 		}
 
-		out = append(out, string(text))
+		out = append(out, part.Text)
+	}
+
+	if len(out) == 0 {
+		return "", ErrUnexpectedContent
 	}
 
 	return strings.Join(out, "\n"), nil
@@ -180,11 +256,16 @@ func attemptCopilotGeneration(ctx context.Context, token, modelName, prompt stri
 		return "", fmt.Errorf("failed to send message to copilot: %w", err)
 	}
 
-	if resp == nil || resp.Data.Content == nil {
+	if resp == nil {
 		return "", fmt.Errorf("%w by copilot", ErrNoContent)
 	}
 
-	return *resp.Data.Content, nil
+	message, ok := resp.Data.(*copilot.AssistantMessageData)
+	if !ok || message.Content == "" {
+		return "", fmt.Errorf("%w by copilot", ErrNoContent)
+	}
+
+	return message.Content, nil
 }
 
 // GetLatestTag returns the most recent git tag.

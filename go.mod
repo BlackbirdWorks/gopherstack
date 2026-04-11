@@ -1,6 +1,6 @@
 module github.com/blackbirdworks/gopherstack
 
-go 1.26.1
+go 1.26.2
 
 require (
 	github.com/alecthomas/kong v1.15.0
@@ -62,8 +62,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/swf v1.33.14
 	github.com/aws/smithy-go v1.24.3
 	github.com/distribution/distribution/v3 v3.1.0
-	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.6.0
+	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
@@ -162,29 +161,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/xray v1.36.20
 	github.com/github/copilot-sdk/go v0.2.2
-	github.com/google/generative-ai-go v0.20.0
-	google.golang.org/api v0.275.0
+	github.com/moby/moby/api v1.54.1
+	github.com/moby/moby/client v0.4.0
 )
 
-require (
-	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/ai v0.17.0 // indirect
-	cloud.google.com/go/auth v0.20.0 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	cloud.google.com/go/longrunning v0.10.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
-	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
-	github.com/googleapis/gax-go/v2 v2.21.0 // indirect
-	github.com/moby/moby/api v1.54.1 // indirect
-	github.com/moby/moby/client v0.4.0 // indirect
-	github.com/moby/sys/atomicwriter v0.1.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/genproto v0.0.0-20260406210006-6f92a3bedf2d // indirect
-)
+require github.com/google/jsonschema-go v0.4.2 // indirect
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -255,11 +236,9 @@ require (
 	github.com/moby/sys/user v0.4.0 // indirect
 	github.com/moby/sys/userns v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
-	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
