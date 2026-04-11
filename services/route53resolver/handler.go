@@ -32,11 +32,47 @@ type resolverRuleIDInput struct {
 }
 
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"AssociateFirewallRuleGroup":         service.WrapOp(h.handleAssociateFirewallRuleGroup),
+		"AssociateResolverEndpointIpAddress": service.WrapOp(h.handleAssociateResolverEndpointIPAddress),
+		"AssociateResolverQueryLogConfig":    service.WrapOp(h.handleAssociateResolverQueryLogConfig),
+		"AssociateResolverRule":              service.WrapOp(h.handleAssociateResolverRule),
+		"CreateFirewallDomainList":           service.WrapOp(h.handleCreateFirewallDomainList),
+		"CreateFirewallRule":                 service.WrapOp(h.handleCreateFirewallRule),
+		"CreateFirewallRuleGroup":            service.WrapOp(h.handleCreateFirewallRuleGroup),
+		"CreateOutpostResolver":              service.WrapOp(h.handleCreateOutpostResolver),
+		"CreateResolverEndpoint":             service.WrapOp(h.handleCreateResolverEndpoint),
+		"CreateResolverQueryLogConfig":       service.WrapOp(h.handleCreateResolverQueryLogConfig),
+		"DeleteFirewallDomainList":           service.WrapOp(h.handleDeleteFirewallDomainList),
+		"DeleteResolverEndpoint":             service.WrapOp(h.handleDeleteResolverEndpoint),
+		"GetResolverEndpoint":                service.WrapOp(h.handleGetResolverEndpoint),
+		"ListResolverEndpoints":              service.WrapOp(h.handleListResolverEndpoints),
+		"ListResolverEndpointIpAddresses":    service.WrapOp(h.handleListResolverEndpointIPAddresses),
+		"CreateResolverRule":                 service.WrapOp(h.handleCreateResolverRule),
+		"GetResolverRule":                    service.WrapOp(h.handleGetResolverRule),
+		"DeleteResolverRule":                 service.WrapOp(h.handleDeleteResolverRule),
+		"ListResolverRules":                  service.WrapOp(h.handleListResolverRules),
+		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                        service.WrapOp(h.handleTagResource),
+		"UntagResource":                      service.WrapOp(h.handleUntagResource),
+	}
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 func (h *Handler) Name() string { return "Route53Resolver" }
@@ -122,35 +158,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"AssociateFirewallRuleGroup":         service.WrapOp(h.handleAssociateFirewallRuleGroup),
-		"AssociateResolverEndpointIpAddress": service.WrapOp(h.handleAssociateResolverEndpointIPAddress),
-		"AssociateResolverQueryLogConfig":    service.WrapOp(h.handleAssociateResolverQueryLogConfig),
-		"AssociateResolverRule":              service.WrapOp(h.handleAssociateResolverRule),
-		"CreateFirewallDomainList":           service.WrapOp(h.handleCreateFirewallDomainList),
-		"CreateFirewallRule":                 service.WrapOp(h.handleCreateFirewallRule),
-		"CreateFirewallRuleGroup":            service.WrapOp(h.handleCreateFirewallRuleGroup),
-		"CreateOutpostResolver":              service.WrapOp(h.handleCreateOutpostResolver),
-		"CreateResolverEndpoint":             service.WrapOp(h.handleCreateResolverEndpoint),
-		"CreateResolverQueryLogConfig":       service.WrapOp(h.handleCreateResolverQueryLogConfig),
-		"DeleteFirewallDomainList":           service.WrapOp(h.handleDeleteFirewallDomainList),
-		"DeleteResolverEndpoint":             service.WrapOp(h.handleDeleteResolverEndpoint),
-		"GetResolverEndpoint":                service.WrapOp(h.handleGetResolverEndpoint),
-		"ListResolverEndpoints":              service.WrapOp(h.handleListResolverEndpoints),
-		"ListResolverEndpointIpAddresses":    service.WrapOp(h.handleListResolverEndpointIPAddresses),
-		"CreateResolverRule":                 service.WrapOp(h.handleCreateResolverRule),
-		"GetResolverRule":                    service.WrapOp(h.handleGetResolverRule),
-		"DeleteResolverRule":                 service.WrapOp(h.handleDeleteResolverRule),
-		"ListResolverRules":                  service.WrapOp(h.handleListResolverRules),
-		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                        service.WrapOp(h.handleTagResource),
-		"UntagResource":                      service.WrapOp(h.handleUntagResource),
-	}
-}
-
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -209,7 +218,9 @@ type listResolverEndpointIPAddressesOutput struct {
 type handleCreateResolverEndpointInput struct {
 	Name             string                      `json:"Name"`
 	Direction        string                      `json:"Direction"`
+	VpcID            string                      `json:"VpcId"`
 	SecurityGroupIDs []string                    `json:"SecurityGroupIds"`
+	Tags             []svcTags.KV                `json:"Tags"`
 	IPAddresses      []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
@@ -226,12 +237,14 @@ type resolverEndpointIPOutput struct {
 }
 
 type resolverEndpointOutput struct {
-	ID          string                     `json:"Id"`
-	Arn         string                     `json:"Arn"`
-	Name        string                     `json:"Name"`
-	Direction   string                     `json:"Direction"`
-	Status      string                     `json:"Status"`
-	IPAddresses []resolverEndpointIPOutput `json:"IpAddresses"`
+	ID               string                     `json:"Id"`
+	Arn              string                     `json:"Arn"`
+	Name             string                     `json:"Name"`
+	Direction        string                     `json:"Direction"`
+	Status           string                     `json:"Status"`
+	VpcID            string                     `json:"VpcId"`
+	SecurityGroupIDs []string                   `json:"SecurityGroupIds"`
+	IPAddresses      []resolverEndpointIPOutput `json:"IpAddresses"`
 }
 
 type resolverRuleOutput struct {
@@ -282,9 +295,20 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
+	sgIDs := ep.SecurityGroupIDs
+	if sgIDs == nil {
+		sgIDs = []string{}
+	}
+
 	return resolverEndpointOutput{
-		ID: ep.ID, Arn: ep.ARN, Name: ep.Name,
-		Direction: ep.Direction, Status: ep.Status, IPAddresses: ips,
+		ID:               ep.ID,
+		Arn:              ep.ARN,
+		Name:             ep.Name,
+		Direction:        ep.Direction,
+		Status:           ep.Status,
+		VpcID:            ep.VpcID,
+		SecurityGroupIDs: sgIDs,
+		IPAddresses:      ips,
 	}
 }
 
@@ -309,9 +333,23 @@ func (h *Handler) handleCreateResolverEndpoint(
 		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
-	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, "", ips)
+	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, in.VpcID, ips)
 	if err != nil {
 		return nil, err
+	}
+
+	// Store the security group IDs on the endpoint struct.
+	if len(in.SecurityGroupIDs) > 0 {
+		ep.SecurityGroupIDs = make([]string, len(in.SecurityGroupIDs))
+		copy(ep.SecurityGroupIDs, in.SecurityGroupIDs)
+	}
+
+	// Store tags if provided.
+	if len(in.Tags) > 0 {
+		tagErr := h.Backend.TagResource(ep.ARN, in.Tags)
+		if tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
@@ -509,6 +547,8 @@ type firewallDomainListOutput struct {
 
 // firewallRuleOutput is the JSON representation of a FirewallRule.
 type firewallRuleOutput struct {
+	ID                   string `json:"Id"`
+	Arn                  string `json:"Arn"`
 	Name                 string `json:"Name"`
 	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
 	FirewallDomainListID string `json:"FirewallDomainListId"`
@@ -890,6 +930,8 @@ type createFirewallRuleOutput struct {
 
 func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
 	return firewallRuleOutput{
+		ID:                   r.ID,
+		Arn:                  r.ARN,
 		Name:                 r.Name,
 		FirewallRuleGroupID:  r.FirewallRuleGroupID,
 		FirewallDomainListID: r.FirewallDomainListID,
@@ -911,8 +953,17 @@ func (h *Handler) handleCreateFirewallRule(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	if in.Action == "" {
-		return nil, fmt.Errorf("%w: Action is required", ErrValidation)
+	switch in.Action {
+	case firewallActionAllow, firewallActionBlock, firewallActionAlert:
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: Action must be %s, %s, or %s",
+			ErrValidation,
+			firewallActionAllow,
+			firewallActionBlock,
+			firewallActionAlert,
+		)
 	}
 
 	rule, err := h.Backend.CreateFirewallRule(
