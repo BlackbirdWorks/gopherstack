@@ -485,6 +485,9 @@ const reportStatusSucceeded = "SUCCEEDED"
 // reportStatusNoReport is the status when no report has been generated.
 const reportStatusNoReport = "NO REPORT"
 
+// reportS3PathTemplate is the S3 path template for generated reports.
+const reportS3PathTemplate = "AwsTagPolicies/report.csv"
+
 // reportCreationState holds the state of a StartReportCreation job.
 type reportCreationState struct {
 	s3Location string
@@ -512,7 +515,7 @@ func (b *InMemoryBackend) StartReportCreation(input *StartReportCreationInput) (
 	defer b.mu.Unlock()
 
 	b.reportState = &reportCreationState{
-		s3Location: "s3://" + input.S3Bucket + "/AwsTagPolicies/report.csv",
+		s3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
 		startDate:  b.now(),
 		status:     reportStatusSucceeded,
 	}
