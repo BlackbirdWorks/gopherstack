@@ -653,3 +653,764 @@ func TestProvider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 }
+
+// seedLedger creates a ledger and returns its name.
+func seedLedger(t *testing.T, b *qldb.InMemoryBackend, name string) {
+	t.Helper()
+
+	_, err := b.CreateLedger(name, "ALLOW_ALL", false, nil)
+	require.NoError(t, err)
+}
+
+// seedJournalKinesisStream seeds a journal kinesis stream into the backend directly.
+func seedJournalKinesisStream(
+	t *testing.T,
+	b *qldb.InMemoryBackend,
+	ledgerName, streamID, streamName, streamARN string,
+) {
+	t.Helper()
+
+	b.AddJournalKinesisStreamInternal(&qldb.JournalKinesisStream{
+		LedgerName: ledgerName,
+		StreamID:   streamID,
+		StreamName: streamName,
+		ARN:        streamARN,
+		RoleArn:    "arn:aws:iam::000000000000:role/test-role",
+		Status:     "ACTIVE",
+		KinesisConfig: qldb.KinesisConfiguration{
+			StreamArn:          "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+			AggregationEnabled: true,
+		},
+	})
+}
+
+func TestHandler_NewOps_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, op := range []string{
+		"CancelJournalKinesisStream",
+		"DescribeJournalKinesisStream",
+		"DescribeJournalS3Export",
+		"ExportJournalToS3",
+		"GetBlock",
+		"GetDigest",
+		"GetRevision",
+		"ListJournalKinesisStreamsForLedger",
+		"ListJournalS3Exports",
+		"ListJournalS3ExportsForLedger",
+	} {
+		assert.Contains(t, ops, op)
+	}
+}
+
+func TestHandler_CancelJournalKinesisStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *qldb.InMemoryBackend, h *qldb.Handler)
+		name       string
+		path       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend, _ *qldb.Handler) {
+				t.Helper()
+				seedLedger(t, b, "cancel-stream-ledger")
+				seedJournalKinesisStream(t, b, "cancel-stream-ledger", "stream-001", "my-stream",
+					"arn:aws:qldb:us-east-1:000000000000:stream/cancel-stream-ledger/stream-001")
+			},
+			path:       "/ledgers/cancel-stream-ledger/journal-kinesis-streams/stream-001",
+			wantStatus: http.StatusOK,
+			wantBody:   "stream-001",
+		},
+		{
+			name:       "ledger_not_found",
+			path:       "/ledgers/no-such-ledger/journal-kinesis-streams/stream-x",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "stream_not_found",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend, _ *qldb.Handler) {
+				t.Helper()
+				seedLedger(t, b, "cancel-stream-ledger-2")
+			},
+			path:       "/ledgers/cancel-stream-ledger-2/journal-kinesis-streams/no-such-stream",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, b, h)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodDelete, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeJournalKinesisStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *qldb.InMemoryBackend)
+		name       string
+		path       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend) {
+				t.Helper()
+				seedLedger(t, b, "describe-stream-ledger")
+				seedJournalKinesisStream(t, b, "describe-stream-ledger", "stream-002", "my-stream-2",
+					"arn:aws:qldb:us-east-1:000000000000:stream/describe-stream-ledger/stream-002")
+			},
+			path:       "/ledgers/describe-stream-ledger/journal-kinesis-streams/stream-002",
+			wantStatus: http.StatusOK,
+			wantBody:   "stream-002",
+		},
+		{
+			name:       "ledger_not_found",
+			path:       "/ledgers/no-such-ledger/journal-kinesis-streams/stream-y",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "stream_not_found",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend) {
+				t.Helper()
+				seedLedger(t, b, "describe-stream-ledger-2")
+			},
+			path:       "/ledgers/describe-stream-ledger-2/journal-kinesis-streams/no-stream",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_ListJournalKinesisStreamsForLedger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *qldb.InMemoryBackend)
+		name       string
+		ledger     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "empty_list",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend) {
+				t.Helper()
+				seedLedger(t, b, "list-streams-ledger")
+			},
+			ledger:     "list-streams-ledger",
+			wantStatus: http.StatusOK,
+			wantBody:   "Streams",
+		},
+		{
+			name: "with_streams",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend) {
+				t.Helper()
+				seedLedger(t, b, "list-streams-ledger-2")
+				seedJournalKinesisStream(t, b, "list-streams-ledger-2", "stream-list-1", "stream-list-one",
+					"arn:aws:qldb:us-east-1:000000000000:stream/list-streams-ledger-2/stream-list-1")
+			},
+			ledger:     "list-streams-ledger-2",
+			wantStatus: http.StatusOK,
+			wantBody:   "stream-list-1",
+		},
+		{
+			name:       "ledger_not_found",
+			ledger:     "no-such-ledger",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodGet, "/ledgers/"+tt.ledger+"/journal-kinesis-streams", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_ExportJournalToS3(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		ledger     string
+		wantBody   string
+		wantStatus int
+		create     bool
+	}{
+		{
+			name:   "success",
+			ledger: "export-ledger",
+			create: true,
+			body: map[string]any{
+				"RoleArn":            "arn:aws:iam::000000000000:role/qldb-export",
+				"InclusiveStartTime": "2023-01-01T00:00:00Z",
+				"ExclusiveEndTime":   "2023-01-02T00:00:00Z",
+				"S3ExportConfiguration": map[string]any{
+					"Bucket": "my-bucket",
+					"Prefix": "exports/",
+					"EncryptionConfiguration": map[string]any{
+						"ObjectEncryptionType": "SSE_S3",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "ExportId",
+		},
+		{
+			name:   "ledger_not_found",
+			ledger: "no-such-ledger",
+			create: false,
+			body: map[string]any{
+				"RoleArn":            "arn:aws:iam::000000000000:role/qldb-export",
+				"InclusiveStartTime": "2023-01-01T00:00:00Z",
+				"ExclusiveEndTime":   "2023-01-02T00:00:00Z",
+				"S3ExportConfiguration": map[string]any{
+					"Bucket": "my-bucket",
+					"Prefix": "exports/",
+					"EncryptionConfiguration": map[string]any{
+						"ObjectEncryptionType": "SSE_S3",
+					},
+				},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:   "missing_role_arn",
+			ledger: "export-ledger-2",
+			create: true,
+			body: map[string]any{
+				"InclusiveStartTime": "2023-01-01T00:00:00Z",
+				"ExclusiveEndTime":   "2023-01-02T00:00:00Z",
+				"S3ExportConfiguration": map[string]any{
+					"Bucket": "my-bucket",
+					"Prefix": "exports/",
+					"EncryptionConfiguration": map[string]any{
+						"ObjectEncryptionType": "SSE_S3",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid_json",
+			ledger:     "export-ledger-3",
+			create:     true,
+			body:       nil,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.create {
+				seedLedger(t, b, tt.ledger)
+			}
+
+			var rec *httptest.ResponseRecorder
+			if tt.name == "invalid_json" {
+				rec = doQLDBRawRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/ledgers/"+tt.ledger+"/journal-s3-exports",
+					[]byte("not-json"),
+				)
+			} else {
+				rec = doQLDBRequest(t, h, http.MethodPost, "/ledgers/"+tt.ledger+"/journal-s3-exports", tt.body)
+			}
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeJournalS3Export(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *qldb.InMemoryBackend) string
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend) string {
+				t.Helper()
+				seedLedger(t, b, "describe-export-ledger")
+
+				h := qldb.NewHandler(b)
+				rec := doQLDBRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/ledgers/describe-export-ledger/journal-s3-exports",
+					map[string]any{
+						"RoleArn":            "arn:aws:iam::000000000000:role/qldb-export",
+						"InclusiveStartTime": "2023-01-01T00:00:00Z",
+						"ExclusiveEndTime":   "2023-01-02T00:00:00Z",
+						"S3ExportConfiguration": map[string]any{
+							"Bucket": "my-bucket",
+							"Prefix": "exports/",
+							"EncryptionConfiguration": map[string]any{
+								"ObjectEncryptionType": "SSE_S3",
+							},
+						},
+					},
+				)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["ExportId"]
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "ExportDescription",
+		},
+		{
+			name: "export_not_found",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend) string {
+				t.Helper()
+				seedLedger(t, b, "describe-export-ledger-2")
+
+				return "nonexistent-export-id"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			exportID := tt.setup(t, b)
+
+			rec := doQLDBRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/ledgers/describe-export-ledger/journal-s3-exports/"+exportID,
+				nil,
+			)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_ListJournalS3Exports(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *qldb.InMemoryBackend, h *qldb.Handler)
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:       "empty",
+			wantStatus: http.StatusOK,
+			wantBody:   "JournalS3Exports",
+		},
+		{
+			name: "with_exports",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend, h *qldb.Handler) {
+				t.Helper()
+				seedLedger(t, b, "list-exports-ledger")
+				doQLDBRequest(t, h, http.MethodPost, "/ledgers/list-exports-ledger/journal-s3-exports", map[string]any{
+					"RoleArn":            "arn:aws:iam::000000000000:role/qldb-export",
+					"InclusiveStartTime": "2023-01-01T00:00:00Z",
+					"ExclusiveEndTime":   "2023-01-02T00:00:00Z",
+					"S3ExportConfiguration": map[string]any{
+						"Bucket": "my-bucket",
+						"Prefix": "exports/",
+						"EncryptionConfiguration": map[string]any{
+							"ObjectEncryptionType": "SSE_S3",
+						},
+					},
+				})
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "list-exports-ledger",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, b, h)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodGet, "/journal-s3-exports", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_ListJournalS3ExportsForLedger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *qldb.InMemoryBackend, h *qldb.Handler)
+		name       string
+		ledger     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "empty_list",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend, _ *qldb.Handler) {
+				t.Helper()
+				seedLedger(t, b, "ledger-exports-empty")
+			},
+			ledger:     "ledger-exports-empty",
+			wantStatus: http.StatusOK,
+			wantBody:   "JournalS3Exports",
+		},
+		{
+			name: "with_exports",
+			setup: func(t *testing.T, b *qldb.InMemoryBackend, h *qldb.Handler) {
+				t.Helper()
+				seedLedger(t, b, "ledger-exports-with")
+				doQLDBRequest(t, h, http.MethodPost, "/ledgers/ledger-exports-with/journal-s3-exports", map[string]any{
+					"RoleArn":            "arn:aws:iam::000000000000:role/qldb-export",
+					"InclusiveStartTime": "2023-01-01T00:00:00Z",
+					"ExclusiveEndTime":   "2023-01-02T00:00:00Z",
+					"S3ExportConfiguration": map[string]any{
+						"Bucket": "my-bucket",
+						"Prefix": "exports/",
+						"EncryptionConfiguration": map[string]any{
+							"ObjectEncryptionType": "SSE_S3",
+						},
+					},
+				})
+			},
+			ledger:     "ledger-exports-with",
+			wantStatus: http.StatusOK,
+			wantBody:   "ledger-exports-with",
+		},
+		{
+			name:       "ledger_not_found",
+			ledger:     "no-such-ledger",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, b, h)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodGet, "/ledgers/"+tt.ledger+"/journal-s3-exports", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_GetBlock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ledger     string
+		wantBody   string
+		wantStatus int
+		create     bool
+	}{
+		{
+			name:       "success",
+			ledger:     "block-ledger",
+			create:     true,
+			wantStatus: http.StatusOK,
+			wantBody:   "Block",
+		},
+		{
+			name:       "ledger_not_found",
+			ledger:     "no-such-ledger",
+			create:     false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.create {
+				seedLedger(t, b, tt.ledger)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodPost, "/ledgers/"+tt.ledger+"/block", map[string]any{
+				"BlockAddress": map[string]any{"IonText": `{strandId:"abc",sequenceNo:0}`},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_GetDigest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ledger     string
+		wantBody   string
+		wantStatus int
+		create     bool
+	}{
+		{
+			name:       "success",
+			ledger:     "digest-ledger",
+			create:     true,
+			wantStatus: http.StatusOK,
+			wantBody:   "DigestTipAddress",
+		},
+		{
+			name:       "ledger_not_found",
+			ledger:     "no-such-ledger",
+			create:     false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.create {
+				seedLedger(t, b, tt.ledger)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodPost, "/ledgers/"+tt.ledger+"/digest", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_GetRevision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ledger     string
+		wantBody   string
+		wantStatus int
+		create     bool
+	}{
+		{
+			name:       "success",
+			ledger:     "revision-ledger",
+			create:     true,
+			wantStatus: http.StatusOK,
+			wantBody:   "Revision",
+		},
+		{
+			name:       "ledger_not_found",
+			ledger:     "no-such-ledger",
+			create:     false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := qldb.NewInMemoryBackend("000000000000", "us-east-1")
+			h := qldb.NewHandler(b)
+
+			if tt.create {
+				seedLedger(t, b, tt.ledger)
+			}
+
+			rec := doQLDBRequest(t, h, http.MethodPost, "/ledgers/"+tt.ledger+"/revision", map[string]any{
+				"BlockAddress": map[string]any{"IonText": `{strandId:"abc",sequenceNo:0}`},
+				"DocumentId":   "doc-id-1",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_RouteMatcher_NewPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		authService string
+		want        bool
+	}{
+		{
+			name:        "matches_journal_kinesis_streams",
+			path:        "/ledgers/my-ledger/journal-kinesis-streams",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_journal_s3_exports",
+			path:        "/ledgers/my-ledger/journal-s3-exports",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_global_journal_s3_exports",
+			path:        "/journal-s3-exports",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_ledger_block",
+			path:        "/ledgers/my-ledger/block",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_ledger_digest",
+			path:        "/ledgers/my-ledger/digest",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_ledger_revision",
+			path:        "/ledgers/my-ledger/revision",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "no_match_wrong_service",
+			path:        "/journal-s3-exports",
+			authService: "s3",
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+
+			if tt.authService != "" {
+				req.Header.Set("Authorization",
+					"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/"+tt.authService+"/aws4_request")
+			}
+
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"maps"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -16,6 +18,22 @@ const (
 
 	// defaultPermissionsMode is the default QLDB permissions mode.
 	defaultPermissionsMode = "ALLOW_ALL"
+
+	// streamStatusCanceled is the canceled status for a journal kinesis stream.
+	streamStatusCanceled = "CANCELED"
+
+	// exportStatusInProgress is the in-progress status for a journal S3 export.
+	exportStatusInProgress = "IN_PROGRESS"
+
+	// syntheticDigestTipIonText is a synthetic Ion text for digest tip addresses
+	// returned by GetDigest/GetBlock/GetRevision.
+	syntheticDigestTipIonText = `{strandId:"synthetic",sequenceNo:0}`
+	// syntheticBlockIonText is a synthetic Ion text returned by GetBlock.
+	syntheticBlockIonText = `{strandId:"synthetic",sequenceNo:0,hash:{{AAAA}}}`
+	// syntheticRevisionIonText is a synthetic Ion text returned by GetRevision.
+	syntheticRevisionIonText = `{blockAddress:{strandId:"synthetic",sequenceNo:0},hash:{{AAAA}},data:{version:0}}`
+	// syntheticDigestLen is the number of bytes in the synthetic digest returned by GetDigest.
+	syntheticDigestLen = 32
 )
 
 var (
@@ -40,6 +58,49 @@ type Ledger struct {
 	DeletionProtected bool              `json:"deletionProtected"`
 }
 
+// KinesisConfiguration holds the Kinesis Data Streams destination config for a journal stream.
+type KinesisConfiguration struct {
+	StreamArn          string `json:"StreamArn"`
+	AggregationEnabled bool   `json:"AggregationEnabled"`
+}
+
+// JournalKinesisStream represents a QLDB journal kinesis stream.
+type JournalKinesisStream struct {
+	CreationTime       time.Time            `json:"creationTime"`
+	ExclusiveEndTime   *time.Time           `json:"exclusiveEndTime,omitempty"`
+	InclusiveStartTime *time.Time           `json:"inclusiveStartTime,omitempty"`
+	LedgerName         string               `json:"ledgerName"`
+	RoleArn            string               `json:"roleArn"`
+	StreamID           string               `json:"streamId"`
+	StreamName         string               `json:"streamName"`
+	ARN                string               `json:"arn"`
+	Status             string               `json:"status"`
+	KinesisConfig      KinesisConfiguration `json:"kinesisConfiguration"`
+}
+
+// S3ExportConfiguration holds the S3 destination config for a journal export.
+type S3ExportConfiguration struct {
+	Bucket                  string `json:"Bucket"`
+	Prefix                  string `json:"Prefix"`
+	EncryptionConfiguration struct {
+		ObjectEncryptionType string `json:"ObjectEncryptionType"`
+		KmsKeyArn            string `json:"KmsKeyArn,omitempty"`
+	} `json:"EncryptionConfiguration"`
+}
+
+// JournalS3Export represents a QLDB journal S3 export job.
+type JournalS3Export struct {
+	ExclusiveEndTime   time.Time             `json:"exclusiveEndTime"`
+	ExportCreationTime time.Time             `json:"exportCreationTime"`
+	InclusiveStartTime time.Time             `json:"inclusiveStartTime"`
+	S3Config           S3ExportConfiguration `json:"s3ExportConfiguration"`
+	ExportID           string                `json:"exportId"`
+	LedgerName         string                `json:"ledgerName"`
+	RoleArn            string                `json:"roleArn"`
+	Status             string                `json:"status"`
+	OutputFormat       string                `json:"outputFormat,omitempty"`
+}
+
 // cloneLedger returns a deep copy of l with the Tags map cloned.
 func cloneLedger(l *Ledger) *Ledger {
 	cp := *l
@@ -48,10 +109,26 @@ func cloneLedger(l *Ledger) *Ledger {
 	return &cp
 }
 
+// cloneStream returns a shallow copy of s.
+func cloneStream(s *JournalKinesisStream) *JournalKinesisStream {
+	cp := *s
+
+	return &cp
+}
+
+// cloneExport returns a shallow copy of e.
+func cloneExport(e *JournalS3Export) *JournalS3Export {
+	cp := *e
+
+	return &cp
+}
+
 // InMemoryBackend is an in-memory QLDB backend.
 type InMemoryBackend struct {
 	ledgers        map[string]*Ledger
-	ledgerARNIndex map[string]string // ARN → ledger name
+	ledgerARNIndex map[string]string                           // ARN → ledger name
+	journalStreams map[string]map[string]*JournalKinesisStream // ledger name → stream ID → stream
+	s3Exports      map[string]*JournalS3Export                 // export ID → export
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
@@ -62,6 +139,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		ledgers:        make(map[string]*Ledger),
 		ledgerARNIndex: make(map[string]string),
+		journalStreams: make(map[string]map[string]*JournalKinesisStream),
+		s3Exports:      make(map[string]*JournalS3Export),
 		accountID:      accountID,
 		region:         region,
 		mu:             lockmetrics.New("qldb"),
@@ -226,4 +305,202 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	maps.Copy(result, incoming)
 
 	return result
+}
+
+// newResourceID returns a new random UUID string suitable for use as a resource ID.
+func newResourceID() string {
+	return uuid.NewString()
+}
+
+// AddJournalKinesisStreamInternal seeds a journal kinesis stream directly into the backend
+// (bypasses route; used by tests and seed helpers).
+func (b *InMemoryBackend) AddJournalKinesisStreamInternal(s *JournalKinesisStream) {
+	b.mu.Lock("AddJournalKinesisStreamInternal")
+	defer b.mu.Unlock()
+
+	if b.journalStreams[s.LedgerName] == nil {
+		b.journalStreams[s.LedgerName] = make(map[string]*JournalKinesisStream)
+	}
+
+	b.journalStreams[s.LedgerName][s.StreamID] = s
+}
+
+// CancelJournalKinesisStream cancels an active journal kinesis stream.
+func (b *InMemoryBackend) CancelJournalKinesisStream(ledgerName, streamID string) (*JournalKinesisStream, error) {
+	b.mu.Lock("CancelJournalKinesisStream")
+	defer b.mu.Unlock()
+
+	streams, ok := b.journalStreams[ledgerName]
+	if !ok {
+		return nil, fmt.Errorf("%w: ledger %s not found", ErrNotFound, ledgerName)
+	}
+
+	s, ok := streams[streamID]
+	if !ok {
+		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, streamID)
+	}
+
+	s.Status = streamStatusCanceled
+	cp := cloneStream(s)
+
+	return cp, nil
+}
+
+// GetJournalKinesisStream returns a journal kinesis stream by ledger name and stream ID.
+func (b *InMemoryBackend) GetJournalKinesisStream(ledgerName, streamID string) (*JournalKinesisStream, error) {
+	b.mu.RLock("GetJournalKinesisStream")
+	defer b.mu.RUnlock()
+
+	streams, ok := b.journalStreams[ledgerName]
+	if !ok {
+		return nil, fmt.Errorf("%w: ledger %s not found", ErrNotFound, ledgerName)
+	}
+
+	s, ok := streams[streamID]
+	if !ok {
+		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, streamID)
+	}
+
+	return cloneStream(s), nil
+}
+
+// ListJournalKinesisStreamsForLedger returns all journal kinesis streams for a ledger.
+func (b *InMemoryBackend) ListJournalKinesisStreamsForLedger(ledgerName string) ([]*JournalKinesisStream, error) {
+	b.mu.RLock("ListJournalKinesisStreamsForLedger")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.ledgers[ledgerName]; !ok {
+		return nil, fmt.Errorf("%w: ledger %s not found", ErrNotFound, ledgerName)
+	}
+
+	streams := b.journalStreams[ledgerName]
+	list := make([]*JournalKinesisStream, 0, len(streams))
+
+	for _, s := range streams {
+		list = append(list, cloneStream(s))
+	}
+
+	return list, nil
+}
+
+// ExportJournalToS3 creates a new journal S3 export job.
+func (b *InMemoryBackend) ExportJournalToS3(
+	ledgerName, roleArn string,
+	s3Config S3ExportConfiguration,
+	inclusiveStartTime, exclusiveEndTime time.Time,
+	outputFormat string,
+) (*JournalS3Export, error) {
+	b.mu.Lock("ExportJournalToS3")
+	defer b.mu.Unlock()
+
+	if _, ok := b.ledgers[ledgerName]; !ok {
+		return nil, fmt.Errorf("%w: ledger %s not found", ErrNotFound, ledgerName)
+	}
+
+	exportID := newResourceID()
+	e := &JournalS3Export{
+		ExportID:           exportID,
+		LedgerName:         ledgerName,
+		RoleArn:            roleArn,
+		S3Config:           s3Config,
+		InclusiveStartTime: inclusiveStartTime,
+		ExclusiveEndTime:   exclusiveEndTime,
+		ExportCreationTime: time.Now(),
+		Status:             exportStatusInProgress,
+		OutputFormat:       outputFormat,
+	}
+
+	b.s3Exports[exportID] = e
+
+	return cloneExport(e), nil
+}
+
+// GetJournalS3Export returns a journal S3 export by ledger name and export ID.
+func (b *InMemoryBackend) GetJournalS3Export(ledgerName, exportID string) (*JournalS3Export, error) {
+	b.mu.RLock("GetJournalS3Export")
+	defer b.mu.RUnlock()
+
+	e, ok := b.s3Exports[exportID]
+	if !ok {
+		return nil, fmt.Errorf("%w: export %s not found", ErrNotFound, exportID)
+	}
+
+	if e.LedgerName != ledgerName {
+		return nil, fmt.Errorf("%w: export %s does not belong to ledger %s", ErrNotFound, exportID, ledgerName)
+	}
+
+	return cloneExport(e), nil
+}
+
+// ListJournalS3Exports returns all journal S3 export jobs across all ledgers.
+func (b *InMemoryBackend) ListJournalS3Exports() []*JournalS3Export {
+	b.mu.RLock("ListJournalS3Exports")
+	defer b.mu.RUnlock()
+
+	list := make([]*JournalS3Export, 0, len(b.s3Exports))
+
+	for _, e := range b.s3Exports {
+		list = append(list, cloneExport(e))
+	}
+
+	return list
+}
+
+// ListJournalS3ExportsForLedger returns all journal S3 export jobs for a ledger.
+func (b *InMemoryBackend) ListJournalS3ExportsForLedger(ledgerName string) ([]*JournalS3Export, error) {
+	b.mu.RLock("ListJournalS3ExportsForLedger")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.ledgers[ledgerName]; !ok {
+		return nil, fmt.Errorf("%w: ledger %s not found", ErrNotFound, ledgerName)
+	}
+
+	list := make([]*JournalS3Export, 0)
+
+	for _, e := range b.s3Exports {
+		if e.LedgerName == ledgerName {
+			list = append(list, cloneExport(e))
+		}
+	}
+
+	return list, nil
+}
+
+// GetBlock returns a synthetic block for a ledger (in-memory mock).
+// The real AWS operation verifies journal integrity; this returns a stub response.
+func (b *InMemoryBackend) GetBlock(name string) (string, string, error) {
+	b.mu.RLock("GetBlock")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.ledgers[name]; !ok {
+		return "", "", fmt.Errorf("%w: ledger %s not found", ErrNotFound, name)
+	}
+
+	return syntheticBlockIonText, syntheticDigestTipIonText, nil
+}
+
+// GetDigest returns a synthetic digest for a ledger (in-memory mock).
+// The real AWS operation returns a cryptographic hash; this returns a stub response.
+func (b *InMemoryBackend) GetDigest(name string) ([]byte, string, error) {
+	b.mu.RLock("GetDigest")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.ledgers[name]; !ok {
+		return nil, "", fmt.Errorf("%w: ledger %s not found", ErrNotFound, name)
+	}
+
+	return make([]byte, syntheticDigestLen), syntheticDigestTipIonText, nil
+}
+
+// GetRevision returns a synthetic revision for a ledger (in-memory mock).
+// The real AWS operation verifies document revision integrity; this returns a stub response.
+func (b *InMemoryBackend) GetRevision(name string) (string, string, error) {
+	b.mu.RLock("GetRevision")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.ledgers[name]; !ok {
+		return "", "", fmt.Errorf("%w: ledger %s not found", ErrNotFound, name)
+	}
+
+	return syntheticRevisionIonText, syntheticDigestTipIonText, nil
 }
