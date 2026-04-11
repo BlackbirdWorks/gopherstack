@@ -426,8 +426,8 @@ func TestHandler_GetStatementResultV2(t *testing.T) {
 	tests := []struct {
 		setup        func(*redshiftdata.Handler) string
 		name         string
-		wantStatus   int
 		wantErrType  string
+		wantStatus   int
 		checkRecords bool
 	}{
 		{
