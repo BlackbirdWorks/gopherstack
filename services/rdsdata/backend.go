@@ -179,6 +179,30 @@ func (b *InMemoryBackend) RollbackTransaction(transactionID string) (string, err
 	return "Transaction Rolled Back", nil
 }
 
+// SQLStatementResult represents the result of a single SQL statement in an ExecuteSql call.
+type SQLStatementResult struct {
+	NumberOfRecordsUpdated int64 `json:"numberOfRecordsUpdated"`
+}
+
+// ExecuteSQL executes one or more SQL statements against the cluster.
+// This is a deprecated operation; use ExecuteStatement or BatchExecuteStatement instead.
+func (b *InMemoryBackend) ExecuteSQL(resourceARN, sqlStatements string) ([]SQLStatementResult, error) {
+	b.mu.Lock("ExecuteSql")
+	defer b.mu.Unlock()
+
+	b.executedStatements = append(b.executedStatements, ExecutedStatement{
+		SQL:         sqlStatements,
+		ResourceARN: resourceARN,
+	})
+	if len(b.executedStatements) > maxExecutedStatements {
+		trimmed := make([]ExecutedStatement, maxExecutedStatements)
+		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
+		b.executedStatements = trimmed
+	}
+
+	return []SQLStatementResult{{NumberOfRecordsUpdated: 0}}, nil
+}
+
 // ListExecutedStatements returns a copy of all executed statements.
 func (b *InMemoryBackend) ListExecutedStatements() []ExecutedStatement {
 	b.mu.RLock("ListExecutedStatements")
