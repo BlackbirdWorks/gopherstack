@@ -24,3 +24,72 @@ func (b *InMemoryBackend) InjectExpiredFaultForTest(clusterID string) {
 func (b *InMemoryBackend) ScheduleFailoverFaultCleanupForTest(ctx context.Context, ids []string, dur time.Duration) {
 	b.scheduleFailoverFaultCleanup(ctx, ids, dur)
 }
+
+// InstanceCount returns the number of DB instances in the backend.
+func InstanceCount(b *InMemoryBackend) int {
+	b.mu.RLock("InstanceCount")
+	defer b.mu.RUnlock()
+
+	return len(b.instances)
+}
+
+// ClusterCount returns the number of DB clusters in the backend.
+func ClusterCount(b *InMemoryBackend) int {
+	b.mu.RLock("ClusterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.clusters)
+}
+
+// SnapshotCount returns the number of DB snapshots in the backend.
+func SnapshotCount(b *InMemoryBackend) int {
+	b.mu.RLock("SnapshotCount")
+	defer b.mu.RUnlock()
+
+	return len(b.snapshots)
+}
+
+// EventSubscriptionCount returns the number of event subscriptions in the backend.
+func EventSubscriptionCount(b *InMemoryBackend) int {
+	b.mu.RLock("EventSubscriptionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.eventSubscriptions)
+}
+
+// SecurityGroupCount returns the number of DB security groups in the backend.
+func SecurityGroupCount(b *InMemoryBackend) int {
+	b.mu.RLock("SecurityGroupCount")
+	defer b.mu.RUnlock()
+
+	return len(b.dbSecurityGroups)
+}
+
+// BlueGreenDeploymentCount returns the number of Blue/Green Deployments in the backend.
+func BlueGreenDeploymentCount(b *InMemoryBackend) int {
+	b.mu.RLock("BlueGreenDeploymentCount")
+	defer b.mu.RUnlock()
+
+	return len(b.blueGreenDeployments)
+}
+
+// ClusterRoleCount returns the number of IAM roles associated with a cluster.
+func ClusterRoleCount(b *InMemoryBackend, clusterID string) int {
+	b.mu.RLock("ClusterRoleCount")
+	defer b.mu.RUnlock()
+
+	return len(b.clusterRoles[clusterID])
+}
+
+// InstanceRoleCount returns the number of IAM roles associated with an instance.
+func InstanceRoleCount(b *InMemoryBackend, instanceID string) int {
+	b.mu.RLock("InstanceRoleCount")
+	defer b.mu.RUnlock()
+
+	return len(b.instanceRoles[instanceID])
+}
+
+// HandlerOpsLen returns the number of operations listed in GetSupportedOperations.
+func HandlerOpsLen(h *Handler) int {
+	return len(h.GetSupportedOperations())
+}

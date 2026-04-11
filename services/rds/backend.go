@@ -1,9 +1,12 @@
 package rds
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -29,22 +32,50 @@ var (
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
 	ErrInvalidDBInstanceState = errors.New("InvalidDBInstanceState")
 
-	ErrParameterGroupNotFound       = errors.New("DBParameterGroupNotFound")
-	ErrParameterGroupAlreadyExists  = errors.New("DBParameterGroupAlreadyExists")
-	ErrOptionGroupNotFound          = errors.New("OptionGroupNotFound")
-	ErrOptionGroupAlreadyExists     = errors.New("OptionGroupAlreadyExists")
-	ErrClusterNotFound              = errors.New("DBClusterNotFound")
-	ErrClusterAlreadyExists         = errors.New("DBClusterAlreadyExists")
-	ErrClusterSnapshotNotFound      = errors.New("DBClusterSnapshotNotFound")
+	// ErrParameterGroupNotFound is returned when a DB parameter group does not exist.
+	ErrParameterGroupNotFound = errors.New("DBParameterGroupNotFound")
+	// ErrParameterGroupAlreadyExists is returned when a DB parameter group already exists.
+	ErrParameterGroupAlreadyExists = errors.New("DBParameterGroupAlreadyExists")
+	// ErrOptionGroupNotFound is returned when an option group does not exist.
+	ErrOptionGroupNotFound = errors.New("OptionGroupNotFound")
+	// ErrOptionGroupAlreadyExists is returned when an option group already exists.
+	ErrOptionGroupAlreadyExists = errors.New("OptionGroupAlreadyExists")
+	// ErrClusterNotFound is returned when a DB cluster does not exist.
+	ErrClusterNotFound = errors.New("DBClusterNotFound")
+	// ErrClusterAlreadyExists is returned when a DB cluster already exists.
+	ErrClusterAlreadyExists = errors.New("DBClusterAlreadyExists")
+	// ErrClusterSnapshotNotFound is returned when a DB cluster snapshot does not exist.
+	ErrClusterSnapshotNotFound = errors.New("DBClusterSnapshotNotFound")
+	// ErrClusterSnapshotAlreadyExists is returned when a DB cluster snapshot already exists.
 	ErrClusterSnapshotAlreadyExists = errors.New("DBClusterSnapshotAlreadyExists")
-	ErrClusterEndpointNotFound      = errors.New("DBClusterEndpointNotFound")
+	// ErrClusterEndpointNotFound is returned when a DB cluster endpoint does not exist.
+	ErrClusterEndpointNotFound = errors.New("DBClusterEndpointNotFound")
+	// ErrClusterEndpointAlreadyExists is returned when a DB cluster endpoint already exists.
 	ErrClusterEndpointAlreadyExists = errors.New("DBClusterEndpointAlreadyExists")
-	ErrExportTaskNotFound           = errors.New("ExportTaskNotFound")
-	ErrExportTaskAlreadyExists      = errors.New("ExportTaskAlreadyExists")
-	ErrGlobalClusterNotFound        = errors.New("GlobalClusterNotFound")
-	ErrGlobalClusterAlreadyExists   = errors.New("GlobalClusterAlreadyExists")
-	ErrInvalidDBClusterStateFault   = errors.New("InvalidDBClusterStateFault")
-	ErrInvalidGlobalClusterState    = errors.New("InvalidGlobalClusterStateFault")
+	// ErrExportTaskNotFound is returned when an export task does not exist.
+	ErrExportTaskNotFound = errors.New("ExportTaskNotFound")
+	// ErrExportTaskAlreadyExists is returned when an export task already exists.
+	ErrExportTaskAlreadyExists = errors.New("ExportTaskAlreadyExists")
+	// ErrGlobalClusterNotFound is returned when a global cluster does not exist.
+	ErrGlobalClusterNotFound = errors.New("GlobalClusterNotFound")
+	// ErrGlobalClusterAlreadyExists is returned when a global cluster already exists.
+	ErrGlobalClusterAlreadyExists = errors.New("GlobalClusterAlreadyExists")
+	// ErrInvalidDBClusterStateFault is returned when a cluster operation is invalid given its current state.
+	ErrInvalidDBClusterStateFault = errors.New("InvalidDBClusterStateFault")
+	// ErrInvalidGlobalClusterState is returned when a global cluster operation is invalid given its current state.
+	ErrInvalidGlobalClusterState = errors.New("InvalidGlobalClusterStateFault")
+	// ErrEventSubscriptionNotFound is returned when an event subscription does not exist.
+	ErrEventSubscriptionNotFound = errors.New("SubscriptionNotFound")
+	// ErrEventSubscriptionAlreadyExists is returned when an event subscription already exists.
+	ErrEventSubscriptionAlreadyExists = errors.New("SubscriptionAlreadyExist")
+	// ErrDBSecurityGroupNotFound is returned when a DB security group does not exist.
+	ErrDBSecurityGroupNotFound = errors.New("DBSecurityGroupNotFound")
+	// ErrDBSecurityGroupAlreadyExists is returned when a DB security group already exists.
+	ErrDBSecurityGroupAlreadyExists = errors.New("DBSecurityGroupAlreadyExists")
+	// ErrBlueGreenDeploymentNotFound is returned when a Blue/Green Deployment does not exist.
+	ErrBlueGreenDeploymentNotFound = errors.New("BlueGreenDeploymentNotFound")
+	// ErrBlueGreenDeploymentAlreadyExists is returned when a Blue/Green Deployment already exists.
+	ErrBlueGreenDeploymentAlreadyExists = errors.New("BlueGreenDeploymentAlreadyExists")
 )
 
 const (
@@ -55,6 +86,11 @@ const (
 
 	instanceStatusAvailable = "available"
 	instanceStatusStopped   = "stopped"
+
+	subscriptionStatusActive           = "active"
+	backtrackStatusApplying            = "applying"
+	blueGreenDeploymentStatusAvailable = "available"
+	ipRangeStatusAuthorized            = "authorized"
 )
 
 // DBInstance represents an RDS database instance.
@@ -212,6 +248,44 @@ type DBLogFile struct {
 	Size        int64  `json:"size"`
 }
 
+// EventSubscription represents an RDS event notification subscription.
+type EventSubscription struct {
+	SubscriptionName string   `json:"subscriptionName"`
+	SnsTopicArn      string   `json:"snsTopicArn"`
+	Status           string   `json:"status"`
+	SourceType       string   `json:"sourceType"`
+	SourceIDs        []string `json:"sourceIds"`
+}
+
+// IPRange represents a CIDR IP range authorized for a DB security group.
+type IPRange struct {
+	CIDRIP string `json:"cidrip"`
+	Status string `json:"status"`
+}
+
+// DBSecurityGroup represents an RDS DB security group.
+type DBSecurityGroup struct {
+	DBSecurityGroupName        string    `json:"dbSecurityGroupName"`
+	DBSecurityGroupDescription string    `json:"dbSecurityGroupDescription"`
+	IPRanges                   []IPRange `json:"ipRanges"`
+}
+
+// BlueGreenDeployment represents an RDS Blue/Green Deployment.
+type BlueGreenDeployment struct {
+	BlueGreenDeploymentIdentifier string `json:"blueGreenDeploymentIdentifier"`
+	BlueGreenDeploymentName       string `json:"blueGreenDeploymentName"`
+	Source                        string `json:"source"`
+	Status                        string `json:"status"`
+}
+
+// DBClusterBacktrack represents backtrack information for an Aurora cluster.
+type DBClusterBacktrack struct {
+	DBClusterIdentifier string `json:"dbClusterIdentifier"`
+	BacktrackIdentifier string `json:"backtrackIdentifier"`
+	BacktrackTo         string `json:"backtrackTo"`
+	Status              string `json:"status"`
+}
+
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
 type DNSRegistrar interface {
 	Register(hostname string)
@@ -245,6 +319,11 @@ type InMemoryBackend struct {
 	clusterEndpoints       map[string]*DBClusterEndpoint
 	exportTasks            map[string]*ExportTask
 	globalClusters         map[string]*GlobalCluster
+	clusterRoles           map[string][]string // cluster ID → IAM role ARNs
+	instanceRoles          map[string][]string // instance ID → IAM role ARNs
+	eventSubscriptions     map[string]*EventSubscription
+	dbSecurityGroups       map[string]*DBSecurityGroup
+	blueGreenDeployments   map[string]*BlueGreenDeployment
 	fisFailoverFaults      map[string]time.Time // keyed by cluster identifier; value is expiry (zero = permanent)
 	mu                     *lockmetrics.RWMutex
 	accountID              string
@@ -266,6 +345,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusterEndpoints:       make(map[string]*DBClusterEndpoint),
 		exportTasks:            make(map[string]*ExportTask),
 		globalClusters:         make(map[string]*GlobalCluster),
+		clusterRoles:           make(map[string][]string),
+		instanceRoles:          make(map[string][]string),
+		eventSubscriptions:     make(map[string]*EventSubscription),
+		dbSecurityGroups:       make(map[string]*DBSecurityGroup),
+		blueGreenDeployments:   make(map[string]*BlueGreenDeployment),
 		fisFailoverFaults:      make(map[string]time.Time),
 		accountID:              accountID,
 		region:                 region,
@@ -275,6 +359,34 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all backend state, returning it to a clean empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.instances = make(map[string]*DBInstance)
+	b.snapshots = make(map[string]*DBSnapshot)
+	b.subnetGroups = make(map[string]*DBSubnetGroup)
+	b.tags = make(map[string][]Tag)
+	b.parameterGroups = make(map[string]*DBParameterGroup)
+	b.clusterParameterGroups = make(map[string]*DBParameterGroup)
+	b.optionGroups = make(map[string]*OptionGroup)
+	b.clusters = make(map[string]*DBCluster)
+	b.clusterSnapshots = make(map[string]*DBClusterSnapshot)
+	b.clusterEndpoints = make(map[string]*DBClusterEndpoint)
+	b.exportTasks = make(map[string]*ExportTask)
+	b.globalClusters = make(map[string]*GlobalCluster)
+	b.clusterRoles = make(map[string][]string)
+	b.instanceRoles = make(map[string][]string)
+	b.eventSubscriptions = make(map[string]*EventSubscription)
+	b.dbSecurityGroups = make(map[string]*DBSecurityGroup)
+	b.blueGreenDeployments = make(map[string]*BlueGreenDeployment)
+	b.fisFailoverFaults = make(map[string]time.Time)
+}
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
 func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
@@ -395,6 +507,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	cp := *inst
 	delete(b.instances, id)
 	delete(b.tags, b.rdsARN("db", id))
+	delete(b.instanceRoles, id)
 
 	b.mu.Unlock()
 
@@ -1195,6 +1308,7 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	delete(b.clusters, id)
 	delete(b.tags, b.rdsARN("cluster", id))
 	delete(b.fisFailoverFaults, id)
+	delete(b.clusterRoles, id)
 
 	return &cp, nil
 }
@@ -1878,4 +1992,575 @@ func (b *InMemoryBackend) ModifyGlobalCluster(
 	cp := *gc
 
 	return &cp, nil
+}
+
+// AddRoleToDBCluster associates an IAM role with the given DB cluster.
+func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN string) error {
+	if clusterID == "" {
+		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if roleARN == "" {
+		return fmt.Errorf("%w: RoleArn must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AddRoleToDBCluster")
+	defer b.mu.Unlock()
+
+	if _, exists := b.clusters[clusterID]; !exists {
+		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	if slices.Contains(b.clusterRoles[clusterID], roleARN) {
+		return nil
+	}
+
+	b.clusterRoles[clusterID] = append(b.clusterRoles[clusterID], roleARN)
+
+	return nil
+}
+
+// AddRoleToDBInstance associates an IAM role with the given DB instance.
+func (b *InMemoryBackend) AddRoleToDBInstance(instanceID, roleARN string) error {
+	if instanceID == "" {
+		return fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if roleARN == "" {
+		return fmt.Errorf("%w: RoleArn must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AddRoleToDBInstance")
+	defer b.mu.Unlock()
+
+	if _, exists := b.instances[instanceID]; !exists {
+		return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+
+	if slices.Contains(b.instanceRoles[instanceID], roleARN) {
+		return nil
+	}
+
+	b.instanceRoles[instanceID] = append(b.instanceRoles[instanceID], roleARN)
+
+	return nil
+}
+
+// AddSourceIdentifierToSubscription adds a source identifier to an event notification subscription.
+// If the subscription does not exist it is created automatically.
+func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
+	subscriptionName, sourceIdentifier string,
+) (*EventSubscription, error) {
+	if subscriptionName == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName must not be empty", ErrInvalidParameter)
+	}
+	if sourceIdentifier == "" {
+		return nil, fmt.Errorf("%w: SourceIdentifier must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AddSourceIdentifierToSubscription")
+	defer b.mu.Unlock()
+
+	sub, exists := b.eventSubscriptions[subscriptionName]
+	if !exists {
+		sub = &EventSubscription{
+			SubscriptionName: subscriptionName,
+			Status:           subscriptionStatusActive,
+			SourceIDs:        []string{},
+		}
+		b.eventSubscriptions[subscriptionName] = sub
+	}
+
+	if !slices.Contains(sub.SourceIDs, sourceIdentifier) {
+		sub.SourceIDs = append(sub.SourceIDs, sourceIdentifier)
+	}
+
+	cp := *sub
+	cp.SourceIDs = make([]string, len(sub.SourceIDs))
+	copy(cp.SourceIDs, sub.SourceIDs)
+
+	return &cp, nil
+}
+
+// ApplyPendingMaintenanceAction applies a pending maintenance action to a resource.
+// The resource is identified by its ARN. This implementation validates the resource exists
+// and returns a stub response.
+func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
+	resourceID, applyAction string,
+) (string, error) {
+	if resourceID == "" {
+		return "", fmt.Errorf("%w: ResourceIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if applyAction == "" {
+		return "", fmt.Errorf("%w: ApplyAction must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("ApplyPendingMaintenanceAction")
+	defer b.mu.RUnlock()
+
+	id := rdsIDFromARN(resourceID)
+
+	// Validate that the referenced resource exists (instance or cluster).
+	if _, ok := b.instances[id]; !ok {
+		if _, ok2 := b.clusters[id]; !ok2 {
+			return "", fmt.Errorf("%w: resource %s not found", ErrInstanceNotFound, resourceID)
+		}
+	}
+
+	return resourceID, nil
+}
+
+// AuthorizeDBSecurityGroupIngress authorizes CIDR IP access to a DB security group.
+// If the group does not exist it is created automatically (matching AWS behaviour for legacy VPC-less accounts).
+func (b *InMemoryBackend) AuthorizeDBSecurityGroupIngress(
+	groupName, cidrIP string,
+) (*DBSecurityGroup, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: DBSecurityGroupName must not be empty", ErrInvalidParameter)
+	}
+	if cidrIP == "" {
+		return nil, fmt.Errorf("%w: CIDRIP must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AuthorizeDBSecurityGroupIngress")
+	defer b.mu.Unlock()
+
+	sg, exists := b.dbSecurityGroups[groupName]
+	if !exists {
+		sg = &DBSecurityGroup{
+			DBSecurityGroupName: groupName,
+			IPRanges:            []IPRange{},
+		}
+		b.dbSecurityGroups[groupName] = sg
+	}
+
+	for _, r := range sg.IPRanges {
+		if r.CIDRIP == cidrIP {
+			cp := *sg
+			cp.IPRanges = make([]IPRange, len(sg.IPRanges))
+			copy(cp.IPRanges, sg.IPRanges)
+
+			return &cp, nil
+		}
+	}
+
+	sg.IPRanges = append(sg.IPRanges, IPRange{CIDRIP: cidrIP, Status: ipRangeStatusAuthorized})
+
+	cp := *sg
+	cp.IPRanges = make([]IPRange, len(sg.IPRanges))
+	copy(cp.IPRanges, sg.IPRanges)
+
+	return &cp, nil
+}
+
+// BacktrackDBCluster backtracks an Aurora DB cluster to a specific time.
+func (b *InMemoryBackend) BacktrackDBCluster(
+	clusterID, backtrackTo string,
+) (*DBClusterBacktrack, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if backtrackTo == "" {
+		return nil, fmt.Errorf("%w: BacktrackTo must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("BacktrackDBCluster")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.clusters[clusterID]; !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	result := &DBClusterBacktrack{
+		DBClusterIdentifier: clusterID,
+		BacktrackIdentifier: newBacktrackID(),
+		BacktrackTo:         backtrackTo,
+		Status:              backtrackStatusApplying,
+	}
+
+	return result, nil
+}
+
+// CopyDBClusterParameterGroup creates a copy of the source cluster parameter group.
+func (b *InMemoryBackend) CopyDBClusterParameterGroup(
+	sourceGroupName, targetGroupName, targetDescription string,
+) (*DBParameterGroup, error) {
+	if sourceGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: SourceDBClusterParameterGroupIdentifier must not be empty",
+			ErrInvalidParameter,
+		)
+	}
+	if targetGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: TargetDBClusterParameterGroupIdentifier must not be empty",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.Lock("CopyDBClusterParameterGroup")
+	defer b.mu.Unlock()
+
+	src, exists := b.clusterParameterGroups[sourceGroupName]
+	if !exists {
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s not found",
+			ErrParameterGroupNotFound,
+			sourceGroupName,
+		)
+	}
+
+	if _, alreadyExists := b.clusterParameterGroups[targetGroupName]; alreadyExists {
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s already exists",
+			ErrParameterGroupAlreadyExists,
+			targetGroupName,
+		)
+	}
+
+	pg := copyParameterGroupTo(src, targetGroupName, targetDescription)
+	b.clusterParameterGroups[targetGroupName] = pg
+
+	cp := copyDBParameterGroup(pg)
+
+	return &cp, nil
+}
+
+// CopyDBParameterGroup creates a copy of the source parameter group.
+func (b *InMemoryBackend) CopyDBParameterGroup(
+	sourceGroupName, targetGroupName, targetDescription string,
+) (*DBParameterGroup, error) {
+	if sourceGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: SourceDBParameterGroupIdentifier must not be empty",
+			ErrInvalidParameter,
+		)
+	}
+	if targetGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: TargetDBParameterGroupIdentifier must not be empty",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.Lock("CopyDBParameterGroup")
+	defer b.mu.Unlock()
+
+	src, exists := b.parameterGroups[sourceGroupName]
+	if !exists {
+		return nil, fmt.Errorf(
+			"%w: parameter group %s not found",
+			ErrParameterGroupNotFound,
+			sourceGroupName,
+		)
+	}
+
+	if _, alreadyExists := b.parameterGroups[targetGroupName]; alreadyExists {
+		return nil, fmt.Errorf(
+			"%w: parameter group %s already exists",
+			ErrParameterGroupAlreadyExists,
+			targetGroupName,
+		)
+	}
+
+	pg := copyParameterGroupTo(src, targetGroupName, targetDescription)
+	b.parameterGroups[targetGroupName] = pg
+
+	cp := copyDBParameterGroup(pg)
+
+	return &cp, nil
+}
+
+// copyParameterGroupTo returns a new DBParameterGroup that is a copy of src with the given
+// target name and description. The caller is responsible for storing it in the appropriate map.
+func copyParameterGroupTo(src *DBParameterGroup, targetName, targetDescription string) *DBParameterGroup {
+	if targetDescription == "" {
+		targetDescription = src.Description
+	}
+
+	pg := &DBParameterGroup{
+		DBParameterGroupName:   targetName,
+		DBParameterGroupFamily: src.DBParameterGroupFamily,
+		Description:            targetDescription,
+		Parameters:             make(map[string]DBParameter, len(src.Parameters)),
+	}
+	maps.Copy(pg.Parameters, src.Parameters)
+
+	return pg
+}
+
+// CopyOptionGroup creates a copy of the source option group.
+func (b *InMemoryBackend) CopyOptionGroup(
+	sourceGroupName, targetGroupName, targetDescription string,
+) (*OptionGroup, error) {
+	if sourceGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: SourceOptionGroupIdentifier must not be empty",
+			ErrInvalidParameter,
+		)
+	}
+	if targetGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: TargetOptionGroupIdentifier must not be empty",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.Lock("CopyOptionGroup")
+	defer b.mu.Unlock()
+
+	src, exists := b.optionGroups[sourceGroupName]
+	if !exists {
+		return nil, fmt.Errorf("%w: option group %s not found", ErrOptionGroupNotFound, sourceGroupName)
+	}
+
+	if _, alreadyExists := b.optionGroups[targetGroupName]; alreadyExists {
+		return nil, fmt.Errorf(
+			"%w: option group %s already exists",
+			ErrOptionGroupAlreadyExists,
+			targetGroupName,
+		)
+	}
+
+	if targetDescription == "" {
+		targetDescription = src.OptionGroupDescription
+	}
+
+	opts := make([]OptionGroupOption, len(src.Options))
+	copy(opts, src.Options)
+
+	og := &OptionGroup{
+		OptionGroupName:        targetGroupName,
+		OptionGroupDescription: targetDescription,
+		EngineName:             src.EngineName,
+		MajorEngineVersion:     src.MajorEngineVersion,
+		Options:                opts,
+	}
+	b.optionGroups[targetGroupName] = og
+
+	cp := *og
+	cp.Options = make([]OptionGroupOption, len(og.Options))
+	copy(cp.Options, og.Options)
+
+	return &cp, nil
+}
+
+// CreateBlueGreenDeployment creates a new Blue/Green Deployment.
+func (b *InMemoryBackend) CreateBlueGreenDeployment(
+	name, source string,
+) (*BlueGreenDeployment, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: BlueGreenDeploymentName must not be empty", ErrInvalidParameter)
+	}
+	if source == "" {
+		return nil, fmt.Errorf("%w: Source must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateBlueGreenDeployment")
+	defer b.mu.Unlock()
+
+	id := fmt.Sprintf("bgd-%s", name)
+
+	if _, exists := b.blueGreenDeployments[id]; exists {
+		return nil, fmt.Errorf(
+			"%w: Blue/Green Deployment %s already exists",
+			ErrBlueGreenDeploymentAlreadyExists,
+			name,
+		)
+	}
+
+	deployment := &BlueGreenDeployment{
+		BlueGreenDeploymentIdentifier: id,
+		BlueGreenDeploymentName:       name,
+		Source:                        source,
+		Status:                        blueGreenDeploymentStatusAvailable,
+	}
+	b.blueGreenDeployments[id] = deployment
+
+	cp := *deployment
+
+	return &cp, nil
+}
+
+// RemoveRoleFromDBCluster disassociates an IAM role from the given cluster.
+// Returns an error if the cluster does not exist. Removing a role that is not associated is a no-op.
+func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN string) error {
+	if clusterID == "" {
+		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if roleARN == "" {
+		return fmt.Errorf("%w: RoleArn must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RemoveRoleFromDBCluster")
+	defer b.mu.Unlock()
+
+	if _, exists := b.clusters[clusterID]; !exists {
+		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	roles := b.clusterRoles[clusterID]
+	idx := slices.Index(roles, roleARN)
+	if idx >= 0 {
+		b.clusterRoles[clusterID] = slices.Delete(roles, idx, idx+1)
+	}
+
+	return nil
+}
+
+// RemoveRoleFromDBInstance disassociates an IAM role from the given instance.
+// Returns an error if the instance does not exist. Removing a role that is not associated is a no-op.
+func (b *InMemoryBackend) RemoveRoleFromDBInstance(instanceID, roleARN string) error {
+	if instanceID == "" {
+		return fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if roleARN == "" {
+		return fmt.Errorf("%w: RoleArn must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RemoveRoleFromDBInstance")
+	defer b.mu.Unlock()
+
+	if _, exists := b.instances[instanceID]; !exists {
+		return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+
+	roles := b.instanceRoles[instanceID]
+	idx := slices.Index(roles, roleARN)
+	if idx >= 0 {
+		b.instanceRoles[instanceID] = slices.Delete(roles, idx, idx+1)
+	}
+
+	return nil
+}
+
+// RemoveSourceIdentifierFromSubscription removes a source identifier from an event subscription.
+// Returns an error if the subscription does not exist.
+func (b *InMemoryBackend) RemoveSourceIdentifierFromSubscription(
+	subscriptionName, sourceIdentifier string,
+) (*EventSubscription, error) {
+	if subscriptionName == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName must not be empty", ErrInvalidParameter)
+	}
+	if sourceIdentifier == "" {
+		return nil, fmt.Errorf("%w: SourceIdentifier must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RemoveSourceIdentifierFromSubscription")
+	defer b.mu.Unlock()
+
+	sub, exists := b.eventSubscriptions[subscriptionName]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
+	}
+
+	idx := slices.Index(sub.SourceIDs, sourceIdentifier)
+	if idx >= 0 {
+		sub.SourceIDs = slices.Delete(sub.SourceIDs, idx, idx+1)
+	}
+
+	cp := *sub
+	cp.SourceIDs = make([]string, len(sub.SourceIDs))
+	copy(cp.SourceIDs, sub.SourceIDs)
+
+	return &cp, nil
+}
+
+const backtrackIDBytes = 8
+
+// newBacktrackID generates a unique backtrack identifier using random bytes.
+func newBacktrackID() string {
+	buf := make([]byte, backtrackIDBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "backtrack-unknown"
+	}
+
+	return "backtrack-" + hex.EncodeToString(buf)
+}
+
+// ---- Seed helpers ----
+
+// AddClusterInternal creates a DB cluster directly, bypassing normal validation. Used for seeding tests.
+func (b *InMemoryBackend) AddClusterInternal(id, engine string) *DBCluster {
+	b.mu.Lock("AddClusterInternal")
+	defer b.mu.Unlock()
+
+	c := &DBCluster{
+		DBClusterIdentifier: id,
+		Engine:              engine,
+		Status:              instanceStatusAvailable,
+	}
+	b.clusters[id] = c
+	cp := *c
+
+	return &cp
+}
+
+// AddInstanceInternal creates a DB instance directly, bypassing normal validation. Used for seeding tests.
+func (b *InMemoryBackend) AddInstanceInternal(id, engine string) *DBInstance {
+	b.mu.Lock("AddInstanceInternal")
+	defer b.mu.Unlock()
+
+	inst := &DBInstance{
+		DBInstanceIdentifier: id,
+		Engine:               engine,
+		DBInstanceStatus:     instanceStatusAvailable,
+		DBInstanceClass:      defaultInstanceClass,
+		AllocatedStorage:     defaultAllocatedStorage,
+	}
+	b.instances[id] = inst
+	cp := *inst
+
+	return &cp
+}
+
+// AddEventSubscriptionInternal creates an event subscription directly. Used for seeding tests.
+func (b *InMemoryBackend) AddEventSubscriptionInternal(name, snsTopicArn string) *EventSubscription {
+	b.mu.Lock("AddEventSubscriptionInternal")
+	defer b.mu.Unlock()
+
+	sub := &EventSubscription{
+		SubscriptionName: name,
+		SnsTopicArn:      snsTopicArn,
+		Status:           subscriptionStatusActive,
+		SourceIDs:        []string{},
+	}
+	b.eventSubscriptions[name] = sub
+	cp := *sub
+	cp.SourceIDs = make([]string, 0)
+
+	return &cp
+}
+
+// AddBlueGreenDeploymentInternal creates a Blue/Green Deployment directly. Used for seeding tests.
+func (b *InMemoryBackend) AddBlueGreenDeploymentInternal(name, source string) *BlueGreenDeployment {
+	b.mu.Lock("AddBlueGreenDeploymentInternal")
+	defer b.mu.Unlock()
+
+	id := fmt.Sprintf("bgd-%s", name)
+	d := &BlueGreenDeployment{
+		BlueGreenDeploymentIdentifier: id,
+		BlueGreenDeploymentName:       name,
+		Source:                        source,
+		Status:                        blueGreenDeploymentStatusAvailable,
+	}
+	b.blueGreenDeployments[id] = d
+	cp := *d
+
+	return &cp
+}
+
+// AddSecurityGroupInternal creates a DB security group directly. Used for seeding tests.
+func (b *InMemoryBackend) AddSecurityGroupInternal(name, description string) *DBSecurityGroup {
+	b.mu.Lock("AddSecurityGroupInternal")
+	defer b.mu.Unlock()
+
+	sg := &DBSecurityGroup{
+		DBSecurityGroupName:        name,
+		DBSecurityGroupDescription: description,
+		IPRanges:                   []IPRange{},
+	}
+	b.dbSecurityGroups[name] = sg
+	cp := *sg
+	cp.IPRanges = make([]IPRange, 0)
+
+	return &cp
 }
