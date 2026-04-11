@@ -62,6 +62,7 @@ var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table
 	"/put-group-configuration": "PutGroupConfiguration",
 	"/resources/search":        "SearchResources",
 	"/start-tag-sync-task":     "StartTagSyncTask",
+	"/update-account-settings": "UpdateAccountSettings",
 }
 
 type groupNameInput struct {
@@ -83,12 +84,42 @@ func (g *groupNameInput) resolvedName() string {
 
 // Handler is the Echo HTTP handler for Resource Groups operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	ops     map[string]service.JSONOpFunc
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Resource Groups handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// buildOps constructs the static dispatch table once at handler creation.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateGroup":           service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup":           service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":            service.WrapOp(h.handleListGroups),
+		"GetGroup":              service.WrapOp(h.handleGetGroup),
+		"GetGroupQuery":         service.WrapOp(h.handleGetGroupQuery),
+		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
+		"UpdateGroup":           service.WrapOp(h.handleUpdateGroup),
+		"UpdateGroupQuery":      service.WrapOp(h.handleUpdateGroupQuery),
+		// New operations
+		"CancelTagSyncTask":     service.WrapOp(h.handleCancelTagSyncTask),
+		"GetAccountSettings":    service.WrapOp(h.handleGetAccountSettings),
+		"GetTagSyncTask":        service.WrapOp(h.handleGetTagSyncTask),
+		"GroupResources":        service.WrapOp(h.handleGroupResources),
+		"ListGroupResources":    service.WrapOp(h.handleListGroupResources),
+		"ListGroupingStatuses":  service.WrapOp(h.handleListGroupingStatuses),
+		"ListTagSyncTasks":      service.WrapOp(h.handleListTagSyncTasks),
+		"PutGroupConfiguration": service.WrapOp(h.handlePutGroupConfiguration),
+		"SearchResources":       service.WrapOp(h.handleSearchResources),
+		"StartTagSyncTask":      service.WrapOp(h.handleStartTagSyncTask),
+		"UpdateAccountSettings": service.WrapOp(h.handleUpdateAccountSettings),
+	}
 }
 
 // Name returns the service name.
@@ -116,6 +147,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StartTagSyncTask",
 		"Tag",
 		"Untag",
+		"UpdateAccountSettings",
 		"UpdateGroup",
 		"UpdateGroupQuery",
 	}
@@ -256,32 +288,8 @@ func (h *Handler) handleREST(c *echo.Context, action string) error {
 	return c.JSONBlob(http.StatusOK, response)
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateGroup":           service.WrapOp(h.handleCreateGroup),
-		"DeleteGroup":           service.WrapOp(h.handleDeleteGroup),
-		"ListGroups":            service.WrapOp(h.handleListGroups),
-		"GetGroup":              service.WrapOp(h.handleGetGroup),
-		"GetGroupQuery":         service.WrapOp(h.handleGetGroupQuery),
-		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
-		"UpdateGroup":           service.WrapOp(h.handleUpdateGroup),
-		"UpdateGroupQuery":      service.WrapOp(h.handleUpdateGroupQuery),
-		// New operations
-		"CancelTagSyncTask":     service.WrapOp(h.handleCancelTagSyncTask),
-		"GetAccountSettings":    service.WrapOp(h.handleGetAccountSettings),
-		"GetTagSyncTask":        service.WrapOp(h.handleGetTagSyncTask),
-		"GroupResources":        service.WrapOp(h.handleGroupResources),
-		"ListGroupResources":    service.WrapOp(h.handleListGroupResources),
-		"ListGroupingStatuses":  service.WrapOp(h.handleListGroupingStatuses),
-		"ListTagSyncTasks":      service.WrapOp(h.handleListTagSyncTasks),
-		"PutGroupConfiguration": service.WrapOp(h.handlePutGroupConfiguration),
-		"SearchResources":       service.WrapOp(h.handleSearchResources),
-		"StartTagSyncTask":      service.WrapOp(h.handleStartTagSyncTask),
-	}
-}
-
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, ErrUnknownOperation
 	}
@@ -328,6 +336,10 @@ type createGroupOutput struct {
 }
 
 func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
 	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.ResourceQuery, in.Tags)
 	if err != nil {
 		return nil, err
@@ -451,7 +463,12 @@ type updateGroupOutput struct {
 }
 
 func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
-	g, err := h.Backend.UpdateGroup(in.resolvedName(), in.Description)
+	name := in.resolvedName()
+	if name == "" {
+		return nil, fmt.Errorf("%w: Group or GroupName is required", ErrValidation)
+	}
+
+	g, err := h.Backend.UpdateGroup(name, in.Description)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +498,12 @@ func (h *Handler) handleUpdateGroupQuery(
 	_ context.Context,
 	in *updateGroupQueryInput,
 ) (*updateGroupQueryOutput, error) {
-	g, err := h.Backend.UpdateGroupQuery(in.resolvedName(), in.ResourceQuery)
+	name := in.resolvedName()
+	if name == "" {
+		return nil, fmt.Errorf("%w: Group or GroupName is required", ErrValidation)
+	}
+
+	g, err := h.Backend.UpdateGroupQuery(name, in.ResourceQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -857,4 +879,26 @@ func (h *Handler) handleListTagSyncTasks(
 	}
 
 	return &listTagSyncTasksOutput{TagSyncTasks: tasks}, nil
+}
+
+// handleUpdateAccountSettings updates account-level lifecycle event settings.
+type updateAccountSettingsInput struct {
+	GroupLifecycleEventsDesiredStatus string `json:"GroupLifecycleEventsDesiredStatus"`
+}
+
+type updateAccountSettingsOutput struct {
+	AccountSettings AccountSettings `json:"AccountSettings"`
+}
+
+func (h *Handler) handleUpdateAccountSettings(
+	_ context.Context,
+	in *updateAccountSettingsInput,
+) (*updateAccountSettingsOutput, error) {
+	if err := h.Backend.UpdateAccountSettings(in.GroupLifecycleEventsDesiredStatus); err != nil {
+		return nil, err
+	}
+
+	settings := h.Backend.GetAccountSettings()
+
+	return &updateAccountSettingsOutput{AccountSettings: settings}, nil
 }

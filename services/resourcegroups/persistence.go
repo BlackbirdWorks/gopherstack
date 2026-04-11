@@ -3,6 +3,8 @@ package resourcegroups
 import (
 	"encoding/json"
 	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
@@ -89,8 +91,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Re-initialize Tags with per-group names to avoid Prometheus label collisions
+	// from the "json.tags" name used during JSON deserialization.
+	for name, g := range b.groups {
+		if g.Tags != nil {
+			tagMap := g.Tags.Clone()
+			g.Tags.Close()
+			g.Tags = tags.FromMap("rg."+name+".tags", tagMap)
+		} else {
+			g.Tags = tags.New("rg." + name + ".tags")
+		}
+	}
+
 	// Rebuild ARN index.
 	b.arnIndex = make(map[string]string, len(b.groups))
+
 	for name, g := range b.groups {
 		b.arnIndex[g.ARN] = name
 	}

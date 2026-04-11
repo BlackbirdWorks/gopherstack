@@ -19,6 +19,5 @@ func TestSDKCompleteness(t *testing.T) {
 	h := resourcegroups.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &resourcegroupssdk.Client{}, h.GetSupportedOperations(), []string{
 		"UngroupResources",
-		"UpdateAccountSettings",
 	})
 }
