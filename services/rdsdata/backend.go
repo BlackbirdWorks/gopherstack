@@ -1,6 +1,7 @@
 package rdsdata
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -10,6 +11,10 @@ import (
 const (
 	// transactionStatusActive is the active state for a transaction.
 	transactionStatusActive = "ACTIVE"
+	// transactionStatusCommitted is the status returned on successful commit.
+	transactionStatusCommitted = "Transaction committed"
+	// transactionStatusRolledBack is the status returned on successful rollback.
+	transactionStatusRolledBack = "Transaction rolled back"
 	// maxExecutedStatements is the maximum number of executed statements to retain.
 	maxExecutedStatements = 1000
 )
@@ -17,6 +22,8 @@ const (
 var (
 	// ErrTransactionNotFound is returned when a transaction does not exist.
 	ErrTransactionNotFound = awserr.New("TransactionNotFoundException", awserr.ErrNotFound)
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 // Field represents a single field value in an RDS Data API record.
@@ -37,15 +44,31 @@ type ColumnMetadata struct {
 
 // Transaction represents an in-progress database transaction.
 type Transaction struct {
-	TransactionID string
-	Status        string
+	TransactionID string `json:"transactionId"`
+	Status        string `json:"status"`
 }
 
 // ExecutedStatement represents a record of an executed SQL statement.
 type ExecutedStatement struct {
-	SQL           string
-	ResourceARN   string
-	TransactionID string
+	SQL           string `json:"sql"`
+	ResourceARN   string `json:"resourceArn"`
+	TransactionID string `json:"transactionId,omitempty"`
+}
+
+// SQLParameter represents a named parameter for a SQL statement.
+type SQLParameter struct {
+	Name  string `json:"name"`
+	Value Field  `json:"value"`
+}
+
+// UpdateResult represents the result of a single update in a batch.
+type UpdateResult struct {
+	GeneratedFields []Field `json:"generatedFields"`
+}
+
+// SQLStatementResult represents the result of a single SQL statement in an ExecuteSql call.
+type SQLStatementResult struct {
+	NumberOfRecordsUpdated int64 `json:"numberOfRecordsUpdated"`
 }
 
 // InMemoryBackend is an in-memory RDS Data backend.
@@ -61,15 +84,45 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory RDS Data backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		transactions: make(map[string]*Transaction),
-		mu:           lockmetrics.New("rdsdata"),
-		accountID:    accountID,
-		region:       region,
+		transactions:       make(map[string]*Transaction),
+		executedStatements: []ExecutedStatement{},
+		mu:                 lockmetrics.New("rdsdata"),
+		accountID:          accountID,
+		region:             region,
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all backend state. Useful for test isolation.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.transactions = make(map[string]*Transaction)
+	b.executedStatements = []ExecutedStatement{}
+	b.txCounter = 0
+}
+
+// appendStatementLocked records an executed statement and trims the buffer to
+// maxExecutedStatements. The caller must hold b.mu (write lock).
+func (b *InMemoryBackend) appendStatementLocked(resourceARN, sql, transactionID string) {
+	b.executedStatements = append(b.executedStatements, ExecutedStatement{
+		SQL:           sql,
+		ResourceARN:   resourceARN,
+		TransactionID: transactionID,
+	})
+
+	if len(b.executedStatements) > maxExecutedStatements {
+		trimmed := make([]ExecutedStatement, maxExecutedStatements)
+		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
+		b.executedStatements = trimmed
+	}
+}
 
 // ExecuteStatement executes a SQL statement and returns an empty result set.
 func (b *InMemoryBackend) ExecuteStatement(
@@ -84,16 +137,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		}
 	}
 
-	b.executedStatements = append(b.executedStatements, ExecutedStatement{
-		SQL:           sql,
-		ResourceARN:   resourceARN,
-		TransactionID: transactionID,
-	})
-	if len(b.executedStatements) > maxExecutedStatements {
-		trimmed := make([]ExecutedStatement, maxExecutedStatements)
-		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
-		b.executedStatements = trimmed
-	}
+	b.appendStatementLocked(resourceARN, sql, transactionID)
 
 	return [][]Field{}, []ColumnMetadata{}, 0, nil
 }
@@ -112,24 +156,15 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		}
 	}
 
-	b.executedStatements = append(b.executedStatements, ExecutedStatement{
-		SQL:           sql,
-		ResourceARN:   resourceARN,
-		TransactionID: transactionID,
-	})
-	if len(b.executedStatements) > maxExecutedStatements {
-		trimmed := make([]ExecutedStatement, maxExecutedStatements)
-		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
-		b.executedStatements = trimmed
+	b.appendStatementLocked(resourceARN, sql, transactionID)
+
+	if len(parameterSets) == 0 {
+		return []UpdateResult{}, nil
 	}
 
 	results := make([]UpdateResult, len(parameterSets))
 	for i := range results {
 		results[i] = UpdateResult{GeneratedFields: []Field{}}
-	}
-
-	if len(parameterSets) == 0 {
-		return []UpdateResult{}, nil
 	}
 
 	return results, nil
@@ -162,7 +197,7 @@ func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error
 
 	delete(b.transactions, transactionID)
 
-	return "Transaction Committed", nil
+	return transactionStatusCommitted, nil
 }
 
 // RollbackTransaction rolls back a transaction by ID.
@@ -176,7 +211,18 @@ func (b *InMemoryBackend) RollbackTransaction(transactionID string) (string, err
 
 	delete(b.transactions, transactionID)
 
-	return "Transaction Rolled Back", nil
+	return transactionStatusRolledBack, nil
+}
+
+// ExecuteSQL executes one or more SQL statements against the cluster.
+// This is a deprecated operation; use ExecuteStatement or BatchExecuteStatement instead.
+func (b *InMemoryBackend) ExecuteSQL(resourceARN, sqlStatements string) ([]SQLStatementResult, error) {
+	b.mu.Lock("ExecuteSql")
+	defer b.mu.Unlock()
+
+	b.appendStatementLocked(resourceARN, sqlStatements, "")
+
+	return []SQLStatementResult{{NumberOfRecordsUpdated: 0}}, nil
 }
 
 // ListExecutedStatements returns a copy of all executed statements.
@@ -203,13 +249,19 @@ func (b *InMemoryBackend) ListTransactions() map[string]Transaction {
 	return result
 }
 
-// SQLParameter represents a named parameter for a SQL statement.
-type SQLParameter struct {
-	Name  string `json:"name"`
-	Value Field  `json:"value"`
+// AddTransactionInternal directly inserts a transaction into the backend.
+// This is intended only for seeding test data.
+func (b *InMemoryBackend) AddTransactionInternal(txID string) {
+	b.mu.Lock("AddTransactionInternal")
+	defer b.mu.Unlock()
+
+	b.transactions[txID] = &Transaction{
+		TransactionID: txID,
+		Status:        transactionStatusActive,
+	}
 }
 
-// UpdateResult represents the result of a single update in a batch.
-type UpdateResult struct {
-	GeneratedFields []Field `json:"generatedFields"`
+// errIsValidation reports whether err wraps ErrValidation.
+func errIsValidation(err error) bool {
+	return errors.Is(err, awserr.ErrInvalidParameter)
 }

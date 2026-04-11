@@ -23,6 +23,7 @@ const (
 	pathBeginTransaction    = "/BeginTransaction"
 	pathCommitTransaction   = "/CommitTransaction"
 	pathRollbackTransaction = "/RollbackTransaction"
+	pathExecuteSQL          = "/ExecuteSql"
 )
 
 var (
@@ -32,18 +33,24 @@ var (
 
 // Handler is the HTTP handler for the RDS Data REST API.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new RDS Data handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+// NewHandler creates a new RDS Data handler.
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		AccountID: backend.AccountID(),
+		Region:    backend.Region(),
 	}
+}
+
+// Reset clears all handler and backend state. Useful for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -52,10 +59,11 @@ func (h *Handler) Name() string { return "RDSData" }
 // GetSupportedOperations returns the list of supported RDS Data operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"ExecuteStatement",
 		"BatchExecuteStatement",
 		"BeginTransaction",
 		"CommitTransaction",
+		"ExecuteSql",
+		"ExecuteStatement",
 		"RollbackTransaction",
 	}
 }
@@ -82,7 +90,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		switch path {
 		case pathExecute, pathBatchExecute, pathBeginTransaction,
-			pathCommitTransaction, pathRollbackTransaction:
+			pathCommitTransaction, pathRollbackTransaction, pathExecuteSQL:
 			return true
 		}
 
@@ -106,6 +114,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "CommitTransaction"
 	case pathRollbackTransaction:
 		return "RollbackTransaction"
+	case pathExecuteSQL:
+		return "ExecuteSql"
 	default:
 		return "Unknown"
 	}
@@ -159,6 +169,8 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 		return h.handleCommitTransaction(ctx, body)
 	case "RollbackTransaction":
 		return h.handleRollbackTransaction(ctx, body)
+	case "ExecuteSql":
+		return h.handleExecuteSQL(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
@@ -172,6 +184,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "TransactionNotFoundException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errIsValidation(err):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "BadRequestException",
 			"message": err.Error(),
 		})
 
@@ -349,4 +368,38 @@ func (h *Handler) handleRollbackTransaction(_ context.Context, body []byte) ([]b
 	}
 
 	return json.Marshal(rollbackTransactionResponse{TransactionStatus: status})
+}
+
+type executeSQLRequest struct {
+	AwsSecretStoreArn      string `json:"awsSecretStoreArn"`
+	DBClusterOrInstanceArn string `json:"dbClusterOrInstanceArn"`
+	SQLStatements          string `json:"sqlStatements"`
+	Database               string `json:"database"`
+	Schema                 string `json:"schema"`
+}
+
+type executeSQLResponse struct {
+	SQLStatementResults []SQLStatementResult `json:"sqlStatementResults"`
+}
+
+func (h *Handler) handleExecuteSQL(_ context.Context, body []byte) ([]byte, error) {
+	var req executeSQLRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.DBClusterOrInstanceArn == "" {
+		return nil, fmt.Errorf("%w: missing dbClusterOrInstanceArn", errInvalidRequest)
+	}
+
+	if req.SQLStatements == "" {
+		return nil, fmt.Errorf("%w: missing sqlStatements", errInvalidRequest)
+	}
+
+	results, err := h.Backend.ExecuteSQL(req.DBClusterOrInstanceArn, req.SQLStatements)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(executeSQLResponse{SQLStatementResults: results})
 }
