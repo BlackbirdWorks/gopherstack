@@ -68,6 +68,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "BatchExecuteStatement")
 	assert.Contains(t, ops, "DescribeStatement")
 	assert.Contains(t, ops, "GetStatementResult")
+	assert.Contains(t, ops, "GetStatementResultV2")
 	assert.Contains(t, ops, "ListStatements")
 	assert.Contains(t, ops, "CancelStatement")
 	assert.Contains(t, ops, "ListDatabases")
@@ -414,6 +415,78 @@ func TestHandler_GetStatementResult(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.NotNil(t, resp["Records"])
+			}
+		})
+	}
+}
+
+func TestHandler_GetStatementResultV2(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*redshiftdata.Handler) string
+		name         string
+		wantStatus   int
+		wantErrType  string
+		checkRecords bool
+	}{
+		{
+			name: "existing_statement",
+			setup: func(h *redshiftdata.Handler) string {
+				rec := doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql":               "SELECT 1",
+					"ClusterIdentifier": "my-cluster",
+					"Database":          "testdb",
+				})
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["Id"].(string)
+			},
+			wantStatus:   http.StatusOK,
+			checkRecords: true,
+		},
+		{
+			name:        "not_found",
+			setup:       func(_ *redshiftdata.Handler) string { return "nonexistent-id" },
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
+		},
+		{
+			name:        "missing_id",
+			setup:       func(_ *redshiftdata.Handler) string { return "" },
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := tt.setup(h)
+
+			var body map[string]any
+			if id != "" {
+				body = map[string]any{"Id": id}
+			} else {
+				body = map[string]any{}
+			}
+
+			rec := doRequest(t, h, "GetStatementResultV2", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			if tt.checkRecords {
+				assert.NotNil(t, resp["Records"])
+				assert.Equal(t, "CSV", resp["ResultFormat"])
+				assert.NotNil(t, resp["ColumnMetadata"])
+				assert.EqualValues(t, 0, resp["TotalNumRows"])
+			} else {
+				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
 	}

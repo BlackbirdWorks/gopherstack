@@ -49,16 +49,17 @@ func (h *Handler) Name() string { return "RedshiftData" }
 // GetSupportedOperations returns the list of supported Redshift Data operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"ExecuteStatement",
 		"BatchExecuteStatement",
-		"DescribeStatement",
-		"GetStatementResult",
-		"ListStatements",
 		"CancelStatement",
+		"DescribeStatement",
+		"DescribeTable",
+		"ExecuteStatement",
+		"GetStatementResult",
+		"GetStatementResultV2",
 		"ListDatabases",
 		"ListSchemas",
+		"ListStatements",
 		"ListTables",
-		"DescribeTable",
 	}
 }
 
@@ -147,6 +148,8 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 		return h.handleDescribeStatement(ctx, body)
 	case "GetStatementResult":
 		return h.handleGetStatementResult(ctx, body)
+	case "GetStatementResultV2":
+		return h.handleGetStatementResultV2(ctx, body)
 	case "ListStatements":
 		return h.handleListStatements(ctx, body)
 	case "CancelStatement":
@@ -282,6 +285,32 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 		"Records":        [][]any{},
 		"ColumnMetadata": []any{},
 		"TotalNumRows":   0,
+	})
+}
+
+func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ID        string `json:"Id"`
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errMissingID)
+	}
+
+	if _, err := h.Backend.DescribeStatement(req.ID); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"Records":        []any{},
+		"ColumnMetadata": []any{},
+		"TotalNumRows":   int64(0),
+		"ResultFormat":   "CSV",
 	})
 }
 

@@ -17,7 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := redshiftdata.NewInMemoryBackend("000000000000", "us-east-1")
 	h := redshiftdata.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &redshiftdatasdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetStatementResultV2",
-	})
+	sdkcheck.CheckCompleteness(t, &redshiftdatasdk.Client{}, h.GetSupportedOperations(), []string{})
 }
