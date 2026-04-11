@@ -33,6 +33,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears all backend state. Useful for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "RDS" }
 
@@ -42,14 +47,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddRoleToDBCluster",
 		"AddRoleToDBInstance",
 		"AddSourceIdentifierToSubscription",
+		"AddTagsToResource",
 		"ApplyPendingMaintenanceAction",
 		"AuthorizeDBSecurityGroupIngress",
 		"BacktrackDBCluster",
+		"CancelExportTask",
 		"CopyDBClusterParameterGroup",
-		"CopyDBParameterGroup",
-		"CopyOptionGroup",
-		"CopyDBSnapshot",
 		"CopyDBClusterSnapshot",
+		"CopyDBParameterGroup",
+		"CopyDBSnapshot",
+		"CopyOptionGroup",
 		"CreateBlueGreenDeployment",
 		"CreateDBCluster",
 		"CreateDBClusterEndpoint",
@@ -62,7 +69,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateDBSubnetGroup",
 		"CreateGlobalCluster",
 		"CreateOptionGroup",
-		"CancelExportTask",
 		"DeleteDBCluster",
 		"DeleteDBClusterEndpoint",
 		"DeleteDBClusterSnapshot",
@@ -91,7 +97,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeValidDBInstanceModifications",
 		"DownloadDBLogFilePortion",
 		"ListTagsForResource",
-		"AddTagsToResource",
 		"ModifyDBCluster",
 		"ModifyDBInstance",
 		"ModifyDBParameterGroup",
@@ -99,6 +104,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ModifyOptionGroup",
 		"PromoteReadReplica",
 		"RebootDBInstance",
+		"RemoveRoleFromDBCluster",
+		"RemoveRoleFromDBInstance",
+		"RemoveSourceIdentifierFromSubscription",
 		"RemoveTagsFromResource",
 		"ResetDBParameterGroup",
 		"RestoreDBClusterFromSnapshot",
@@ -412,6 +420,12 @@ func (h *Handler) dispatchExtended6(action string, vals url.Values) (any, error)
 		return h.handleCopyOptionGroup(vals)
 	case "CreateBlueGreenDeployment":
 		return h.handleCreateBlueGreenDeployment(vals)
+	case "RemoveRoleFromDBCluster":
+		return h.handleRemoveRoleFromDBCluster(vals)
+	case "RemoveRoleFromDBInstance":
+		return h.handleRemoveRoleFromDBInstance(vals)
+	case "RemoveSourceIdentifierFromSubscription":
+		return h.handleRemoveSourceIdentifierFromSubscription(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
@@ -2730,4 +2744,57 @@ type createBlueGreenDeploymentResponse struct {
 	XMLName             xml.Name               `xml:"CreateBlueGreenDeploymentResponse"`
 	Xmlns               string                 `xml:"xmlns,attr"`
 	BlueGreenDeployment xmlBlueGreenDeployment `xml:"CreateBlueGreenDeploymentResult>BlueGreenDeployment"`
+}
+
+func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	roleARN := vals.Get("RoleArn")
+
+	if err := h.Backend.RemoveRoleFromDBCluster(clusterID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &removeRoleFromDBClusterResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleRemoveRoleFromDBInstance(vals url.Values) (any, error) {
+	instanceID := vals.Get("DBInstanceIdentifier")
+	roleARN := vals.Get("RoleArn")
+
+	if err := h.Backend.RemoveRoleFromDBInstance(instanceID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &removeRoleFromDBInstanceResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) (any, error) {
+	subscriptionName := vals.Get("SubscriptionName")
+	sourceIdentifier := vals.Get("SourceIdentifier")
+
+	sub, err := h.Backend.RemoveSourceIdentifierFromSubscription(subscriptionName, sourceIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return &removeSourceIdentifierFromSubscriptionResponse{
+		Xmlns:             rdsXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+type removeRoleFromDBClusterResponse struct {
+	XMLName xml.Name `xml:"RemoveRoleFromDBClusterResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type removeRoleFromDBInstanceResponse struct {
+	XMLName xml.Name `xml:"RemoveRoleFromDBInstanceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type removeSourceIdentifierFromSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"RemoveSourceIdentifierFromSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"RemoveSourceIdentifierFromSubscriptionResult>EventSubscription"`
 }

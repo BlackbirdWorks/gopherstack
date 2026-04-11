@@ -2,6 +2,7 @@ package rds
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 )
 
@@ -57,6 +58,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("rds: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
