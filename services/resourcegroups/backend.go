@@ -3,6 +3,7 @@ package resourcegroups
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -16,6 +17,10 @@ var (
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource group already exists.
 	ErrAlreadyExists = awserr.New("BadRequestException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when request validation fails.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrTagSyncTaskNotFound is returned when a tag-sync task is not found.
+	ErrTagSyncTaskNotFound = awserr.New("NotFoundException: tag-sync task not found", awserr.ErrNotFound)
 )
 
 // ResourceQuery represents a tag-based resource query for a group.
@@ -34,23 +39,86 @@ type Group struct {
 	Description   string         `json:"Description"`
 }
 
+// GroupConfigurationParameter is a key-value parameter for a group configuration item.
+type GroupConfigurationParameter struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
+}
+
+// GroupConfigurationItem is a single configuration item for a group.
+type GroupConfigurationItem struct {
+	Type       string                        `json:"Type"`
+	Parameters []GroupConfigurationParameter `json:"Parameters,omitempty"`
+}
+
+// AccountSettings holds account-level settings for Resource Groups.
+type AccountSettings struct {
+	GroupLifecycleEventsDesiredStatus string `json:"GroupLifecycleEventsDesiredStatus,omitempty"`
+	GroupLifecycleEventsStatus        string `json:"GroupLifecycleEventsStatus,omitempty"`
+	GroupLifecycleEventsStatusMessage string `json:"GroupLifecycleEventsStatusMessage,omitempty"`
+}
+
+// TagSyncTask represents a tag-sync task for an application group.
+type TagSyncTask struct {
+	CreatedAt     time.Time      `json:"CreatedAt"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	ErrorMessage  string         `json:"ErrorMessage,omitempty"`
+	GroupArn      string         `json:"GroupArn"`
+	GroupName     string         `json:"GroupName"`
+	RoleArn       string         `json:"RoleArn"`
+	TagKey        string         `json:"TagKey,omitempty"`
+	TagValue      string         `json:"TagValue,omitempty"`
+	TaskArn       string         `json:"TaskArn"`
+	Status        string         `json:"Status"`
+}
+
+// ResourceIdentifier holds an ARN and resource type.
+type ResourceIdentifier struct {
+	ResourceArn  string `json:"ResourceArn,omitempty"`
+	ResourceType string `json:"ResourceType,omitempty"`
+}
+
+// GroupingStatusItem holds the grouping/ungrouping status for a resource.
+type GroupingStatusItem struct {
+	UpdatedAt    time.Time `json:"UpdatedAt"`
+	ErrorCode    string    `json:"ErrorCode,omitempty"`
+	ErrorMessage string    `json:"ErrorMessage,omitempty"`
+	ResourceArn  string    `json:"ResourceArn,omitempty"`
+	Action       string    `json:"Action,omitempty"`
+	Status       string    `json:"Status,omitempty"`
+}
+
+// TagSyncTaskStatus constants.
+const (
+	tagSyncTaskStatusActive = "ACTIVE"
+)
+
 // InMemoryBackend is the in-memory store for Resource Groups.
 type InMemoryBackend struct {
-	groups    map[string]*Group
-	arnIndex  map[string]string // ARN → group name
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	groups              map[string]*Group
+	arnIndex            map[string]string // ARN → group name
+	groupConfigurations map[string][]GroupConfigurationItem
+	groupResources      map[string][]string // group name → []resourceARN
+	groupingStatuses    map[string][]GroupingStatusItem
+	tagSyncTasks        map[string]*TagSyncTask // taskARN → task
+	mu                  *lockmetrics.RWMutex
+	accountSettings     AccountSettings
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		groups:    make(map[string]*Group),
-		arnIndex:  make(map[string]string),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("resourcegroups"),
+		groups:              make(map[string]*Group),
+		arnIndex:            make(map[string]string),
+		groupConfigurations: make(map[string][]GroupConfigurationItem),
+		groupResources:      make(map[string][]string),
+		groupingStatuses:    make(map[string][]GroupingStatusItem),
+		tagSyncTasks:        make(map[string]*TagSyncTask),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("resourcegroups"),
 	}
 }
 
@@ -264,4 +332,278 @@ func (b *InMemoryBackend) Reset() {
 
 	b.groups = make(map[string]*Group)
 	b.arnIndex = make(map[string]string)
+	b.groupConfigurations = make(map[string][]GroupConfigurationItem)
+	b.groupResources = make(map[string][]string)
+	b.groupingStatuses = make(map[string][]GroupingStatusItem)
+	b.tagSyncTasks = make(map[string]*TagSyncTask)
+	b.accountSettings = AccountSettings{}
+}
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// resolveGroupName extracts the group name from a name-or-ARN value.
+func resolveGroupName(nameOrARN string) string {
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		return nameOrARN[idx+len("group/"):]
+	}
+
+	return nameOrARN
+}
+
+// GetAccountSettings returns the account-level settings.
+func (b *InMemoryBackend) GetAccountSettings() AccountSettings {
+	b.mu.RLock("GetAccountSettings")
+	defer b.mu.RUnlock()
+
+	return b.accountSettings
+}
+
+// PutGroupConfiguration stores a configuration for the named group.
+func (b *InMemoryBackend) PutGroupConfiguration(nameOrARN string, items []GroupConfigurationItem) error {
+	b.mu.Lock("PutGroupConfiguration")
+	defer b.mu.Unlock()
+
+	name := resolveGroupName(nameOrARN)
+	if _, ok := b.groups[name]; !ok {
+		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	cp := make([]GroupConfigurationItem, len(items))
+	copy(cp, items)
+	b.groupConfigurations[name] = cp
+
+	return nil
+}
+
+// GetGroupConfigurationItems returns the stored configuration for a group.
+func (b *InMemoryBackend) GetGroupConfigurationItems(nameOrARN string) ([]GroupConfigurationItem, error) {
+	b.mu.RLock("GetGroupConfigurationItems")
+	defer b.mu.RUnlock()
+
+	name := resolveGroupName(nameOrARN)
+	if _, ok := b.groups[name]; !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	items := b.groupConfigurations[name]
+	if items == nil {
+		return []GroupConfigurationItem{}, nil
+	}
+
+	cp := make([]GroupConfigurationItem, len(items))
+	copy(cp, items)
+
+	return cp, nil
+}
+
+// GroupResources associates a list of resource ARNs with a group.
+func (b *InMemoryBackend) GroupResources(nameOrARN string, resourceARNs []string) ([]string, error) {
+	b.mu.Lock("GroupResources")
+	defer b.mu.Unlock()
+
+	name := resolveGroupName(nameOrARN)
+	if _, ok := b.groups[name]; !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	existing := make(map[string]struct{}, len(b.groupResources[name]))
+	for _, a := range b.groupResources[name] {
+		existing[a] = struct{}{}
+	}
+
+	now := time.Now().UTC()
+	var succeeded []string
+
+	for _, a := range resourceARNs {
+		if _, dup := existing[a]; !dup {
+			b.groupResources[name] = append(b.groupResources[name], a)
+			existing[a] = struct{}{}
+		}
+
+		succeeded = append(succeeded, a)
+		b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+			ResourceArn: a,
+			Action:      "GROUP",
+			Status:      "SUCCESS",
+			UpdatedAt:   now,
+		})
+	}
+
+	if succeeded == nil {
+		succeeded = []string{}
+	}
+
+	return succeeded, nil
+}
+
+// ListGroupResources returns all resource ARNs associated with a group.
+func (b *InMemoryBackend) ListGroupResources(nameOrARN string) ([]ResourceIdentifier, error) {
+	b.mu.RLock("ListGroupResources")
+	defer b.mu.RUnlock()
+
+	name := resolveGroupName(nameOrARN)
+	if _, ok := b.groups[name]; !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	arns := b.groupResources[name]
+	out := make([]ResourceIdentifier, 0, len(arns))
+
+	for _, a := range arns {
+		out = append(out, ResourceIdentifier{ResourceArn: a})
+	}
+
+	return out, nil
+}
+
+// ListGroupingStatuses returns the grouping/ungrouping status history for a group.
+func (b *InMemoryBackend) ListGroupingStatuses(nameOrARN string) ([]GroupingStatusItem, error) {
+	b.mu.RLock("ListGroupingStatuses")
+	defer b.mu.RUnlock()
+
+	name := resolveGroupName(nameOrARN)
+	if _, ok := b.groups[name]; !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	statuses := b.groupingStatuses[name]
+	out := make([]GroupingStatusItem, len(statuses))
+	copy(out, statuses)
+
+	return out, nil
+}
+
+// SearchResources returns resource identifiers that were grouped into any group.
+// In this in-memory mock, it returns all resources from all groups as a basic implementation.
+func (b *InMemoryBackend) SearchResources(_ *ResourceQuery) ([]ResourceIdentifier, error) {
+	b.mu.RLock("SearchResources")
+	defer b.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	var out []ResourceIdentifier
+
+	for _, arns := range b.groupResources {
+		for _, a := range arns {
+			if _, ok := seen[a]; !ok {
+				seen[a] = struct{}{}
+				out = append(out, ResourceIdentifier{ResourceArn: a})
+			}
+		}
+	}
+
+	if out == nil {
+		out = []ResourceIdentifier{}
+	}
+
+	return out, nil
+}
+
+// StartTagSyncTask creates a new tag-sync task for an application group.
+func (b *InMemoryBackend) StartTagSyncTask(
+	nameOrARN, roleARN, tagKey, tagValue string,
+	resourceQuery *ResourceQuery,
+) (*TagSyncTask, error) {
+	b.mu.Lock("StartTagSyncTask")
+	defer b.mu.Unlock()
+
+	name := resolveGroupName(nameOrARN)
+
+	g, ok := b.groups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	taskARN := arn.Build(
+		"resource-groups",
+		b.region,
+		b.accountID,
+		"tag-sync-task/"+name+"-"+time.Now().Format("20060102150405"),
+	)
+
+	task := &TagSyncTask{
+		TaskArn:       taskARN,
+		GroupArn:      g.ARN,
+		GroupName:     name,
+		RoleArn:       roleARN,
+		TagKey:        tagKey,
+		TagValue:      tagValue,
+		ResourceQuery: resourceQuery,
+		Status:        tagSyncTaskStatusActive,
+		CreatedAt:     time.Now().UTC(),
+	}
+
+	b.tagSyncTasks[taskARN] = task
+
+	cp := *task
+
+	return &cp, nil
+}
+
+// CancelTagSyncTask cancels a tag-sync task by ARN.
+func (b *InMemoryBackend) CancelTagSyncTask(taskARN string) error {
+	b.mu.Lock("CancelTagSyncTask")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tagSyncTasks[taskARN]; !ok {
+		return fmt.Errorf("%w: task %s not found", ErrTagSyncTaskNotFound, taskARN)
+	}
+
+	delete(b.tagSyncTasks, taskARN)
+
+	return nil
+}
+
+// GetTagSyncTask returns a tag-sync task by ARN.
+func (b *InMemoryBackend) GetTagSyncTask(taskARN string) (*TagSyncTask, error) {
+	b.mu.RLock("GetTagSyncTask")
+	defer b.mu.RUnlock()
+
+	task, ok := b.tagSyncTasks[taskARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: task %s not found", ErrTagSyncTaskNotFound, taskARN)
+	}
+
+	cp := *task
+
+	return &cp, nil
+}
+
+// ListTagSyncTasksFilter holds filter criteria for listing tag-sync tasks.
+type ListTagSyncTasksFilter struct {
+	GroupArn  string `json:"GroupArn,omitempty"`
+	GroupName string `json:"GroupName,omitempty"`
+}
+
+// ListTagSyncTasks returns all tag-sync tasks, optionally filtered by group.
+func (b *InMemoryBackend) ListTagSyncTasks(filters []ListTagSyncTasksFilter) ([]TagSyncTask, error) {
+	b.mu.RLock("ListTagSyncTasks")
+	defer b.mu.RUnlock()
+
+	var out []TagSyncTask
+
+	for _, task := range b.tagSyncTasks {
+		if len(filters) == 0 {
+			cp := *task
+			out = append(out, cp)
+
+			continue
+		}
+
+		for _, f := range filters {
+			if (f.GroupArn == "" || f.GroupArn == task.GroupArn) &&
+				(f.GroupName == "" || f.GroupName == task.GroupName) {
+				cp := *task
+				out = append(out, cp)
+
+				break
+			}
+		}
+	}
+
+	if out == nil {
+		out = []TagSyncTask{}
+	}
+
+	return out, nil
 }

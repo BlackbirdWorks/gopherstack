@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -50,6 +51,17 @@ var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table
 	"/get-group-configuration": "GetGroupConfiguration",
 	"/update-group":            "UpdateGroup",
 	"/update-group-query":      "UpdateGroupQuery",
+	// New operations
+	"/cancel-tag-sync-task":    "CancelTagSyncTask",
+	"/get-account-settings":    "GetAccountSettings",
+	"/get-tag-sync-task":       "GetTagSyncTask",
+	"/group-resources":         "GroupResources",
+	"/list-group-resources":    "ListGroupResources",
+	"/list-grouping-statuses":  "ListGroupingStatuses",
+	"/list-tag-sync-tasks":     "ListTagSyncTasks",
+	"/put-group-configuration": "PutGroupConfiguration",
+	"/resources/search":        "SearchResources",
+	"/start-tag-sync-task":     "StartTagSyncTask",
 }
 
 type groupNameInput struct {
@@ -85,17 +97,27 @@ func (h *Handler) Name() string { return "ResourceGroups" }
 // GetSupportedOperations returns the list of supported Resource Groups operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CancelTagSyncTask",
 		"CreateGroup",
 		"DeleteGroup",
-		"ListGroups",
+		"GetAccountSettings",
 		"GetGroup",
-		"GetGroupQuery",
 		"GetGroupConfiguration",
-		"UpdateGroup",
-		"UpdateGroupQuery",
+		"GetGroupQuery",
+		"GetTagSyncTask",
 		"GetTags",
+		"GroupResources",
+		"ListGroupResources",
+		"ListGroupingStatuses",
+		"ListGroups",
+		"ListTagSyncTasks",
+		"PutGroupConfiguration",
+		"SearchResources",
+		"StartTagSyncTask",
 		"Tag",
 		"Untag",
+		"UpdateGroup",
+		"UpdateGroupQuery",
 	}
 }
 
@@ -244,6 +266,17 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
 		"UpdateGroup":           service.WrapOp(h.handleUpdateGroup),
 		"UpdateGroupQuery":      service.WrapOp(h.handleUpdateGroupQuery),
+		// New operations
+		"CancelTagSyncTask":     service.WrapOp(h.handleCancelTagSyncTask),
+		"GetAccountSettings":    service.WrapOp(h.handleGetAccountSettings),
+		"GetTagSyncTask":        service.WrapOp(h.handleGetTagSyncTask),
+		"GroupResources":        service.WrapOp(h.handleGroupResources),
+		"ListGroupResources":    service.WrapOp(h.handleListGroupResources),
+		"ListGroupingStatuses":  service.WrapOp(h.handleListGroupingStatuses),
+		"ListTagSyncTasks":      service.WrapOp(h.handleListTagSyncTasks),
+		"PutGroupConfiguration": service.WrapOp(h.handlePutGroupConfiguration),
+		"SearchResources":       service.WrapOp(h.handleSearchResources),
+		"StartTagSyncTask":      service.WrapOp(h.handleStartTagSyncTask),
 	}
 }
 
@@ -273,7 +306,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code = http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
-	case errors.Is(err, ErrNotFound):
+	case errors.Is(err, ErrValidation):
+		code = http.StatusBadRequest
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrTagSyncTaskNotFound):
 		code = http.StatusNotFound
 	}
 
@@ -375,9 +410,25 @@ func (h *Handler) handleGetGroupConfiguration(
 		return nil, err
 	}
 
+	items, err := h.Backend.GetGroupConfigurationItems(g.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	rawItems := make([]json.RawMessage, 0, len(items))
+
+	for i := range items {
+		b, mErr := json.Marshal(items[i])
+		if mErr != nil {
+			continue
+		}
+
+		rawItems = append(rawItems, b)
+	}
+
 	return &getGroupConfigurationOutput{GroupConfiguration: &groupConfigurationOutput{
 		GroupName:     g.Name,
-		Configuration: []json.RawMessage{},
+		Configuration: rawItems,
 	}}, nil
 }
 
@@ -510,4 +561,300 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 	default:
 		return c.NoContent(http.StatusMethodNotAllowed)
 	}
+}
+
+// --- New operations ---
+
+// handleGetAccountSettings returns the account-level Resource Groups settings.
+type getAccountSettingsInput struct{}
+
+type getAccountSettingsOutput struct {
+	AccountSettings AccountSettings `json:"AccountSettings"`
+}
+
+func (h *Handler) handleGetAccountSettings(
+	_ context.Context,
+	_ *getAccountSettingsInput,
+) (*getAccountSettingsOutput, error) {
+	settings := h.Backend.GetAccountSettings()
+
+	return &getAccountSettingsOutput{AccountSettings: settings}, nil
+}
+
+// handlePutGroupConfiguration stores a configuration for a group.
+type putGroupConfigurationInput struct {
+	Group         string                   `json:"Group"`
+	GroupName     string                   `json:"GroupName"`
+	Configuration []GroupConfigurationItem `json:"Configuration"`
+}
+
+func (g *putGroupConfigurationInput) resolvedName() string {
+	if g.GroupName != "" {
+		return g.GroupName
+	}
+
+	return g.Group
+}
+
+type putGroupConfigurationOutput struct{}
+
+func (h *Handler) handlePutGroupConfiguration(
+	_ context.Context,
+	in *putGroupConfigurationInput,
+) (*putGroupConfigurationOutput, error) {
+	if err := h.Backend.PutGroupConfiguration(in.resolvedName(), in.Configuration); err != nil {
+		return nil, err
+	}
+
+	return &putGroupConfigurationOutput{}, nil
+}
+
+// handleGroupResources adds resources to a group.
+type groupResourcesInput struct {
+	Group        string   `json:"Group"`
+	ResourceArns []string `json:"ResourceArns"`
+}
+
+type groupResourcesOutput struct {
+	Failed    []map[string]string `json:"Failed,omitempty"`
+	Pending   []map[string]string `json:"Pending,omitempty"`
+	Succeeded []string            `json:"Succeeded"`
+}
+
+func (h *Handler) handleGroupResources(_ context.Context, in *groupResourcesInput) (*groupResourcesOutput, error) {
+	if in.Group == "" {
+		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
+	}
+
+	succeeded, err := h.Backend.GroupResources(in.Group, in.ResourceArns)
+	if err != nil {
+		return nil, err
+	}
+
+	return &groupResourcesOutput{
+		Succeeded: succeeded,
+		Failed:    []map[string]string{},
+		Pending:   []map[string]string{},
+	}, nil
+}
+
+// handleListGroupResources lists the resources associated with a group.
+type listGroupResourcesInput struct {
+	Group     string `json:"Group"`
+	GroupName string `json:"GroupName"`
+}
+
+func (g *listGroupResourcesInput) resolvedName() string {
+	if g.GroupName != "" {
+		return g.GroupName
+	}
+
+	return g.Group
+}
+
+type listGroupResourcesItem struct {
+	Identifier ResourceIdentifier `json:"Identifier"`
+}
+
+type listGroupResourcesOutput struct {
+	Resources []listGroupResourcesItem `json:"Resources"`
+}
+
+func (h *Handler) handleListGroupResources(
+	_ context.Context,
+	in *listGroupResourcesInput,
+) (*listGroupResourcesOutput, error) {
+	identifiers, err := h.Backend.ListGroupResources(in.resolvedName())
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]listGroupResourcesItem, 0, len(identifiers))
+
+	for _, id := range identifiers {
+		items = append(items, listGroupResourcesItem{Identifier: id})
+	}
+
+	return &listGroupResourcesOutput{Resources: items}, nil
+}
+
+// handleListGroupingStatuses lists the grouping/ungrouping statuses for a group.
+type listGroupingStatusesInput struct {
+	Group string `json:"Group"`
+}
+
+type listGroupingStatusesOutput struct {
+	Group            string               `json:"Group"`
+	GroupingStatuses []GroupingStatusItem `json:"GroupingStatuses"`
+}
+
+func (h *Handler) handleListGroupingStatuses(
+	_ context.Context,
+	in *listGroupingStatusesInput,
+) (*listGroupingStatusesOutput, error) {
+	if in.Group == "" {
+		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
+	}
+
+	statuses, err := h.Backend.ListGroupingStatuses(in.Group)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listGroupingStatusesOutput{
+		Group:            in.Group,
+		GroupingStatuses: statuses,
+	}, nil
+}
+
+// handleSearchResources searches for resources matching a query.
+type searchResourcesInput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+}
+
+type searchResourcesOutput struct {
+	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
+}
+
+func (h *Handler) handleSearchResources(_ context.Context, in *searchResourcesInput) (*searchResourcesOutput, error) {
+	identifiers, err := h.Backend.SearchResources(in.ResourceQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return &searchResourcesOutput{ResourceIdentifiers: identifiers}, nil
+}
+
+// handleStartTagSyncTask creates a new tag-sync task.
+type startTagSyncTaskInput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	Group         string         `json:"Group"`
+	RoleArn       string         `json:"RoleArn"`
+	TagKey        string         `json:"TagKey,omitempty"`
+	TagValue      string         `json:"TagValue,omitempty"`
+}
+
+type startTagSyncTaskOutput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	GroupArn      string         `json:"GroupArn"`
+	GroupName     string         `json:"GroupName"`
+	RoleArn       string         `json:"RoleArn"`
+	TagKey        string         `json:"TagKey,omitempty"`
+	TagValue      string         `json:"TagValue,omitempty"`
+	TaskArn       string         `json:"TaskArn"`
+}
+
+func (h *Handler) handleStartTagSyncTask(
+	_ context.Context,
+	in *startTagSyncTaskInput,
+) (*startTagSyncTaskOutput, error) {
+	if in.Group == "" {
+		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
+	}
+
+	if in.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
+
+	task, err := h.Backend.StartTagSyncTask(in.Group, in.RoleArn, in.TagKey, in.TagValue, in.ResourceQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startTagSyncTaskOutput{
+		GroupArn:      task.GroupArn,
+		GroupName:     task.GroupName,
+		RoleArn:       task.RoleArn,
+		TagKey:        task.TagKey,
+		TagValue:      task.TagValue,
+		TaskArn:       task.TaskArn,
+		ResourceQuery: task.ResourceQuery,
+	}, nil
+}
+
+// handleCancelTagSyncTask cancels a tag-sync task.
+type cancelTagSyncTaskInput struct {
+	TaskArn string `json:"TaskArn"`
+}
+
+type cancelTagSyncTaskOutput struct{}
+
+func (h *Handler) handleCancelTagSyncTask(
+	_ context.Context,
+	in *cancelTagSyncTaskInput,
+) (*cancelTagSyncTaskOutput, error) {
+	if in.TaskArn == "" {
+		return nil, fmt.Errorf("%w: TaskArn is required", ErrValidation)
+	}
+
+	if err := h.Backend.CancelTagSyncTask(in.TaskArn); err != nil {
+		return nil, err
+	}
+
+	return &cancelTagSyncTaskOutput{}, nil
+}
+
+// handleGetTagSyncTask returns the details of a tag-sync task.
+type getTagSyncTaskInput struct {
+	TaskArn string `json:"TaskArn"`
+}
+
+type getTagSyncTaskOutput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	CreatedAt     *string        `json:"CreatedAt,omitempty"`
+	ErrorMessage  string         `json:"ErrorMessage,omitempty"`
+	GroupArn      string         `json:"GroupArn"`
+	GroupName     string         `json:"GroupName"`
+	RoleArn       string         `json:"RoleArn"`
+	TagKey        string         `json:"TagKey,omitempty"`
+	TagValue      string         `json:"TagValue,omitempty"`
+	TaskArn       string         `json:"TaskArn"`
+	Status        string         `json:"Status"`
+}
+
+func (h *Handler) handleGetTagSyncTask(_ context.Context, in *getTagSyncTaskInput) (*getTagSyncTaskOutput, error) {
+	if in.TaskArn == "" {
+		return nil, fmt.Errorf("%w: TaskArn is required", ErrValidation)
+	}
+
+	task, err := h.Backend.GetTagSyncTask(in.TaskArn)
+	if err != nil {
+		return nil, err
+	}
+
+	createdAt := task.CreatedAt.Format("2006-01-02T15:04:05Z")
+
+	return &getTagSyncTaskOutput{
+		TaskArn:       task.TaskArn,
+		GroupArn:      task.GroupArn,
+		GroupName:     task.GroupName,
+		RoleArn:       task.RoleArn,
+		TagKey:        task.TagKey,
+		TagValue:      task.TagValue,
+		ResourceQuery: task.ResourceQuery,
+		Status:        task.Status,
+		ErrorMessage:  task.ErrorMessage,
+		CreatedAt:     &createdAt,
+	}, nil
+}
+
+// handleListTagSyncTasks lists tag-sync tasks.
+type listTagSyncTasksInput struct {
+	Filters []ListTagSyncTasksFilter `json:"Filters,omitempty"`
+}
+
+type listTagSyncTasksOutput struct {
+	TagSyncTasks []TagSyncTask `json:"TagSyncTasks"`
+}
+
+func (h *Handler) handleListTagSyncTasks(
+	_ context.Context,
+	in *listTagSyncTasksInput,
+) (*listTagSyncTasksOutput, error) {
+	tasks, err := h.Backend.ListTagSyncTasks(in.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listTagSyncTasksOutput{TagSyncTasks: tasks}, nil
 }
