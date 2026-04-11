@@ -341,7 +341,7 @@ jobs:
 
       - name: Generate Smart Coverage Report
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_run')
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
