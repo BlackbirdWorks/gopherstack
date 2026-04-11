@@ -515,12 +515,15 @@ func parseRedshiftTagKeys(vals url.Values) []string {
 	}
 }
 
+const maxListItems = 1000
+
 // parseStringList extracts a numbered list from form values using the given prefix.
 // e.g. prefix="SnapshotIdentifierList.SnapshotIdentifier." yields elements at indices 1, 2, ...
+// At most maxListItems items are returned to prevent resource exhaustion.
 func parseStringList(vals url.Values, prefix string) []string {
 	var result []string
 
-	for i := 1; ; i++ {
+	for i := 1; i <= maxListItems; i++ {
 		v := vals.Get(fmt.Sprintf("%s%d", prefix, i))
 		if v == "" {
 			return result
@@ -528,6 +531,8 @@ func parseStringList(vals url.Values, prefix string) []string {
 
 		result = append(result, v)
 	}
+
+	return result
 }
 
 // --- New operation handlers ---

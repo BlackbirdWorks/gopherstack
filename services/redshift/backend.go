@@ -626,12 +626,12 @@ func (b *InMemoryBackend) BatchDeleteClusterSnapshots(identifiers []string) ([]S
 }
 
 // BatchModifyClusterSnapshots modifies the retention period for a list of snapshots.
-// If force is true, snapshots with no manual retention period override are still modified.
+// The force parameter is accepted for API compatibility but has no effect in the in-memory backend.
 // Returns errors and the list of successfully modified snapshot identifiers.
 func (b *InMemoryBackend) BatchModifyClusterSnapshots(
 	identifiers []string,
 	retentionPeriod int,
-	force bool,
+	_ bool,
 ) ([]SnapshotBatchError, []string) {
 	b.mu.Lock("BatchModifyClusterSnapshots")
 	defer b.mu.Unlock()
@@ -654,8 +654,6 @@ func (b *InMemoryBackend) BatchModifyClusterSnapshots(
 
 		snap.ManualSnapshotRetentionPeriod = retentionPeriod
 		modified = append(modified, id)
-
-		_ = force
 	}
 
 	return batchErrors, modified
