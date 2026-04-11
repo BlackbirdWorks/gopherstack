@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := route53.NewInMemoryBackend()
 	h := route53.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &route53sdk.Client{}, h.GetSupportedOperations(), []string{
-		"ActivateKeySigningKey",
-		"AssociateVPCWithHostedZone",
-		"ChangeCidrCollection",
-		"CreateCidrCollection",
-		"CreateKeySigningKey",
-		"CreateQueryLoggingConfig",
-		"CreateReusableDelegationSet",
-		"CreateTrafficPolicy",
-		"CreateTrafficPolicyInstance",
-		"CreateTrafficPolicyVersion",
 		"CreateVPCAssociationAuthorization",
 		"DeactivateKeySigningKey",
 		"DeleteCidrCollection",

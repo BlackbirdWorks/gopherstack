@@ -21,29 +21,40 @@ import (
 )
 
 const (
-	route53PathPrefix        = "/2013-04-01/"
-	route53HostedZone        = "/2013-04-01/hostedzone"
-	route53Namespace         = "https://route53.amazonaws.com/doc/2013-04-01/"
-	route53RRSetSuffix       = "/rrset"
-	route53HZPrefix          = "/2013-04-01/hostedzone/"
-	route53TagsPrefix        = "/2013-04-01/tags/"
-	route53ChangePrefix      = "/2013-04-01/change/"
-	route53HealthCheckRoot   = "/2013-04-01/healthcheck"
-	route53HealthCheckPrefix = "/2013-04-01/healthcheck/"
-	route53StatusSuffix      = "/status"
+	route53PathPrefix           = "/2013-04-01/"
+	route53HostedZone           = "/2013-04-01/hostedzone"
+	route53Namespace            = "https://route53.amazonaws.com/doc/2013-04-01/"
+	route53RRSetSuffix          = "/rrset"
+	route53HZPrefix             = "/2013-04-01/hostedzone/"
+	route53TagsPrefix           = "/2013-04-01/tags/"
+	route53ChangePrefix         = "/2013-04-01/change/"
+	route53HealthCheckRoot      = "/2013-04-01/healthcheck"
+	route53HealthCheckPrefix    = "/2013-04-01/healthcheck/"
+	route53StatusSuffix         = "/status"
+	route53KSKRoot              = "/2013-04-01/keysigningkey"
+	route53KSKPrefix            = "/2013-04-01/keysigningkey/"
+	route53ActivateSuffix       = "/activate"
+	route53AssociateVPCSuffix   = "/associatevpc"
+	route53CidrCollectionRoot   = "/2013-04-01/cidrcollection"
+	route53CidrCollectionPrefix = "/2013-04-01/cidrcollection/"
+	route53QueryLoggingRoot     = "/2013-04-01/queryloggingconfig"
+	route53DelegationSetRoot    = "/2013-04-01/delegationset"
+	route53TrafficPolicyRoot    = "/2013-04-01/trafficpolicy"
+	route53TrafficPolicyPrefix  = "/2013-04-01/trafficpolicy/"
+	route53TPInstanceRoot       = "/2013-04-01/trafficpolicyinstance"
 	// zoneIDAndRest is the number of parts when splitting a zone path at the first "/".
 	zoneIDAndRest = 2
 )
 
 // Handler is the HTTP service handler for Route 53 operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
 		tags:    make(map[string]*svcTags.Tags),
@@ -96,20 +107,30 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // GetSupportedOperations returns all mocked Route 53 operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateHostedZone",
-		"DeleteHostedZone",
-		"ListHostedZones",
-		"GetHostedZone",
+		"ActivateKeySigningKey",
+		"AssociateVPCWithHostedZone",
+		"ChangeCidrCollection",
 		"ChangeResourceRecordSets",
+		"ChangeTagsForResource",
+		"CreateCidrCollection",
+		"CreateHealthCheck",
+		"CreateHostedZone",
+		"CreateKeySigningKey",
+		"CreateQueryLoggingConfig",
+		"CreateReusableDelegationSet",
+		"CreateTrafficPolicy",
+		"CreateTrafficPolicyInstance",
+		"CreateTrafficPolicyVersion",
+		"DeleteHealthCheck",
+		"DeleteHostedZone",
+		"GetHealthCheck",
+		"GetHealthCheckStatus",
+		"GetHostedZone",
+		"ListHealthChecks",
+		"ListHostedZones",
 		"ListResourceRecordSets",
 		"ListTagsForResource",
-		"ChangeTagsForResource",
-		"CreateHealthCheck",
-		"GetHealthCheck",
-		"ListHealthChecks",
-		"DeleteHealthCheck",
 		"UpdateHealthCheck",
-		"GetHealthCheckStatus",
 	}
 }
 
@@ -181,7 +202,47 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return op
 	}
 
+	if op := extractNewOpsOperation(path, method); op != "" {
+		return op
+	}
+
 	return "Unknown"
+}
+
+// extractNewOpsOperation maps the newer Route 53 operation paths to operation names.
+func extractNewOpsOperation(path, method string) string {
+	if method != http.MethodPost {
+		return ""
+	}
+
+	return extractNewOpsPath(path)
+}
+
+func extractNewOpsPath(path string) string {
+	switch {
+	case path == route53KSKRoot:
+		return "CreateKeySigningKey"
+	case strings.HasSuffix(path, route53ActivateSuffix):
+		return "ActivateKeySigningKey"
+	case strings.HasSuffix(path, route53AssociateVPCSuffix):
+		return "AssociateVPCWithHostedZone"
+	case path == route53CidrCollectionRoot:
+		return "CreateCidrCollection"
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "ChangeCidrCollection"
+	case path == route53QueryLoggingRoot:
+		return "CreateQueryLoggingConfig"
+	case path == route53DelegationSetRoot:
+		return "CreateReusableDelegationSet"
+	case path == route53TrafficPolicyRoot:
+		return "CreateTrafficPolicy"
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		return "CreateTrafficPolicyVersion"
+	case path == route53TPInstanceRoot:
+		return "CreateTrafficPolicyInstance"
+	}
+
+	return ""
 }
 
 // ExtractResource extracts the zone ID from the request path.
@@ -287,7 +348,47 @@ func (h *Handler) IAMAction(r *http.Request) string {
 		return action
 	}
 
+	if action := iamActionForNewOps(path, method); action != "" {
+		return action
+	}
+
 	return "route53:GetChange"
+}
+
+// iamActionForNewOps maps newer Route 53 paths to IAM action strings.
+func iamActionForNewOps(path, method string) string {
+	if method != http.MethodPost {
+		return ""
+	}
+
+	return iamActionForNewOpsPath(path)
+}
+
+func iamActionForNewOpsPath(path string) string {
+	switch {
+	case path == route53KSKRoot:
+		return "route53:CreateKeySigningKey"
+	case strings.HasSuffix(path, route53ActivateSuffix):
+		return "route53:ActivateKeySigningKey"
+	case strings.HasSuffix(path, route53AssociateVPCSuffix):
+		return "route53:AssociateVPCWithHostedZone"
+	case path == route53CidrCollectionRoot:
+		return "route53:CreateCidrCollection"
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "route53:ChangeCidrCollection"
+	case path == route53QueryLoggingRoot:
+		return "route53:CreateQueryLoggingConfig"
+	case path == route53DelegationSetRoot:
+		return "route53:CreateReusableDelegationSet"
+	case path == route53TrafficPolicyRoot:
+		return "route53:CreateTrafficPolicy"
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		return "route53:CreateTrafficPolicyVersion"
+	case path == route53TPInstanceRoot:
+		return "route53:CreateTrafficPolicyInstance"
+	}
+
+	return ""
 }
 
 // routeRequest dispatches Route 53 requests to the appropriate handler.
@@ -305,6 +406,32 @@ func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 		return h.routeHealthCheckRoot(c, method)
 	case strings.HasPrefix(path, route53HealthCheckPrefix):
 		return h.routeHealthCheck(c, path, method)
+	default:
+		return h.routeNewOps(c, path, method)
+	}
+}
+
+// routeNewOps dispatches the newly added Route 53 operations.
+func (h *Handler) routeNewOps(c *echo.Context, path, method string) error {
+	switch {
+	case path == route53KSKRoot:
+		return h.routeKSKRoot(c, method)
+	case strings.HasPrefix(path, route53KSKPrefix):
+		return h.routeKSK(c, path, method)
+	case path == route53CidrCollectionRoot:
+		return h.routeCidrCollectionRoot(c, method)
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return h.routeCidrCollection(c, path, method)
+	case path == route53QueryLoggingRoot:
+		return h.routeQueryLogging(c, method)
+	case path == route53DelegationSetRoot:
+		return h.routeDelegationSetRoot(c, method)
+	case path == route53TrafficPolicyRoot:
+		return h.routeTrafficPolicyRoot(c, method)
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		return h.routeTrafficPolicyVersion(c, path, method)
+	case path == route53TPInstanceRoot:
+		return h.routeTPInstanceRoot(c, method)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
@@ -334,6 +461,15 @@ func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 				"unsupported method on rrset")
 		}
+	}
+
+	if strings.HasSuffix(path, route53AssociateVPCSuffix) {
+		if method == http.MethodPost {
+			return h.associateVPCWithHostedZone(c, path)
+		}
+
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on associatevpc")
 	}
 
 	switch method {
@@ -448,6 +584,7 @@ type xmlHostedZone struct {
 
 type xmlDelegationSet struct {
 	XMLName     xml.Name `xml:"DelegationSet"`
+	ID          string   `xml:"Id,omitempty"`
 	NameServers []string `xml:"NameServers>NameServer"`
 }
 
@@ -1017,6 +1154,18 @@ func handleBackendError(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusNotFound, "NoSuchHostedZone", err.Error())
 	case errors.Is(err, ErrHealthCheckNotFound):
 		return xmlError(c, http.StatusNotFound, "NoSuchHealthCheck", err.Error())
+	case errors.Is(err, ErrKeySigningKeyNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchKeySigningKey", err.Error())
+	case errors.Is(err, ErrCidrCollectionNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchCidrCollection", err.Error())
+	case errors.Is(err, ErrQueryLoggingConfigNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchQueryLoggingConfig", err.Error())
+	case errors.Is(err, ErrDelegationSetNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchDelegationSet", err.Error())
+	case errors.Is(err, ErrTrafficPolicyNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchTrafficPolicy", err.Error())
+	case errors.Is(err, ErrTrafficPolicyInstNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchTrafficPolicyInstance", err.Error())
 	case errors.Is(err, ErrInvalidInput):
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
 	case errors.Is(err, ErrInvalidAction):
@@ -1345,4 +1494,629 @@ func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+	h.tagsMu.Lock("Reset")
+	h.tags = make(map[string]*svcTags.Tags)
+	h.tagsMu.Unlock()
+}
+
+// ---- New operations: XML types ----
+
+type xmlVPC struct {
+	VPCRegion string `xml:"VPCRegion,omitempty"`
+	VPCID     string `xml:"VPCId"`
+}
+
+type xmlAssociateVPCRequest struct {
+	XMLName xml.Name `xml:"AssociateVPCWithHostedZoneRequest"`
+	VPC     xmlVPC   `xml:"VPC"`
+	Comment string   `xml:"Comment,omitempty"`
+}
+
+type xmlAssociateVPCResponse struct {
+	XMLName    xml.Name      `xml:"AssociateVPCWithHostedZoneResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+}
+
+type xmlKSK struct {
+	XMLName xml.Name `xml:"KeySigningKey"`
+	Name    string   `xml:"Name"`
+	KMSArn  string   `xml:"KmsArn,omitempty"`
+	Status  string   `xml:"Status"`
+}
+
+type xmlCreateKSKRequest struct {
+	XMLName                 xml.Name `xml:"CreateKeySigningKeyRequest"`
+	HostedZoneID            string   `xml:"HostedZoneId"`
+	CallerReference         string   `xml:"CallerReference"`
+	Name                    string   `xml:"Name"`
+	KeyManagementServiceArn string   `xml:"KeyManagementServiceArn,omitempty"`
+	Status                  string   `xml:"Status,omitempty"`
+}
+
+type xmlCreateKSKResponse struct {
+	XMLName       xml.Name      `xml:"CreateKeySigningKeyResponse"`
+	Xmlns         string        `xml:"xmlns,attr"`
+	ChangeInfo    xmlChangeInfo `xml:"ChangeInfo"`
+	KeySigningKey xmlKSK        `xml:"KeySigningKey"`
+}
+
+type xmlActivateKSKResponse struct {
+	XMLName       xml.Name      `xml:"ActivateKeySigningKeyResponse"`
+	Xmlns         string        `xml:"xmlns,attr"`
+	ChangeInfo    xmlChangeInfo `xml:"ChangeInfo"`
+	KeySigningKey xmlKSK        `xml:"KeySigningKey"`
+}
+
+type xmlCidrCollection struct {
+	ID      string `xml:"Id"`
+	Name    string `xml:"Name"`
+	ARN     string `xml:"Arn,omitempty"`
+	Version int64  `xml:"Version"`
+}
+
+type xmlCreateCidrCollectionRequest struct {
+	XMLName         xml.Name `xml:"CreateCidrCollectionRequest"`
+	Name            string   `xml:"Name"`
+	CallerReference string   `xml:"CallerReference,omitempty"`
+}
+
+type xmlCreateCidrCollectionResponse struct {
+	XMLName    xml.Name          `xml:"CreateCidrCollectionResponse"`
+	Xmlns      string            `xml:"xmlns,attr"`
+	Collection xmlCidrCollection `xml:"Collection"`
+}
+
+type xmlChangeCidrCollectionResponse struct {
+	XMLName xml.Name `xml:"ChangeCidrCollectionResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	ID      string   `xml:"Id"`
+	Version int64    `xml:"Version"`
+}
+
+type xmlCidrChangeEntry struct {
+	LocationName string   `xml:"LocationName"`
+	Action       string   `xml:"Action"`
+	CidrList     []string `xml:"CidrList>Cidr"`
+}
+
+type xmlChangeCidrCollectionRequest struct {
+	XMLName xml.Name             `xml:"ChangeCidrCollectionRequest"`
+	Changes []xmlCidrChangeEntry `xml:"Changes>Change"`
+}
+
+type xmlQueryLoggingConfig struct {
+	XMLName                   xml.Name `xml:"QueryLoggingConfig"`
+	ID                        string   `xml:"Id"`
+	HostedZoneID              string   `xml:"HostedZoneId"`
+	CloudWatchLogsLogGroupArn string   `xml:"CloudWatchLogsLogGroupArn"`
+}
+
+type xmlCreateQueryLoggingConfigRequest struct {
+	XMLName                   xml.Name `xml:"CreateQueryLoggingConfigRequest"`
+	HostedZoneID              string   `xml:"HostedZoneId"`
+	CloudWatchLogsLogGroupArn string   `xml:"CloudWatchLogsLogGroupArn"`
+}
+
+type xmlCreateQueryLoggingConfigResponse struct {
+	XMLName            xml.Name              `xml:"CreateQueryLoggingConfigResponse"`
+	Xmlns              string                `xml:"xmlns,attr"`
+	QueryLoggingConfig xmlQueryLoggingConfig `xml:"QueryLoggingConfig"`
+}
+
+type xmlDelegationSetCreate struct {
+	XMLName         xml.Name `xml:"CreateReusableDelegationSetRequest"`
+	CallerReference string   `xml:"CallerReference"`
+	HostedZoneID    string   `xml:"HostedZoneId,omitempty"`
+}
+
+type xmlReusableDelegationSetResponse struct {
+	XMLName       xml.Name         `xml:"CreateReusableDelegationSetResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	DelegationSet xmlDelegationSet `xml:"DelegationSet"`
+}
+
+type xmlTrafficPolicy struct {
+	XMLName  xml.Name `xml:"TrafficPolicy"`
+	ID       string   `xml:"Id"`
+	Name     string   `xml:"Name"`
+	Document string   `xml:"Document,omitempty"`
+	Comment  string   `xml:"Comment,omitempty"`
+	Type     string   `xml:"Type"`
+	Version  int32    `xml:"Version"`
+}
+
+type xmlCreateTrafficPolicyRequest struct {
+	XMLName  xml.Name `xml:"CreateTrafficPolicyRequest"`
+	Name     string   `xml:"Name"`
+	Document string   `xml:"Document"`
+	Comment  string   `xml:"Comment,omitempty"`
+}
+
+type xmlCreateTrafficPolicyResponse struct {
+	XMLName       xml.Name         `xml:"CreateTrafficPolicyResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	TrafficPolicy xmlTrafficPolicy `xml:"TrafficPolicy"`
+}
+
+type xmlCreateTrafficPolicyVersionRequest struct {
+	XMLName  xml.Name `xml:"CreateTrafficPolicyVersionRequest"`
+	Document string   `xml:"Document"`
+	Comment  string   `xml:"Comment,omitempty"`
+}
+
+type xmlCreateTrafficPolicyVersionResponse struct {
+	XMLName       xml.Name         `xml:"CreateTrafficPolicyVersionResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	TrafficPolicy xmlTrafficPolicy `xml:"TrafficPolicy"`
+}
+
+type xmlTrafficPolicyInstance struct {
+	XMLName              xml.Name `xml:"TrafficPolicyInstance"`
+	ID                   string   `xml:"Id"`
+	HostedZoneID         string   `xml:"HostedZoneId"`
+	Name                 string   `xml:"Name"`
+	TrafficPolicyID      string   `xml:"TrafficPolicyId"`
+	TrafficPolicyType    string   `xml:"TrafficPolicyType"`
+	State                string   `xml:"State"`
+	TTL                  int64    `xml:"TTL"`
+	TrafficPolicyVersion int32    `xml:"TrafficPolicyVersion"`
+}
+
+type xmlCreateTrafficPolicyInstanceRequest struct {
+	XMLName              xml.Name `xml:"CreateTrafficPolicyInstanceRequest"`
+	HostedZoneID         string   `xml:"HostedZoneId"`
+	Name                 string   `xml:"Name"`
+	TrafficPolicyID      string   `xml:"TrafficPolicyId"`
+	TrafficPolicyVersion int32    `xml:"TrafficPolicyVersion"`
+	TTL                  int64    `xml:"TTL"`
+}
+
+type xmlCreateTrafficPolicyInstanceResponse struct {
+	XMLName               xml.Name                 `xml:"CreateTrafficPolicyInstanceResponse"`
+	Xmlns                 string                   `xml:"xmlns,attr"`
+	TrafficPolicyInstance xmlTrafficPolicyInstance `xml:"TrafficPolicyInstance"`
+}
+
+// ---- New operations: route helpers ----
+
+func (h *Handler) routeKSKRoot(c *echo.Context, method string) error {
+	if method == http.MethodPost {
+		return h.createKeySigningKey(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /keysigningkey")
+}
+
+func (h *Handler) routeKSK(c *echo.Context, path, method string) error {
+	if strings.HasSuffix(path, route53ActivateSuffix) && method == http.MethodPost {
+		return h.activateKeySigningKey(c, path)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported operation on key signing key")
+}
+
+func (h *Handler) routeCidrCollectionRoot(c *echo.Context, method string) error {
+	if method == http.MethodPost {
+		return h.createCidrCollection(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /cidrcollection")
+}
+
+func (h *Handler) routeCidrCollection(c *echo.Context, path, method string) error {
+	if method == http.MethodPost {
+		return h.changeCidrCollection(c, path)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on cidrcollection")
+}
+
+func (h *Handler) routeQueryLogging(c *echo.Context, method string) error {
+	if method == http.MethodPost {
+		return h.createQueryLoggingConfig(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /queryloggingconfig")
+}
+
+func (h *Handler) routeDelegationSetRoot(c *echo.Context, method string) error {
+	if method == http.MethodPost {
+		return h.createReusableDelegationSet(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /delegationset")
+}
+
+func (h *Handler) routeTrafficPolicyRoot(c *echo.Context, method string) error {
+	if method == http.MethodPost {
+		return h.createTrafficPolicy(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicy")
+}
+
+func (h *Handler) routeTrafficPolicyVersion(c *echo.Context, path, method string) error {
+	if method == http.MethodPost {
+		return h.createTrafficPolicyVersion(c, path)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy version")
+}
+
+func (h *Handler) routeTPInstanceRoot(c *echo.Context, method string) error {
+	if method == http.MethodPost {
+		return h.createTrafficPolicyInstance(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstance")
+}
+
+// ---- New operations: handler functions ----
+
+func toXMLKSK(ksk *KeySigningKey) xmlKSK {
+	return xmlKSK{
+		Name:   ksk.Name,
+		KMSArn: ksk.KeyManagementServiceArn,
+		Status: ksk.Status,
+	}
+}
+
+func toXMLTrafficPolicy(tp *TrafficPolicy) xmlTrafficPolicy {
+	return xmlTrafficPolicy{
+		ID:       tp.ID,
+		Name:     tp.Name,
+		Document: tp.Document,
+		Comment:  tp.Comment,
+		Type:     tp.Type,
+		Version:  tp.Version,
+	}
+}
+
+func toXMLTPInstance(inst *TrafficPolicyInstance) xmlTrafficPolicyInstance {
+	return xmlTrafficPolicyInstance{
+		ID:                   inst.ID,
+		HostedZoneID:         inst.HostedZoneID,
+		Name:                 inst.Name,
+		TrafficPolicyID:      inst.TrafficPolicyID,
+		TrafficPolicyVersion: inst.TrafficPolicyVersion,
+		TrafficPolicyType:    inst.TrafficPolicyType,
+		TTL:                  inst.TTL,
+		State:                inst.State,
+	}
+}
+
+func (h *Handler) createKeySigningKey(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateKSKRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	ksk, err := h.Backend.CreateKeySigningKey(
+		req.HostedZoneID,
+		req.CallerReference,
+		req.Name,
+		req.KeyManagementServiceArn,
+		req.Status,
+	)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateKeySigningKey", "name", ksk.Name)
+
+	resp := xmlCreateKSKResponse{
+		Xmlns:         route53Namespace,
+		KeySigningKey: toXMLKSK(ksk),
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/C" + ksk.HostedZoneID,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01/keysigningkey/"+ksk.HostedZoneID+"/"+ksk.Name)
+
+	return writeXML(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) activateKeySigningKey(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	// path is /2013-04-01/keysigningkey/{HostedZoneId}/{Name}/activate
+	withoutSuffix := strings.TrimSuffix(path, route53ActivateSuffix)
+	rest := strings.TrimPrefix(withoutSuffix, route53KSKPrefix)
+	parts := strings.SplitN(rest, "/", zoneIDAndRest)
+
+	if len(parts) < zoneIDAndRest {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid key signing key path")
+	}
+
+	hostedZoneID := parts[0]
+	name := parts[1]
+
+	ksk, err := h.Backend.ActivateKeySigningKey(hostedZoneID, name)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 ActivateKeySigningKey", "name", name, "zoneID", hostedZoneID)
+
+	return writeXML(c, http.StatusOK, xmlActivateKSKResponse{
+		Xmlns:         route53Namespace,
+		KeySigningKey: toXMLKSK(ksk),
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/C" + hostedZoneID,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	})
+}
+
+func (h *Handler) associateVPCWithHostedZone(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	// path is /2013-04-01/hostedzone/{Id}/associatevpc
+	withoutSuffix := strings.TrimSuffix(path, route53AssociateVPCSuffix)
+	zoneID := extractZoneID(withoutSuffix)
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlAssociateVPCRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	if err = h.Backend.AssociateVPCWithHostedZone(zoneID, req.VPC.VPCID, req.VPC.VPCRegion); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 AssociateVPCWithHostedZone", "zoneID", zoneID, "vpcID", req.VPC.VPCID)
+
+	return writeXML(c, http.StatusOK, xmlAssociateVPCResponse{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/C" + zoneID,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	})
+}
+
+func (h *Handler) createCidrCollection(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateCidrCollectionRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	col, err := h.Backend.CreateCidrCollection(req.Name, req.CallerReference)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateCidrCollection", "id", col.ID, "name", col.Name)
+
+	resp := xmlCreateCidrCollectionResponse{
+		Xmlns: route53Namespace,
+		Collection: xmlCidrCollection{
+			ID:      col.ID,
+			Name:    col.Name,
+			Version: col.Version,
+			ARN:     col.ARN,
+		},
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01/cidrcollection/"+col.ID)
+
+	return writeXML(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) changeCidrCollection(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	collectionID := strings.TrimPrefix(path, route53CidrCollectionPrefix)
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlChangeCidrCollectionRequest
+	if len(body) > 0 {
+		if err = xml.Unmarshal(body, &req); err != nil {
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		}
+	}
+
+	changes := make([]CidrCollectionChange, 0, len(req.Changes))
+	for _, ch := range req.Changes {
+		changes = append(changes, CidrCollectionChange(ch))
+	}
+
+	col, err := h.Backend.ChangeCidrCollection(collectionID, changes)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 ChangeCidrCollection", "id", collectionID)
+
+	return writeXML(c, http.StatusOK, xmlChangeCidrCollectionResponse{
+		Xmlns:   route53Namespace,
+		ID:      col.ID,
+		Version: col.Version,
+	})
+}
+
+func (h *Handler) createQueryLoggingConfig(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateQueryLoggingConfigRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	cfg, err := h.Backend.CreateQueryLoggingConfig(req.HostedZoneID, req.CloudWatchLogsLogGroupArn)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateQueryLoggingConfig", "id", cfg.ID)
+
+	resp := xmlCreateQueryLoggingConfigResponse{
+		Xmlns: route53Namespace,
+		QueryLoggingConfig: xmlQueryLoggingConfig{
+			ID:                        cfg.ID,
+			HostedZoneID:              cfg.HostedZoneID,
+			CloudWatchLogsLogGroupArn: cfg.CloudWatchLogsLogGroupArn,
+		},
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01/queryloggingconfig/"+cfg.ID)
+
+	return writeXML(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) createReusableDelegationSet(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlDelegationSetCreate
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	ds, err := h.Backend.CreateReusableDelegationSet(req.CallerReference, req.HostedZoneID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateReusableDelegationSet", "id", ds.ID)
+
+	resp := xmlReusableDelegationSetResponse{
+		Xmlns: route53Namespace,
+		DelegationSet: xmlDelegationSet{
+			ID:          ds.ID,
+			NameServers: ds.NameServers,
+		},
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01"+ds.ID)
+
+	return writeXML(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) createTrafficPolicy(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateTrafficPolicyRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	tp, err := h.Backend.CreateTrafficPolicy(req.Name, req.Document, req.Comment)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateTrafficPolicy", "id", tp.ID)
+
+	resp := xmlCreateTrafficPolicyResponse{
+		Xmlns:         route53Namespace,
+		TrafficPolicy: toXMLTrafficPolicy(tp),
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01/trafficpolicy/"+tp.ID+"/1")
+
+	return writeXML(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) createTrafficPolicyVersion(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	id := strings.TrimPrefix(path, route53TrafficPolicyPrefix)
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateTrafficPolicyVersionRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	tp, err := h.Backend.CreateTrafficPolicyVersion(id, req.Document, req.Comment)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateTrafficPolicyVersion", "id", id, "version", tp.Version)
+
+	return writeXML(c, http.StatusCreated, xmlCreateTrafficPolicyVersionResponse{
+		Xmlns:         route53Namespace,
+		TrafficPolicy: toXMLTrafficPolicy(tp),
+	})
+}
+
+func (h *Handler) createTrafficPolicyInstance(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateTrafficPolicyInstanceRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	inst, err := h.Backend.CreateTrafficPolicyInstance(
+		req.HostedZoneID,
+		req.Name,
+		req.TrafficPolicyID,
+		req.TrafficPolicyVersion,
+		req.TTL,
+	)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateTrafficPolicyInstance", "id", inst.ID)
+
+	resp := xmlCreateTrafficPolicyInstanceResponse{
+		Xmlns:                 route53Namespace,
+		TrafficPolicyInstance: toXMLTPInstance(inst),
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01/trafficpolicyinstance/"+inst.ID)
+
+	return writeXML(c, http.StatusCreated, resp)
 }

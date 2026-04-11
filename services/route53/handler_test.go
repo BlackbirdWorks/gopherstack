@@ -1200,3 +1200,779 @@ func TestHandler_IAMAction_HealthCheck(t *testing.T) {
 		})
 	}
 }
+
+// ---- New operation tests ----
+
+func TestRoute53_CreateKeySigningKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(h *route53.Handler) string
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_ksk_success",
+			setup: func(h *route53.Handler) string {
+				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				return extractZoneID(t, rec.Body.String())
+			},
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateKeySigningKeyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>PLACEHOLDER</HostedZoneId>
+  <CallerReference>ksk-ref-1</CallerReference>
+  <Name>mykey</Name>
+  <KeyManagementServiceArn>arn:aws:kms:us-east-1:123456789012:key/abc123</KeyManagementServiceArn>
+  <Status>INACTIVE</Status>
+</CreateKeySigningKeyRequest>`,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateKeySigningKeyResponse", "mykey", "INACTIVE"},
+		},
+		{
+			name: "create_ksk_missing_name",
+			setup: func(h *route53.Handler) string {
+				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				return extractZoneID(t, rec.Body.String())
+			},
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateKeySigningKeyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>PLACEHOLDER</HostedZoneId>
+  <CallerReference>ksk-ref-2</CallerReference>
+</CreateKeySigningKeyRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "create_ksk_zone_not_found",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateKeySigningKeyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>ZNONEXISTENT</HostedZoneId>
+  <CallerReference>ksk-ref-3</CallerReference>
+  <Name>mykey</Name>
+</CreateKeySigningKeyRequest>`,
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+
+			body := tt.body
+			if tt.setup != nil {
+				zoneID := tt.setup(h)
+				body = strings.ReplaceAll(body, "PLACEHOLDER", zoneID)
+			}
+
+			rec := send(t, h, http.MethodPost, "/2013-04-01/keysigningkey", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_ActivateKeySigningKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "activate_success",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ActivateKeySigningKeyResponse", "ACTIVE"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+
+			// Create zone.
+			rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+			require.Equal(t, http.StatusCreated, rec.Code)
+			zoneID := extractZoneID(t, rec.Body.String())
+
+			// Create KSK.
+			kskBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateKeySigningKeyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>` + zoneID + `</HostedZoneId>
+  <CallerReference>ksk-ref-activate</CallerReference>
+  <Name>testkey</Name>
+  <Status>INACTIVE</Status>
+</CreateKeySigningKeyRequest>`
+			kskRec := send(t, h, http.MethodPost, "/2013-04-01/keysigningkey", kskBody)
+			require.Equal(t, http.StatusCreated, kskRec.Code)
+
+			// Activate.
+			got := send(t, h, http.MethodPost, "/2013-04-01/keysigningkey/"+zoneID+"/testkey/activate", "")
+			assert.Equal(t, tt.wantCode, got.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, got.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_ActivateKeySigningKey_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+	rec := send(t, h, http.MethodPost, "/2013-04-01/keysigningkey/ZNONEXISTENT/nokey/activate", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestRoute53_AssociateVPCWithHostedZone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+		useRealZone  bool
+	}{
+		{
+			name:        "associate_vpc_success",
+			useRealZone: true,
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<AssociateVPCWithHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <VPC>
+    <VPCId>vpc-12345</VPCId>
+    <VPCRegion>us-east-1</VPCRegion>
+  </VPC>
+</AssociateVPCWithHostedZoneRequest>`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AssociateVPCWithHostedZoneResponse", "INSYNC"},
+		},
+		{
+			name:        "associate_vpc_missing_vpcid",
+			useRealZone: true,
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<AssociateVPCWithHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <VPC>
+    <VPCRegion>us-east-1</VPCRegion>
+  </VPC>
+</AssociateVPCWithHostedZoneRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "associate_vpc_zone_not_found",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<AssociateVPCWithHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <VPC><VPCId>vpc-xyz</VPCId></VPC>
+</AssociateVPCWithHostedZoneRequest>`,
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+
+			var path string
+			if tt.useRealZone {
+				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, rec.Code)
+				zoneID := extractZoneID(t, rec.Body.String())
+				path = "/2013-04-01/hostedzone/" + zoneID + "/associatevpc"
+			} else {
+				path = "/2013-04-01/hostedzone/ZNONEXISTENT/associatevpc"
+			}
+
+			got := send(t, h, http.MethodPost, path, tt.body)
+			assert.Equal(t, tt.wantCode, got.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, got.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_CreateCidrCollection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_cidr_collection_success",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>my-cidrs</Name>
+  <CallerReference>cidr-ref-1</CallerReference>
+</CreateCidrCollectionRequest>`,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateCidrCollectionResponse", "my-cidrs"},
+		},
+		{
+			name: "create_cidr_collection_missing_name",
+			body: `<?xml version="1.0" encoding="UTF-8"?>` +
+				`<CreateCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">` +
+				`</CreateCidrCollectionRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create_cidr_collection_invalid_xml",
+			body:     "not-xml",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			rec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_ChangeCidrCollection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		collectionID string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "change_success",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ChangeCidrCollectionResponse"},
+		},
+		{
+			name:         "change_not_found",
+			collectionID: "ZNONEXISTENT",
+			wantCode:     http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			collectionID := tt.collectionID
+
+			if collectionID == "" {
+				// Create a collection first.
+				createBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>test-cidrs</Name>
+  <CallerReference>cidr-ref-change</CallerReference>
+</CreateCidrCollectionRequest>`
+				createRec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection", createBody)
+				require.Equal(t, http.StatusCreated, createRec.Code)
+
+				type colResp struct {
+					Collection struct {
+						ID string `xml:"Id"`
+					} `xml:"Collection"`
+				}
+
+				var resp colResp
+				require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &resp))
+				collectionID = resp.Collection.ID
+			}
+
+			rec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection/"+collectionID, "")
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_CreateQueryLoggingConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+		useZone      bool
+	}{
+		{
+			name:    "create_qlc_success",
+			useZone: true,
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateQueryLoggingConfigRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>PLACEHOLDER</HostedZoneId>
+  <CloudWatchLogsLogGroupArn>arn:aws:logs:us-east-1:123456789012:log-group:my-log-group</CloudWatchLogsLogGroupArn>
+</CreateQueryLoggingConfigRequest>`,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateQueryLoggingConfigResponse", "my-log-group"},
+		},
+		{
+			name:    "create_qlc_missing_log_group",
+			useZone: true,
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateQueryLoggingConfigRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>PLACEHOLDER</HostedZoneId>
+</CreateQueryLoggingConfigRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "create_qlc_zone_not_found",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateQueryLoggingConfigRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>ZNONEXISTENT</HostedZoneId>
+  <CloudWatchLogsLogGroupArn>arn:aws:logs:us-east-1:123:log-group:test</CloudWatchLogsLogGroupArn>
+</CreateQueryLoggingConfigRequest>`,
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			body := tt.body
+
+			if tt.useZone {
+				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, rec.Code)
+				zoneID := extractZoneID(t, rec.Body.String())
+				body = strings.ReplaceAll(body, "PLACEHOLDER", zoneID)
+			}
+
+			rec := send(t, h, http.MethodPost, "/2013-04-01/queryloggingconfig", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_CreateReusableDelegationSet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_rds_success",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateReusableDelegationSetRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ds-ref-1</CallerReference>
+</CreateReusableDelegationSetRequest>`,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateReusableDelegationSetResponse", "NameServer"},
+		},
+		{
+			name: "create_rds_missing_caller_ref",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateReusableDelegationSetRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+</CreateReusableDelegationSetRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create_rds_invalid_xml",
+			body:     "not-xml",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			rec := send(t, h, http.MethodPost, "/2013-04-01/delegationset", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_CreateTrafficPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_tp_success",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>my-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01"}</Document>
+  <Comment>test policy</Comment>
+</CreateTrafficPolicyRequest>`,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateTrafficPolicyResponse", "my-policy", "test policy"},
+		},
+		{
+			name: "create_tp_missing_name",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01"}</Document>
+</CreateTrafficPolicyRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "create_tp_missing_document",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>my-policy</Name>
+</CreateTrafficPolicyRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create_tp_invalid_xml",
+			body:     "not-xml",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func extractTrafficPolicyID(t *testing.T, body string) string {
+	t.Helper()
+
+	type resp struct {
+		TrafficPolicy struct {
+			ID string `xml:"Id"`
+		} `xml:"TrafficPolicy"`
+	}
+
+	var r resp
+	require.NoError(t, xml.Unmarshal([]byte(body), &r))
+	require.NotEmpty(t, r.TrafficPolicy.ID)
+
+	return r.TrafficPolicy.ID
+}
+
+func TestRoute53_CreateTrafficPolicyVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		policyID     string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_version_success",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyVersionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","v2":true}</Document>
+  <Comment>version 2</Comment>
+</CreateTrafficPolicyVersionRequest>`,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateTrafficPolicyVersionResponse", "version 2"},
+		},
+		{
+			name:     "create_version_not_found",
+			policyID: "NONEXISTENT-POLICY-ID",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyVersionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Document>{"v":"2"}</Document>
+</CreateTrafficPolicyVersionRequest>`,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "create_version_missing_document",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyVersionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+</CreateTrafficPolicyVersionRequest>`,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			policyID := tt.policyID
+
+			if policyID == "" && tt.wantCode != http.StatusNotFound {
+				// Create initial policy.
+				createBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>versioned-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01"}</Document>
+</CreateTrafficPolicyRequest>`
+				createRec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", createBody)
+				require.Equal(t, http.StatusCreated, createRec.Code)
+				policyID = extractTrafficPolicyID(t, createRec.Body.String())
+			} else if policyID == "" {
+				policyID = "NONEXISTENT-POLICY-ID"
+			}
+
+			rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy/"+policyID, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_CreateTrafficPolicyInstance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn      func(h *route53.Handler) (zoneID, policyID string)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_tpi_success",
+			setupFn: func(h *route53.Handler) (string, string) {
+				zoneRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, zoneRec.Code)
+				zoneID := extractZoneID(t, zoneRec.Body.String())
+
+				tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>tpi-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01"}</Document>
+</CreateTrafficPolicyRequest>`
+				tpRec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+				require.Equal(t, http.StatusCreated, tpRec.Code)
+				policyID := extractTrafficPolicyID(t, tpRec.Body.String())
+
+				return zoneID, policyID
+			},
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"CreateTrafficPolicyInstanceResponse", "Applied"},
+		},
+		{
+			name: "create_tpi_zone_not_found",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyInstanceRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>ZNONEXISTENT</HostedZoneId>
+  <Name>tpi.example.com</Name>
+  <TrafficPolicyId>FAKEPOLICYID</TrafficPolicyId>
+  <TrafficPolicyVersion>1</TrafficPolicyVersion>
+  <TTL>300</TTL>
+</CreateTrafficPolicyInstanceRequest>`,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "create_tpi_invalid_xml",
+			body: "not-xml",
+			setupFn: func(h *route53.Handler) (string, string) {
+				zoneRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, zoneRec.Code)
+
+				return extractZoneID(t, zoneRec.Body.String()), ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			body := tt.body
+
+			if tt.setupFn != nil {
+				zoneID, policyID := tt.setupFn(h)
+				if body == "" {
+					body = `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyInstanceRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>` + zoneID + `</HostedZoneId>
+  <Name>api.example.com</Name>
+  <TrafficPolicyId>` + policyID + `</TrafficPolicyId>
+  <TrafficPolicyVersion>1</TrafficPolicyVersion>
+  <TTL>60</TTL>
+</CreateTrafficPolicyInstanceRequest>`
+				}
+			}
+
+			rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicyinstance", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53_NewOperations_UnsupportedMethods(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{
+			name:   "ksk_root_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/keysigningkey",
+		},
+		{
+			name:   "ksk_resource_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/keysigningkey/ZONE123/keyname/activate",
+		},
+		{
+			name:   "cidr_root_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/cidrcollection",
+		},
+		{
+			name:   "cidr_resource_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/cidrcollection/COLLECTIONID",
+		},
+		{
+			name:   "query_logging_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/queryloggingconfig",
+		},
+		{
+			name:   "delegation_set_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/delegationset",
+		},
+		{
+			name:   "traffic_policy_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/trafficpolicy",
+		},
+		{
+			name:   "traffic_policy_version_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/trafficpolicy/SOMEID",
+		},
+		{
+			name:   "tp_instance_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/trafficpolicyinstance",
+		},
+		{
+			name:   "associatevpc_unsupported_get",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone/ZONE123/associatevpc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			rec := send(t, h, tt.method, tt.path, "")
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestRoute53_SnapshotRestore_NewOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	// Create a zone.
+	zoneRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, zoneRec.Code)
+	zoneID := extractZoneID(t, zoneRec.Body.String())
+
+	// Create a CIDR collection.
+	cidrBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>snap-cidrs</Name>
+  <CallerReference>snap-cidr-ref</CallerReference>
+</CreateCidrCollectionRequest>`
+	cidrRec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection", cidrBody)
+	require.Equal(t, http.StatusCreated, cidrRec.Code)
+
+	// Create a traffic policy.
+	tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>snap-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01"}</Document>
+</CreateTrafficPolicyRequest>`
+	tpRec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+	require.Equal(t, http.StatusCreated, tpRec.Code)
+	policyID := extractTrafficPolicyID(t, tpRec.Body.String())
+
+	// Snapshot and restore.
+	snap := h.Backend.Snapshot()
+	require.NotNil(t, snap)
+
+	newBackend := route53.NewInMemoryBackend()
+	require.NoError(t, newBackend.Restore(snap))
+	newHandler := route53.NewHandler(newBackend)
+
+	// Verify zone still accessible.
+	getRec := send(t, newHandler, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID, "")
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	// Verify traffic policy version can be created (policy still exists).
+	versionBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyVersionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","v2":true}</Document>
+</CreateTrafficPolicyVersionRequest>`
+	versionRec := send(t, newHandler, http.MethodPost, "/2013-04-01/trafficpolicy/"+policyID, versionBody)
+	assert.Equal(t, http.StatusCreated, versionRec.Code)
+}
