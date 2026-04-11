@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := qldb.NewInMemoryBackend("000000000000", "us-east-1")
 	h := qldb.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &qldbsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CancelJournalKinesisStream",
-		"DescribeJournalKinesisStream",
-		"DescribeJournalS3Export",
-		"ExportJournalToS3",
-		"GetBlock",
-		"GetDigest",
-		"GetRevision",
-		"ListJournalKinesisStreamsForLedger",
-		"ListJournalS3Exports",
-		"ListJournalS3ExportsForLedger",
 		"StreamJournalToKinesis",
 		"UpdateLedgerPermissionsMode",
 	})
