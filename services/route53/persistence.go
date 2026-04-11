@@ -2,6 +2,7 @@ package route53
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 type zoneDataSnapshot struct {
@@ -10,8 +11,15 @@ type zoneDataSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Zones        map[string]*zoneDataSnapshot `json:"zones"`
-	HealthChecks map[string]*HealthCheck      `json:"healthChecks,omitempty"`
+	Zones                  map[string]*zoneDataSnapshot      `json:"zones"`
+	HealthChecks           map[string]*HealthCheck           `json:"healthChecks,omitempty"`
+	KeySigningKeys         map[string]*KeySigningKey         `json:"keySigningKeys,omitempty"`
+	CidrCollections        map[string]*CidrCollection        `json:"cidrCollections,omitempty"`
+	QueryLoggingConfigs    map[string]*QueryLoggingConfig    `json:"queryLoggingConfigs,omitempty"`
+	ReusableDelegationSets map[string]*ReusableDelegationSet `json:"reusableDelegationSets,omitempty"`
+	TrafficPolicies        map[string][]*TrafficPolicy       `json:"trafficPolicies,omitempty"`
+	TrafficPolicyInstances map[string]*TrafficPolicyInstance `json:"trafficPolicyInstances,omitempty"`
+	VPCAssociations        map[string][]vpcAssociation       `json:"vpcAssociations,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -21,8 +29,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Zones:        make(map[string]*zoneDataSnapshot, len(b.zones)),
-		HealthChecks: make(map[string]*HealthCheck, len(b.healthChecks)),
+		Zones:                  make(map[string]*zoneDataSnapshot, len(b.zones)),
+		HealthChecks:           make(map[string]*HealthCheck, len(b.healthChecks)),
+		KeySigningKeys:         make(map[string]*KeySigningKey, len(b.keySigningKeys)),
+		CidrCollections:        make(map[string]*CidrCollection, len(b.cidrCollections)),
+		QueryLoggingConfigs:    make(map[string]*QueryLoggingConfig, len(b.queryLoggingConfigs)),
+		ReusableDelegationSets: make(map[string]*ReusableDelegationSet, len(b.reusableDelegationSets)),
+		TrafficPolicies:        make(map[string][]*TrafficPolicy, len(b.trafficPolicies)),
+		TrafficPolicyInstances: make(map[string]*TrafficPolicyInstance, len(b.trafficPolicyInstances)),
+		VPCAssociations:        make(map[string][]vpcAssociation, len(b.vpcAssociations)),
 	}
 
 	for id, zd := range b.zones {
@@ -37,12 +52,92 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		snap.HealthChecks[id] = &cp
 	}
 
+	for k, ksk := range b.keySigningKeys {
+		cp := *ksk
+		snap.KeySigningKeys[k] = &cp
+	}
+
+	for id, col := range b.cidrCollections {
+		cp := *col
+		snap.CidrCollections[id] = &cp
+	}
+
+	for id, cfg := range b.queryLoggingConfigs {
+		cp := *cfg
+		snap.QueryLoggingConfigs[id] = &cp
+	}
+
+	for id, ds := range b.reusableDelegationSets {
+		cp := *ds
+		snap.ReusableDelegationSets[id] = &cp
+	}
+
+	for id, versions := range b.trafficPolicies {
+		versionsCopy := make([]*TrafficPolicy, len(versions))
+		for i, tp := range versions {
+			cp := *tp
+			versionsCopy[i] = &cp
+		}
+
+		snap.TrafficPolicies[id] = versionsCopy
+	}
+
+	for id, inst := range b.trafficPolicyInstances {
+		cp := *inst
+		snap.TrafficPolicyInstances[id] = &cp
+	}
+
+	for id, assocs := range b.vpcAssociations {
+		snap.VPCAssociations[id] = append([]vpcAssociation(nil), assocs...)
+	}
+
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("route53 Snapshot failed", "error", err)
+
 		return nil
 	}
 
 	return data
+}
+
+// ensureNonNilMaps initialises any nil maps in the snapshot.
+func ensureNonNilMaps(snap *backendSnapshot) {
+	if snap.Zones == nil {
+		snap.Zones = make(map[string]*zoneDataSnapshot)
+	}
+
+	if snap.HealthChecks == nil {
+		snap.HealthChecks = make(map[string]*HealthCheck)
+	}
+
+	if snap.KeySigningKeys == nil {
+		snap.KeySigningKeys = make(map[string]*KeySigningKey)
+	}
+
+	if snap.CidrCollections == nil {
+		snap.CidrCollections = make(map[string]*CidrCollection)
+	}
+
+	if snap.QueryLoggingConfigs == nil {
+		snap.QueryLoggingConfigs = make(map[string]*QueryLoggingConfig)
+	}
+
+	if snap.ReusableDelegationSets == nil {
+		snap.ReusableDelegationSets = make(map[string]*ReusableDelegationSet)
+	}
+
+	if snap.TrafficPolicies == nil {
+		snap.TrafficPolicies = make(map[string][]*TrafficPolicy)
+	}
+
+	if snap.TrafficPolicyInstances == nil {
+		snap.TrafficPolicyInstances = make(map[string]*TrafficPolicyInstance)
+	}
+
+	if snap.VPCAssociations == nil {
+		snap.VPCAssociations = make(map[string][]vpcAssociation)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -55,12 +150,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Zones == nil {
-		snap.Zones = make(map[string]*zoneDataSnapshot)
-	}
 
 	b.zones = make(map[string]*zoneData, len(snap.Zones))
 
@@ -75,15 +168,64 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 	}
 
-	if snap.HealthChecks == nil {
-		snap.HealthChecks = make(map[string]*HealthCheck)
-	}
-
 	b.healthChecks = make(map[string]*HealthCheck, len(snap.HealthChecks))
 
 	for id, hc := range snap.HealthChecks {
 		cp := *hc
 		b.healthChecks[id] = &cp
+	}
+
+	b.keySigningKeys = make(map[string]*KeySigningKey, len(snap.KeySigningKeys))
+
+	for k, ksk := range snap.KeySigningKeys {
+		cp := *ksk
+		b.keySigningKeys[k] = &cp
+	}
+
+	b.cidrCollections = make(map[string]*CidrCollection, len(snap.CidrCollections))
+
+	for id, col := range snap.CidrCollections {
+		cp := *col
+		b.cidrCollections[id] = &cp
+	}
+
+	b.queryLoggingConfigs = make(map[string]*QueryLoggingConfig, len(snap.QueryLoggingConfigs))
+
+	for id, cfg := range snap.QueryLoggingConfigs {
+		cp := *cfg
+		b.queryLoggingConfigs[id] = &cp
+	}
+
+	b.reusableDelegationSets = make(map[string]*ReusableDelegationSet, len(snap.ReusableDelegationSets))
+
+	for id, ds := range snap.ReusableDelegationSets {
+		cp := *ds
+		b.reusableDelegationSets[id] = &cp
+	}
+
+	b.trafficPolicies = make(map[string][]*TrafficPolicy, len(snap.TrafficPolicies))
+
+	for id, versions := range snap.TrafficPolicies {
+		versionsCopy := make([]*TrafficPolicy, len(versions))
+		for i, tp := range versions {
+			cp := *tp
+			versionsCopy[i] = &cp
+		}
+
+		b.trafficPolicies[id] = versionsCopy
+	}
+
+	b.trafficPolicyInstances = make(map[string]*TrafficPolicyInstance, len(snap.TrafficPolicyInstances))
+
+	for id, inst := range snap.TrafficPolicyInstances {
+		cp := *inst
+		b.trafficPolicyInstances[id] = &cp
+	}
+
+	b.vpcAssociations = make(map[string][]vpcAssociation, len(snap.VPCAssociations))
+
+	for id, assocs := range snap.VPCAssociations {
+		b.vpcAssociations[id] = append([]vpcAssociation(nil), assocs...)
 	}
 
 	return nil

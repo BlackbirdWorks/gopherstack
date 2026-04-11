@@ -15,10 +15,16 @@ import (
 
 // Errors returned by the backend.
 var (
-	ErrHostedZoneNotFound  = errors.New("NoSuchHostedZone")
-	ErrInvalidInput        = errors.New("InvalidInput")
-	ErrInvalidAction       = errors.New("InvalidChangeBatch")
-	ErrHealthCheckNotFound = errors.New("NoSuchHealthCheck")
+	ErrHostedZoneNotFound         = errors.New("NoSuchHostedZone")
+	ErrInvalidInput               = errors.New("InvalidInput")
+	ErrInvalidAction              = errors.New("InvalidChangeBatch")
+	ErrHealthCheckNotFound        = errors.New("NoSuchHealthCheck")
+	ErrKeySigningKeyNotFound      = errors.New("NoSuchKeySigningKey")
+	ErrCidrCollectionNotFound     = errors.New("NoSuchCidrCollection")
+	ErrQueryLoggingConfigNotFound = errors.New("NoSuchQueryLoggingConfig")
+	ErrDelegationSetNotFound      = errors.New("NoSuchDelegationSet")
+	ErrTrafficPolicyNotFound      = errors.New("NoSuchTrafficPolicy")
+	ErrTrafficPolicyInstNotFound  = errors.New("NoSuchTrafficPolicyInstance")
 )
 
 const (
@@ -146,20 +152,102 @@ type zoneData struct {
 	zone    HostedZone
 }
 
+// KeySigningKey represents a Route 53 key signing key for DNSSEC.
+type KeySigningKey struct {
+	CreatedAt               time.Time `json:"createdAt"`
+	HostedZoneID            string    `json:"hostedZoneId"`
+	Name                    string    `json:"name"`
+	KeyManagementServiceArn string    `json:"keyManagementServiceArn"`
+	Status                  string    `json:"status"`
+}
+
+// CidrCollection represents a Route 53 CIDR collection.
+type CidrCollection struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	ARN     string `json:"arn"`
+	Version int64  `json:"version"`
+}
+
+// CidrCollectionChange represents a single change in a ChangeCidrCollection request.
+type CidrCollectionChange struct {
+	LocationName string
+	Action       string
+	CidrList     []string
+}
+
+// QueryLoggingConfig represents a Route 53 query logging configuration.
+type QueryLoggingConfig struct {
+	CreatedAt                 time.Time `json:"createdAt"`
+	ID                        string    `json:"id"`
+	HostedZoneID              string    `json:"hostedZoneId"`
+	CloudWatchLogsLogGroupArn string    `json:"cloudWatchLogsLogGroupArn"`
+}
+
+// ReusableDelegationSet represents a Route 53 reusable delegation set.
+type ReusableDelegationSet struct {
+	CreatedAt       time.Time `json:"createdAt"`
+	ID              string    `json:"id"`
+	CallerReference string    `json:"callerReference"`
+	NameServers     []string  `json:"nameServers"`
+}
+
+// TrafficPolicy represents a Route 53 traffic policy.
+type TrafficPolicy struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Document string `json:"document"`
+	Comment  string `json:"comment,omitempty"`
+	Type     string `json:"type"`
+	Version  int32  `json:"version"`
+}
+
+// TrafficPolicyInstance represents a Route 53 traffic policy instance.
+type TrafficPolicyInstance struct {
+	ID                   string `json:"id"`
+	HostedZoneID         string `json:"hostedZoneId"`
+	Name                 string `json:"name"`
+	TrafficPolicyID      string `json:"trafficPolicyId"`
+	TrafficPolicyType    string `json:"trafficPolicyType"`
+	State                string `json:"state"`
+	TTL                  int64  `json:"ttl"`
+	TrafficPolicyVersion int32  `json:"trafficPolicyVersion"`
+}
+
+// vpcAssociation records a VPC associated with a hosted zone.
+type vpcAssociation struct {
+	VPCID     string `json:"vpcId"`
+	VPCRegion string `json:"vpcRegion"`
+}
+
 // InMemoryBackend stores Route 53 state in memory.
 type InMemoryBackend struct {
-	dns          DNSRegistrar
-	zones        map[string]*zoneData    // key: zone ID
-	healthChecks map[string]*HealthCheck // key: health check ID
-	mu           *lockmetrics.RWMutex
+	dns                    DNSRegistrar
+	zones                  map[string]*zoneData              // key: zone ID
+	healthChecks           map[string]*HealthCheck           // key: health check ID
+	keySigningKeys         map[string]*KeySigningKey         // key: "hostedZoneId|name"
+	cidrCollections        map[string]*CidrCollection        // key: collection ID
+	queryLoggingConfigs    map[string]*QueryLoggingConfig    // key: config ID
+	reusableDelegationSets map[string]*ReusableDelegationSet // key: delegation set ID
+	trafficPolicies        map[string][]*TrafficPolicy       // key: policy ID, value: versions
+	trafficPolicyInstances map[string]*TrafficPolicyInstance // key: instance ID
+	vpcAssociations        map[string][]vpcAssociation       // key: zone ID
+	mu                     *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		zones:        make(map[string]*zoneData),
-		healthChecks: make(map[string]*HealthCheck),
-		mu:           lockmetrics.New("route53"),
+		zones:                  make(map[string]*zoneData),
+		healthChecks:           make(map[string]*HealthCheck),
+		keySigningKeys:         make(map[string]*KeySigningKey),
+		cidrCollections:        make(map[string]*CidrCollection),
+		queryLoggingConfigs:    make(map[string]*QueryLoggingConfig),
+		reusableDelegationSets: make(map[string]*ReusableDelegationSet),
+		trafficPolicies:        make(map[string][]*TrafficPolicy),
+		trafficPolicyInstances: make(map[string]*TrafficPolicyInstance),
+		vpcAssociations:        make(map[string][]vpcAssociation),
+		mu:                     lockmetrics.New("route53"),
 	}
 }
 
@@ -528,4 +616,373 @@ func (b *InMemoryBackend) Reset() {
 
 	b.zones = make(map[string]*zoneData)
 	b.healthChecks = make(map[string]*HealthCheck)
+	b.keySigningKeys = make(map[string]*KeySigningKey)
+	b.cidrCollections = make(map[string]*CidrCollection)
+	b.queryLoggingConfigs = make(map[string]*QueryLoggingConfig)
+	b.reusableDelegationSets = make(map[string]*ReusableDelegationSet)
+	b.trafficPolicies = make(map[string][]*TrafficPolicy)
+	b.trafficPolicyInstances = make(map[string]*TrafficPolicyInstance)
+	b.vpcAssociations = make(map[string][]vpcAssociation)
+}
+
+// kskKey builds the map key for a key signing key.
+func kskKey(hostedZoneID, name string) string { return hostedZoneID + "|" + name }
+
+// CreateKeySigningKey creates a new key signing key for a hosted zone.
+func (b *InMemoryBackend) CreateKeySigningKey(
+	hostedZoneID, _ /* callerRef */, name, kmsArn, status string,
+) (*KeySigningKey, error) {
+	if hostedZoneID == "" {
+		return nil, fmt.Errorf("%w: hostedZoneId is required", ErrInvalidInput)
+	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateKeySigningKey")
+	defer b.mu.Unlock()
+
+	if _, ok := b.zones[hostedZoneID]; !ok {
+		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
+	}
+
+	if status == "" {
+		status = "INACTIVE"
+	}
+
+	ksk := &KeySigningKey{
+		HostedZoneID:            hostedZoneID,
+		Name:                    name,
+		KeyManagementServiceArn: kmsArn,
+		Status:                  status,
+		CreatedAt:               time.Now(),
+	}
+
+	b.keySigningKeys[kskKey(hostedZoneID, name)] = ksk
+
+	cp := *ksk
+
+	return &cp, nil
+}
+
+// ActivateKeySigningKey activates an existing key signing key.
+func (b *InMemoryBackend) ActivateKeySigningKey(hostedZoneID, name string) (*KeySigningKey, error) {
+	b.mu.Lock("ActivateKeySigningKey")
+	defer b.mu.Unlock()
+
+	key := kskKey(hostedZoneID, name)
+
+	ksk, ok := b.keySigningKeys[key]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: key signing key %s not found in zone %s",
+			ErrKeySigningKeyNotFound,
+			name,
+			hostedZoneID,
+		)
+	}
+
+	ksk.Status = "ACTIVE"
+
+	cp := *ksk
+
+	return &cp, nil
+}
+
+// AssociateVPCWithHostedZone associates a VPC with a private hosted zone.
+func (b *InMemoryBackend) AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error {
+	if vpcID == "" {
+		return fmt.Errorf("%w: VPCId is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("AssociateVPCWithHostedZone")
+	defer b.mu.Unlock()
+
+	if _, ok := b.zones[zoneID]; !ok {
+		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	b.vpcAssociations[zoneID] = append(b.vpcAssociations[zoneID], vpcAssociation{
+		VPCID:     vpcID,
+		VPCRegion: vpcRegion,
+	})
+
+	return nil
+}
+
+// CreateCidrCollection creates a new CIDR collection.
+func (b *InMemoryBackend) CreateCidrCollection(name, _ /* callerRef */ string) (*CidrCollection, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateCidrCollection")
+	defer b.mu.Unlock()
+
+	id := "Z" + randomZoneID()
+	col := &CidrCollection{
+		ID:      id,
+		Name:    name,
+		Version: 1,
+		ARN:     "arn:aws:route53:::cidrcollection/" + id,
+	}
+
+	b.cidrCollections[id] = col
+
+	cp := *col
+
+	return &cp, nil
+}
+
+// ChangeCidrCollection applies changes to a CIDR collection.
+func (b *InMemoryBackend) ChangeCidrCollection(
+	collectionID string,
+	_ []CidrCollectionChange,
+) (*CidrCollection, error) {
+	b.mu.Lock("ChangeCidrCollection")
+	defer b.mu.Unlock()
+
+	col, ok := b.cidrCollections[collectionID]
+	if !ok {
+		return nil, fmt.Errorf("%w: CIDR collection %s not found", ErrCidrCollectionNotFound, collectionID)
+	}
+
+	// In-memory stub: simply increment the version.
+	col.Version++
+
+	cp := *col
+
+	return &cp, nil
+}
+
+// CreateQueryLoggingConfig creates a new query logging configuration.
+func (b *InMemoryBackend) CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error) {
+	if hostedZoneID == "" {
+		return nil, fmt.Errorf("%w: hostedZoneId is required", ErrInvalidInput)
+	}
+
+	if logGroupArn == "" {
+		return nil, fmt.Errorf("%w: cloudWatchLogsLogGroupArn is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateQueryLoggingConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.zones[hostedZoneID]; !ok {
+		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
+	}
+
+	id := "Z" + randomZoneID()
+	cfg := &QueryLoggingConfig{
+		ID:                        id,
+		HostedZoneID:              hostedZoneID,
+		CloudWatchLogsLogGroupArn: logGroupArn,
+		CreatedAt:                 time.Now(),
+	}
+
+	b.queryLoggingConfigs[id] = cfg
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+const (
+	delegationSetIDChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	delegationSetIDLength = 13
+)
+
+func randomDelegationSetID() string {
+	buf := make([]byte, delegationSetIDLength)
+	n := uint64(len(delegationSetIDChars))
+
+	for i := range buf {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		buf[i] = delegationSetIDChars[binary.BigEndian.Uint64(v[:])%n]
+	}
+
+	return string(buf)
+}
+
+// CreateReusableDelegationSet creates a new reusable delegation set.
+func (b *InMemoryBackend) CreateReusableDelegationSet(
+	callerRef, _ /* hostedZoneID */ string,
+) (*ReusableDelegationSet, error) {
+	if callerRef == "" {
+		return nil, fmt.Errorf("%w: callerReference is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateReusableDelegationSet")
+	defer b.mu.Unlock()
+
+	id := "/delegationset/N" + randomDelegationSetID()
+	ds := &ReusableDelegationSet{
+		ID:              id,
+		CallerReference: callerRef,
+		NameServers:     []string{"ns1.gopherstack.invalid", "ns2.gopherstack.invalid"},
+		CreatedAt:       time.Now(),
+	}
+
+	b.reusableDelegationSets[id] = ds
+
+	cp := *ds
+
+	return &cp, nil
+}
+
+const (
+	trafficPolicyIDChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz"
+	trafficPolicyIDLength = 36
+)
+
+func randomTrafficPolicyID() string {
+	buf := make([]byte, trafficPolicyIDLength)
+	n := uint64(len(trafficPolicyIDChars))
+
+	for i := range buf {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		buf[i] = trafficPolicyIDChars[binary.BigEndian.Uint64(v[:])%n]
+	}
+
+	return string(buf)
+}
+
+// CreateTrafficPolicy creates a new traffic policy.
+func (b *InMemoryBackend) CreateTrafficPolicy(name, document, comment string) (*TrafficPolicy, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
+	}
+
+	if document == "" {
+		return nil, fmt.Errorf("%w: document is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateTrafficPolicy")
+	defer b.mu.Unlock()
+
+	id := randomTrafficPolicyID()
+	tp := &TrafficPolicy{
+		ID:       id,
+		Name:     name,
+		Document: document,
+		Comment:  comment,
+		Type:     "DNS",
+		Version:  1,
+	}
+
+	b.trafficPolicies[id] = []*TrafficPolicy{tp}
+
+	cp := *tp
+
+	return &cp, nil
+}
+
+// CreateTrafficPolicyVersion creates a new version of an existing traffic policy.
+func (b *InMemoryBackend) CreateTrafficPolicyVersion(id, document, comment string) (*TrafficPolicy, error) {
+	if document == "" {
+		return nil, fmt.Errorf("%w: document is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateTrafficPolicyVersion")
+	defer b.mu.Unlock()
+
+	versions, ok := b.trafficPolicies[id]
+	if !ok || len(versions) == 0 {
+		return nil, fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, id)
+	}
+
+	latest := versions[len(versions)-1]
+	newVersion := &TrafficPolicy{
+		ID:       id,
+		Name:     latest.Name,
+		Document: document,
+		Comment:  comment,
+		Type:     latest.Type,
+		Version:  latest.Version + 1,
+	}
+
+	b.trafficPolicies[id] = append(b.trafficPolicies[id], newVersion)
+
+	cp := *newVersion
+
+	return &cp, nil
+}
+
+const (
+	tpiIDChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz"
+	tpiIDLength = 36
+)
+
+func randomTPIID() string {
+	buf := make([]byte, tpiIDLength)
+	n := uint64(len(tpiIDChars))
+
+	for i := range buf {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		buf[i] = tpiIDChars[binary.BigEndian.Uint64(v[:])%n]
+	}
+
+	return string(buf)
+}
+
+// CreateTrafficPolicyInstance creates a new traffic policy instance.
+func (b *InMemoryBackend) CreateTrafficPolicyInstance(
+	hostedZoneID, name, tpID string,
+	tpVersion int32,
+	ttl int64,
+) (*TrafficPolicyInstance, error) {
+	if hostedZoneID == "" {
+		return nil, fmt.Errorf("%w: hostedZoneId is required", ErrInvalidInput)
+	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
+	}
+
+	if tpID == "" {
+		return nil, fmt.Errorf("%w: trafficPolicyId is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateTrafficPolicyInstance")
+	defer b.mu.Unlock()
+
+	if _, ok := b.zones[hostedZoneID]; !ok {
+		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
+	}
+
+	versions, ok := b.trafficPolicies[tpID]
+	if !ok || len(versions) == 0 {
+		return nil, fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, tpID)
+	}
+
+	tpType := "DNS"
+	for _, v := range versions {
+		if v.Version == tpVersion {
+			tpType = v.Type
+
+			break
+		}
+	}
+
+	id := randomTPIID()
+	inst := &TrafficPolicyInstance{
+		ID:                   id,
+		HostedZoneID:         hostedZoneID,
+		Name:                 normaliseName(name),
+		TrafficPolicyID:      tpID,
+		TrafficPolicyVersion: tpVersion,
+		TrafficPolicyType:    tpType,
+		TTL:                  ttl,
+		State:                "Applied",
+	}
+
+	b.trafficPolicyInstances[id] = inst
+
+	cp := *inst
+
+	return &cp, nil
 }
