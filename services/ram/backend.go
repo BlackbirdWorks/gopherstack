@@ -170,7 +170,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 // Region returns the AWS region this backend is configured for.
-func (b *InMemoryBackend) Region() string { return b.region }
+func (b *InMemoryBackend) Region() string    { return b.region }
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // CreateResourceShare creates a new resource share.
 func (b *InMemoryBackend) CreateResourceShare(
