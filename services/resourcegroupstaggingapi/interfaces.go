@@ -3,11 +3,11 @@ package resourcegroupstaggingapi
 // StorageBackend is the interface for the Resource Groups Tagging API backend.
 type StorageBackend interface {
 	// Tag/resource operations
-	GetResources(input *GetResourcesInput) *GetResourcesOutput
+	GetResources(input *GetResourcesInput) (*GetResourcesOutput, error)
 	GetTagKeys(input *GetTagKeysInput) *GetTagKeysOutput
 	GetTagValues(input *GetTagValuesInput) *GetTagValuesOutput
-	TagResources(input *TagResourcesInput) *TagResourcesOutput
-	UntagResources(input *UntagResourcesInput) *UntagResourcesOutput
+	TagResources(input *TagResourcesInput) (*TagResourcesOutput, error)
+	UntagResources(input *UntagResourcesInput) (*UntagResourcesOutput, error)
 
 	// Report creation operations
 	StartReportCreation(input *StartReportCreationInput) (*StartReportCreationOutput, error)

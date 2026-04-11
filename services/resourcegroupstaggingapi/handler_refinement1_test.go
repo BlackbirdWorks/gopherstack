@@ -44,31 +44,40 @@ func TestRefinement1_BackendReset(t *testing.T) {
 	})
 	b.RegisterARNTagger(func(_ string, _ map[string]string) (bool, error) { return false, nil })
 	b.RegisterARNUntagger(func(_ string, _ []string) (bool, error) { return false, nil })
+	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://bucket/path", "2025-01-01T00:00:00Z")
 
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
 	require.Equal(t, 1, resourcegroupstaggingapi.TaggerCount(b))
 	require.Equal(t, 1, resourcegroupstaggingapi.UntaggerCount(b))
+	require.True(t, resourcegroupstaggingapi.HasReportState(b))
 
 	b.Reset()
 
-	assert.Equal(t, 0, resourcegroupstaggingapi.ProviderCount(b))
-	assert.Equal(t, 0, resourcegroupstaggingapi.TaggerCount(b))
-	assert.Equal(t, 0, resourcegroupstaggingapi.UntaggerCount(b))
-	assert.False(t, resourcegroupstaggingapi.HasReportState(b))
+	// Reset() must only clear dynamic per-test state (reportState).
+	// providers/taggers/untaggers are wired at startup and must survive reset
+	// so that cross-service tagging continues to work after /_gopherstack/reset.
+	assert.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b), "providers must survive Reset()")
+	assert.Equal(t, 1, resourcegroupstaggingapi.TaggerCount(b), "taggers must survive Reset()")
+	assert.Equal(t, 1, resourcegroupstaggingapi.UntaggerCount(b), "untaggers must survive Reset()")
+	assert.False(t, resourcegroupstaggingapi.HasReportState(b), "reportState must be cleared by Reset()")
 }
 
 func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
+	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return nil })
 	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://bucket/path", "2025-01-01T00:00:00Z")
 
 	h := resourcegroupstaggingapi.NewHandler(b)
 	require.True(t, resourcegroupstaggingapi.HasReportState(b))
+	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
 
 	h.Reset()
 
+	// Only reportState is cleared; wired providers survive.
 	assert.False(t, resourcegroupstaggingapi.HasReportState(b))
+	assert.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b), "providers must survive Handler.Reset()")
 }
 
 // ------------------------------------------------------------------ AccountID/Region ---
@@ -234,8 +243,9 @@ func TestRefinement1_GetResourcesNonNilTagsSlice(t *testing.T) {
 		{ResourceARN: "arn:no-tags", ResourceType: "sqs:queue", Tags: map[string]string{}},
 	})
 
-	out := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
 
+	require.NoError(t, err)
 	require.Len(t, out.ResourceTagMappingList, 1)
 	// Tags must be a non-nil empty slice, not nil.
 	assert.NotNil(t, out.ResourceTagMappingList[0].Tags)

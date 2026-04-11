@@ -148,7 +148,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrUnknownOperation):
 		code = http.StatusBadRequest
 		errType = "UnknownOperationException"
-	case errors.Is(err, ErrMissingS3Bucket):
+	case errors.Is(err, ErrMissingS3Bucket), errors.Is(err, ErrValidation):
 		code = http.StatusBadRequest
 		errType = "ValidationException"
 	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
@@ -167,7 +167,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 func (h *Handler) handleGetResources(_ context.Context, in *GetResourcesInput) (*GetResourcesOutput, error) {
-	return h.Backend.GetResources(in), nil
+	return h.Backend.GetResources(in)
 }
 
 func (h *Handler) handleGetTagKeys(_ context.Context, in *GetTagKeysInput) (*GetTagKeysOutput, error) {
@@ -179,11 +179,11 @@ func (h *Handler) handleGetTagValues(_ context.Context, in *GetTagValuesInput) (
 }
 
 func (h *Handler) handleTagResources(_ context.Context, in *TagResourcesInput) (*TagResourcesOutput, error) {
-	return h.Backend.TagResources(in), nil
+	return h.Backend.TagResources(in)
 }
 
 func (h *Handler) handleUntagResources(_ context.Context, in *UntagResourcesInput) (*UntagResourcesOutput, error) {
-	return h.Backend.UntagResources(in), nil
+	return h.Backend.UntagResources(in)
 }
 
 func (h *Handler) handleStartReportCreation(

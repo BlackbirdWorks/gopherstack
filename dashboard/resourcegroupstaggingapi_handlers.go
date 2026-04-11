@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"net/http"
+
 	"github.com/labstack/echo/v5"
 
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
@@ -62,7 +64,10 @@ client = boto3.client('resourcegroupstaggingapi', endpoint_url='http://localhost
 		return nil
 	}
 
-	out := h.ResourceGroupsTaggingOps.Backend.GetResources(&taggingbackend.GetResourcesInput{})
+	out, err := h.ResourceGroupsTaggingOps.Backend.GetResources(&taggingbackend.GetResourcesInput{})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
 
 	views := make([]taggedResourceView, 0, len(out.ResourceTagMappingList))
 	for _, r := range out.ResourceTagMappingList {

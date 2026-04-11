@@ -36,7 +36,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
-// Any registered providers/taggers/untaggers are cleared by this call.
+// Providers, taggers, and untaggers are runtime callbacks that cannot be serialized;
+// they are cleared by this call and must be re-registered (e.g., via wireResourceGroupsTagging)
+// after restore to re-enable cross-service tag operations.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 

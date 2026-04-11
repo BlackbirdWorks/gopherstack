@@ -14,8 +14,9 @@ func TestGetResources_NoProviders(t *testing.T) {
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
 
-	out := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Empty(t, out.ResourceTagMappingList)
 	assert.Nil(t, out.PaginationToken)
@@ -90,8 +91,9 @@ func TestGetResources_TagFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: tt.tagFilters})
+			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: tt.tagFilters})
 
+			require.NoError(t, err)
 			require.NotNil(t, out)
 
 			gotARNs := make([]string, 0, len(out.ResourceTagMappingList))
@@ -163,8 +165,9 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourceTypeFilters: tt.typeFilters})
+			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourceTypeFilters: tt.typeFilters})
 
+			require.NoError(t, err)
 			require.NotNil(t, out)
 			assert.Len(t, out.ResourceTagMappingList, tt.wantLen)
 		})
@@ -185,16 +188,18 @@ func TestGetResources_Pagination(t *testing.T) {
 
 	pageSize := int32(2)
 
-	out1 := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourcesPerPage: &pageSize})
+	out1, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourcesPerPage: &pageSize})
+	require.NoError(t, err)
 	require.NotNil(t, out1)
 	require.NotNil(t, out1.PaginationToken)
 	assert.Len(t, out1.ResourceTagMappingList, 2)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123:a", out1.ResourceTagMappingList[0].ResourceARN)
 
-	out2 := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	out2, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
 		ResourcesPerPage: &pageSize,
 		PaginationToken:  *out1.PaginationToken,
 	})
+	require.NoError(t, err)
 	require.NotNil(t, out2)
 	assert.Nil(t, out2.PaginationToken)
 	assert.Len(t, out2.ResourceTagMappingList, 1)
@@ -254,11 +259,12 @@ func TestTagResources_Handled(t *testing.T) {
 		return true, nil
 	})
 
-	out := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:123:q1"},
 		Tags:            map[string]string{"env": "test"},
 	})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Empty(t, out.FailedResourcesMap)
 	assert.Equal(t, map[string]string{"env": "test"}, taggedARNs["arn:aws:sqs:us-east-1:123:q1"])
@@ -269,11 +275,12 @@ func TestTagResources_Unhandled(t *testing.T) {
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
 
-	out := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:123:q1"},
 		Tags:            map[string]string{"env": "test"},
 	})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Len(t, out.FailedResourcesMap, 1)
 	assert.Contains(t, out.FailedResourcesMap, "arn:aws:sqs:us-east-1:123:q1")
@@ -296,11 +303,12 @@ func TestUntagResources(t *testing.T) {
 		return true, nil
 	})
 
-	out := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+	out, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:123:q1"},
 		TagKeys:         []string{"env"},
 	})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Empty(t, out.FailedResourcesMap)
 	assert.Equal(t, []string{"env"}, untaggedARNs["arn:aws:sqs:us-east-1:123:q1"])

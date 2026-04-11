@@ -5,6 +5,7 @@ package resourcegroupstaggingapi
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -16,6 +17,27 @@ import (
 
 // ErrMissingS3Bucket is returned when StartReportCreation is called without an S3 bucket.
 var ErrMissingS3Bucket = errors.New("S3Bucket is required")
+
+// ErrValidation is returned when a request fails parameter validation.
+var ErrValidation = errors.New("ValidationException")
+
+const (
+	// maxARNsPerTagRequest is the maximum number of ARNs in a single TagResources or
+	// UntagResources request, matching the AWS API limit.
+	maxARNsPerTagRequest = 20
+
+	// maxTagFilters is the maximum number of tag filters in a GetResources request.
+	maxTagFilters = 50
+
+	// maxTagsPerRequest is the maximum number of tag key-value pairs in a TagResources request.
+	maxTagsPerRequest = 50
+
+	// maxTagKeyLength is the maximum length of a tag key.
+	maxTagKeyLength = 128
+
+	// maxTagValueLength is the maximum length of a tag value.
+	maxTagValueLength = 256
+)
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -86,13 +108,14 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Reset clears all backend state and reinitialises the mutex.
+// Reset clears dynamic per-test state (reportState) but intentionally preserves
+// the registered providers, taggers, and untaggers. These are wired at server
+// startup by wireResourceGroupsTagging and must persist across service resets,
+// otherwise the cross-service tagging integration breaks.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Close()
-	b.mu = lockmetrics.New("resourcegroupstaggingapi")
-	b.providers = nil
-	b.taggers = nil
-	b.untaggers = nil
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
 	b.reportState = nil
 }
 
@@ -142,10 +165,12 @@ func (b *InMemoryBackend) getResources() []TaggedResource {
 
 // GetResourcesInput is the request payload for GetResources.
 type GetResourcesInput struct {
-	ResourcesPerPage    *int32      `json:"ResourcesPerPage,omitempty"`
-	PaginationToken     string      `json:"PaginationToken,omitempty"`
-	TagFilters          []TagFilter `json:"TagFilters,omitempty"`
-	ResourceTypeFilters []string    `json:"ResourceTypeFilters,omitempty"`
+	ResourcesPerPage          *int32      `json:"ResourcesPerPage,omitempty"`
+	PaginationToken           string      `json:"PaginationToken,omitempty"`
+	TagFilters                []TagFilter `json:"TagFilters,omitempty"`
+	ResourceTypeFilters       []string    `json:"ResourceTypeFilters,omitempty"`
+	IncludeComplianceDetails  bool        `json:"IncludeComplianceDetails,omitempty"`
+	ExcludeCompliantResources bool        `json:"ExcludeCompliantResources,omitempty"`
 }
 
 // GetResourcesOutput is the response payload for GetResources.
@@ -154,8 +179,17 @@ type GetResourcesOutput struct {
 	ResourceTagMappingList []ResourceTagMapping `json:"ResourceTagMappingList"`
 }
 
+// ComplianceDetails records tag-policy compliance information for a resource.
+type ComplianceDetails struct {
+	KeysWithNonCompliantValues []string `json:"KeysWithNonCompliantValues,omitempty"`
+	NoncompliantKeys           []string `json:"NoncompliantKeys,omitempty"`
+	ComplianceStatus           bool     `json:"ComplianceStatus"`
+}
+
 // ResourceTagMapping associates a resource ARN with its tags.
 type ResourceTagMapping struct {
+	// ComplianceDetails is populated when IncludeComplianceDetails is true.
+	ComplianceDetails *ComplianceDetails `json:"ComplianceDetails,omitempty"`
 	// ResourceARN is the full ARN of the resource.
 	ResourceARN string `json:"ResourceARN"`
 	// Tags is the list of {Key, Value} pairs.
@@ -175,7 +209,11 @@ const (
 
 // GetResources queries resources across all registered providers. It applies
 // tag filters, resource-type filters, and cursor-based pagination.
-func (b *InMemoryBackend) GetResources(input *GetResourcesInput) *GetResourcesOutput {
+func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesOutput, error) {
+	if len(input.TagFilters) > maxTagFilters {
+		return nil, fmt.Errorf("%w: TagFilters exceeds maximum of %d", ErrValidation, maxTagFilters)
+	}
+
 	b.mu.RLock("GetResources")
 	defer b.mu.RUnlock()
 
@@ -188,9 +226,9 @@ func (b *InMemoryBackend) GetResources(input *GetResourcesInput) *GetResourcesOu
 	page, nextToken := paginateResources(all, input.PaginationToken, resolvePageSize(input.ResourcesPerPage))
 
 	return &GetResourcesOutput{
-		ResourceTagMappingList: buildTagMappings(page),
+		ResourceTagMappingList: buildTagMappings(page, input.IncludeComplianceDetails),
 		PaginationToken:        nextToken,
-	}
+	}, nil
 }
 
 // applyResourceTypeFilter filters resources by resource type.
@@ -256,6 +294,42 @@ func paginateResources(all []TaggedResource, token string, pageSize int) ([]Tagg
 	return page, &tok
 }
 
+// paginateStrings applies cursor-based pagination over a sorted string slice and returns
+// the current page and the next pagination token (nil when there are no more results).
+func paginateStrings(all []string, token string, pageSize int) ([]string, *string) {
+	start := 0
+
+	if token != "" {
+		for i, s := range all {
+			if s == token {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+
+	page := all[start:]
+
+	if len(page) <= pageSize {
+		return page, nil
+	}
+
+	page = page[:pageSize]
+	tok := page[len(page)-1]
+
+	return page, &tok
+}
+
+// ptrStringValue dereferences a *string and returns "" for nil.
+func ptrStringValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+
+	return *s
+}
+
 // findTokenStart returns the index after the resource whose ARN equals token,
 // or 0 if the token is empty or not found.
 func findTokenStart(all []TaggedResource, token string) int {
@@ -274,7 +348,7 @@ func findTokenStart(all []TaggedResource, token string) int {
 
 // buildTagMappings converts a slice of TaggedResource into ResourceTagMapping output,
 // sorting tag keys alphabetically within each mapping.
-func buildTagMappings(page []TaggedResource) []ResourceTagMapping {
+func buildTagMappings(page []TaggedResource, includeCompliance bool) []ResourceTagMapping {
 	mappings := make([]ResourceTagMapping, 0, len(page))
 
 	for _, r := range page {
@@ -292,6 +366,10 @@ func buildTagMappings(page []TaggedResource) []ResourceTagMapping {
 
 		for _, k := range keys {
 			m.Tags = append(m.Tags, Tag{Key: k, Value: r.Tags[k]})
+		}
+
+		if includeCompliance {
+			m.ComplianceDetails = &ComplianceDetails{ComplianceStatus: true}
 		}
 
 		mappings = append(mappings, m)
@@ -328,7 +406,8 @@ type GetTagKeysOutput struct {
 }
 
 // GetTagKeys returns all unique tag keys across all registered resource providers.
-func (b *InMemoryBackend) GetTagKeys(_ *GetTagKeysInput) *GetTagKeysOutput {
+// Keys are returned in sorted order, with optional cursor-based pagination.
+func (b *InMemoryBackend) GetTagKeys(input *GetTagKeysInput) *GetTagKeysOutput {
 	b.mu.RLock("GetTagKeys")
 	defer b.mu.RUnlock()
 
@@ -348,7 +427,9 @@ func (b *InMemoryBackend) GetTagKeys(_ *GetTagKeysInput) *GetTagKeysOutput {
 
 	sort.Strings(keys)
 
-	return &GetTagKeysOutput{TagKeys: keys}
+	page, nextToken := paginateStrings(keys, ptrStringValue(input.PaginationToken), defaultResourcesPerPage)
+
+	return &GetTagKeysOutput{TagKeys: page, PaginationToken: nextToken}
 }
 
 // GetTagValuesInput is the request payload for GetTagValues.
@@ -366,17 +447,18 @@ type GetTagValuesOutput struct {
 }
 
 // GetTagValues returns all unique values for the given tag key.
+// Values are returned in sorted order, with optional cursor-based pagination.
 func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOutput {
 	b.mu.RLock("GetTagValues")
 	defer b.mu.RUnlock()
 
+	if input.Key == nil {
+		return &GetTagValuesOutput{TagValues: []string{}}
+	}
+
 	all := b.getResources()
 	valSet := make(map[string]struct{})
-
-	key := ""
-	if input.Key != nil {
-		key = *input.Key
-	}
+	key := *input.Key
 
 	for _, r := range all {
 		if v, ok := r.Tags[key]; ok {
@@ -391,7 +473,9 @@ func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOu
 
 	sort.Strings(values)
 
-	return &GetTagValuesOutput{TagValues: values}
+	page, nextToken := paginateStrings(values, ptrStringValue(input.PaginationToken), defaultResourcesPerPage)
+
+	return &GetTagValuesOutput{TagValues: page, PaginationToken: nextToken}
 }
 
 // TagResourcesInput is the request payload for TagResources.
@@ -419,7 +503,56 @@ type FailureInfo struct {
 // TagResources applies tags to the specified resources by routing to registered ARN taggers.
 // Resources whose ARN does not match any registered tagger are reported in FailedResourcesMap
 // with an InvalidParameterException, matching the AWS API behavior.
-func (b *InMemoryBackend) TagResources(input *TagResourcesInput) *TagResourcesOutput {
+// validateTagResourcesInput validates the TagResources request parameters.
+func validateTagResourcesInput(input *TagResourcesInput) error {
+	if len(input.ResourceARNList) == 0 {
+		return fmt.Errorf("%w: ResourceARNList must not be empty", ErrValidation)
+	}
+
+	if len(input.ResourceARNList) > maxARNsPerTagRequest {
+		return fmt.Errorf("%w: ResourceARNList exceeds maximum of %d", ErrValidation, maxARNsPerTagRequest)
+	}
+
+	if len(input.Tags) == 0 {
+		return fmt.Errorf("%w: Tags must not be empty", ErrValidation)
+	}
+
+	if len(input.Tags) > maxTagsPerRequest {
+		return fmt.Errorf("%w: Tags exceeds maximum of %d", ErrValidation, maxTagsPerRequest)
+	}
+
+	return validateTagEntries(input.Tags)
+}
+
+// validateTagEntries validates all tag key-value pairs against AWS limits.
+func validateTagEntries(tags map[string]string) error {
+	for k, v := range tags {
+		if k == "" {
+			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
+		}
+
+		if len(k) > maxTagKeyLength {
+			return fmt.Errorf("%w: tag key exceeds maximum length of %d", ErrValidation, maxTagKeyLength)
+		}
+
+		if len(v) > maxTagValueLength {
+			return fmt.Errorf(
+				"%w: tag value for key %q exceeds maximum length of %d",
+				ErrValidation,
+				k,
+				maxTagValueLength,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) TagResources(input *TagResourcesInput) (*TagResourcesOutput, error) {
+	if err := validateTagResourcesInput(input); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("TagResources")
 	taggers := slices.Clone(b.taggers)
 	b.mu.RUnlock()
@@ -462,7 +595,7 @@ func (b *InMemoryBackend) TagResources(input *TagResourcesInput) *TagResourcesOu
 		out.FailedResourcesMap = failed
 	}
 
-	return out
+	return out, nil
 }
 
 // UntagResourcesInput is the request payload for UntagResources.
@@ -480,7 +613,19 @@ type UntagResourcesOutput struct {
 }
 
 // UntagResources removes the specified tag keys from the given resources.
-func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) *UntagResourcesOutput {
+func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) (*UntagResourcesOutput, error) {
+	if len(input.ResourceARNList) == 0 {
+		return nil, fmt.Errorf("%w: ResourceARNList must not be empty", ErrValidation)
+	}
+
+	if len(input.ResourceARNList) > maxARNsPerTagRequest {
+		return nil, fmt.Errorf("%w: ResourceARNList exceeds maximum of %d", ErrValidation, maxARNsPerTagRequest)
+	}
+
+	if len(input.TagKeys) == 0 {
+		return nil, fmt.Errorf("%w: TagKeys must not be empty", ErrValidation)
+	}
+
 	b.mu.RLock("UntagResources")
 	untaggers := slices.Clone(b.untaggers)
 	b.mu.RUnlock()
@@ -520,7 +665,7 @@ func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) *UntagResou
 		out.FailedResourcesMap = failed
 	}
 
-	return out
+	return out, nil
 }
 
 // reportStatusSucceeded is the status for a successfully created report.
