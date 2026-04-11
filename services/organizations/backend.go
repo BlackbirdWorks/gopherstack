@@ -135,12 +135,14 @@ const (
 	handshakeExpirationDuration = 15 * 24 * time.Hour
 )
 
-// validPolicyTypes are the policy types supported by AWS Organizations.
-var validPolicyTypes = []string{
-	"SERVICE_CONTROL_POLICY",
-	"TAG_POLICY",
-	"BACKUP_POLICY",
-	"AISERVICES_OPT_OUT_POLICY",
+// validPolicyTypes returns the policy types supported by AWS Organizations.
+func validPolicyTypes() []string {
+	return []string{
+		"SERVICE_CONTROL_POLICY",
+		"TAG_POLICY",
+		"BACKUP_POLICY",
+		"AISERVICES_OPT_OUT_POLICY",
+	}
 }
 
 const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -408,7 +410,12 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 
 // createAccountLocked creates an account and status record.
 // Must be called with the write lock held.
-func (b *InMemoryBackend) createAccountLocked(name, email string, acctIDFn func(counter int) string, govCloudID string, tags []Tag) (*CreateAccountStatus, error) {
+func (b *InMemoryBackend) createAccountLocked(
+	name, email string,
+	acctIDFn func(counter int) string,
+	govCloudID string,
+	tags []Tag,
+) *CreateAccountStatus {
 	b.accountCounter++
 	acctID := acctIDFn(b.accountCounter)
 
@@ -442,7 +449,7 @@ func (b *InMemoryBackend) createAccountLocked(name, email string, acctIDFn func(
 
 	b.createStatuses[statusID] = status
 
-	return status, nil
+	return status
 }
 
 // CreateAccount creates a new account and returns its status.
@@ -454,7 +461,7 @@ func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*Create
 		return nil, ErrOrgNotFound
 	}
 
-	return b.createAccountLocked(name, email, newAccountID, "", tags)
+	return b.createAccountLocked(name, email, newAccountID, "", tags), nil
 }
 
 // DescribeCreateAccountStatus returns the status of a CreateAccount request.
@@ -598,7 +605,7 @@ func (b *InMemoryBackend) CreateGovCloudAccount(name, email string, tags []Tag) 
 	// Pre-calculate the GovCloud account ID using the next counter value.
 	govCloudID := newGovCloudAccountID(b.accountCounter + 1)
 
-	return b.createAccountLocked(name, email, newAccountID, govCloudID, tags)
+	return b.createAccountLocked(name, email, newAccountID, govCloudID, tags), nil
 }
 
 // parentExists checks if a parentID refers to the root or an existing OU.
@@ -852,7 +859,7 @@ func (b *InMemoryBackend) CreatePolicy(name, description, content, policyType st
 		return nil, ErrOrgNotFound
 	}
 
-	if !slices.Contains(validPolicyTypes, policyType) {
+	if !slices.Contains(validPolicyTypes(), policyType) {
 		return nil, ErrInvalidInput
 	}
 
