@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := pinpoint.NewInMemoryBackend("us-east-1", "000000000000")
 	h := pinpoint.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &pinpointsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCampaign",
-		"CreateEmailTemplate",
-		"CreateExportJob",
-		"CreateImportJob",
-		"CreateInAppTemplate",
-		"CreateJourney",
-		"CreatePushTemplate",
-		"CreateRecommenderConfiguration",
-		"CreateSegment",
-		"CreateSmsTemplate",
 		"CreateVoiceTemplate",
 		"DeleteAdmChannel",
 		"DeleteApnsChannel",

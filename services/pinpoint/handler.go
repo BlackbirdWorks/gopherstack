@@ -3,6 +3,7 @@ package pinpoint
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,11 +18,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// errInvalidRequestBody is returned by createTemplateByType when the request body cannot be parsed.
+var errInvalidRequestBody = errors.New("invalid request body")
+
+// errUnsupportedTemplateType is returned when an unknown template type is provided.
+var errUnsupportedTemplateType = errors.New("unsupported template type")
+
 const (
 	pinpointService         = "mobiletargeting"
 	pinpointMatchPriority   = 87
 	appSubPathParts         = 2
 	pinpointDefaultPageSize = 500
+
+	templateSubPathParts   = 2
+	campaignStatus         = "ACTIVE"
+	journeyStateDraft      = "DRAFT"
+	jobStatusCreated       = "CREATED"
+	exportJobType          = "EXPORT"
+	importJobType          = "IMPORT"
+	segmentTypeDimensional = "DIMENSIONAL"
+	unknownOperation       = "Unknown"
 )
 
 // Handler is the HTTP handler for the Amazon Pinpoint REST API.
@@ -36,6 +52,11 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears the handler's backend state (used for test isolation).
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "Pinpoint" }
 
@@ -43,14 +64,24 @@ func (h *Handler) Name() string { return "Pinpoint" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateApp",
-		"GetApp",
+		"CreateCampaign",
+		"CreateEmailTemplate",
+		"CreateExportJob",
+		"CreateImportJob",
+		"CreateInAppTemplate",
+		"CreateJourney",
+		"CreatePushTemplate",
+		"CreateRecommenderConfiguration",
+		"CreateSegment",
+		"CreateSmsTemplate",
 		"DeleteApp",
-		"GetApps",
+		"GetApp",
 		"GetApplicationSettings",
-		"UpdateApplicationSettings",
+		"GetApps",
+		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
+		"UpdateApplicationSettings",
 	}
 }
 
@@ -73,7 +104,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, "/v1/apps") ||
-			strings.HasPrefix(path, "/v1/tags/")
+			strings.HasPrefix(path, "/v1/tags/") ||
+			strings.HasPrefix(path, "/v1/templates/") ||
+			strings.HasPrefix(path, "/v1/recommenders")
 	}
 }
 
@@ -87,14 +120,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 	switch {
 	case strings.HasPrefix(path, "/v1/tags/"):
-		switch method {
-		case http.MethodGet:
-			return "ListTagsForResource"
-		case http.MethodPost:
-			return "TagResource"
-		case http.MethodDelete:
-			return "UntagResource"
-		}
+		return extractTagOperation(method)
 	case path == "/v1/apps" || path == "/v1/apps/":
 		if method == http.MethodPost {
 			return "CreateApp"
@@ -105,24 +131,94 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		}
 	case strings.HasPrefix(path, "/v1/apps/"):
 		suffix := strings.TrimPrefix(path, "/v1/apps/")
-		if strings.HasSuffix(suffix, "/settings") {
-			switch method {
-			case http.MethodGet:
-				return "GetApplicationSettings"
-			case http.MethodPut:
-				return "UpdateApplicationSettings"
-			}
-		} else {
-			switch method {
-			case http.MethodGet:
-				return "GetApp"
-			case http.MethodDelete:
-				return "DeleteApp"
-			}
+		if strings.Contains(suffix, "/") {
+			return h.extractAppSubOperation(method, suffix)
 		}
+
+		switch method {
+		case http.MethodGet:
+			return "GetApp"
+		case http.MethodDelete:
+			return "DeleteApp"
+		}
+	case path == "/v1/recommenders" || path == "/v1/recommenders/":
+		if method == http.MethodPost {
+			return "CreateRecommenderConfiguration"
+		}
+	case strings.HasPrefix(path, "/v1/templates/"):
+		return h.extractTemplateOperation(method, path)
 	}
 
-	return "Unknown"
+	return unknownOperation
+}
+
+// extractTagOperation resolves the operation for tag-related paths.
+func extractTagOperation(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "ListTagsForResource"
+	case http.MethodPost:
+		return "TagResource"
+	case http.MethodDelete:
+		return "UntagResource"
+	}
+
+	return unknownOperation
+}
+
+// extractAppSubOperation resolves the operation name for paths under /v1/apps/{id}/.
+func (h *Handler) extractAppSubOperation(method, suffix string) string {
+	parts := strings.SplitN(suffix, "/", appSubPathParts)
+	if len(parts) != appSubPathParts {
+		return unknownOperation
+	}
+
+	subPath := parts[1]
+
+	switch {
+	case subPath == "settings":
+		switch method {
+		case http.MethodGet:
+			return "GetApplicationSettings"
+		case http.MethodPut:
+			return "UpdateApplicationSettings"
+		}
+	case subPath == "campaigns" && method == http.MethodPost:
+		return "CreateCampaign"
+	case subPath == "journeys" && method == http.MethodPost:
+		return "CreateJourney"
+	case subPath == "segments" && method == http.MethodPost:
+		return "CreateSegment"
+	case subPath == "jobs/export" && method == http.MethodPost:
+		return "CreateExportJob"
+	case subPath == "jobs/import" && method == http.MethodPost:
+		return "CreateImportJob"
+	}
+
+	return unknownOperation
+}
+
+// extractTemplateOperation resolves the operation name for paths under /v1/templates/.
+func (h *Handler) extractTemplateOperation(method, path string) string {
+	suffix := strings.TrimPrefix(path, "/v1/templates/")
+	parts := strings.SplitN(suffix, "/", templateSubPathParts)
+
+	if len(parts) != templateSubPathParts || method != http.MethodPost {
+		return unknownOperation
+	}
+
+	switch parts[1] {
+	case "email":
+		return "CreateEmailTemplate"
+	case "inapp":
+		return "CreateInAppTemplate"
+	case "push":
+		return "CreatePushTemplate"
+	case "sms":
+		return "CreateSmsTemplate"
+	}
+
+	return unknownOperation
 }
 
 // ExtractResource extracts the app ID or decoded ARN from the request path.
@@ -140,6 +236,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		}
 
 		return decoded
+	case strings.HasPrefix(path, "/v1/templates/"):
+		return strings.TrimPrefix(path, "/v1/templates/")
+	case strings.HasPrefix(path, "/v1/recommenders"):
+		return strings.TrimPrefix(path, "/v1/recommenders")
 	}
 
 	return ""
@@ -166,6 +266,10 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 		}
 
 		return h.dispatchApp(c, suffix)
+	case path == "/v1/recommenders" || path == "/v1/recommenders/":
+		return h.dispatchRecommenders(c)
+	case strings.HasPrefix(path, "/v1/templates/"):
+		return h.dispatchTemplates(c, path)
 	}
 
 	ctx := c.Request().Context()
@@ -227,8 +331,19 @@ func (h *Handler) dispatchAppSubPath(c *echo.Context, suffix string) error {
 
 	appID, subPath := parts[0], parts[1]
 
-	if subPath == "settings" {
+	switch {
+	case subPath == "settings":
 		return h.dispatchAppSettings(c, appID)
+	case subPath == "campaigns" && c.Request().Method == http.MethodPost:
+		return h.handleCreateCampaign(c, appID)
+	case subPath == "journeys" && c.Request().Method == http.MethodPost:
+		return h.handleCreateJourney(c, appID)
+	case subPath == "segments" && c.Request().Method == http.MethodPost:
+		return h.handleCreateSegment(c, appID)
+	case subPath == "jobs/export" && c.Request().Method == http.MethodPost:
+		return h.handleCreateExportJob(c, appID)
+	case subPath == "jobs/import" && c.Request().Method == http.MethodPost:
+		return h.handleCreateImportJob(c, appID)
 	}
 
 	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
@@ -434,4 +549,397 @@ func writeErrorResponse(c *echo.Context, statusCode int, errorType, message stri
 	})
 
 	return nil
+}
+
+// dispatchRecommenders routes POST /v1/recommenders requests.
+func (h *Handler) dispatchRecommenders(c *echo.Context) error {
+	if c.Request().Method == http.MethodPost {
+		return h.handleCreateRecommenderConfiguration(c)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+// dispatchTemplates routes requests under /v1/templates/{templateName}/{type}.
+func (h *Handler) dispatchTemplates(c *echo.Context, path string) error {
+	suffix := strings.TrimPrefix(path, "/v1/templates/")
+	parts := strings.SplitN(suffix, "/", templateSubPathParts)
+
+	if len(parts) != templateSubPathParts {
+		return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+	}
+
+	templateName, templateType := parts[0], parts[1]
+
+	if c.Request().Method != http.MethodPost {
+		return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+
+	return h.handleCreateTemplate(c, templateName, templateType)
+}
+
+// handleCreateTemplate handles creation of any template type (email, inapp, push, sms).
+func (h *Handler) handleCreateTemplate(c *echo.Context, templateName, templateType string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	templateARN, creationErr := h.createTemplateByType(body, region, templateName, templateType)
+	if creationErr != nil {
+		switch {
+		case errors.Is(creationErr, errInvalidRequestBody):
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		case errors.Is(creationErr, ErrAlreadyExists):
+			return writeErrorResponse(c, http.StatusConflict, "ConflictException", creationErr.Error())
+		default:
+			return writeErrorResponse(
+				c,
+				http.StatusInternalServerError,
+				"InternalServerErrorException",
+				creationErr.Error(),
+			)
+		}
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, createTemplateMessageBody{
+		ARN:     templateARN,
+		Message: "Created",
+	})
+
+	return nil
+}
+
+// createTemplateByType creates a template based on templateType and returns its ARN.
+func (h *Handler) createTemplateByType(body []byte, region, templateName, templateType string) (string, error) {
+	switch templateType {
+	case "email":
+		var req createEmailTemplateRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return "", errInvalidRequestBody
+		}
+
+		t, err := h.Backend.CreateEmailTemplate(region, h.AccountID, templateName, req)
+		if err != nil {
+			return "", err
+		}
+
+		return t.ARN, nil
+
+	case "inapp":
+		var req createInAppTemplateRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return "", errInvalidRequestBody
+		}
+
+		t, err := h.Backend.CreateInAppTemplate(region, h.AccountID, templateName, req)
+		if err != nil {
+			return "", err
+		}
+
+		return t.ARN, nil
+
+	case "push":
+		var req createPushTemplateRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return "", errInvalidRequestBody
+		}
+
+		t, err := h.Backend.CreatePushTemplate(region, h.AccountID, templateName, req)
+		if err != nil {
+			return "", err
+		}
+
+		return t.ARN, nil
+
+	case "sms":
+		var req createSmsTemplateRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return "", errInvalidRequestBody
+		}
+
+		t, err := h.Backend.CreateSmsTemplate(region, h.AccountID, templateName, req)
+		if err != nil {
+			return "", err
+		}
+
+		return t.ARN, nil
+	}
+
+	return "", fmt.Errorf("%w: %s", errUnsupportedTemplateType, templateType)
+}
+func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req createCampaignRequest
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.Name) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	campaign, backendErr := h.Backend.CreateCampaign(region, h.AccountID, appID, req)
+	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+	}
+
+	resp := campaignResponse{
+		ApplicationID:    campaign.ApplicationID,
+		ARN:              campaign.ARN,
+		ID:               campaign.ID,
+		Name:             campaign.Name,
+		SegmentID:        campaign.SegmentID,
+		SegmentVersion:   campaign.SegmentVersion,
+		Tags:             campaign.Tags,
+		CreationDate:     campaign.CreationDate,
+		LastModifiedDate: campaign.LastModifiedDate,
+		State:            campaignState{CampaignStatus: campaignStatus},
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, resp)
+
+	return nil
+}
+
+// handleCreateExportJob handles POST /v1/apps/{appId}/jobs/export.
+func (h *Handler) handleCreateExportJob(c *echo.Context, appID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req createExportJobRequest
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.RoleArn) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "RoleArn is required")
+	}
+
+	if strings.TrimSpace(req.S3UrlPrefix) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "S3UrlPrefix is required")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	job, backendErr := h.Backend.CreateExportJob(region, h.AccountID, appID, req)
+	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, exportJobResponse{
+		ARN:           job.ARN,
+		ApplicationID: job.ApplicationID,
+		ID:            job.ID,
+		RoleArn:       job.RoleArn,
+		S3UrlPrefix:   job.S3UrlPrefix,
+		JobStatus:     job.JobStatus,
+		Type:          exportJobType,
+		CreationDate:  job.CreationDate,
+	})
+
+	return nil
+}
+
+// handleCreateImportJob handles POST /v1/apps/{appId}/jobs/import.
+func (h *Handler) handleCreateImportJob(c *echo.Context, appID string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req createImportJobRequest
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.RoleArn) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "RoleArn is required")
+	}
+
+	if strings.TrimSpace(req.S3Url) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "S3Url is required")
+	}
+
+	if strings.TrimSpace(req.Format) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Format is required")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	job, backendErr := h.Backend.CreateImportJob(region, h.AccountID, appID, req)
+	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, importJobResponse{
+		ARN:           job.ARN,
+		ApplicationID: job.ApplicationID,
+		ID:            job.ID,
+		RoleArn:       job.RoleArn,
+		S3Url:         job.S3Url,
+		Format:        job.Format,
+		JobStatus:     job.JobStatus,
+		Type:          importJobType,
+		CreationDate:  job.CreationDate,
+	})
+
+	return nil
+}
+
+// errNameRequired is returned when a required Name field is missing.
+var errNameRequired = errors.New("Name is required")
+
+// namedResourceCreatorFn creates a named resource and returns the JSON-serialisable response or an error.
+type namedResourceCreatorFn func(body []byte, region, appID string) (any, error)
+
+// handleCreateNamedAppResource is a shared handler for app-scoped named resource creation.
+func (h *Handler) handleCreateNamedAppResource(c *echo.Context, appID string, creator namedResourceCreatorFn) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	resp, creationErr := creator(body, region, appID)
+	if creationErr != nil {
+		switch {
+		case errors.Is(creationErr, errInvalidRequestBody):
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		case errors.Is(creationErr, errNameRequired):
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+		case errors.Is(creationErr, awserr.ErrNotFound):
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", creationErr.Error())
+		default:
+			return writeErrorResponse(
+				c,
+				http.StatusInternalServerError,
+				"InternalServerErrorException",
+				creationErr.Error(),
+			)
+		}
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, resp)
+
+	return nil
+}
+
+// handleCreateJourney handles POST /v1/apps/{appId}/journeys.
+func (h *Handler) handleCreateJourney(c *echo.Context, appID string) error {
+	return h.handleCreateNamedAppResource(c, appID, func(body []byte, region, appID string) (any, error) {
+		var req createJourneyRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, errInvalidRequestBody
+		}
+
+		if strings.TrimSpace(req.Name) == "" {
+			return nil, errNameRequired
+		}
+
+		journey, err := h.Backend.CreateJourney(region, h.AccountID, appID, req)
+		if err != nil {
+			return nil, err
+		}
+
+		return journeyResponse{
+			ApplicationID:    journey.ApplicationID,
+			ARN:              journey.ARN,
+			ID:               journey.ID,
+			Name:             journey.Name,
+			State:            journey.State,
+			Tags:             journey.Tags,
+			CreationDate:     journey.CreationDate,
+			LastModifiedDate: journey.LastModifiedDate,
+		}, nil
+	})
+}
+
+// handleCreateRecommenderConfiguration handles POST /v1/recommenders.
+func (h *Handler) handleCreateRecommenderConfiguration(c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req createRecommenderConfigRequest
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.Name) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+	}
+
+	r, backendErr := h.Backend.CreateRecommenderConfiguration(req)
+	if backendErr != nil {
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, recommenderConfigResponse{
+		Attributes:                    r.Attributes,
+		ID:                            r.ID,
+		Name:                          r.Name,
+		Description:                   r.Description,
+		RecommendationProviderIDType:  r.RecommendationProviderIDType,
+		RecommendationProviderRoleArn: r.RecommendationProviderRoleARN,
+		RecommendationProviderURI:     r.RecommendationProviderURI,
+		RecommendationsPerMessage:     r.RecommendationsPerMessage,
+		CreationDate:                  r.CreationDate,
+		LastModifiedDate:              r.LastModifiedDate,
+	})
+
+	return nil
+}
+
+// handleCreateSegment handles POST /v1/apps/{appId}/segments.
+func (h *Handler) handleCreateSegment(c *echo.Context, appID string) error {
+	return h.handleCreateNamedAppResource(c, appID, func(body []byte, region, appID string) (any, error) {
+		var req createSegmentRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, errInvalidRequestBody
+		}
+
+		if strings.TrimSpace(req.Name) == "" {
+			return nil, errNameRequired
+		}
+
+		segment, err := h.Backend.CreateSegment(region, h.AccountID, appID, req)
+		if err != nil {
+			return nil, err
+		}
+
+		return segmentResponse{
+			ApplicationID: segment.ApplicationID,
+			ARN:           segment.ARN,
+			ID:            segment.ID,
+			Name:          segment.Name,
+			SegmentType:   segment.SegmentType,
+			Tags:          segment.Tags,
+			CreationDate:  segment.CreationDate,
+		}, nil
+	})
 }
