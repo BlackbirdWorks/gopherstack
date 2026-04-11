@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	h := redshift.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &redshiftsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AcceptReservedNodeExchange",
-		"AddPartner",
-		"AssociateDataShareConsumer",
-		"AuthorizeClusterSecurityGroupIngress",
-		"AuthorizeDataShare",
-		"AuthorizeEndpointAccess",
-		"AuthorizeSnapshotAccess",
-		"BatchDeleteClusterSnapshots",
-		"BatchModifyClusterSnapshots",
-		"CancelResize",
 		"CopyClusterSnapshot",
 		"CreateAuthenticationProfile",
 		"CreateClusterParameterGroup",
