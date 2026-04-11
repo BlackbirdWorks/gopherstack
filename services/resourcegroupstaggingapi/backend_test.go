@@ -212,7 +212,7 @@ func TestGetTagKeys(t *testing.T) {
 		}
 	})
 
-	out := b.GetTagKeys()
+	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"env", "owner", "team"}, out.TagKeys)
@@ -230,7 +230,8 @@ func TestGetTagValues(t *testing.T) {
 		}
 	})
 
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{Key: "env"})
+	envKey := "env"
+	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"dev", "prod"}, out.TagValues)

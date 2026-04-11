@@ -5,6 +5,7 @@ package resourcegroupstaggingapi
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -15,6 +16,9 @@ import (
 
 // ErrMissingS3Bucket is returned when StartReportCreation is called without an S3 bucket.
 var ErrMissingS3Bucket = errors.New("S3Bucket is required")
+
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // TaggedResource represents a resource with its ARN, type, and tag set.
 type TaggedResource struct {
@@ -50,6 +54,7 @@ type ARNUntagger func(arn string, keys []string) (bool, error)
 type InMemoryBackend struct {
 	mu          *lockmetrics.RWMutex
 	reportState *reportCreationState
+	nowFunc     func() string
 	accountID   string
 	region      string
 	providers   []ResourceProvider
@@ -59,19 +64,41 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("resourcegroupstaggingapi"),
 	}
+
+	b.nowFunc = b.defaultNow
+
+	return b
+}
+
+// defaultNow returns the current UTC time in RFC3339 format.
+func (b *InMemoryBackend) defaultNow() string {
+	return time.Now().UTC().Format(time.RFC3339)
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// now returns the current time in RFC3339 format. Extracted for testability.
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all backend state and reinitialises the mutex.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Close()
+	b.mu = lockmetrics.New("resourcegroupstaggingapi")
+	b.providers = nil
+	b.taggers = nil
+	b.untaggers = nil
+	b.reportState = nil
+}
+
+// now returns the current time string using nowFunc.
 func (b *InMemoryBackend) now() string {
-	return time.Now().UTC().Format(time.RFC3339)
+	return b.nowFunc()
 }
 
 // RegisterProvider adds a tagged-resource provider to the registry.
@@ -251,7 +278,10 @@ func buildTagMappings(page []TaggedResource) []ResourceTagMapping {
 	mappings := make([]ResourceTagMapping, 0, len(page))
 
 	for _, r := range page {
-		m := ResourceTagMapping{ResourceARN: r.ResourceARN}
+		m := ResourceTagMapping{
+			ResourceARN: r.ResourceARN,
+			Tags:        make([]Tag, 0, len(r.Tags)),
+		}
 		keys := make([]string, 0, len(r.Tags))
 
 		for k := range r.Tags {
@@ -285,6 +315,12 @@ func matchesTagFilter(tagMap map[string]string, f TagFilter) bool {
 	return slices.Contains(f.Values, val)
 }
 
+// GetTagKeysInput is the request payload for GetTagKeys.
+type GetTagKeysInput struct {
+	// PaginationToken is the cursor from a previous call.
+	PaginationToken *string `json:"PaginationToken,omitempty"`
+}
+
 // GetTagKeysOutput is the response payload for GetTagKeys.
 type GetTagKeysOutput struct {
 	PaginationToken *string  `json:"PaginationToken,omitempty"`
@@ -292,7 +328,7 @@ type GetTagKeysOutput struct {
 }
 
 // GetTagKeys returns all unique tag keys across all registered resource providers.
-func (b *InMemoryBackend) GetTagKeys() *GetTagKeysOutput {
+func (b *InMemoryBackend) GetTagKeys(_ *GetTagKeysInput) *GetTagKeysOutput {
 	b.mu.RLock("GetTagKeys")
 	defer b.mu.RUnlock()
 
@@ -318,9 +354,9 @@ func (b *InMemoryBackend) GetTagKeys() *GetTagKeysOutput {
 // GetTagValuesInput is the request payload for GetTagValues.
 type GetTagValuesInput struct {
 	// Key is the tag key whose values to enumerate.
-	Key string `json:"Key"`
+	Key *string `json:"Key,omitempty"`
 	// PaginationToken is the cursor from a previous call.
-	PaginationToken string `json:"PaginationToken,omitempty"`
+	PaginationToken *string `json:"PaginationToken,omitempty"`
 }
 
 // GetTagValuesOutput is the response payload for GetTagValues.
@@ -337,8 +373,13 @@ func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOu
 	all := b.getResources()
 	valSet := make(map[string]struct{})
 
+	key := ""
+	if input.Key != nil {
+		key = *input.Key
+	}
+
 	for _, r := range all {
-		if v, ok := r.Tags[input.Key]; ok {
+		if v, ok := r.Tags[key]; ok {
 			valSet[v] = struct{}{}
 		}
 	}
@@ -383,13 +424,16 @@ func (b *InMemoryBackend) TagResources(input *TagResourcesInput) *TagResourcesOu
 	taggers := slices.Clone(b.taggers)
 	b.mu.RUnlock()
 
+	// Deep-copy the tag map so that tagger callbacks cannot mutate the caller's map.
+	tagsCopy := maps.Clone(input.Tags)
+
 	failed := make(map[string]FailureInfo)
 
 	for _, arn := range input.ResourceARNList {
 		var handled bool
 
 		for _, t := range taggers {
-			ok, err := t(arn, input.Tags)
+			ok, err := t(arn, tagsCopy)
 			if ok {
 				handled = true
 				if err != nil {
@@ -482,17 +526,23 @@ func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) *UntagResou
 // reportStatusSucceeded is the status for a successfully created report.
 const reportStatusSucceeded = "SUCCEEDED"
 
-// reportStatusNoReport is the status when no report has been generated.
+// reportStatusNoReport is the status when no report has been generated in the last 90 days.
 const reportStatusNoReport = "NO REPORT"
+
+// ReportStatusRunning is the status when a report is currently being created.
+const ReportStatusRunning = "RUNNING"
+
+// ReportStatusFailed is the status when report creation failed.
+const ReportStatusFailed = "FAILED"
 
 // reportS3PathTemplate is the S3 path template for generated reports.
 const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 
 // reportCreationState holds the state of a StartReportCreation job.
 type reportCreationState struct {
-	s3Location string
-	startDate  string
-	status     string
+	S3Location string `json:"s3Location"`
+	StartDate  string `json:"startDate"`
+	Status     string `json:"status"`
 }
 
 // StartReportCreationInput is the request payload for StartReportCreation.
@@ -515,9 +565,9 @@ func (b *InMemoryBackend) StartReportCreation(input *StartReportCreationInput) (
 	defer b.mu.Unlock()
 
 	b.reportState = &reportCreationState{
-		s3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
-		startDate:  b.now(),
-		status:     reportStatusSucceeded,
+		S3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
+		StartDate:  b.now(),
+		Status:     reportStatusSucceeded,
 	}
 
 	return &StartReportCreationOutput{}, nil
@@ -549,9 +599,9 @@ func (b *InMemoryBackend) DescribeReportCreation() *DescribeReportCreationOutput
 		return &DescribeReportCreationOutput{Status: &s}
 	}
 
-	s3Loc := b.reportState.s3Location
-	startDate := b.reportState.startDate
-	status := b.reportState.status
+	s3Loc := b.reportState.S3Location
+	startDate := b.reportState.StartDate
+	status := b.reportState.Status
 
 	return &DescribeReportCreationOutput{
 		S3Location: &s3Loc,

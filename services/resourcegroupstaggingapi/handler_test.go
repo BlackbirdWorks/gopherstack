@@ -52,6 +52,17 @@ func doTaggingRequest(
 		bodyBytes = []byte("{}")
 	}
 
+	return doTaggingRequestRaw(t, h, action, bodyBytes)
+}
+
+func doTaggingRequestRaw(
+	t *testing.T,
+	h *resourcegroupstaggingapi.Handler,
+	action string,
+	bodyBytes []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")

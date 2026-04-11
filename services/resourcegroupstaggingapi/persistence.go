@@ -1,0 +1,58 @@
+package resourcegroupstaggingapi
+
+import (
+	"encoding/json"
+	"log/slog"
+)
+
+// backendSnapshot is the serializable form of InMemoryBackend state.
+type backendSnapshot struct {
+	ReportState *reportCreationState `json:"reportState,omitempty"`
+	AccountID   string               `json:"accountID"`
+	Region      string               `json:"region"`
+}
+
+// Snapshot serializes the backend state to JSON.
+// Providers, taggers, and untaggers are runtime callbacks and cannot be
+// serialized; they must be re-registered after a Restore.
+func (b *InMemoryBackend) Snapshot() []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	snap := backendSnapshot{
+		ReportState: b.reportState,
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("resourcegroupstaggingapi: failed to marshal snapshot", "error", err)
+
+		return nil
+	}
+
+	return data
+}
+
+// Restore loads backend state from a JSON snapshot produced by Snapshot.
+// Any registered providers/taggers/untaggers are cleared by this call.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	b.reportState = snap.ReportState
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+	b.providers = nil
+	b.taggers = nil
+	b.untaggers = nil
+
+	return nil
+}
