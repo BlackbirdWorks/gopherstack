@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &s3controlsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateAccessGrantsIdentityCenter",
-		"CreateAccessGrant",
-		"CreateAccessGrantsInstance",
-		"CreateAccessGrantsLocation",
-		"CreateAccessPoint",
-		"CreateAccessPointForObjectLambda",
-		"CreateBucket",
-		"CreateJob",
-		"CreateMultiRegionAccessPoint",
-		"CreateStorageLensGroup",
 		"DeleteAccessGrant",
 		"DeleteAccessGrantsInstance",
 		"DeleteAccessGrantsInstanceResourcePolicy",
