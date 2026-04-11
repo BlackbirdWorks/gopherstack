@@ -817,7 +817,7 @@ func TestS3Control_CreateJob(t *testing.T) {
 		{
 			name:             "creates_job_with_minimal_body",
 			accountID:        "000000000000",
-			body:             `<CreateJobRequest></CreateJobRequest>`,
+			body:             `<CreateJobRequest><RoleArn>arn:aws:iam::000000000000:role/Role</RoleArn></CreateJobRequest>`,
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "JobId",
 		},
@@ -1038,7 +1038,7 @@ func TestS3Control_NewOps_SnapshotRestore(t *testing.T) {
 		{
 			name: "snapshot_restore_preserves_batch_job",
 			setup: func(b *s3control.InMemoryBackend) {
-				b.CreateJob("account-2", "arn:aws:iam::account-2:role/role", 10)
+				_, _ = b.CreateJob("account-2", "arn:aws:iam::account-2:role/role", 10)
 			},
 			verify: func(t *testing.T, _ *s3control.InMemoryBackend) {
 				t.Helper()

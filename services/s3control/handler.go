@@ -3,11 +3,13 @@ package s3control
 import (
 	"encoding/xml"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -15,9 +17,6 @@ import (
 const (
 	// defaultAccountID is used when no account ID is provided in the request header.
 	defaultAccountID = "default"
-
-	// errBodyEOF is the error string returned when an empty body is decoded.
-	errBodyEOF = "EOF"
 
 	// Path constants for S3 Control operations.
 	pathPublicAccessBlock    = "/configuration/publicAccessBlock"
@@ -41,6 +40,11 @@ type Handler struct {
 // NewHandler creates a new S3 Control handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -220,6 +224,33 @@ func accountIDFromRequest(c *echo.Context) string {
 	return accountID
 }
 
+// handleBackendError maps backend sentinel errors to appropriate HTTP responses.
+func handleBackendError(c *echo.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return c.String(http.StatusNotFound, err.Error())
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return c.String(http.StatusBadRequest, err.Error())
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return c.String(http.StatusConflict, err.Error())
+	default:
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+}
+
+// decodeXML decodes the request body into v, treating EOF as an empty-body (not an error).
+func decodeXML(c *echo.Context, v any) error {
+	if err := xml.NewDecoder(c.Request().Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
 func writeXML(c *echo.Context, v any) error {
 	data, err := xml.Marshal(v)
 	if err != nil {
@@ -314,7 +345,7 @@ func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	var body createAccessGrantsInstanceRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
@@ -339,7 +370,7 @@ func (h *Handler) handleAssociateAccessGrantsIdentityCenter(c *echo.Context) err
 	accountID := accountIDFromRequest(c)
 
 	var body associateAccessGrantsIdentityCenterRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
@@ -378,11 +409,11 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	var body createAccessGrantRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
-	grant := h.Backend.CreateAccessGrant(
+	grant, err := h.Backend.CreateAccessGrant(
 		accountID,
 		body.AccessGrantsLocationID,
 		body.Grantee.GranteeType,
@@ -390,6 +421,9 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 		body.Permission,
 		body.ApplicationArn,
 	)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
 
 	return writeXML(c, createAccessGrantResponseXML{
 		AccessGrantArn:         grant.AccessGrantArn,
@@ -425,7 +459,7 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	var body createAccessGrantsLocationRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
@@ -457,7 +491,7 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, pathAccessPointPrefix)
 
 	var body createAccessPointRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
@@ -526,11 +560,14 @@ func (h *Handler) handleCreateJob(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	var body createJobRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
-	job := h.Backend.CreateJob(accountID, body.RoleArn, body.Priority)
+	job, err := h.Backend.CreateJob(accountID, body.RoleArn, body.Priority)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
 
 	return writeXML(c, createJobResponseXML{
 		JobID: job.JobID,
@@ -558,7 +595,7 @@ func (h *Handler) handleCreateMultiRegionAccessPoint(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	var body createMRAPRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
@@ -584,7 +621,7 @@ func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	var body createStorageLensGroupRequestXML
-	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != errBodyEOF {
+	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 

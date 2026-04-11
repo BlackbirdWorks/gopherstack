@@ -2,6 +2,7 @@ package s3control
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -14,6 +15,21 @@ const (
 
 	// jobStatusNew is the initial status for a newly created batch job.
 	jobStatusNew = "New"
+
+	// aliasAccountIDMaxLen is the max characters of accountID used in access point aliases.
+	aliasAccountIDMaxLen = 8
+
+	// ARN format constants.
+	arnFmtAccessGrantsInstance = "arn:aws:s3:%s:%s:access-grants/default"
+	arnFmtAccessGrant          = "arn:aws:s3:%s:%s:access-grants/default/grant/%s"
+	arnFmtAccessGrantsLocation = "arn:aws:s3:%s:%s:access-grants/default/location/%s"
+	arnFmtAccessPoint          = "arn:aws:s3:%s:%s:accesspoint/%s"
+	arnFmtObjectLambda         = "arn:aws:s3-object-lambda:%s:%s:accesspoint/%s"
+	arnFmtOutpostsBucket       = "arn:aws:s3-outposts:%s:%s:outpost/op-00000000/bucket/%s"
+	arnFmtJob                  = "arn:aws:s3:%s:%s:job/%s"
+	// arnFmtMRAPToken is the ARN for MRAP async request tokens; gosec false positive (not a credential).
+	arnFmtMRAPToken        = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
+	arnFmtStorageLensGroup = "arn:aws:s3:%s:%s:storage-lens-group/%s"
 )
 
 var (
@@ -22,6 +38,9 @@ var (
 
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("BucketAlreadyExists", awserr.ErrAlreadyExists)
+
+	// ErrValidation is returned when a required parameter is missing or invalid.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 // PublicAccessBlock represents the S3 Control public access block configuration.
@@ -118,22 +137,29 @@ type StorageLensGroup struct {
 
 // InMemoryBackend is the in-memory store for S3 Control resources.
 type InMemoryBackend struct {
-	configs                  map[string]*PublicAccessBlock
-	accessGrantsInstances    map[string]*AccessGrantsInstance
+	outpostsBuckets          map[string]*OutpostsBucket
+	mu                       *lockmetrics.RWMutex
 	accessGrants             map[string]*AccessGrant
 	accessGrantsLocations    map[string]*AccessGrantsLocation
 	accessPoints             map[string]*AccessPoint
 	objectLambdaAccessPoints map[string]*ObjectLambdaAccessPoint
-	outpostsBuckets          map[string]*OutpostsBucket
-	batchJobs                map[string]*BatchJob
 	mrapRequests             map[string]*MultiRegionAccessPointRequest
+	batchJobs                map[string]*BatchJob
+	accessGrantsInstances    map[string]*AccessGrantsInstance
 	storageLensGroups        map[string]*StorageLensGroup
-	mu                       *lockmetrics.RWMutex
+	configs                  map[string]*PublicAccessBlock
+	accountID                string
+	region                   string
 	nextID                   int64
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with default config values.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with explicit config values.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		configs:                  make(map[string]*PublicAccessBlock),
 		accessGrantsInstances:    make(map[string]*AccessGrantsInstance),
@@ -146,7 +172,33 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mrapRequests:             make(map[string]*MultiRegionAccessPointRequest),
 		storageLensGroups:        make(map[string]*StorageLensGroup),
 		mu:                       lockmetrics.New("s3control"),
+		accountID:                accountID,
+		region:                   region,
 	}
+}
+
+// AccountID returns the AWS account ID configured for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Region returns the AWS region configured for this backend.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// Reset clears all stored resources without recreating the backend.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.configs = make(map[string]*PublicAccessBlock)
+	b.accessGrantsInstances = make(map[string]*AccessGrantsInstance)
+	b.accessGrants = make(map[string]*AccessGrant)
+	b.accessGrantsLocations = make(map[string]*AccessGrantsLocation)
+	b.accessPoints = make(map[string]*AccessPoint)
+	b.objectLambdaAccessPoints = make(map[string]*ObjectLambdaAccessPoint)
+	b.outpostsBuckets = make(map[string]*OutpostsBucket)
+	b.batchJobs = make(map[string]*BatchJob)
+	b.mrapRequests = make(map[string]*MultiRegionAccessPointRequest)
+	b.storageLensGroups = make(map[string]*StorageLensGroup)
+	b.nextID = 0
 }
 
 // newID generates a new unique ID string using an internal counter (must be called under lock).
@@ -215,13 +267,10 @@ func (b *InMemoryBackend) AssociateAccessGrantsIdentityCenter(accountID, identit
 	inst, ok := b.accessGrantsInstances[accountID]
 	if !ok {
 		inst = &AccessGrantsInstance{
-			AccountID:              accountID,
-			AccessGrantsInstanceID: defaultAccessGrantsInstanceID,
-			AccessGrantsInstanceArn: fmt.Sprintf(
-				"arn:aws:s3:%s:%s:access-grants/default",
-				config.DefaultRegion,
-				accountID,
-			),
+			AccountID:               accountID,
+			AccessGrantsInstanceID:  defaultAccessGrantsInstanceID,
+			AccessGrantsInstanceArn: fmt.Sprintf(arnFmtAccessGrantsInstance, b.region, accountID),
+			CreatedAt:               nowRFC3339(),
 		}
 		b.accessGrantsInstances[accountID] = inst
 	}
@@ -236,15 +285,12 @@ func (b *InMemoryBackend) CreateAccessGrantsInstance(accountID, identityCenterAr
 	defer b.mu.Unlock()
 
 	inst := &AccessGrantsInstance{
-		AccountID:              accountID,
-		AccessGrantsInstanceID: defaultAccessGrantsInstanceID,
-		AccessGrantsInstanceArn: fmt.Sprintf(
-			"arn:aws:s3:%s:%s:access-grants/default",
-			config.DefaultRegion,
-			accountID,
-		),
+		AccountID:                 accountID,
+		AccessGrantsInstanceID:    defaultAccessGrantsInstanceID,
+		AccessGrantsInstanceArn:   fmt.Sprintf(arnFmtAccessGrantsInstance, b.region, accountID),
 		IdentityCenterArn:         identityCenterArn,
 		IdentityCenterInstanceArn: identityCenterArn,
+		CreatedAt:                 nowRFC3339(),
 	}
 	b.accessGrantsInstances[accountID] = inst
 
@@ -254,14 +300,19 @@ func (b *InMemoryBackend) CreateAccessGrantsInstance(accountID, identityCenterAr
 }
 
 // CreateAccessGrant creates an access grant for an account.
+// Returns ErrValidation if permission is empty.
 func (b *InMemoryBackend) CreateAccessGrant(
 	accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn string,
-) *AccessGrant {
+) (*AccessGrant, error) {
+	if permission == "" {
+		return nil, fmt.Errorf("permission is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateAccessGrant")
 	defer b.mu.Unlock()
 
 	id := b.newID("grant")
-	arn := fmt.Sprintf("arn:aws:s3:%s:%s:access-grants/default/grant/%s", config.DefaultRegion, accountID, id)
+	arn := fmt.Sprintf(arnFmtAccessGrant, b.region, accountID, id)
 
 	grant := &AccessGrant{
 		AccountID:              accountID,
@@ -273,12 +324,13 @@ func (b *InMemoryBackend) CreateAccessGrant(
 		GranteeType:            granteeType,
 		GranteeIdentifier:      granteeIdentifier,
 		ApplicationArn:         applicationArn,
+		CreatedAt:              nowRFC3339(),
 	}
 	b.accessGrants[accountID+":"+id] = grant
 
 	cp := *grant
 
-	return &cp
+	return &cp, nil
 }
 
 // CreateAccessGrantsLocation creates an Access Grants location.
@@ -289,7 +341,7 @@ func (b *InMemoryBackend) CreateAccessGrantsLocation(
 	defer b.mu.Unlock()
 
 	id := b.newID("location")
-	arn := fmt.Sprintf("arn:aws:s3:%s:%s:access-grants/default/location/%s", config.DefaultRegion, accountID, id)
+	arn := fmt.Sprintf(arnFmtAccessGrantsLocation, b.region, accountID, id)
 
 	loc := &AccessGrantsLocation{
 		AccountID:               accountID,
@@ -297,6 +349,7 @@ func (b *InMemoryBackend) CreateAccessGrantsLocation(
 		AccessGrantsLocationArn: arn,
 		LocationScope:           locationScope,
 		IAMRoleArn:              iamRoleArn,
+		CreatedAt:               nowRFC3339(),
 	}
 	b.accessGrantsLocations[accountID+":"+id] = loc
 
@@ -310,8 +363,15 @@ func (b *InMemoryBackend) CreateAccessPoint(accountID, name, bucket string) *Acc
 	b.mu.Lock("CreateAccessPoint")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:s3:%s:%s:accesspoint/%s", config.DefaultRegion, accountID, name)
-	alias := fmt.Sprintf("%s-%s-s3alias", name, accountID[:8])
+	arn := fmt.Sprintf(arnFmtAccessPoint, b.region, accountID, name)
+
+	// Guard against short accountIDs to prevent panics on slice operations.
+	aliasPrefix := accountID
+	if len(aliasPrefix) > aliasAccountIDMaxLen {
+		aliasPrefix = aliasPrefix[:aliasAccountIDMaxLen]
+	}
+
+	alias := fmt.Sprintf("%s-%s-s3alias", name, aliasPrefix)
 
 	ap := &AccessPoint{
 		AccountID:      accountID,
@@ -332,7 +392,7 @@ func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name strin
 	b.mu.Lock("CreateAccessPointForObjectLambda")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:s3-object-lambda:%s:%s:accesspoint/%s", config.DefaultRegion, accountID, name)
+	arn := fmt.Sprintf(arnFmtObjectLambda, b.region, accountID, name)
 
 	ap := &ObjectLambdaAccessPoint{
 		AccountID:                  accountID,
@@ -351,12 +411,7 @@ func (b *InMemoryBackend) CreateBucket(accountID, bucketName string) *OutpostsBu
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf(
-		"arn:aws:s3-outposts:%s:%s:outpost/op-00000000/bucket/%s",
-		config.DefaultRegion,
-		accountID,
-		bucketName,
-	)
+	arn := fmt.Sprintf(arnFmtOutpostsBucket, b.region, accountID, bucketName)
 
 	bkt := &OutpostsBucket{
 		AccountID: accountID,
@@ -372,12 +427,17 @@ func (b *InMemoryBackend) CreateBucket(accountID, bucketName string) *OutpostsBu
 }
 
 // CreateJob creates an S3 Batch Operations job.
-func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) *BatchJob {
+// Returns ErrValidation if roleArn is empty.
+func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) (*BatchJob, error) {
+	if roleArn == "" {
+		return nil, fmt.Errorf("roleArn is required: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
 	id := b.newID("job")
-	arn := fmt.Sprintf("arn:aws:s3:%s:%s:job/%s", config.DefaultRegion, accountID, id)
+	arn := fmt.Sprintf(arnFmtJob, b.region, accountID, id)
 
 	job := &BatchJob{
 		AccountID: accountID,
@@ -391,7 +451,7 @@ func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) *
 
 	cp := *job
 
-	return &cp
+	return &cp, nil
 }
 
 // CreateMultiRegionAccessPoint creates an async MRAP request.
@@ -402,7 +462,7 @@ func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 	defer b.mu.Unlock()
 
 	token := b.newID("mrap-token")
-	tokenARN := fmt.Sprintf("arn:aws:s3::%s:async-request/mrap/create/%s", accountID, token)
+	tokenARN := fmt.Sprintf(arnFmtMRAPToken, accountID, token)
 
 	req := &MultiRegionAccessPointRequest{
 		AccountID:       accountID,
@@ -421,7 +481,7 @@ func (b *InMemoryBackend) CreateStorageLensGroup(accountID, name string) *Storag
 	b.mu.Lock("CreateStorageLensGroup")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:s3:%s:%s:storage-lens-group/%s", config.DefaultRegion, accountID, name)
+	arn := fmt.Sprintf(arnFmtStorageLensGroup, b.region, accountID, name)
 
 	grp := &StorageLensGroup{
 		AccountID:           accountID,
@@ -433,4 +493,46 @@ func (b *InMemoryBackend) CreateStorageLensGroup(accountID, name string) *Storag
 	cp := *grp
 
 	return &cp
+}
+
+// nowRFC3339 returns the current UTC time formatted as RFC3339.
+func nowRFC3339() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
+// --- Seed helpers for testing ---
+
+// AddPublicAccessBlockInternal stores a public access block directly, for seeding test data.
+func (b *InMemoryBackend) AddPublicAccessBlockInternal(accountID string, block *PublicAccessBlock) {
+	b.mu.Lock("AddPublicAccessBlockInternal")
+	defer b.mu.Unlock()
+
+	cp := *block
+	b.configs[accountID] = &cp
+}
+
+// AddAccessGrantsInstanceInternal creates an access grants instance directly, for seeding test data.
+func (b *InMemoryBackend) AddAccessGrantsInstanceInternal(accountID, identityCenterArn string) *AccessGrantsInstance {
+	return b.CreateAccessGrantsInstance(accountID, identityCenterArn)
+}
+
+// AddAccessGrantInternal creates an access grant directly, for seeding test data.
+func (b *InMemoryBackend) AddAccessGrantInternal(
+	accountID, locationID, granteeType, granteeIdentifier, permission string,
+) *AccessGrant {
+	grant, _ := b.CreateAccessGrant(accountID, locationID, granteeType, granteeIdentifier, permission, "")
+
+	return grant
+}
+
+// AddAccessPointInternal creates an access point directly, for seeding test data.
+func (b *InMemoryBackend) AddAccessPointInternal(accountID, name, bucket string) *AccessPoint {
+	return b.CreateAccessPoint(accountID, name, bucket)
+}
+
+// AddBatchJobInternal creates a batch job directly, for seeding test data.
+func (b *InMemoryBackend) AddBatchJobInternal(accountID, roleArn string, priority int32) *BatchJob {
+	job, _ := b.CreateJob(accountID, roleArn, priority)
+
+	return job
 }
