@@ -1,0 +1,131 @@
+package rds
+
+// StorageBackend defines the interface for RDS backend implementations.
+// All mutating methods must be safe for concurrent use.
+type StorageBackend interface {
+	// Lifecycle
+	Region() string
+	AccountID() string
+	Reset()
+	Snapshot() []byte
+	Restore(data []byte) error
+
+	// DB instance operations
+	CreateDBInstance(
+		id, engine, instanceClass, dbName, masterUser, paramGroupName string,
+		allocatedStorage int,
+		opts DBInstanceOptions,
+	) (*DBInstance, error)
+	DeleteDBInstance(id string) (*DBInstance, error)
+	DescribeDBInstances(id string) ([]DBInstance, error)
+	ModifyDBInstance(id, instanceClass string, allocatedStorage int, opts DBInstanceOptions) (*DBInstance, error)
+	StartDBInstance(id string) (*DBInstance, error)
+	StopDBInstance(id string) (*DBInstance, error)
+	RebootDBInstance(id string) (*DBInstance, error)
+	CreateDBInstanceReadReplica(id, sourceID string) (*DBInstance, error)
+	PromoteReadReplica(id string) (*DBInstance, error)
+	DescribeValidDBInstanceModifications(id string) (*DBInstance, error)
+
+	// DB snapshot operations
+	CreateDBSnapshot(snapshotID, instanceID string) (*DBSnapshot, error)
+	DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, error)
+	DeleteDBSnapshot(snapshotID string) (*DBSnapshot, error)
+	CopyDBSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBSnapshot, error)
+	RestoreDBInstanceFromDBSnapshot(id, snapshotID string, opts DBInstanceOptions) (*DBInstance, error)
+	RestoreDBInstanceToPointInTime(id, sourceID string, opts DBInstanceOptions) (*DBInstance, error)
+
+	// DB subnet group operations
+	CreateDBSubnetGroup(name, description, vpcID string, subnetIDs []string) (*DBSubnetGroup, error)
+	DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, error)
+	DeleteDBSubnetGroup(name string) error
+
+	// DB parameter group operations
+	CreateDBParameterGroup(name, family, description string) (*DBParameterGroup, error)
+	DescribeDBParameterGroups(name string) ([]DBParameterGroup, error)
+	DeleteDBParameterGroup(name string) error
+	ModifyDBParameterGroup(name string, params []DBParameter) (*DBParameterGroup, error)
+	DescribeDBParameters(groupName string) ([]DBParameter, error)
+	ResetDBParameterGroup(name string, resetAll bool, params []string) (*DBParameterGroup, error)
+	CopyDBParameterGroup(sourceGroupName, targetGroupName, targetDescription string) (*DBParameterGroup, error)
+
+	// Option group operations
+	CreateOptionGroup(name, engine, majorVersion, description string) (*OptionGroup, error)
+	DescribeOptionGroups(name string) ([]OptionGroup, error)
+	DeleteOptionGroup(name string) error
+	ModifyOptionGroup(name string, optionsToAdd []OptionGroupOption, optionsToRemove []string) (*OptionGroup, error)
+	CopyOptionGroup(sourceGroupName, targetGroupName, targetDescription string) (*OptionGroup, error)
+
+	// DB cluster operations
+	CreateDBCluster(id, engine, masterUser, dbName, paramGroupName string, port int) (*DBCluster, error)
+	DescribeDBClusters(id string) ([]DBCluster, error)
+	DeleteDBCluster(id string) (*DBCluster, error)
+	ModifyDBCluster(id, paramGroupName string) (*DBCluster, error)
+	StartDBCluster(id string) (*DBCluster, error)
+	StopDBCluster(id string) (*DBCluster, error)
+	RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine string) (*DBCluster, error)
+	RestoreDBClusterToPointInTime(clusterID, sourceClusterID string) (*DBCluster, error)
+
+	// DB cluster parameter group operations
+	CreateDBClusterParameterGroup(name, family, description string) (*DBParameterGroup, error)
+	DescribeDBClusterParameterGroups(name string) ([]DBParameterGroup, error)
+	CopyDBClusterParameterGroup(sourceGroupName, targetGroupName, targetDescription string) (*DBParameterGroup, error)
+
+	// DB cluster snapshot operations
+	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
+	DescribeDBClusterSnapshots(snapshotID string) ([]DBClusterSnapshot, error)
+	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
+	CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error)
+
+	// DB cluster endpoint operations
+	CreateDBClusterEndpoint(endpointID, clusterID, endpointType string) (*DBClusterEndpoint, error)
+	DescribeDBClusterEndpoints(clusterID, endpointID string) ([]DBClusterEndpoint, error)
+	DeleteDBClusterEndpoint(endpointID string) (*DBClusterEndpoint, error)
+
+	// Global cluster operations
+	CreateGlobalCluster(
+		id, engine, engineVersion string,
+		storageEncrypted, deletionProtection bool,
+	) (*GlobalCluster, error)
+	DescribeGlobalClusters(id string) ([]GlobalCluster, error)
+	DeleteGlobalCluster(id string) (*GlobalCluster, error)
+	ModifyGlobalCluster(id, newID, engineVersion string, deletionProtection *bool) (*GlobalCluster, error)
+
+	// Export task operations
+	StartExportTask(taskID, sourceARN, s3Bucket string) (*ExportTask, error)
+	DescribeExportTasks(taskID string) ([]ExportTask, error)
+	CancelExportTask(taskID string) (*ExportTask, error)
+
+	// Tag operations
+	AddTagsToResource(arn string, tags []Tag)
+	RemoveTagsFromResource(arn string, keys []string)
+	ListTagsForResource(arn string) []Tag
+
+	// Engine and instance metadata
+	DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion
+	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
+	DescribeDBLogFiles(instanceID string) ([]DBLogFile, error)
+	DownloadDBLogFilePortion(instanceID, logFileName string) (string, error)
+
+	// IAM role operations
+	AddRoleToDBCluster(clusterID, roleARN string) error
+	RemoveRoleFromDBCluster(clusterID, roleARN string) error
+	AddRoleToDBInstance(instanceID, roleARN string) error
+	RemoveRoleFromDBInstance(instanceID, roleARN string) error
+
+	// Event subscription operations
+	AddSourceIdentifierToSubscription(subscriptionName, sourceIdentifier string) (*EventSubscription, error)
+	RemoveSourceIdentifierFromSubscription(subscriptionName, sourceIdentifier string) (*EventSubscription, error)
+
+	// Maintenance operations
+	ApplyPendingMaintenanceAction(resourceID, applyAction string) (string, error)
+	BacktrackDBCluster(clusterID, backtrackTo string) (*DBClusterBacktrack, error)
+
+	// Security group operations
+	AuthorizeDBSecurityGroupIngress(groupName, cidrIP string) (*DBSecurityGroup, error)
+
+	// Blue/Green Deployment operations
+	CreateBlueGreenDeployment(name, source string) (*BlueGreenDeployment, error)
+}
+
+// Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.
+var _ StorageBackend = (*InMemoryBackend)(nil)

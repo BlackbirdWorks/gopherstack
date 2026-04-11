@@ -33,73 +33,91 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// Reset clears all backend state. Useful for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "RDS" }
 
 // GetSupportedOperations returns supported RDS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateDBInstance",
-		"DeleteDBInstance",
-		"DescribeDBInstances",
-		"ModifyDBInstance",
-		"StartDBInstance",
-		"StopDBInstance",
-		"RebootDBInstance",
-		"CreateDBSnapshot",
-		"DescribeDBSnapshots",
-		"DeleteDBSnapshot",
-		"CopyDBSnapshot",
-		"RestoreDBInstanceFromDBSnapshot",
-		"RestoreDBInstanceToPointInTime",
-		"CreateDBSubnetGroup",
-		"DescribeDBSubnetGroups",
-		"DeleteDBSubnetGroup",
-		"ListTagsForResource",
+		"AddRoleToDBCluster",
+		"AddRoleToDBInstance",
+		"AddSourceIdentifierToSubscription",
 		"AddTagsToResource",
-		"RemoveTagsFromResource",
-		"CreateDBParameterGroup",
-		"DescribeDBParameterGroups",
-		"DeleteDBParameterGroup",
-		"ModifyDBParameterGroup",
-		"DescribeDBParameters",
-		"ResetDBParameterGroup",
-		"CreateOptionGroup",
-		"DescribeOptionGroups",
-		"DeleteOptionGroup",
-		"ModifyOptionGroup",
-		"DescribeOptionGroupOptions",
-		"CreateDBCluster",
-		"DescribeDBClusters",
-		"DeleteDBCluster",
-		"ModifyDBCluster",
-		"StartDBCluster",
-		"StopDBCluster",
-		"CreateDBClusterParameterGroup",
-		"DescribeDBClusterParameterGroups",
-		"CreateDBClusterSnapshot",
-		"DescribeDBClusterSnapshots",
-		"DeleteDBClusterSnapshot",
-		"RestoreDBClusterFromSnapshot",
-		"RestoreDBClusterToPointInTime",
+		"ApplyPendingMaintenanceAction",
+		"AuthorizeDBSecurityGroupIngress",
+		"BacktrackDBCluster",
+		"CancelExportTask",
+		"CopyDBClusterParameterGroup",
 		"CopyDBClusterSnapshot",
+		"CopyDBParameterGroup",
+		"CopyDBSnapshot",
+		"CopyOptionGroup",
+		"CreateBlueGreenDeployment",
+		"CreateDBCluster",
 		"CreateDBClusterEndpoint",
-		"DescribeDBClusterEndpoints",
-		"DeleteDBClusterEndpoint",
+		"CreateDBClusterParameterGroup",
+		"CreateDBClusterSnapshot",
+		"CreateDBInstance",
 		"CreateDBInstanceReadReplica",
-		"PromoteReadReplica",
+		"CreateDBParameterGroup",
+		"CreateDBSnapshot",
+		"CreateDBSubnetGroup",
+		"CreateGlobalCluster",
+		"CreateOptionGroup",
+		"DeleteDBCluster",
+		"DeleteDBClusterEndpoint",
+		"DeleteDBClusterSnapshot",
+		"DeleteDBInstance",
+		"DeleteDBParameterGroup",
+		"DeleteDBSnapshot",
+		"DeleteDBSubnetGroup",
+		"DeleteGlobalCluster",
+		"DeleteOptionGroup",
+		"DescribeDBClusterEndpoints",
+		"DescribeDBClusterParameterGroups",
+		"DescribeDBClusterSnapshots",
+		"DescribeDBClusters",
 		"DescribeDBEngineVersions",
+		"DescribeDBInstances",
+		"DescribeDBLogFiles",
+		"DescribeDBParameterGroups",
+		"DescribeDBParameters",
+		"DescribeDBSnapshots",
+		"DescribeDBSubnetGroups",
+		"DescribeExportTasks",
+		"DescribeGlobalClusters",
+		"DescribeOptionGroupOptions",
+		"DescribeOptionGroups",
 		"DescribeOrderableDBInstanceOptions",
 		"DescribeValidDBInstanceModifications",
-		"DescribeDBLogFiles",
 		"DownloadDBLogFilePortion",
-		"CreateGlobalCluster",
-		"DescribeGlobalClusters",
-		"DeleteGlobalCluster",
+		"ListTagsForResource",
+		"ModifyDBCluster",
+		"ModifyDBInstance",
+		"ModifyDBParameterGroup",
 		"ModifyGlobalCluster",
+		"ModifyOptionGroup",
+		"PromoteReadReplica",
+		"RebootDBInstance",
+		"RemoveRoleFromDBCluster",
+		"RemoveRoleFromDBInstance",
+		"RemoveSourceIdentifierFromSubscription",
+		"RemoveTagsFromResource",
+		"ResetDBParameterGroup",
+		"RestoreDBClusterFromSnapshot",
+		"RestoreDBClusterToPointInTime",
+		"RestoreDBInstanceFromDBSnapshot",
+		"RestoreDBInstanceToPointInTime",
+		"StartDBCluster",
+		"StartDBInstance",
 		"StartExportTask",
-		"DescribeExportTasks",
-		"CancelExportTask",
+		"StopDBCluster",
+		"StopDBInstance",
 	}
 }
 
@@ -373,6 +391,41 @@ func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error)
 		return h.handleDeleteGlobalCluster(vals)
 	case "ModifyGlobalCluster":
 		return h.handleModifyGlobalCluster(vals)
+	default:
+		return h.dispatchExtended6(action, vals)
+	}
+}
+
+// dispatchExtended6 routes the new RDS operations added in this iteration.
+// Split from dispatchExtended5 to keep cyclomatic complexity within limits.
+func (h *Handler) dispatchExtended6(action string, vals url.Values) (any, error) {
+	switch action {
+	case "AddRoleToDBCluster":
+		return h.handleAddRoleToDBCluster(vals)
+	case "AddRoleToDBInstance":
+		return h.handleAddRoleToDBInstance(vals)
+	case "AddSourceIdentifierToSubscription":
+		return h.handleAddSourceIdentifierToSubscription(vals)
+	case "ApplyPendingMaintenanceAction":
+		return h.handleApplyPendingMaintenanceAction(vals)
+	case "AuthorizeDBSecurityGroupIngress":
+		return h.handleAuthorizeDBSecurityGroupIngress(vals)
+	case "BacktrackDBCluster":
+		return h.handleBacktrackDBCluster(vals)
+	case "CopyDBClusterParameterGroup":
+		return h.handleCopyDBClusterParameterGroup(vals)
+	case "CopyDBParameterGroup":
+		return h.handleCopyDBParameterGroup(vals)
+	case "CopyOptionGroup":
+		return h.handleCopyOptionGroup(vals)
+	case "CreateBlueGreenDeployment":
+		return h.handleCreateBlueGreenDeployment(vals)
+	case "RemoveRoleFromDBCluster":
+		return h.handleRemoveRoleFromDBCluster(vals)
+	case "RemoveRoleFromDBInstance":
+		return h.handleRemoveRoleFromDBInstance(vals)
+	case "RemoveSourceIdentifierFromSubscription":
+		return h.handleRemoveSourceIdentifierFromSubscription(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
@@ -757,6 +810,12 @@ func rdsErrorCode(opErr error) string {
 		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExists"},
 		{ErrInvalidDBClusterStateFault, "InvalidDBClusterStateFault"},
 		{ErrInvalidGlobalClusterState, "InvalidGlobalClusterStateFault"},
+		{ErrEventSubscriptionNotFound, "SubscriptionNotFound"},
+		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExist"},
+		{ErrDBSecurityGroupNotFound, "DBSecurityGroupNotFound"},
+		{ErrDBSecurityGroupAlreadyExists, "DBSecurityGroupAlreadyExists"},
+		{ErrBlueGreenDeploymentNotFound, "BlueGreenDeploymentNotFound"},
+		{ErrBlueGreenDeploymentAlreadyExists, "BlueGreenDeploymentAlreadyExists"},
 	}
 
 	for _, m := range mappings {
@@ -2369,4 +2428,373 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,
 	}
+}
+
+// ---- New operations: handlers ----
+
+func (h *Handler) handleAddRoleToDBCluster(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	roleARN := vals.Get("RoleArn")
+
+	if err := h.Backend.AddRoleToDBCluster(clusterID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &addRoleToDBClusterResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleAddRoleToDBInstance(vals url.Values) (any, error) {
+	instanceID := vals.Get("DBInstanceIdentifier")
+	roleARN := vals.Get("RoleArn")
+
+	if err := h.Backend.AddRoleToDBInstance(instanceID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &addRoleToDBInstanceResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any, error) {
+	subscriptionName := vals.Get("SubscriptionName")
+	sourceIdentifier := vals.Get("SourceIdentifier")
+
+	sub, err := h.Backend.AddSourceIdentifierToSubscription(subscriptionName, sourceIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addSourceIdentifierToSubscriptionResponse{
+		Xmlns:             rdsXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleApplyPendingMaintenanceAction(vals url.Values) (any, error) {
+	resourceID := vals.Get("ResourceIdentifier")
+	applyAction := vals.Get("ApplyAction")
+
+	if _, err := h.Backend.ApplyPendingMaintenanceAction(resourceID, applyAction); err != nil {
+		return nil, err
+	}
+
+	return &applyPendingMaintenanceActionResponse{
+		Xmlns: rdsXMLNS,
+		Result: applyPendingMaintenanceActionResult{
+			ResourcePendingMaintenanceActions: xmlResourcePendingMaintenanceActions{
+				ResourceIdentifier:              resourceID,
+				PendingMaintenanceActionDetails: xmlPendingMaintenanceActionList{},
+			},
+		},
+	}, nil
+}
+
+func (h *Handler) handleAuthorizeDBSecurityGroupIngress(vals url.Values) (any, error) {
+	groupName := vals.Get("DBSecurityGroupName")
+	cidrIP := vals.Get("CIDRIP")
+
+	sg, err := h.Backend.AuthorizeDBSecurityGroupIngress(groupName, cidrIP)
+	if err != nil {
+		return nil, err
+	}
+
+	return &authorizeDBSecurityGroupIngressResponse{
+		Xmlns:           rdsXMLNS,
+		DBSecurityGroup: toXMLDBSecurityGroup(sg),
+	}, nil
+}
+
+func (h *Handler) handleBacktrackDBCluster(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	backtrackTo := vals.Get("BacktrackTo")
+
+	bt, err := h.Backend.BacktrackDBCluster(clusterID, backtrackTo)
+	if err != nil {
+		return nil, err
+	}
+
+	return &backtrackDBClusterResponse{
+		Xmlns:              rdsXMLNS,
+		DBClusterBacktrack: toXMLDBClusterBacktrack(bt),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error) {
+	sourceGroupName := vals.Get("SourceDBClusterParameterGroupIdentifier")
+	targetGroupName := vals.Get("TargetDBClusterParameterGroupIdentifier")
+	targetDescription := vals.Get("TargetDBClusterParameterGroupDescription")
+
+	pg, err := h.Backend.CopyDBClusterParameterGroup(sourceGroupName, targetGroupName, targetDescription)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBClusterParameterGroupResponse{
+		Xmlns:            rdsXMLNS,
+		DBParameterGroup: toXMLParameterGroup(pg),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBParameterGroup(vals url.Values) (any, error) {
+	sourceGroupName := vals.Get("SourceDBParameterGroupIdentifier")
+	targetGroupName := vals.Get("TargetDBParameterGroupIdentifier")
+	targetDescription := vals.Get("TargetDBParameterGroupDescription")
+
+	pg, err := h.Backend.CopyDBParameterGroup(sourceGroupName, targetGroupName, targetDescription)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBParameterGroupResponse{
+		Xmlns:            rdsXMLNS,
+		DBParameterGroup: toXMLParameterGroup(pg),
+	}, nil
+}
+
+func (h *Handler) handleCopyOptionGroup(vals url.Values) (any, error) {
+	sourceGroupName := vals.Get("SourceOptionGroupIdentifier")
+	targetGroupName := vals.Get("TargetOptionGroupIdentifier")
+	targetDescription := vals.Get("TargetOptionGroupDescription")
+
+	og, err := h.Backend.CopyOptionGroup(sourceGroupName, targetGroupName, targetDescription)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyOptionGroupResponse{
+		Xmlns:       rdsXMLNS,
+		OptionGroup: toXMLOptionGroup(og),
+	}, nil
+}
+
+func (h *Handler) handleCreateBlueGreenDeployment(vals url.Values) (any, error) {
+	name := vals.Get("BlueGreenDeploymentName")
+	source := vals.Get("Source")
+
+	deployment, err := h.Backend.CreateBlueGreenDeployment(name, source)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createBlueGreenDeploymentResponse{
+		Xmlns:               rdsXMLNS,
+		BlueGreenDeployment: toXMLBlueGreenDeployment(deployment),
+	}, nil
+}
+
+// ---- helper converters ----
+
+func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
+	ids := make([]string, len(sub.SourceIDs))
+	copy(ids, sub.SourceIDs)
+
+	return xmlEventSubscription{
+		CustSubscriptionID: sub.SubscriptionName,
+		SnsTopicArn:        sub.SnsTopicArn,
+		Status:             sub.Status,
+		SourceType:         sub.SourceType,
+		SourceIDsList:      xmlSourceIDList{Members: ids},
+	}
+}
+
+func toXMLDBSecurityGroup(sg *DBSecurityGroup) xmlDBSecurityGroup {
+	ipRanges := make([]xmlIPRange, 0, len(sg.IPRanges))
+	for _, r := range sg.IPRanges {
+		ipRanges = append(ipRanges, xmlIPRange(r))
+	}
+
+	return xmlDBSecurityGroup{
+		DBSecurityGroupName:        sg.DBSecurityGroupName,
+		DBSecurityGroupDescription: sg.DBSecurityGroupDescription,
+		IPRanges:                   xmlIPRangeList{Members: ipRanges},
+	}
+}
+
+func toXMLDBClusterBacktrack(bt *DBClusterBacktrack) xmlDBClusterBacktrack {
+	return xmlDBClusterBacktrack{
+		DBClusterIdentifier: bt.DBClusterIdentifier,
+		BacktrackIdentifier: bt.BacktrackIdentifier,
+		BacktrackTo:         bt.BacktrackTo,
+		Status:              bt.Status,
+	}
+}
+
+func toXMLBlueGreenDeployment(d *BlueGreenDeployment) xmlBlueGreenDeployment {
+	return xmlBlueGreenDeployment{
+		BlueGreenDeploymentIdentifier: d.BlueGreenDeploymentIdentifier,
+		BlueGreenDeploymentName:       d.BlueGreenDeploymentName,
+		Source:                        d.Source,
+		Status:                        d.Status,
+	}
+}
+
+// ---- New operations: XML response types ----
+
+type addRoleToDBClusterResponse struct {
+	XMLName xml.Name `xml:"AddRoleToDBClusterResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type addRoleToDBInstanceResponse struct {
+	XMLName xml.Name `xml:"AddRoleToDBInstanceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type xmlSourceIDList struct {
+	Members []string `xml:"member"`
+}
+
+type xmlEventSubscription struct {
+	CustSubscriptionID string          `xml:"CustSubscriptionId"`
+	SnsTopicArn        string          `xml:"SnsTopicArn,omitempty"`
+	Status             string          `xml:"Status"`
+	SourceType         string          `xml:"SourceType,omitempty"`
+	SourceIDsList      xmlSourceIDList `xml:"SourceIdsList"`
+}
+
+type addSourceIdentifierToSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"AddSourceIdentifierToSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"AddSourceIdentifierToSubscriptionResult>EventSubscription"`
+}
+
+type xmlPendingMaintenanceAction struct {
+	Action      string `xml:"Action"`
+	Description string `xml:"Description,omitempty"`
+}
+
+type xmlPendingMaintenanceActionList struct {
+	Members []xmlPendingMaintenanceAction `xml:"PendingMaintenanceAction"`
+}
+
+type xmlResourcePendingMaintenanceActions struct {
+	ResourceIdentifier              string                          `xml:"ResourceIdentifier"`
+	PendingMaintenanceActionDetails xmlPendingMaintenanceActionList `xml:"PendingMaintenanceActionDetails"`
+}
+
+type applyPendingMaintenanceActionResult struct {
+	ResourcePendingMaintenanceActions xmlResourcePendingMaintenanceActions `xml:"ResourcePendingMaintenanceActions"`
+}
+
+type applyPendingMaintenanceActionResponse struct {
+	XMLName xml.Name                            `xml:"ApplyPendingMaintenanceActionResponse"`
+	Xmlns   string                              `xml:"xmlns,attr"`
+	Result  applyPendingMaintenanceActionResult `xml:"ApplyPendingMaintenanceActionResult"`
+}
+
+type xmlIPRange struct {
+	CIDRIP string `xml:"CIDRIP"`
+	Status string `xml:"Status"`
+}
+
+type xmlIPRangeList struct {
+	Members []xmlIPRange `xml:"IPRange"`
+}
+
+type xmlDBSecurityGroup struct {
+	DBSecurityGroupName        string         `xml:"DBSecurityGroupName"`
+	DBSecurityGroupDescription string         `xml:"DBSecurityGroupDescription,omitempty"`
+	IPRanges                   xmlIPRangeList `xml:"IPRanges"`
+}
+
+type authorizeDBSecurityGroupIngressResponse struct {
+	XMLName         xml.Name           `xml:"AuthorizeDBSecurityGroupIngressResponse"`
+	Xmlns           string             `xml:"xmlns,attr"`
+	DBSecurityGroup xmlDBSecurityGroup `xml:"AuthorizeDBSecurityGroupIngressResult>DBSecurityGroup"`
+}
+
+type xmlDBClusterBacktrack struct {
+	DBClusterIdentifier string `xml:"DBClusterIdentifier"`
+	BacktrackIdentifier string `xml:"BacktrackIdentifier"`
+	BacktrackTo         string `xml:"BacktrackTo,omitempty"`
+	Status              string `xml:"Status"`
+}
+
+type backtrackDBClusterResponse struct {
+	XMLName            xml.Name              `xml:"BacktrackDBClusterResponse"`
+	Xmlns              string                `xml:"xmlns,attr"`
+	DBClusterBacktrack xmlDBClusterBacktrack `xml:"BacktrackDBClusterResult>DBClusterBacktrack"`
+}
+
+type copyDBClusterParameterGroupResponse struct {
+	XMLName          xml.Name            `xml:"CopyDBClusterParameterGroupResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	DBParameterGroup xmlDBParameterGroup `xml:"CopyDBClusterParameterGroupResult>DBClusterParameterGroup"`
+}
+
+type copyDBParameterGroupResponse struct {
+	XMLName          xml.Name            `xml:"CopyDBParameterGroupResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	DBParameterGroup xmlDBParameterGroup `xml:"CopyDBParameterGroupResult>DBParameterGroup"`
+}
+
+type copyOptionGroupResponse struct {
+	XMLName     xml.Name       `xml:"CopyOptionGroupResponse"`
+	Xmlns       string         `xml:"xmlns,attr"`
+	OptionGroup xmlOptionGroup `xml:"CopyOptionGroupResult>OptionGroup"`
+}
+
+type xmlBlueGreenDeployment struct {
+	BlueGreenDeploymentIdentifier string `xml:"BlueGreenDeploymentIdentifier"`
+	BlueGreenDeploymentName       string `xml:"BlueGreenDeploymentName"`
+	Source                        string `xml:"Source,omitempty"`
+	Status                        string `xml:"Status"`
+}
+
+type createBlueGreenDeploymentResponse struct {
+	XMLName             xml.Name               `xml:"CreateBlueGreenDeploymentResponse"`
+	Xmlns               string                 `xml:"xmlns,attr"`
+	BlueGreenDeployment xmlBlueGreenDeployment `xml:"CreateBlueGreenDeploymentResult>BlueGreenDeployment"`
+}
+
+func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	roleARN := vals.Get("RoleArn")
+
+	if err := h.Backend.RemoveRoleFromDBCluster(clusterID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &removeRoleFromDBClusterResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleRemoveRoleFromDBInstance(vals url.Values) (any, error) {
+	instanceID := vals.Get("DBInstanceIdentifier")
+	roleARN := vals.Get("RoleArn")
+
+	if err := h.Backend.RemoveRoleFromDBInstance(instanceID, roleARN); err != nil {
+		return nil, err
+	}
+
+	return &removeRoleFromDBInstanceResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) (any, error) {
+	subscriptionName := vals.Get("SubscriptionName")
+	sourceIdentifier := vals.Get("SourceIdentifier")
+
+	sub, err := h.Backend.RemoveSourceIdentifierFromSubscription(subscriptionName, sourceIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return &removeSourceIdentifierFromSubscriptionResponse{
+		Xmlns:             rdsXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+type removeRoleFromDBClusterResponse struct {
+	XMLName xml.Name `xml:"RemoveRoleFromDBClusterResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type removeRoleFromDBInstanceResponse struct {
+	XMLName xml.Name `xml:"RemoveRoleFromDBInstanceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type removeSourceIdentifierFromSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"RemoveSourceIdentifierFromSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"RemoveSourceIdentifierFromSubscriptionResult>EventSubscription"`
 }

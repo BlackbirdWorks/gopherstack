@@ -70,6 +70,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "BeginTransaction")
 	assert.Contains(t, ops, "CommitTransaction")
 	assert.Contains(t, ops, "RollbackTransaction")
+	assert.Contains(t, ops, "ExecuteSql")
 }
 
 func TestHandler_MatchPriority(t *testing.T) {
@@ -124,6 +125,12 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{
 			name:        "matches_rollback_transaction",
 			path:        "/RollbackTransaction",
+			authService: "rds-data",
+			want:        true,
+		},
+		{
+			name:        "matches_execute_sql",
+			path:        "/ExecuteSql",
 			authService: "rds-data",
 			want:        true,
 		},
@@ -192,6 +199,11 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			name:   "rollback_transaction",
 			path:   "/RollbackTransaction",
 			wantOp: "RollbackTransaction",
+		},
+		{
+			name:   "execute_sql",
+			path:   "/ExecuteSql",
+			wantOp: "ExecuteSql",
 		},
 		{
 			name:   "unknown_path",
@@ -631,6 +643,70 @@ func TestBackend_ListTransactions(t *testing.T) {
 
 	txns := b.ListTransactions()
 	assert.Contains(t, txns, txID)
+}
+
+func TestHandler_ExecuteSql(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		wantBody   string
+		bodyRaw    []byte
+		wantStatus int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"dbClusterOrInstanceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"awsSecretStoreArn":      "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+				"sqlStatements":          "SELECT 1; SELECT 2",
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "sqlStatementResults",
+		},
+		{
+			name:       "invalid_json",
+			bodyRaw:    []byte("not-json"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_db_cluster_arn",
+			body: map[string]any{
+				"awsSecretStoreArn": "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+				"sqlStatements":     "SELECT 1",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_sql_statements",
+			body: map[string]any{
+				"dbClusterOrInstanceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"awsSecretStoreArn":      "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var rec *httptest.ResponseRecorder
+			if tt.bodyRaw != nil {
+				rec = doRDSDataRawRequest(t, h, "/ExecuteSql", tt.bodyRaw)
+			} else {
+				rec = doRDSDataRequest(t, h, "/ExecuteSql", tt.body)
+			}
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
 }
 
 func TestProvider_Init(t *testing.T) {

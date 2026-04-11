@@ -23,7 +23,7 @@ func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ram.InMemoryBackend) {
 				t.Helper()
 
-				shares := b.ListResourceShares("SELF")
+				shares := b.ListResourceShares("SELF", "")
 				assert.Empty(t, shares)
 			},
 		},
@@ -44,7 +44,7 @@ func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ram.InMemoryBackend) {
 				t.Helper()
 
-				shares := b.ListResourceShares("SELF")
+				shares := b.ListResourceShares("SELF", "")
 				require.Len(t, shares, 1)
 				assert.Equal(t, "my-share", shares[0].Name)
 				assert.True(t, shares[0].AllowExternalPrincipals)
@@ -74,7 +74,7 @@ func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ram.InMemoryBackend) {
 				t.Helper()
 
-				shares := b.ListResourceShares("SELF")
+				shares := b.ListResourceShares("SELF", "")
 				require.Len(t, shares, 1)
 
 				assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{shares[0].ARN})

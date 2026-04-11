@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ram.NewInMemoryBackend("000000000000", "us-east-1")
 	h := ram.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ramsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AcceptResourceShareInvitation",
-		"AssociateResourceSharePermission",
-		"CreatePermission",
-		"CreatePermissionVersion",
-		"DeletePermission",
-		"DeletePermissionVersion",
-		"DisassociateResourceSharePermission",
-		"GetPermission",
-		"GetResourcePolicies",
-		"GetResourceShareInvitations",
 		"ListPendingInvitationResources",
 		"ListPermissionAssociations",
 		"ListPermissionVersions",

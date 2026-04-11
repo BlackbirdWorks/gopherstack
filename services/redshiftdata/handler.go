@@ -29,36 +29,42 @@ var (
 
 // Handler is the HTTP handler for the AWS Redshift Data API.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new Redshift Data handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		AccountID: backend.AccountID(),
+		Region:    backend.Region(),
 	}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "RedshiftData" }
 
+// Reset clears all backend state. Useful for test isolation.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // GetSupportedOperations returns the list of supported Redshift Data operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"ExecuteStatement",
 		"BatchExecuteStatement",
-		"DescribeStatement",
-		"GetStatementResult",
-		"ListStatements",
 		"CancelStatement",
+		"DescribeStatement",
+		"DescribeTable",
+		"ExecuteStatement",
+		"GetStatementResult",
+		"GetStatementResultV2",
 		"ListDatabases",
 		"ListSchemas",
+		"ListStatements",
 		"ListTables",
-		"DescribeTable",
 	}
 }
 
@@ -147,6 +153,8 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 		return h.handleDescribeStatement(ctx, body)
 	case "GetStatementResult":
 		return h.handleGetStatementResult(ctx, body)
+	case "GetStatementResultV2":
+		return h.handleGetStatementResultV2(ctx, body)
 	case "ListStatements":
 		return h.handleListStatements(ctx, body)
 	case "CancelStatement":
@@ -177,10 +185,6 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.SQL == "" {
-		return nil, fmt.Errorf("%w: Sql is required", errInvalidRequest)
 	}
 
 	stmt, err := h.Backend.ExecuteStatement(
@@ -215,10 +219,6 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if len(req.Sqls) == 0 {
-		return nil, fmt.Errorf("%w: Sqls is required", errInvalidRequest)
 	}
 
 	stmt, err := h.Backend.BatchExecuteStatement(
@@ -274,14 +274,50 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	if _, err := h.Backend.DescribeStatement(req.ID); err != nil {
+	stmt, err := h.Backend.DescribeStatement(req.ID)
+	if err != nil {
 		return nil, err
+	}
+
+	if !stmt.HasResultSet {
+		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
 	}
 
 	return json.Marshal(map[string]any{
 		"Records":        [][]any{},
 		"ColumnMetadata": []any{},
-		"TotalNumRows":   0,
+		"TotalNumRows":   int64(0),
+	})
+}
+
+func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ID        string `json:"Id"`
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errMissingID)
+	}
+
+	stmt, err := h.Backend.DescribeStatement(req.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !stmt.HasResultSet {
+		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
+	}
+
+	return json.Marshal(map[string]any{
+		"Records":        []any{},
+		"ColumnMetadata": []any{},
+		"TotalNumRows":   int64(0),
+		"ResultFormat":   resultFormatCSV,
 	})
 }
 
@@ -299,24 +335,7 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	items := make([]map[string]any, 0, len(stmts))
 
 	for _, stmt := range stmts {
-		item := map[string]any{
-			"Id":               stmt.ID,
-			"Status":           stmt.Status,
-			"QueryString":      stmt.QueryString,
-			"IsBatchStatement": stmt.IsBatchStatement,
-			"CreatedAt":        epochSeconds(stmt.CreatedAt),
-			"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
-		}
-
-		if stmt.StatementName != "" {
-			item["StatementName"] = stmt.StatementName
-		}
-
-		if stmt.SecretARN != "" {
-			item["SecretArn"] = stmt.SecretARN
-		}
-
-		items = append(items, item)
+		items = append(items, statementToListItem(stmt))
 	}
 
 	return json.Marshal(map[string]any{
@@ -382,7 +401,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrTerminalState):
+	case errors.Is(err, ErrTerminalState), errors.Is(err, ErrValidation), errors.Is(err, ErrNoResultSet):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
@@ -412,6 +431,28 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 // as required by the AWS JSON 1.1 protocol for timestamp fields.
 func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
+}
+
+// statementToListItem converts a statement to the summary map used in ListStatements.
+func statementToListItem(stmt *Statement) map[string]any {
+	item := map[string]any{
+		"Id":               stmt.ID,
+		"Status":           stmt.Status,
+		"QueryString":      stmt.QueryString,
+		"IsBatchStatement": stmt.IsBatchStatement,
+		"CreatedAt":        epochSeconds(stmt.CreatedAt),
+		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
+	}
+
+	if stmt.StatementName != "" {
+		item["StatementName"] = stmt.StatementName
+	}
+
+	if stmt.SecretARN != "" {
+		item["SecretArn"] = stmt.SecretARN
+	}
+
+	return item
 }
 
 // statementToDescribeResponse converts a statement to a DescribeStatement response map.

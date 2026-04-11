@@ -1,9 +1,14 @@
 package qldb
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when the AppContext passed to Init is nil.
+var ErrNilAppContext = errors.New("qldb: nil AppContext")
 
 // Provider implements service.Provider for QLDB.
 type Provider struct{}
@@ -15,6 +20,10 @@ func (p *Provider) Name() string { return "QLDB" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 
