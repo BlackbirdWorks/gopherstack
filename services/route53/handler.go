@@ -48,13 +48,13 @@ const (
 
 // Handler is the HTTP service handler for Route 53 operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
 		tags:    make(map[string]*svcTags.Tags),
@@ -202,7 +202,47 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return op
 	}
 
+	if op := extractNewOpsOperation(path, method); op != "" {
+		return op
+	}
+
 	return "Unknown"
+}
+
+// extractNewOpsOperation maps the newer Route 53 operation paths to operation names.
+func extractNewOpsOperation(path, method string) string {
+	if method != http.MethodPost {
+		return ""
+	}
+
+	return extractNewOpsPath(path)
+}
+
+func extractNewOpsPath(path string) string {
+	switch {
+	case path == route53KSKRoot:
+		return "CreateKeySigningKey"
+	case strings.HasSuffix(path, route53ActivateSuffix):
+		return "ActivateKeySigningKey"
+	case strings.HasSuffix(path, route53AssociateVPCSuffix):
+		return "AssociateVPCWithHostedZone"
+	case path == route53CidrCollectionRoot:
+		return "CreateCidrCollection"
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "ChangeCidrCollection"
+	case path == route53QueryLoggingRoot:
+		return "CreateQueryLoggingConfig"
+	case path == route53DelegationSetRoot:
+		return "CreateReusableDelegationSet"
+	case path == route53TrafficPolicyRoot:
+		return "CreateTrafficPolicy"
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		return "CreateTrafficPolicyVersion"
+	case path == route53TPInstanceRoot:
+		return "CreateTrafficPolicyInstance"
+	}
+
+	return ""
 }
 
 // ExtractResource extracts the zone ID from the request path.
@@ -308,7 +348,47 @@ func (h *Handler) IAMAction(r *http.Request) string {
 		return action
 	}
 
+	if action := iamActionForNewOps(path, method); action != "" {
+		return action
+	}
+
 	return "route53:GetChange"
+}
+
+// iamActionForNewOps maps newer Route 53 paths to IAM action strings.
+func iamActionForNewOps(path, method string) string {
+	if method != http.MethodPost {
+		return ""
+	}
+
+	return iamActionForNewOpsPath(path)
+}
+
+func iamActionForNewOpsPath(path string) string {
+	switch {
+	case path == route53KSKRoot:
+		return "route53:CreateKeySigningKey"
+	case strings.HasSuffix(path, route53ActivateSuffix):
+		return "route53:ActivateKeySigningKey"
+	case strings.HasSuffix(path, route53AssociateVPCSuffix):
+		return "route53:AssociateVPCWithHostedZone"
+	case path == route53CidrCollectionRoot:
+		return "route53:CreateCidrCollection"
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "route53:ChangeCidrCollection"
+	case path == route53QueryLoggingRoot:
+		return "route53:CreateQueryLoggingConfig"
+	case path == route53DelegationSetRoot:
+		return "route53:CreateReusableDelegationSet"
+	case path == route53TrafficPolicyRoot:
+		return "route53:CreateTrafficPolicy"
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		return "route53:CreateTrafficPolicyVersion"
+	case path == route53TPInstanceRoot:
+		return "route53:CreateTrafficPolicyInstance"
+	}
+
+	return ""
 }
 
 // routeRequest dispatches Route 53 requests to the appropriate handler.
@@ -504,6 +584,7 @@ type xmlHostedZone struct {
 
 type xmlDelegationSet struct {
 	XMLName     xml.Name `xml:"DelegationSet"`
+	ID          string   `xml:"Id,omitempty"`
 	NameServers []string `xml:"NameServers>NameServer"`
 }
 
@@ -1413,6 +1494,9 @@ func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+	h.tagsMu.Lock("Reset")
+	h.tags = make(map[string]*svcTags.Tags)
+	h.tagsMu.Unlock()
 }
 
 // ---- New operations: XML types ----
@@ -1488,6 +1572,17 @@ type xmlChangeCidrCollectionResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 	ID      string   `xml:"Id"`
 	Version int64    `xml:"Version"`
+}
+
+type xmlCidrChangeEntry struct {
+	LocationName string   `xml:"LocationName"`
+	Action       string   `xml:"Action"`
+	CidrList     []string `xml:"CidrList>Cidr"`
+}
+
+type xmlChangeCidrCollectionRequest struct {
+	XMLName xml.Name             `xml:"ChangeCidrCollectionRequest"`
+	Changes []xmlCidrChangeEntry `xml:"Changes>Change"`
 }
 
 type xmlQueryLoggingConfig struct {
@@ -1835,7 +1930,24 @@ func (h *Handler) changeCidrCollection(c *echo.Context, path string) error {
 	ctx := c.Request().Context()
 	collectionID := strings.TrimPrefix(path, route53CidrCollectionPrefix)
 
-	col, err := h.Backend.ChangeCidrCollection(collectionID, nil)
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlChangeCidrCollectionRequest
+	if len(body) > 0 {
+		if err = xml.Unmarshal(body, &req); err != nil {
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+		}
+	}
+
+	changes := make([]CidrCollectionChange, 0, len(req.Changes))
+	for _, ch := range req.Changes {
+		changes = append(changes, CidrCollectionChange(ch))
+	}
+
+	col, err := h.Backend.ChangeCidrCollection(collectionID, changes)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -1906,11 +2018,12 @@ func (h *Handler) createReusableDelegationSet(c *echo.Context) error {
 	resp := xmlReusableDelegationSetResponse{
 		Xmlns: route53Namespace,
 		DelegationSet: xmlDelegationSet{
+			ID:          ds.ID,
 			NameServers: ds.NameServers,
 		},
 	}
 
-	c.Response().Header().Set("Location", ds.ID)
+	c.Response().Header().Set("Location", "/2013-04-01"+ds.ID)
 
 	return writeXML(c, http.StatusCreated, resp)
 }

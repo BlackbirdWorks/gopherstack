@@ -1,0 +1,62 @@
+package route53
+
+import "github.com/blackbirdworks/gopherstack/pkgs/page"
+
+// StorageBackend defines the interface for Route 53 backend implementations.
+// All mutating methods must be safe for concurrent use.
+type StorageBackend interface {
+	// Hosted zone operations
+	CreateHostedZone(name, callerRef, comment string, private bool) (*HostedZone, error)
+	DeleteHostedZone(zoneID string) error
+	GetHostedZone(zoneID string) (*HostedZone, error)
+	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
+
+	// Record set operations
+	ChangeResourceRecordSets(zoneID string, changes []Change) error
+	ListResourceRecordSets(zoneID string) ([]ResourceRecordSet, error)
+
+	// Health check operations
+	CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error)
+	GetHealthCheck(id string) (*HealthCheck, error)
+	ListHealthChecks(marker string, maxItems int) (page.Page[HealthCheck], error)
+	DeleteHealthCheck(id string) error
+	UpdateHealthCheck(id string, cfg HealthCheckConfig) (*HealthCheck, error)
+	GetHealthCheckStatus(id string) (string, error)
+	SetHealthCheckStatus(id, status string) error
+
+	// Key signing key operations
+	CreateKeySigningKey(hostedZoneID, callerRef, name, kmsArn, status string) (*KeySigningKey, error)
+	ActivateKeySigningKey(hostedZoneID, name string) (*KeySigningKey, error)
+
+	// VPC association operations
+	AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error
+
+	// CIDR collection operations
+	CreateCidrCollection(name, callerRef string) (*CidrCollection, error)
+	ChangeCidrCollection(collectionID string, changes []CidrCollectionChange) (*CidrCollection, error)
+
+	// Query logging operations
+	CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error)
+
+	// Delegation set operations
+	CreateReusableDelegationSet(callerRef, hostedZoneID string) (*ReusableDelegationSet, error)
+
+	// Traffic policy operations
+	CreateTrafficPolicy(name, document, comment string) (*TrafficPolicy, error)
+	CreateTrafficPolicyVersion(id, document, comment string) (*TrafficPolicy, error)
+	CreateTrafficPolicyInstance(
+		hostedZoneID, name, tpID string,
+		tpVersion int32,
+		ttl int64,
+	) (*TrafficPolicyInstance, error)
+
+	// Lifecycle
+	Reset()
+	Region() string
+	AccountID() string
+	Snapshot() []byte
+	Restore(data []byte) error
+}
+
+// compile-time assertion that InMemoryBackend satisfies StorageBackend.
+var _ StorageBackend = (*InMemoryBackend)(nil)

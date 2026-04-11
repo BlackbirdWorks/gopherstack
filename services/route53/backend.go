@@ -34,6 +34,17 @@ const (
 	recordTypeCNAME = "CNAME"
 )
 
+const (
+	kskStatusActive   = "ACTIVE"
+	kskStatusInactive = "INACTIVE"
+	tpiStateApplied   = "Applied"
+)
+
+const (
+	defaultRegion    = "us-east-1"
+	defaultAccountID = "123456789012"
+)
+
 // HealthCheckType is the type of health check.
 type HealthCheckType string
 
@@ -171,9 +182,9 @@ type CidrCollection struct {
 
 // CidrCollectionChange represents a single change in a ChangeCidrCollection request.
 type CidrCollectionChange struct {
-	LocationName string
-	Action       string
-	CidrList     []string
+	LocationName string   `json:"locationName"`
+	Action       string   `json:"action"`
+	CidrList     []string `json:"cidrList"`
 }
 
 // QueryLoggingConfig represents a Route 53 query logging configuration.
@@ -258,23 +269,32 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Unlock()
 }
 
+// Region returns the AWS region for this backend.
+func (b *InMemoryBackend) Region() string { return defaultRegion }
+
+// AccountID returns the AWS account ID for this backend.
+func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
+
 const (
 	zoneIDChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	zoneIDLength = 13
 )
 
-func randomZoneID() string {
-	buf := make([]byte, zoneIDLength)
-	n := uint64(len(zoneIDChars))
+// randomID generates a random ID of the given length using the provided character set.
+func randomID(chars string, length int) string {
+	buf := make([]byte, length)
+	n := uint64(len(chars))
 
 	for i := range buf {
 		var v [8]byte
 		_, _ = rand.Read(v[:])
-		buf[i] = zoneIDChars[binary.BigEndian.Uint64(v[:])%n]
+		buf[i] = chars[binary.BigEndian.Uint64(v[:])%n]
 	}
 
 	return string(buf)
 }
+
+func randomZoneID() string { return randomID(zoneIDChars, zoneIDLength) }
 
 // normaliseName ensures the zone/record name ends with a dot.
 func normaliseName(name string) string {
@@ -336,6 +356,21 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 			if rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME {
 				b.dns.Deregister(rrs.Name)
 			}
+		}
+	}
+
+	// Cascade: delete VPC associations for this zone.
+	delete(b.vpcAssociations, zoneID)
+	// Cascade: delete query logging configs for this zone.
+	for id, cfg := range b.queryLoggingConfigs {
+		if cfg.HostedZoneID == zoneID {
+			delete(b.queryLoggingConfigs, id)
+		}
+	}
+	// Cascade: delete key signing keys for this zone.
+	for k, ksk := range b.keySigningKeys {
+		if ksk.HostedZoneID == zoneID {
+			delete(b.keySigningKeys, k)
 		}
 	}
 
@@ -476,18 +511,7 @@ const (
 	defaultHealthStatus = "Healthy"
 )
 
-func randomHealthCheckID() string {
-	buf := make([]byte, healthCheckIDLength)
-	n := uint64(len(healthCheckIDChars))
-
-	for i := range buf {
-		var v [8]byte
-		_, _ = rand.Read(v[:])
-		buf[i] = healthCheckIDChars[binary.BigEndian.Uint64(v[:])%n]
-	}
-
-	return string(buf)
-}
+func randomHealthCheckID() string { return randomID(healthCheckIDChars, healthCheckIDLength) }
 
 // CreateHealthCheck creates a new health check.
 func (b *InMemoryBackend) CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error) {
@@ -647,8 +671,12 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
 	}
 
+	if _, exists := b.keySigningKeys[kskKey(hostedZoneID, name)]; exists {
+		return nil, fmt.Errorf("%w: key signing key %s already exists in zone %s", ErrInvalidInput, name, hostedZoneID)
+	}
+
 	if status == "" {
-		status = "INACTIVE"
+		status = kskStatusInactive
 	}
 
 	ksk := &KeySigningKey{
@@ -683,7 +711,7 @@ func (b *InMemoryBackend) ActivateKeySigningKey(hostedZoneID, name string) (*Key
 		)
 	}
 
-	ksk.Status = "ACTIVE"
+	ksk.Status = kskStatusActive
 
 	cp := *ksk
 
@@ -701,6 +729,12 @@ func (b *InMemoryBackend) AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion st
 
 	if _, ok := b.zones[zoneID]; !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	for _, existing := range b.vpcAssociations[zoneID] {
+		if existing.VPCID == vpcID {
+			return fmt.Errorf("%w: VPC %s already associated with hosted zone %s", ErrInvalidInput, vpcID, zoneID)
+		}
 	}
 
 	b.vpcAssociations[zoneID] = append(b.vpcAssociations[zoneID], vpcAssociation{
@@ -794,16 +828,7 @@ const (
 )
 
 func randomDelegationSetID() string {
-	buf := make([]byte, delegationSetIDLength)
-	n := uint64(len(delegationSetIDChars))
-
-	for i := range buf {
-		var v [8]byte
-		_, _ = rand.Read(v[:])
-		buf[i] = delegationSetIDChars[binary.BigEndian.Uint64(v[:])%n]
-	}
-
-	return string(buf)
+	return randomID(delegationSetIDChars, delegationSetIDLength)
 }
 
 // CreateReusableDelegationSet creates a new reusable delegation set.
@@ -838,16 +863,7 @@ const (
 )
 
 func randomTrafficPolicyID() string {
-	buf := make([]byte, trafficPolicyIDLength)
-	n := uint64(len(trafficPolicyIDChars))
-
-	for i := range buf {
-		var v [8]byte
-		_, _ = rand.Read(v[:])
-		buf[i] = trafficPolicyIDChars[binary.BigEndian.Uint64(v[:])%n]
-	}
-
-	return string(buf)
+	return randomID(trafficPolicyIDChars, trafficPolicyIDLength)
 }
 
 // CreateTrafficPolicy creates a new traffic policy.
@@ -916,18 +932,7 @@ const (
 	tpiIDLength = 36
 )
 
-func randomTPIID() string {
-	buf := make([]byte, tpiIDLength)
-	n := uint64(len(tpiIDChars))
-
-	for i := range buf {
-		var v [8]byte
-		_, _ = rand.Read(v[:])
-		buf[i] = tpiIDChars[binary.BigEndian.Uint64(v[:])%n]
-	}
-
-	return string(buf)
-}
+func randomTPIID() string { return randomID(tpiIDChars, tpiIDLength) }
 
 // CreateTrafficPolicyInstance creates a new traffic policy instance.
 func (b *InMemoryBackend) CreateTrafficPolicyInstance(
@@ -977,7 +982,7 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 		TrafficPolicyVersion: tpVersion,
 		TrafficPolicyType:    tpType,
 		TTL:                  ttl,
-		State:                "Applied",
+		State:                tpiStateApplied,
 	}
 
 	b.trafficPolicyInstances[id] = inst
@@ -985,4 +990,35 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 	cp := *inst
 
 	return &cp, nil
+}
+
+// AddZoneInternal adds a hosted zone directly into the backend for testing.
+func (b *InMemoryBackend) AddZoneInternal(hz HostedZone) {
+	b.mu.Lock("AddZoneInternal")
+	defer b.mu.Unlock()
+	b.zones[hz.ID] = &zoneData{zone: hz, records: make(map[string]*ResourceRecordSet)}
+}
+
+// AddHealthCheckInternal adds a health check directly into the backend for testing.
+func (b *InMemoryBackend) AddHealthCheckInternal(hc HealthCheck) {
+	b.mu.Lock("AddHealthCheckInternal")
+	defer b.mu.Unlock()
+	cp := hc
+	b.healthChecks[hc.ID] = &cp
+}
+
+// AddKeySigningKeyInternal adds a KSK directly into the backend for testing.
+func (b *InMemoryBackend) AddKeySigningKeyInternal(ksk KeySigningKey) {
+	b.mu.Lock("AddKeySigningKeyInternal")
+	defer b.mu.Unlock()
+	cp := ksk
+	b.keySigningKeys[kskKey(ksk.HostedZoneID, ksk.Name)] = &cp
+}
+
+// AddTrafficPolicyInternal adds a traffic policy directly into the backend for testing.
+func (b *InMemoryBackend) AddTrafficPolicyInternal(tp TrafficPolicy) {
+	b.mu.Lock("AddTrafficPolicyInternal")
+	defer b.mu.Unlock()
+	cp := tp
+	b.trafficPolicies[tp.ID] = append(b.trafficPolicies[tp.ID], &cp)
 }

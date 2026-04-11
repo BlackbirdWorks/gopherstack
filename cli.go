@@ -4191,7 +4191,10 @@ func wireRoute53DNS(r53Reg service.Registerable, dns route53backend.DNSRegistrar
 		return
 	}
 
-	r53H.Backend.SetDNSRegistrar(dns)
+	bk, isMem := r53H.Backend.(*route53backend.InMemoryBackend)
+	if isMem {
+		bk.SetDNSRegistrar(dns)
+	}
 }
 
 // wireRDSDNS sets the DNS registrar on the RDS backend so that instance hostnames
