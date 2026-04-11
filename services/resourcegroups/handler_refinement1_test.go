@@ -105,7 +105,7 @@ func TestRefinement1_UpdateGroup_NameRequired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(h *resourcegroups.Handler)
+		setup    func(t *testing.T, h *resourcegroups.Handler)
 		body     map[string]any
 		name     string
 		wantCode int
@@ -117,16 +117,20 @@ func TestRefinement1_UpdateGroup_NameRequired(t *testing.T) {
 		},
 		{
 			name: "with_group_field",
-			setup: func(h *resourcegroups.Handler) {
-				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body:     map[string]any{"Group": "my-group", "Description": "updated"},
 			wantCode: http.StatusOK,
 		},
 		{
 			name: "with_group_name_field",
-			setup: func(h *resourcegroups.Handler) {
-				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "other-group"})
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "other-group"})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body:     map[string]any{"GroupName": "other-group", "Description": "updated"},
 			wantCode: http.StatusOK,
@@ -139,7 +143,7 @@ func TestRefinement1_UpdateGroup_NameRequired(t *testing.T) {
 
 			h := newTestResourceGroupsHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doResourceGroupsRequest(t, h, "UpdateGroup", tt.body)
@@ -370,7 +374,7 @@ func TestRefinement1_StartTagSyncTask_RequiredFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(h *resourcegroups.Handler)
+		setup    func(t *testing.T, h *resourcegroups.Handler)
 		body     map[string]any
 		name     string
 		wantCode int
@@ -382,16 +386,20 @@ func TestRefinement1_StartTagSyncTask_RequiredFields(t *testing.T) {
 		},
 		{
 			name: "no_role_arn",
-			setup: func(h *resourcegroups.Handler) {
-				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "g1"})
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "g1"})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body:     map[string]any{"Group": "g1"},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "success",
-			setup: func(h *resourcegroups.Handler) {
-				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "g1"})
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "g1"})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body: map[string]any{
 				"Group":   "g1",
@@ -407,7 +415,7 @@ func TestRefinement1_StartTagSyncTask_RequiredFields(t *testing.T) {
 
 			h := newTestResourceGroupsHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doResourceGroupsRequest(t, h, "StartTagSyncTask", tt.body)
