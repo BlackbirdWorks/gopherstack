@@ -2,6 +2,7 @@ package redshiftdata_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -270,9 +271,9 @@ func TestRefinement1_ListStatements_SortedNewestFirst(t *testing.T) {
 
 	for i := range 3 {
 		doRequest(t, h, "ExecuteStatement", map[string]any{
-			"Sql":           "SELECT " + string(rune('1'+i)),
+			"Sql":           fmt.Sprintf("SELECT %d", i+1),
 			"Database":      "testdb",
-			"StatementName": "stmt-" + string(rune('a'+i)),
+			"StatementName": fmt.Sprintf("stmt-%d", i),
 		})
 	}
 
