@@ -422,14 +422,40 @@
             const form = document.getElementById(formId);
             const btn = document.getElementById(btnId);
             if (!form || !btn) return;
-            
+
+            const controls = Array.from(form.querySelectorAll('input, select, textarea')).filter(control => control.name);
+
+            const getControlValue = (control) => {
+                if (control.type === 'checkbox') {
+                    return control.checked ? 'true' : 'false';
+                }
+
+                if (control.type === 'radio') {
+                    return control.checked ? control.value : '';
+                }
+
+                return control.value;
+            };
+
             const getSnapshot = () => {
-                const data = new FormData(form);
-                // Include unchecked checkboxes for accurate state comparison
-                form.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                    if (!data.has(cb.name)) data.append(cb.name, 'false');
+                const snapshot = {};
+                controls.forEach(control => {
+                    if (control.type === 'radio') {
+                        if (!(control.name in snapshot)) {
+                            snapshot[control.name] = '';
+                        }
+
+                        if (control.checked) {
+                            snapshot[control.name] = control.value;
+                        }
+
+                        return;
+                    }
+
+                    snapshot[control.name] = getControlValue(control);
                 });
-                return new URLSearchParams(data).toString();
+
+                return JSON.stringify(snapshot);
             };
 
             let initialState = getSnapshot();
@@ -475,9 +501,9 @@
         const container = document.getElementById("toast-container");
         const toast = document.createElement("div");
         
-        const bgColor = type === "success" ? "bg-green-100 dark:bg-green-900/40" : "bg-red-100 dark:bg-red-900/40";
-        const textColor = type === "success" ? "text-green-800 dark:text-green-400" : "text-red-800 dark:text-red-400";
-        const borderColor = type === "success" ? "border-green-200 dark:border-green-800" : "border-red-200 dark:border-red-800";
+        const bgColor = type === "success" ? "bg-green-100 dark:bg-green-900" : "bg-red-100 dark:bg-red-900";
+        const textColor = type === "success" ? "text-green-900 dark:text-green-100" : "text-red-900 dark:text-red-100";
+        const borderColor = type === "success" ? "border-green-300 dark:border-green-700" : "border-red-300 dark:border-red-700";
         const icon = type === "success" 
             ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
             : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
@@ -496,7 +522,14 @@
     function updateSettings(event) {
         event.preventDefault();
         const form = event.target;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalLabel = submitBtn ? submitBtn.innerHTML : '';
         const formData = new FormData(form);
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = 'Saving...';
+        }
 
         fetch("/dashboard/settings/update", {
             method: "POST",
@@ -512,6 +545,14 @@
         })
         .catch(err => {
             showToast("Failed to update settings: " + err, "error");
+        })
+        .finally(() => {
+            if (submitBtn) {
+                submitBtn.innerHTML = originalLabel;
+                if (form.resetInitialState) {
+                    form.resetInitialState();
+                }
+            }
         });
     }
 
