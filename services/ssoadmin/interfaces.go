@@ -8,7 +8,10 @@ type StorageBackend interface {
 	ListInstances() []*Instance
 	DescribeInstance(instanceArn string) (*Instance, error)
 	DeleteInstance(instanceArn string) error
-	CreatePermissionSet(instanceArn, name, description, sessionDuration, relayState string, tags map[string]string) (*PermissionSet, error)
+	CreatePermissionSet(
+		instanceArn, name, description, sessionDuration, relayState string,
+		tags map[string]string,
+	) (*PermissionSet, error)
 	DescribePermissionSet(instanceArn, permissionSetArn string) (*PermissionSet, error)
 	ListPermissionSets(instanceArn string) []*PermissionSet
 	DeletePermissionSet(instanceArn, permissionSetArn string) error

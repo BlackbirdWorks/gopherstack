@@ -5,7 +5,10 @@ type StorageBackend interface {
 	Region() string
 	WebACLARN(name, id, scope string) string
 	IPSetARN(name, id, scope string) string
-	CreateWebACL(name, description, defaultAction, scope, visibilityConfig string, tags map[string]string) (*WebACL, error)
+	CreateWebACL(
+		name, description, defaultAction, scope, visibilityConfig string,
+		tags map[string]string,
+	) (*WebACL, error)
 	GetWebACL(id string) (*WebACL, error)
 	UpdateWebACL(id, description, defaultAction, visibilityConfig string) (*WebACL, error)
 	DeleteWebACL(id string) error
