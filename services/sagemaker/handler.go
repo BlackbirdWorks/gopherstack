@@ -49,6 +49,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "SageMaker" }
 
+// Reset clears all resources from the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
 // GetSupportedOperations returns the list of supported SageMaker operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
@@ -161,9 +166,7 @@ func (h *Handler) dispatchCoreOps(ctx context.Context, op string, body []byte) (
 
 		return r, true, err
 	case "DeleteModel":
-		r, err := h.handleDeleteModel(ctx, body)
-
-		return r, true, err
+		return nil, true, h.handleDeleteModel(ctx, body)
 	case "CreateEndpointConfig":
 		r, err := h.handleCreateEndpointConfig(ctx, body)
 
@@ -177,9 +180,7 @@ func (h *Handler) dispatchCoreOps(ctx context.Context, op string, body []byte) (
 
 		return r, true, err
 	case "DeleteEndpointConfig":
-		r, err := h.handleDeleteEndpointConfig(ctx, body)
-
-		return r, true, err
+		return nil, true, h.handleDeleteEndpointConfig(ctx, body)
 	case "AddTags":
 		r, err := h.handleAddTags(ctx, body)
 
@@ -189,9 +190,7 @@ func (h *Handler) dispatchCoreOps(ctx context.Context, op string, body []byte) (
 
 		return r, true, err
 	case "DeleteTags":
-		r, err := h.handleDeleteTags(ctx, body)
-
-		return r, true, err
+		return nil, true, h.handleDeleteTags(ctx, body)
 	}
 
 	return nil, false, nil
@@ -229,6 +228,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "ValidationException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ValidationException",
@@ -406,27 +412,27 @@ func (h *Handler) handleListModels(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelName string `json:"ModelName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ModelName == "" {
-		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
+		return fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteModel(req.ModelName); err != nil {
-		return nil, err
+		return err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: deleted model", "name", req.ModelName)
 
-	return nil, nil
+	return nil
 }
 
 // createEndpointConfigRequest is the request body for CreateEndpointConfig.
@@ -541,27 +547,27 @@ func (h *Handler) handleListEndpointConfigs(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) error {
 	var req struct {
 		EndpointConfigName string `json:"EndpointConfigName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.EndpointConfigName == "" {
-		return nil, fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
+		return fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteEndpointConfig(req.EndpointConfigName); err != nil {
-		return nil, err
+		return err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: deleted endpoint config", "name", req.EndpointConfigName)
 
-	return nil, nil
+	return nil
 }
 
 func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error) {
@@ -630,28 +636,28 @@ func (h *Handler) handleListTags(_ context.Context, body []byte) ([]byte, error)
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) error {
 	var req struct {
 		ResourceArn string   `json:"ResourceArn"`
 		TagKeys     []string `json:"TagKeys"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+		return fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteTags(req.ResourceArn, req.TagKeys); err != nil {
-		return nil, err
+		return err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: deleted tags", "resource", req.ResourceArn)
 
-	return nil, nil
+	return nil
 }
 
 // addAssociationRequest is the request body for AddAssociation.

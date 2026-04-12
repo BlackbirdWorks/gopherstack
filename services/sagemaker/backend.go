@@ -14,6 +14,12 @@ import (
 
 const sagemakerDefaultPageSize = 100
 
+const (
+	algorithmStatusCompleted   = "Completed"
+	clusterStatusInService     = "InService"
+	modelPackageStatusApproved = "Approved"
+)
+
 var (
 	// ErrModelNotFound is returned when a model does not exist.
 	ErrModelNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
@@ -52,13 +58,13 @@ type ContainerDefinition struct {
 
 // Model represents a SageMaker model.
 type Model struct {
-	CreationTime     time.Time
-	Tags             map[string]string
-	ModelName        string
-	ModelARN         string
-	ExecutionRoleARN string
-	PrimaryContainer *ContainerDefinition
-	Containers       []ContainerDefinition
+	CreationTime     time.Time             `json:"CreationTime"`
+	Tags             map[string]string     `json:"Tags,omitempty"`
+	ModelName        string                `json:"ModelName"`
+	ModelARN         string                `json:"ModelARN"`
+	ExecutionRoleARN string                `json:"ExecutionRoleARN"`
+	PrimaryContainer *ContainerDefinition  `json:"PrimaryContainer,omitempty"`
+	Containers       []ContainerDefinition `json:"Containers,omitempty"`
 }
 
 // cloneContainer returns a deep copy of a ContainerDefinition, including its Environment map.
@@ -98,11 +104,11 @@ type ProductionVariant struct {
 
 // EndpointConfig represents a SageMaker endpoint configuration.
 type EndpointConfig struct {
-	CreationTime       time.Time
-	Tags               map[string]string
-	EndpointConfigName string
-	EndpointConfigARN  string
-	ProductionVariants []ProductionVariant
+	CreationTime       time.Time           `json:"CreationTime"`
+	Tags               map[string]string   `json:"Tags,omitempty"`
+	EndpointConfigName string              `json:"EndpointConfigName"`
+	EndpointConfigARN  string              `json:"EndpointConfigARN"`
+	ProductionVariants []ProductionVariant `json:"ProductionVariants,omitempty"`
 }
 
 // cloneEndpointConfig returns a deep copy of ec.
@@ -180,6 +186,34 @@ func cloneAlgorithm(al *Algorithm) *Algorithm {
 	return &cp
 }
 
+// cloneAssociation returns a deep copy of a.
+func cloneAssociation(a *Association) *Association {
+	cp := *a
+	cp.Tags = maps.Clone(a.Tags)
+
+	return &cp
+}
+
+// cloneTrialComponentAssociation returns a deep copy of a.
+func cloneTrialComponentAssociation(a *TrialComponentAssociation) *TrialComponentAssociation {
+	cp := *a
+
+	return &cp
+}
+
+// cloneCluster returns a deep copy of c including Nodes.
+func cloneCluster(c *Cluster) *Cluster {
+	cp := *c
+	cp.Nodes = make(map[string]*ClusterNode, len(c.Nodes))
+
+	for k, v := range c.Nodes {
+		nodeCopy := *v
+		cp.Nodes[k] = &nodeCopy
+	}
+
+	return &cp
+}
+
 // ClusterNodeVolume represents a volume attached to a cluster node.
 type ClusterNodeVolume struct {
 	VolumeName string `json:"VolumeName"`
@@ -237,6 +271,7 @@ type InMemoryBackend struct {
 	actionARNIndex             map[string]string                     // ARN → action name
 	algorithmARNIndex          map[string]string                     // ARN → algorithm name
 	clusterARNIndex            map[string]string                     // ARN → cluster name
+	modelPackageARNIndex       map[string]string                     // ARN → model package ARN
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -258,6 +293,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		actionARNIndex:             make(map[string]string),
 		algorithmARNIndex:          make(map[string]string),
 		clusterARNIndex:            make(map[string]string),
+		modelPackageARNIndex:       make(map[string]string),
 		accountID:                  accountID,
 		region:                     region,
 		mu:                         lockmetrics.New("sagemaker"),
@@ -269,6 +305,27 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset reinitialises all maps to empty, clearing all stored resources.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.models = make(map[string]*Model)
+	b.endpointConfigs = make(map[string]*EndpointConfig)
+	b.associations = make(map[string]*Association)
+	b.trialComponentAssociations = make(map[string]*TrialComponentAssociation)
+	b.actions = make(map[string]*Action)
+	b.algorithms = make(map[string]*Algorithm)
+	b.clusters = make(map[string]*Cluster)
+	b.modelPackages = make(map[string]*ModelPackage)
+	b.modelARNIndex = make(map[string]string)
+	b.endpointConfigARNIndex = make(map[string]string)
+	b.actionARNIndex = make(map[string]string)
+	b.algorithmARNIndex = make(map[string]string)
+	b.clusterARNIndex = make(map[string]string)
+	b.modelPackageARNIndex = make(map[string]string)
+}
 
 // CreateModel creates a new SageMaker model.
 func (b *InMemoryBackend) CreateModel(
@@ -497,7 +554,14 @@ func (b *InMemoryBackend) AddTags(resourceARN string, tags map[string]string) er
 		return nil
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
+	if _, ok := b.modelPackageARNIndex[resourceARN]; ok {
+		mp := b.modelPackages[resourceARN]
+		mp.Tags = mergeTags(mp.Tags, tags)
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 }
 
 // ListTags returns tags for a resource identified by ARN.
@@ -537,7 +601,15 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 		return result, nil
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
+	if _, ok := b.modelPackageARNIndex[resourceARN]; ok {
+		mp := b.modelPackages[resourceARN]
+		result := make(map[string]string, len(mp.Tags))
+		maps.Copy(result, mp.Tags)
+
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 }
 
 // DeleteTags removes tag keys from a resource identified by ARN.
@@ -585,7 +657,17 @@ func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error
 		return nil
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
+	if _, ok := b.modelPackageARNIndex[resourceARN]; ok {
+		mp := b.modelPackages[resourceARN]
+
+		for _, k := range tagKeys {
+			delete(mp.Tags, k)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 }
 
 // mergeTags merges new tags into existing ones, returning a new map.
@@ -664,7 +746,7 @@ func (b *InMemoryBackend) AddAssociation(
 	}
 	b.associations[key] = a
 
-	return a, nil
+	return cloneAssociation(a), nil
 }
 
 // AssociateTrialComponent associates a trial component with a trial.
@@ -700,7 +782,7 @@ func (b *InMemoryBackend) AssociateTrialComponent(
 	}
 	b.trialComponentAssociations[key] = assoc
 
-	return assoc, nil
+	return cloneTrialComponentAssociation(assoc), nil
 }
 
 // ensureClusterLocked looks up a cluster by name (must be called with lock held).
@@ -722,14 +804,52 @@ func (b *InMemoryBackend) AddClusterInternal(clusterName string) *Cluster {
 	c := &Cluster{
 		ClusterName:   clusterName,
 		ClusterArn:    clusterARN,
-		ClusterStatus: "InService",
+		ClusterStatus: clusterStatusInService,
 		Nodes:         make(map[string]*ClusterNode),
 		CreationTime:  time.Now(),
 	}
 	b.clusters[clusterName] = c
 	b.clusterARNIndex[clusterARN] = clusterName
 
-	return c
+	return cloneCluster(c)
+}
+
+// AddActionInternal adds an action directly for seeding tests.
+func (b *InMemoryBackend) AddActionInternal(name, actionType string) *Action {
+	b.mu.Lock("AddActionInternal")
+	defer b.mu.Unlock()
+
+	actionARN := arn.Build("sagemaker", b.region, b.accountID, "action/"+name)
+	a := &Action{
+		ActionName:   name,
+		ActionArn:    actionARN,
+		ActionType:   actionType,
+		CreationTime: time.Now(),
+		Tags:         make(map[string]string),
+	}
+	b.actions[name] = a
+	b.actionARNIndex[actionARN] = name
+
+	return cloneAction(a)
+}
+
+// AddAlgorithmInternal adds an algorithm directly for seeding tests.
+func (b *InMemoryBackend) AddAlgorithmInternal(name string) *Algorithm {
+	b.mu.Lock("AddAlgorithmInternal")
+	defer b.mu.Unlock()
+
+	algorithmARN := arn.Build("sagemaker", b.region, b.accountID, "algorithm/"+name)
+	al := &Algorithm{
+		AlgorithmName:   name,
+		AlgorithmArn:    algorithmARN,
+		AlgorithmStatus: algorithmStatusCompleted,
+		CreationTime:    time.Now(),
+		Tags:            make(map[string]string),
+	}
+	b.algorithms[name] = al
+	b.algorithmARNIndex[algorithmARN] = al.AlgorithmName
+
+	return cloneAlgorithm(al)
 }
 
 // AttachClusterNodeVolume attaches a volume to a cluster node.
@@ -993,7 +1113,7 @@ func (b *InMemoryBackend) CreateAlgorithm(
 		AlgorithmName:        name,
 		AlgorithmArn:         algorithmARN,
 		AlgorithmDescription: description,
-		AlgorithmStatus:      "Completed",
+		AlgorithmStatus:      algorithmStatusCompleted,
 		Tags:                 mergeTags(nil, tags),
 		CreationTime:         time.Now(),
 	}
@@ -1009,4 +1129,5 @@ func (b *InMemoryBackend) AddModelPackageInternal(mp *ModelPackage) {
 	defer b.mu.Unlock()
 
 	b.modelPackages[mp.ModelPackageArn] = mp
+	b.modelPackageARNIndex[mp.ModelPackageArn] = mp.ModelPackageArn
 }
