@@ -97,7 +97,7 @@ func TestSESHandler_Reset(t *testing.T) {
 
 	h.Reset()
 
-	assert.Equal(t, 0, h.Backend.IdentityCount())
+	assert.Equal(t, 0, h.Backend.(*ses.InMemoryBackend).IdentityCount())
 }
 
 // ---- backend: email TTL + janitor ----

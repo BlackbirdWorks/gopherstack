@@ -245,7 +245,7 @@ func TestSESHandler_SendEmail(t *testing.T) {
 	assert.NotEmpty(t, resp.Result.MessageID)
 
 	// Verify email was captured.
-	emails := h.Backend.ListEmails()
+	emails := h.Backend.(*ses.InMemoryBackend).ListEmails()
 	require.Len(t, emails, 1)
 	assert.Equal(t, "sender@example.com", emails[0].From)
 	assert.Equal(t, []string{"recipient@example.com"}, emails[0].To)

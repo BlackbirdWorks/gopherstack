@@ -51,6 +51,51 @@ func (b *InMemoryBackend) ConfigSetCount() int {
 	return len(b.configSets)
 }
 
+// ReceiptRuleSetCount returns the number of stored receipt rule sets.
+func (b *InMemoryBackend) ReceiptRuleSetCount() int {
+	b.mu.RLock("ReceiptRuleSetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.receiptRuleSets)
+}
+
+// ReceiptFilterCount returns the number of stored receipt filters.
+func (b *InMemoryBackend) ReceiptFilterCount() int {
+	b.mu.RLock("ReceiptFilterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.receiptFilters)
+}
+
+// EventDestinationCount returns the total number of stored event destinations across all config sets.
+func (b *InMemoryBackend) EventDestinationCount() int {
+	b.mu.RLock("EventDestinationCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, dests := range b.eventDestinations {
+		total += len(dests)
+	}
+
+	return total
+}
+
+// TrackingOptionsCount returns the number of configuration sets with tracking options.
+func (b *InMemoryBackend) TrackingOptionsCount() int {
+	b.mu.RLock("TrackingOptionsCount")
+	defer b.mu.RUnlock()
+
+	return len(b.trackingOptions)
+}
+
+// CustomVerifTemplateCount returns the number of custom verification email templates.
+func (b *InMemoryBackend) CustomVerifTemplateCount() int {
+	b.mu.RLock("CustomVerifTemplateCount")
+	defer b.mu.RUnlock()
+
+	return len(b.customVerifTemplates)
+}
+
 // SetEmailTTL overrides the email TTL — useful for tests that need fast expiry.
 func (b *InMemoryBackend) SetEmailTTL(d time.Duration) {
 	b.mu.Lock("SetEmailTTL")
@@ -90,7 +135,51 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 // GetEmailTTL returns the email TTL configured on the handler's backend.
 // Used in provider tests to verify that the TTL is passed through correctly.
 func (h *Handler) GetEmailTTL() time.Duration {
-	return h.Backend.GetEmailTTL()
+	if ib, ok := h.Backend.(*InMemoryBackend); ok {
+		return ib.GetEmailTTL()
+	}
+
+	return 0
+}
+
+// HandlerOpsLen returns the number of operations in GetSupportedOperations().
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}
+
+// AddReceiptRuleSetInternal adds a receipt rule set directly for test seeding.
+func (b *InMemoryBackend) AddReceiptRuleSetInternal(rs ReceiptRuleSet) {
+	b.mu.Lock("AddReceiptRuleSetInternal")
+	defer b.mu.Unlock()
+	r := rs
+	if r.Rules == nil {
+		r.Rules = []ReceiptRule{}
+	}
+	b.receiptRuleSets[rs.Name] = &r
+}
+
+// AddReceiptFilterInternal adds a receipt filter directly for test seeding.
+func (b *InMemoryBackend) AddReceiptFilterInternal(f ReceiptFilter) {
+	b.mu.Lock("AddReceiptFilterInternal")
+	defer b.mu.Unlock()
+	fc := f
+	b.receiptFilters[f.Name] = &fc
+}
+
+// AddCustomVerifTemplateInternal adds a custom verification email template for test seeding.
+func (b *InMemoryBackend) AddCustomVerifTemplateInternal(t CustomVerificationEmailTemplate) {
+	b.mu.Lock("AddCustomVerifTemplateInternal")
+	defer b.mu.Unlock()
+	tc := t
+	b.customVerifTemplates[t.TemplateName] = &tc
+}
+
+// ActiveRuleSet returns the name of the currently active rule set.
+func (b *InMemoryBackend) ActiveRuleSet() string {
+	b.mu.RLock("ActiveRuleSet")
+	defer b.mu.RUnlock()
+
+	return b.activeRuleSet
 }
 
 // BackdateEmailForTest sets the Timestamp of the email at index i to the given time.

@@ -2,15 +2,22 @@ package ses
 
 import (
 	"encoding/json"
+	"log/slog"
 	"maps"
 	"time"
 )
 
 type backendSnapshot struct {
-	Identities map[string]bool          `json:"identities"`
-	Templates  map[string]EmailTemplate `json:"templates"`
-	ConfigSets map[string]struct{}      `json:"configSets"`
-	Emails     []Email                  `json:"emails"`
+	Identities           map[string]bool                             `json:"identities"`
+	Templates            map[string]EmailTemplate                    `json:"templates"`
+	ConfigSets           map[string]struct{}                         `json:"configSets"`
+	ReceiptRuleSets      map[string]*ReceiptRuleSet                  `json:"receiptRuleSets"`
+	ReceiptFilters       map[string]*ReceiptFilter                   `json:"receiptFilters"`
+	EventDestinations    map[string]map[string]*EventDestination     `json:"eventDestinations"`
+	TrackingOptions      map[string]*TrackingOptions                 `json:"trackingOptions"`
+	CustomVerifTemplates map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
+	ActiveRuleSet        string                                      `json:"activeRuleSet,omitempty"`
+	Emails               []Email                                     `json:"emails"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -31,15 +38,57 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	cfgs := make(map[string]struct{}, len(b.configSets))
 	maps.Copy(cfgs, b.configSets)
 
+	ruleSets := make(map[string]*ReceiptRuleSet, len(b.receiptRuleSets))
+	for k, rs := range b.receiptRuleSets {
+		clone := cloneReceiptRuleSet(rs)
+		ruleSets[k] = &clone
+	}
+
+	filters := make(map[string]*ReceiptFilter, len(b.receiptFilters))
+	for k, f := range b.receiptFilters {
+		fc := *f
+		filters[k] = &fc
+	}
+
+	evtDests := make(map[string]map[string]*EventDestination, len(b.eventDestinations))
+	for csName, dests := range b.eventDestinations {
+		destCopy := make(map[string]*EventDestination, len(dests))
+		for k, d := range dests {
+			dc := *d
+			destCopy[k] = &dc
+		}
+		evtDests[csName] = destCopy
+	}
+
+	trackOpts := make(map[string]*TrackingOptions, len(b.trackingOptions))
+	for k, t := range b.trackingOptions {
+		tc := *t
+		trackOpts[k] = &tc
+	}
+
+	custTmpls := make(map[string]*CustomVerificationEmailTemplate, len(b.customVerifTemplates))
+	for k, t := range b.customVerifTemplates {
+		tc := *t
+		custTmpls[k] = &tc
+	}
+
 	snap := backendSnapshot{
-		Identities: ids,
-		Emails:     emails,
-		Templates:  tmpls,
-		ConfigSets: cfgs,
+		Identities:           ids,
+		Emails:               emails,
+		Templates:            tmpls,
+		ConfigSets:           cfgs,
+		ReceiptRuleSets:      ruleSets,
+		ReceiptFilters:       filters,
+		EventDestinations:    evtDests,
+		TrackingOptions:      trackOpts,
+		CustomVerifTemplates: custTmpls,
+		ActiveRuleSet:        b.activeRuleSet,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("ses: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -58,25 +107,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Identities == nil {
-		snap.Identities = make(map[string]bool)
-	}
-
-	if snap.Emails == nil {
-		snap.Emails = []Email{}
-	}
-
-	if snap.Templates == nil {
-		snap.Templates = make(map[string]EmailTemplate)
-	}
-
-	if snap.ConfigSets == nil {
-		snap.ConfigSets = make(map[string]struct{})
-	}
+	ensureNonNilMaps(&snap)
 
 	b.identities = snap.Identities
 	b.templates = snap.Templates
 	b.configSets = snap.ConfigSets
+	b.receiptRuleSets = snap.ReceiptRuleSets
+	b.receiptFilters = snap.ReceiptFilters
+	b.eventDestinations = snap.EventDestinations
+	b.trackingOptions = snap.TrackingOptions
+	b.customVerifTemplates = snap.CustomVerifTemplates
+	b.activeRuleSet = snap.ActiveRuleSet
 
 	// Drop emails outside the current TTL window and cap to maxRetainedEmails
 	// so that memory is bounded immediately after restore.
@@ -114,4 +155,34 @@ func (h *Handler) Snapshot() []byte {
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error {
 	return h.Backend.Restore(data)
+}
+
+func ensureNonNilMaps(snap *backendSnapshot) {
+	if snap.Identities == nil {
+		snap.Identities = make(map[string]bool)
+	}
+	if snap.Emails == nil {
+		snap.Emails = []Email{}
+	}
+	if snap.Templates == nil {
+		snap.Templates = make(map[string]EmailTemplate)
+	}
+	if snap.ConfigSets == nil {
+		snap.ConfigSets = make(map[string]struct{})
+	}
+	if snap.ReceiptRuleSets == nil {
+		snap.ReceiptRuleSets = make(map[string]*ReceiptRuleSet)
+	}
+	if snap.ReceiptFilters == nil {
+		snap.ReceiptFilters = make(map[string]*ReceiptFilter)
+	}
+	if snap.EventDestinations == nil {
+		snap.EventDestinations = make(map[string]map[string]*EventDestination)
+	}
+	if snap.TrackingOptions == nil {
+		snap.TrackingOptions = make(map[string]*TrackingOptions)
+	}
+	if snap.CustomVerifTemplates == nil {
+		snap.CustomVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
+	}
 }
