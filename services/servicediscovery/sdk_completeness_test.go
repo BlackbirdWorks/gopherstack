@@ -17,15 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := servicediscovery.NewInMemoryBackend("000000000000", "us-east-1")
 	h := servicediscovery.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &servicediscoverysdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteServiceAttributes",
-		"DiscoverInstancesRevision",
-		"GetServiceAttributes",
-		"UpdateHttpNamespace",
-		"UpdateInstanceCustomHealthStatus",
-		"UpdatePrivateDnsNamespace",
-		"UpdatePublicDnsNamespace",
-		"UpdateService",
-		"UpdateServiceAttributes",
-	})
+	sdkcheck.CheckCompleteness(t, &servicediscoverysdk.Client{}, h.GetSupportedOperations(), []string{})
 }

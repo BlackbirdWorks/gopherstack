@@ -21,6 +21,10 @@ var (
 	ErrOperationNotFound = awserr.New("OperationNotFound", awserr.ErrNotFound)
 	// ErrNamespaceAlreadyExists is returned when a namespace with the same name already exists.
 	ErrNamespaceAlreadyExists = awserr.New("NamespaceAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrServiceAttributesNotFound is returned when no attributes exist for a service.
+	ErrServiceAttributesNotFound = awserr.New("ServiceAttributesNotFound", awserr.ErrNotFound)
+	// ErrInvalidInput is returned when an input value is invalid.
+	ErrInvalidInput = awserr.New("InvalidInput", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -32,6 +36,11 @@ const (
 
 	operationTypeCreateNamespace = "CREATE_NAMESPACE"
 	operationTypeDeleteNamespace = "DELETE_NAMESPACE"
+	operationTypeUpdateNamespace = "UPDATE_NAMESPACE"
+	operationTypeUpdateService   = "UPDATE_SERVICE"
+
+	instanceHealthStatusHealthy   = "HEALTHY"
+	instanceHealthStatusUnhealthy = "UNHEALTHY"
 )
 
 // Namespace represents an AWS Cloud Map namespace.
@@ -74,35 +83,40 @@ type Operation struct {
 
 // InMemoryBackend is the in-memory Cloud Map backend.
 type InMemoryBackend struct {
-	namespaces  map[string]*Namespace
-	services    map[string]*Service
-	instances   map[string]*Instance
-	operations  map[string]*Operation
-	nsARNIndex  map[string]string // ARN → namespace ID
-	svcARNIndex map[string]string // ARN → service ID
-	nsNameIndex map[string]string // name → namespace ID
-	mu          *lockmetrics.RWMutex
-	accountID   string
-	region      string
-	nsCounter   int
-	svcCounter  int
-	instCounter int
-	opCounter   int
+	namespaces             map[string]*Namespace
+	services               map[string]*Service
+	instances              map[string]*Instance
+	operations             map[string]*Operation
+	serviceAttributes      map[string]map[string]string // service ID → attributes
+	instanceHealthStatuses map[string]string            // instanceKey → health status
+	nsARNIndex             map[string]string            // ARN → namespace ID
+	svcARNIndex            map[string]string            // ARN → service ID
+	nsNameIndex            map[string]string            // name → namespace ID
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
+	nsCounter              int
+	svcCounter             int
+	instCounter            int
+	opCounter              int
+	revisionCounter        int64
 }
 
 // NewInMemoryBackend creates a new in-memory Cloud Map backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		namespaces:  make(map[string]*Namespace),
-		services:    make(map[string]*Service),
-		instances:   make(map[string]*Instance),
-		operations:  make(map[string]*Operation),
-		nsARNIndex:  make(map[string]string),
-		svcARNIndex: make(map[string]string),
-		nsNameIndex: make(map[string]string),
-		mu:          lockmetrics.New("servicediscovery"),
-		accountID:   accountID,
-		region:      region,
+		namespaces:             make(map[string]*Namespace),
+		services:               make(map[string]*Service),
+		instances:              make(map[string]*Instance),
+		operations:             make(map[string]*Operation),
+		serviceAttributes:      make(map[string]map[string]string),
+		instanceHealthStatuses: make(map[string]string),
+		nsARNIndex:             make(map[string]string),
+		svcARNIndex:            make(map[string]string),
+		nsNameIndex:            make(map[string]string),
+		mu:                     lockmetrics.New("servicediscovery"),
+		accountID:              accountID,
+		region:                 region,
 	}
 }
 
@@ -190,10 +204,12 @@ func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 		if svc.NamespaceID == id {
 			delete(b.svcARNIndex, svc.ARN)
 			delete(b.services, svcID)
+			delete(b.serviceAttributes, svcID)
 
 			for instKey := range b.instances {
 				if len(instKey) > len(svcID) && instKey[:len(svcID)] == svcID {
 					delete(b.instances, instKey)
+					delete(b.instanceHealthStatuses, instKey)
 				}
 			}
 		}
@@ -297,11 +313,13 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 
 	delete(b.svcARNIndex, svc.ARN)
 	delete(b.services, id)
+	delete(b.serviceAttributes, id)
 
 	// Cascade delete all instances for this service.
 	for instKey := range b.instances {
 		if len(instKey) > len(id) && instKey[:len(id)] == id {
 			delete(b.instances, instKey)
+			delete(b.instanceHealthStatuses, instKey)
 		}
 	}
 
@@ -366,6 +384,8 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 		Attributes: copyAttrs(attrs),
 	}
 
+	b.revisionCounter++
+
 	return nil
 }
 
@@ -380,6 +400,9 @@ func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) error
 	}
 
 	delete(b.instances, key)
+	delete(b.instanceHealthStatuses, key)
+
+	b.revisionCounter++
 
 	return nil
 }
@@ -572,6 +595,186 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	return fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)
 }
 
+// UpdateHTTPNamespace updates the description of an HTTP namespace.
+func (b *InMemoryBackend) UpdateHTTPNamespace(id, description string) (string, error) {
+	return b.updateNamespace(id, namespaceTypeHTTP, description)
+}
+
+// UpdatePrivateDNSNamespace updates the description of a private DNS namespace.
+func (b *InMemoryBackend) UpdatePrivateDNSNamespace(id, description string) (string, error) {
+	return b.updateNamespace(id, namespaceTypeDNSPrivate, description)
+}
+
+// UpdatePublicDNSNamespace updates the description of a public DNS namespace.
+func (b *InMemoryBackend) UpdatePublicDNSNamespace(id, description string) (string, error) {
+	return b.updateNamespace(id, namespaceTypeDNSPublic, description)
+}
+
+// updateNamespace is the internal helper for namespace update operations.
+func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (string, error) {
+	b.mu.Lock("updateNamespace")
+	defer b.mu.Unlock()
+
+	ns, ok := b.namespaces[id]
+	if !ok {
+		return "", fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
+	}
+
+	if ns.Type != nsType {
+		return "", fmt.Errorf("%w: namespace %s is not of type %s", ErrInvalidInput, id, nsType)
+	}
+
+	ns.Description = description
+
+	b.opCounter++
+	opID := fmt.Sprintf("op-%08d", b.opCounter)
+
+	b.operations[opID] = &Operation{
+		ID:         opID,
+		Type:       operationTypeUpdateNamespace,
+		Status:     operationStatusSuccess,
+		TargetID:   id,
+		TargetType: "NAMESPACE",
+	}
+
+	return opID, nil
+}
+
+// UpdateService updates the description of a service.
+func (b *InMemoryBackend) UpdateService(id, description string) (*Service, error) {
+	b.mu.Lock("UpdateService")
+	defer b.mu.Unlock()
+
+	svc, ok := b.services[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
+	}
+
+	svc.Description = description
+
+	b.opCounter++
+	opID := fmt.Sprintf("op-%08d", b.opCounter)
+
+	b.operations[opID] = &Operation{
+		ID:         opID,
+		Type:       operationTypeUpdateService,
+		Status:     operationStatusSuccess,
+		TargetID:   id,
+		TargetType: "SERVICE",
+	}
+
+	cp := *svc
+	cp.Tags = copyTags(svc.Tags)
+
+	return &cp, nil
+}
+
+// GetServiceAttributes returns the custom attributes for a service.
+func (b *InMemoryBackend) GetServiceAttributes(serviceID string) (string, map[string]string, error) {
+	b.mu.RLock("GetServiceAttributes")
+	defer b.mu.RUnlock()
+
+	svc, ok := b.services[serviceID]
+	if !ok {
+		return "", nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	attrs, ok := b.serviceAttributes[serviceID]
+	if !ok {
+		return "", nil, fmt.Errorf("%w: no attributes found for service %s", ErrServiceAttributesNotFound, serviceID)
+	}
+
+	return svc.ARN, copyAttrs(attrs), nil
+}
+
+// UpdateServiceAttributes sets or merges custom attributes for a service identified by ARN.
+func (b *InMemoryBackend) UpdateServiceAttributes(serviceARN string, attributes map[string]string) error {
+	b.mu.Lock("UpdateServiceAttributes")
+	defer b.mu.Unlock()
+
+	svcID, ok := b.svcARNIndex[serviceARN]
+	if !ok {
+		return fmt.Errorf("%w: service with ARN %s not found", ErrServiceNotFound, serviceARN)
+	}
+
+	existing := b.serviceAttributes[svcID]
+	if existing == nil {
+		existing = make(map[string]string)
+	}
+
+	maps.Copy(existing, attributes)
+
+	b.serviceAttributes[svcID] = existing
+
+	return nil
+}
+
+// DeleteServiceAttributes removes all custom attributes for a service.
+func (b *InMemoryBackend) DeleteServiceAttributes(serviceID string) error {
+	b.mu.Lock("DeleteServiceAttributes")
+	defer b.mu.Unlock()
+
+	if _, ok := b.services[serviceID]; !ok {
+		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	delete(b.serviceAttributes, serviceID)
+
+	return nil
+}
+
+// UpdateInstanceCustomHealthStatus sets a custom health status for an instance.
+func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID, status string) error {
+	b.mu.Lock("UpdateInstanceCustomHealthStatus")
+	defer b.mu.Unlock()
+
+	if status != instanceHealthStatusHealthy && status != instanceHealthStatusUnhealthy {
+		return fmt.Errorf(
+			"%w: status must be %s or %s",
+			ErrInvalidInput,
+			instanceHealthStatusHealthy,
+			instanceHealthStatusUnhealthy,
+		)
+	}
+
+	key := instanceKey(serviceID, instanceID)
+	if _, ok := b.instances[key]; !ok {
+		return fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
+	}
+
+	b.instanceHealthStatuses[key] = status
+
+	return nil
+}
+
+// DiscoverInstancesRevision returns the current revision number for instance discovery
+// in the given namespace/service combination, incremented each time instances change.
+func (b *InMemoryBackend) DiscoverInstancesRevision(namespaceName, serviceName string) (int64, error) {
+	b.mu.RLock("DiscoverInstancesRevision")
+	defer b.mu.RUnlock()
+
+	nsID, ok := b.nsNameIndex[namespaceName]
+	if !ok {
+		return 0, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceName)
+	}
+
+	var found bool
+
+	for _, svc := range b.services {
+		if svc.NamespaceID == nsID && svc.Name == serviceName {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return 0, fmt.Errorf("%w: service %s not found in namespace %s", ErrServiceNotFound, serviceName, namespaceName)
+	}
+
+	return b.revisionCounter, nil
+}
+
 // instanceKey creates a unique key for storing instances.
 func instanceKey(serviceID, instanceID string) string {
 	return serviceID + "/" + instanceID
@@ -604,6 +807,8 @@ func (b *InMemoryBackend) Reset() {
 	b.services = make(map[string]*Service)
 	b.instances = make(map[string]*Instance)
 	b.operations = make(map[string]*Operation)
+	b.serviceAttributes = make(map[string]map[string]string)
+	b.instanceHealthStatuses = make(map[string]string)
 	b.nsARNIndex = make(map[string]string)
 	b.svcARNIndex = make(map[string]string)
 	b.nsNameIndex = make(map[string]string)
@@ -611,4 +816,5 @@ func (b *InMemoryBackend) Reset() {
 	b.svcCounter = 0
 	b.instCounter = 0
 	b.opCounter = 0
+	b.revisionCounter = 0
 }

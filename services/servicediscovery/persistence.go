@@ -1,18 +1,25 @@
 package servicediscovery
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"log/slog"
+)
 
 type backendSnapshot struct {
-	Namespaces  map[string]*Namespace `json:"namespaces"`
-	Services    map[string]*Service   `json:"services"`
-	Instances   map[string]*Instance  `json:"instances"`
-	Operations  map[string]*Operation `json:"operations"`
-	AccountID   string                `json:"accountID"`
-	Region      string                `json:"region"`
-	NsCounter   int                   `json:"nsCounter"`
-	SvcCounter  int                   `json:"svcCounter"`
-	InstCounter int                   `json:"instCounter"`
-	OpCounter   int                   `json:"opCounter"`
+	Namespaces             map[string]*Namespace        `json:"namespaces"`
+	Services               map[string]*Service          `json:"services"`
+	Instances              map[string]*Instance         `json:"instances"`
+	Operations             map[string]*Operation        `json:"operations"`
+	ServiceAttributes      map[string]map[string]string `json:"serviceAttributes"`
+	InstanceHealthStatuses map[string]string            `json:"instanceHealthStatuses"`
+	AccountID              string                       `json:"accountID"`
+	Region                 string                       `json:"region"`
+	NsCounter              int                          `json:"nsCounter"`
+	SvcCounter             int                          `json:"svcCounter"`
+	InstCounter            int                          `json:"instCounter"`
+	OpCounter              int                          `json:"opCounter"`
+	RevisionCounter        int64                        `json:"revisionCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -21,20 +28,25 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Namespaces:  b.namespaces,
-		Services:    b.services,
-		Instances:   b.instances,
-		Operations:  b.operations,
-		AccountID:   b.accountID,
-		Region:      b.region,
-		NsCounter:   b.nsCounter,
-		SvcCounter:  b.svcCounter,
-		InstCounter: b.instCounter,
-		OpCounter:   b.opCounter,
+		Namespaces:             b.namespaces,
+		Services:               b.services,
+		Instances:              b.instances,
+		Operations:             b.operations,
+		ServiceAttributes:      b.serviceAttributes,
+		InstanceHealthStatuses: b.instanceHealthStatuses,
+		AccountID:              b.accountID,
+		Region:                 b.region,
+		NsCounter:              b.nsCounter,
+		SvcCounter:             b.svcCounter,
+		InstCounter:            b.instCounter,
+		OpCounter:              b.opCounter,
+		RevisionCounter:        b.revisionCounter,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("servicediscovery: snapshot marshal failed", "error", err)
+
 		return nil
 	}
 
@@ -68,16 +80,27 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Operations = make(map[string]*Operation)
 	}
 
+	if snap.ServiceAttributes == nil {
+		snap.ServiceAttributes = make(map[string]map[string]string)
+	}
+
+	if snap.InstanceHealthStatuses == nil {
+		snap.InstanceHealthStatuses = make(map[string]string)
+	}
+
 	b.namespaces = snap.Namespaces
 	b.services = snap.Services
 	b.instances = snap.Instances
 	b.operations = snap.Operations
+	b.serviceAttributes = snap.ServiceAttributes
+	b.instanceHealthStatuses = snap.InstanceHealthStatuses
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.nsCounter = snap.NsCounter
 	b.svcCounter = snap.SvcCounter
 	b.instCounter = snap.InstCounter
 	b.opCounter = snap.OpCounter
+	b.revisionCounter = snap.RevisionCounter
 
 	b.nsARNIndex = make(map[string]string, len(b.namespaces))
 	b.nsNameIndex = make(map[string]string, len(b.namespaces))
