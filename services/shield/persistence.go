@@ -3,7 +3,6 @@ package shield
 import (
 	"encoding/json"
 	"log/slog"
-	"maps"
 )
 
 type backendSnapshot struct {
@@ -50,7 +49,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	attacksCopy := make(map[string]*Attack, len(b.attacks))
-	maps.Copy(attacksCopy, b.attacks)
+
+	for k, a := range b.attacks {
+		cp := *a
+		attacksCopy[k] = &cp
+	}
 
 	var drtCopy *DRTAccess
 	if b.drtAccess != nil {
