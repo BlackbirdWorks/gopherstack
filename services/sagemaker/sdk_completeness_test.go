@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 	h := sagemaker.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &sagemakersdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddAssociation",
-		"AssociateTrialComponent",
-		"AttachClusterNodeVolume",
-		"BatchAddClusterNodes",
-		"BatchDeleteClusterNodes",
-		"BatchDescribeModelPackage",
-		"BatchRebootClusterNodes",
-		"BatchReplaceClusterNodes",
-		"CreateAction",
-		"CreateAlgorithm",
 		"CreateApp",
 		"CreateAppImageConfig",
 		"CreateArtifact",

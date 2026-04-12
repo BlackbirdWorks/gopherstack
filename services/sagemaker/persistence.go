@@ -1,0 +1,241 @@
+package sagemaker
+
+import (
+	"encoding/json"
+	"log/slog"
+	"time"
+)
+
+// persistedCluster is a serialisable version of Cluster that includes Nodes.
+type persistedCluster struct {
+	CreationTime  string                  `json:"CreationTime"`
+	Nodes         map[string]*ClusterNode `json:"Nodes"`
+	ClusterArn    string                  `json:"ClusterArn"`
+	ClusterName   string                  `json:"ClusterName"`
+	ClusterStatus string                  `json:"ClusterStatus"`
+}
+
+// backendSnapshot holds the serialisable state of InMemoryBackend.
+type backendSnapshot struct {
+	Models                     map[string]*Model                     `json:"models"`
+	EndpointConfigs            map[string]*EndpointConfig            `json:"endpointConfigs"`
+	Associations               map[string]*Association               `json:"associations"`
+	TrialComponentAssociations map[string]*TrialComponentAssociation `json:"trialComponentAssociations"`
+	Actions                    map[string]*Action                    `json:"actions"`
+	Algorithms                 map[string]*Algorithm                 `json:"algorithms"`
+	Clusters                   map[string]*persistedCluster          `json:"clusters"`
+	ModelPackages              map[string]*ModelPackage              `json:"modelPackages"`
+	AccountID                  string                                `json:"accountID"`
+	Region                     string                                `json:"region"`
+}
+
+// Snapshot serialises the backend state to JSON.
+func (b *InMemoryBackend) Snapshot() []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	clusters := make(map[string]*persistedCluster, len(b.clusters))
+
+	for k, c := range b.clusters {
+		pc := &persistedCluster{
+			CreationTime:  c.CreationTime.Format("2006-01-02T15:04:05Z07:00"),
+			ClusterArn:    c.ClusterArn,
+			ClusterName:   c.ClusterName,
+			ClusterStatus: c.ClusterStatus,
+			Nodes:         make(map[string]*ClusterNode, len(c.Nodes)),
+		}
+
+		for nk, nv := range c.Nodes {
+			nodeCopy := *nv
+			pc.Nodes[nk] = &nodeCopy
+		}
+
+		clusters[k] = pc
+	}
+
+	snap := backendSnapshot{
+		Models:                     b.models,
+		EndpointConfigs:            b.endpointConfigs,
+		Associations:               b.associations,
+		TrialComponentAssociations: b.trialComponentAssociations,
+		Actions:                    b.actions,
+		Algorithms:                 b.algorithms,
+		Clusters:                   clusters,
+		ModelPackages:              b.modelPackages,
+		AccountID:                  b.accountID,
+		Region:                     b.region,
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("sagemaker: failed to marshal snapshot", "error", err)
+
+		return nil
+	}
+
+	return data
+}
+
+// Restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	ensureNonNilMaps(&snap)
+	fixNilTagMaps(&snap)
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	b.models = snap.Models
+	b.endpointConfigs = snap.EndpointConfigs
+	b.associations = snap.Associations
+	b.trialComponentAssociations = snap.TrialComponentAssociations
+	b.actions = snap.Actions
+	b.algorithms = snap.Algorithms
+	b.modelPackages = snap.ModelPackages
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	// Restore clusters, converting persistedCluster back to Cluster.
+	b.clusters = make(map[string]*Cluster, len(snap.Clusters))
+
+	for k, pc := range snap.Clusters {
+		t, err := time.Parse("2006-01-02T15:04:05Z07:00", pc.CreationTime)
+		if err != nil {
+			slog.Default().Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
+		}
+		c := &Cluster{
+			ClusterArn:    pc.ClusterArn,
+			ClusterName:   pc.ClusterName,
+			ClusterStatus: pc.ClusterStatus,
+			CreationTime:  t,
+			Nodes:         make(map[string]*ClusterNode, len(pc.Nodes)),
+		}
+
+		for nk, nv := range pc.Nodes {
+			nodeCopy := *nv
+			c.Nodes[nk] = &nodeCopy
+		}
+
+		b.clusters[k] = c
+	}
+
+	// Rebuild ARN indexes.
+	b.modelARNIndex = make(map[string]string, len(b.models))
+
+	for name, m := range b.models {
+		b.modelARNIndex[m.ModelARN] = name
+	}
+
+	b.endpointConfigARNIndex = make(map[string]string, len(b.endpointConfigs))
+
+	for name, ec := range b.endpointConfigs {
+		b.endpointConfigARNIndex[ec.EndpointConfigARN] = name
+	}
+
+	b.actionARNIndex = make(map[string]string, len(b.actions))
+
+	for name, a := range b.actions {
+		b.actionARNIndex[a.ActionArn] = name
+	}
+
+	b.algorithmARNIndex = make(map[string]string, len(b.algorithms))
+
+	for name, al := range b.algorithms {
+		b.algorithmARNIndex[al.AlgorithmArn] = name
+	}
+
+	b.clusterARNIndex = make(map[string]string, len(b.clusters))
+
+	for name, c := range b.clusters {
+		b.clusterARNIndex[c.ClusterArn] = name
+	}
+
+	b.modelPackageARNIndex = make(map[string]string, len(b.modelPackages))
+
+	for arnStr := range b.modelPackages {
+		b.modelPackageARNIndex[arnStr] = arnStr
+	}
+
+	return nil
+}
+
+func ensureNonNilMaps(snap *backendSnapshot) {
+	if snap.Models == nil {
+		snap.Models = make(map[string]*Model)
+	}
+
+	if snap.EndpointConfigs == nil {
+		snap.EndpointConfigs = make(map[string]*EndpointConfig)
+	}
+
+	if snap.Associations == nil {
+		snap.Associations = make(map[string]*Association)
+	}
+
+	if snap.TrialComponentAssociations == nil {
+		snap.TrialComponentAssociations = make(map[string]*TrialComponentAssociation)
+	}
+
+	if snap.Actions == nil {
+		snap.Actions = make(map[string]*Action)
+	}
+
+	if snap.Algorithms == nil {
+		snap.Algorithms = make(map[string]*Algorithm)
+	}
+
+	if snap.Clusters == nil {
+		snap.Clusters = make(map[string]*persistedCluster)
+	}
+
+	if snap.ModelPackages == nil {
+		snap.ModelPackages = make(map[string]*ModelPackage)
+	}
+}
+
+func fixNilTagMaps(snap *backendSnapshot) {
+	for _, m := range snap.Models {
+		if m.Tags == nil {
+			m.Tags = make(map[string]string)
+		}
+	}
+
+	for _, ec := range snap.EndpointConfigs {
+		if ec.Tags == nil {
+			ec.Tags = make(map[string]string)
+		}
+	}
+
+	for _, a := range snap.Actions {
+		if a.Tags == nil {
+			a.Tags = make(map[string]string)
+		}
+	}
+
+	for _, al := range snap.Algorithms {
+		if al.Tags == nil {
+			al.Tags = make(map[string]string)
+		}
+	}
+
+	for _, mp := range snap.ModelPackages {
+		if mp.Tags == nil {
+			mp.Tags = make(map[string]string)
+		}
+	}
+}
+
+// Snapshot implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Snapshot() []byte {
+	return h.Backend.Snapshot()
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(data []byte) error {
+	return h.Backend.Restore(data)
+}
