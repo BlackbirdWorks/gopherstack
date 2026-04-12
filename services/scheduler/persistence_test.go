@@ -26,7 +26,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			setup: func(b *scheduler.InMemoryBackend) string {
 				sched, err := b.CreateSchedule(
 					"test-schedule",
+					"",
 					"rate(1 minute)",
+					"",
+					"",
 					scheduler.Target{
 						ARN:     "arn:aws:lambda:us-east-1:000000000000:function:test",
 						RoleARN: "arn:aws:iam::000000000000:role/test",
@@ -43,7 +46,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *scheduler.InMemoryBackend, id string) {
 				t.Helper()
 
-				sched, err := b.GetSchedule(id)
+				sched, err := b.GetSchedule(id, "")
 				require.NoError(t, err)
 				assert.Equal(t, id, sched.Name)
 				assert.Equal(t, "rate(1 minute)", sched.ScheduleExpression)
@@ -54,7 +57,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			setup: func(b *scheduler.InMemoryBackend) string {
 				sched, err := b.CreateSchedule(
 					"idx-schedule",
+					"",
 					"rate(5 minutes)",
+					"",
+					"",
 					scheduler.Target{
 						ARN:     "arn:aws:lambda:us-east-1:000000000000:function:idx",
 						RoleARN: "arn:aws:iam::000000000000:role/idx",
@@ -86,7 +92,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *scheduler.InMemoryBackend, _ string) {
 				t.Helper()
 
-				schedules := b.ListSchedules()
+				schedules := b.ListSchedules("", "", "")
 				assert.Empty(t, schedules)
 			},
 		},
@@ -126,7 +132,10 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 
 	_, err := backend.CreateSchedule(
 		"snap-schedule",
+		"",
 		"rate(5 minutes)",
+		"",
+		"",
 		scheduler.Target{
 			ARN:     "arn:aws:lambda:us-east-1:000000000000:function:test",
 			RoleARN: "arn:aws:iam::000000000000:role/test",
@@ -143,7 +152,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	freshH := scheduler.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	schedules := fresh.ListSchedules()
+	schedules := fresh.ListSchedules("", "", "")
 	assert.Len(t, schedules, 1)
 }
 

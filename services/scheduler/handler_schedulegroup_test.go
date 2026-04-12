@@ -444,18 +444,21 @@ func TestSchedulerBackend_Reset(t *testing.T) {
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateSchedule("s1", "rate(1 minute)",
+	_, err := b.CreateSchedule("s1", "",
+		"rate(1 minute)",
+		"",
+		"",
 		scheduler.Target{ARN: "arn:a", RoleARN: "arn:r"},
 		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"})
 	require.NoError(t, err)
 
-	_, err = b.CreateScheduleGroup("g1", nil)
+	_, err = b.CreateScheduleGroup("g1", "", nil)
 	require.NoError(t, err)
 
 	b.Reset()
 
-	assert.Empty(t, b.ListSchedules())
-	groups := b.ListScheduleGroups()
+	assert.Empty(t, b.ListSchedules("", "", ""))
+	groups := b.ListScheduleGroups("")
 	require.Len(t, groups, 1)
 	assert.Equal(t, "default", groups[0].Name)
 }
@@ -465,7 +468,7 @@ func TestSchedulerBackend_SnapshotRestore_ScheduleGroups(t *testing.T) {
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateScheduleGroup("production", map[string]string{"env": "prod"})
+	_, err := b.CreateScheduleGroup("production", "", map[string]string{"env": "prod"})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()

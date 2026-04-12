@@ -25,7 +25,7 @@ type schedulerIndexData struct {
 
 // schedulerIndex renders the Scheduler dashboard index.
 //
-//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
+
 func (h *DashboardHandler) schedulerIndex(c *echo.Context) error {
 	w := c.Response()
 
@@ -59,7 +59,7 @@ client = boto3.client('scheduler', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	schedules := h.SchedulerOps.Backend.ListSchedules()
+	schedules := h.SchedulerOps.Backend.ListSchedules("", "", "")
 	views := make([]schedulerView, 0, len(schedules))
 
 	for _, s := range schedules {
@@ -121,7 +121,10 @@ func (h *DashboardHandler) schedulerCreate(c *echo.Context) error {
 
 	_, err := h.SchedulerOps.Backend.CreateSchedule(
 		name,
+		"",
 		expression,
+		"",
+		"",
 		schedulerbackend.Target{ARN: targetARN, RoleARN: roleARN},
 		"ENABLED",
 		schedulerbackend.FlexibleTimeWindow{Mode: "OFF"},
@@ -150,7 +153,7 @@ func (h *DashboardHandler) schedulerDelete(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if err := h.SchedulerOps.Backend.DeleteSchedule(name); err != nil {
+	if err := h.SchedulerOps.Backend.DeleteSchedule(name, ""); err != nil {
 		h.Logger.Error("failed to delete schedule", "name", name, "error", err)
 
 		return c.NoContent(http.StatusNotFound)

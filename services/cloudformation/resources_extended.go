@@ -1080,7 +1080,10 @@ func (rc *ResourceCreator) createSchedulerSchedule(
 
 	sched, err := rc.backends.Scheduler.Backend.CreateSchedule(
 		name,
+		"",
 		scheduleExpression,
+		"",
+		"",
 		target,
 		state,
 		schedulerbackend.FlexibleTimeWindow{Mode: "OFF"},
@@ -1099,7 +1102,7 @@ func (rc *ResourceCreator) deleteSchedulerSchedule(arn string) error {
 
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.Scheduler.Backend.DeleteSchedule(name)
+	return rc.backends.Scheduler.Backend.DeleteSchedule(name, "")
 }
 
 // ---- helpers ----

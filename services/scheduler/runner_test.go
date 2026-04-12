@@ -88,7 +88,10 @@ func newTestBackendWithSchedule(t *testing.T, name, expr, targetARN, state strin
 	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := backend.CreateSchedule(
 		name,
+		"",
 		expr,
+		"",
+		"",
 		scheduler.Target{ARN: targetARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
 		state,
 		scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -417,7 +420,10 @@ func TestScheduler_Runner_TargetInput(t *testing.T) {
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
 				"custom-input-sched",
+				"",
 				"rate(1 second)",
+				"",
+				"",
 				scheduler.Target{ARN: tt.targetARN, RoleARN: role, Input: customInput},
 				"ENABLED",
 				scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -479,7 +485,10 @@ func TestScheduler_Runner_CronRangeAndStep(t *testing.T) {
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
 				tt.name,
+				"",
 				tt.cronExpr,
+				"",
+				"",
 				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
 				"ENABLED",
 				scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -521,7 +530,7 @@ func TestScheduler_Runner_LastFiredAtCleanup(t *testing.T) {
 	assert.Equal(t, 1, scheduler.LastFiredAtLen(runner), "lastFiredAt should have one entry")
 
 	// Delete the schedule.
-	require.NoError(t, backend.DeleteSchedule("sweep-sched"))
+	require.NoError(t, backend.DeleteSchedule("sweep-sched", ""))
 
 	// Fire again: the stale entry should be swept.
 	scheduler.CheckAndFireSchedules(t.Context(), runner, now.Add(2*time.Second))
@@ -662,7 +671,10 @@ func TestScheduler_Runner_CronMonthAliases(t *testing.T) {
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
 				tt.name+"-sched",
+				"",
 				tt.cronExpr,
+				"",
+				"",
 				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
 				"ENABLED",
 				scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -711,7 +723,10 @@ func TestScheduler_Runner_CronDOWAliases(t *testing.T) {
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
 				tt.name+"-sched",
+				"",
 				tt.cronExpr,
+				"",
+				"",
 				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
 				"ENABLED",
 				scheduler.FlexibleTimeWindow{Mode: "OFF"},
