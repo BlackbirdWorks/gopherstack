@@ -40,6 +40,9 @@ func TestDashboard_ServerlessRepo_Index(t *testing.T) {
 					"",
 					"1.0.0",
 					nil,
+					"",
+					"",
+					"",
 				)
 				require.NoError(t, err)
 			},
@@ -87,7 +90,9 @@ func TestDashboard_ServerlessRepo_Create(t *testing.T) {
 		{
 			name: "create application redirects",
 			formValues: map[string]string{
-				"name": "new-app",
+				"name":        "new-app",
+				"description": "A new application",
+				"author":      "test-author",
 			},
 			wantCode: http.StatusSeeOther,
 		},
@@ -101,7 +106,17 @@ func TestDashboard_ServerlessRepo_Create(t *testing.T) {
 			setup: func(t *testing.T, s *teststack.Stack) {
 				t.Helper()
 
-				_, err := s.ServerlessRepoHandler.Backend.CreateApplication("dup-app", "", "", "", "", nil)
+				_, err := s.ServerlessRepoHandler.Backend.CreateApplication(
+					"dup-app",
+					"desc",
+					"author",
+					"",
+					"",
+					nil,
+					"",
+					"",
+					"",
+				)
 				require.NoError(t, err)
 			},
 			formValues: map[string]string{
@@ -151,7 +166,17 @@ func TestDashboard_ServerlessRepo_Delete(t *testing.T) {
 			setup: func(t *testing.T, s *teststack.Stack) string {
 				t.Helper()
 
-				a, err := s.ServerlessRepoHandler.Backend.CreateApplication("del-app", "", "", "", "", nil)
+				a, err := s.ServerlessRepoHandler.Backend.CreateApplication(
+					"del-app",
+					"desc",
+					"author",
+					"",
+					"",
+					nil,
+					"",
+					"",
+					"",
+				)
 				require.NoError(t, err)
 
 				return a.Name

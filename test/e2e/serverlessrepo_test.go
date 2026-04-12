@@ -22,7 +22,10 @@ func TestServerlessRepoDashboard(t *testing.T) {
 		"test-author",
 		"https://github.com/example/repo",
 		"1.0.0",
-		map[string]string{"Environment": "test"},
+		nil,
+		"",
+		"",
+		"",
 	)
 	require.NoError(t, err)
 

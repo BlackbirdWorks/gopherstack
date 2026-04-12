@@ -17,15 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
 	h := serverlessrepo.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &serverlessreposdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateApplicationVersion",
-		"CreateCloudFormationChangeSet",
-		"CreateCloudFormationTemplate",
-		"GetApplicationPolicy",
-		"GetCloudFormationTemplate",
-		"ListApplicationDependencies",
-		"ListApplicationVersions",
-		"PutApplicationPolicy",
-		"UnshareApplication",
-	})
+	sdkcheck.CheckCompleteness(t, &serverlessreposdk.Client{}, h.GetSupportedOperations(), []string{})
 }
