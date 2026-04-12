@@ -119,6 +119,16 @@ func (h *DashboardHandler) schedulerCreate(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
+	// Use placeholder ARNs when none are provided via the dashboard UI so that
+	// schedules can be created without requiring a real target or role.
+	if targetARN == "" {
+		targetARN = "arn:aws:sqs:us-east-1:000000000000:placeholder-queue"
+	}
+
+	if roleARN == "" {
+		roleARN = "arn:aws:iam::000000000000:role/placeholder-role"
+	}
+
 	_, err := h.SchedulerOps.Backend.CreateSchedule(
 		name,
 		"",

@@ -705,7 +705,29 @@ func TestRefinement2_RouteMatcherHandlesTagsPath(t *testing.T) {
 	assert.True(
 		t,
 		m(makeCtx("/tags/arn:aws:scheduler:us-east-1:123:schedule/default/my-sched")),
-		"/tags/... should match",
+		"/tags/arn:aws:scheduler:... should match",
+	)
+	assert.True(
+		t,
+		m(makeCtx("/tags/arn:aws:scheduler:us-east-1:000000000000:schedule-group/default")),
+		"/tags/arn:aws:scheduler:...:schedule-group/... should match",
+	)
+	// Non-scheduler ARNs must NOT be claimed by the Scheduler route matcher to
+	// avoid intercepting tag requests destined for other services (QLDB, Pipes, FIS, etc.).
+	assert.False(
+		t,
+		m(makeCtx("/tags/arn:aws:qldb:us-east-1:000000000000:ledger/my-ledger")),
+		"/tags/arn:aws:qldb:... should NOT match",
+	)
+	assert.False(
+		t,
+		m(makeCtx("/tags/arn:aws:pipes:us-east-1:000000000000:pipe/my-pipe")),
+		"/tags/arn:aws:pipes:... should NOT match",
+	)
+	assert.False(
+		t,
+		m(makeCtx("/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/abc")),
+		"/tags/arn:aws:fis:... should NOT match",
 	)
 	assert.False(t, m(makeCtx("/tags")), "bare /tags should NOT match")
 	assert.False(t, m(makeCtx("/other/path")), "/other/path should not match")

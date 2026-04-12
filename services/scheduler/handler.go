@@ -157,7 +157,9 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Scheduler requests.
-// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/... , /schedule-groups/... , /tags/...).
+// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/... , /schedule-groups/...).
+// For /tags/{ResourceArn} paths, only matches when the ARN belongs to the Scheduler service
+// (i.e. contains ":scheduler:") to avoid intercepting tag requests destined for other services.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
@@ -166,9 +168,17 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/"+schedulerPathSegment) ||
-			strings.HasPrefix(path, "/"+scheduleGroupPathSegment) ||
-			strings.HasPrefix(path, "/"+schedulerTagsPathSegment+"/")
+		if strings.HasPrefix(path, "/"+schedulerPathSegment) ||
+			strings.HasPrefix(path, "/"+scheduleGroupPathSegment) {
+			return true
+		}
+
+		// Only claim /tags/{ResourceArn} when the ARN is a scheduler-owned resource.
+		if after, ok := strings.CutPrefix(path, "/"+schedulerTagsPathSegment+"/"); ok {
+			return strings.Contains(after, ":scheduler:")
+		}
+
+		return false
 	}
 }
 
