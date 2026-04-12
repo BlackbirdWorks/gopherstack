@@ -39,10 +39,10 @@ func (h *Handler) Name() string { return "Transcribe" }
 // GetSupportedOperations returns the list of supported Transcribe operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"StartTranscriptionJob",
+		"DeleteTranscriptionJob",
 		"GetTranscriptionJob",
 		"ListTranscriptionJobs",
-		"DeleteTranscriptionJob",
+		"StartTranscriptionJob",
 	}
 }
 

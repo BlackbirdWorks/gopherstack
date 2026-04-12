@@ -30,18 +30,19 @@ var (
 
 // Handler is the HTTP handler for the AWS Shield Advanced API.
 type Handler struct {
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Shield handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		Backend: backend,
 	}
+}
+
+// Reset clears all handler state by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -50,15 +51,15 @@ func (h *Handler) Name() string { return "Shield" }
 // GetSupportedOperations returns the list of supported Shield operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CreateProtection",
 		"CreateSubscription",
+		"DeleteProtection",
+		"DescribeProtection",
 		"DescribeSubscription",
 		"GetSubscriptionState",
-		"CreateProtection",
-		"DescribeProtection",
-		"DeleteProtection",
 		"ListProtections",
-		"TagResource",
 		"ListTagsForResource",
+		"TagResource",
 		"UntagResource",
 	}
 }
@@ -70,7 +71,7 @@ func (h *Handler) ChaosServiceName() string { return shieldService }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this handler handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Shield API requests.
 // Requests are identified by the X-Amz-Target header prefix "AWSShield_20160616.".

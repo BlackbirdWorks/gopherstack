@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ssoadmin"
 )
 
@@ -969,6 +970,560 @@ func TestMissingTarget(t *testing.T) {
 
 			resp := parseResponse(t, rec)
 			assert.Equal(t, "UnrecognizedClientException", resp["__type"])
+		})
+	}
+}
+
+func TestBackend_AccountIDAndRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		accountID string
+		region    string
+	}{
+		{name: "standard_account", accountID: "123456789012", region: "us-east-1"},
+		{name: "different_region", accountID: "000000000001", region: "eu-west-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ssoadmin.NewInMemoryBackend(tt.accountID, tt.region)
+			assert.Equal(t, tt.accountID, b.AccountID())
+			assert.Equal(t, tt.region, b.Region())
+		})
+	}
+}
+
+func TestHandler_ChaosMetadata(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{name: "service_name", got: h.ChaosServiceName(), want: "sso"},
+		{name: "region", got: h.ChaosRegions()[0], want: config.DefaultRegion},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.got)
+		})
+	}
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "valid_target", target: "SWBExternalService.ListInstances", want: "ListInstances"},
+		{name: "no_prefix", target: "ListInstances", want: "ListInstances"},
+		{name: "empty", target: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		want string
+	}{
+		{
+			name: "returns_instance_arn",
+			body: map[string]any{"InstanceArn": "arn:aws:sso:::instance/ssoins-abc"},
+			want: "arn:aws:sso:::instance/ssoins-abc",
+		},
+		{
+			name: "empty_body",
+			body: nil,
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			e := echo.New()
+
+			var bodyBytes []byte
+			if tt.body != nil {
+				var err error
+				bodyBytes, err = json.Marshal(tt.body)
+				require.NoError(t, err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestTaggingOnInstance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "tag instance arn succeeds",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			instanceArn := createInstance(t, h, "inst")
+
+			tagRec := doRequest(t, h, "TagResource", map[string]any{
+				"InstanceArn": instanceArn,
+				"ResourceArn": instanceArn,
+				"Tags":        []map[string]string{{"Key": "env", "Value": "test"}},
+			})
+			assert.Equal(t, tt.wantStatus, tagRec.Code)
+
+			untagRec := doRequest(t, h, "UntagResource", map[string]any{
+				"InstanceArn": instanceArn,
+				"ResourceArn": instanceArn,
+				"TagKeys":     []string{"env"},
+			})
+			assert.Equal(t, tt.wantStatus, untagRec.Code)
+
+			listRec := doRequest(t, h, "ListTagsForResource", map[string]any{
+				"InstanceArn": instanceArn,
+				"ResourceArn": instanceArn,
+			})
+			assert.Equal(t, tt.wantStatus, listRec.Code)
+		})
+	}
+}
+
+func TestTagging_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		op         string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name: "tag_resource_not_found",
+			op:   "TagResource",
+			body: map[string]any{
+				"InstanceArn": "arn:aws:sso:::instance/ssoins-notfound",
+				"ResourceArn": "arn:aws:sso:::permissionSet/ssoins-x/notfound",
+				"Tags":        []map[string]string{},
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "untag_resource_not_found",
+			op:   "UntagResource",
+			body: map[string]any{
+				"InstanceArn": "arn:aws:sso:::instance/ssoins-notfound",
+				"ResourceArn": "arn:aws:sso:::permissionSet/ssoins-x/notfound",
+				"TagKeys":     []string{"env"},
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "list_tags_resource_not_found",
+			op:   "ListTagsForResource",
+			body: map[string]any{
+				"InstanceArn": "arn:aws:sso:::instance/ssoins-notfound",
+				"ResourceArn": "arn:aws:sso:::permissionSet/ssoins-x/notfound",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, tt.wantType, resp["__type"])
+		})
+	}
+}
+
+func TestDescribePermissionSetProvisioningStatus_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		requestID  string
+		wantStatus int
+	}{
+		{
+			name:       "non_existent_request_id",
+			requestID:  "nonexistent-request-id",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			instanceArn := createInstance(t, h, "inst")
+
+			rec := doRequest(t, h, "DescribePermissionSetProvisioningStatus", map[string]any{
+				"InstanceArn":                     instanceArn,
+				"ProvisionPermissionSetRequestId": tt.requestID,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+func TestDescribeAccountAssignmentCreationStatus_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		requestID  string
+		wantStatus int
+	}{
+		{
+			name:       "non_existent_request_id",
+			requestID:  "nonexistent-request-id",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			instanceArn := createInstance(t, h, "inst")
+
+			rec := doRequest(t, h, "DescribeAccountAssignmentCreationStatus", map[string]any{
+				"InstanceArn":                        instanceArn,
+				"AccountAssignmentCreationRequestId": tt.requestID,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+func TestDescribeAccountAssignmentDeletionStatus_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		requestID  string
+		wantStatus int
+	}{
+		{
+			name:       "non_existent_request_id",
+			requestID:  "nonexistent-request-id",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			instanceArn := createInstance(t, h, "inst")
+
+			rec := doRequest(t, h, "DescribeAccountAssignmentDeletionStatus", map[string]any{
+				"InstanceArn":                        instanceArn,
+				"AccountAssignmentDeletionRequestId": tt.requestID,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+func TestPermissionSet_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		op         string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name: "create_permission_set_instance_not_found",
+			op:   "CreatePermissionSet",
+			body: map[string]any{
+				"InstanceArn": "arn:aws:sso:::instance/ssoins-notfound",
+				"Name":        "TestPS",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "describe_permission_set_wrong_instance",
+			op:   "DescribePermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "update_permission_set_not_found",
+			op:   "UpdatePermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+				"Description":      "Updated",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "attach_managed_policy_not_found",
+			op:   "AttachManagedPolicyToPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+				"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "detach_managed_policy_not_found",
+			op:   "DetachManagedPolicyFromPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+				"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "list_managed_policies_not_found",
+			op:   "ListManagedPoliciesInPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "put_inline_policy_not_found",
+			op:   "PutInlinePolicyToPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+				"InlinePolicy":     "{}",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "get_inline_policy_not_found",
+			op:   "GetInlinePolicyForPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "delete_inline_policy_not_found",
+			op:   "DeleteInlinePolicyFromPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name: "provision_permission_set_instance_not_found",
+			op:   "ProvisionPermissionSet",
+			body: map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+				"TargetType":       "ALL_PROVISIONED_ACCOUNTS",
+			},
+			wantStatus: http.StatusNotFound,
+			wantType:   "ResourceNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, tt.wantType, resp["__type"])
+		})
+	}
+}
+
+func TestDeleteAccountAssignment_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "delete_non_existing_assignment",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			instanceArn := createInstance(t, h, "inst")
+			psArn := createPermissionSet(t, h, instanceArn, "PS")
+
+			rec := doRequest(t, h, "DeleteAccountAssignment", map[string]any{
+				"InstanceArn":      instanceArn,
+				"PermissionSetArn": psArn,
+				"TargetId":         "123456789012",
+				"TargetType":       "AWS_ACCOUNT",
+				"PrincipalId":      "user-nonexistent",
+				"PrincipalType":    "USER",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+func TestCreateAccountAssignment_InstanceNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "instance_not_found",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			rec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
+				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
+				"TargetId":         "123456789012",
+				"TargetType":       "AWS_ACCOUNT",
+				"PrincipalId":      "user-abc",
+				"PrincipalType":    "USER",
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+func TestDeleteInstance_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_arn_returns_400",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doRequest(t, h, "DeleteInstance", map[string]any{})
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }

@@ -1,8 +1,13 @@
 package swf
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Init is called with a nil AppContext.
+var ErrNilAppContext = errors.New("swf: nil app context")
 
 // Provider implements service.Provider for SWF.
 type Provider struct{}
@@ -13,7 +18,11 @@ func (p *Provider) Name() string { return "SWF" }
 // Init initializes the SWF service backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
-func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
+func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend)
 

@@ -42,14 +42,14 @@ func (h *Handler) Name() string { return "SWF" }
 // GetSupportedOperations returns the list of supported SWF operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"RegisterDomain",
-		"DescribeDomain",
-		"ListDomains",
 		"DeprecateDomain",
-		"RegisterWorkflowType",
-		"ListWorkflowTypes",
-		"StartWorkflowExecution",
+		"DescribeDomain",
 		"DescribeWorkflowExecution",
+		"ListDomains",
+		"ListWorkflowTypes",
+		"RegisterDomain",
+		"RegisterWorkflowType",
+		"StartWorkflowExecution",
 	}
 }
 

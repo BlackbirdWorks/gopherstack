@@ -78,6 +78,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
 // CreateSubscription enables Shield Advanced. Returns an error if already subscribed.
 func (b *InMemoryBackend) CreateSubscription() error {
 	b.mu.Lock("CreateSubscription")
@@ -276,11 +279,31 @@ func cloneTags(tags map[string]string) map[string]string {
 
 // Reset clears all Shield protections and subscription state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock("Reset")
-	defer b.mu.Unlock()
-
+	b.mu.Close()
+	b.mu = lockmetrics.New("shield")
 	b.protections = make(map[string]*Protection)
 	b.resourceARNIndex = make(map[string]string)
 	b.nameIndex = make(map[string]string)
 	b.subscription = nil
+}
+
+// AddProtectionInternal creates a protection directly (for tests).
+func (b *InMemoryBackend) AddProtectionInternal(name, resourceARN string) *Protection {
+	b.mu.Lock("AddProtectionInternal")
+	defer b.mu.Unlock()
+
+	protectionARN := arn.Build("shield", b.region, b.accountID, "protection/"+name)
+
+	p := &Protection{
+		ID:           protectionARN,
+		Name:         name,
+		ResourceARN:  resourceARN,
+		CreationTime: time.Now(),
+		Tags:         make(map[string]string),
+	}
+	b.protections[protectionARN] = p
+	b.resourceARNIndex[resourceARN] = protectionARN
+	b.nameIndex[name] = protectionARN
+
+	return cloneProtection(p)
 }

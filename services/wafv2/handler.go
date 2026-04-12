@@ -64,6 +64,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"ListTagsForResource",
 		"UntagResource",
+		"AssociateWebACL",
+		"DisassociateWebACL",
+		"GetWebACLForResource",
 	}
 }
 

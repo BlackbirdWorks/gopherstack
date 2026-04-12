@@ -41,15 +41,17 @@ const MaxJobHistory = maxJobHistory
 
 // InMemoryBackend is the in-memory store for Textract jobs.
 type InMemoryBackend struct {
-	jobs map[string]*DocumentJob
-	mu   *lockmetrics.RWMutex
+	jobs    map[string]*DocumentJob
+	mu      *lockmetrics.RWMutex
+	maxJobs int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		jobs: make(map[string]*DocumentJob),
-		mu:   lockmetrics.New("textract"),
+		jobs:    make(map[string]*DocumentJob),
+		mu:      lockmetrics.New("textract"),
+		maxJobs: maxJobHistory,
 	}
 }
 
@@ -86,10 +88,10 @@ func cloneJob(j *DocumentJob) *DocumentJob {
 	return &cp
 }
 
-// trimJobsIfNeeded removes the oldest jobs when the job count exceeds maxJobHistory.
+// trimJobsIfNeeded removes the oldest jobs when the job count exceeds maxJobs.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) trimJobsIfNeeded() {
-	if len(b.jobs) <= maxJobHistory {
+	if len(b.jobs) <= b.maxJobs {
 		return
 	}
 
@@ -109,7 +111,7 @@ func (b *InMemoryBackend) trimJobsIfNeeded() {
 	})
 
 	// Remove oldest entries until we are at the limit.
-	excess := len(b.jobs) - maxJobHistory
+	excess := len(b.jobs) - b.maxJobs
 	for i := range excess {
 		delete(b.jobs, entries[i].id)
 	}
