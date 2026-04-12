@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -25,6 +26,8 @@ var (
 	ErrServiceAttributesNotFound = awserr.New("ServiceAttributesNotFound", awserr.ErrNotFound)
 	// ErrInvalidInput is returned when an input value is invalid.
 	ErrInvalidInput = awserr.New("InvalidInput", awserr.ErrInvalidParameter)
+	// ErrResourceNotFound is returned when a tagged resource ARN is not found.
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
 
 const (
@@ -34,10 +37,12 @@ const (
 
 	operationStatusSuccess = "SUCCESS"
 
-	operationTypeCreateNamespace = "CREATE_NAMESPACE"
-	operationTypeDeleteNamespace = "DELETE_NAMESPACE"
-	operationTypeUpdateNamespace = "UPDATE_NAMESPACE"
-	operationTypeUpdateService   = "UPDATE_SERVICE"
+	operationTypeCreateNamespace    = "CREATE_NAMESPACE"
+	operationTypeDeleteNamespace    = "DELETE_NAMESPACE"
+	operationTypeUpdateNamespace    = "UPDATE_NAMESPACE"
+	operationTypeUpdateService      = "UPDATE_SERVICE"
+	operationTypeRegisterInstance   = "REGISTER_INSTANCE"
+	operationTypeDeregisterInstance = "DEREGISTER_INSTANCE"
 
 	instanceHealthStatusHealthy   = "HEALTHY"
 	instanceHealthStatusUnhealthy = "UNHEALTHY"
@@ -123,6 +128,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
 func (b *InMemoryBackend) namespaceARN(id string) string {
 	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:namespace/%s", b.region, b.accountID, id)
 }
@@ -206,8 +214,9 @@ func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 			delete(b.services, svcID)
 			delete(b.serviceAttributes, svcID)
 
+			prefix := svcID + "/"
 			for instKey := range b.instances {
-				if len(instKey) > len(svcID) && instKey[:len(svcID)] == svcID {
+				if strings.HasPrefix(instKey, prefix) {
 					delete(b.instances, instKey)
 					delete(b.instanceHealthStatuses, instKey)
 				}
@@ -316,8 +325,9 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 	delete(b.serviceAttributes, id)
 
 	// Cascade delete all instances for this service.
+	prefix := id + "/"
 	for instKey := range b.instances {
-		if len(instKey) > len(id) && instKey[:len(id)] == id {
+		if strings.HasPrefix(instKey, prefix) {
 			delete(b.instances, instKey)
 			delete(b.instanceHealthStatuses, instKey)
 		}
@@ -367,12 +377,12 @@ func (b *InMemoryBackend) ListServices(namespaceID string) []Service {
 }
 
 // RegisterInstance registers an instance to a service.
-func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs map[string]string) error {
+func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs map[string]string) (string, error) {
 	b.mu.Lock("RegisterInstance")
 	defer b.mu.Unlock()
 
 	if _, ok := b.services[serviceID]; !ok {
-		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
 	b.instCounter++
@@ -386,17 +396,28 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 
 	b.revisionCounter++
 
-	return nil
+	b.opCounter++
+	opID := fmt.Sprintf("op-%08d", b.opCounter)
+
+	b.operations[opID] = &Operation{
+		ID:         opID,
+		Type:       operationTypeRegisterInstance,
+		Status:     operationStatusSuccess,
+		TargetID:   instanceID,
+		TargetType: "INSTANCE",
+	}
+
+	return opID, nil
 }
 
 // DeregisterInstance deregisters an instance from a service.
-func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) error {
+func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) (string, error) {
 	b.mu.Lock("DeregisterInstance")
 	defer b.mu.Unlock()
 
 	key := instanceKey(serviceID, instanceID)
 	if _, ok := b.instances[key]; !ok {
-		return fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
+		return "", fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
 	}
 
 	delete(b.instances, key)
@@ -404,7 +425,18 @@ func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) error
 
 	b.revisionCounter++
 
-	return nil
+	b.opCounter++
+	opID := fmt.Sprintf("op-%08d", b.opCounter)
+
+	b.operations[opID] = &Operation{
+		ID:         opID,
+		Type:       operationTypeDeregisterInstance,
+		Status:     operationStatusSuccess,
+		TargetID:   instanceID,
+		TargetType: "INSTANCE",
+	}
+
+	return opID, nil
 }
 
 // GetInstance returns a registered instance.
@@ -435,9 +467,10 @@ func (b *InMemoryBackend) ListInstances(serviceID string) ([]Instance, error) {
 	}
 
 	result := make([]Instance, 0)
+	prefix := serviceID + "/"
 
 	for key, inst := range b.instances {
-		if len(key) > len(serviceID) && key[:len(serviceID)] == serviceID {
+		if strings.HasPrefix(key, prefix) {
 			cp := *inst
 			cp.Attributes = copyAttrs(inst.Attributes)
 			result = append(result, cp)
@@ -452,7 +485,10 @@ func (b *InMemoryBackend) ListInstances(serviceID string) ([]Instance, error) {
 }
 
 // DiscoverInstances returns instances matching filters.
-func (b *InMemoryBackend) DiscoverInstances(namespaceName, serviceName string) ([]Instance, error) {
+func (b *InMemoryBackend) DiscoverInstances(
+	namespaceName, serviceName, healthStatus string,
+	queryParams map[string]string,
+) ([]Instance, error) {
 	b.mu.RLock("DiscoverInstances")
 	defer b.mu.RUnlock()
 
@@ -461,35 +497,125 @@ func (b *InMemoryBackend) DiscoverInstances(namespaceName, serviceName string) (
 		return []Instance{}, nil
 	}
 
-	var svcID string
-
-	for _, svc := range b.services {
-		if svc.NamespaceID == nsID && svc.Name == serviceName {
-			svcID = svc.ID
-
-			break
-		}
-	}
-
+	svcID := b.findServiceID(nsID, serviceName)
 	if svcID == "" {
 		return []Instance{}, nil
 	}
 
-	result := make([]Instance, 0)
-
-	for key, inst := range b.instances {
-		if len(key) > len(svcID) && key[:len(svcID)] == svcID {
-			cp := *inst
-			cp.Attributes = copyAttrs(inst.Attributes)
-			result = append(result, cp)
-		}
-	}
+	result := b.collectInstances(svcID, healthStatus, queryParams)
 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ID < result[j].ID
 	})
 
 	return result, nil
+}
+
+// findServiceID returns the service ID matching the given namespace and service name.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findServiceID(nsID, serviceName string) string {
+	for _, svc := range b.services {
+		if svc.NamespaceID == nsID && svc.Name == serviceName {
+			return svc.ID
+		}
+	}
+
+	return ""
+}
+
+// collectInstances collects and filters instances for a given service.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) collectInstances(svcID, healthStatus string, queryParams map[string]string) []Instance {
+	result := make([]Instance, 0)
+	prefix := svcID + "/"
+
+	for key, inst := range b.instances {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		if !b.instanceMatchesHealth(key, healthStatus) {
+			continue
+		}
+
+		if !instanceMatchesQueryParams(inst, queryParams) {
+			continue
+		}
+
+		cp := *inst
+		cp.Attributes = copyAttrs(inst.Attributes)
+		result = append(result, cp)
+	}
+
+	return result
+}
+
+// instanceMatchesHealth returns true when the instance matches the health filter.
+// An empty or "ALL" health status always matches.
+func (b *InMemoryBackend) instanceMatchesHealth(key, healthStatus string) bool {
+	if healthStatus == "" || healthStatus == "ALL" {
+		return true
+	}
+
+	stored := b.instanceHealthStatuses[key]
+	if stored == "" {
+		stored = instanceHealthStatusHealthy
+	}
+
+	return stored == healthStatus
+}
+
+// instanceMatchesQueryParams returns true when the instance attributes satisfy
+// every key-value pair in queryParams.
+func instanceMatchesQueryParams(inst *Instance, queryParams map[string]string) bool {
+	for k, v := range queryParams {
+		if inst.Attributes[k] != v {
+			return false
+		}
+	}
+
+	return true
+}
+
+// GetInstancesHealthStatus returns the health status for instances in a service.
+// If instanceIDs is non-empty, only those instances are included in the result.
+// Instances without a recorded status default to HEALTHY.
+func (b *InMemoryBackend) GetInstancesHealthStatus(serviceID string, instanceIDs []string) (map[string]string, error) {
+	b.mu.RLock("GetInstancesHealthStatus")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.services[serviceID]; !ok {
+		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	filter := make(map[string]struct{}, len(instanceIDs))
+	for _, id := range instanceIDs {
+		filter[id] = struct{}{}
+	}
+
+	statuses := make(map[string]string)
+	prefix := serviceID + "/"
+
+	for key, inst := range b.instances {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		if len(filter) > 0 {
+			if _, ok := filter[inst.ID]; !ok {
+				continue
+			}
+		}
+
+		status := b.instanceHealthStatuses[key]
+		if status == "" {
+			status = instanceHealthStatusHealthy
+		}
+
+		statuses[inst.ID] = status
+	}
+
+	return statuses, nil
 }
 
 // GetOperation returns an operation by ID.
@@ -538,7 +664,7 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 		return copyTags(b.services[svcID].Tags), nil
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)
+	return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
 }
 
 // TagResource adds tags to a resource (namespace or service).
@@ -568,7 +694,7 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 		return nil
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)
+	return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
 }
 
 // UntagResource removes tags from a resource (namespace or service).
@@ -592,7 +718,7 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)
+	return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
 }
 
 // UpdateHTTPNamespace updates the description of an HTTP namespace.
