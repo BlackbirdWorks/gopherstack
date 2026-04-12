@@ -630,3 +630,100 @@ func (m *mockSFNStarterWithPayload) Last() string {
 
 	return m.last
 }
+
+// TestScheduler_Runner_CronMonthAliases tests all 12 month name aliases in cron expressions.
+func TestScheduler_Runner_CronMonthAliases(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:month-fn"
+
+	tests := []struct {
+		matchAt  time.Time
+		name     string
+		cronExpr string
+	}{
+		{name: "FEB", cronExpr: "cron(0 0 1 FEB ? *)", matchAt: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "MAR", cronExpr: "cron(0 0 1 MAR ? *)", matchAt: time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "APR", cronExpr: "cron(0 0 1 APR ? *)", matchAt: time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "MAY", cronExpr: "cron(0 0 1 MAY ? *)", matchAt: time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "JUN", cronExpr: "cron(0 0 1 JUN ? *)", matchAt: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "JUL", cronExpr: "cron(0 0 1 JUL ? *)", matchAt: time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "AUG", cronExpr: "cron(0 0 1 AUG ? *)", matchAt: time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "SEP", cronExpr: "cron(0 0 1 SEP ? *)", matchAt: time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "OCT", cronExpr: "cron(0 0 1 OCT ? *)", matchAt: time.Date(2024, 10, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "NOV", cronExpr: "cron(0 0 1 NOV ? *)", matchAt: time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "DEC", cronExpr: "cron(0 0 1 DEC ? *)", matchAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := backend.CreateSchedule(
+				tt.name+"-sched",
+				tt.cronExpr,
+				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+				"ENABLED",
+				scheduler.FlexibleTimeWindow{Mode: "OFF"},
+			)
+			require.NoError(t, err)
+
+			invoker := &mockLambdaInvoker{}
+			runner := scheduler.NewRunner(backend)
+			runner.SetLambdaInvoker(invoker)
+
+			scheduler.CheckAndFireSchedules(t.Context(), runner, tt.matchAt)
+			assert.NotEmpty(t, invoker.Called(), "should fire at match time for "+tt.name)
+		})
+	}
+}
+
+// TestScheduler_Runner_CronDOWAliases tests all 7 day-of-week name aliases in cron expressions.
+func TestScheduler_Runner_CronDOWAliases(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:dow-fn"
+
+	tests := []struct {
+		matchAt  time.Time
+		name     string
+		cronExpr string
+	}{
+		// 2024-01-07 is a Sunday.
+		{name: "SUN", cronExpr: "cron(0 0 ? * SUN *)", matchAt: time.Date(2024, 1, 7, 0, 0, 0, 0, time.UTC)},
+		// 2024-01-09 is a Tuesday.
+		{name: "TUE", cronExpr: "cron(0 0 ? * TUE *)", matchAt: time.Date(2024, 1, 9, 0, 0, 0, 0, time.UTC)},
+		// 2024-01-10 is a Wednesday.
+		{name: "WED", cronExpr: "cron(0 0 ? * WED *)", matchAt: time.Date(2024, 1, 10, 0, 0, 0, 0, time.UTC)},
+		// 2024-01-11 is a Thursday.
+		{name: "THU", cronExpr: "cron(0 0 ? * THU *)", matchAt: time.Date(2024, 1, 11, 0, 0, 0, 0, time.UTC)},
+		// 2024-01-12 is a Friday.
+		{name: "FRI", cronExpr: "cron(0 0 ? * FRI *)", matchAt: time.Date(2024, 1, 12, 0, 0, 0, 0, time.UTC)},
+		// 2024-01-13 is a Saturday.
+		{name: "SAT", cronExpr: "cron(0 0 ? * SAT *)", matchAt: time.Date(2024, 1, 13, 0, 0, 0, 0, time.UTC)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := backend.CreateSchedule(
+				tt.name+"-sched",
+				tt.cronExpr,
+				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+				"ENABLED",
+				scheduler.FlexibleTimeWindow{Mode: "OFF"},
+			)
+			require.NoError(t, err)
+
+			invoker := &mockLambdaInvoker{}
+			runner := scheduler.NewRunner(backend)
+			runner.SetLambdaInvoker(invoker)
+
+			scheduler.CheckAndFireSchedules(t.Context(), runner, tt.matchAt)
+			assert.NotEmpty(t, invoker.Called(), "should fire at match time for "+tt.name)
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -17,11 +18,14 @@ import (
 )
 
 const (
-	schedulerTargetPrefix = "AWSScheduler."
-	schedulerPathSegment  = "schedules"
+	schedulerTargetPrefix    = "AWSScheduler."
+	schedulerPathSegment     = "schedules"
+	scheduleGroupPathSegment = "schedule-groups"
 	// schedulesPathMinSegments is the minimum number of URL path segments in a
 	// /schedules/{name} REST path: ["schedules", "{name}"].
 	schedulesPathMinSegments = 2
+	// restOpUnknown is returned by parseSchedulerRESTPath when no pattern matches.
+	restOpUnknown = "Unknown"
 )
 
 var (
@@ -114,12 +118,17 @@ var _ service.Shutdowner = (*Handler)(nil)
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateSchedule",
-		"GetSchedule",
-		"ListSchedules",
+		"CreateScheduleGroup",
 		"DeleteSchedule",
-		"UpdateSchedule",
-		"TagResource",
+		"DeleteScheduleGroup",
+		"GetSchedule",
+		"GetScheduleGroup",
+		"ListScheduleGroups",
+		"ListSchedules",
 		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
+		"UpdateSchedule",
 	}
 }
 
@@ -133,7 +142,7 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Scheduler requests.
-// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/...).
+// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/... or /schedule-groups/...).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
@@ -142,7 +151,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/"+schedulerPathSegment)
+		return strings.HasPrefix(path, "/"+schedulerPathSegment) ||
+			strings.HasPrefix(path, "/"+scheduleGroupPathSegment)
 	}
 }
 
@@ -162,7 +172,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return op
 }
 
-// ExtractResource extracts the schedule name from the request body or REST path.
+// ExtractResource extracts the schedule or schedule group name from the request body or REST path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	// For REST paths extract name from the URL path segment.
 	if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
@@ -183,41 +193,77 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // parseSchedulerRESTPath maps an HTTP method + path to a Scheduler operation name and
-// extracts the schedule name (if present in the path).
+// extracts the resource name (if present in the path).
 // Returns ("Unknown", "") when no pattern matches.
-//
-//nolint:cyclop // path routing table has necessary branches for each HTTP method + resource combination
 func parseSchedulerRESTPath(method, path string) (string, string) {
 	// Strip leading slash and split into segments.
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+
+	if len(segments) > 0 && segments[0] == schedulerPathSegment {
+		return parseScheduleRESTPath(method, segments)
+	}
+
+	if len(segments) > 0 && segments[0] == scheduleGroupPathSegment {
+		return parseScheduleGroupRESTPath(method, segments)
+	}
+
+	return restOpUnknown, ""
+}
+
+// parseScheduleRESTPath handles REST routing for /schedules/... paths.
+func parseScheduleRESTPath(method string, segments []string) (string, string) {
 	switch {
 	// GET /schedules or GET /schedules/ → ListSchedules
-	case method == http.MethodGet && len(segments) >= 1 && segments[0] == schedulerPathSegment &&
-		(len(segments) == 1 || (len(segments) == 2 && segments[1] == "")):
+	case method == http.MethodGet &&
+		(len(segments) == 1 || (len(segments) == schedulesPathMinSegments && segments[1] == "")):
 		return "ListSchedules", ""
 	// POST /schedules/{name} → CreateSchedule
-	case method == http.MethodPost && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodPost && len(segments) == schedulesPathMinSegments:
 		return "CreateSchedule", segments[1]
 	// GET /schedules/{name} → GetSchedule
-	case method == http.MethodGet && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodGet && len(segments) == schedulesPathMinSegments:
 		return "GetSchedule", segments[1]
 	// DELETE /schedules/{name} → DeleteSchedule
-	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments:
 		return "DeleteSchedule", segments[1]
 	// PUT /schedules/{name} → UpdateSchedule
-	case method == http.MethodPut && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodPut && len(segments) == schedulesPathMinSegments:
 		return "UpdateSchedule", segments[1]
 	}
 
-	return "Unknown", ""
+	return restOpUnknown, ""
+}
+
+// parseScheduleGroupRESTPath handles REST routing for /schedule-groups/... paths.
+func parseScheduleGroupRESTPath(method string, segments []string) (string, string) {
+	switch {
+	// GET /schedule-groups or GET /schedule-groups/ → ListScheduleGroups
+	case method == http.MethodGet &&
+		(len(segments) == 1 || (len(segments) == schedulesPathMinSegments && segments[1] == "")):
+		return "ListScheduleGroups", ""
+	// POST /schedule-groups/{name} → CreateScheduleGroup
+	case method == http.MethodPost && len(segments) == schedulesPathMinSegments:
+		return "CreateScheduleGroup", segments[1]
+	// GET /schedule-groups/{name} → GetScheduleGroup
+	case method == http.MethodGet && len(segments) == schedulesPathMinSegments:
+		return "GetScheduleGroup", segments[1]
+	// DELETE /schedule-groups/{name} → DeleteScheduleGroup
+	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments:
+		return "DeleteScheduleGroup", segments[1]
+	}
+
+	return restOpUnknown, ""
 }
 
 // Handler returns the Echo handler function for Scheduler requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		// REST API path: /schedules or /schedules/{name}
-		if strings.HasPrefix(c.Request().URL.Path, "/"+schedulerPathSegment) &&
-			!strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
+		path := c.Request().URL.Path
+		isREST := !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix)
+
+		// REST API paths: /schedules/..., /schedule-groups/...
+		if isREST && (strings.HasPrefix(path, "/"+schedulerPathSegment) ||
+			strings.HasPrefix(path, "/"+scheduleGroupPathSegment)) {
 			return h.handleREST(c)
 		}
 
@@ -238,7 +284,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	action, name := parseSchedulerRESTPath(c.Request().Method, c.Request().URL.Path)
-	if action == "Unknown" {
+	if action == restOpUnknown {
 		return c.String(http.StatusNotFound, "not found")
 	}
 
@@ -286,12 +332,17 @@ func injectJSONField(body []byte, key, value string) []byte {
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateSchedule":      service.WrapOp(h.handleCreateSchedule),
-		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
-		"ListSchedules":       service.WrapOp(h.handleListSchedules),
+		"CreateScheduleGroup": service.WrapOp(h.handleCreateScheduleGroup),
 		"DeleteSchedule":      service.WrapOp(h.handleDeleteSchedule),
-		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
-		"TagResource":         service.WrapOp(h.handleTagResource),
+		"DeleteScheduleGroup": service.WrapOp(h.handleDeleteScheduleGroup),
+		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
+		"GetScheduleGroup":    service.WrapOp(h.handleGetScheduleGroup),
+		"ListScheduleGroups":  service.WrapOp(h.handleListScheduleGroups),
+		"ListSchedules":       service.WrapOp(h.handleListSchedules),
 		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"UntagResource":       service.WrapOp(h.handleUntagResource),
+		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
 	}
 }
 
@@ -328,6 +379,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
@@ -501,4 +559,120 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	return &listTagsForResourceOutput{Tags: tags}, nil
+}
+
+// handleUntagResource removes the specified tag keys from a resource.
+type handleUntagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleUntagResource(_ context.Context, in *handleUntagResourceInput) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
+}
+
+// Schedule group handlers.
+
+type createScheduleGroupInput struct {
+	Tags map[string]string `json:"Tags"`
+	Name string            `json:"Name"`
+}
+
+type createScheduleGroupOutput struct {
+	ScheduleGroupArn string `json:"ScheduleGroupArn"`
+}
+
+func (h *Handler) handleCreateScheduleGroup(
+	_ context.Context,
+	in *createScheduleGroupInput,
+) (*createScheduleGroupOutput, error) {
+	g, err := h.Backend.CreateScheduleGroup(in.Name, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createScheduleGroupOutput{ScheduleGroupArn: g.ARN}, nil
+}
+
+type scheduleGroupNameInput struct {
+	Name string `json:"Name"`
+}
+
+type deleteScheduleGroupOutput struct{}
+
+func (h *Handler) handleDeleteScheduleGroup(
+	_ context.Context,
+	in *scheduleGroupNameInput,
+) (*deleteScheduleGroupOutput, error) {
+	if err := h.Backend.DeleteScheduleGroup(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &deleteScheduleGroupOutput{}, nil
+}
+
+type getScheduleGroupOutput struct {
+	Arn                  string `json:"Arn"`
+	CreationDate         string `json:"CreationDate"`
+	LastModificationDate string `json:"LastModificationDate"`
+	Name                 string `json:"Name"`
+	State                string `json:"State"`
+}
+
+func (h *Handler) handleGetScheduleGroup(
+	_ context.Context,
+	in *scheduleGroupNameInput,
+) (*getScheduleGroupOutput, error) {
+	g, err := h.Backend.GetScheduleGroup(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getScheduleGroupOutput{
+		Arn:                  g.ARN,
+		CreationDate:         g.CreationDate.Format(time.RFC3339),
+		LastModificationDate: g.LastModificationDate.Format(time.RFC3339),
+		Name:                 g.Name,
+		State:                g.State,
+	}, nil
+}
+
+type listScheduleGroupsInput struct{}
+
+type scheduleGroupSummary struct {
+	Arn                  string `json:"Arn"`
+	CreationDate         string `json:"CreationDate"`
+	LastModificationDate string `json:"LastModificationDate"`
+	Name                 string `json:"Name"`
+	State                string `json:"State"`
+}
+
+type listScheduleGroupsOutput struct {
+	ScheduleGroups []scheduleGroupSummary `json:"ScheduleGroups"`
+}
+
+func (h *Handler) handleListScheduleGroups(
+	_ context.Context,
+	_ *listScheduleGroupsInput,
+) (*listScheduleGroupsOutput, error) {
+	groups := h.Backend.ListScheduleGroups()
+	items := make([]scheduleGroupSummary, 0, len(groups))
+
+	for _, g := range groups {
+		items = append(items, scheduleGroupSummary{
+			Arn:                  g.ARN,
+			CreationDate:         g.CreationDate.Format(time.RFC3339),
+			LastModificationDate: g.LastModificationDate.Format(time.RFC3339),
+			Name:                 g.Name,
+			State:                g.State,
+		})
+	}
+
+	return &listScheduleGroupsOutput{ScheduleGroups: items}, nil
 }

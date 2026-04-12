@@ -2,14 +2,16 @@ package scheduler
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
-	Schedules map[string]*Schedule `json:"schedules"`
-	AccountID string               `json:"accountID"`
-	Region    string               `json:"region"`
+	Schedules      map[string]*Schedule      `json:"schedules"`
+	ScheduleGroups map[string]*ScheduleGroup `json:"scheduleGroups"`
+	AccountID      string                    `json:"accountID"`
+	Region         string                    `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,13 +21,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Schedules: b.schedules,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Schedules:      b.schedules,
+		ScheduleGroups: b.scheduleGroups,
+		AccountID:      b.accountID,
+		Region:         b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("scheduler: failed to snapshot state", "error", err)
+
 		return nil
 	}
 
@@ -48,20 +53,36 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Schedules = make(map[string]*Schedule)
 	}
 
+	if snap.ScheduleGroups == nil {
+		snap.ScheduleGroups = make(map[string]*ScheduleGroup)
+	}
+
 	for _, s := range b.schedules {
 		if s.Tags != nil {
 			s.Tags.Close()
 		}
 	}
 
+	for _, g := range b.scheduleGroups {
+		if g.Tags != nil {
+			g.Tags.Close()
+		}
+	}
+
 	b.schedules = snap.Schedules
+	b.scheduleGroups = snap.ScheduleGroups
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild ARN index from restored state.
+	// Rebuild ARN indexes from restored state.
 	b.scheduleARNIndex = make(map[string]string, len(b.schedules))
 	for name, s := range b.schedules {
 		b.scheduleARNIndex[s.ARN] = name
+	}
+
+	b.scheduleGroupARNIndex = make(map[string]string, len(b.scheduleGroups))
+	for name, g := range b.scheduleGroups {
+		b.scheduleGroupARNIndex[g.ARN] = name
 	}
 
 	// Rebuild Tags with proper lockmetrics names after JSON deserialization.
@@ -73,6 +94,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		} else {
 			s.Tags = tags.New("scheduler.group." + name + ".tags")
 		}
+	}
+
+	for name, g := range b.scheduleGroups {
+		if g.Tags != nil {
+			restored := tags.FromMap("scheduler.schedulegroup."+name+".tags", g.Tags.Clone())
+			g.Tags.Close()
+			g.Tags = restored
+		} else {
+			g.Tags = tags.New("scheduler.schedulegroup." + name + ".tags")
+		}
+	}
+
+	// Ensure the default group exists after restore.
+	if _, ok := b.scheduleGroups[defaultGroupName]; !ok {
+		b.seedDefaultGroup()
 	}
 
 	return nil

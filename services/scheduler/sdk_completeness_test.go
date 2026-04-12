@@ -17,11 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	h := scheduler.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &schedulersdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateScheduleGroup",
-		"DeleteScheduleGroup",
-		"GetScheduleGroup",
-		"ListScheduleGroups",
-		"UntagResource",
-	})
+	sdkcheck.CheckCompleteness(t, &schedulersdk.Client{}, h.GetSupportedOperations(), []string{})
 }
