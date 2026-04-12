@@ -39,13 +39,13 @@ func (h *Handler) Name() string { return "Support" }
 // GetSupportedOperations returns the list of supported Support operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AddAttachmentsToSet",
+		"AddCommunicationToCase",
 		"CreateCase",
 		"DescribeCases",
-		"ResolveCase",
-		"AddCommunicationToCase",
 		"DescribeCommunications",
 		"DescribeTrustedAdvisorChecks",
-		"AddAttachmentsToSet",
+		"ResolveCase",
 	}
 }
 

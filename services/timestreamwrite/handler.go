@@ -50,20 +50,20 @@ func (h *Handler) Name() string { return "TimestreamWrite" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateDatabase",
-		"DescribeDatabase",
-		"ListDatabases",
-		"DeleteDatabase",
-		"UpdateDatabase",
 		"CreateTable",
-		"DescribeTable",
-		"ListTables",
+		"DeleteDatabase",
 		"DeleteTable",
-		"UpdateTable",
-		"WriteRecords",
+		"DescribeDatabase",
+		"DescribeEndpoints",
+		"DescribeTable",
+		"ListDatabases",
+		"ListTables",
+		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
-		"DescribeEndpoints",
+		"UpdateDatabase",
+		"UpdateTable",
+		"WriteRecords",
 	}
 }
 

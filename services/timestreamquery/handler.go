@@ -51,18 +51,18 @@ func (h *Handler) Name() string { return "TimestreamQuery" }
 // GetSupportedOperations returns all supported Timestream Query operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"DescribeEndpoints",
-		"Query",
 		"CancelQuery",
 		"CreateScheduledQuery",
 		"DeleteScheduledQuery",
+		"DescribeEndpoints",
 		"DescribeScheduledQuery",
 		"ExecuteScheduledQuery",
 		"ListScheduledQueries",
-		"UpdateScheduledQuery",
+		"ListTagsForResource",
+		"Query",
 		"TagResource",
 		"UntagResource",
-		"ListTagsForResource",
+		"UpdateScheduledQuery",
 	}
 }
 
