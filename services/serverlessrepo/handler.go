@@ -23,6 +23,22 @@ const (
 	serverlessrepoMatchPriority = 87
 	// pathSegmentsMax is used to split the URL path into at most 2 parts.
 	pathSegmentsMax = 2
+	// pathSplitParts is the number of path parts to split into when parsing sub-paths.
+	pathSplitParts = 3
+	// pathSplitTwoParts splits into two parts.
+	pathSplitTwoParts = 2
+	// pathIndexSeg is the index of the sub-path segment in split results.
+	pathIndexSeg = 1
+	// pathIndexExtra is the index of the extra segment (e.g. version or template ID) in split results.
+	pathIndexExtra = 2
+
+	// path segment constants.
+	pathSegVersions     = "versions"
+	pathSegTemplates    = "templates"
+	pathSegChangesets   = "changesets"
+	pathSegPolicy       = "policy"
+	pathSegDependencies = "dependencies"
+	pathSegUnshare      = "unshare"
 )
 
 var (
@@ -32,18 +48,23 @@ var (
 
 // Handler is the HTTP handler for the AWS Serverless Application Repository REST API.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new Serverless Application Repository handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		AccountID: backend.AccountID(),
+		Region:    backend.Region(),
 	}
+}
+
+// Reset clears the handler's backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -53,10 +74,19 @@ func (h *Handler) Name() string { return "ServerlessRepo" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateApplication",
-		"GetApplication",
-		"ListApplications",
-		"UpdateApplication",
+		"CreateApplicationVersion",
+		"CreateCloudFormationChangeSet",
+		"CreateCloudFormationTemplate",
 		"DeleteApplication",
+		"GetApplication",
+		"GetApplicationPolicy",
+		"GetCloudFormationTemplate",
+		"ListApplicationDependencies",
+		"ListApplicationVersions",
+		"ListApplications",
+		"PutApplicationPolicy",
+		"UnshareApplication",
+		"UpdateApplication",
 	}
 }
 
@@ -93,24 +123,101 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 	// /applications → list or create
 	if path == "/applications" || path == "/applications/" {
-		switch method {
-		case http.MethodGet:
-			return "ListApplications"
-		case http.MethodPost:
-			return "CreateApplication"
+		return extractRootOp(method)
+	}
+
+	// /applications/{applicationId}/...
+	if after, ok := strings.CutPrefix(path, "/applications/"); ok {
+		parts := strings.SplitN(after, "/", pathSplitParts)
+
+		switch len(parts) {
+		case pathSplitTwoParts - 1:
+			return extractSingleSegOp(method)
+		case pathSplitTwoParts:
+			return extractTwoSegOp(method, parts[pathIndexSeg])
+		case pathSplitParts:
+			return extractThreeSegOp(method, parts[pathIndexSeg])
 		}
 	}
 
-	// /applications/{applicationId}
-	if strings.HasPrefix(path, "/applications/") {
-		switch method {
-		case http.MethodGet:
-			return "GetApplication"
-		case http.MethodPatch:
-			return "UpdateApplication"
-		case http.MethodDelete:
-			return "DeleteApplication"
+	return ""
+}
+
+// extractRootOp returns the operation for the /applications root path.
+func extractRootOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "ListApplications"
+	case http.MethodPost:
+		return "CreateApplication"
+	}
+
+	return ""
+}
+
+// extractSingleSegOp returns the operation for /applications/{applicationId}.
+func extractSingleSegOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetApplication"
+	case http.MethodPatch:
+		return "UpdateApplication"
+	case http.MethodDelete:
+		return "DeleteApplication"
+	}
+
+	return ""
+}
+
+// extractTwoSegOp returns the operation for /applications/{applicationId}/{segment}.
+func extractTwoSegOp(method, seg string) string {
+	switch seg {
+	case pathSegPolicy:
+		return extractPolicyOp(method)
+	case pathSegChangesets:
+		if method == http.MethodPost {
+			return "CreateCloudFormationChangeSet"
 		}
+	case pathSegTemplates:
+		if method == http.MethodPost {
+			return "CreateCloudFormationTemplate"
+		}
+	case pathSegVersions:
+		if method == http.MethodGet {
+			return "ListApplicationVersions"
+		}
+	case pathSegDependencies:
+		if method == http.MethodGet {
+			return "ListApplicationDependencies"
+		}
+	case pathSegUnshare:
+		if method == http.MethodPost {
+			return "UnshareApplication"
+		}
+	}
+
+	return ""
+}
+
+// extractPolicyOp returns the operation for policy sub-paths.
+func extractPolicyOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetApplicationPolicy"
+	case http.MethodPut:
+		return "PutApplicationPolicy"
+	}
+
+	return ""
+}
+
+// extractThreeSegOp returns the operation for /applications/{applicationId}/{segment}/{id}.
+func extractThreeSegOp(method, seg string) string {
+	switch {
+	case seg == pathSegVersions && method == http.MethodPut:
+		return "CreateApplicationVersion"
+	case seg == pathSegTemplates && method == http.MethodGet:
+		return "GetCloudFormationTemplate"
 	}
 
 	return ""
@@ -150,20 +257,97 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, op string, req *http.Request, body []byte) ([]byte, error) {
+	if result, ok, err := h.dispatchAppOps(ctx, op, req, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchCFOps(ctx, op, req, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchPolicyAndMiscOps(ctx, op, req, body); ok {
+		return result, err
+	}
+
+	return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+}
+
+func (h *Handler) dispatchAppOps(ctx context.Context, op string, req *http.Request, body []byte) ([]byte, bool, error) {
 	switch op {
 	case "CreateApplication":
-		return h.handleCreateApplication(ctx, body)
+		result, err := h.handleCreateApplication(ctx, body)
+
+		return result, true, err
 	case "GetApplication":
-		return h.handleGetApplication(req)
+		result, err := h.handleGetApplication(req)
+
+		return result, true, err
 	case "ListApplications":
-		return h.handleListApplications()
+		result, err := h.handleListApplications()
+
+		return result, true, err
 	case "UpdateApplication":
-		return h.handleUpdateApplication(ctx, req, body)
+		result, err := h.handleUpdateApplication(ctx, req, body)
+
+		return result, true, err
 	case "DeleteApplication":
-		return h.handleDeleteApplication(ctx, req)
-	default:
-		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+		return nil, true, h.handleDeleteApplication(ctx, req)
+	case "CreateApplicationVersion":
+		result, err := h.handleCreateApplicationVersion(ctx, req, body)
+
+		return result, true, err
+	case "ListApplicationVersions":
+		result, err := h.handleListApplicationVersions(req)
+
+		return result, true, err
 	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchCFOps(ctx context.Context, op string, req *http.Request, body []byte) ([]byte, bool, error) {
+	switch op {
+	case "CreateCloudFormationTemplate":
+		result, err := h.handleCreateCloudFormationTemplate(ctx, req, body)
+
+		return result, true, err
+	case "GetCloudFormationTemplate":
+		result, err := h.handleGetCloudFormationTemplate(req)
+
+		return result, true, err
+	case "CreateCloudFormationChangeSet":
+		result, err := h.handleCreateCloudFormationChangeSet(ctx, req, body)
+
+		return result, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchPolicyAndMiscOps(
+	ctx context.Context,
+	op string,
+	req *http.Request,
+	body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "GetApplicationPolicy":
+		result, err := h.handleGetApplicationPolicy(req)
+
+		return result, true, err
+	case "PutApplicationPolicy":
+		result, err := h.handlePutApplicationPolicy(ctx, req, body)
+
+		return result, true, err
+	case "ListApplicationDependencies":
+		result, err := h.handleListApplicationDependencies(req)
+
+		return result, true, err
+	case "UnshareApplication":
+		return nil, true, h.handleUnshareApplication(ctx, req, body)
+	}
+
+	return nil, false, nil
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -239,6 +423,35 @@ func extractApplicationName(req *http.Request) (string, error) {
 	}
 
 	return name, nil
+}
+
+// extractPathExtra extracts the application name and the trailing extra segment
+// from a path of the form /applications/{appId}/{segment}/{extra}.
+func extractPathExtra(req *http.Request) (string, string, error) {
+	path := strings.TrimPrefix(req.URL.Path, "/applications/")
+	parts := strings.SplitN(path, "/", pathSplitParts)
+
+	appName, urlErr := url.PathUnescape(parts[0])
+	if urlErr != nil {
+		return "", "", fmt.Errorf("%w: invalid application id encoding", errInvalidRequest)
+	}
+
+	if strings.HasPrefix(appName, "arn:") {
+		const arnResourcePrefix = "/applications/"
+
+		idx := strings.Index(appName, arnResourcePrefix)
+		if idx >= 0 {
+			appName = strings.TrimSuffix(appName[idx+len(arnResourcePrefix):], "/")
+		}
+	}
+
+	var extra string
+
+	if len(parts) > pathIndexExtra {
+		extra, _ = url.PathUnescape(parts[pathIndexExtra])
+	}
+
+	return appName, extra, nil
 }
 
 // isoTimestamp converts a [time.Time] to an RFC3339 UTC string, matching the AWS SAR API shape.
@@ -400,18 +613,347 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleDeleteApplication(ctx context.Context, req *http.Request) ([]byte, error) {
+func (h *Handler) handleDeleteApplication(ctx context.Context, req *http.Request) error {
 	name, nameErr := extractApplicationName(req)
 	if nameErr != nil {
-		return nil, nameErr
+		return nameErr
 	}
 
 	if err := h.Backend.DeleteApplication(name); err != nil {
-		return nil, err
+		return err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "serverlessrepo: deleted application", "name", name)
 
-	return nil, nil
+	return nil
+}
+
+// createApplicationVersionRequest is the request body for CreateApplicationVersion.
+type createApplicationVersionRequest struct {
+	SourceCodeURL string `json:"sourceCodeUrl"`
+	TemplateURL   string `json:"templateUrl"`
+}
+
+func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
+	appName, semanticVersion, err := extractPathExtra(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if appName == "" {
+		return nil, fmt.Errorf("%w: applicationId is required", errInvalidRequest)
+	}
+
+	if semanticVersion == "" {
+		return nil, fmt.Errorf("%w: semanticVersion is required", errInvalidRequest)
+	}
+
+	var createReq createApplicationVersionRequest
+	if jsonErr := json.Unmarshal(body, &createReq); jsonErr != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
+	}
+
+	v, backendErr := h.Backend.CreateApplicationVersion(
+		appName,
+		semanticVersion,
+		createReq.SourceCodeURL,
+		createReq.TemplateURL,
+	)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "serverlessrepo: created application version",
+		"app", appName, "version", v.SemanticVersion)
+
+	return json.Marshal(map[string]any{
+		"applicationId":   v.ApplicationID,
+		"semanticVersion": v.SemanticVersion,
+		"sourceCodeUrl":   v.SourceCodeURL,
+		"templateUrl":     v.TemplateURL,
+		"creationTime":    isoTimestamp(v.CreationTime),
+	})
+}
+
+func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, error) {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return nil, err
+	}
+
+	versions, err := h.Backend.ListApplicationVersions(appName)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]map[string]any, 0, len(versions))
+	for _, v := range versions {
+		summaries = append(summaries, map[string]any{
+			"applicationId":   v.ApplicationID,
+			"semanticVersion": v.SemanticVersion,
+			"sourceCodeUrl":   v.SourceCodeURL,
+			"creationTime":    isoTimestamp(v.CreationTime),
+		})
+	}
+
+	return json.Marshal(map[string]any{"versions": summaries})
+}
+
+// createCFTemplateRequest is the request body for CreateCloudFormationTemplate.
+type createCFTemplateRequest struct {
+	SemanticVersion string `json:"semanticVersion"`
+}
+
+func (h *Handler) handleCreateCloudFormationTemplate(
+	ctx context.Context,
+	req *http.Request,
+	body []byte,
+) ([]byte, error) {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var createReq createCFTemplateRequest
+	if jsonErr := json.Unmarshal(body, &createReq); jsonErr != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
+	}
+
+	t, backendErr := h.Backend.CreateCloudFormationTemplate(appName, createReq.SemanticVersion)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "serverlessrepo: created CloudFormation template",
+		"app", appName, "templateId", t.TemplateID)
+
+	return json.Marshal(map[string]any{
+		"applicationId":   t.ApplicationID,
+		"templateId":      t.TemplateID,
+		"semanticVersion": t.SemanticVersion,
+		"status":          t.Status,
+		"creationTime":    isoTimestamp(t.CreationTime),
+		"expirationTime":  isoTimestamp(t.ExpirationTime),
+		"templateUrl":     t.TemplateURL,
+	})
+}
+
+func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, error) {
+	appName, templateID, err := extractPathExtra(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if appName == "" {
+		return nil, fmt.Errorf("%w: applicationId is required", errInvalidRequest)
+	}
+
+	if templateID == "" {
+		return nil, fmt.Errorf("%w: templateId is required", errInvalidRequest)
+	}
+
+	t, backendErr := h.Backend.GetCloudFormationTemplate(appName, templateID)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	return json.Marshal(map[string]any{
+		"applicationId":   t.ApplicationID,
+		"templateId":      t.TemplateID,
+		"semanticVersion": t.SemanticVersion,
+		"status":          t.Status,
+		"creationTime":    isoTimestamp(t.CreationTime),
+		"expirationTime":  isoTimestamp(t.ExpirationTime),
+		"templateUrl":     t.TemplateURL,
+	})
+}
+
+// createCFChangeSetRequest is the request body for CreateCloudFormationChangeSet.
+type createCFChangeSetRequest struct {
+	StackName       string `json:"stackName"`
+	SemanticVersion string `json:"semanticVersion"`
+	TemplateID      string `json:"templateId"`
+}
+
+func (h *Handler) handleCreateCloudFormationChangeSet(
+	ctx context.Context,
+	req *http.Request,
+	body []byte,
+) ([]byte, error) {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var createReq createCFChangeSetRequest
+	if jsonErr := json.Unmarshal(body, &createReq); jsonErr != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
+	}
+
+	if createReq.StackName == "" {
+		return nil, fmt.Errorf("%w: stackName is required", errInvalidRequest)
+	}
+
+	cs, backendErr := h.Backend.CreateCloudFormationChangeSet(
+		appName,
+		createReq.StackName,
+		createReq.SemanticVersion,
+		createReq.TemplateID,
+	)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(
+		ctx,
+		"serverlessrepo: created CloudFormation change set",
+		"app",
+		appName,
+		"changeSetId",
+		cs.ChangeSetID,
+	)
+
+	return json.Marshal(map[string]any{
+		"applicationId":   cs.ApplicationID,
+		"changeSetId":     cs.ChangeSetID,
+		"semanticVersion": cs.SemanticVersion,
+		"stackId":         cs.StackID,
+	})
+}
+
+// policyStatementRequest represents a policy statement in a PutApplicationPolicy request.
+type policyStatementRequest struct {
+	StatementID     string   `json:"statementId"`
+	Actions         []string `json:"actions"`
+	Principals      []string `json:"principals"`
+	PrincipalOrgIDs []string `json:"principalOrgIDs"`
+}
+
+// putApplicationPolicyRequest is the request body for PutApplicationPolicy.
+type putApplicationPolicyRequest struct {
+	Statements []policyStatementRequest `json:"statements"`
+}
+
+func (h *Handler) handleGetApplicationPolicy(req *http.Request) ([]byte, error) {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return nil, err
+	}
+
+	stmts, backendErr := h.Backend.GetApplicationPolicy(appName)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	return json.Marshal(map[string]any{"statements": toPolicyStatementsResponse(stmts)})
+}
+
+func (h *Handler) handlePutApplicationPolicy(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var putReq putApplicationPolicyRequest
+	if jsonErr := json.Unmarshal(body, &putReq); jsonErr != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
+	}
+
+	stmts := make([]*ApplicationPolicyStatement, 0, len(putReq.Statements))
+	for _, s := range putReq.Statements {
+		stmts = append(stmts, &ApplicationPolicyStatement{
+			Actions:         s.Actions,
+			Principals:      s.Principals,
+			PrincipalOrgIDs: s.PrincipalOrgIDs,
+			StatementID:     s.StatementID,
+		})
+	}
+
+	result, backendErr := h.Backend.PutApplicationPolicy(appName, stmts)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "serverlessrepo: updated application policy", "app", appName)
+
+	return json.Marshal(map[string]any{"statements": toPolicyStatementsResponse(result)})
+}
+
+func toPolicyStatementsResponse(stmts []*ApplicationPolicyStatement) []map[string]any {
+	if stmts == nil {
+		return []map[string]any{}
+	}
+
+	out := make([]map[string]any, 0, len(stmts))
+
+	for _, s := range stmts {
+		out = append(out, map[string]any{
+			"actions":         s.Actions,
+			"principals":      s.Principals,
+			"principalOrgIDs": s.PrincipalOrgIDs,
+			"statementId":     s.StatementID,
+		})
+	}
+
+	return out
+}
+
+func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, error) {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return nil, err
+	}
+
+	semanticVersion := req.URL.Query().Get("semanticVersion")
+
+	deps, backendErr := h.Backend.ListApplicationDependencies(appName, semanticVersion)
+	if backendErr != nil {
+		return nil, backendErr
+	}
+
+	depList := make([]map[string]any, 0, len(deps))
+	for _, d := range deps {
+		depList = append(depList, map[string]any{
+			"applicationId":   d.ApplicationID,
+			"semanticVersion": d.SemanticVersion,
+		})
+	}
+
+	return json.Marshal(map[string]any{"dependencies": depList})
+}
+
+// unshareApplicationRequest is the request body for UnshareApplication.
+type unshareApplicationRequest struct {
+	OrganizationID string `json:"organizationId"`
+}
+
+func (h *Handler) handleUnshareApplication(ctx context.Context, req *http.Request, body []byte) error {
+	appName, err := extractApplicationName(req)
+	if err != nil {
+		return err
+	}
+
+	var unshareReq unshareApplicationRequest
+	if jsonErr := json.Unmarshal(body, &unshareReq); jsonErr != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
+	}
+
+	if unshareReq.OrganizationID == "" {
+		return fmt.Errorf("%w: organizationId is required", errInvalidRequest)
+	}
+
+	if backendErr := h.Backend.UnshareApplication(appName, unshareReq.OrganizationID); backendErr != nil {
+		return backendErr
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "serverlessrepo: unshared application",
+		"app", appName, "orgId", unshareReq.OrganizationID)
+
+	return nil
 }
