@@ -423,3 +423,643 @@ func TestS3Control_Provider(t *testing.T) {
 		})
 	}
 }
+
+// --- helper for new operations ---
+
+func doS3ControlNewOpRequest(
+	t *testing.T,
+	h *s3control.Handler,
+	method, path, accountID, body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if accountID != "" {
+		req.Header.Set("X-Amz-Account-Id", accountID)
+	}
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestS3Control_CreateAccessGrantsInstance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:      "creates_instance_with_identity_center_arn",
+			accountID: "123456789012",
+			body: `<CreateAccessGrantsInstanceRequest>
+<IdentityCenterArn>arn:aws:sso:::instance/ssoins-abc</IdentityCenterArn>
+</CreateAccessGrantsInstanceRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessGrantsInstanceArn",
+		},
+		{
+			name:             "creates_instance_without_identity_center",
+			accountID:        "000000000000",
+			body:             `<CreateAccessGrantsInstanceRequest></CreateAccessGrantsInstanceRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessGrantsInstanceId",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/v20180820/accessgrantsinstance",
+				tt.accountID,
+				tt.body,
+			)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_AssociateAccessGrantsIdentityCenter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		accountID  string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:      "associates_identity_center",
+			accountID: "123456789012",
+			body: `<AssociateAccessGrantsIdentityCenterRequest>
+<IdentityCenterArn>arn:aws:sso:::instance/ssoins-xyz</IdentityCenterArn>
+</AssociateAccessGrantsIdentityCenterRequest>`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "associates_with_empty_body",
+			accountID:  "000000000000",
+			body:       "",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/v20180820/accessgrantsinstance/identitycenter",
+				tt.accountID,
+				tt.body,
+			)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestS3Control_CreateAccessGrant(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:      "creates_access_grant",
+			accountID: "123456789012",
+			body: `<CreateAccessGrantRequest>
+<AccessGrantsLocationId>default</AccessGrantsLocationId>
+<Permission>READ</Permission>
+<Grantee>
+<GranteeType>IAM</GranteeType>
+<GranteeIdentifier>arn:aws:iam::123456789012:user/test-user</GranteeIdentifier>
+</Grantee>
+</CreateAccessGrantRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessGrantArn",
+		},
+		{
+			name:      "creates_access_grant_with_application_arn",
+			accountID: "000000000000",
+			body: `<CreateAccessGrantRequest>
+<AccessGrantsLocationId>location-1</AccessGrantsLocationId>
+<Permission>READWRITE</Permission>
+<Grantee>
+<GranteeType>DIRECTORY_USER</GranteeType>
+<GranteeIdentifier>user-id-123</GranteeIdentifier>
+</Grantee>
+<ApplicationArn>arn:aws:sso::000000000000:application/app-123</ApplicationArn>
+</CreateAccessGrantRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessGrantId",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/v20180820/accessgrantsinstance/grant",
+				tt.accountID,
+				tt.body,
+			)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateAccessGrantsLocation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:      "creates_location_with_scope_and_role",
+			accountID: "123456789012",
+			body: `<CreateAccessGrantsLocationRequest>
+<LocationScope>s3://my-bucket/prefix/</LocationScope>
+<IAMRoleArn>arn:aws:iam::123456789012:role/S3AccessGrantsRole</IAMRoleArn>
+</CreateAccessGrantsLocationRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessGrantsLocationArn",
+		},
+		{
+			name:             "creates_location_with_empty_body",
+			accountID:        "000000000000",
+			body:             `<CreateAccessGrantsLocationRequest></CreateAccessGrantsLocationRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessGrantsLocationId",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/v20180820/accessgrantsinstance/location",
+				tt.accountID,
+				tt.body,
+			)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateAccessPoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		apName           string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:      "creates_access_point",
+			accountID: "123456789012",
+			apName:    "my-access-point",
+			body: `<CreateAccessPointRequest>
+<Bucket>my-bucket</Bucket>
+</CreateAccessPointRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessPointArn",
+		},
+		{
+			name:             "creates_access_point_no_bucket",
+			accountID:        "000000000000",
+			apName:           "another-access-point",
+			body:             "",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "AccessPointArn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			path := "/v20180820/accesspoint/" + tt.apName
+			rec := doS3ControlNewOpRequest(t, h, http.MethodPut, path, tt.accountID, tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateAccessPointForObjectLambda(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		apName           string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:             "creates_object_lambda_access_point",
+			accountID:        "123456789012",
+			apName:           "my-lambda-ap",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "ObjectLambdaAccessPointArn",
+		},
+		{
+			name:             "creates_object_lambda_access_point_different_account",
+			accountID:        "000000000000",
+			apName:           "another-lambda-ap",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "s3-object-lambda",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			path := "/v20180820/accesspointforobjectlambda/" + tt.apName
+			rec := doS3ControlNewOpRequest(t, h, http.MethodPut, path, tt.accountID, "")
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateBucket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		bucketName       string
+		wantBodyContains string
+		wantStatus       int
+		wantLocationHdr  bool
+	}{
+		{
+			name:             "creates_outposts_bucket",
+			accountID:        "123456789012",
+			bucketName:       "my-outposts-bucket",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "BucketArn",
+			wantLocationHdr:  true,
+		},
+		{
+			name:             "creates_outposts_bucket_default_account",
+			accountID:        "",
+			bucketName:       "test-bucket",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "BucketArn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			path := "/v20180820/bucket/" + tt.bucketName
+			rec := doS3ControlNewOpRequest(t, h, http.MethodPut, path, tt.accountID, "")
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+
+			if tt.wantLocationHdr {
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:      "creates_batch_job",
+			accountID: "123456789012",
+			body: `<CreateJobRequest>
+<ClientRequestToken>token-123</ClientRequestToken>
+<Priority>10</Priority>
+<RoleArn>arn:aws:iam::123456789012:role/BatchOpsRole</RoleArn>
+</CreateJobRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "JobId",
+		},
+		{
+			name:             "creates_job_with_minimal_body",
+			accountID:        "000000000000",
+			body:             `<CreateJobRequest><RoleArn>arn:aws:iam::000000000000:role/Role</RoleArn></CreateJobRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "JobId",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(t, h, http.MethodPost, "/v20180820/jobs", tt.accountID, tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateMultiRegionAccessPoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		accountID        string
+		body             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:      "creates_mrap_async_request",
+			accountID: "123456789012",
+			body: `<CreateMultiRegionAccessPointRequest>
+<ClientToken>idempotency-token-123</ClientToken>
+<Details>
+<Name>my-mrap</Name>
+</Details>
+</CreateMultiRegionAccessPointRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "RequestTokenARN",
+		},
+		{
+			name:      "creates_mrap_with_empty_details",
+			accountID: "000000000000",
+			body: `<CreateMultiRegionAccessPointRequest>
+<ClientToken>token-456</ClientToken>
+<Details></Details>
+</CreateMultiRegionAccessPointRequest>`,
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "RequestTokenARN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/v20180820/async-requests/mrap/create",
+				tt.accountID,
+				tt.body,
+			)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+func TestS3Control_CreateStorageLensGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		accountID  string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:      "creates_storage_lens_group",
+			accountID: "123456789012",
+			body: `<CreateStorageLensGroupRequest>
+<StorageLensGroup>
+<Name>my-lens-group</Name>
+</StorageLensGroup>
+</CreateStorageLensGroupRequest>`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "creates_storage_lens_group_empty_name",
+			accountID:  "000000000000",
+			body:       `<CreateStorageLensGroupRequest><StorageLensGroup></StorageLensGroup></CreateStorageLensGroupRequest>`,
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			rec := doS3ControlNewOpRequest(t, h, http.MethodPost, "/v20180820/storagelensgroup", tt.accountID, tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestS3Control_NewOps_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{
+			name:   "post_accessgrantsinstance_returns_CreateAccessGrantsInstance",
+			method: http.MethodPost,
+			path:   "/v20180820/accessgrantsinstance",
+			want:   "CreateAccessGrantsInstance",
+		},
+		{
+			name:   "post_identitycenter_returns_AssociateAccessGrantsIdentityCenter",
+			method: http.MethodPost,
+			path:   "/v20180820/accessgrantsinstance/identitycenter",
+			want:   "AssociateAccessGrantsIdentityCenter",
+		},
+		{
+			name:   "post_grant_returns_CreateAccessGrant",
+			method: http.MethodPost,
+			path:   "/v20180820/accessgrantsinstance/grant",
+			want:   "CreateAccessGrant",
+		},
+		{
+			name:   "post_location_returns_CreateAccessGrantsLocation",
+			method: http.MethodPost,
+			path:   "/v20180820/accessgrantsinstance/location",
+			want:   "CreateAccessGrantsLocation",
+		},
+		{
+			name:   "put_accesspoint_returns_CreateAccessPoint",
+			method: http.MethodPut,
+			path:   "/v20180820/accesspoint/my-ap",
+			want:   "CreateAccessPoint",
+		},
+		{
+			name:   "put_objectlambda_returns_CreateAccessPointForObjectLambda",
+			method: http.MethodPut,
+			path:   "/v20180820/accesspointforobjectlambda/my-ap",
+			want:   "CreateAccessPointForObjectLambda",
+		},
+		{
+			name:   "put_bucket_returns_CreateBucket",
+			method: http.MethodPut,
+			path:   "/v20180820/bucket/my-bucket",
+			want:   "CreateBucket",
+		},
+		{
+			name:   "post_jobs_returns_CreateJob",
+			method: http.MethodPost,
+			path:   "/v20180820/jobs",
+			want:   "CreateJob",
+		},
+		{
+			name:   "post_mrap_create_returns_CreateMultiRegionAccessPoint",
+			method: http.MethodPost,
+			path:   "/v20180820/async-requests/mrap/create",
+			want:   "CreateMultiRegionAccessPoint",
+		},
+		{
+			name:   "post_storagelensgroup_returns_CreateStorageLensGroup",
+			method: http.MethodPost,
+			path:   "/v20180820/storagelensgroup",
+			want:   "CreateStorageLensGroup",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestS3ControlHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestS3Control_NewOps_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(b *s3control.InMemoryBackend)
+		verify func(t *testing.T, b *s3control.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "snapshot_restore_preserves_access_grants_instance",
+			setup: func(b *s3control.InMemoryBackend) {
+				b.CreateAccessGrantsInstance("account-1", "arn:aws:sso:::instance/inst-1")
+			},
+			verify: func(t *testing.T, _ *s3control.InMemoryBackend) {
+				t.Helper()
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_batch_job",
+			setup: func(b *s3control.InMemoryBackend) {
+				_, _ = b.CreateJob("account-2", "arn:aws:iam::account-2:role/role", 10)
+			},
+			verify: func(t *testing.T, _ *s3control.InMemoryBackend) {
+				t.Helper()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := s3control.NewInMemoryBackend()
+			tt.setup(original)
+
+			snap := original.Snapshot()
+			require.NotNil(t, snap)
+
+			fresh := s3control.NewInMemoryBackend()
+			require.NoError(t, fresh.Restore(snap))
+
+			tt.verify(t, fresh)
+		})
+	}
+}
