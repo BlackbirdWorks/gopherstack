@@ -3,15 +3,25 @@ package shield
 // StorageBackend is the interface for Shield Advanced storage operations.
 type StorageBackend interface {
 	CreateSubscription() error
+	DeleteSubscription() error
 	DescribeSubscription() (*Subscription, error)
 	GetSubscriptionState() string
 	CreateProtection(name, resourceARN string, tags map[string]string) (*Protection, error)
 	DescribeProtection(protectionID, resourceARN string) (*Protection, error)
 	DeleteProtection(protectionID string) error
 	ListProtections() []*Protection
+	AssociateHealthCheck(protectionID, healthCheckARN string) error
 	TagResource(resourceARN string, tags map[string]string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	UntagResource(resourceARN string, tagKeys []string) error
+	AssociateDRTLogBucket(bucket string) error
+	AssociateDRTRole(roleARN string) error
+	DescribeDRTAccess() *DRTAccess
+	AssociateProactiveEngagementDetails(contacts []EmergencyContact) error
+	CreateProtectionGroup(id, aggregation, pattern, resourceType string, members []string) (*ProtectionGroup, error)
+	DeleteProtectionGroup(protectionGroupID string) error
+	DescribeAttack(attackID string) (*Attack, error)
+	DescribeAttackStatistics() *AttackStatistics
 	AccountID() string
 	Region() string
 	Reset()

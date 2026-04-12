@@ -51,9 +51,19 @@ func (h *Handler) Name() string { return "Shield" }
 // GetSupportedOperations returns the list of supported Shield operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AssociateDRTLogBucket",
+		"AssociateDRTRole",
+		"AssociateHealthCheck",
+		"AssociateProactiveEngagementDetails",
 		"CreateProtection",
+		"CreateProtectionGroup",
 		"CreateSubscription",
 		"DeleteProtection",
+		"DeleteProtectionGroup",
+		"DeleteSubscription",
+		"DescribeAttack",
+		"DescribeAttackStatistics",
+		"DescribeDRTAccess",
 		"DescribeProtection",
 		"DescribeSubscription",
 		"GetSubscriptionState",
@@ -125,30 +135,111 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte, error) {
+	if result, ok, err := h.dispatchSubscriptionAndProtectionOps(ctx, op, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchTagOps(op, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchDRTAndEngagementOps(op, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchProtectionGroupAndAttackOps(op, body); ok {
+		return result, err
+	}
+
+	return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+}
+
+func (h *Handler) dispatchSubscriptionAndProtectionOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case "CreateSubscription":
-		return h.handleCreateSubscription(ctx)
+		return nil, true, h.handleCreateSubscription(ctx)
+	case "DeleteSubscription":
+		return nil, true, h.handleDeleteSubscription()
 	case "DescribeSubscription":
-		return h.handleDescribeSubscription()
+		res, err := h.handleDescribeSubscription()
+
+		return res, true, err
 	case "GetSubscriptionState":
-		return h.handleGetSubscriptionState()
+		res, err := h.handleGetSubscriptionState()
+
+		return res, true, err
 	case "CreateProtection":
-		return h.handleCreateProtection(ctx, body)
+		res, err := h.handleCreateProtection(ctx, body)
+
+		return res, true, err
 	case "DescribeProtection":
-		return h.handleDescribeProtection(body)
+		res, err := h.handleDescribeProtection(body)
+
+		return res, true, err
 	case "DeleteProtection":
-		return h.handleDeleteProtection(ctx, body)
+		return nil, true, h.handleDeleteProtection(ctx, body)
 	case "ListProtections":
-		return h.handleListProtections()
-	case "TagResource":
-		return h.handleTagResource(body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(body)
-	case "UntagResource":
-		return h.handleUntagResource(body)
-	default:
-		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+		res, err := h.handleListProtections()
+
+		return res, true, err
 	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchTagOps(op string, body []byte) ([]byte, bool, error) {
+	switch op {
+	case "TagResource":
+		return nil, true, h.handleTagResource(body)
+	case "ListTagsForResource":
+		res, err := h.handleListTagsForResource(body)
+
+		return res, true, err
+	case "UntagResource":
+		return nil, true, h.handleUntagResource(body)
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchDRTAndEngagementOps(op string, body []byte) ([]byte, bool, error) {
+	switch op {
+	case "AssociateDRTLogBucket":
+		return nil, true, h.handleAssociateDRTLogBucket(body)
+	case "AssociateDRTRole":
+		return nil, true, h.handleAssociateDRTRole(body)
+	case "DescribeDRTAccess":
+		res, err := h.handleDescribeDRTAccess()
+
+		return res, true, err
+	case "AssociateHealthCheck":
+		return nil, true, h.handleAssociateHealthCheck(body)
+	case "AssociateProactiveEngagementDetails":
+		return nil, true, h.handleAssociateProactiveEngagementDetails(body)
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([]byte, bool, error) {
+	switch op {
+	case "CreateProtectionGroup":
+		return nil, true, h.handleCreateProtectionGroup(body)
+	case "DeleteProtectionGroup":
+		return nil, true, h.handleDeleteProtectionGroup(body)
+	case "DescribeAttack":
+		res, err := h.handleDescribeAttack(body)
+
+		return res, true, err
+	case "DescribeAttackStatistics":
+		res, err := h.handleDescribeAttackStatistics()
+
+		return res, true, err
+	}
+
+	return nil, false, nil
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -170,7 +261,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "InvalidParameterException",
@@ -188,20 +280,20 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	}
 }
 
-func (h *Handler) handleCreateSubscription(ctx context.Context) ([]byte, error) {
+func (h *Handler) handleCreateSubscription(ctx context.Context) error {
 	if err := h.Backend.CreateSubscription(); err != nil {
 		// Shield returns empty body on success; ignore "already exists" per AWS behavior
 		if errors.Is(err, awserr.ErrConflict) {
-			return nil, nil
+			return nil
 		}
 
-		return nil, err
+		return err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "shield: created subscription")
 
-	return nil, nil
+	return nil
 }
 
 func (h *Handler) handleDescribeSubscription() ([]byte, error) {
@@ -325,24 +417,24 @@ type deleteProtectionRequest struct {
 	ProtectionID string `json:"ProtectionId"`
 }
 
-func (h *Handler) handleDeleteProtection(ctx context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteProtection(ctx context.Context, body []byte) error {
 	var req deleteProtectionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ProtectionID == "" {
-		return nil, fmt.Errorf("%w: ProtectionId is required", errInvalidRequest)
+		return fmt.Errorf("%w: ProtectionId is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteProtection(req.ProtectionID); err != nil {
-		return nil, err
+		return err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "shield: deleted protection", "id", req.ProtectionID)
 
-	return nil, nil
+	return nil
 }
 
 func (h *Handler) handleListProtections() ([]byte, error) {
@@ -364,21 +456,21 @@ type tagResourceRequest struct {
 	Tags        []tagItem `json:"Tags"`
 }
 
-func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
+func (h *Handler) handleTagResource(body []byte) error {
 	var req tagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+		return fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.TagResource(req.ResourceARN, tagsFromItems(req.Tags)); err != nil {
-		return nil, err
+		return err
 	}
 
-	return nil, nil
+	return nil
 }
 
 // listTagsForResourceRequest is the request body for ListTagsForResource.
@@ -412,27 +504,257 @@ type untagResourceRequest struct {
 	TagKeys     []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
+func (h *Handler) handleUntagResource(body []byte) error {
 	var req untagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+		return fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.UntagResource(req.ResourceARN, req.TagKeys); err != nil {
-		return nil, err
+		return err
 	}
 
-	return nil, nil
+	return nil
 }
 
 func protectionToMap(p *Protection) map[string]any {
 	return map[string]any{
-		"Id":          p.ID,
-		"Name":        p.Name,
-		"ResourceArn": p.ResourceARN,
+		"Id":             p.ID,
+		"Name":           p.Name,
+		"ResourceArn":    p.ResourceARN,
+		"HealthCheckIds": p.HealthCheckIDs,
 	}
+}
+
+// associateDRTLogBucketRequest is the request body for AssociateDRTLogBucket.
+type associateDRTLogBucketRequest struct {
+	LogBucket string `json:"LogBucket"`
+}
+
+func (h *Handler) handleAssociateDRTLogBucket(body []byte) error {
+	var req associateDRTLogBucketRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.LogBucket == "" {
+		return fmt.Errorf("%w: LogBucket is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.AssociateDRTLogBucket(req.LogBucket); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// associateDRTRoleRequest is the request body for AssociateDRTRole.
+type associateDRTRoleRequest struct {
+	RoleArn string `json:"RoleArn"`
+}
+
+func (h *Handler) handleAssociateDRTRole(body []byte) error {
+	var req associateDRTRoleRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.RoleArn == "" {
+		return fmt.Errorf("%w: RoleArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.AssociateDRTRole(req.RoleArn); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) handleDescribeDRTAccess() ([]byte, error) {
+	access := h.Backend.DescribeDRTAccess()
+
+	return json.Marshal(map[string]any{
+		"LogBucketList": access.LogBucketList,
+		"RoleArn":       access.RoleArn,
+	})
+}
+
+// associateHealthCheckRequest is the request body for AssociateHealthCheck.
+type associateHealthCheckRequest struct {
+	ProtectionID   string `json:"ProtectionId"`
+	HealthCheckArn string `json:"HealthCheckArn"`
+}
+
+func (h *Handler) handleAssociateHealthCheck(body []byte) error {
+	var req associateHealthCheckRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ProtectionID == "" {
+		return fmt.Errorf("%w: ProtectionId is required", errInvalidRequest)
+	}
+
+	if req.HealthCheckArn == "" {
+		return fmt.Errorf("%w: HealthCheckArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.AssociateHealthCheck(req.ProtectionID, req.HealthCheckArn); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// emergencyContactItem represents a single emergency contact in the API request/response.
+type emergencyContactItem struct {
+	EmailAddress string `json:"EmailAddress"`
+	PhoneNumber  string `json:"PhoneNumber,omitempty"`
+	ContactNotes string `json:"ContactNotes,omitempty"`
+}
+
+// associateProactiveEngagementRequest is the request body for AssociateProactiveEngagementDetails.
+type associateProactiveEngagementRequest struct {
+	EmergencyContactList []emergencyContactItem `json:"EmergencyContactList"`
+}
+
+func (h *Handler) handleAssociateProactiveEngagementDetails(body []byte) error {
+	var req associateProactiveEngagementRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if len(req.EmergencyContactList) == 0 {
+		return fmt.Errorf("%w: EmergencyContactList must have at least one entry", errInvalidRequest)
+	}
+
+	contacts := make([]EmergencyContact, 0, len(req.EmergencyContactList))
+
+	for _, c := range req.EmergencyContactList {
+		if c.EmailAddress == "" {
+			return fmt.Errorf("%w: EmailAddress is required in each emergency contact", errInvalidRequest)
+		}
+
+		contacts = append(contacts, EmergencyContact(c))
+	}
+
+	if err := h.Backend.AssociateProactiveEngagementDetails(contacts); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// createProtectionGroupRequest is the request body for CreateProtectionGroup.
+type createProtectionGroupRequest struct {
+	ProtectionGroupID string   `json:"ProtectionGroupId"`
+	Aggregation       string   `json:"Aggregation"`
+	Pattern           string   `json:"Pattern"`
+	ResourceType      string   `json:"ResourceType"`
+	Members           []string `json:"Members"`
+}
+
+func (h *Handler) handleCreateProtectionGroup(body []byte) error {
+	var req createProtectionGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ProtectionGroupID == "" {
+		return fmt.Errorf("%w: ProtectionGroupId is required", errInvalidRequest)
+	}
+
+	if req.Aggregation == "" {
+		return fmt.Errorf("%w: Aggregation is required", errInvalidRequest)
+	}
+
+	if req.Pattern == "" {
+		return fmt.Errorf("%w: Pattern is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.CreateProtectionGroup(
+		req.ProtectionGroupID, req.Aggregation, req.Pattern, req.ResourceType, req.Members,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deleteProtectionGroupRequest is the request body for DeleteProtectionGroup.
+type deleteProtectionGroupRequest struct {
+	ProtectionGroupID string `json:"ProtectionGroupId"`
+}
+
+func (h *Handler) handleDeleteProtectionGroup(body []byte) error {
+	var req deleteProtectionGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ProtectionGroupID == "" {
+		return fmt.Errorf("%w: ProtectionGroupId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteProtectionGroup(req.ProtectionGroupID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) handleDeleteSubscription() error {
+	if err := h.Backend.DeleteSubscription(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// describeAttackRequest is the request body for DescribeAttack.
+type describeAttackRequest struct {
+	AttackID string `json:"AttackId"`
+}
+
+func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
+	var req describeAttackRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.AttackID == "" {
+		return nil, fmt.Errorf("%w: AttackId is required", errInvalidRequest)
+	}
+
+	attack, err := h.Backend.DescribeAttack(req.AttackID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"Attack": map[string]any{
+			"AttackId":    attack.AttackID,
+			"ResourceArn": attack.ResourceARN,
+			"StartTime":   attack.StartTime.Unix(),
+			"EndTime":     attack.EndTime.Unix(),
+		},
+	})
+}
+
+func (h *Handler) handleDescribeAttackStatistics() ([]byte, error) {
+	stats := h.Backend.DescribeAttackStatistics()
+
+	return json.Marshal(map[string]any{
+		"AttackStatistics": map[string]any{
+			"TimeRange": map[string]any{
+				"FromInclusive": stats.TimeRange.FromInclusive,
+				"ToExclusive":   stats.TimeRange.ToExclusive,
+			},
+			"DataItems": stats.DataItems,
+		},
+	})
 }

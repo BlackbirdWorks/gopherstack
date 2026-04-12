@@ -14,12 +14,12 @@ func newR1Backend() *shield.InMemoryBackend {
 	return shield.NewInMemoryBackend("000000000000", "us-east-1")
 }
 
-// TestRefinement1_HandlerOpsLen verifies 10 operations are supported.
+// TestRefinement1_HandlerOpsLen verifies 20 operations are supported.
 func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := shield.NewHandler(newR1Backend())
-	assert.Equal(t, 10, shield.HandlerOpsLen(h))
+	assert.Equal(t, 20, shield.HandlerOpsLen(h))
 }
 
 // TestRefinement1_AccountID verifies AccountID returns the configured value.

@@ -6,15 +6,27 @@ import (
 )
 
 type backendSnapshot struct {
-	Protections  map[string]*Protection `json:"protections"`
-	Subscription *Subscription          `json:"subscription,omitempty"`
-	AccountID    string                 `json:"accountID"`
-	Region       string                 `json:"region"`
+	Protections       map[string]*Protection      `json:"protections"`
+	ProtectionGroups  map[string]*ProtectionGroup `json:"protectionGroups"`
+	Attacks           map[string]*Attack          `json:"attacks"`
+	Subscription      *Subscription               `json:"subscription,omitempty"`
+	DRTAccess         *DRTAccess                  `json:"drtAccess,omitempty"`
+	AccountID         string                      `json:"accountID"`
+	Region            string                      `json:"region"`
+	EmergencyContacts []EmergencyContact          `json:"emergencyContacts,omitempty"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
 	if s.Protections == nil {
 		s.Protections = make(map[string]*Protection)
+	}
+
+	if s.ProtectionGroups == nil {
+		s.ProtectionGroups = make(map[string]*ProtectionGroup)
+	}
+
+	if s.Attacks == nil {
+		s.Attacks = make(map[string]*Attack)
 	}
 }
 
@@ -24,10 +36,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Protections:  b.protections,
-		Subscription: b.subscription,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Protections:       b.protections,
+		ProtectionGroups:  b.protectionGroups,
+		Attacks:           b.attacks,
+		Subscription:      b.subscription,
+		DRTAccess:         b.drtAccess,
+		EmergencyContacts: b.emergencyContacts,
+		AccountID:         b.accountID,
+		Region:            b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -54,7 +70,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	b.protections = snap.Protections
+	b.protectionGroups = snap.ProtectionGroups
+	b.attacks = snap.Attacks
 	b.subscription = snap.Subscription
+	b.drtAccess = snap.DRTAccess
+	b.emergencyContacts = snap.EmergencyContacts
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
