@@ -20,7 +20,10 @@ func TestSchedulerDashboard(t *testing.T) {
 
 	_, err := stack.SchedulerHandler.Backend.CreateSchedule(
 		"test-schedule",
+		"",
 		"rate(5 minutes)",
+		"",
+		"",
 		schedulerbackend.Target{
 			ARN:     "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
 			RoleARN: "arn:aws:iam::000000000000:role/scheduler-role",

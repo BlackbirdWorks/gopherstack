@@ -13,6 +13,36 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// ScheduleOption applies an optional field to a schedule during creation or update.
+type ScheduleOption func(*Schedule)
+
+// applyScheduleOptions applies all options to the schedule.
+func applyScheduleOptions(opts []ScheduleOption, s *Schedule) {
+	for _, o := range opts {
+		o(s)
+	}
+}
+
+// WithStartDate sets the optional start date on a schedule.
+func WithStartDate(t time.Time) ScheduleOption {
+	return func(s *Schedule) { s.StartDate = &t }
+}
+
+// WithEndDate sets the optional end date on a schedule.
+func WithEndDate(t time.Time) ScheduleOption {
+	return func(s *Schedule) { s.EndDate = &t }
+}
+
+// WithActionAfterCompletion sets what happens after the schedule completes (DELETE or NONE).
+func WithActionAfterCompletion(action string) ScheduleOption {
+	return func(s *Schedule) { s.ActionAfterCompletion = action }
+}
+
+// WithKmsKeyArn sets an optional customer-managed KMS key ARN on a schedule.
+func WithKmsKeyArn(arn string) ScheduleOption {
+	return func(s *Schedule) { s.KmsKeyArn = arn }
+}
+
 var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
@@ -24,6 +54,11 @@ const (
 	scheduleGroupStateActive = "ACTIVE"
 	scheduleStateEnabled     = "ENABLED"
 	scheduleStateDisabled    = "DISABLED"
+
+	// flexibleTimeWindowModeOff means no flexible time window is used.
+	flexibleTimeWindowModeOff = "OFF"
+	// flexibleTimeWindowModeFlexible means a flexible time window is applied.
+	flexibleTimeWindowModeFlexible = "FLEXIBLE"
 )
 
 type FlexibleTimeWindow struct {
@@ -44,6 +79,8 @@ type Schedule struct {
 	Tags                       *tags.Tags         `json:"tags,omitempty"`
 	CreationDate               time.Time          `json:"creationDate"`
 	LastModificationDate       time.Time          `json:"lastModificationDate"`
+	StartDate                  *time.Time         `json:"startDate,omitempty"`
+	EndDate                    *time.Time         `json:"endDate,omitempty"`
 	Target                     Target             `json:"target"`
 	Name                       string             `json:"name"`
 	ARN                        string             `json:"arn"`
@@ -52,6 +89,8 @@ type Schedule struct {
 	Description                string             `json:"description,omitempty"`
 	GroupName                  string             `json:"groupName"`
 	State                      string             `json:"state"`
+	ActionAfterCompletion      string             `json:"actionAfterCompletion,omitempty"`
+	KmsKeyArn                  string             `json:"kmsKeyArn,omitempty"`
 	AccountID                  string             `json:"accountID"`
 	Region                     string             `json:"region"`
 	FlexibleTimeWindow         FlexibleTimeWindow `json:"flexibleTimeWindow"`
@@ -127,6 +166,7 @@ func (b *InMemoryBackend) CreateSchedule(
 	target Target,
 	state string,
 	ftw FlexibleTimeWindow,
+	opts ...ScheduleOption,
 ) (*Schedule, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
@@ -146,6 +186,14 @@ func (b *InMemoryBackend) CreateSchedule(
 
 	if ftw.Mode == "" {
 		return nil, fmt.Errorf("%w: FlexibleTimeWindow.Mode is required", ErrValidation)
+	}
+
+	if err := validateScheduleState(state); err != nil {
+		return nil, err
+	}
+
+	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+		return nil, err
 	}
 
 	if groupName == "" {
@@ -182,6 +230,7 @@ func (b *InMemoryBackend) CreateSchedule(
 		LastModificationDate:       now,
 		Tags:                       tags.New("scheduler.schedule." + groupName + "." + name + ".tags"),
 	}
+	applyScheduleOptions(opts, s)
 	b.schedules[key] = s
 	b.scheduleARNIndex[schedARN] = key
 
@@ -262,7 +311,20 @@ func (b *InMemoryBackend) UpdateSchedule(
 	target Target,
 	state string,
 	ftw FlexibleTimeWindow,
+	opts ...ScheduleOption,
 ) (*Schedule, error) {
+	if state != "" {
+		if err := validateScheduleState(state); err != nil {
+			return nil, err
+		}
+	}
+
+	if ftw.Mode != "" {
+		if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+			return nil, err
+		}
+	}
+
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
@@ -282,6 +344,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 	s.State = state
 	s.FlexibleTimeWindow = ftw
 	s.LastModificationDate = time.Now().UTC()
+	applyScheduleOptions(opts, s)
 
 	return cloneSchedule(s), nil
 }
@@ -412,6 +475,7 @@ func (b *InMemoryBackend) GetScheduleGroup(name string) (*ScheduleGroup, error) 
 
 // DeleteScheduleGroup removes the schedule group with the given name.
 // The built-in "default" group cannot be deleted.
+// All schedules within the group are also deleted.
 func (b *InMemoryBackend) DeleteScheduleGroup(name string) error {
 	if name == defaultGroupName {
 		return fmt.Errorf("%w: cannot delete the default schedule group", ErrValidation)
@@ -423,6 +487,17 @@ func (b *InMemoryBackend) DeleteScheduleGroup(name string) error {
 	g, ok := b.scheduleGroups[name]
 	if !ok {
 		return fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
+	}
+
+	// Cascade-delete all schedules belonging to this group.
+	for key, s := range b.schedules {
+		if s.GroupName == name {
+			delete(b.scheduleARNIndex, s.ARN)
+			delete(b.schedules, key)
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
+		}
 	}
 
 	delete(b.scheduleGroupARNIndex, g.ARN)
@@ -494,6 +569,17 @@ func cloneSchedule(s *Schedule) *Schedule {
 		cp.Tags = tags.FromMap("scheduler.schedule."+s.GroupName+"."+s.Name+".tags.clone", s.Tags.Clone())
 	}
 
+	// Deep-copy optional time pointer fields.
+	if s.StartDate != nil {
+		t := *s.StartDate
+		cp.StartDate = &t
+	}
+
+	if s.EndDate != nil {
+		t := *s.EndDate
+		cp.EndDate = &t
+	}
+
 	return &cp
 }
 
@@ -507,4 +593,25 @@ func cloneScheduleGroup(g *ScheduleGroup) *ScheduleGroup {
 	}
 
 	return &cp
+}
+
+// validateScheduleState returns ErrValidation if state is not a valid value.
+// An empty string is allowed (the handler sets a default).
+func validateScheduleState(state string) error {
+	switch state {
+	case scheduleStateEnabled, scheduleStateDisabled, "":
+		return nil
+	default:
+		return fmt.Errorf("%w: State must be ENABLED or DISABLED, got %q", ErrValidation, state)
+	}
+}
+
+// validateFlexibleTimeWindowMode returns ErrValidation if mode is not OFF or FLEXIBLE.
+func validateFlexibleTimeWindowMode(mode string) error {
+	switch mode {
+	case flexibleTimeWindowModeOff, flexibleTimeWindowModeFlexible:
+		return nil
+	default:
+		return fmt.Errorf("%w: FlexibleTimeWindow.Mode must be OFF or FLEXIBLE, got %q", ErrValidation, mode)
+	}
 }

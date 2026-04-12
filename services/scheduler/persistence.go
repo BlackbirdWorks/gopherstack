@@ -17,6 +17,8 @@ const snapshotTimeLayout = time.RFC3339Nano
 type persistedSchedule struct {
 	CreationDate               string             `json:"creationDate"`
 	LastModificationDate       string             `json:"lastModificationDate"`
+	StartDate                  string             `json:"startDate,omitempty"`
+	EndDate                    string             `json:"endDate,omitempty"`
 	Tags                       map[string]string  `json:"tags,omitempty"`
 	Target                     Target             `json:"target"`
 	Name                       string             `json:"name"`
@@ -26,6 +28,8 @@ type persistedSchedule struct {
 	Description                string             `json:"description,omitempty"`
 	GroupName                  string             `json:"groupName"`
 	State                      string             `json:"state"`
+	ActionAfterCompletion      string             `json:"actionAfterCompletion,omitempty"`
+	KmsKeyArn                  string             `json:"kmsKeyArn,omitempty"`
 	AccountID                  string             `json:"accountID"`
 	Region                     string             `json:"region"`
 	FlexibleTimeWindow         FlexibleTimeWindow `json:"flexibleTimeWindow"`
@@ -99,11 +103,21 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			Target:                     s.Target,
 			State:                      s.State,
 			FlexibleTimeWindow:         s.FlexibleTimeWindow,
+			ActionAfterCompletion:      s.ActionAfterCompletion,
+			KmsKeyArn:                  s.KmsKeyArn,
 			AccountID:                  s.AccountID,
 			Region:                     s.Region,
 			CreationDate:               s.CreationDate.Format(snapshotTimeLayout),
 			LastModificationDate:       s.LastModificationDate.Format(snapshotTimeLayout),
 			Tags:                       tagMap,
+		}
+
+		if s.StartDate != nil {
+			schedules[key].StartDate = s.StartDate.Format(snapshotTimeLayout)
+		}
+
+		if s.EndDate != nil {
+			schedules[key].EndDate = s.EndDate.Format(snapshotTimeLayout)
 		}
 	}
 
@@ -189,6 +203,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			Target:                     ps.Target,
 			State:                      ps.State,
 			FlexibleTimeWindow:         ps.FlexibleTimeWindow,
+			ActionAfterCompletion:      ps.ActionAfterCompletion,
+			KmsKeyArn:                  ps.KmsKeyArn,
 			AccountID:                  ps.AccountID,
 			Region:                     ps.Region,
 			CreationDate:               parseSnapshotTime(ps.CreationDate),
@@ -197,6 +213,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 				"scheduler.schedule."+groupName+"."+ps.Name+".tags",
 				ps.Tags,
 			),
+		}
+
+		if ps.StartDate != "" {
+			t := parseSnapshotTime(ps.StartDate)
+			s.StartDate = &t
+		}
+
+		if ps.EndDate != "" {
+			t := parseSnapshotTime(ps.EndDate)
+			s.EndDate = &t
 		}
 		b.schedules[key] = s
 		b.scheduleARNIndex[s.ARN] = key

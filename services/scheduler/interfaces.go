@@ -9,6 +9,7 @@ type StorageBackend interface {
 		target Target,
 		state string,
 		ftw FlexibleTimeWindow,
+		opts ...ScheduleOption,
 	) (*Schedule, error)
 	GetSchedule(name, groupName string) (*Schedule, error)
 	ListSchedules(groupName, namePrefix, state string) []*Schedule
@@ -18,6 +19,7 @@ type StorageBackend interface {
 		target Target,
 		state string,
 		ftw FlexibleTimeWindow,
+		opts ...ScheduleOption,
 	) (*Schedule, error)
 
 	// Schedule group operations
