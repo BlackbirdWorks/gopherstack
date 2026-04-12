@@ -52,17 +52,27 @@ func (h *Handler) Name() string { return "SageMaker" }
 // GetSupportedOperations returns the list of supported SageMaker operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateModel",
-		"DescribeModel",
-		"ListModels",
-		"DeleteModel",
-		"CreateEndpointConfig",
-		"DescribeEndpointConfig",
-		"ListEndpointConfigs",
-		"DeleteEndpointConfig",
+		"AddAssociation",
 		"AddTags",
-		"ListTags",
+		"AssociateTrialComponent",
+		"AttachClusterNodeVolume",
+		"BatchAddClusterNodes",
+		"BatchDeleteClusterNodes",
+		"BatchDescribeModelPackage",
+		"BatchRebootClusterNodes",
+		"BatchReplaceClusterNodes",
+		"CreateAction",
+		"CreateAlgorithm",
+		"CreateEndpointConfig",
+		"CreateModel",
+		"DeleteEndpointConfig",
+		"DeleteModel",
 		"DeleteTags",
+		"DescribeEndpointConfig",
+		"DescribeModel",
+		"ListEndpointConfigs",
+		"ListModels",
+		"ListTags",
 	}
 }
 
@@ -129,29 +139,86 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte, error) {
+	if result, ok, err := h.dispatchCoreOps(ctx, op, body); ok {
+		return result, err
+	}
+
+	return h.dispatchNewOps(ctx, op, body)
+}
+
+func (h *Handler) dispatchCoreOps(ctx context.Context, op string, body []byte) ([]byte, bool, error) {
 	switch op {
 	case "CreateModel":
-		return h.handleCreateModel(ctx, body)
+		r, err := h.handleCreateModel(ctx, body)
+
+		return r, true, err
 	case "DescribeModel":
-		return h.handleDescribeModel(ctx, body)
+		r, err := h.handleDescribeModel(ctx, body)
+
+		return r, true, err
 	case "ListModels":
-		return h.handleListModels(body)
+		r, err := h.handleListModels(body)
+
+		return r, true, err
 	case "DeleteModel":
-		return h.handleDeleteModel(ctx, body)
+		r, err := h.handleDeleteModel(ctx, body)
+
+		return r, true, err
 	case "CreateEndpointConfig":
-		return h.handleCreateEndpointConfig(ctx, body)
+		r, err := h.handleCreateEndpointConfig(ctx, body)
+
+		return r, true, err
 	case "DescribeEndpointConfig":
-		return h.handleDescribeEndpointConfig(ctx, body)
+		r, err := h.handleDescribeEndpointConfig(ctx, body)
+
+		return r, true, err
 	case "ListEndpointConfigs":
-		return h.handleListEndpointConfigs(body)
+		r, err := h.handleListEndpointConfigs(body)
+
+		return r, true, err
 	case "DeleteEndpointConfig":
-		return h.handleDeleteEndpointConfig(ctx, body)
+		r, err := h.handleDeleteEndpointConfig(ctx, body)
+
+		return r, true, err
 	case "AddTags":
-		return h.handleAddTags(ctx, body)
+		r, err := h.handleAddTags(ctx, body)
+
+		return r, true, err
 	case "ListTags":
-		return h.handleListTags(ctx, body)
+		r, err := h.handleListTags(ctx, body)
+
+		return r, true, err
 	case "DeleteTags":
-		return h.handleDeleteTags(ctx, body)
+		r, err := h.handleDeleteTags(ctx, body)
+
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([]byte, error) {
+	switch op {
+	case "AddAssociation":
+		return h.handleAddAssociation(ctx, body)
+	case "AssociateTrialComponent":
+		return h.handleAssociateTrialComponent(ctx, body)
+	case "AttachClusterNodeVolume":
+		return h.handleAttachClusterNodeVolume(ctx, body)
+	case "BatchAddClusterNodes":
+		return h.handleBatchAddClusterNodes(ctx, body)
+	case "BatchDeleteClusterNodes":
+		return h.handleBatchDeleteClusterNodes(ctx, body)
+	case "BatchDescribeModelPackage":
+		return h.handleBatchDescribeModelPackage(body)
+	case "BatchRebootClusterNodes":
+		return h.handleBatchRebootClusterNodes(ctx, body)
+	case "BatchReplaceClusterNodes":
+		return h.handleBatchReplaceClusterNodes(ctx, body)
+	case "CreateAction":
+		return h.handleCreateAction(ctx, body)
+	case "CreateAlgorithm":
+		return h.handleCreateAlgorithm(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
@@ -585,4 +652,432 @@ func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) ([]byte, er
 	log.InfoContext(ctx, "sagemaker: deleted tags", "resource", req.ResourceArn)
 
 	return nil, nil
+}
+
+// addAssociationRequest is the request body for AddAssociation.
+type addAssociationRequest struct {
+	SourceArn       string      `json:"SourceArn"`
+	DestinationArn  string      `json:"DestinationArn"`
+	AssociationType string      `json:"AssociationType"`
+	Tags            []tagObject `json:"Tags"`
+}
+
+func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte, error) {
+	var req addAssociationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.SourceArn == "" {
+		return nil, fmt.Errorf("%w: SourceArn is required", errInvalidRequest)
+	}
+
+	if req.DestinationArn == "" {
+		return nil, fmt.Errorf("%w: DestinationArn is required", errInvalidRequest)
+	}
+
+	tags := fromTagObjects(req.Tags)
+
+	assoc, err := h.Backend.AddAssociation(req.SourceArn, req.DestinationArn, req.AssociationType, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: added association", "arn", assoc.AssociationArn)
+
+	return json.Marshal(map[string]string{"AssociationArn": assoc.AssociationArn})
+}
+
+// associateTrialComponentRequest is the request body for AssociateTrialComponent.
+type associateTrialComponentRequest struct {
+	TrialName          string `json:"TrialName"`
+	TrialComponentName string `json:"TrialComponentName"`
+}
+
+func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
+	var req associateTrialComponentRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.TrialName == "" {
+		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
+	}
+
+	if req.TrialComponentName == "" {
+		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
+	}
+
+	assoc, err := h.Backend.AssociateTrialComponent(req.TrialName, req.TrialComponentName)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: associated trial component",
+		"trial", assoc.TrialArn, "component", assoc.TrialComponentArn)
+
+	return json.Marshal(map[string]string{
+		"TrialArn":          assoc.TrialArn,
+		"TrialComponentArn": assoc.TrialComponentArn,
+	})
+}
+
+// clusterNodeVolumeRequest is the volume config in the handler request.
+type clusterNodeVolumeRequest struct {
+	VolumeName string `json:"VolumeName"`
+	SizeInGB   int32  `json:"SizeInGB,omitempty"`
+}
+
+// attachClusterNodeVolumeRequest is the request body for AttachClusterNodeVolume.
+type attachClusterNodeVolumeRequest struct {
+	ClusterName  string                   `json:"ClusterName"`
+	NodeID       string                   `json:"NodeId"`
+	VolumeConfig clusterNodeVolumeRequest `json:"VolumeConfig"`
+}
+
+func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
+	var req attachClusterNodeVolumeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	if req.NodeID == "" {
+		return nil, fmt.Errorf("%w: NodeId is required", errInvalidRequest)
+	}
+
+	vol := ClusterNodeVolume{
+		VolumeName: req.VolumeConfig.VolumeName,
+		SizeInGB:   req.VolumeConfig.SizeInGB,
+	}
+
+	clusterArn, nodeID, err := h.Backend.AttachClusterNodeVolume(req.ClusterName, req.NodeID, vol)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: attached cluster node volume", "cluster", clusterArn, "node", nodeID)
+
+	return json.Marshal(map[string]string{
+		"ClusterArn": clusterArn,
+		"NodeId":     nodeID,
+	})
+}
+
+// clusterNodeRequest represents a node config in batch cluster operations.
+type clusterNodeRequest struct {
+	NodeID       string `json:"NodeId"`
+	InstanceType string `json:"InstanceType,omitempty"`
+}
+
+// batchClusterNodesWithFailures is a shared helper for cluster batch operations that return Failures.
+func (h *Handler) batchClusterNodesWithFailures(
+	ctx context.Context,
+	clusterName, logMsg string,
+	nodes []ClusterNode,
+	fn func(string, []ClusterNode) (string, []string, error),
+) ([]byte, error) {
+	clusterArn, failures, err := fn(clusterName, nodes)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, logMsg, "cluster", clusterArn)
+
+	if failures == nil {
+		failures = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		"ClusterArn": clusterArn,
+		"Failures":   failures,
+	})
+}
+
+// toClusterNodes converts a slice of clusterNodeRequest to ClusterNode.
+func toClusterNodes(reqs []clusterNodeRequest) []ClusterNode {
+	nodes := make([]ClusterNode, 0, len(reqs))
+
+	for _, r := range reqs {
+		nodes = append(nodes, ClusterNode{
+			NodeID:       r.NodeID,
+			InstanceType: r.InstanceType,
+		})
+	}
+
+	return nodes
+}
+
+// batchAddClusterNodesRequest is the request body for BatchAddClusterNodes.
+type batchAddClusterNodesRequest struct {
+	ClusterName string               `json:"ClusterName"`
+	NodeConfigs []clusterNodeRequest `json:"NodeConfigs"`
+}
+
+func (h *Handler) handleBatchAddClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchAddClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	return h.batchClusterNodesWithFailures(
+		ctx,
+		req.ClusterName,
+		"sagemaker: batch added cluster nodes",
+		toClusterNodes(req.NodeConfigs),
+		h.Backend.BatchAddClusterNodes,
+	)
+}
+
+// batchDeleteClusterNodesRequest is the request body for BatchDeleteClusterNodes.
+type batchDeleteClusterNodesRequest struct {
+	ClusterName string   `json:"ClusterName"`
+	NodeIDs     []string `json:"NodeIds"`
+}
+
+func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchDeleteClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	clusterArn, errored, successful, err := h.Backend.BatchDeleteClusterNodes(req.ClusterName, req.NodeIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: batch deleted cluster nodes", "cluster", clusterArn)
+
+	if errored == nil {
+		errored = []string{}
+	}
+
+	if successful == nil {
+		successful = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		"ClusterArn": clusterArn,
+		"Errors":     errored,
+		"Successful": successful,
+	})
+}
+
+// batchDescribeModelPackageRequest is the request body for BatchDescribeModelPackage.
+type batchDescribeModelPackageRequest struct {
+	ModelPackageArnList []string `json:"ModelPackageArnList"`
+}
+
+// modelPackageSummary is a serializable model package for batch describe responses.
+type modelPackageSummary struct {
+	ModelPackageName      string  `json:"ModelPackageName"`
+	ModelPackageArn       string  `json:"ModelPackageArn"`
+	ModelPackageStatus    string  `json:"ModelPackageStatus"`
+	ModelPackageGroupName string  `json:"ModelPackageGroupName,omitempty"`
+	CreationTime          float64 `json:"CreationTime"`
+}
+
+// batchDescribeModelPackageError holds an error entry for BatchDescribeModelPackage.
+type batchDescribeModelPackageError struct {
+	ErrorCode    string `json:"ErrorCode"`
+	ErrorMessage string `json:"ErrorMessage"`
+}
+
+func (h *Handler) handleBatchDescribeModelPackage(body []byte) ([]byte, error) {
+	var req batchDescribeModelPackageRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	results := h.Backend.BatchDescribeModelPackage(req.ModelPackageArnList)
+
+	modelPackageMap := make(map[string]modelPackageSummary)
+	errorsMap := make(map[string]batchDescribeModelPackageError)
+
+	for arnStr, result := range results {
+		if result.ErrorCode != "" {
+			errorsMap[arnStr] = batchDescribeModelPackageError{
+				ErrorCode:    result.ErrorCode,
+				ErrorMessage: result.ErrorMessage,
+			}
+
+			continue
+		}
+
+		mp := result.ModelPackage
+		modelPackageMap[arnStr] = modelPackageSummary{
+			ModelPackageName:      mp.ModelPackageName,
+			ModelPackageArn:       mp.ModelPackageArn,
+			ModelPackageStatus:    mp.ModelPackageStatus,
+			ModelPackageGroupName: mp.ModelPackageGroupName,
+			CreationTime:          epochSeconds(mp.CreationTime),
+		}
+	}
+
+	return json.Marshal(map[string]any{
+		"ModelPackageSummaries":             modelPackageMap,
+		"BatchDescribeModelPackageErrorMap": errorsMap,
+	})
+}
+
+// batchRebootClusterNodesRequest is the request body for BatchRebootClusterNodes.
+type batchRebootClusterNodesRequest struct {
+	ClusterName string   `json:"ClusterName"`
+	NodeIDs     []string `json:"NodeIds"`
+}
+
+func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchRebootClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	clusterArn, failures, successful, err := h.Backend.BatchRebootClusterNodes(req.ClusterName, req.NodeIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: batch rebooted cluster nodes", "cluster", clusterArn)
+
+	if failures == nil {
+		failures = []string{}
+	}
+
+	if successful == nil {
+		successful = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		"ClusterArn": clusterArn,
+		"Failures":   failures,
+		"Successful": successful,
+	})
+}
+
+// batchReplaceClusterNodesRequest is the request body for BatchReplaceClusterNodes.
+type batchReplaceClusterNodesRequest struct {
+	ClusterName string               `json:"ClusterName"`
+	Nodes       []clusterNodeRequest `json:"Nodes"`
+}
+
+func (h *Handler) handleBatchReplaceClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchReplaceClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	return h.batchClusterNodesWithFailures(
+		ctx,
+		req.ClusterName,
+		"sagemaker: batch replaced cluster nodes",
+		toClusterNodes(req.Nodes),
+		h.Backend.BatchReplaceClusterNodes,
+	)
+}
+
+// actionSourceRequest is the source for a CreateAction request.
+type actionSourceRequest struct {
+	SourceURI  string `json:"SourceUri"`
+	SourceType string `json:"SourceType,omitempty"`
+}
+
+// createActionRequest is the request body for CreateAction.
+type createActionRequest struct {
+	Properties  map[string]string   `json:"Properties"`
+	Source      actionSourceRequest `json:"Source"`
+	ActionName  string              `json:"ActionName"`
+	ActionType  string              `json:"ActionType"`
+	Description string              `json:"Description,omitempty"`
+	Status      string              `json:"Status,omitempty"`
+	Tags        []tagObject         `json:"Tags"`
+}
+
+func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, error) {
+	var req createActionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ActionName == "" {
+		return nil, fmt.Errorf("%w: ActionName is required", errInvalidRequest)
+	}
+
+	tags := fromTagObjects(req.Tags)
+	source := ActionSource{
+		SourceURI:  req.Source.SourceURI,
+		SourceType: req.Source.SourceType,
+	}
+
+	a, err := h.Backend.CreateAction(
+		req.ActionName,
+		req.ActionType,
+		req.Description,
+		req.Status,
+		source,
+		req.Properties,
+		tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName, "arn", a.ActionArn)
+
+	return json.Marshal(map[string]string{"ActionArn": a.ActionArn})
+}
+
+// createAlgorithmRequest is the request body for CreateAlgorithm.
+type createAlgorithmRequest struct {
+	AlgorithmName        string      `json:"AlgorithmName"`
+	AlgorithmDescription string      `json:"AlgorithmDescription,omitempty"`
+	Tags                 []tagObject `json:"Tags"`
+}
+
+func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byte, error) {
+	var req createAlgorithmRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.AlgorithmName == "" {
+		return nil, fmt.Errorf("%w: AlgorithmName is required", errInvalidRequest)
+	}
+
+	tags := fromTagObjects(req.Tags)
+
+	al, err := h.Backend.CreateAlgorithm(req.AlgorithmName, req.AlgorithmDescription, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: created algorithm", "name", al.AlgorithmName, "arn", al.AlgorithmArn)
+
+	return json.Marshal(map[string]string{"AlgorithmArn": al.AlgorithmArn})
 }

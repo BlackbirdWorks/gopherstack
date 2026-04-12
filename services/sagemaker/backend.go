@@ -23,6 +23,24 @@ var (
 	ErrEndpointConfigNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 	// ErrEndpointConfigAlreadyExists is returned when an endpoint config already exists.
 	ErrEndpointConfigAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrAssociationNotFound is returned when an association does not exist.
+	ErrAssociationNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrAssociationAlreadyExists is returned when an association already exists.
+	ErrAssociationAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrActionNotFound is returned when an action does not exist.
+	ErrActionNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrActionAlreadyExists is returned when an action already exists.
+	ErrActionAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrAlgorithmNotFound is returned when an algorithm does not exist.
+	ErrAlgorithmNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrAlgorithmAlreadyExists is returned when an algorithm already exists.
+	ErrAlgorithmAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrClusterNotFound is returned when a cluster does not exist.
+	ErrClusterNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrModelPackageNotFound is returned when a model package does not exist.
+	ErrModelPackageNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrValidation is returned for invalid input parameters.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // ContainerDefinition holds image details for a model container.
@@ -97,32 +115,160 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 	return &cp
 }
 
+// Association represents a SageMaker ML lineage association.
+type Association struct {
+	CreationTime    time.Time         `json:"CreationTime"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	SourceArn       string            `json:"SourceArn"`
+	DestinationArn  string            `json:"DestinationArn"`
+	AssociationType string            `json:"AssociationType,omitempty"`
+	AssociationArn  string            `json:"AssociationArn"`
+}
+
+// TrialComponentAssociation tracks which trial components are associated with a trial.
+type TrialComponentAssociation struct {
+	CreationTime       time.Time `json:"CreationTime"`
+	TrialName          string    `json:"TrialName"`
+	TrialComponentName string    `json:"TrialComponentName"`
+	TrialArn           string    `json:"TrialArn"`
+	TrialComponentArn  string    `json:"TrialComponentArn"`
+}
+
+// ActionSource represents the source of a SageMaker action.
+type ActionSource struct {
+	SourceURI  string `json:"SourceUri"`
+	SourceType string `json:"SourceType,omitempty"`
+}
+
+// Action represents a SageMaker ML lineage action.
+type Action struct {
+	CreationTime time.Time         `json:"CreationTime"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	Properties   map[string]string `json:"Properties,omitempty"`
+	Source       ActionSource      `json:"Source"`
+	ActionName   string            `json:"ActionName"`
+	ActionArn    string            `json:"ActionArn"`
+	ActionType   string            `json:"ActionType"`
+	Description  string            `json:"Description,omitempty"`
+	Status       string            `json:"Status,omitempty"`
+}
+
+// cloneAction returns a deep copy of a.
+func cloneAction(a *Action) *Action {
+	cp := *a
+	cp.Tags = maps.Clone(a.Tags)
+	cp.Properties = maps.Clone(a.Properties)
+
+	return &cp
+}
+
+// Algorithm represents a SageMaker algorithm specification.
+type Algorithm struct {
+	CreationTime         time.Time         `json:"CreationTime"`
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	AlgorithmName        string            `json:"AlgorithmName"`
+	AlgorithmArn         string            `json:"AlgorithmArn"`
+	AlgorithmDescription string            `json:"AlgorithmDescription,omitempty"`
+	AlgorithmStatus      string            `json:"AlgorithmStatus"`
+}
+
+// cloneAlgorithm returns a deep copy of al.
+func cloneAlgorithm(al *Algorithm) *Algorithm {
+	cp := *al
+	cp.Tags = maps.Clone(al.Tags)
+
+	return &cp
+}
+
+// ClusterNodeVolume represents a volume attached to a cluster node.
+type ClusterNodeVolume struct {
+	VolumeName string `json:"VolumeName"`
+	SizeInGB   int32  `json:"SizeInGB,omitempty"`
+}
+
+// ClusterNode represents a node in a SageMaker cluster.
+type ClusterNode struct {
+	NodeID       string              `json:"NodeId"`
+	InstanceType string              `json:"InstanceType,omitempty"`
+	NodeStatus   string              `json:"NodeStatus"`
+	Volumes      []ClusterNodeVolume `json:"Volumes,omitempty"`
+}
+
+// Cluster represents a SageMaker HyperPod cluster.
+type Cluster struct {
+	CreationTime  time.Time               `json:"CreationTime"`
+	Nodes         map[string]*ClusterNode `json:"-"`
+	ClusterArn    string                  `json:"ClusterArn"`
+	ClusterName   string                  `json:"ClusterName"`
+	ClusterStatus string                  `json:"ClusterStatus"`
+}
+
+// ModelPackage represents a SageMaker model package.
+type ModelPackage struct {
+	CreationTime            time.Time         `json:"CreationTime"`
+	Tags                    map[string]string `json:"Tags,omitempty"`
+	ModelPackageName        string            `json:"ModelPackageName"`
+	ModelPackageArn         string            `json:"ModelPackageArn"`
+	ModelPackageGroupName   string            `json:"ModelPackageGroupName,omitempty"`
+	ModelPackageStatus      string            `json:"ModelPackageStatus"`
+	ModelPackageDescription string            `json:"ModelPackageDescription,omitempty"`
+}
+
+// cloneModelPackage returns a deep copy of mp.
+func cloneModelPackage(mp *ModelPackage) *ModelPackage {
+	cp := *mp
+	cp.Tags = maps.Clone(mp.Tags)
+
+	return &cp
+}
+
 // InMemoryBackend is an in-memory store for SageMaker resources.
 type InMemoryBackend struct {
-	models                 map[string]*Model
-	endpointConfigs        map[string]*EndpointConfig
-	modelARNIndex          map[string]string // ARN → model name
-	endpointConfigARNIndex map[string]string // ARN → endpoint config name
-	mu                     *lockmetrics.RWMutex
-	accountID              string
-	region                 string
+	models                     map[string]*Model
+	endpointConfigs            map[string]*EndpointConfig
+	associations               map[string]*Association               // key: sourceArn+"|"+destinationArn
+	trialComponentAssociations map[string]*TrialComponentAssociation // key: trialName+"|"+componentName
+	actions                    map[string]*Action                    // key: actionName
+	algorithms                 map[string]*Algorithm                 // key: algorithmName
+	clusters                   map[string]*Cluster                   // key: clusterName
+	modelPackages              map[string]*ModelPackage              // key: modelPackageArn
+	modelARNIndex              map[string]string                     // ARN → model name
+	endpointConfigARNIndex     map[string]string                     // ARN → endpoint config name
+	actionARNIndex             map[string]string                     // ARN → action name
+	algorithmARNIndex          map[string]string                     // ARN → algorithm name
+	clusterARNIndex            map[string]string                     // ARN → cluster name
+	mu                         *lockmetrics.RWMutex
+	accountID                  string
+	region                     string
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		models:                 make(map[string]*Model),
-		endpointConfigs:        make(map[string]*EndpointConfig),
-		modelARNIndex:          make(map[string]string),
-		endpointConfigARNIndex: make(map[string]string),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("sagemaker"),
+		models:                     make(map[string]*Model),
+		endpointConfigs:            make(map[string]*EndpointConfig),
+		associations:               make(map[string]*Association),
+		trialComponentAssociations: make(map[string]*TrialComponentAssociation),
+		actions:                    make(map[string]*Action),
+		algorithms:                 make(map[string]*Algorithm),
+		clusters:                   make(map[string]*Cluster),
+		modelPackages:              make(map[string]*ModelPackage),
+		modelARNIndex:              make(map[string]string),
+		endpointConfigARNIndex:     make(map[string]string),
+		actionARNIndex:             make(map[string]string),
+		algorithmARNIndex:          make(map[string]string),
+		clusterARNIndex:            make(map[string]string),
+		accountID:                  accountID,
+		region:                     region,
+		mu:                         lockmetrics.New("sagemaker"),
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // CreateModel creates a new SageMaker model.
 func (b *InMemoryBackend) CreateModel(
@@ -337,6 +483,20 @@ func (b *InMemoryBackend) AddTags(resourceARN string, tags map[string]string) er
 		return nil
 	}
 
+	if name, ok := b.actionARNIndex[resourceARN]; ok {
+		a := b.actions[name]
+		a.Tags = mergeTags(a.Tags, tags)
+
+		return nil
+	}
+
+	if name, ok := b.algorithmARNIndex[resourceARN]; ok {
+		al := b.algorithms[name]
+		al.Tags = mergeTags(al.Tags, tags)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
 }
 
@@ -357,6 +517,22 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 		ec := b.endpointConfigs[name]
 		result := make(map[string]string, len(ec.Tags))
 		maps.Copy(result, ec.Tags)
+
+		return result, nil
+	}
+
+	if name, ok := b.actionARNIndex[resourceARN]; ok {
+		a := b.actions[name]
+		result := make(map[string]string, len(a.Tags))
+		maps.Copy(result, a.Tags)
+
+		return result, nil
+	}
+
+	if name, ok := b.algorithmARNIndex[resourceARN]; ok {
+		al := b.algorithms[name]
+		result := make(map[string]string, len(al.Tags))
+		maps.Copy(result, al.Tags)
 
 		return result, nil
 	}
@@ -389,6 +565,26 @@ func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error
 		return nil
 	}
 
+	if name, ok := b.actionARNIndex[resourceARN]; ok {
+		a := b.actions[name]
+
+		for _, k := range tagKeys {
+			delete(a.Tags, k)
+		}
+
+		return nil
+	}
+
+	if name, ok := b.algorithmARNIndex[resourceARN]; ok {
+		al := b.algorithms[name]
+
+		for _, k := range tagKeys {
+			delete(al.Tags, k)
+		}
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
 }
 
@@ -413,4 +609,404 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// associationKey returns the map key for an association.
+func associationKey(sourceArn, destinationArn string) string {
+	return sourceArn + "|" + destinationArn
+}
+
+// trialComponentKey returns the map key for a trial-component association.
+func trialComponentKey(trialName, componentName string) string {
+	return trialName + "|" + componentName
+}
+
+// AddAssociation creates an association between a source and destination entity in the ML lineage graph.
+func (b *InMemoryBackend) AddAssociation(
+	sourceArn, destinationArn, associationType string,
+	tags map[string]string,
+) (*Association, error) {
+	b.mu.Lock("AddAssociation")
+	defer b.mu.Unlock()
+
+	if sourceArn == "" {
+		return nil, fmt.Errorf("%w: SourceArn is required", ErrValidation)
+	}
+
+	if destinationArn == "" {
+		return nil, fmt.Errorf("%w: DestinationArn is required", ErrValidation)
+	}
+
+	key := associationKey(sourceArn, destinationArn)
+	if _, ok := b.associations[key]; ok {
+		return nil, fmt.Errorf(
+			"%w: association between %s and %s already exists",
+			ErrAssociationAlreadyExists,
+			sourceArn,
+			destinationArn,
+		)
+	}
+
+	assocARN := arn.Build(
+		"sagemaker",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("association/%s/%s", sourceArn, destinationArn),
+	)
+
+	a := &Association{
+		SourceArn:       sourceArn,
+		DestinationArn:  destinationArn,
+		AssociationType: associationType,
+		AssociationArn:  assocARN,
+		CreationTime:    time.Now(),
+		Tags:            mergeTags(nil, tags),
+	}
+	b.associations[key] = a
+
+	return a, nil
+}
+
+// AssociateTrialComponent associates a trial component with a trial.
+func (b *InMemoryBackend) AssociateTrialComponent(
+	trialName, trialComponentName string,
+) (*TrialComponentAssociation, error) {
+	b.mu.Lock("AssociateTrialComponent")
+	defer b.mu.Unlock()
+
+	if trialName == "" {
+		return nil, fmt.Errorf("%w: TrialName is required", ErrValidation)
+	}
+
+	if trialComponentName == "" {
+		return nil, fmt.Errorf("%w: TrialComponentName is required", ErrValidation)
+	}
+
+	key := trialComponentKey(trialName, trialComponentName)
+	if _, ok := b.trialComponentAssociations[key]; ok {
+		return nil, fmt.Errorf("%w: trial component %s is already associated with trial %s",
+			ErrAssociationAlreadyExists, trialComponentName, trialName)
+	}
+
+	trialArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial/"+trialName)
+	componentArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial-component/"+trialComponentName)
+
+	assoc := &TrialComponentAssociation{
+		TrialName:          trialName,
+		TrialComponentName: trialComponentName,
+		TrialArn:           trialArn,
+		TrialComponentArn:  componentArn,
+		CreationTime:       time.Now(),
+	}
+	b.trialComponentAssociations[key] = assoc
+
+	return assoc, nil
+}
+
+// ensureClusterLocked looks up a cluster by name (must be called with lock held).
+func (b *InMemoryBackend) ensureClusterLocked(clusterName string) (*Cluster, error) {
+	c, ok := b.clusters[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %q not found", ErrClusterNotFound, clusterName)
+	}
+
+	return c, nil
+}
+
+// AddClusterInternal adds a cluster directly for seeding tests.
+func (b *InMemoryBackend) AddClusterInternal(clusterName string) *Cluster {
+	b.mu.Lock("AddClusterInternal")
+	defer b.mu.Unlock()
+
+	clusterARN := arn.Build("sagemaker", b.region, b.accountID, "cluster/"+clusterName)
+	c := &Cluster{
+		ClusterName:   clusterName,
+		ClusterArn:    clusterARN,
+		ClusterStatus: "InService",
+		Nodes:         make(map[string]*ClusterNode),
+		CreationTime:  time.Now(),
+	}
+	b.clusters[clusterName] = c
+	b.clusterARNIndex[clusterARN] = clusterName
+
+	return c
+}
+
+// AttachClusterNodeVolume attaches a volume to a cluster node.
+func (b *InMemoryBackend) AttachClusterNodeVolume(
+	clusterName, nodeID string,
+	volume ClusterNodeVolume,
+) (string, string, error) {
+	b.mu.Lock("AttachClusterNodeVolume")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(clusterName)
+	if err != nil {
+		return "", "", err
+	}
+
+	if nodeID == "" {
+		return "", "", fmt.Errorf("%w: NodeId is required", ErrValidation)
+	}
+
+	node, ok := c.Nodes[nodeID]
+	if !ok {
+		node = &ClusterNode{
+			NodeID:     nodeID,
+			NodeStatus: "Running",
+		}
+		c.Nodes[nodeID] = node
+	}
+
+	node.Volumes = append(node.Volumes, volume)
+
+	return c.ClusterArn, nodeID, nil
+}
+
+// BatchAddClusterNodes adds multiple nodes to a cluster.
+// Returns clusterArn and a slice of nodeIDs that failed to add.
+func (b *InMemoryBackend) BatchAddClusterNodes(
+	clusterName string,
+	nodeConfigs []ClusterNode,
+) (string, []string, error) {
+	b.mu.Lock("BatchAddClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(clusterName)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var failures []string
+
+	for i := range nodeConfigs {
+		node := &nodeConfigs[i]
+		if node.NodeID == "" {
+			node.NodeID = fmt.Sprintf("node-%d", len(c.Nodes)+1)
+		}
+
+		if node.NodeStatus == "" {
+			node.NodeStatus = "Running"
+		}
+
+		if _, exists := c.Nodes[node.NodeID]; exists {
+			failures = append(failures, node.NodeID)
+
+			continue
+		}
+
+		nodeCopy := *node
+		c.Nodes[node.NodeID] = &nodeCopy
+	}
+
+	return c.ClusterArn, failures, nil
+}
+
+// BatchDeleteClusterNodes removes multiple nodes from a cluster.
+// Returns clusterArn, a slice of nodeIDs with errors, and a slice of successfully deleted nodeIDs.
+func (b *InMemoryBackend) BatchDeleteClusterNodes(
+	clusterName string,
+	nodeIDs []string,
+) (string, []string, []string, error) {
+	b.mu.Lock("BatchDeleteClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(clusterName)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	var errored, successful []string
+
+	for _, nodeID := range nodeIDs {
+		if _, ok := c.Nodes[nodeID]; !ok {
+			errored = append(errored, nodeID)
+
+			continue
+		}
+
+		delete(c.Nodes, nodeID)
+		successful = append(successful, nodeID)
+	}
+
+	return c.ClusterArn, errored, successful, nil
+}
+
+// ModelPackageBatchResult holds the result of describing a single model package in a batch.
+type ModelPackageBatchResult struct {
+	ModelPackage *ModelPackage
+	ErrorCode    string
+	ErrorMessage string
+}
+
+// BatchDescribeModelPackage returns descriptions of multiple model packages by ARN.
+func (b *InMemoryBackend) BatchDescribeModelPackage(
+	modelPackageArns []string,
+) map[string]ModelPackageBatchResult {
+	b.mu.RLock("BatchDescribeModelPackage")
+	defer b.mu.RUnlock()
+
+	results := make(map[string]ModelPackageBatchResult, len(modelPackageArns))
+
+	for _, arnStr := range modelPackageArns {
+		mp, ok := b.modelPackages[arnStr]
+		if !ok {
+			results[arnStr] = ModelPackageBatchResult{
+				ErrorCode:    "ValidationException",
+				ErrorMessage: fmt.Sprintf("model package %q not found", arnStr),
+			}
+
+			continue
+		}
+
+		results[arnStr] = ModelPackageBatchResult{
+			ModelPackage: cloneModelPackage(mp),
+		}
+	}
+
+	return results
+}
+
+// BatchRebootClusterNodes reboots multiple nodes in a cluster.
+// Returns clusterArn, a slice of failed nodeIDs, and successful nodeIDs.
+func (b *InMemoryBackend) BatchRebootClusterNodes(
+	clusterName string,
+	nodeIDs []string,
+) (string, []string, []string, error) {
+	b.mu.Lock("BatchRebootClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(clusterName)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	var failures, successful []string
+
+	for _, nodeID := range nodeIDs {
+		if _, ok := c.Nodes[nodeID]; !ok {
+			failures = append(failures, nodeID)
+
+			continue
+		}
+
+		successful = append(successful, nodeID)
+	}
+
+	return c.ClusterArn, failures, successful, nil
+}
+
+// BatchReplaceClusterNodes replaces multiple nodes in a cluster.
+// Returns clusterArn and a slice of nodeIDs that failed to replace.
+func (b *InMemoryBackend) BatchReplaceClusterNodes(
+	clusterName string,
+	nodes []ClusterNode,
+) (string, []string, error) {
+	b.mu.Lock("BatchReplaceClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(clusterName)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var failures []string
+
+	for i := range nodes {
+		node := &nodes[i]
+		if node.NodeID == "" {
+			failures = append(failures, "")
+
+			continue
+		}
+
+		if _, ok := c.Nodes[node.NodeID]; !ok {
+			failures = append(failures, node.NodeID)
+
+			continue
+		}
+
+		nodeCopy := *node
+		nodeCopy.NodeStatus = "Running"
+		c.Nodes[node.NodeID] = &nodeCopy
+	}
+
+	return c.ClusterArn, failures, nil
+}
+
+// CreateAction creates a SageMaker ML lineage action.
+func (b *InMemoryBackend) CreateAction(
+	name, actionType, description, status string,
+	source ActionSource,
+	properties map[string]string,
+	tags map[string]string,
+) (*Action, error) {
+	b.mu.Lock("CreateAction")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: ActionName is required", ErrValidation)
+	}
+
+	if _, ok := b.actions[name]; ok {
+		return nil, fmt.Errorf("%w: action %q already exists", ErrActionAlreadyExists, name)
+	}
+
+	actionARN := arn.Build("sagemaker", b.region, b.accountID, "action/"+name)
+
+	a := &Action{
+		ActionName:   name,
+		ActionArn:    actionARN,
+		ActionType:   actionType,
+		Description:  description,
+		Status:       status,
+		Source:       source,
+		Properties:   maps.Clone(properties),
+		Tags:         mergeTags(nil, tags),
+		CreationTime: time.Now(),
+	}
+	b.actions[name] = a
+	b.actionARNIndex[actionARN] = name
+
+	return cloneAction(a), nil
+}
+
+// CreateAlgorithm creates a SageMaker algorithm specification.
+func (b *InMemoryBackend) CreateAlgorithm(
+	name, description string,
+	tags map[string]string,
+) (*Algorithm, error) {
+	b.mu.Lock("CreateAlgorithm")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: AlgorithmName is required", ErrValidation)
+	}
+
+	if _, ok := b.algorithms[name]; ok {
+		return nil, fmt.Errorf("%w: algorithm %q already exists", ErrAlgorithmAlreadyExists, name)
+	}
+
+	algorithmARN := arn.Build("sagemaker", b.region, b.accountID, "algorithm/"+name)
+
+	al := &Algorithm{
+		AlgorithmName:        name,
+		AlgorithmArn:         algorithmARN,
+		AlgorithmDescription: description,
+		AlgorithmStatus:      "Completed",
+		Tags:                 mergeTags(nil, tags),
+		CreationTime:         time.Now(),
+	}
+	b.algorithms[name] = al
+	b.algorithmARNIndex[algorithmARN] = name
+
+	return cloneAlgorithm(al), nil
+}
+
+// AddModelPackageInternal adds a model package directly for testing.
+func (b *InMemoryBackend) AddModelPackageInternal(mp *ModelPackage) {
+	b.mu.Lock("AddModelPackageInternal")
+	defer b.mu.Unlock()
+
+	b.modelPackages[mp.ModelPackageArn] = mp
 }
