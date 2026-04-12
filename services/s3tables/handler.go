@@ -18,9 +18,14 @@ import (
 )
 
 const (
-	s3tablesService       = "s3tables"
-	s3tablesMatchPriority = service.PriorityPathVersioned
-	segMaintenance        = "maintenance"
+	s3tablesService         = "s3tables"
+	s3tablesMatchPriority   = service.PriorityPathVersioned
+	segMaintenance          = "maintenance"
+	segEncryption           = "encryption"
+	segMetrics              = "metrics"
+	segStorageClass         = "storage-class"
+	segMaintenanceJobStatus = "maintenance-job-status"
+	segMetadataLocation     = "metadata-location"
 )
 
 var (
@@ -50,34 +55,47 @@ func (h *Handler) Name() string { return "S3tables" }
 // GetSupportedOperations returns the list of supported S3 Tables operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateTableBucket",
-		"DeleteTableBucket",
-		"GetTableBucket",
-		"ListTableBuckets",
 		"CreateNamespace",
-		"DeleteNamespace",
-		"GetNamespace",
-		"ListNamespaces",
 		"CreateTable",
+		"CreateTableBucket",
+		"DeleteNamespace",
 		"DeleteTable",
+		"DeleteTableBucket",
+		"DeleteTableBucketEncryption",
+		"DeleteTableBucketMetricsConfiguration",
+		"DeleteTableBucketPolicy",
+		"DeleteTableBucketReplication",
+		"DeleteTablePolicy",
+		"DeleteTableReplication",
+		"GetNamespace",
 		"GetTable",
+		"GetTableBucket",
+		"GetTableBucketEncryption",
+		"GetTableBucketMaintenanceConfiguration",
+		"GetTableBucketMetricsConfiguration",
+		"GetTableBucketPolicy",
+		"GetTableBucketReplication",
+		"GetTableBucketStorageClass",
+		"GetTableEncryption",
+		"GetTableMaintenanceConfiguration",
+		"GetTableMaintenanceJobStatus",
+		"GetTableMetadataLocation",
+		"GetTablePolicy",
+		"GetTableRecordExpirationConfiguration",
+		"ListNamespaces",
+		"ListTableBuckets",
 		"ListTables",
+		"PutTableBucketMaintenanceConfiguration",
+		"PutTableBucketPolicy",
+		"PutTableMaintenanceConfiguration",
+		"PutTablePolicy",
 		"RenameTable",
 		"UpdateTableMetadataLocation",
-		"GetTableBucketMaintenanceConfiguration",
-		"PutTableBucketMaintenanceConfiguration",
-		"GetTableMaintenanceConfiguration",
-		"PutTableMaintenanceConfiguration",
-		"GetTableBucketPolicy",
-		"PutTableBucketPolicy",
-		"DeleteTableBucketPolicy",
-		"GetTablePolicy",
-		"PutTablePolicy",
-		"DeleteTablePolicy",
-		"GetTableBucketEncryption",
-		"GetTableEncryption",
 	}
 }
+
+// Reset clears all stored state in the backend.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return s3tablesService }
@@ -96,7 +114,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(path, "/buckets") ||
 			strings.HasPrefix(path, "/namespaces") ||
 			strings.HasPrefix(path, "/tables") ||
-			strings.HasPrefix(path, "/get-table")
+			strings.HasPrefix(path, "/get-table") ||
+			strings.HasPrefix(path, "/table-bucket-replication") ||
+			strings.HasPrefix(path, "/table-replication") ||
+			strings.HasPrefix(path, "/table-record-expiration")
 	}
 }
 
@@ -113,6 +134,21 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource extracts the primary resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	segs := rawPathSegments(c.Request())
+
+	if len(segs) == 0 {
+		return ""
+	}
+
+	switch segs[0] {
+	case "table-bucket-replication", "table-replication", "table-record-expiration":
+		q := c.Request().URL.Query()
+		if arn := q.Get("tableBucketARN"); arn != "" {
+			return arn
+		}
+
+		return q.Get("tableArn")
+	}
+
 	if len(segs) > 1 {
 		return segs[1]
 	}
@@ -177,12 +213,18 @@ func (h *Handler) routeRequest(r *http.Request) (string, dispatchFunc) {
 		if method == http.MethodGet {
 			return "GetTable", h.handleGetTable
 		}
+	case "table-bucket-replication":
+		return h.routeTableBucketReplication(method, r)
+	case "table-replication":
+		return h.routeTableReplication(method, r)
+	case "table-record-expiration":
+		return h.routeTableRecordExpiration(method, r)
 	}
 
 	return "", nil
 }
 
-//nolint:cyclop // routing table is inherently switch-heavy
+//nolint:cyclop,gocognit // routing table is inherently switch-heavy
 func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (string, dispatchFunc) {
 	switch len(segs) {
 	case 1:
@@ -206,9 +248,23 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 			if method == http.MethodGet {
 				return "GetTableBucketMaintenanceConfiguration", h.handleGetTableBucketMaintenanceConfiguration
 			}
-		case "encryption":
-			if method == http.MethodGet {
+		case segEncryption:
+			switch method {
+			case http.MethodGet:
 				return "GetTableBucketEncryption", h.handleGetTableBucketEncryption
+			case http.MethodDelete:
+				return "DeleteTableBucketEncryption", h.handleDeleteTableBucketEncryption
+			}
+		case segMetrics:
+			switch method {
+			case http.MethodGet:
+				return "GetTableBucketMetricsConfiguration", h.handleGetTableBucketMetricsConfiguration
+			case http.MethodDelete:
+				return "DeleteTableBucketMetricsConfiguration", h.handleDeleteTableBucketMetricsConfiguration
+			}
+		case segStorageClass:
+			if method == http.MethodGet {
+				return "GetTableBucketStorageClass", h.handleGetTableBucketStorageClass
 			}
 		case "policy":
 			switch method {
@@ -277,21 +333,29 @@ func (h *Handler) routeTables(segs []string, method string, r *http.Request) (st
 	return "", nil
 }
 
+//nolint:cyclop // routing table is inherently switch-heavy
 func (h *Handler) routeTableSubResource(sub, method string, _ *http.Request) (string, dispatchFunc) {
 	switch sub {
 	case "rename":
 		if method == http.MethodPut {
 			return "RenameTable", h.handleRenameTable
 		}
-	case "metadata-location":
-		if method == http.MethodPut {
+	case segMetadataLocation:
+		switch method {
+		case http.MethodGet:
+			return "GetTableMetadataLocation", h.handleGetTableMetadataLocation
+		case http.MethodPut:
 			return "UpdateTableMetadataLocation", h.handleUpdateTableMetadataLocation
 		}
 	case segMaintenance:
 		if method == http.MethodGet {
 			return "GetTableMaintenanceConfiguration", h.handleGetTableMaintenanceConfiguration
 		}
-	case "encryption":
+	case segMaintenanceJobStatus:
+		if method == http.MethodGet {
+			return "GetTableMaintenanceJobStatus", h.handleGetTableMaintenanceJobStatus
+		}
+	case segEncryption:
 		if method == http.MethodGet {
 			return "GetTableEncryption", h.handleGetTableEncryption
 		}
@@ -525,6 +589,256 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 	log.InfoContext(ctx, "s3tables: got table bucket encryption", "arn", bucketARN)
 
 	return nil, awserr.ErrNotFound
+}
+
+func (h *Handler) handleDeleteTableBucketEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: deleted table bucket encryption", "arn", bucketARN)
+
+	return nil, nil
+}
+
+func (h *Handler) handleGetTableBucketMetricsConfiguration(
+	ctx context.Context,
+	r *http.Request,
+	_ []byte,
+) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table bucket metrics configuration", "arn", bucketARN)
+
+	return json.Marshal(map[string]any{
+		"tableBucketARN": bucketARN,
+		"configuration":  map[string]any{},
+	})
+}
+
+func (h *Handler) handleDeleteTableBucketMetricsConfiguration(
+	ctx context.Context,
+	r *http.Request,
+	_ []byte,
+) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: deleted table bucket metrics configuration", "arn", bucketARN)
+
+	return nil, nil
+}
+
+func (h *Handler) handleGetTableBucketStorageClass(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table bucket storage class", "arn", bucketARN)
+
+	return json.Marshal(map[string]any{
+		"tableBucketARN": bucketARN,
+		"storageClass":   "STANDARD",
+	})
+}
+
+// === Replication route helpers ===
+
+func (h *Handler) routeTableBucketReplication(method string, r *http.Request) (string, dispatchFunc) {
+	switch method {
+	case http.MethodGet:
+		return "GetTableBucketReplication", h.handleGetTableBucketReplication
+	case http.MethodDelete:
+		return "DeleteTableBucketReplication", h.handleDeleteTableBucketReplication
+	}
+
+	_ = r
+
+	return "", nil
+}
+
+func (h *Handler) routeTableReplication(method string, r *http.Request) (string, dispatchFunc) {
+	if method == http.MethodDelete {
+		return "DeleteTableReplication", h.handleDeleteTableReplication
+	}
+
+	_ = r
+
+	return "", nil
+}
+
+func (h *Handler) routeTableRecordExpiration(method string, r *http.Request) (string, dispatchFunc) {
+	if method == http.MethodGet {
+		return "GetTableRecordExpirationConfiguration", h.handleGetTableRecordExpirationConfiguration
+	}
+
+	_ = r
+
+	return "", nil
+}
+
+func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	bucketARN := r.URL.Query().Get("tableBucketARN")
+	if bucketARN == "" {
+		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
+	}
+
+	cfg, err := h.Backend.GetTableBucketReplication(bucketARN)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table bucket replication", "arn", bucketARN)
+
+	return json.Marshal(map[string]any{
+		"tableBucketARN": bucketARN,
+		"destinations":   cfg.Destinations,
+	})
+}
+
+func (h *Handler) handleDeleteTableBucketReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	bucketARN := r.URL.Query().Get("tableBucketARN")
+	if bucketARN == "" {
+		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteTableBucketReplication(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: deleted table bucket replication", "arn", bucketARN)
+
+	return nil, nil
+}
+
+func (h *Handler) handleDeleteTableReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteTableReplication(tableArn); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: deleted table replication", "tableArn", tableArn)
+
+	return nil, nil
+}
+
+func (h *Handler) handleGetTableMaintenanceJobStatus(
+	ctx context.Context,
+	r *http.Request,
+	_ []byte,
+) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 4 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN, namespace or name", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+	nsName := segs[2]
+	name := segs[3]
+
+	table, err := h.Backend.GetTable(bucketARN, splitNamespace(nsName), name)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table maintenance job status", "name", name)
+
+	return json.Marshal(map[string]any{
+		"tableARN": table.ARN,
+		"status":   map[string]any{},
+	})
+}
+
+func (h *Handler) handleGetTableMetadataLocation(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 4 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN, namespace or name", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+	nsName := segs[2]
+	name := segs[3]
+
+	table, err := h.Backend.GetTable(bucketARN, splitNamespace(nsName), name)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table metadata location", "name", name)
+
+	return json.Marshal(map[string]any{
+		"versionToken":      table.VersionToken,
+		"warehouseLocation": table.WarehouseLocation,
+		"metadataLocation":  table.MetadataLocation,
+	})
+}
+
+func (h *Handler) handleGetTableRecordExpirationConfiguration(
+	ctx context.Context,
+	r *http.Request,
+	_ []byte,
+) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	cfg, err := h.Backend.GetTableRecordExpirationConfiguration(tableArn)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table record expiration configuration", "tableArn", tableArn)
+
+	return json.Marshal(map[string]any{
+		"tableArn": tableArn,
+		"status":   cfg.Status,
+	})
 }
 
 func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {

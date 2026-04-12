@@ -15,6 +15,10 @@ func (p *Provider) Name() string { return "S3tables" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 

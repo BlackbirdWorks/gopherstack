@@ -27,67 +27,90 @@ var (
 	ErrTableNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrTableAlreadyExists is returned when a Table already exists.
 	ErrTableAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrNilAppContext is returned when a nil AppContext is passed to Init.
+	ErrNilAppContext = awserr.New("InvalidParameter", awserr.ErrInvalidParameter)
 )
 
 // TableBucket represents an S3 Tables table bucket.
 type TableBucket struct {
-	ARN                      string
-	Name                     string
-	OwnerAccountID           string
-	CreatedAt                time.Time
-	MaintenanceConfiguration map[string]any
-	Policy                   string
+	CreatedAt                time.Time      `json:"createdAt"`
+	MaintenanceConfiguration map[string]any `json:"maintenanceConfiguration"`
+	ARN                      string         `json:"arn"`
+	Name                     string         `json:"name"`
+	OwnerAccountID           string         `json:"ownerAccountID"`
+	Policy                   string         `json:"policy"`
 }
 
 // Namespace represents an S3 Tables namespace.
 type Namespace struct {
-	CreatedAt      time.Time
-	TableBucketARN string
-	OwnerAccountID string
-	CreatedBy      string
-	Policy         string
-	NamespaceID    string
-	Namespace      []string
+	CreatedAt      time.Time `json:"createdAt"`
+	TableBucketARN string    `json:"tableBucketARN"`
+	OwnerAccountID string    `json:"ownerAccountID"`
+	CreatedBy      string    `json:"createdBy"`
+	Policy         string    `json:"policy"`
+	NamespaceID    string    `json:"namespaceID"`
+	Namespace      []string  `json:"namespace"`
+}
+
+// BucketReplicationConfig holds replication configuration for a table bucket.
+type BucketReplicationConfig struct {
+	Destinations []ReplicationDestination `json:"destinations"`
+}
+
+// ReplicationDestination is a single replication destination.
+type ReplicationDestination struct {
+	DestinationBucketARN string `json:"destinationBucketARN"`
+}
+
+// TableRecordExpiryConfig holds record expiration configuration for a table.
+type TableRecordExpiryConfig struct {
+	Status string `json:"status"`
 }
 
 // Table represents an S3 Tables table.
 type Table struct {
-	CreatedAt                time.Time
-	ModifiedAt               time.Time
-	MaintenanceConfiguration map[string]any
-	TableBucketARN           string
-	Format                   string
-	VersionToken             string
-	MetadataLocation         string
-	WarehouseLocation        string
-	ARN                      string
-	OwnerAccountID           string
-	Policy                   string
-	Name                     string
-	Namespace                []string
+	CreatedAt                time.Time      `json:"createdAt"`
+	ModifiedAt               time.Time      `json:"modifiedAt"`
+	MaintenanceConfiguration map[string]any `json:"maintenanceConfiguration"`
+	TableBucketARN           string         `json:"tableBucketARN"`
+	Format                   string         `json:"format"`
+	VersionToken             string         `json:"versionToken"`
+	MetadataLocation         string         `json:"metadataLocation"`
+	WarehouseLocation        string         `json:"warehouseLocation"`
+	ARN                      string         `json:"arn"`
+	OwnerAccountID           string         `json:"ownerAccountID"`
+	Policy                   string         `json:"policy"`
+	Name                     string         `json:"name"`
+	Namespace                []string       `json:"namespace"`
 }
 
 // InMemoryBackend is an in-memory store for S3 Tables resources.
 type InMemoryBackend struct {
-	tableBuckets map[string]*TableBucket // keyed by ARN
-	namespaces   map[string]*Namespace   // keyed by tableBucketARN + "::" + namespace
-	tables       map[string]*Table       // keyed by ARN
-	tableIndex   map[string]string       // composite key (bucketARN::ns::name) → table ARN
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	tableBuckets      map[string]*TableBucket             // keyed by ARN
+	namespaces        map[string]*Namespace               // keyed by tableBucketARN + "::" + namespace
+	tables            map[string]*Table                   // keyed by ARN
+	tableIndex        map[string]string                   // composite key (bucketARN::ns::name) → table ARN
+	bucketReplication map[string]*BucketReplicationConfig // keyed by bucket ARN
+	tableReplication  map[string]bool                     // keyed by table ARN
+	tableRecordExpiry map[string]*TableRecordExpiryConfig // keyed by table ARN
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory S3 Tables backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		tableBuckets: make(map[string]*TableBucket),
-		namespaces:   make(map[string]*Namespace),
-		tables:       make(map[string]*Table),
-		tableIndex:   make(map[string]string),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("s3tables"),
+		tableBuckets:      make(map[string]*TableBucket),
+		namespaces:        make(map[string]*Namespace),
+		tables:            make(map[string]*Table),
+		tableIndex:        make(map[string]string),
+		bucketReplication: make(map[string]*BucketReplicationConfig),
+		tableReplication:  make(map[string]bool),
+		tableRecordExpiry: make(map[string]*TableRecordExpiryConfig),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("s3tables"),
 	}
 }
 
@@ -109,6 +132,131 @@ func (b *InMemoryBackend) TableARN(bucketName, namespaceName, tableName string) 
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the account ID for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Reset clears all stored state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.tableBuckets = make(map[string]*TableBucket)
+	b.namespaces = make(map[string]*Namespace)
+	b.tables = make(map[string]*Table)
+	b.tableIndex = make(map[string]string)
+	b.bucketReplication = make(map[string]*BucketReplicationConfig)
+	b.tableReplication = make(map[string]bool)
+	b.tableRecordExpiry = make(map[string]*TableRecordExpiryConfig)
+}
+
+// PutTableBucketReplication sets replication config for a table bucket.
+func (b *InMemoryBackend) PutTableBucketReplication(bucketARN string, cfg *BucketReplicationConfig) error {
+	b.mu.Lock("PutTableBucketReplication")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tableBuckets[bucketARN]; !ok {
+		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	b.bucketReplication[bucketARN] = cfg
+
+	return nil
+}
+
+// GetTableBucketReplication returns the replication config for a table bucket.
+func (b *InMemoryBackend) GetTableBucketReplication(bucketARN string) (*BucketReplicationConfig, error) {
+	b.mu.RLock("GetTableBucketReplication")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.tableBuckets[bucketARN]; !ok {
+		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	cfg, ok := b.bucketReplication[bucketARN]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: no replication configuration for table bucket %q",
+			ErrTableBucketNotFound,
+			bucketARN,
+		)
+	}
+
+	return cfg, nil
+}
+
+// DeleteTableBucketReplication removes the replication config for a table bucket.
+func (b *InMemoryBackend) DeleteTableBucketReplication(bucketARN string) error {
+	b.mu.Lock("DeleteTableBucketReplication")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tableBuckets[bucketARN]; !ok {
+		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	delete(b.bucketReplication, bucketARN)
+
+	return nil
+}
+
+// PutTableReplication marks a table as having replication enabled.
+func (b *InMemoryBackend) PutTableReplication(tableArn string) error {
+	b.mu.Lock("PutTableReplication")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tables[tableArn]; !ok {
+		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
+	}
+
+	b.tableReplication[tableArn] = true
+
+	return nil
+}
+
+// DeleteTableReplication removes replication for a table.
+func (b *InMemoryBackend) DeleteTableReplication(tableArn string) error {
+	b.mu.Lock("DeleteTableReplication")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tables[tableArn]; !ok {
+		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
+	}
+
+	delete(b.tableReplication, tableArn)
+
+	return nil
+}
+
+// PutTableRecordExpirationConfiguration sets record expiration config for a table.
+func (b *InMemoryBackend) PutTableRecordExpirationConfiguration(tableArn string, cfg *TableRecordExpiryConfig) error {
+	b.mu.Lock("PutTableRecordExpirationConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tables[tableArn]; !ok {
+		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
+	}
+
+	b.tableRecordExpiry[tableArn] = cfg
+
+	return nil
+}
+
+// GetTableRecordExpirationConfiguration returns record expiry config for a table, defaulting to DISABLED.
+func (b *InMemoryBackend) GetTableRecordExpirationConfiguration(tableArn string) (*TableRecordExpiryConfig, error) {
+	b.mu.RLock("GetTableRecordExpirationConfiguration")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.tables[tableArn]; !ok {
+		return nil, fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
+	}
+
+	cfg, ok := b.tableRecordExpiry[tableArn]
+	if !ok {
+		return &TableRecordExpiryConfig{Status: "DISABLED"}, nil
+	}
+
+	return cfg, nil
+}
 
 func namespaceKey(tableBucketARN, namespace string) string {
 	return tableBucketARN + "::" + namespace
