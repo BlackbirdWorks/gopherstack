@@ -20,9 +20,11 @@ type secretSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Secrets   map[string]*secretSnapshot `json:"secrets"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
+	Secrets            map[string]*secretSnapshot         `json:"secrets"`
+	ResourcePolicies   map[string]string                  `json:"resourcePolicies,omitempty"`
+	ReplicationConfigs map[string][]ReplicationStatusType `json:"replicationConfigs,omitempty"`
+	AccountID          string                             `json:"accountID"`
+	Region             string                             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -47,9 +49,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		Secrets:   secrets,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Secrets:            secrets,
+		ResourcePolicies:   b.resourcePolicies,
+		ReplicationConfigs: b.replicationConfigs,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -106,6 +110,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]string)
+	}
+
+	b.resourcePolicies = snap.ResourcePolicies
+
+	if snap.ReplicationConfigs == nil {
+		snap.ReplicationConfigs = make(map[string][]ReplicationStatusType)
+	}
+
+	b.replicationConfigs = snap.ReplicationConfigs
 
 	return nil
 }

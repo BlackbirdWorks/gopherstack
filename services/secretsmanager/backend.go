@@ -72,14 +72,28 @@ type StorageBackend interface {
 	RotateSecret(input *RotateSecretInput) (*RotateSecretOutput, error)
 	GetRandomPassword(input *GetRandomPasswordInput) (*GetRandomPasswordOutput, error)
 	ListAll() []SecretListEntry
+	BatchGetSecretValue(input *BatchGetSecretValueInput) (*BatchGetSecretValueOutput, error)
+	CancelRotateSecret(input *CancelRotateSecretInput) (*CancelRotateSecretOutput, error)
+	GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error)
+	PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutput, error)
+	DeleteResourcePolicy(input *DeleteResourcePolicyInput) (*DeleteResourcePolicyOutput, error)
+	ReplicateSecretToRegions(input *ReplicateSecretToRegionsInput) (*ReplicateSecretToRegionsOutput, error)
+	RemoveRegionsFromReplication(input *RemoveRegionsFromReplicationInput) (*RemoveRegionsFromReplicationOutput, error)
+	StopReplicationToReplica(input *StopReplicationToReplicaInput) (*StopReplicationToReplicaOutput, error)
+	UpdateSecretVersionStage(input *UpdateSecretVersionStageInput) (*UpdateSecretVersionStageOutput, error)
 }
+
+// ensure InMemoryBackend satisfies StorageBackend at compile time.
+var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
 type InMemoryBackend struct {
-	secrets   map[string]*Secret
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	secrets            map[string]*Secret
+	resourcePolicies   map[string]string
+	replicationConfigs map[string][]ReplicationStatusType
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 // NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
@@ -90,10 +104,12 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		secrets:   make(map[string]*Secret),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("secretsmanager"),
+		secrets:            make(map[string]*Secret),
+		resourcePolicies:   make(map[string]string),
+		replicationConfigs: make(map[string][]ReplicationStatusType),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("secretsmanager"),
 	}
 }
 
@@ -1057,6 +1073,408 @@ func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) e
 	return nil
 }
 
+// BatchGetSecretValue retrieves the values of multiple secrets in a single call.
+func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (*BatchGetSecretValueOutput, error) {
+	b.mu.RLock("BatchGetSecretValue")
+	defer b.mu.RUnlock()
+
+	out := &BatchGetSecretValueOutput{
+		SecretValues: []SecretValueEntry{},
+		Errors:       []APIErrorType{},
+	}
+
+	if len(input.SecretIDList) > 0 {
+		for _, id := range input.SecretIDList {
+			name := resolveSecretID(id)
+
+			secret, ok := b.secrets[name]
+			if !ok {
+				out.Errors = append(out.Errors, APIErrorType{
+					ErrorCode: "ResourceNotFoundException",
+					Message:   "Secrets Manager can't find the specified secret.",
+					SecretID:  id,
+				})
+
+				continue
+			}
+
+			if secret.DeletedDate != nil {
+				out.Errors = append(out.Errors, APIErrorType{
+					ErrorCode: "InvalidRequestException",
+					Message:   "You can't perform this operation on the secret because it was deleted.",
+					SecretID:  id,
+				})
+
+				continue
+			}
+
+			ver := b.findVersion(secret, "", StagingLabelCurrent)
+			if ver == nil {
+				out.Errors = append(out.Errors, APIErrorType{
+					ErrorCode: "ResourceNotFoundException",
+					Message:   "Secrets Manager can't find the specified secret version.",
+					SecretID:  id,
+				})
+
+				continue
+			}
+
+			out.SecretValues = append(out.SecretValues, SecretValueEntry{
+				ARN:           secret.ARN,
+				Name:          secret.Name,
+				VersionID:     ver.VersionID,
+				SecretString:  ver.SecretString,
+				SecretBinary:  ver.SecretBinary,
+				VersionStages: ver.StagingLabels,
+				CreatedDate:   ver.CreatedDate,
+			})
+		}
+
+		return out, nil
+	}
+
+	// No SecretIdList provided; apply filters or return all active secrets.
+	for _, secret := range b.secrets {
+		if secret.DeletedDate != nil {
+			continue
+		}
+
+		if !batchMatchesFilters(secret, input.Filters) {
+			continue
+		}
+
+		ver := b.findVersion(secret, "", StagingLabelCurrent)
+		if ver == nil {
+			continue
+		}
+
+		out.SecretValues = append(out.SecretValues, SecretValueEntry{
+			ARN:           secret.ARN,
+			Name:          secret.Name,
+			VersionID:     ver.VersionID,
+			SecretString:  ver.SecretString,
+			SecretBinary:  ver.SecretBinary,
+			VersionStages: ver.StagingLabels,
+			CreatedDate:   ver.CreatedDate,
+		})
+	}
+
+	return out, nil
+}
+
+// batchMatchesFilters returns true if the secret matches all provided filters.
+func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bool {
+	for _, f := range filters {
+		switch f.Key {
+		case "name":
+			if !anyMatch(f.Values, secret.Name) {
+				return false
+			}
+		case "description":
+			if !anyMatch(f.Values, secret.Description) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// anyMatch returns true if target equals any of the values.
+func anyMatch(values []string, target string) bool {
+	return slices.Contains(values, target)
+}
+
+// CancelRotateSecret cancels an in-progress rotation by removing the AWSPENDING staging label.
+func (b *InMemoryBackend) CancelRotateSecret(input *CancelRotateSecretInput) (*CancelRotateSecretOutput, error) {
+	b.mu.Lock("CancelRotateSecret")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	const pendingLabel = "AWSPENDING"
+
+	var canceledVersionID string
+
+	for _, ver := range secret.Versions {
+		newLabels := make([]string, 0, len(ver.StagingLabels))
+
+		for _, lbl := range ver.StagingLabels {
+			if lbl == pendingLabel {
+				canceledVersionID = ver.VersionID
+
+				continue
+			}
+
+			newLabels = append(newLabels, lbl)
+		}
+
+		ver.StagingLabels = newLabels
+	}
+
+	secret.RotationEnabled = false
+
+	return &CancelRotateSecretOutput{
+		ARN:       secret.ARN,
+		Name:      secret.Name,
+		VersionID: canceledVersionID,
+	}, nil
+}
+
+// GetResourcePolicy retrieves the resource-based policy for a secret.
+func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error) {
+	b.mu.RLock("GetResourcePolicy")
+	defer b.mu.RUnlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	policy := b.resourcePolicies[name]
+
+	return &GetResourcePolicyOutput{
+		ARN:            secret.ARN,
+		Name:           secret.Name,
+		ResourcePolicy: policy,
+	}, nil
+}
+
+// PutResourcePolicy stores a resource-based policy for a secret.
+func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutput, error) {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	b.resourcePolicies[name] = input.ResourcePolicy
+
+	return &PutResourcePolicyOutput{
+		ARN:  secret.ARN,
+		Name: secret.Name,
+	}, nil
+}
+
+// DeleteResourcePolicy removes the resource-based policy from a secret.
+func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput) (*DeleteResourcePolicyOutput, error) {
+	b.mu.Lock("DeleteResourcePolicy")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	delete(b.resourcePolicies, name)
+
+	return &DeleteResourcePolicyOutput{
+		ARN:  secret.ARN,
+		Name: secret.Name,
+	}, nil
+}
+
+// replicationStatusInSync is the status used for in-sync replicas.
+const replicationStatusInSync = "InSync"
+
+// ReplicateSecretToRegions adds replication configuration for the specified regions.
+func (b *InMemoryBackend) ReplicateSecretToRegions(
+	input *ReplicateSecretToRegionsInput,
+) (*ReplicateSecretToRegionsOutput, error) {
+	b.mu.Lock("ReplicateSecretToRegions")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	existing := b.replicationConfigs[name]
+	existingByRegion := make(map[string]int, len(existing))
+
+	for i, r := range existing {
+		existingByRegion[r.Region] = i
+	}
+
+	for _, replica := range input.AddReplicaRegions {
+		status := ReplicationStatusType{
+			Region:   replica.Region,
+			KmsKeyID: replica.KmsKeyID,
+			Status:   replicationStatusInSync,
+		}
+
+		if idx, found := existingByRegion[replica.Region]; found {
+			existing[idx] = status
+		} else {
+			existing = append(existing, status)
+		}
+	}
+
+	b.replicationConfigs[name] = existing
+
+	return &ReplicateSecretToRegionsOutput{
+		ARN:               secret.ARN,
+		ReplicationStatus: existing,
+	}, nil
+}
+
+// RemoveRegionsFromReplication removes replication configuration for the specified regions.
+func (b *InMemoryBackend) RemoveRegionsFromReplication(
+	input *RemoveRegionsFromReplicationInput,
+) (*RemoveRegionsFromReplicationOutput, error) {
+	b.mu.Lock("RemoveRegionsFromReplication")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	toRemove := make(map[string]struct{}, len(input.RemoveReplicaRegions))
+
+	for _, r := range input.RemoveReplicaRegions {
+		toRemove[r] = struct{}{}
+	}
+
+	existing := b.replicationConfigs[name]
+	remaining := make([]ReplicationStatusType, 0, len(existing))
+
+	for _, r := range existing {
+		if _, remove := toRemove[r.Region]; !remove {
+			remaining = append(remaining, r)
+		}
+	}
+
+	b.replicationConfigs[name] = remaining
+
+	return &RemoveRegionsFromReplicationOutput{
+		ARN:               secret.ARN,
+		ReplicationStatus: remaining,
+	}, nil
+}
+
+// StopReplicationToReplica promotes a replica secret to a standalone secret.
+func (b *InMemoryBackend) StopReplicationToReplica(
+	input *StopReplicationToReplicaInput,
+) (*StopReplicationToReplicaOutput, error) {
+	b.mu.Lock("StopReplicationToReplica")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	// In the in-memory backend, we simply remove any replication config for this secret.
+	delete(b.replicationConfigs, name)
+
+	return &StopReplicationToReplicaOutput{
+		ARN: secret.ARN,
+	}, nil
+}
+
+// UpdateSecretVersionStage moves or adds a staging label to a specific secret version.
+func (b *InMemoryBackend) UpdateSecretVersionStage(
+	input *UpdateSecretVersionStageInput,
+) (*UpdateSecretVersionStageOutput, error) {
+	b.mu.Lock("UpdateSecretVersionStage")
+	defer b.mu.Unlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, ok := b.secrets[name]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	// Remove the label from RemoveFromVersionId if specified.
+	if input.RemoveFromVersionID != "" {
+		ver, exists := secret.Versions[input.RemoveFromVersionID]
+		if !exists {
+			return nil, ErrVersionNotFound
+		}
+
+		newLabels := make([]string, 0, len(ver.StagingLabels))
+
+		for _, lbl := range ver.StagingLabels {
+			if lbl != input.VersionStage {
+				newLabels = append(newLabels, lbl)
+			}
+		}
+
+		ver.StagingLabels = newLabels
+	}
+
+	// Add the label to MoveToVersionId if specified.
+	if input.MoveToVersionID != "" {
+		ver, exists := secret.Versions[input.MoveToVersionID]
+		if !exists {
+			return nil, ErrVersionNotFound
+		}
+
+		if !slices.Contains(ver.StagingLabels, input.VersionStage) {
+			ver.StagingLabels = append(ver.StagingLabels, input.VersionStage)
+		}
+
+		// If moving AWSCURRENT, update CurrentVersionID.
+		if input.VersionStage == StagingLabelCurrent {
+			secret.CurrentVersionID = input.MoveToVersionID
+		}
+	}
+
+	return &UpdateSecretVersionStageOutput{
+		ARN:  secret.ARN,
+		Name: secret.Name,
+	}, nil
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -1070,4 +1488,6 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	b.secrets = make(map[string]*Secret)
+	b.resourcePolicies = make(map[string]string)
+	b.replicationConfigs = make(map[string][]ReplicationStatusType)
 }
