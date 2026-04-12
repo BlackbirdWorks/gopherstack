@@ -1,9 +1,14 @@
 package servicediscovery
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when a nil AppContext is passed to Provider.Init.
+var ErrNilAppContext = errors.New("nil AppContext passed to ServiceDiscovery Provider.Init")
 
 // Provider implements service.Provider for AWS Cloud Map (Service Discovery).
 type Provider struct{}
@@ -15,6 +20,10 @@ func (p *Provider) Name() string { return "ServiceDiscovery" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -27,17 +28,17 @@ var (
 
 // Handler is the HTTP handler for the AWS Cloud Map service discovery API.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   StorageBackend
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new Cloud Map handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:   backend,
-		AccountID: backend.accountID,
-		Region:    backend.region,
+		AccountID: backend.AccountID(),
+		Region:    backend.Region(),
 	}
 }
 
@@ -50,24 +51,33 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateHttpNamespace",
 		"CreatePrivateDnsNamespace",
 		"CreatePublicDnsNamespace",
-		"DeleteNamespace",
-		"GetNamespace",
-		"ListNamespaces",
 		"CreateService",
+		"DeleteNamespace",
 		"DeleteService",
-		"GetService",
-		"ListServices",
-		"RegisterInstance",
+		"DeleteServiceAttributes",
 		"DeregisterInstance",
-		"GetInstance",
-		"ListInstances",
 		"DiscoverInstances",
+		"DiscoverInstancesRevision",
+		"GetInstance",
+		"GetInstancesHealthStatus",
+		"GetNamespace",
 		"GetOperation",
+		"GetService",
+		"GetServiceAttributes",
+		"ListInstances",
+		"ListNamespaces",
 		"ListOperations",
+		"ListServices",
 		"ListTagsForResource",
+		"RegisterInstance",
 		"TagResource",
 		"UntagResource",
-		"GetInstancesHealthStatus",
+		"UpdateHttpNamespace",
+		"UpdateInstanceCustomHealthStatus",
+		"UpdatePrivateDnsNamespace",
+		"UpdatePublicDnsNamespace",
+		"UpdateService",
+		"UpdateServiceAttributes",
 	}
 }
 
@@ -189,6 +199,18 @@ func (h *Handler) dispatchNamespace(ctx context.Context, op string, body []byte)
 		r, err := h.handleListNamespaces(ctx, body)
 
 		return r, true, err
+	case "UpdateHttpNamespace":
+		r, err := h.handleUpdateHTTPNamespace(ctx, body)
+
+		return r, true, err
+	case "UpdatePrivateDnsNamespace":
+		r, err := h.handleUpdatePrivateDNSNamespace(ctx, body)
+
+		return r, true, err
+	case "UpdatePublicDnsNamespace":
+		r, err := h.handleUpdatePublicDNSNamespace(ctx, body)
+
+		return r, true, err
 	}
 
 	return nil, false, nil
@@ -212,6 +234,22 @@ func (h *Handler) dispatchService(ctx context.Context, op string, body []byte) (
 		r, err := h.handleListServices(ctx, body)
 
 		return r, true, err
+	case "UpdateService":
+		r, err := h.handleUpdateService(ctx, body)
+
+		return r, true, err
+	case "GetServiceAttributes":
+		r, err := h.handleGetServiceAttributes(ctx, body)
+
+		return r, true, err
+	case "UpdateServiceAttributes":
+		err := h.handleUpdateServiceAttributes(ctx, body)
+
+		return nil, true, err
+	case "DeleteServiceAttributes":
+		err := h.handleDeleteServiceAttributes(ctx, body)
+
+		return nil, true, err
 	}
 
 	return nil, false, nil
@@ -239,10 +277,18 @@ func (h *Handler) dispatchInstance(ctx context.Context, op string, body []byte) 
 		r, err := h.handleDiscoverInstances(ctx, body)
 
 		return r, true, err
+	case "DiscoverInstancesRevision":
+		r, err := h.handleDiscoverInstancesRevision(ctx, body)
+
+		return r, true, err
 	case "GetInstancesHealthStatus":
 		r, err := h.handleGetInstancesHealthStatus(ctx, body)
 
 		return r, true, err
+	case "UpdateInstanceCustomHealthStatus":
+		err := h.handleUpdateInstanceCustomHealthStatus(ctx, body)
+
+		return nil, true, err
 	}
 
 	return nil, false, nil
@@ -271,7 +317,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, ErrNamespaceNotFound), errors.Is(err, ErrServiceNotFound),
-		errors.Is(err, ErrInstanceNotFound), errors.Is(err, ErrOperationNotFound):
+		errors.Is(err, ErrInstanceNotFound), errors.Is(err, ErrOperationNotFound),
+		errors.Is(err, ErrServiceAttributesNotFound), errors.Is(err, ErrResourceNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ResourceNotFoundException",
 			"message": err.Error(),
@@ -285,6 +332,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvalidInput):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"__type":  "InvalidInput",
+			"message": err.Error(),
+		})
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "InvalidInput",
@@ -524,10 +576,16 @@ func (h *Handler) handleGetService(_ context.Context, body []byte) ([]byte, erro
 	})
 }
 
+type serviceFilter struct {
+	Name      string   `json:"Name"`
+	Condition string   `json:"Condition"`
+	Values    []string `json:"Values"`
+}
+
 type listServicesRequest struct {
-	MaxResults *int   `json:"MaxResults"`
-	NextToken  string `json:"NextToken"`
-	Filters    []any  `json:"Filters"`
+	MaxResults *int            `json:"MaxResults"`
+	NextToken  string          `json:"NextToken"`
+	Filters    []serviceFilter `json:"Filters"`
 }
 
 func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, error) {
@@ -536,7 +594,18 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	services := h.Backend.ListServices("")
+	// Extract optional NAMESPACE_ID filter from Filters list.
+	var namespaceID string
+
+	for _, f := range req.Filters {
+		if f.Name == "NAMESPACE_ID" && len(f.Values) > 0 {
+			namespaceID = f.Values[0]
+
+			break
+		}
+	}
+
+	services := h.Backend.ListServices(namespaceID)
 	items := make([]map[string]any, 0, len(services))
 
 	for i := range services {
@@ -571,11 +640,12 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: InstanceId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.RegisterInstance(req.ServiceID, req.InstanceID, req.Attributes); err != nil {
+	opID, err := h.Backend.RegisterInstance(req.ServiceID, req.InstanceID, req.Attributes)
+	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": "op-register"})
+	return json.Marshal(map[string]string{"OperationId": opID})
 }
 
 type deregisterInstanceRequest struct {
@@ -597,11 +667,12 @@ func (h *Handler) handleDeregisterInstance(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: InstanceId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeregisterInstance(req.ServiceID, req.InstanceID); err != nil {
+	opID, err := h.Backend.DeregisterInstance(req.ServiceID, req.InstanceID)
+	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": "op-deregister"})
+	return json.Marshal(map[string]string{"OperationId": opID})
 }
 
 type getInstanceRequest struct {
@@ -672,10 +743,11 @@ func (h *Handler) handleListInstances(_ context.Context, body []byte) ([]byte, e
 }
 
 type discoverInstancesRequest struct {
-	NamespaceName string `json:"NamespaceName"`
-	ServiceName   string `json:"ServiceName"`
-	MaxResults    *int   `json:"MaxResults"`
-	HealthStatus  string `json:"HealthStatus"`
+	QueryParameters map[string]string `json:"QueryParameters"`
+	MaxResults      *int              `json:"MaxResults"`
+	NamespaceName   string            `json:"NamespaceName"`
+	ServiceName     string            `json:"ServiceName"`
+	HealthStatus    string            `json:"HealthStatus"`
 }
 
 func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byte, error) {
@@ -692,7 +764,12 @@ func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: ServiceName is required", errInvalidRequest)
 	}
 
-	instances, err := h.Backend.DiscoverInstances(req.NamespaceName, req.ServiceName)
+	instances, err := h.Backend.DiscoverInstances(
+		req.NamespaceName,
+		req.ServiceName,
+		req.HealthStatus,
+		req.QueryParameters,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -874,6 +951,8 @@ func mapToTagEntries(tags map[string]string) []tagEntry {
 		keys = append(keys, k)
 	}
 
+	sort.Strings(keys)
+
 	entries := make([]tagEntry, 0, len(keys))
 
 	for _, k := range keys {
@@ -891,6 +970,8 @@ func namespaceToMap(ns *Namespace) map[string]any {
 		"Name":        ns.Name,
 		"Type":        ns.Type,
 		"Description": ns.Description,
+		"Tags":        mapToTagEntries(ns.Tags),
+		"CreateDate":  ns.CreatedAt.Unix(),
 	}
 }
 
@@ -902,6 +983,8 @@ func serviceToMap(svc *Service) map[string]any {
 		"Name":        svc.Name,
 		"NamespaceId": svc.NamespaceID,
 		"Description": svc.Description,
+		"Tags":        mapToTagEntries(svc.Tags),
+		"CreateDate":  svc.CreatedAt.Unix(),
 	}
 }
 
@@ -910,7 +993,7 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
-// --- GetInstancesHealthStatus stub ---
+// --- GetInstancesHealthStatus ---
 
 type getInstancesHealthStatusRequest struct {
 	MaxResults *int     `json:"MaxResults,omitempty"`
@@ -920,8 +1003,7 @@ type getInstancesHealthStatusRequest struct {
 }
 
 // handleGetInstancesHealthStatus returns the health status for instances in a service.
-// Since the mock does not implement a health-check protocol, every instance is
-// reported as "HEALTHY". This matches the behaviour of LocalStack's Cloud Map stub.
+// Instances without a recorded custom status default to HEALTHY.
 func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte) ([]byte, error) {
 	var req getInstancesHealthStatusRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -932,30 +1014,245 @@ func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte)
 		return nil, fmt.Errorf("%w: ServiceId is required", errInvalidRequest)
 	}
 
-	instances, err := h.Backend.ListInstances(req.ServiceID)
+	statuses, err := h.Backend.GetInstancesHealthStatus(req.ServiceID, req.Instances)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build instance ID filter set if specific instances were requested.
-	filter := make(map[string]struct{}, len(req.Instances))
-	for _, id := range req.Instances {
-		filter[id] = struct{}{}
+	return json.Marshal(map[string]any{
+		"Status": statuses,
+	})
+}
+
+// --- UpdateHttpNamespace / UpdatePrivateDnsNamespace / UpdatePublicDnsNamespace ---
+
+type updateNamespaceChange struct {
+	Description string `json:"Description"`
+}
+
+type updateHTTPNamespaceRequest struct {
+	ID               string                `json:"Id"`
+	UpdaterRequestID string                `json:"UpdaterRequestId"`
+	Namespace        updateNamespaceChange `json:"Namespace"`
+}
+
+func (h *Handler) handleUpdateHTTPNamespace(_ context.Context, body []byte) ([]byte, error) {
+	var req updateHTTPNamespaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	statuses := make(map[string]string, len(instances))
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
 
-	for _, inst := range instances {
-		if len(filter) > 0 {
-			if _, ok := filter[inst.ID]; !ok {
-				continue
-			}
-		}
+	opID, err := h.Backend.UpdateHTTPNamespace(req.ID, req.Namespace.Description)
+	if err != nil {
+		return nil, err
+	}
 
-		statuses[inst.ID] = "HEALTHY"
+	return json.Marshal(map[string]string{"OperationId": opID})
+}
+
+type updatePrivateDNSNamespaceRequest struct {
+	ID               string                `json:"Id"`
+	UpdaterRequestID string                `json:"UpdaterRequestId"`
+	Namespace        updateNamespaceChange `json:"Namespace"`
+}
+
+func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
+	var req updatePrivateDNSNamespaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	opID, err := h.Backend.UpdatePrivateDNSNamespace(req.ID, req.Namespace.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{"OperationId": opID})
+}
+
+type updatePublicDNSNamespaceRequest struct {
+	ID               string                `json:"Id"`
+	UpdaterRequestID string                `json:"UpdaterRequestId"`
+	Namespace        updateNamespaceChange `json:"Namespace"`
+}
+
+func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
+	var req updatePublicDNSNamespaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	opID, err := h.Backend.UpdatePublicDNSNamespace(req.ID, req.Namespace.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{"OperationId": opID})
+}
+
+// --- UpdateService ---
+
+type updateServiceChange struct {
+	Description string `json:"Description"`
+}
+
+type updateServiceRequest struct {
+	ID      string              `json:"Id"`
+	Service updateServiceChange `json:"Service"`
+}
+
+func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, error) {
+	var req updateServiceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	svc, err := h.Backend.UpdateService(req.ID, req.Service.Description)
+	if err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(map[string]any{
-		"Status": statuses,
+		"Service": serviceToMap(svc),
+	})
+}
+
+// --- GetServiceAttributes / UpdateServiceAttributes / DeleteServiceAttributes ---
+
+type getServiceAttributesRequest struct {
+	ServiceID string `json:"ServiceId"`
+}
+
+func (h *Handler) handleGetServiceAttributes(_ context.Context, body []byte) ([]byte, error) {
+	var req getServiceAttributesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ServiceID == "" {
+		return nil, fmt.Errorf("%w: ServiceId is required", errInvalidRequest)
+	}
+
+	arn, attrs, err := h.Backend.GetServiceAttributes(req.ServiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"ServiceAttributes": map[string]any{
+			"Arn":        arn,
+			"Attributes": attrs,
+		},
+	})
+}
+
+type updateServiceAttributesRequest struct {
+	Attributes map[string]string `json:"Attributes"`
+	ServiceARN string            `json:"ServiceArn"`
+}
+
+func (h *Handler) handleUpdateServiceAttributes(_ context.Context, body []byte) error {
+	var req updateServiceAttributesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ServiceARN == "" {
+		return fmt.Errorf("%w: ServiceArn is required", errInvalidRequest)
+	}
+
+	return h.Backend.UpdateServiceAttributes(req.ServiceARN, req.Attributes)
+}
+
+type deleteServiceAttributesRequest struct {
+	ServiceID string `json:"ServiceId"`
+}
+
+func (h *Handler) handleDeleteServiceAttributes(_ context.Context, body []byte) error {
+	var req deleteServiceAttributesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ServiceID == "" {
+		return fmt.Errorf("%w: ServiceId is required", errInvalidRequest)
+	}
+
+	return h.Backend.DeleteServiceAttributes(req.ServiceID)
+}
+
+// --- UpdateInstanceCustomHealthStatus ---
+
+type updateInstanceCustomHealthStatusRequest struct {
+	ServiceID  string `json:"ServiceId"`
+	InstanceID string `json:"InstanceId"`
+	Status     string `json:"Status"`
+}
+
+func (h *Handler) handleUpdateInstanceCustomHealthStatus(_ context.Context, body []byte) error {
+	var req updateInstanceCustomHealthStatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ServiceID == "" {
+		return fmt.Errorf("%w: ServiceId is required", errInvalidRequest)
+	}
+
+	if req.InstanceID == "" {
+		return fmt.Errorf("%w: InstanceId is required", errInvalidRequest)
+	}
+
+	if req.Status == "" {
+		return fmt.Errorf("%w: Status is required", errInvalidRequest)
+	}
+
+	return h.Backend.UpdateInstanceCustomHealthStatus(req.ServiceID, req.InstanceID, req.Status)
+}
+
+// --- DiscoverInstancesRevision ---
+
+type discoverInstancesRevisionRequest struct {
+	NamespaceName string `json:"NamespaceName"`
+	ServiceName   string `json:"ServiceName"`
+}
+
+func (h *Handler) handleDiscoverInstancesRevision(_ context.Context, body []byte) ([]byte, error) {
+	var req discoverInstancesRevisionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.NamespaceName == "" {
+		return nil, fmt.Errorf("%w: NamespaceName is required", errInvalidRequest)
+	}
+
+	if req.ServiceName == "" {
+		return nil, fmt.Errorf("%w: ServiceName is required", errInvalidRequest)
+	}
+
+	revision, err := h.Backend.DiscoverInstancesRevision(req.NamespaceName, req.ServiceName)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"InstancesRevision": revision,
 	})
 }

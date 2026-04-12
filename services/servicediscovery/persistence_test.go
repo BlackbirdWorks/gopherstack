@@ -104,7 +104,7 @@ func TestServiceDiscovery_CascadeDelete(t *testing.T) {
 					return nsID, ""
 				}
 
-				_ = b.RegisterInstance(svc.ID, "inst-1", map[string]string{"ip": "1.2.3.4"})
+				_, _ = b.RegisterInstance(svc.ID, "inst-1", map[string]string{"ip": "1.2.3.4"})
 
 				return nsID, svc.ID
 			},
