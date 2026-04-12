@@ -16,24 +16,30 @@ func TestHandler_AssociateDRTLogBucket(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*shield.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
+			},
 			body:       map[string]any{"LogBucket": "my-shield-logs"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "missing log bucket",
+			setup:      func(_ *shield.Handler) {},
 			body:       map[string]any{},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "idempotent second association",
+			name:       "no subscription returns error",
+			setup:      func(_ *shield.Handler) {},
 			body:       map[string]any{"LogBucket": "my-shield-logs"},
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -42,6 +48,7 @@ func TestHandler_AssociateDRTLogBucket(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			tt.setup(h)
 			rec := doShieldRequest(t, h, "AssociateDRTLogBucket", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -53,18 +60,29 @@ func TestHandler_AssociateDRTRole(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*shield.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "success",
+			name: "success",
+			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
+			},
 			body:       map[string]any{"RoleArn": "arn:aws:iam::123456789012:role/DRTRole"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "missing role arn",
+			setup:      func(_ *shield.Handler) {},
 			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "no subscription returns error",
+			setup:      func(_ *shield.Handler) {},
+			body:       map[string]any{"RoleArn": "arn:aws:iam::123456789012:role/DRTRole"},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -74,6 +92,7 @@ func TestHandler_AssociateDRTRole(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			tt.setup(h)
 			rec := doShieldRequest(t, h, "AssociateDRTRole", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -101,6 +120,7 @@ func TestHandler_DescribeDRTAccess(t *testing.T) {
 		{
 			name: "with role and bucket",
 			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
 				require.NoError(t, h.Backend.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
 				require.NoError(t, h.Backend.AssociateDRTLogBucket("my-logs-bucket"))
 			},
@@ -291,8 +311,10 @@ func TestHandler_CreateProtectionGroup(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:  "success all fields",
-			setup: func(_ *shield.Handler) {},
+			name: "success all fields",
+			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
+			},
 			body: map[string]any{
 				"ProtectionGroupId": "group-1",
 				"Aggregation":       "MAX",
@@ -301,8 +323,10 @@ func TestHandler_CreateProtectionGroup(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:  "success with members and resource type",
-			setup: func(_ *shield.Handler) {},
+			name: "success with members and resource type",
+			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
+			},
 			body: map[string]any{
 				"ProtectionGroupId": "group-2",
 				"Aggregation":       "SUM",
@@ -315,6 +339,7 @@ func TestHandler_CreateProtectionGroup(t *testing.T) {
 		{
 			name: "duplicate group",
 			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
 				_, err := h.Backend.CreateProtectionGroup("group-dup", "MAX", "ALL", "", nil)
 				require.NoError(t, err)
 			},
@@ -379,6 +404,7 @@ func TestHandler_DeleteProtectionGroup(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *shield.Handler) string {
+				require.NoError(t, h.Backend.CreateSubscription())
 				_, err := h.Backend.CreateProtectionGroup("group-1", "MAX", "ALL", "", nil)
 				require.NoError(t, err)
 
@@ -611,6 +637,7 @@ func TestBackend_AssociateDRTLogBucket(t *testing.T) {
 			t.Parallel()
 
 			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, b.CreateSubscription())
 
 			for _, bucket := range tt.buckets {
 				err := b.AssociateDRTLogBucket(bucket)
@@ -655,6 +682,7 @@ func TestBackend_AssociateDRTRole(t *testing.T) {
 			t.Parallel()
 
 			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, b.CreateSubscription())
 			err := b.AssociateDRTRole(tt.roleARN)
 
 			if tt.wantErr {
@@ -784,6 +812,7 @@ func TestBackend_CreateDeleteProtectionGroup(t *testing.T) {
 			t.Parallel()
 
 			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, b.CreateSubscription())
 
 			pg, err := b.CreateProtectionGroup(tt.groupID, tt.aggregation, tt.pattern, tt.resourceType, tt.members)
 
@@ -854,6 +883,7 @@ func TestBackend_SnapshotRestoreNewFields(t *testing.T) {
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 
+	require.NoError(t, b.CreateSubscription())
 	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
 	require.NoError(t, b.AssociateDRTLogBucket("my-bucket"))
 

@@ -64,13 +64,25 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeAttack",
 		"DescribeAttackStatistics",
 		"DescribeDRTAccess",
+		"DescribeEmergencyContactSettings",
 		"DescribeProtection",
+		"DescribeProtectionGroup",
 		"DescribeSubscription",
+		"DisableProactiveEngagement",
+		"DisassociateDRTLogBucket",
+		"DisassociateDRTRole",
+		"DisassociateHealthCheck",
+		"EnableProactiveEngagement",
 		"GetSubscriptionState",
+		"ListAttacks",
+		"ListProtectionGroups",
 		"ListProtections",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"UpdateEmergencyContactSettings",
+		"UpdateProtectionGroup",
+		"UpdateSubscription",
 	}
 }
 
@@ -162,6 +174,8 @@ func (h *Handler) dispatchSubscriptionAndProtectionOps(
 		return nil, true, h.handleCreateSubscription(ctx)
 	case "DeleteSubscription":
 		return nil, true, h.handleDeleteSubscription()
+	case "UpdateSubscription":
+		return nil, true, h.handleUpdateSubscription(body)
 	case "DescribeSubscription":
 		res, err := h.handleDescribeSubscription()
 
@@ -208,16 +222,32 @@ func (h *Handler) dispatchDRTAndEngagementOps(op string, body []byte) ([]byte, b
 	switch op {
 	case "AssociateDRTLogBucket":
 		return nil, true, h.handleAssociateDRTLogBucket(body)
+	case "DisassociateDRTLogBucket":
+		return nil, true, h.handleDisassociateDRTLogBucket(body)
 	case "AssociateDRTRole":
 		return nil, true, h.handleAssociateDRTRole(body)
+	case "DisassociateDRTRole":
+		return nil, true, h.handleDisassociateDRTRole()
 	case "DescribeDRTAccess":
 		res, err := h.handleDescribeDRTAccess()
 
 		return res, true, err
 	case "AssociateHealthCheck":
 		return nil, true, h.handleAssociateHealthCheck(body)
+	case "DisassociateHealthCheck":
+		return nil, true, h.handleDisassociateHealthCheck(body)
 	case "AssociateProactiveEngagementDetails":
 		return nil, true, h.handleAssociateProactiveEngagementDetails(body)
+	case "UpdateEmergencyContactSettings":
+		return nil, true, h.handleUpdateEmergencyContactSettings(body)
+	case "DescribeEmergencyContactSettings":
+		res, err := h.handleDescribeEmergencyContactSettings()
+
+		return res, true, err
+	case "EnableProactiveEngagement":
+		return nil, true, h.handleEnableProactiveEngagement()
+	case "DisableProactiveEngagement":
+		return nil, true, h.handleDisableProactiveEngagement()
 	}
 
 	return nil, false, nil
@@ -227,8 +257,22 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([
 	switch op {
 	case "CreateProtectionGroup":
 		return nil, true, h.handleCreateProtectionGroup(body)
+	case "DescribeProtectionGroup":
+		res, err := h.handleDescribeProtectionGroup(body)
+
+		return res, true, err
+	case "ListProtectionGroups":
+		res, err := h.handleListProtectionGroups()
+
+		return res, true, err
+	case "UpdateProtectionGroup":
+		return nil, true, h.handleUpdateProtectionGroup(body)
 	case "DeleteProtectionGroup":
 		return nil, true, h.handleDeleteProtectionGroup(body)
+	case "ListAttacks":
+		res, err := h.handleListAttacks(body)
+
+		return res, true, err
 	case "DescribeAttack":
 		res, err := h.handleDescribeAttack(body)
 
@@ -302,14 +346,36 @@ func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 		return nil, err
 	}
 
+	subscriptionArn := fmt.Sprintf("arn:aws:shield::%s:subscription/%s",
+		h.Backend.AccountID(), "default")
+
 	return json.Marshal(map[string]any{
 		"Subscription": map[string]any{
 			"StartTime":            sub.StartTime.Unix(),
 			"EndTime":              sub.EndTime.Unix(),
 			"AutoRenew":            sub.AutoRenew,
 			"TimeCommitmentInDays": sub.TimeCommitmentInDays,
+			"SubscriptionArn":      subscriptionArn,
 		},
 	})
+}
+
+// updateSubscriptionRequest is the request body for UpdateSubscription.
+type updateSubscriptionRequest struct {
+	AutoRenew string `json:"AutoRenew"`
+}
+
+func (h *Handler) handleUpdateSubscription(body []byte) error {
+	var req updateSubscriptionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.AutoRenew != AutoRenewEnabled && req.AutoRenew != AutoRenewDisabled {
+		return fmt.Errorf("%w: AutoRenew must be ENABLED or DISABLED", errInvalidRequest)
+	}
+
+	return h.Backend.UpdateSubscription(req.AutoRenew)
 }
 
 func (h *Handler) handleGetSubscriptionState() ([]byte, error) {
@@ -522,11 +588,18 @@ func (h *Handler) handleUntagResource(body []byte) error {
 }
 
 func protectionToMap(p *Protection) map[string]any {
+	healthChecks := p.HealthCheckIDs
+	if healthChecks == nil {
+		healthChecks = []string{}
+	}
+
 	return map[string]any{
 		"Id":             p.ID,
+		"ProtectionArn":  p.ProtectionArn,
 		"Name":           p.Name,
 		"ResourceArn":    p.ResourceARN,
-		"HealthCheckIds": p.HealthCheckIDs,
+		"HealthCheckIds": healthChecks,
+		"CreationTime":   p.CreationTime.Unix(),
 	}
 }
 
@@ -552,6 +625,24 @@ func (h *Handler) handleAssociateDRTLogBucket(body []byte) error {
 	return nil
 }
 
+// disassociateDRTLogBucketRequest is the request body for DisassociateDRTLogBucket.
+type disassociateDRTLogBucketRequest struct {
+	LogBucket string `json:"LogBucket"`
+}
+
+func (h *Handler) handleDisassociateDRTLogBucket(body []byte) error {
+	var req disassociateDRTLogBucketRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.LogBucket == "" {
+		return fmt.Errorf("%w: LogBucket is required", errInvalidRequest)
+	}
+
+	return h.Backend.DisassociateDRTLogBucket(req.LogBucket)
+}
+
 // associateDRTRoleRequest is the request body for AssociateDRTRole.
 type associateDRTRoleRequest struct {
 	RoleArn string `json:"RoleArn"`
@@ -572,6 +663,10 @@ func (h *Handler) handleAssociateDRTRole(body []byte) error {
 	}
 
 	return nil
+}
+
+func (h *Handler) handleDisassociateDRTRole() error {
+	return h.Backend.DisassociateDRTRole()
 }
 
 func (h *Handler) handleDescribeDRTAccess() ([]byte, error) {
@@ -603,11 +698,30 @@ func (h *Handler) handleAssociateHealthCheck(body []byte) error {
 		return fmt.Errorf("%w: HealthCheckArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.AssociateHealthCheck(req.ProtectionID, req.HealthCheckArn); err != nil {
-		return err
+	return h.Backend.AssociateHealthCheck(req.ProtectionID, req.HealthCheckArn)
+}
+
+// disassociateHealthCheckRequest is the request body for DisassociateHealthCheck.
+type disassociateHealthCheckRequest struct {
+	ProtectionID   string `json:"ProtectionId"`
+	HealthCheckArn string `json:"HealthCheckArn"`
+}
+
+func (h *Handler) handleDisassociateHealthCheck(body []byte) error {
+	var req disassociateHealthCheckRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return nil
+	if req.ProtectionID == "" {
+		return fmt.Errorf("%w: ProtectionId is required", errInvalidRequest)
+	}
+
+	if req.HealthCheckArn == "" {
+		return fmt.Errorf("%w: HealthCheckArn is required", errInvalidRequest)
+	}
+
+	return h.Backend.DisassociateHealthCheck(req.ProtectionID, req.HealthCheckArn)
 }
 
 // emergencyContactItem represents a single emergency contact in the API request/response.
@@ -642,11 +756,48 @@ func (h *Handler) handleAssociateProactiveEngagementDetails(body []byte) error {
 		contacts = append(contacts, EmergencyContact(c))
 	}
 
-	if err := h.Backend.AssociateProactiveEngagementDetails(contacts); err != nil {
-		return err
+	return h.Backend.AssociateProactiveEngagementDetails(contacts)
+}
+
+// updateEmergencyContactSettingsRequest is the request body for UpdateEmergencyContactSettings.
+type updateEmergencyContactSettingsRequest struct {
+	EmergencyContactList []emergencyContactItem `json:"EmergencyContactList"`
+}
+
+func (h *Handler) handleUpdateEmergencyContactSettings(body []byte) error {
+	var req updateEmergencyContactSettingsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return nil
+	contacts := make([]EmergencyContact, 0, len(req.EmergencyContactList))
+
+	for _, c := range req.EmergencyContactList {
+		contacts = append(contacts, EmergencyContact(c))
+	}
+
+	return h.Backend.UpdateEmergencyContactSettings(contacts)
+}
+
+func (h *Handler) handleDescribeEmergencyContactSettings() ([]byte, error) {
+	contacts := h.Backend.DescribeEmergencyContactSettings()
+	items := make([]emergencyContactItem, 0, len(contacts))
+
+	for _, c := range contacts {
+		items = append(items, emergencyContactItem(c))
+	}
+
+	return json.Marshal(map[string]any{
+		"EmergencyContactList": items,
+	})
+}
+
+func (h *Handler) handleEnableProactiveEngagement() error {
+	return h.Backend.EnableProactiveEngagement()
+}
+
+func (h *Handler) handleDisableProactiveEngagement() error {
+	return h.Backend.DisableProactiveEngagement()
 }
 
 // createProtectionGroupRequest is the request body for CreateProtectionGroup.
@@ -676,13 +827,143 @@ func (h *Handler) handleCreateProtectionGroup(body []byte) error {
 		return fmt.Errorf("%w: Pattern is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.CreateProtectionGroup(
+	_, err := h.Backend.CreateProtectionGroup(
 		req.ProtectionGroupID, req.Aggregation, req.Pattern, req.ResourceType, req.Members,
-	); err != nil {
-		return err
+	)
+
+	return err
+}
+
+// describeProtectionGroupRequest is the request body for DescribeProtectionGroup.
+type describeProtectionGroupRequest struct {
+	ProtectionGroupID string `json:"ProtectionGroupId"`
+}
+
+func (h *Handler) handleDescribeProtectionGroup(body []byte) ([]byte, error) {
+	var req describeProtectionGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return nil
+	if req.ProtectionGroupID == "" {
+		return nil, fmt.Errorf("%w: ProtectionGroupId is required", errInvalidRequest)
+	}
+
+	pg, err := h.Backend.DescribeProtectionGroup(req.ProtectionGroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"ProtectionGroup": protectionGroupToMap(pg),
+	})
+}
+
+func (h *Handler) handleListProtectionGroups() ([]byte, error) {
+	groups := h.Backend.ListProtectionGroups()
+	items := make([]map[string]any, 0, len(groups))
+
+	for _, pg := range groups {
+		items = append(items, protectionGroupToMap(pg))
+	}
+
+	return json.Marshal(map[string]any{
+		"ProtectionGroups": items,
+	})
+}
+
+// updateProtectionGroupRequest is the request body for UpdateProtectionGroup.
+type updateProtectionGroupRequest struct {
+	ProtectionGroupID string   `json:"ProtectionGroupId"`
+	Aggregation       string   `json:"Aggregation"`
+	Pattern           string   `json:"Pattern"`
+	ResourceType      string   `json:"ResourceType"`
+	Members           []string `json:"Members"`
+}
+
+func (h *Handler) handleUpdateProtectionGroup(body []byte) error {
+	var req updateProtectionGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ProtectionGroupID == "" {
+		return fmt.Errorf("%w: ProtectionGroupId is required", errInvalidRequest)
+	}
+
+	if req.Aggregation == "" {
+		return fmt.Errorf("%w: Aggregation is required", errInvalidRequest)
+	}
+
+	if req.Pattern == "" {
+		return fmt.Errorf("%w: Pattern is required", errInvalidRequest)
+	}
+
+	return h.Backend.UpdateProtectionGroup(
+		req.ProtectionGroupID, req.Aggregation, req.Pattern, req.ResourceType, req.Members,
+	)
+}
+
+// listAttacksRequest is the request body for ListAttacks.
+type listAttacksRequest struct {
+	StartTime    *int64   `json:"StartTime,omitempty"`
+	EndTime      *int64   `json:"EndTime,omitempty"`
+	ResourceARNs []string `json:"ResourceArns"`
+}
+
+func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
+	var req listAttacksRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	// ListAttacks supports multiple ResourceArns; we filter by the first if present.
+	resourceARN := ""
+	if len(req.ResourceARNs) > 0 {
+		resourceARN = req.ResourceARNs[0]
+	}
+
+	var startTime, endTime int64
+	if req.StartTime != nil {
+		startTime = *req.StartTime
+	}
+
+	if req.EndTime != nil {
+		endTime = *req.EndTime
+	}
+
+	attacks := h.Backend.ListAttacks(resourceARN, startTime, endTime)
+	items := make([]map[string]any, 0, len(attacks))
+
+	for _, a := range attacks {
+		items = append(items, map[string]any{
+			"AttackId":    a.AttackID,
+			"ResourceArn": a.ResourceARN,
+			"StartTime":   a.StartTime.Unix(),
+			"EndTime":     a.EndTime.Unix(),
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"AttackSummaries": items,
+	})
+}
+
+func protectionGroupToMap(pg *ProtectionGroup) map[string]any {
+	members := pg.Members
+	if members == nil {
+		members = []string{}
+	}
+
+	return map[string]any{
+		"ProtectionGroupId":  pg.ID,
+		"ProtectionGroupArn": pg.ProtectionGroupArn,
+		"Aggregation":        pg.Aggregation,
+		"Pattern":            pg.Pattern,
+		"ResourceType":       pg.ResourceType,
+		"Members":            members,
+		"CreationTime":       pg.CreationTime.Unix(),
+	}
 }
 
 // deleteProtectionGroupRequest is the request body for DeleteProtectionGroup.
@@ -700,19 +981,11 @@ func (h *Handler) handleDeleteProtectionGroup(body []byte) error {
 		return fmt.Errorf("%w: ProtectionGroupId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteProtectionGroup(req.ProtectionGroupID); err != nil {
-		return err
-	}
-
-	return nil
+	return h.Backend.DeleteProtectionGroup(req.ProtectionGroupID)
 }
 
 func (h *Handler) handleDeleteSubscription() error {
-	if err := h.Backend.DeleteSubscription(); err != nil {
-		return err
-	}
-
-	return nil
+	return h.Backend.DeleteSubscription()
 }
 
 // describeAttackRequest is the request body for DescribeAttack.

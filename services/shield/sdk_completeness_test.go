@@ -18,21 +18,9 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	h := shield.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &shieldsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeEmergencyContactSettings",
-		"DescribeProtectionGroup",
 		"DisableApplicationLayerAutomaticResponse",
-		"DisableProactiveEngagement",
-		"DisassociateDRTLogBucket",
-		"DisassociateDRTRole",
-		"DisassociateHealthCheck",
 		"EnableApplicationLayerAutomaticResponse",
-		"EnableProactiveEngagement",
-		"ListAttacks",
-		"ListProtectionGroups",
 		"ListResourcesInProtectionGroup",
 		"UpdateApplicationLayerAutomaticResponse",
-		"UpdateEmergencyContactSettings",
-		"UpdateProtectionGroup",
-		"UpdateSubscription",
 	})
 }

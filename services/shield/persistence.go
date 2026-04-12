@@ -3,17 +3,19 @@ package shield
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type backendSnapshot struct {
-	Protections       map[string]*Protection      `json:"protections"`
-	ProtectionGroups  map[string]*ProtectionGroup `json:"protectionGroups"`
-	Attacks           map[string]*Attack          `json:"attacks"`
-	Subscription      *Subscription               `json:"subscription,omitempty"`
-	DRTAccess         *DRTAccess                  `json:"drtAccess,omitempty"`
-	AccountID         string                      `json:"accountID"`
-	Region            string                      `json:"region"`
-	EmergencyContacts []EmergencyContact          `json:"emergencyContacts,omitempty"`
+	Protections               map[string]*Protection      `json:"protections"`
+	ProtectionGroups          map[string]*ProtectionGroup `json:"protectionGroups"`
+	Attacks                   map[string]*Attack          `json:"attacks"`
+	Subscription              *Subscription               `json:"subscription,omitempty"`
+	DRTAccess                 *DRTAccess                  `json:"drtAccess,omitempty"`
+	AccountID                 string                      `json:"accountID"`
+	Region                    string                      `json:"region"`
+	ProactiveEngagementStatus string                      `json:"proactiveEngagementStatus,omitempty"`
+	EmergencyContacts         []EmergencyContact          `json:"emergencyContacts,omitempty"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
@@ -31,19 +33,42 @@ func ensureNonNilMaps(s *backendSnapshot) {
 }
 
 // Snapshot serialises the backend state to JSON.
+// All mutable maps are deep-copied so the snapshot is isolated from subsequent mutations.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	// Deep-copy protections so mutations after snapshot cannot corrupt it.
+	protectionsCopy := make(map[string]*Protection, len(b.protections))
+	for k, v := range b.protections {
+		protectionsCopy[k] = cloneProtection(v)
+	}
+
+	groupsCopy := make(map[string]*ProtectionGroup, len(b.protectionGroups))
+	for k, v := range b.protectionGroups {
+		groupsCopy[k] = cloneProtectionGroup(v)
+	}
+
+	attacksCopy := make(map[string]*Attack, len(b.attacks))
+	maps.Copy(attacksCopy, b.attacks)
+
+	var drtCopy *DRTAccess
+	if b.drtAccess != nil {
+		cp := *b.drtAccess
+		cp.LogBucketList = append([]string(nil), b.drtAccess.LogBucketList...)
+		drtCopy = &cp
+	}
+
 	snap := backendSnapshot{
-		Protections:       b.protections,
-		ProtectionGroups:  b.protectionGroups,
-		Attacks:           b.attacks,
-		Subscription:      b.subscription,
-		DRTAccess:         b.drtAccess,
-		EmergencyContacts: b.emergencyContacts,
-		AccountID:         b.accountID,
-		Region:            b.region,
+		Protections:               protectionsCopy,
+		ProtectionGroups:          groupsCopy,
+		Attacks:                   attacksCopy,
+		Subscription:              b.subscription,
+		DRTAccess:                 drtCopy,
+		EmergencyContacts:         append([]EmergencyContact(nil), b.emergencyContacts...),
+		ProactiveEngagementStatus: b.proactiveEngagementStatus,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -75,6 +100,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.subscription = snap.Subscription
 	b.drtAccess = snap.DRTAccess
 	b.emergencyContacts = snap.EmergencyContacts
+	b.proactiveEngagementStatus = snap.ProactiveEngagementStatus
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
