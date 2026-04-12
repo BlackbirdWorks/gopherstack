@@ -45,12 +45,18 @@ type Secret struct {
 	Versions map[string]*SecretVersion `json:"-"`
 	// LastChangedDate is the Unix timestamp of the most recent value change.
 	LastChangedDate *float64 `json:"-"`
+	// LastRotatedDate is the Unix timestamp of the most recent successful rotation.
+	LastRotatedDate *float64 `json:"-"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the human-readable name of the secret.
 	Name string `json:"Name"`
 	// Description is an optional human-readable description.
 	Description string `json:"Description,omitempty"`
+	// KmsKeyID is the ARN or alias of the KMS key used to encrypt the secret.
+	KmsKeyID string `json:"-"`
+	// RotationLambdaARN is the ARN of the Lambda used for rotation.
+	RotationLambdaARN string `json:"-"`
 	// CurrentVersionId is the VersionId with the AWSCURRENT label.
 	CurrentVersionID string `json:"-"`
 	// RotationEnabled is true after RotateSecret has been called at least once.
@@ -59,12 +65,14 @@ type Secret struct {
 
 // CreateSecretInput is the request payload for CreateSecret.
 type CreateSecretInput struct {
-	Name         string `json:"Name"`
-	Description  string `json:"Description,omitempty"`
-	SecretString string `json:"SecretString,omitempty"`
-	Region       string `json:"-"`
-	SecretBinary []byte `json:"SecretBinary,omitempty"`
-	Tags         []Tag  `json:"Tags,omitempty"`
+	Name               string `json:"Name"`
+	Description        string `json:"Description,omitempty"`
+	SecretString       string `json:"SecretString,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	Region             string `json:"-"`
+	SecretBinary       []byte `json:"SecretBinary,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
 }
 
 // Tag represents a key/value tag pair in the Secrets Manager wire format.
@@ -165,12 +173,18 @@ type SecretListEntry struct {
 
 // ListSecretsInput is the request payload for ListSecrets.
 type ListSecretsInput struct {
-	// MaxResults limits the number of results returned.
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	// NextToken is the pagination cursor from a previous call.
-	NextToken string `json:"NextToken,omitempty"`
-	// IncludeDeleted controls whether deleted secrets are included.
-	IncludeDeleted bool `json:"IncludeDeleted,omitempty"`
+	MaxResults     *int64         `json:"MaxResults,omitempty"`
+	NextToken      string         `json:"NextToken,omitempty"`
+	Filters        []SecretFilter `json:"Filters,omitempty"`
+	IncludeDeleted bool           `json:"IncludeDeleted,omitempty"`
+}
+
+// SecretFilter is a filter criterion for ListSecrets and BatchGetSecretValue.
+type SecretFilter struct {
+	// Key is the filter key (e.g. "name", "description", "tag-key", "tag-value", "all").
+	Key string `json:"Key,omitempty"`
+	// Values is the list of filter values.
+	Values []string `json:"Values,omitempty"`
 }
 
 // ListSecretsOutput is the response payload for ListSecrets.
@@ -187,14 +201,18 @@ type DescribeSecretInput struct {
 
 // DescribeSecretOutput is the response payload for DescribeSecret.
 type DescribeSecretOutput struct {
-	Tags               *tags.Tags          `json:"Tags,omitempty"`
-	DeletedDate        *float64            `json:"DeletedDate,omitempty"`
-	LastChangedDate    *float64            `json:"LastChangedDate,omitempty"`
-	VersionIDsToStages map[string][]string `json:"VersionIdsToStages,omitempty"`
-	ARN                string              `json:"ARN"`
-	Name               string              `json:"Name"`
-	Description        string              `json:"Description,omitempty"`
-	RotationEnabled    bool                `json:"RotationEnabled"`
+	Tags               *tags.Tags              `json:"Tags,omitempty"`
+	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
+	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`
+	LastRotatedDate    *float64                `json:"LastRotatedDate,omitempty"`
+	VersionIDsToStages map[string][]string     `json:"VersionIdsToStages,omitempty"`
+	ARN                string                  `json:"ARN"`
+	Name               string                  `json:"Name"`
+	Description        string                  `json:"Description,omitempty"`
+	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
+	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
+	RotationEnabled    bool                    `json:"RotationEnabled"`
 }
 
 // UpdateSecretInput is the request payload for UpdateSecret.

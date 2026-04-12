@@ -26,6 +26,7 @@ type LambdaInvoker interface {
 
 // Handler is the Echo HTTP handler for Secrets Manager operations.
 type Handler struct {
+	ops           map[string]smActionFn
 	Backend       StorageBackend
 	lambdaInvoker LambdaInvoker
 	DefaultRegion string
@@ -33,9 +34,22 @@ type Handler struct {
 
 // NewHandler creates a new Secrets Manager handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 	}
+	h.buildOps()
+
+	return h
+}
+
+// buildOps builds and caches the operation dispatch table.
+func (h *Handler) buildOps() {
+	table := make(map[string]smActionFn)
+	maps.Copy(table, h.smCRUDActions())
+	maps.Copy(table, h.smVersionActions())
+	maps.Copy(table, h.smTagActions())
+	maps.Copy(table, h.smExtendedActions())
+	h.ops = table
 }
 
 // SetLambdaInvoker sets the Lambda invoker used for RotateSecret with a rotation Lambda ARN.
@@ -151,16 +165,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 type smActionFn func(ctx context.Context, region string, body []byte) (any, error)
-
-func (h *Handler) smDispatchTable() map[string]smActionFn {
-	table := make(map[string]smActionFn)
-	maps.Copy(table, h.smCRUDActions())
-	maps.Copy(table, h.smVersionActions())
-	maps.Copy(table, h.smTagActions())
-	maps.Copy(table, h.smExtendedActions())
-
-	return table
-}
 
 func (h *Handler) smExtendedActions() map[string]smActionFn {
 	return map[string]smActionFn{
@@ -363,7 +367,7 @@ func (h *Handler) smVersionActions() map[string]smActionFn {
 func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	fn, ok := h.smDispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
@@ -392,7 +396,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):
 		errorType = "InvalidRequestException"
-	case errors.Is(reqErr, ErrSecretValueTooLarge), errors.Is(reqErr, ErrInvalidPasswordParameters):
+	case errors.Is(reqErr, ErrSecretValueTooLarge),
+		errors.Is(reqErr, ErrInvalidPasswordParameters),
+		errors.Is(reqErr, ErrInvalidParameter):
 		errorType = "InvalidParameterException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"

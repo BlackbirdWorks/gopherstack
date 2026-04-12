@@ -36,6 +36,8 @@ var (
 	ErrCryptoRandInvalidRange = errors.New("random integer bound must be positive")
 	// ErrSecretValueTooLarge is returned when a secret value exceeds the 64 KB AWS limit.
 	ErrSecretValueTooLarge = errors.New("InvalidParameterException")
+	// ErrInvalidParameter is returned when an invalid parameter value is provided.
+	ErrInvalidParameter = errors.New("InvalidParameterException")
 )
 
 const (
@@ -55,36 +57,6 @@ const (
 	// maxSecretValueBytes is the maximum allowed size of a secret value in bytes (64 KB).
 	maxSecretValueBytes = 65536
 )
-
-// StorageBackend defines the interface for the Secrets Manager in-memory backend.
-type StorageBackend interface {
-	CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error)
-	GetSecretValue(input *GetSecretValueInput) (*GetSecretValueOutput, error)
-	PutSecretValue(input *PutSecretValueInput) (*PutSecretValueOutput, error)
-	DeleteSecret(input *DeleteSecretInput) (*DeleteSecretOutput, error)
-	ListSecrets(input *ListSecretsInput) (*ListSecretsOutput, error)
-	ListSecretVersionIDs(input *ListSecretVersionIDsInput) (*ListSecretVersionIDsOutput, error)
-	DescribeSecret(input *DescribeSecretInput) (*DescribeSecretOutput, error)
-	UpdateSecret(input *UpdateSecretInput) (*UpdateSecretOutput, error)
-	RestoreSecret(input *RestoreSecretInput) (*RestoreSecretOutput, error)
-	TagResource(input *TagResourceInput) error
-	UntagResource(input *UntagResourceInput) error
-	RotateSecret(input *RotateSecretInput) (*RotateSecretOutput, error)
-	GetRandomPassword(input *GetRandomPasswordInput) (*GetRandomPasswordOutput, error)
-	ListAll() []SecretListEntry
-	BatchGetSecretValue(input *BatchGetSecretValueInput) (*BatchGetSecretValueOutput, error)
-	CancelRotateSecret(input *CancelRotateSecretInput) (*CancelRotateSecretOutput, error)
-	GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error)
-	PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutput, error)
-	DeleteResourcePolicy(input *DeleteResourcePolicyInput) (*DeleteResourcePolicyOutput, error)
-	ReplicateSecretToRegions(input *ReplicateSecretToRegionsInput) (*ReplicateSecretToRegionsOutput, error)
-	RemoveRegionsFromReplication(input *RemoveRegionsFromReplicationInput) (*RemoveRegionsFromReplicationOutput, error)
-	StopReplicationToReplica(input *StopReplicationToReplicaInput) (*StopReplicationToReplicaOutput, error)
-	UpdateSecretVersionStage(input *UpdateSecretVersionStageInput) (*UpdateSecretVersionStageOutput, error)
-}
-
-// ensure InMemoryBackend satisfies StorageBackend at compile time.
-var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
 type InMemoryBackend struct {
@@ -175,6 +147,7 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		ARN:         arn,
 		Name:        input.Name,
 		Description: input.Description,
+		KmsKeyID:    input.KmsKeyID,
 		Versions:    make(map[string]*SecretVersion),
 	}
 
@@ -189,7 +162,12 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	var versionID string
 
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
-		versionID = uuid.New().String()
+		// Use ClientRequestToken as initial version ID for idempotency.
+		versionID = input.ClientRequestToken
+		if versionID == "" {
+			versionID = uuid.New().String()
+		}
+
 		now := UnixTimeFloat(time.Now())
 		version := &SecretVersion{
 			VersionID:     versionID,
@@ -425,6 +403,8 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 		}
 
 		delete(b.secrets, name)
+		delete(b.resourcePolicies, name)
+		delete(b.replicationConfigs, name)
 
 		return &DeleteSecretOutput{
 			ARN:          secret.ARN,
@@ -451,6 +431,10 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 
 	for _, s := range b.secrets {
 		if s.DeletedDate != nil && !input.IncludeDeleted {
+			continue
+		}
+
+		if !secretMatchesFilters(s, input.Filters) {
 			continue
 		}
 
@@ -486,6 +470,75 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 		SecretList: entries[startIdx:end],
 		NextToken:  nextToken,
 	}, nil
+}
+
+// secretMatchesFilters returns true if the secret matches all provided filters.
+func secretMatchesFilters(s *Secret, filters []SecretFilter) bool {
+	for _, f := range filters {
+		switch f.Key {
+		case "name":
+			if !anyMatchPrefix(f.Values, s.Name) {
+				return false
+			}
+		case "description":
+			if !anyMatchPrefix(f.Values, s.Description) {
+				return false
+			}
+		case "tag-key":
+			if !secretHasTagKey(s, f.Values) {
+				return false
+			}
+		case "tag-value":
+			if !secretHasTagValue(s, f.Values) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// anyMatchPrefix returns true if target has any of the given values as a prefix.
+func anyMatchPrefix(values []string, target string) bool {
+	for _, v := range values {
+		if strings.HasPrefix(target, v) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// secretHasTagKey returns true if the secret has at least one of the given tag keys.
+func secretHasTagKey(s *Secret, keys []string) bool {
+	if s.Tags == nil {
+		return false
+	}
+
+	tagMap := s.Tags.Clone()
+	for _, k := range keys {
+		if _, ok := tagMap[k]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// secretHasTagValue returns true if the secret has at least one tag with any of the given values.
+func secretHasTagValue(s *Secret, values []string) bool {
+	if s.Tags == nil {
+		return false
+	}
+
+	tagMap := s.Tags.Clone()
+	for _, v := range tagMap {
+		if slices.Contains(values, v) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ListSecretVersionIDs returns the list of versions for a secret with optional pagination.
@@ -577,11 +630,15 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		ARN:                secret.ARN,
 		Name:               secret.Name,
 		Description:        secret.Description,
+		KmsKeyID:           secret.KmsKeyID,
+		RotationLambdaARN:  secret.RotationLambdaARN,
 		Tags:               secret.Tags,
 		DeletedDate:        secret.DeletedDate,
 		LastChangedDate:    secret.LastChangedDate,
+		LastRotatedDate:    secret.LastRotatedDate,
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
+		ReplicationStatus:  b.replicationConfigs[name],
 	}, nil
 }
 
@@ -703,18 +760,8 @@ func parseToken(token string) int {
 }
 
 // generateVersionID generates a random version ID for secret rotation.
-func generateVersionID() (string, error) {
-	s1, err := generateRandomSuffix()
-	if err != nil {
-		return "", err
-	}
-
-	s2, err := generateRandomSuffix()
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%s-%s", s1, s2), nil
+func generateVersionID() string {
+	return uuid.New().String()
 }
 
 // TagResource adds or updates tags on a secret.
@@ -779,10 +826,7 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		return nil, ErrVersionNotFound
 	}
 
-	versionID, err := generateVersionID()
-	if err != nil {
-		return nil, err
-	}
+	versionID := generateVersionID()
 
 	newVer := &SecretVersion{
 		VersionID:     versionID,
@@ -797,8 +841,14 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 	newVer.StagingLabels = []string{StagingLabelCurrent}
 	secret.CurrentVersionID = versionID
 	secret.RotationEnabled = true
+
+	if input.RotationLambdaARN != "" {
+		secret.RotationLambdaARN = input.RotationLambdaARN
+	}
+
 	now := UnixTimeFloat(time.Now())
 	secret.LastChangedDate = &now
+	secret.LastRotatedDate = &now
 
 	pruneVersions(secret)
 
@@ -1084,62 +1134,66 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 	}
 
 	if len(input.SecretIDList) > 0 {
-		for _, id := range input.SecretIDList {
-			name := resolveSecretID(id)
-
-			secret, ok := b.secrets[name]
-			if !ok {
-				out.Errors = append(out.Errors, APIErrorType{
-					ErrorCode: "ResourceNotFoundException",
-					Message:   "Secrets Manager can't find the specified secret.",
-					SecretID:  id,
-				})
-
-				continue
-			}
-
-			if secret.DeletedDate != nil {
-				out.Errors = append(out.Errors, APIErrorType{
-					ErrorCode: "InvalidRequestException",
-					Message:   "You can't perform this operation on the secret because it was deleted.",
-					SecretID:  id,
-				})
-
-				continue
-			}
-
-			ver := b.findVersion(secret, "", StagingLabelCurrent)
-			if ver == nil {
-				out.Errors = append(out.Errors, APIErrorType{
-					ErrorCode: "ResourceNotFoundException",
-					Message:   "Secrets Manager can't find the specified secret version.",
-					SecretID:  id,
-				})
-
-				continue
-			}
-
-			out.SecretValues = append(out.SecretValues, SecretValueEntry{
-				ARN:           secret.ARN,
-				Name:          secret.Name,
-				VersionID:     ver.VersionID,
-				SecretString:  ver.SecretString,
-				SecretBinary:  ver.SecretBinary,
-				VersionStages: ver.StagingLabels,
-				CreatedDate:   ver.CreatedDate,
-			})
-		}
+		b.batchGetByIDList(input.SecretIDList, out)
 
 		return out, nil
 	}
 
-	// No SecretIdList provided; apply filters or return all active secrets.
-	for _, secret := range b.secrets {
-		if secret.DeletedDate != nil {
+	return b.batchGetByFilter(input, out), nil
+}
+
+// batchGetByIDList populates out with values and errors for each explicit secret ID.
+// Must be called with read lock held.
+func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValueOutput) {
+	for _, id := range ids {
+		name := resolveSecretID(id)
+
+		secret, ok := b.secrets[name]
+		if !ok {
+			out.Errors = append(out.Errors, APIErrorType{
+				ErrorCode: "ResourceNotFoundException",
+				Message:   "Secrets Manager can't find the specified secret.",
+				SecretID:  id,
+			})
+
 			continue
 		}
 
-		if !batchMatchesFilters(secret, input.Filters) {
+		if secret.DeletedDate != nil {
+			out.Errors = append(out.Errors, APIErrorType{
+				ErrorCode: "InvalidRequestException",
+				Message:   "You can't perform this operation on the secret because it was deleted.",
+				SecretID:  id,
+			})
+
+			continue
+		}
+
+		ver := b.findVersion(secret, "", StagingLabelCurrent)
+		if ver == nil {
+			out.Errors = append(out.Errors, APIErrorType{
+				ErrorCode: "ResourceNotFoundException",
+				Message:   "Secrets Manager can't find the specified secret version.",
+				SecretID:  id,
+			})
+
+			continue
+		}
+
+		out.SecretValues = append(out.SecretValues, secretVersionEntry(secret, ver))
+	}
+}
+
+// batchGetByFilter collects and paginates secrets matching filters.
+// Must be called with read lock held.
+func (b *InMemoryBackend) batchGetByFilter(
+	input *BatchGetSecretValueInput,
+	out *BatchGetSecretValueOutput,
+) *BatchGetSecretValueOutput {
+	allValues := make([]SecretValueEntry, 0, len(b.secrets))
+
+	for _, secret := range b.secrets {
+		if secret.DeletedDate != nil || !batchMatchesFilters(secret, input.Filters) {
 			continue
 		}
 
@@ -1148,18 +1202,48 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 			continue
 		}
 
-		out.SecretValues = append(out.SecretValues, SecretValueEntry{
-			ARN:           secret.ARN,
-			Name:          secret.Name,
-			VersionID:     ver.VersionID,
-			SecretString:  ver.SecretString,
-			SecretBinary:  ver.SecretBinary,
-			VersionStages: ver.StagingLabels,
-			CreatedDate:   ver.CreatedDate,
-		})
+		allValues = append(allValues, secretVersionEntry(secret, ver))
 	}
 
-	return out, nil
+	// Sort by name for deterministic pagination.
+	sort.Slice(allValues, func(i, j int) bool {
+		return allValues[i].Name < allValues[j].Name
+	})
+
+	maxResults := int64(defaultMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = int64(*input.MaxResults)
+	}
+
+	startIdx := parseToken(input.NextToken)
+	if startIdx >= len(allValues) {
+		return out
+	}
+
+	end := startIdx + int(maxResults)
+
+	if end < len(allValues) {
+		out.NextToken = strconv.Itoa(end)
+	} else {
+		end = len(allValues)
+	}
+
+	out.SecretValues = allValues[startIdx:end]
+
+	return out
+}
+
+// secretVersionEntry builds a SecretValueEntry from a secret and version.
+func secretVersionEntry(secret *Secret, ver *SecretVersion) SecretValueEntry {
+	return SecretValueEntry{
+		ARN:           secret.ARN,
+		Name:          secret.Name,
+		VersionID:     ver.VersionID,
+		SecretString:  ver.SecretString,
+		SecretBinary:  ver.SecretBinary,
+		VersionStages: ver.StagingLabels,
+		CreatedDate:   ver.CreatedDate,
+	}
 }
 
 // batchMatchesFilters returns true if the secret matches all provided filters.
@@ -1172,6 +1256,14 @@ func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bo
 			}
 		case "description":
 			if !anyMatch(f.Values, secret.Description) {
+				return false
+			}
+		case "tag-key":
+			if !secretHasTagKey(secret, f.Values) {
+				return false
+			}
+		case "tag-value":
+			if !secretHasTagValue(secret, f.Values) {
 				return false
 			}
 		}
@@ -1253,6 +1345,10 @@ func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*Get
 
 // PutResourcePolicy stores a resource-based policy for a secret.
 func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutput, error) {
+	if input.ResourcePolicy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy must not be empty", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -1434,38 +1530,13 @@ func (b *InMemoryBackend) UpdateSecretVersionStage(
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	// Remove the label from RemoveFromVersionId if specified.
-	if input.RemoveFromVersionID != "" {
-		ver, exists := secret.Versions[input.RemoveFromVersionID]
-		if !exists {
-			return nil, ErrVersionNotFound
-		}
-
-		newLabels := make([]string, 0, len(ver.StagingLabels))
-
-		for _, lbl := range ver.StagingLabels {
-			if lbl != input.VersionStage {
-				newLabels = append(newLabels, lbl)
-			}
-		}
-
-		ver.StagingLabels = newLabels
-	}
-
-	// Add the label to MoveToVersionId if specified.
 	if input.MoveToVersionID != "" {
-		ver, exists := secret.Versions[input.MoveToVersionID]
-		if !exists {
-			return nil, ErrVersionNotFound
+		if err := b.moveStagingLabel(secret, input); err != nil {
+			return nil, err
 		}
-
-		if !slices.Contains(ver.StagingLabels, input.VersionStage) {
-			ver.StagingLabels = append(ver.StagingLabels, input.VersionStage)
-		}
-
-		// If moving AWSCURRENT, update CurrentVersionID.
-		if input.VersionStage == StagingLabelCurrent {
-			secret.CurrentVersionID = input.MoveToVersionID
+	} else if input.RemoveFromVersionID != "" {
+		if err := removeLabelFromVersion(secret, input.RemoveFromVersionID, input.VersionStage); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1473,6 +1544,59 @@ func (b *InMemoryBackend) UpdateSecretVersionStage(
 		ARN:  secret.ARN,
 		Name: secret.Name,
 	}, nil
+}
+
+// moveStagingLabel strips a staging label from all versions and applies it to the target version.
+// Must be called with write lock held.
+func (b *InMemoryBackend) moveStagingLabel(secret *Secret, input *UpdateSecretVersionStageInput) error {
+	if input.RemoveFromVersionID != "" {
+		if _, exists := secret.Versions[input.RemoveFromVersionID]; !exists {
+			return ErrVersionNotFound
+		}
+	}
+
+	// Strip the label from ALL versions — a staging label belongs to exactly one version.
+	for _, ver := range secret.Versions {
+		ver.StagingLabels = removeLabel(ver.StagingLabels, input.VersionStage)
+	}
+
+	targetVer, exists := secret.Versions[input.MoveToVersionID]
+	if !exists {
+		return ErrVersionNotFound
+	}
+
+	targetVer.StagingLabels = append(targetVer.StagingLabels, input.VersionStage)
+
+	if input.VersionStage == StagingLabelCurrent {
+		secret.CurrentVersionID = input.MoveToVersionID
+	}
+
+	return nil
+}
+
+// removeLabelFromVersion removes a label from a specific version.
+func removeLabelFromVersion(secret *Secret, versionID, label string) error {
+	ver, exists := secret.Versions[versionID]
+	if !exists {
+		return ErrVersionNotFound
+	}
+
+	ver.StagingLabels = removeLabel(ver.StagingLabels, label)
+
+	return nil
+}
+
+// removeLabel returns a copy of labels with the given label removed.
+func removeLabel(labels []string, label string) []string {
+	newLabels := make([]string, 0, len(labels))
+
+	for _, lbl := range labels {
+		if lbl != label {
+			newLabels = append(newLabels, lbl)
+		}
+	}
+
+	return newLabels
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
@@ -1490,4 +1614,16 @@ func (b *InMemoryBackend) Reset() {
 	b.secrets = make(map[string]*Secret)
 	b.resourcePolicies = make(map[string]string)
 	b.replicationConfigs = make(map[string][]ReplicationStatusType)
+}
+
+// AccountID returns the AWS account ID configured for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Region returns the AWS region configured for this backend.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// AddSecretInternal seeds the backend with a pre-built Secret for testing.
+// Must not be called concurrently with other operations.
+func (b *InMemoryBackend) AddSecretInternal(s *Secret) {
+	b.secrets[s.Name] = s
 }
