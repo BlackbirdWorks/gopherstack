@@ -21,15 +21,22 @@ import (
 )
 
 var (
-	ErrParameterNotFound      = errors.New("ParameterNotFound")
-	ErrParameterAlreadyExists = errors.New("ParameterAlreadyExists")
-	ErrInvalidKeyID           = errors.New("InvalidKeyId")
-	ErrCiphertextTooShort     = errors.New("ciphertext too short")
-	ErrValidationException    = errors.New("ValidationException")
-	ErrDocumentAlreadyExists  = errors.New("DocumentAlreadyExists")
-	ErrDocumentNotFound       = errors.New("DocumentNotFound")
-	ErrInvalidDocumentVersion = errors.New("InvalidDocumentVersion")
-	ErrCommandNotFound        = errors.New("CommandNotFound")
+	ErrParameterNotFound                  = errors.New("ParameterNotFound")
+	ErrParameterAlreadyExists             = errors.New("ParameterAlreadyExists")
+	ErrInvalidKeyID                       = errors.New("InvalidKeyId")
+	ErrCiphertextTooShort                 = errors.New("ciphertext too short")
+	ErrValidationException                = errors.New("ValidationException")
+	ErrDocumentAlreadyExists              = errors.New("DocumentAlreadyExists")
+	ErrDocumentNotFound                   = errors.New("DocumentNotFound")
+	ErrInvalidDocumentVersion             = errors.New("InvalidDocumentVersion")
+	ErrCommandNotFound                    = errors.New("CommandNotFound")
+	ErrActivationNotFound                 = errors.New("ActivationNotFound")
+	ErrAssociationNotFound                = errors.New("AssociationDoesNotExist")
+	ErrMaintenanceWindowNotFound          = errors.New("DoesNotExistException")
+	ErrMaintenanceWindowExecutionNotFound = errors.New("DoesNotExistException")
+	ErrOpsItemNotFound                    = errors.New("OpsItemNotFoundException")
+	ErrOpsMetadataNotFound                = errors.New("OpsMetadataNotFoundException")
+	ErrPatchBaselineNotFound              = errors.New("DoesNotExistException")
 )
 
 const (
@@ -163,6 +170,19 @@ type StorageBackend interface {
 	ListCommands(input *ListCommandsInput) (*ListCommandsOutput, error)
 	GetCommandInvocation(input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error)
 	ListCommandInvocations(input *ListCommandInvocationsInput) (*ListCommandInvocationsOutput, error)
+	// New operations.
+	CancelCommand(input *CancelCommandInput) (*CancelCommandOutput, error)
+	CancelMaintenanceWindowExecution(
+		input *CancelMaintenanceWindowExecutionInput,
+	) (*CancelMaintenanceWindowExecutionOutput, error)
+	CreateActivation(input *CreateActivationInput) (*CreateActivationOutput, error)
+	CreateAssociation(input *CreateAssociationInput) (*CreateAssociationOutput, error)
+	CreateAssociationBatch(input *CreateAssociationBatchInput) (*CreateAssociationBatchOutput, error)
+	CreateMaintenanceWindow(input *CreateMaintenanceWindowInput) (*CreateMaintenanceWindowOutput, error)
+	CreateOpsItem(input *CreateOpsItemInput) (*CreateOpsItemOutput, error)
+	CreateOpsMetadata(input *CreateOpsMetadataInput) (*CreateOpsMetadataOutput, error)
+	CreatePatchBaseline(input *CreatePatchBaselineInput) (*CreatePatchBaselineOutput, error)
+	AssociateOpsItemRelatedItem(input *AssociateOpsItemRelatedItemInput) (*AssociateOpsItemRelatedItemOutput, error)
 }
 
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
@@ -175,6 +195,13 @@ type InMemoryBackend struct {
 	documentPermissions map[string][]string
 	commands            map[string]Command
 	commandInvocations  map[string][]CommandInvocation
+	activations         map[string]Activation
+	associations        map[string]Association
+	maintenanceWindows  map[string]MaintenanceWindow
+	opsItems            map[string]OpsItem
+	opsItemRelatedItems map[string][]OpsItemRelatedItem
+	opsMetadata         map[string]OpsMetadata
+	patchBaselines      map[string]PatchBaseline
 	mu                  *lockmetrics.RWMutex
 	commandExpirySecs   float64
 }
@@ -190,6 +217,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 		documentPermissions: make(map[string][]string),
 		commands:            make(map[string]Command),
 		commandInvocations:  make(map[string][]CommandInvocation),
+		activations:         make(map[string]Activation),
+		associations:        make(map[string]Association),
+		maintenanceWindows:  make(map[string]MaintenanceWindow),
+		opsItems:            make(map[string]OpsItem),
+		opsItemRelatedItems: make(map[string][]OpsItemRelatedItem),
+		opsMetadata:         make(map[string]OpsMetadata),
+		patchBaselines:      make(map[string]PatchBaseline),
 		commandExpirySecs:   defaultCommandExpirySecs,
 		mu:                  lockmetrics.New("ssm"),
 	}
@@ -1227,5 +1261,331 @@ func (b *InMemoryBackend) Reset() {
 	b.documentPermissions = make(map[string][]string)
 	b.commands = make(map[string]Command)
 	b.commandInvocations = make(map[string][]CommandInvocation)
+	b.activations = make(map[string]Activation)
+	b.associations = make(map[string]Association)
+	b.maintenanceWindows = make(map[string]MaintenanceWindow)
+	b.opsItems = make(map[string]OpsItem)
+	b.opsItemRelatedItems = make(map[string][]OpsItemRelatedItem)
+	b.opsMetadata = make(map[string]OpsMetadata)
+	b.patchBaselines = make(map[string]PatchBaseline)
 	b.registerDefaultDocuments()
+}
+
+const (
+	activationCodeChars        = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	activationCodeLen          = 20
+	windowIDPrefix             = "mw-"
+	activationIDPrefix         = "act-"
+	baselineIDPrefix           = "pb-"
+	opsItemIDPrefix            = "oi-"
+	opsMetadataArnTpl          = "arn:aws:ssm:%s:%s:opsmetadata/%s"
+	defaultAccountID           = "123456789012"
+	defaultRegion              = "us-east-1"
+	defaultOpsItemStatus       = "Open"
+	defaultActivationExpiryHrs = 24
+)
+
+func generateCode(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		randByte := make([]byte, 1)
+		_, _ = rand.Read(randByte)
+		b[i] = activationCodeChars[int(randByte[0])%len(activationCodeChars)]
+	}
+
+	return string(b)
+}
+
+// CancelCommand cancels a running command (sets status to Cancelled).
+func (b *InMemoryBackend) CancelCommand(input *CancelCommandInput) (*CancelCommandOutput, error) {
+	b.mu.Lock("CancelCommand")
+	defer b.mu.Unlock()
+
+	cmd, exists := b.commands[input.CommandID]
+	if !exists {
+		return nil, ErrCommandNotFound
+	}
+
+	cmd.Status = "Cancelled"
+	b.commands[input.CommandID] = cmd
+
+	return &CancelCommandOutput{}, nil
+}
+
+// CancelMaintenanceWindowExecution cancels a maintenance window execution.
+func (b *InMemoryBackend) CancelMaintenanceWindowExecution(
+	input *CancelMaintenanceWindowExecutionInput,
+) (*CancelMaintenanceWindowExecutionOutput, error) {
+	return &CancelMaintenanceWindowExecutionOutput{
+		WindowExecutionID: input.WindowExecutionID,
+	}, nil
+}
+
+// CreateActivation creates a new activation for managed instances.
+func (b *InMemoryBackend) CreateActivation(input *CreateActivationInput) (*CreateActivationOutput, error) {
+	b.mu.Lock("CreateActivation")
+	defer b.mu.Unlock()
+
+	activationID := activationIDPrefix + uuid.NewString()
+	code := generateCode(activationCodeLen)
+
+	limit := input.RegistrationLimit
+	if limit <= 0 {
+		limit = 1
+	}
+
+	now := UnixTimeFloat(time.Now())
+	expiry := input.ExpirationDate
+	if expiry == 0 {
+		expiry = UnixTimeFloat(time.Now().Add(defaultActivationExpiryHrs * time.Hour))
+	}
+
+	act := Activation{
+		ActivationID:        activationID,
+		ActivationCode:      code,
+		Description:         input.Description,
+		DefaultInstanceName: input.DefaultInstanceName,
+		IamRole:             input.IamRole,
+		RegistrationLimit:   limit,
+		RegistrationsCount:  0,
+		ExpirationDate:      expiry,
+		Expired:             false,
+		CreatedDate:         now,
+	}
+
+	b.activations[activationID] = act
+
+	return &CreateActivationOutput{
+		ActivationCode: code,
+		ActivationID:   activationID,
+	}, nil
+}
+
+// CreateAssociation creates a new association between a document and targets.
+func (b *InMemoryBackend) CreateAssociation(input *CreateAssociationInput) (*CreateAssociationOutput, error) {
+	b.mu.Lock("CreateAssociation")
+	defer b.mu.Unlock()
+
+	if _, exists := b.documents[input.Name]; !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	assocID := uuid.NewString()
+	now := UnixTimeFloat(time.Now())
+
+	assoc := Association{
+		AssociationID:             assocID,
+		AssociationName:           input.AssociationName,
+		DocumentVersion:           input.DocumentVersion,
+		InstanceID:                input.InstanceID,
+		Name:                      input.Name,
+		Parameters:                input.Parameters,
+		Targets:                   input.Targets,
+		Overview:                  &AssociationOverview{Status: "Success"},
+		LastUpdateAssociationDate: now,
+	}
+
+	b.associations[assocID] = assoc
+
+	return &CreateAssociationOutput{AssociationDescription: assoc}, nil
+}
+
+// CreateAssociationBatch creates multiple associations in a batch.
+func (b *InMemoryBackend) CreateAssociationBatch(
+	input *CreateAssociationBatchInput,
+) (*CreateAssociationBatchOutput, error) {
+	b.mu.Lock("CreateAssociationBatch")
+	defer b.mu.Unlock()
+
+	output := &CreateAssociationBatchOutput{
+		Successful: make([]Association, 0),
+		Failed:     make([]FailedCreateAssociation, 0),
+	}
+
+	now := UnixTimeFloat(time.Now())
+
+	for _, entry := range input.Entries {
+		if _, exists := b.documents[entry.Name]; !exists {
+			output.Failed = append(output.Failed, FailedCreateAssociation{
+				Entry:   entry,
+				Message: ErrDocumentNotFound.Error(),
+				Fault:   "Client",
+			})
+
+			continue
+		}
+
+		assocID := uuid.NewString()
+		assoc := Association{
+			AssociationID:             assocID,
+			AssociationName:           entry.AssociationName,
+			DocumentVersion:           entry.DocumentVersion,
+			InstanceID:                entry.InstanceID,
+			Name:                      entry.Name,
+			Parameters:                entry.Parameters,
+			Targets:                   entry.Targets,
+			Overview:                  &AssociationOverview{Status: "Success"},
+			LastUpdateAssociationDate: now,
+		}
+
+		b.associations[assocID] = assoc
+		output.Successful = append(output.Successful, assoc)
+	}
+
+	return output, nil
+}
+
+// CreateMaintenanceWindow creates a new maintenance window.
+func (b *InMemoryBackend) CreateMaintenanceWindow(
+	input *CreateMaintenanceWindowInput,
+) (*CreateMaintenanceWindowOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateMaintenanceWindow")
+	defer b.mu.Unlock()
+
+	windowID := windowIDPrefix + uuid.NewString()
+	now := UnixTimeFloat(time.Now())
+
+	mw := MaintenanceWindow{
+		WindowID:                 windowID,
+		Name:                     input.Name,
+		Description:              input.Description,
+		Schedule:                 input.Schedule,
+		Duration:                 input.Duration,
+		Cutoff:                   input.Cutoff,
+		AllowUnassociatedTargets: input.AllowUnassociatedTargets,
+		Enabled:                  true,
+		CreatedDate:              now,
+		ModifiedDate:             now,
+	}
+
+	b.maintenanceWindows[windowID] = mw
+
+	return &CreateMaintenanceWindowOutput{WindowID: windowID}, nil
+}
+
+// CreateOpsItem creates a new OpsItem.
+func (b *InMemoryBackend) CreateOpsItem(input *CreateOpsItemInput) (*CreateOpsItemOutput, error) {
+	if input.Title == "" {
+		return nil, fmt.Errorf("%w: Title is required", ErrValidationException)
+	}
+
+	if input.Source == "" {
+		return nil, fmt.Errorf("%w: Source is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateOpsItem")
+	defer b.mu.Unlock()
+
+	opsItemID := opsItemIDPrefix + uuid.NewString()
+	opsItemArn := fmt.Sprintf("arn:aws:ssm:%s:%s:opsitem/%s", defaultRegion, defaultAccountID, opsItemID)
+	now := UnixTimeFloat(time.Now())
+
+	item := OpsItem{
+		OpsItemID:        opsItemID,
+		OpsItemArn:       opsItemArn,
+		OpsItemType:      input.OpsItemType,
+		Title:            input.Title,
+		Source:           input.Source,
+		Description:      input.Description,
+		Status:           defaultOpsItemStatus,
+		Severity:         input.Severity,
+		Category:         input.Category,
+		OperationalData:  input.OperationalData,
+		CreatedTime:      now,
+		LastModifiedTime: now,
+	}
+
+	b.opsItems[opsItemID] = item
+
+	return &CreateOpsItemOutput{
+		OpsItemID:  opsItemID,
+		OpsItemArn: opsItemArn,
+	}, nil
+}
+
+// AssociateOpsItemRelatedItem associates a related item to an OpsItem.
+func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
+	input *AssociateOpsItemRelatedItemInput,
+) (*AssociateOpsItemRelatedItemOutput, error) {
+	b.mu.Lock("AssociateOpsItemRelatedItem")
+	defer b.mu.Unlock()
+
+	if _, exists := b.opsItems[input.OpsItemID]; !exists {
+		return nil, ErrOpsItemNotFound
+	}
+
+	assocID := uuid.NewString()
+	related := OpsItemRelatedItem{
+		AssociationID:   assocID,
+		AssociationType: input.AssociationType,
+		ResourceType:    input.ResourceType,
+		ResourceURI:     input.ResourceURI,
+	}
+
+	b.opsItemRelatedItems[input.OpsItemID] = append(b.opsItemRelatedItems[input.OpsItemID], related)
+
+	return &AssociateOpsItemRelatedItemOutput{AssociationID: assocID}, nil
+}
+
+// CreateOpsMetadata creates OpsMetadata for a resource.
+func (b *InMemoryBackend) CreateOpsMetadata(
+	input *CreateOpsMetadataInput,
+) (*CreateOpsMetadataOutput, error) {
+	if input.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateOpsMetadata")
+	defer b.mu.Unlock()
+
+	metaID := uuid.NewString()
+	arn := fmt.Sprintf(opsMetadataArnTpl, defaultRegion, defaultAccountID, metaID)
+	now := UnixTimeFloat(time.Now())
+
+	meta := OpsMetadata{
+		OpsMetadataArn:   arn,
+		ResourceID:       input.ResourceID,
+		Metadata:         input.Metadata,
+		CreationDate:     now,
+		LastModifiedDate: now,
+	}
+
+	b.opsMetadata[arn] = meta
+
+	return &CreateOpsMetadataOutput{OpsMetadataArn: arn}, nil
+}
+
+// CreatePatchBaseline creates a new patch baseline.
+func (b *InMemoryBackend) CreatePatchBaseline(
+	input *CreatePatchBaselineInput,
+) (*CreatePatchBaselineOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreatePatchBaseline")
+	defer b.mu.Unlock()
+
+	baselineID := baselineIDPrefix + uuid.NewString()
+	now := UnixTimeFloat(time.Now())
+
+	bl := PatchBaseline{
+		BaselineID:                     baselineID,
+		Name:                           input.Name,
+		Description:                    input.Description,
+		OperatingSystem:                input.OperatingSystem,
+		ApprovedPatches:                input.ApprovedPatches,
+		RejectedPatches:                input.RejectedPatches,
+		ApprovedPatchesComplianceLevel: input.ApprovedPatchesComplianceLevel,
+		CreatedDate:                    now,
+		ModifiedDate:                   now,
+	}
+
+	b.patchBaselines[baselineID] = bl
+
+	return &CreatePatchBaselineOutput{BaselineID: baselineID}, nil
 }

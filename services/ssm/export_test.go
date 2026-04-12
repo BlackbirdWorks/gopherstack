@@ -97,3 +97,56 @@ func (b *InMemoryBackend) GetCommandExpirySecs() float64 {
 
 	return b.commandExpirySecs
 }
+
+// ActivationCount returns the number of activations stored.
+func (b *InMemoryBackend) ActivationCount() int {
+	b.mu.RLock("ActivationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.activations)
+}
+
+// AssociationCount returns the number of associations stored.
+func (b *InMemoryBackend) AssociationCount() int {
+	b.mu.RLock("AssociationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.associations)
+}
+
+// MaintenanceWindowCount returns the number of maintenance windows stored.
+func (b *InMemoryBackend) MaintenanceWindowCount() int {
+	b.mu.RLock("MaintenanceWindowCount")
+	defer b.mu.RUnlock()
+
+	return len(b.maintenanceWindows)
+}
+
+// OpsItemCount returns the number of OpsItems stored.
+func (b *InMemoryBackend) OpsItemCount() int {
+	b.mu.RLock("OpsItemCount")
+	defer b.mu.RUnlock()
+
+	return len(b.opsItems)
+}
+
+// OpsMetadataCount returns the number of OpsMetadata entries stored.
+func (b *InMemoryBackend) OpsMetadataCount() int {
+	b.mu.RLock("OpsMetadataCount")
+	defer b.mu.RUnlock()
+
+	return len(b.opsMetadata)
+}
+
+// PatchBaselineCount returns the number of patch baselines stored.
+func (b *InMemoryBackend) PatchBaselineCount() int {
+	b.mu.RLock("PatchBaselineCount")
+	defer b.mu.RUnlock()
+
+	return len(b.patchBaselines)
+}
+
+// HandlerOpsLen returns the number of supported operations.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}

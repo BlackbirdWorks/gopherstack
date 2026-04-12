@@ -65,7 +65,17 @@ func (h *Handler) Name() string {
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AddTagsToResource",
+		"AssociateOpsItemRelatedItem",
+		"CancelCommand",
+		"CancelMaintenanceWindowExecution",
+		"CreateActivation",
+		"CreateAssociation",
+		"CreateAssociationBatch",
 		"CreateDocument",
+		"CreateMaintenanceWindow",
+		"CreateOpsItem",
+		"CreateOpsMetadata",
+		"CreatePatchBaseline",
 		"DeleteDocument",
 		"DeleteParameter",
 		"DeleteParameters",
@@ -167,6 +177,7 @@ func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 	maps.Copy(ops, h.ssmTagOps())
 	maps.Copy(ops, h.ssmDocumentOps())
 	maps.Copy(ops, h.ssmCommandOps())
+	maps.Copy(ops, h.ssmNewOps())
 
 	return ops
 }
@@ -398,33 +409,59 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	return json.Marshal(response)
 }
 
+// classifySSMError maps a backend error to an HTTP status code and error type string.
+func classifySSMError(reqErr error) (string, int) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrParameterNotFound):
+		return "ParameterNotFound", statusCode
+	case errors.Is(reqErr, ErrParameterAlreadyExists):
+		return "ParameterAlreadyExists", statusCode
+	case errors.Is(reqErr, ErrDocumentAlreadyExists):
+		return "DocumentAlreadyExists", statusCode
+	case errors.Is(reqErr, ErrDocumentNotFound):
+		return "InvalidDocument", statusCode
+	case errors.Is(reqErr, ErrInvalidDocumentVersion):
+		return "InvalidDocumentVersion", statusCode
+	case errors.Is(reqErr, ErrCommandNotFound):
+		return "InvalidCommandId", statusCode
+	case errors.Is(reqErr, ErrValidationException):
+		return "ValidationException", statusCode
+	}
+
+	return classifySSMErrorExtended(reqErr)
+}
+
+func classifySSMErrorExtended(reqErr error) (string, int) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrActivationNotFound):
+		return "ActivationNotFound", statusCode
+	case errors.Is(reqErr, ErrAssociationNotFound):
+		return "AssociationDoesNotExist", statusCode
+	case errors.Is(reqErr, ErrMaintenanceWindowNotFound):
+		return "DoesNotExistException", statusCode
+	case errors.Is(reqErr, ErrOpsItemNotFound):
+		return "OpsItemNotFoundException", statusCode
+	case errors.Is(reqErr, ErrOpsMetadataNotFound):
+		return "OpsMetadataNotFoundException", statusCode
+	case errors.Is(reqErr, ErrPatchBaselineNotFound):
+		return "DoesNotExistException", statusCode
+	case errors.Is(reqErr, ErrUnknownOperation):
+		return "UnknownOperationException", statusCode
+	default:
+		return "InternalServerError", http.StatusInternalServerError
+	}
+}
+
 // handleError writes a standardized error response back to the client.
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
 	log := logger.Load(ctx)
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 
-	var errorType string
-	statusCode := http.StatusBadRequest
-
-	switch {
-	case errors.Is(reqErr, ErrParameterNotFound):
-		errorType = "ParameterNotFound"
-	case errors.Is(reqErr, ErrParameterAlreadyExists):
-		errorType = "ParameterAlreadyExists"
-	case errors.Is(reqErr, ErrDocumentAlreadyExists):
-		errorType = "DocumentAlreadyExists"
-	case errors.Is(reqErr, ErrDocumentNotFound):
-		errorType = "InvalidDocument"
-	case errors.Is(reqErr, ErrInvalidDocumentVersion):
-		errorType = "InvalidDocumentVersion"
-	case errors.Is(reqErr, ErrCommandNotFound):
-		errorType = "InvalidCommandId"
-	case errors.Is(reqErr, ErrUnknownOperation):
-		errorType = "UnknownOperationException"
-	default:
-		errorType = "InternalServerError"
-		statusCode = http.StatusInternalServerError
-	}
+	errorType, statusCode := classifySSMError(reqErr)
 
 	if errorType == "InternalServerError" {
 		log.ErrorContext(ctx, "SSM internal error", "error", reqErr, "action", action)
@@ -447,5 +484,90 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
+	}
+}
+
+func (h *Handler) ssmNewOps() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
+		"CancelCommand": func(b []byte) (any, error) {
+			var input CancelCommandInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CancelCommand(&input)
+		},
+		"CancelMaintenanceWindowExecution": func(b []byte) (any, error) {
+			var input CancelMaintenanceWindowExecutionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CancelMaintenanceWindowExecution(&input)
+		},
+		"CreateActivation": func(b []byte) (any, error) {
+			var input CreateActivationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateActivation(&input)
+		},
+		"CreateAssociation": func(b []byte) (any, error) {
+			var input CreateAssociationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateAssociation(&input)
+		},
+		"CreateAssociationBatch": func(b []byte) (any, error) {
+			var input CreateAssociationBatchInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateAssociationBatch(&input)
+		},
+		"CreateMaintenanceWindow": func(b []byte) (any, error) {
+			var input CreateMaintenanceWindowInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateMaintenanceWindow(&input)
+		},
+		"CreateOpsItem": func(b []byte) (any, error) {
+			var input CreateOpsItemInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateOpsItem(&input)
+		},
+		"CreateOpsMetadata": func(b []byte) (any, error) {
+			var input CreateOpsMetadataInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateOpsMetadata(&input)
+		},
+		"CreatePatchBaseline": func(b []byte) (any, error) {
+			var input CreatePatchBaselineInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreatePatchBaseline(&input)
+		},
+		"AssociateOpsItemRelatedItem": func(b []byte) (any, error) {
+			var input AssociateOpsItemRelatedItemInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.AssociateOpsItemRelatedItem(&input)
+		},
 	}
 }

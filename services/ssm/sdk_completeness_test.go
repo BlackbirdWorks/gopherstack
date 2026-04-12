@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ssm.NewInMemoryBackend()
 	h := ssm.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ssmsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateOpsItemRelatedItem",
-		"CancelCommand",
-		"CancelMaintenanceWindowExecution",
-		"CreateActivation",
-		"CreateAssociation",
-		"CreateAssociationBatch",
-		"CreateMaintenanceWindow",
-		"CreateOpsItem",
-		"CreateOpsMetadata",
-		"CreatePatchBaseline",
 		"CreateResourceDataSync",
 		"DeleteActivation",
 		"DeleteAssociation",
