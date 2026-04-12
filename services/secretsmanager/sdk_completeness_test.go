@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := secretsmanager.NewInMemoryBackend()
 	h := secretsmanager.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &secretsmanagersdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchGetSecretValue",
-		"CancelRotateSecret",
-		"DeleteResourcePolicy",
-		"GetResourcePolicy",
-		"ListSecretVersionIds",
-		"PutResourcePolicy",
-		"RemoveRegionsFromReplication",
-		"ReplicateSecretToRegions",
-		"StopReplicationToReplica",
-		"UpdateSecretVersionStage",
 		"ValidateResourcePolicy",
 	})
 }

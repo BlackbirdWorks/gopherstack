@@ -45,12 +45,18 @@ type Secret struct {
 	Versions map[string]*SecretVersion `json:"-"`
 	// LastChangedDate is the Unix timestamp of the most recent value change.
 	LastChangedDate *float64 `json:"-"`
+	// LastRotatedDate is the Unix timestamp of the most recent successful rotation.
+	LastRotatedDate *float64 `json:"-"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the human-readable name of the secret.
 	Name string `json:"Name"`
 	// Description is an optional human-readable description.
 	Description string `json:"Description,omitempty"`
+	// KmsKeyID is the ARN or alias of the KMS key used to encrypt the secret.
+	KmsKeyID string `json:"-"`
+	// RotationLambdaARN is the ARN of the Lambda used for rotation.
+	RotationLambdaARN string `json:"-"`
 	// CurrentVersionId is the VersionId with the AWSCURRENT label.
 	CurrentVersionID string `json:"-"`
 	// RotationEnabled is true after RotateSecret has been called at least once.
@@ -59,12 +65,14 @@ type Secret struct {
 
 // CreateSecretInput is the request payload for CreateSecret.
 type CreateSecretInput struct {
-	Name         string `json:"Name"`
-	Description  string `json:"Description,omitempty"`
-	SecretString string `json:"SecretString,omitempty"`
-	Region       string `json:"-"`
-	SecretBinary []byte `json:"SecretBinary,omitempty"`
-	Tags         []Tag  `json:"Tags,omitempty"`
+	Name               string `json:"Name"`
+	Description        string `json:"Description,omitempty"`
+	SecretString       string `json:"SecretString,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	Region             string `json:"-"`
+	SecretBinary       []byte `json:"SecretBinary,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
 }
 
 // Tag represents a key/value tag pair in the Secrets Manager wire format.
@@ -165,12 +173,18 @@ type SecretListEntry struct {
 
 // ListSecretsInput is the request payload for ListSecrets.
 type ListSecretsInput struct {
-	// MaxResults limits the number of results returned.
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	// NextToken is the pagination cursor from a previous call.
-	NextToken string `json:"NextToken,omitempty"`
-	// IncludeDeleted controls whether deleted secrets are included.
-	IncludeDeleted bool `json:"IncludeDeleted,omitempty"`
+	MaxResults     *int64         `json:"MaxResults,omitempty"`
+	NextToken      string         `json:"NextToken,omitempty"`
+	Filters        []SecretFilter `json:"Filters,omitempty"`
+	IncludeDeleted bool           `json:"IncludeDeleted,omitempty"`
+}
+
+// SecretFilter is a filter criterion for ListSecrets and BatchGetSecretValue.
+type SecretFilter struct {
+	// Key is the filter key (e.g. "name", "description", "tag-key", "tag-value", "all").
+	Key string `json:"Key,omitempty"`
+	// Values is the list of filter values.
+	Values []string `json:"Values,omitempty"`
 }
 
 // ListSecretsOutput is the response payload for ListSecrets.
@@ -187,14 +201,18 @@ type DescribeSecretInput struct {
 
 // DescribeSecretOutput is the response payload for DescribeSecret.
 type DescribeSecretOutput struct {
-	Tags               *tags.Tags          `json:"Tags,omitempty"`
-	DeletedDate        *float64            `json:"DeletedDate,omitempty"`
-	LastChangedDate    *float64            `json:"LastChangedDate,omitempty"`
-	VersionIDsToStages map[string][]string `json:"VersionIdsToStages,omitempty"`
-	ARN                string              `json:"ARN"`
-	Name               string              `json:"Name"`
-	Description        string              `json:"Description,omitempty"`
-	RotationEnabled    bool                `json:"RotationEnabled"`
+	Tags               *tags.Tags              `json:"Tags,omitempty"`
+	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
+	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`
+	LastRotatedDate    *float64                `json:"LastRotatedDate,omitempty"`
+	VersionIDsToStages map[string][]string     `json:"VersionIdsToStages,omitempty"`
+	ARN                string                  `json:"ARN"`
+	Name               string                  `json:"Name"`
+	Description        string                  `json:"Description,omitempty"`
+	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
+	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
+	RotationEnabled    bool                    `json:"RotationEnabled"`
 }
 
 // UpdateSecretInput is the request payload for UpdateSecret.
@@ -318,4 +336,210 @@ type ListSecretVersionIDsOutput struct {
 // UnixTimeFloat converts a time value to a Unix timestamp float.
 func UnixTimeFloat(t time.Time) float64 {
 	return float64(t.UnixNano()) / nanoToSeconds
+}
+
+// BatchGetSecretValueFilter is a filter for BatchGetSecretValue.
+type BatchGetSecretValueFilter struct {
+	// Key is the filter key (e.g. "name", "tag-key", "tag-value", "description").
+	Key string `json:"Key,omitempty"`
+	// Values is the list of filter values.
+	Values []string `json:"Values,omitempty"`
+}
+
+// BatchGetSecretValueInput is the request payload for BatchGetSecretValue.
+type BatchGetSecretValueInput struct {
+	// Filters specifies filter criteria for secrets to retrieve.
+	Filters []BatchGetSecretValueFilter `json:"Filters,omitempty"`
+	// MaxResults limits the number of results returned.
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	// NextToken is the pagination cursor from a previous call.
+	NextToken string `json:"NextToken,omitempty"`
+	// SecretIDList is the list of secret names or ARNs to retrieve.
+	SecretIDList []string `json:"SecretIdList,omitempty"`
+}
+
+// SecretValueEntry is a single secret value entry returned by BatchGetSecretValue.
+type SecretValueEntry struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+	// VersionID is the UUID of the version returned.
+	VersionID string `json:"VersionId,omitempty"`
+	// SecretString is the string value.
+	SecretString string `json:"SecretString,omitempty"`
+	// SecretBinary is the binary value.
+	SecretBinary []byte `json:"SecretBinary,omitempty"`
+	// VersionStages are the staging labels attached to this version.
+	VersionStages []string `json:"VersionStages,omitempty"`
+	// CreatedDate is the Unix timestamp when this version was created.
+	CreatedDate float64 `json:"CreatedDate,omitempty"`
+}
+
+// APIErrorType is an error entry returned by BatchGetSecretValue for a single secret.
+type APIErrorType struct {
+	// ErrorCode is the AWS error type string.
+	ErrorCode string `json:"ErrorCode"`
+	// Message is the error message.
+	Message string `json:"Message"`
+	// SecretID is the identifier of the secret that caused the error.
+	SecretID string `json:"SecretId"`
+}
+
+// BatchGetSecretValueOutput is the response payload for BatchGetSecretValue.
+type BatchGetSecretValueOutput struct {
+	// Errors contains per-secret errors.
+	Errors []APIErrorType `json:"Errors,omitempty"`
+	// NextToken is the pagination cursor for the next page.
+	NextToken string `json:"NextToken,omitempty"`
+	// SecretValues contains the successfully retrieved secret values.
+	SecretValues []SecretValueEntry `json:"SecretValues"`
+}
+
+// CancelRotateSecretInput is the request payload for CancelRotateSecret.
+type CancelRotateSecretInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+}
+
+// CancelRotateSecretOutput is the response payload for CancelRotateSecret.
+type CancelRotateSecretOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+	// VersionID is the version ID affected.
+	VersionID string `json:"VersionId,omitempty"`
+}
+
+// GetResourcePolicyInput is the request payload for GetResourcePolicy.
+type GetResourcePolicyInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+}
+
+// GetResourcePolicyOutput is the response payload for GetResourcePolicy.
+type GetResourcePolicyOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+	// ResourcePolicy is the resource-based policy document.
+	ResourcePolicy string `json:"ResourcePolicy,omitempty"`
+}
+
+// PutResourcePolicyInput is the request payload for PutResourcePolicy.
+type PutResourcePolicyInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+	// ResourcePolicy is the resource-based policy document.
+	ResourcePolicy string `json:"ResourcePolicy"`
+}
+
+// PutResourcePolicyOutput is the response payload for PutResourcePolicy.
+type PutResourcePolicyOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+}
+
+// DeleteResourcePolicyInput is the request payload for DeleteResourcePolicy.
+type DeleteResourcePolicyInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+}
+
+// DeleteResourcePolicyOutput is the response payload for DeleteResourcePolicy.
+type DeleteResourcePolicyOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+}
+
+// ReplicaRegion specifies a target region and optional KMS key for secret replication.
+type ReplicaRegion struct {
+	// KmsKeyId is the ARN or alias of the KMS key to use for encryption.
+	KmsKeyID string `json:"KmsKeyId,omitempty"`
+	// Region is the AWS region to replicate to.
+	Region string `json:"Region"`
+}
+
+// ReplicationStatusType describes the replication status for a replica region.
+type ReplicationStatusType struct {
+	// KmsKeyId is the ARN or alias of the KMS key used for encryption.
+	KmsKeyID string `json:"KmsKeyId,omitempty"`
+	// Region is the replica region.
+	Region string `json:"Region,omitempty"`
+	// Status is the replication status (e.g. "InSync", "Failed").
+	Status string `json:"Status,omitempty"`
+	// StatusMessage is an optional message describing the status.
+	StatusMessage string `json:"StatusMessage,omitempty"`
+}
+
+// ReplicateSecretToRegionsInput is the request payload for ReplicateSecretToRegions.
+type ReplicateSecretToRegionsInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+	// AddReplicaRegions is the list of regions to replicate to.
+	AddReplicaRegions []ReplicaRegion `json:"AddReplicaRegions"`
+	// ForceOverwriteReplicaSecret controls whether to overwrite existing replicas.
+	ForceOverwriteReplicaSecret bool `json:"ForceOverwriteReplicaSecret,omitempty"`
+}
+
+// ReplicateSecretToRegionsOutput is the response payload for ReplicateSecretToRegions.
+type ReplicateSecretToRegionsOutput struct {
+	// ARN is the full ARN of the primary secret.
+	ARN string `json:"ARN"`
+	// ReplicationStatus contains the status for each replica region.
+	ReplicationStatus []ReplicationStatusType `json:"ReplicationStatus"`
+}
+
+// RemoveRegionsFromReplicationInput is the request payload for RemoveRegionsFromReplication.
+type RemoveRegionsFromReplicationInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+	// RemoveReplicaRegions is the list of regions to remove replicas from.
+	RemoveReplicaRegions []string `json:"RemoveReplicaRegions"`
+}
+
+// RemoveRegionsFromReplicationOutput is the response payload for RemoveRegionsFromReplication.
+type RemoveRegionsFromReplicationOutput struct {
+	// ARN is the full ARN of the primary secret.
+	ARN string `json:"ARN"`
+	// ReplicationStatus contains the remaining replica statuses.
+	ReplicationStatus []ReplicationStatusType `json:"ReplicationStatus"`
+}
+
+// StopReplicationToReplicaInput is the request payload for StopReplicationToReplica.
+type StopReplicationToReplicaInput struct {
+	// SecretId is the name or ARN of the secret replica to promote.
+	SecretID string `json:"SecretId"`
+}
+
+// StopReplicationToReplicaOutput is the response payload for StopReplicationToReplica.
+type StopReplicationToReplicaOutput struct {
+	// ARN is the full ARN of the promoted replica secret.
+	ARN string `json:"ARN"`
+}
+
+// UpdateSecretVersionStageInput is the request payload for UpdateSecretVersionStage.
+type UpdateSecretVersionStageInput struct {
+	// SecretId is the name or ARN of the secret.
+	SecretID string `json:"SecretId"`
+	// VersionStage is the staging label to add or move.
+	VersionStage string `json:"VersionStage"`
+	// MoveToVersionID is the version to move the label to.
+	MoveToVersionID string `json:"MoveToVersionId,omitempty"`
+	// RemoveFromVersionID is the version to remove the label from.
+	RemoveFromVersionID string `json:"RemoveFromVersionId,omitempty"`
+}
+
+// UpdateSecretVersionStageOutput is the response payload for UpdateSecretVersionStage.
+type UpdateSecretVersionStageOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
 }

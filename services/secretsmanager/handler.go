@@ -19,15 +19,6 @@ import (
 // ErrUnknownOperation is returned when an unsupported operation is requested.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
-type getResourcePolicyInput struct {
-	SecretID string `json:"SecretId"`
-}
-
-type getResourcePolicyOutput struct {
-	ARN  string `json:"ARN"`
-	Name string `json:"Name"`
-}
-
 // LambdaInvoker can invoke a Lambda function synchronously.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
@@ -35,6 +26,7 @@ type LambdaInvoker interface {
 
 // Handler is the Echo HTTP handler for Secrets Manager operations.
 type Handler struct {
+	ops           map[string]smActionFn
 	Backend       StorageBackend
 	lambdaInvoker LambdaInvoker
 	DefaultRegion string
@@ -42,9 +34,22 @@ type Handler struct {
 
 // NewHandler creates a new Secrets Manager handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 	}
+	h.buildOps()
+
+	return h
+}
+
+// buildOps builds and caches the operation dispatch table.
+func (h *Handler) buildOps() {
+	table := make(map[string]smActionFn)
+	maps.Copy(table, h.smCRUDActions())
+	maps.Copy(table, h.smVersionActions())
+	maps.Copy(table, h.smTagActions())
+	maps.Copy(table, h.smExtendedActions())
+	h.ops = table
 }
 
 // SetLambdaInvoker sets the Lambda invoker used for RotateSecret with a rotation Lambda ARN.
@@ -60,19 +65,28 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported Secrets Manager operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"BatchGetSecretValue",
+		"CancelRotateSecret",
 		"CreateSecret",
-		"GetSecretValue",
-		"PutSecretValue",
+		"DeleteResourcePolicy",
 		"DeleteSecret",
-		"ListSecrets",
-		"ListSecretVersionIDs",
 		"DescribeSecret",
-		"UpdateSecret",
+		"GetRandomPassword",
+		"GetResourcePolicy",
+		"GetSecretValue",
+		"ListSecretVersionIds",
+		"ListSecrets",
+		"PutResourcePolicy",
+		"PutSecretValue",
+		"RemoveRegionsFromReplication",
+		"ReplicateSecretToRegions",
 		"RestoreSecret",
+		"RotateSecret",
+		"StopReplicationToReplica",
 		"TagResource",
 		"UntagResource",
-		"RotateSecret",
-		"GetRandomPassword",
+		"UpdateSecret",
+		"UpdateSecretVersionStage",
 	}
 }
 
@@ -152,14 +166,73 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type smActionFn func(ctx context.Context, region string, body []byte) (any, error)
 
-func (h *Handler) smDispatchTable() map[string]smActionFn {
-	table := make(map[string]smActionFn)
-	maps.Copy(table, h.smCRUDActions())
-	maps.Copy(table, h.smVersionActions())
-	maps.Copy(table, h.smTagActions())
-	maps.Copy(table, h.smPolicyActions())
+func (h *Handler) smExtendedActions() map[string]smActionFn {
+	return map[string]smActionFn{
+		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input GetResourcePolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
 
-	return table
+			return h.Backend.GetResourcePolicy(&input)
+		},
+		"PutResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input PutResourcePolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.PutResourcePolicy(&input)
+		},
+		"DeleteResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input DeleteResourcePolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeleteResourcePolicy(&input)
+		},
+		"BatchGetSecretValue": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input BatchGetSecretValueInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.BatchGetSecretValue(&input)
+		},
+		"CancelRotateSecret": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input CancelRotateSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CancelRotateSecret(&input)
+		},
+		"ReplicateSecretToRegions": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input ReplicateSecretToRegionsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ReplicateSecretToRegions(&input)
+		},
+		"RemoveRegionsFromReplication": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input RemoveRegionsFromReplicationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.RemoveRegionsFromReplication(&input)
+		},
+		"StopReplicationToReplica": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input StopReplicationToReplicaInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.StopReplicationToReplica(&input)
+		},
+	}
 }
 
 func (h *Handler) smCRUDActions() map[string]smActionFn {
@@ -271,7 +344,7 @@ func (h *Handler) smTagActions() map[string]smActionFn {
 
 func (h *Handler) smVersionActions() map[string]smActionFn {
 	return map[string]smActionFn{
-		"ListSecretVersionIDs": func(_ context.Context, _ string, b []byte) (any, error) {
+		"ListSecretVersionIds": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input ListSecretVersionIDsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -279,24 +352,13 @@ func (h *Handler) smVersionActions() map[string]smActionFn {
 
 			return h.Backend.ListSecretVersionIDs(&input)
 		},
-	}
-}
-
-func (h *Handler) smPolicyActions() map[string]smActionFn {
-	return map[string]smActionFn{
-		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
-			var input getResourcePolicyInput
+		"UpdateSecretVersionStage": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input UpdateSecretVersionStageInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return &getResourcePolicyOutput{ARN: input.SecretID, Name: input.SecretID}, nil
-		},
-		"PutResourcePolicy": func(_ context.Context, _ string, _ []byte) (any, error) {
-			return struct{}{}, nil
-		},
-		"DeleteResourcePolicy": func(_ context.Context, _ string, _ []byte) (any, error) {
-			return struct{}{}, nil
+			return h.Backend.UpdateSecretVersionStage(&input)
 		},
 	}
 }
@@ -305,7 +367,7 @@ func (h *Handler) smPolicyActions() map[string]smActionFn {
 func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	fn, ok := h.smDispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
@@ -334,7 +396,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):
 		errorType = "InvalidRequestException"
-	case errors.Is(reqErr, ErrSecretValueTooLarge), errors.Is(reqErr, ErrInvalidPasswordParameters):
+	case errors.Is(reqErr, ErrSecretValueTooLarge),
+		errors.Is(reqErr, ErrInvalidPasswordParameters),
+		errors.Is(reqErr, ErrInvalidParameter):
 		errorType = "InvalidParameterException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"

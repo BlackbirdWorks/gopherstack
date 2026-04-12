@@ -1675,7 +1675,7 @@ func TestSecretsManagerListSecretVersionIDs_Handler(t *testing.T) {
 
 	body := `{"SecretId":"handler-lsv"}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.Header.Set("X-Amz-Target", "secretsmanager.ListSecretVersionIDs")
+	req.Header.Set("X-Amz-Target", "secretsmanager.ListSecretVersionIds")
 	rec := httptest.NewRecorder()
 
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
