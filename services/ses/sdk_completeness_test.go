@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ses.NewInMemoryBackend()
 	h := ses.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &sessdk.Client{}, h.GetSupportedOperations(), []string{
-		"CloneReceiptRuleSet",
-		"CreateConfigurationSetEventDestination",
-		"CreateConfigurationSetTrackingOptions",
-		"CreateCustomVerificationEmailTemplate",
-		"CreateReceiptFilter",
-		"CreateReceiptRule",
-		"CreateReceiptRuleSet",
-		"DeleteConfigurationSetEventDestination",
-		"DeleteConfigurationSetTrackingOptions",
-		"DeleteCustomVerificationEmailTemplate",
 		"DeleteIdentityPolicy",
 		"DeleteReceiptFilter",
 		"DeleteReceiptRule",

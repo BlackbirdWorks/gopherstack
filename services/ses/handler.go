@@ -75,24 +75,34 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported SES operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CloneReceiptRuleSet",
+		"CreateConfigurationSet",
+		"CreateConfigurationSetEventDestination",
+		"CreateConfigurationSetTrackingOptions",
+		"CreateCustomVerificationEmailTemplate",
+		"CreateReceiptFilter",
+		"CreateReceiptRule",
+		"CreateReceiptRuleSet",
+		"CreateTemplate",
+		"DeleteConfigurationSet",
+		"DeleteConfigurationSetEventDestination",
+		"DeleteConfigurationSetTrackingOptions",
+		"DeleteCustomVerificationEmailTemplate",
+		"DeleteIdentity",
+		"DeleteTemplate",
+		"GetAccountSendingEnabled",
+		"GetIdentityVerificationAttributes",
+		"GetSendQuota",
+		"GetSendStatistics",
+		"GetTemplate",
+		"ListConfigurationSets",
+		"ListIdentities",
+		"ListTemplates",
 		"SendEmail",
 		"SendRawEmail",
 		"SendTemplatedEmail",
-		"VerifyEmailIdentity",
-		"ListIdentities",
-		"GetIdentityVerificationAttributes",
-		"DeleteIdentity",
-		"GetAccountSendingEnabled",
-		"CreateTemplate",
 		"UpdateTemplate",
-		"GetTemplate",
-		"ListTemplates",
-		"DeleteTemplate",
-		"CreateConfigurationSet",
-		"DeleteConfigurationSet",
-		"ListConfigurationSets",
-		"GetSendQuota",
-		"GetSendStatistics",
+		"VerifyEmailIdentity",
 	}
 }
 
@@ -254,7 +264,7 @@ func (h *Handler) dispatch(vals url.Values, reqID, action string) (any, error) {
 	}
 }
 
-// dispatchExtended handles the template/config-set/stats operations.
+// dispatchExtended handles the template/config-set/stats/receipt operations.
 func (h *Handler) dispatchExtended(vals url.Values, reqID, action string) (any, error) {
 	switch action {
 	case "CreateTemplate":
@@ -277,6 +287,35 @@ func (h *Handler) dispatchExtended(vals url.Values, reqID, action string) (any, 
 		return h.handleGetSendQuota(reqID), nil
 	case "GetSendStatistics":
 		return h.handleGetSendStatistics(reqID), nil
+	default:
+		return h.dispatchNewOps(vals, reqID, action)
+	}
+}
+
+// dispatchNewOps handles receipt rule sets, filters, event destinations, tracking options,
+// and custom verification email template operations.
+func (h *Handler) dispatchNewOps(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "CreateReceiptRuleSet":
+		return h.handleCreateReceiptRuleSet(vals, reqID)
+	case "CloneReceiptRuleSet":
+		return h.handleCloneReceiptRuleSet(vals, reqID)
+	case "CreateReceiptRule":
+		return h.handleCreateReceiptRule(vals, reqID)
+	case "CreateReceiptFilter":
+		return h.handleCreateReceiptFilter(vals, reqID)
+	case "CreateConfigurationSetEventDestination":
+		return h.handleCreateConfigurationSetEventDestination(vals, reqID)
+	case "DeleteConfigurationSetEventDestination":
+		return h.handleDeleteConfigurationSetEventDestination(vals, reqID)
+	case "CreateConfigurationSetTrackingOptions":
+		return h.handleCreateConfigurationSetTrackingOptions(vals, reqID)
+	case "DeleteConfigurationSetTrackingOptions":
+		return h.handleDeleteConfigurationSetTrackingOptions(vals, reqID)
+	case "CreateCustomVerificationEmailTemplate":
+		return h.handleCreateCustomVerificationEmailTemplate(vals, reqID)
+	case "DeleteCustomVerificationEmailTemplate":
+		return h.handleDeleteCustomVerificationEmailTemplate(vals, reqID)
 	default:
 		return nil, errUnknownSESAction
 	}
@@ -613,29 +652,70 @@ func (h *Handler) handleGetSendStatistics(reqID string) any {
 
 // ---- error handling ----
 
-func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr error) error {
-	statusCode := http.StatusBadRequest
+const errCodeAlreadyExists = "AlreadyExists"
 
-	var code string
+// sesErrorCode maps an operation error to the SES XML error code and HTTP status.
+// Returns empty string if the error is unrecognised (caller should use InternalFailure).
+func sesErrorCode(opErr error) (string, int) {
+	status := http.StatusBadRequest
 
 	switch {
 	case errors.Is(opErr, ErrIdentityNotFound):
-		code = "NoSuchEntity"
+		return "NoSuchEntity", status
 	case errors.Is(opErr, ErrInvalidParameter):
-		code = "InvalidParameterValue"
+		return "InvalidParameterValue", status
 	case errors.Is(opErr, ErrMessageRejected):
-		code = "MessageRejected"
+		return "MessageRejected", status
 	case errors.Is(opErr, ErrTemplateNotFound):
-		code = "TemplateDoesNotExist"
+		return "TemplateDoesNotExist", status
 	case errors.Is(opErr, ErrTemplateExists):
-		code = "AlreadyExists"
+		return errCodeAlreadyExists, status
 	case errors.Is(opErr, ErrConfigSetNotFound):
-		code = "ConfigurationSetDoesNotExist"
+		return "ConfigurationSetDoesNotExist", status
 	case errors.Is(opErr, ErrConfigSetExists):
-		code = "ConfigurationSetAlreadyExists"
+		return "ConfigurationSetAlreadyExists", status
+	}
+
+	return sesNewOpsErrorCode(opErr, status)
+}
+
+// sesNewOpsErrorCode maps errors introduced by the new operations (receipt rules,
+// filters, event destinations, tracking options, custom verification templates).
+func sesNewOpsErrorCode(opErr error, status int) (string, int) {
+	switch {
+	case errors.Is(opErr, ErrReceiptRuleSetNotFound):
+		return "RuleSetDoesNotExist", status
+	case errors.Is(opErr, ErrReceiptRuleSetExists):
+		return errCodeAlreadyExists, status
+	case errors.Is(opErr, ErrReceiptRuleNotFound):
+		return "RuleDoesNotExist", status
+	case errors.Is(opErr, ErrReceiptRuleExists):
+		return errCodeAlreadyExists, status
+	case errors.Is(opErr, ErrReceiptFilterNotFound):
+		return "RuleDoesNotExist", status
+	case errors.Is(opErr, ErrReceiptFilterExists):
+		return errCodeAlreadyExists, status
+	case errors.Is(opErr, ErrEventDestinationNotFound):
+		return "EventDestinationDoesNotExist", status
+	case errors.Is(opErr, ErrEventDestinationExists):
+		return "EventDestinationAlreadyExists", status
+	case errors.Is(opErr, ErrTrackingOptionsNotFound):
+		return "TrackingOptionsDoesNotExist", status
+	case errors.Is(opErr, ErrTrackingOptionsExists):
+		return "TrackingOptionsAlreadyExists", status
+	case errors.Is(opErr, ErrCustomVerifTemplateNotFound):
+		return "CustomVerificationEmailTemplateDoesNotExist", status
+	case errors.Is(opErr, ErrCustomVerifTemplateExists):
+		return "CustomVerificationEmailTemplateAlreadyExists", status
 	default:
+		return "", http.StatusInternalServerError
+	}
+}
+
+func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr error) error {
+	code, statusCode := sesErrorCode(opErr)
+	if code == "" {
 		code = "InternalFailure"
-		statusCode = http.StatusInternalServerError
 		logger.Load(c.Request().Context()).Error("SES internal error", "error", opErr, "action", action)
 	}
 
@@ -909,4 +989,239 @@ type getSendStatisticsResponse struct {
 	Xmlns     string                  `xml:"xmlns,attr"`
 	RequestID string                  `xml:"ResponseMetadata>RequestId"`
 	Result    getSendStatisticsResult `xml:"GetSendStatisticsResult"`
+}
+
+// ---- receipt rule set action handlers ----
+
+func (h *Handler) handleCreateReceiptRuleSet(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("RuleSetName")
+
+	if err := h.Backend.CreateReceiptRuleSet(name); err != nil {
+		return nil, err
+	}
+
+	return &createReceiptRuleSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleCloneReceiptRuleSet(vals url.Values, reqID string) (any, error) {
+	originalName := vals.Get("OriginalRuleSetName")
+	newName := vals.Get("RuleSetName")
+
+	if err := h.Backend.CloneReceiptRuleSet(originalName, newName); err != nil {
+		return nil, err
+	}
+
+	return &cloneReceiptRuleSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleCreateReceiptRule(vals url.Values, reqID string) (any, error) {
+	ruleSetName := vals.Get("RuleSetName")
+	after := vals.Get("After")
+
+	enabled := vals.Get("Rule.Enabled") != "false"
+	scanEnabled := vals.Get("Rule.ScanEnabled") != "false"
+
+	rule := ReceiptRule{
+		Name:        vals.Get("Rule.Name"),
+		Enabled:     enabled,
+		TLSPolicy:   vals.Get("Rule.TlsPolicy"),
+		ScanEnabled: scanEnabled,
+		Recipients:  parseSESMemberList(vals, "Rule.Recipients"),
+	}
+
+	if err := h.Backend.CreateReceiptRule(ruleSetName, rule, after); err != nil {
+		return nil, err
+	}
+
+	return &createReceiptRuleResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- receipt filter action handlers ----
+
+func (h *Handler) handleCreateReceiptFilter(vals url.Values, reqID string) (any, error) {
+	filter := ReceiptFilter{
+		Name:   vals.Get("Filter.Name"),
+		Policy: vals.Get("Filter.IpFilter.Policy"),
+		CIDR:   vals.Get("Filter.IpFilter.Cidr"),
+	}
+
+	if err := h.Backend.CreateReceiptFilter(filter); err != nil {
+		return nil, err
+	}
+
+	return &createReceiptFilterResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- configuration set event destination action handlers ----
+
+func (h *Handler) handleCreateConfigurationSetEventDestination(vals url.Values, reqID string) (any, error) {
+	dest := EventDestination{
+		Name:               vals.Get("EventDestination.Name"),
+		Enabled:            vals.Get("EventDestination.Enabled") == "true",
+		MatchingEventTypes: parseSESMemberList(vals, "EventDestination.MatchingEventTypes"),
+		SNSTopicARN:        vals.Get("EventDestination.SNSDestination.TopicARN"),
+	}
+
+	configSetName := vals.Get("ConfigurationSetName")
+
+	if err := h.Backend.CreateConfigurationSetEventDestination(configSetName, dest); err != nil {
+		return nil, err
+	}
+
+	return &createConfigurationSetEventDestinationResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDeleteConfigurationSetEventDestination(vals url.Values, reqID string) (any, error) {
+	configSetName := vals.Get("ConfigurationSetName")
+	destName := vals.Get("EventDestinationName")
+
+	if err := h.Backend.DeleteConfigurationSetEventDestination(configSetName, destName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationSetEventDestinationResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- configuration set tracking options action handlers ----
+
+func (h *Handler) handleCreateConfigurationSetTrackingOptions(vals url.Values, reqID string) (any, error) {
+	configSetName := vals.Get("ConfigurationSetName")
+	customRedirectDomain := vals.Get("TrackingOptions.CustomRedirectDomain")
+
+	if err := h.Backend.CreateConfigurationSetTrackingOptions(configSetName, customRedirectDomain); err != nil {
+		return nil, err
+	}
+
+	return &createConfigurationSetTrackingOptionsResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDeleteConfigurationSetTrackingOptions(vals url.Values, reqID string) (any, error) {
+	configSetName := vals.Get("ConfigurationSetName")
+
+	if err := h.Backend.DeleteConfigurationSetTrackingOptions(configSetName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationSetTrackingOptionsResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- custom verification email template action handlers ----
+
+func (h *Handler) handleCreateCustomVerificationEmailTemplate(vals url.Values, reqID string) (any, error) {
+	tmpl := CustomVerificationEmailTemplate{
+		TemplateName:          vals.Get("TemplateName"),
+		FromEmailAddress:      vals.Get("FromEmailAddress"),
+		TemplateSubject:       vals.Get("TemplateSubject"),
+		TemplateContent:       vals.Get("TemplateContent"),
+		SuccessRedirectionURL: vals.Get("SuccessRedirectionURL"),
+		FailureRedirectionURL: vals.Get("FailureRedirectionURL"),
+	}
+
+	if err := h.Backend.CreateCustomVerificationEmailTemplate(tmpl); err != nil {
+		return nil, err
+	}
+
+	return &createCustomVerificationEmailTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDeleteCustomVerificationEmailTemplate(vals url.Values, reqID string) (any, error) {
+	templateName := vals.Get("TemplateName")
+
+	if err := h.Backend.DeleteCustomVerificationEmailTemplate(templateName); err != nil {
+		return nil, err
+	}
+
+	return &deleteCustomVerificationEmailTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- new operation XML response types ----
+
+type createReceiptRuleSetResponse struct {
+	XMLName   xml.Name `xml:"CreateReceiptRuleSetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type cloneReceiptRuleSetResponse struct {
+	XMLName   xml.Name `xml:"CloneReceiptRuleSetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type createReceiptRuleResponse struct {
+	XMLName   xml.Name `xml:"CreateReceiptRuleResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type createReceiptFilterResponse struct {
+	XMLName   xml.Name `xml:"CreateReceiptFilterResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type createConfigurationSetEventDestinationResponse struct {
+	XMLName   xml.Name `xml:"CreateConfigurationSetEventDestinationResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type deleteConfigurationSetEventDestinationResponse struct {
+	XMLName   xml.Name `xml:"DeleteConfigurationSetEventDestinationResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type createConfigurationSetTrackingOptionsResponse struct {
+	XMLName   xml.Name `xml:"CreateConfigurationSetTrackingOptionsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type deleteConfigurationSetTrackingOptionsResponse struct {
+	XMLName   xml.Name `xml:"DeleteConfigurationSetTrackingOptionsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type createCustomVerificationEmailTemplateResponse struct {
+	XMLName   xml.Name `xml:"CreateCustomVerificationEmailTemplateResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type deleteCustomVerificationEmailTemplateResponse struct {
+	XMLName   xml.Name `xml:"DeleteCustomVerificationEmailTemplateResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
 }

@@ -51,6 +51,51 @@ func (b *InMemoryBackend) ConfigSetCount() int {
 	return len(b.configSets)
 }
 
+// ReceiptRuleSetCount returns the number of stored receipt rule sets.
+func (b *InMemoryBackend) ReceiptRuleSetCount() int {
+	b.mu.RLock("ReceiptRuleSetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.receiptRuleSets)
+}
+
+// ReceiptFilterCount returns the number of stored receipt filters.
+func (b *InMemoryBackend) ReceiptFilterCount() int {
+	b.mu.RLock("ReceiptFilterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.receiptFilters)
+}
+
+// EventDestinationCount returns the total number of stored event destinations across all config sets.
+func (b *InMemoryBackend) EventDestinationCount() int {
+	b.mu.RLock("EventDestinationCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, dests := range b.eventDestinations {
+		total += len(dests)
+	}
+
+	return total
+}
+
+// TrackingOptionsCount returns the number of configuration sets with tracking options.
+func (b *InMemoryBackend) TrackingOptionsCount() int {
+	b.mu.RLock("TrackingOptionsCount")
+	defer b.mu.RUnlock()
+
+	return len(b.trackingOptions)
+}
+
+// CustomVerifTemplateCount returns the number of custom verification email templates.
+func (b *InMemoryBackend) CustomVerifTemplateCount() int {
+	b.mu.RLock("CustomVerifTemplateCount")
+	defer b.mu.RUnlock()
+
+	return len(b.customVerifTemplates)
+}
+
 // SetEmailTTL overrides the email TTL — useful for tests that need fast expiry.
 func (b *InMemoryBackend) SetEmailTTL(d time.Duration) {
 	b.mu.Lock("SetEmailTTL")
