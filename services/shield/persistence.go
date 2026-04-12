@@ -1,12 +1,21 @@
 package shield
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	Protections  map[string]*Protection `json:"protections"`
 	Subscription *Subscription          `json:"subscription,omitempty"`
 	AccountID    string                 `json:"accountID"`
 	Region       string                 `json:"region"`
+}
+
+func ensureNonNilMaps(s *backendSnapshot) {
+	if s.Protections == nil {
+		s.Protections = make(map[string]*Protection)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -21,7 +30,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:       b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("shield: failed to marshal snapshot", "error", err)
+
+		return nil
+	}
 
 	return data
 }
@@ -34,12 +48,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Protections == nil {
-		snap.Protections = make(map[string]*Protection)
-	}
 
 	b.protections = snap.Protections
 	b.subscription = snap.Subscription
