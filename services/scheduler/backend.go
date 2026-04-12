@@ -2,6 +2,9 @@ package scheduler
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -10,9 +13,52 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// ScheduleOption applies an optional field to a schedule during creation or update.
+type ScheduleOption func(*Schedule)
+
+// applyScheduleOptions applies all options to the schedule.
+func applyScheduleOptions(opts []ScheduleOption, s *Schedule) {
+	for _, o := range opts {
+		o(s)
+	}
+}
+
+// WithStartDate sets the optional start date on a schedule.
+func WithStartDate(t time.Time) ScheduleOption {
+	return func(s *Schedule) { s.StartDate = &t }
+}
+
+// WithEndDate sets the optional end date on a schedule.
+func WithEndDate(t time.Time) ScheduleOption {
+	return func(s *Schedule) { s.EndDate = &t }
+}
+
+// WithActionAfterCompletion sets what happens after the schedule completes (DELETE or NONE).
+func WithActionAfterCompletion(action string) ScheduleOption {
+	return func(s *Schedule) { s.ActionAfterCompletion = action }
+}
+
+// WithKmsKeyArn sets an optional customer-managed KMS key ARN on a schedule.
+func WithKmsKeyArn(arn string) ScheduleOption {
+	return func(s *Schedule) { s.KmsKeyArn = arn }
+}
+
 var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+)
+
+const (
+	defaultGroupName         = "default"
+	scheduleGroupStateActive = "ACTIVE"
+	scheduleStateEnabled     = "ENABLED"
+	scheduleStateDisabled    = "DISABLED"
+
+	// flexibleTimeWindowModeOff means no flexible time window is used.
+	flexibleTimeWindowModeOff = "OFF"
+	// flexibleTimeWindowModeFlexible means a flexible time window is applied.
+	flexibleTimeWindowModeFlexible = "FLEXIBLE"
 )
 
 type FlexibleTimeWindow struct {
@@ -28,175 +74,335 @@ type Target struct {
 	RoleARN string `json:"roleARN"`
 }
 
+// Schedule represents an EventBridge Scheduler schedule.
 type Schedule struct {
-	Tags               *tags.Tags         `json:"tags,omitempty"`
-	Target             Target             `json:"target"`
-	Name               string             `json:"name"`
-	ARN                string             `json:"arn"`
-	ScheduleExpression string             `json:"scheduleExpression"`
-	State              string             `json:"state"`
-	AccountID          string             `json:"accountID"`
-	Region             string             `json:"region"`
-	FlexibleTimeWindow FlexibleTimeWindow `json:"flexibleTimeWindow"`
+	Tags                       *tags.Tags         `json:"tags,omitempty"`
+	CreationDate               time.Time          `json:"creationDate"`
+	LastModificationDate       time.Time          `json:"lastModificationDate"`
+	StartDate                  *time.Time         `json:"startDate,omitempty"`
+	EndDate                    *time.Time         `json:"endDate,omitempty"`
+	Target                     Target             `json:"target"`
+	Name                       string             `json:"name"`
+	ARN                        string             `json:"arn"`
+	ScheduleExpression         string             `json:"scheduleExpression"`
+	ScheduleExpressionTimezone string             `json:"scheduleExpressionTimezone,omitempty"`
+	Description                string             `json:"description,omitempty"`
+	GroupName                  string             `json:"groupName"`
+	State                      string             `json:"state"`
+	ActionAfterCompletion      string             `json:"actionAfterCompletion,omitempty"`
+	KmsKeyArn                  string             `json:"kmsKeyArn,omitempty"`
+	AccountID                  string             `json:"accountID"`
+	Region                     string             `json:"region"`
+	FlexibleTimeWindow         FlexibleTimeWindow `json:"flexibleTimeWindow"`
+}
+
+// ScheduleGroup represents an EventBridge Scheduler schedule group.
+type ScheduleGroup struct {
+	CreationDate         time.Time  `json:"creationDate"`
+	LastModificationDate time.Time  `json:"lastModificationDate"`
+	Tags                 *tags.Tags `json:"tags,omitempty"`
+	Description          string     `json:"description,omitempty"`
+	Name                 string     `json:"name"`
+	ARN                  string     `json:"arn"`
+	State                string     `json:"state"`
 }
 
 type InMemoryBackend struct {
-	schedules        map[string]*Schedule
-	scheduleARNIndex map[string]string // ARN → schedule name
-	mu               *lockmetrics.RWMutex
-	accountID        string
-	region           string
+	schedules             map[string]*Schedule
+	scheduleARNIndex      map[string]string // ARN → schedule name (group/name composite key)
+	scheduleGroups        map[string]*ScheduleGroup
+	scheduleGroupARNIndex map[string]string // ARN → schedule group name
+	mu                    *lockmetrics.RWMutex
+	accountID             string
+	region                string
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		schedules:        make(map[string]*Schedule),
-		scheduleARNIndex: make(map[string]string),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("scheduler"),
+	b := &InMemoryBackend{
+		schedules:             make(map[string]*Schedule),
+		scheduleARNIndex:      make(map[string]string),
+		scheduleGroups:        make(map[string]*ScheduleGroup),
+		scheduleGroupARNIndex: make(map[string]string),
+		accountID:             accountID,
+		region:                region,
+		mu:                    lockmetrics.New("scheduler"),
 	}
+	b.seedDefaultGroup()
+
+	return b
+}
+
+// seedDefaultGroup creates the built-in "default" schedule group.
+// Must be called without the mutex held.
+func (b *InMemoryBackend) seedDefaultGroup() {
+	now := time.Now().UTC()
+	groupARN := arn.Build("scheduler", b.region, b.accountID, "schedule-group/"+defaultGroupName)
+	g := &ScheduleGroup{
+		Name:                 defaultGroupName,
+		ARN:                  groupARN,
+		State:                scheduleGroupStateActive,
+		CreationDate:         now,
+		LastModificationDate: now,
+		Tags:                 tags.New("scheduler.schedulegroup." + defaultGroupName + ".tags"),
+	}
+	b.scheduleGroups[defaultGroupName] = g
+	b.scheduleGroupARNIndex[groupARN] = defaultGroupName
+}
+
+// scheduleKey returns the composite map key for a schedule: "groupName/name".
+func scheduleKey(groupName, name string) string {
+	return groupName + "/" + name
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// CreateSchedule creates a new schedule.
-// The Tags field in the returned Schedule points to the backend-owned Tags
-// collection; callers should treat it as read-only.
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// CreateSchedule creates a new schedule in the named group.
 func (b *InMemoryBackend) CreateSchedule(
-	name, expr string,
+	name, groupName, expr, description, timezone string,
 	target Target,
 	state string,
 	ftw FlexibleTimeWindow,
+	opts ...ScheduleOption,
 ) (*Schedule, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if expr == "" {
+		return nil, fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
+	}
+
+	if target.ARN == "" {
+		return nil, fmt.Errorf("%w: Target.Arn is required", ErrValidation)
+	}
+
+	if target.RoleARN == "" {
+		return nil, fmt.Errorf("%w: Target.RoleArn is required", ErrValidation)
+	}
+
+	if ftw.Mode == "" {
+		return nil, fmt.Errorf("%w: FlexibleTimeWindow.Mode is required", ErrValidation)
+	}
+
+	if err := validateScheduleState(state); err != nil {
+		return nil, err
+	}
+
+	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+		return nil, err
+	}
+
+	if groupName == "" {
+		groupName = defaultGroupName
+	}
+
 	b.mu.Lock("CreateSchedule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.schedules[name]; ok {
-		return nil, fmt.Errorf("%w: schedule %s already exists", ErrAlreadyExists, name)
+	if _, ok := b.scheduleGroups[groupName]; !ok {
+		return nil, fmt.Errorf("%w: schedule group %s not found", ErrNotFound, groupName)
 	}
 
-	schedARN := arn.Build("scheduler", b.region, b.accountID, "schedule/default/"+name)
+	key := scheduleKey(groupName, name)
+	if _, ok := b.schedules[key]; ok {
+		return nil, fmt.Errorf("%w: schedule %s already exists in group %s", ErrAlreadyExists, name, groupName)
+	}
+
+	schedARN := arn.Build("scheduler", b.region, b.accountID, "schedule/"+groupName+"/"+name)
+	now := time.Now().UTC()
 	s := &Schedule{
-		Name:               name,
-		ARN:                schedARN,
-		ScheduleExpression: expr,
-		Target:             target,
-		State:              state,
-		FlexibleTimeWindow: ftw,
-		AccountID:          b.accountID,
-		Region:             b.region,
-		Tags:               tags.New("scheduler.group." + name + ".tags"),
+		Name:                       name,
+		GroupName:                  groupName,
+		ARN:                        schedARN,
+		ScheduleExpression:         expr,
+		ScheduleExpressionTimezone: timezone,
+		Description:                description,
+		Target:                     target,
+		State:                      state,
+		FlexibleTimeWindow:         ftw,
+		AccountID:                  b.accountID,
+		Region:                     b.region,
+		CreationDate:               now,
+		LastModificationDate:       now,
+		Tags:                       tags.New("scheduler.schedule." + groupName + "." + name + ".tags"),
 	}
-	b.schedules[name] = s
-	b.scheduleARNIndex[schedARN] = name
-	cp := *s
+	applyScheduleOptions(opts, s)
+	b.schedules[key] = s
+	b.scheduleARNIndex[schedARN] = key
 
-	return &cp, nil
+	return cloneSchedule(s), nil
 }
 
-// GetSchedule returns a schedule by name.
-// The Tags field in the returned Schedule points to the backend-owned Tags
-// collection; callers should treat it as read-only.
-func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
+// GetSchedule returns a schedule by name and group.
+func (b *InMemoryBackend) GetSchedule(name, groupName string) (*Schedule, error) {
+	if groupName == "" {
+		groupName = defaultGroupName
+	}
+
 	b.mu.RLock("GetSchedule")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schedules[name]
+	s, ok := b.schedules[scheduleKey(groupName, name)]
 	if !ok {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
-	cp := *s
 
-	return &cp, nil
+	return cloneSchedule(s), nil
 }
 
-// ListSchedules returns all schedules.
-// The Tags field in each returned Schedule points to the backend-owned Tags
-// collection; callers should treat it as read-only.
-func (b *InMemoryBackend) ListSchedules() []*Schedule {
+// ListSchedules returns schedules optionally filtered by group name, name prefix, and state.
+func (b *InMemoryBackend) ListSchedules(groupName, namePrefix, state string) []*Schedule {
 	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
 
 	list := make([]*Schedule, 0, len(b.schedules))
+
 	for _, s := range b.schedules {
-		cp := *s
-		list = append(list, &cp)
+		if groupName != "" && s.GroupName != groupName {
+			continue
+		}
+
+		if namePrefix != "" && !strings.HasPrefix(s.Name, namePrefix) {
+			continue
+		}
+
+		if state != "" && s.State != state {
+			continue
+		}
+
+		list = append(list, cloneSchedule(s))
 	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
 	return list
 }
 
-func (b *InMemoryBackend) DeleteSchedule(name string) error {
+// DeleteSchedule removes a schedule by name and group.
+func (b *InMemoryBackend) DeleteSchedule(name, groupName string) error {
+	if groupName == "" {
+		groupName = defaultGroupName
+	}
+
 	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 
-	s, ok := b.schedules[name]
+	key := scheduleKey(groupName, name)
+
+	s, ok := b.schedules[key]
 	if !ok {
 		return fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
 
 	delete(b.scheduleARNIndex, s.ARN)
-	delete(b.schedules, name)
+	delete(b.schedules, key)
 	s.Tags.Close()
 
 	return nil
 }
 
 // UpdateSchedule updates an existing schedule.
-// The Tags field in the returned Schedule points to the backend-owned Tags
-// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) UpdateSchedule(
-	name, expr string,
+	name, groupName, expr, description, timezone string,
 	target Target,
 	state string,
 	ftw FlexibleTimeWindow,
+	opts ...ScheduleOption,
 ) (*Schedule, error) {
+	if state != "" {
+		if err := validateScheduleState(state); err != nil {
+			return nil, err
+		}
+	}
+
+	if ftw.Mode != "" {
+		if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+			return nil, err
+		}
+	}
+
+	if groupName == "" {
+		groupName = defaultGroupName
+	}
+
 	b.mu.Lock("UpdateSchedule")
 	defer b.mu.Unlock()
 
-	s, ok := b.schedules[name]
+	s, ok := b.schedules[scheduleKey(groupName, name)]
 	if !ok {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
+
 	s.ScheduleExpression = expr
+	s.ScheduleExpressionTimezone = timezone
+	s.Description = description
 	s.Target = target
 	s.State = state
 	s.FlexibleTimeWindow = ftw
-	cp := *s
+	s.LastModificationDate = time.Now().UTC()
+	applyScheduleOptions(opts, s)
 
-	return &cp, nil
+	return cloneSchedule(s), nil
 }
 
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	name, ok := b.scheduleARNIndex[resourceARN]
-	if !ok {
-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	if key, ok := b.scheduleARNIndex[resourceARN]; ok {
+		b.schedules[key].Tags.Merge(kv)
+
+		return nil
 	}
 
-	b.schedules[name].Tags.Merge(kv)
+	if name, ok := b.scheduleGroupARNIndex[resourceARN]; ok {
+		b.scheduleGroups[name].Tags.Merge(kv)
 
-	return nil
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if key, ok := b.scheduleARNIndex[resourceARN]; ok {
+		b.schedules[key].Tags.DeleteKeys(tagKeys)
+
+		return nil
+	}
+
+	if name, ok := b.scheduleGroupARNIndex[resourceARN]; ok {
+		b.scheduleGroups[name].Tags.DeleteKeys(tagKeys)
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	name, ok := b.scheduleARNIndex[resourceARN]
-	if !ok {
-		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	if key, ok := b.scheduleARNIndex[resourceARN]; ok {
+		return b.schedules[key].Tags.Clone(), nil
 	}
 
-	return b.schedules[name].Tags.Clone(), nil
+	if name, ok := b.scheduleGroupARNIndex[resourceARN]; ok {
+		return b.scheduleGroups[name].Tags.Clone(), nil
+	}
+
+	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
-// Reset clears all in-memory state. It closes all schedule Tags to release
-// Prometheus metrics before discarding the schedules map.
+// Reset clears all in-memory state and re-seeds the default schedule group.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -207,6 +413,205 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
+	for _, g := range b.scheduleGroups {
+		if g.Tags != nil {
+			g.Tags.Close()
+		}
+	}
+
 	b.schedules = make(map[string]*Schedule)
 	b.scheduleARNIndex = make(map[string]string)
+	b.scheduleGroups = make(map[string]*ScheduleGroup)
+	b.scheduleGroupARNIndex = make(map[string]string)
+	b.seedDefaultGroup()
+}
+
+// CreateScheduleGroup creates a new schedule group with the given name and optional tags.
+func (b *InMemoryBackend) CreateScheduleGroup(
+	name, description string,
+	initialTags map[string]string,
+) (*ScheduleGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateScheduleGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.scheduleGroups[name]; ok {
+		return nil, fmt.Errorf("%w: schedule group %s already exists", ErrAlreadyExists, name)
+	}
+
+	groupARN := arn.Build("scheduler", b.region, b.accountID, "schedule-group/"+name)
+	now := time.Now().UTC()
+	g := &ScheduleGroup{
+		Name:                 name,
+		ARN:                  groupARN,
+		Description:          description,
+		State:                scheduleGroupStateActive,
+		CreationDate:         now,
+		LastModificationDate: now,
+		Tags:                 tags.New("scheduler.schedulegroup." + name + ".tags"),
+	}
+	g.Tags.Merge(initialTags)
+	b.scheduleGroups[name] = g
+	b.scheduleGroupARNIndex[groupARN] = name
+
+	return cloneScheduleGroup(g), nil
+}
+
+// GetScheduleGroup returns the schedule group with the given name.
+func (b *InMemoryBackend) GetScheduleGroup(name string) (*ScheduleGroup, error) {
+	b.mu.RLock("GetScheduleGroup")
+	defer b.mu.RUnlock()
+
+	g, ok := b.scheduleGroups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
+	}
+
+	return cloneScheduleGroup(g), nil
+}
+
+// DeleteScheduleGroup removes the schedule group with the given name.
+// The built-in "default" group cannot be deleted.
+// All schedules within the group are also deleted.
+func (b *InMemoryBackend) DeleteScheduleGroup(name string) error {
+	if name == defaultGroupName {
+		return fmt.Errorf("%w: cannot delete the default schedule group", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteScheduleGroup")
+	defer b.mu.Unlock()
+
+	g, ok := b.scheduleGroups[name]
+	if !ok {
+		return fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
+	}
+
+	// Cascade-delete all schedules belonging to this group.
+	for key, s := range b.schedules {
+		if s.GroupName == name {
+			delete(b.scheduleARNIndex, s.ARN)
+			delete(b.schedules, key)
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
+		}
+	}
+
+	delete(b.scheduleGroupARNIndex, g.ARN)
+	delete(b.scheduleGroups, name)
+	g.Tags.Close()
+
+	return nil
+}
+
+// ListScheduleGroups returns schedule groups optionally filtered by name prefix.
+func (b *InMemoryBackend) ListScheduleGroups(namePrefix string) []*ScheduleGroup {
+	b.mu.RLock("ListScheduleGroups")
+	defer b.mu.RUnlock()
+
+	list := make([]*ScheduleGroup, 0, len(b.scheduleGroups))
+
+	for _, g := range b.scheduleGroups {
+		if namePrefix != "" && !strings.HasPrefix(g.Name, namePrefix) {
+			continue
+		}
+
+		list = append(list, cloneScheduleGroup(g))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// AddScheduleInternal inserts a schedule directly for testing purposes.
+// Must only be used from test code.
+func (b *InMemoryBackend) AddScheduleInternal(s *Schedule) {
+	b.mu.Lock("AddScheduleInternal")
+	defer b.mu.Unlock()
+
+	if s.GroupName == "" {
+		s.GroupName = defaultGroupName
+	}
+
+	if s.Tags == nil {
+		s.Tags = tags.New("scheduler.schedule." + s.GroupName + "." + s.Name + ".tags")
+	}
+
+	key := scheduleKey(s.GroupName, s.Name)
+	b.schedules[key] = s
+	b.scheduleARNIndex[s.ARN] = key
+}
+
+// AddScheduleGroupInternal inserts a schedule group directly for testing purposes.
+// Must only be used from test code.
+func (b *InMemoryBackend) AddScheduleGroupInternal(g *ScheduleGroup) {
+	b.mu.Lock("AddScheduleGroupInternal")
+	defer b.mu.Unlock()
+
+	if g.Tags == nil {
+		g.Tags = tags.New("scheduler.schedulegroup." + g.Name + ".tags")
+	}
+
+	b.scheduleGroups[g.Name] = g
+	b.scheduleGroupARNIndex[g.ARN] = g.Name
+}
+
+// cloneSchedule returns a deep copy of a schedule (including a snapshot of its Tags).
+func cloneSchedule(s *Schedule) *Schedule {
+	cp := *s
+	cp.Tags = nil
+
+	if s.Tags != nil {
+		cp.Tags = tags.FromMap("scheduler.schedule."+s.GroupName+"."+s.Name+".tags.clone", s.Tags.Clone())
+	}
+
+	// Deep-copy optional time pointer fields.
+	if s.StartDate != nil {
+		t := *s.StartDate
+		cp.StartDate = &t
+	}
+
+	if s.EndDate != nil {
+		t := *s.EndDate
+		cp.EndDate = &t
+	}
+
+	return &cp
+}
+
+// cloneScheduleGroup returns a deep copy of a schedule group (including a snapshot of its Tags).
+func cloneScheduleGroup(g *ScheduleGroup) *ScheduleGroup {
+	cp := *g
+	cp.Tags = nil
+
+	if g.Tags != nil {
+		cp.Tags = tags.FromMap("scheduler.schedulegroup."+g.Name+".tags.clone", g.Tags.Clone())
+	}
+
+	return &cp
+}
+
+// validateScheduleState returns ErrValidation if state is not a valid value.
+// An empty string is allowed (the handler sets a default).
+func validateScheduleState(state string) error {
+	switch state {
+	case scheduleStateEnabled, scheduleStateDisabled, "":
+		return nil
+	default:
+		return fmt.Errorf("%w: State must be ENABLED or DISABLED, got %q", ErrValidation, state)
+	}
+}
+
+// validateFlexibleTimeWindowMode returns ErrValidation if mode is not OFF or FLEXIBLE.
+func validateFlexibleTimeWindowMode(mode string) error {
+	switch mode {
+	case flexibleTimeWindowModeOff, flexibleTimeWindowModeFlexible:
+		return nil
+	default:
+		return fmt.Errorf("%w: FlexibleTimeWindow.Mode must be OFF or FLEXIBLE, got %q", ErrValidation, mode)
+	}
 }

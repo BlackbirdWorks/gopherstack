@@ -7,21 +7,27 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
-	schedulerTargetPrefix = "AWSScheduler."
-	schedulerPathSegment  = "schedules"
+	schedulerTargetPrefix    = "AWSScheduler."
+	schedulerPathSegment     = "schedules"
+	scheduleGroupPathSegment = "schedule-groups"
+	schedulerTagsPathSegment = "tags"
 	// schedulesPathMinSegments is the minimum number of URL path segments in a
 	// /schedules/{name} REST path: ["schedules", "{name}"].
 	schedulesPathMinSegments = 2
+	// restOpUnknown is returned by parseSchedulerRESTPath when no pattern matches.
+	restOpUnknown = "Unknown"
+	// opUntagResource is the operation name for removing tags from a resource.
+	opUntagResource = "UntagResource"
 )
 
 var (
@@ -30,7 +36,8 @@ var (
 )
 
 type scheduleNameInput struct {
-	Name string `json:"Name"`
+	Name      string `json:"Name"`
+	GroupName string `json:"GroupName"`
 }
 
 // scheduleTarget holds the ARN, IAM role, and optional custom input for a schedule target.
@@ -48,26 +55,38 @@ type scheduleFlexibleTimeWindow struct {
 }
 
 type scheduleInput struct {
-	Name               string                     `json:"Name"`
-	ScheduleExpression string                     `json:"ScheduleExpression"`
-	Target             scheduleTarget             `json:"Target"`
-	State              string                     `json:"State"`
-	FlexibleTimeWindow scheduleFlexibleTimeWindow `json:"FlexibleTimeWindow"`
+	EndDate                    *float64                   `json:"EndDate,omitempty"`
+	StartDate                  *float64                   `json:"StartDate,omitempty"`
+	Target                     scheduleTarget             `json:"Target"`
+	ScheduleExpressionTimezone string                     `json:"ScheduleExpressionTimezone"`
+	Description                string                     `json:"Description"`
+	Name                       string                     `json:"Name"`
+	State                      string                     `json:"State"`
+	ScheduleExpression         string                     `json:"ScheduleExpression"`
+	GroupName                  string                     `json:"GroupName"`
+	ActionAfterCompletion      string                     `json:"ActionAfterCompletion,omitempty"`
+	KmsKeyArn                  string                     `json:"KmsKeyArn,omitempty"`
+	ClientToken                string                     `json:"ClientToken,omitempty"`
+	FlexibleTimeWindow         scheduleFlexibleTimeWindow `json:"FlexibleTimeWindow"`
 }
 
 // Handler is the Echo HTTP handler for EventBridge Scheduler operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 	runner  *Runner
 	cancel  context.CancelFunc
 }
 
 // NewHandler creates a new Scheduler handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{
 		Backend: backend,
 		runner:  NewRunner(backend),
 	}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // SetRunner replaces the default runner with the given one.
@@ -114,12 +133,17 @@ var _ service.Shutdowner = (*Handler)(nil)
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateSchedule",
-		"GetSchedule",
-		"ListSchedules",
+		"CreateScheduleGroup",
 		"DeleteSchedule",
-		"UpdateSchedule",
-		"TagResource",
+		"DeleteScheduleGroup",
+		"GetSchedule",
+		"GetScheduleGroup",
+		"ListScheduleGroups",
+		"ListSchedules",
 		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
+		"UpdateSchedule",
 	}
 }
 
@@ -133,7 +157,9 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Scheduler requests.
-// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/...).
+// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/... , /schedule-groups/...).
+// For /tags/{ResourceArn} paths, only matches when the ARN belongs to the Scheduler service
+// (i.e. contains ":scheduler:") to avoid intercepting tag requests destined for other services.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
@@ -142,7 +168,17 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/"+schedulerPathSegment)
+		if strings.HasPrefix(path, "/"+schedulerPathSegment) ||
+			strings.HasPrefix(path, "/"+scheduleGroupPathSegment) {
+			return true
+		}
+
+		// Only claim /tags/{ResourceArn} when the ARN is a scheduler-owned resource.
+		if after, ok := strings.CutPrefix(path, "/"+schedulerTagsPathSegment+"/"); ok {
+			return strings.Contains(after, ":scheduler:")
+		}
+
+		return false
 	}
 }
 
@@ -162,11 +198,17 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return op
 }
 
-// ExtractResource extracts the schedule name from the request body or REST path.
+// ExtractResource extracts the schedule or schedule group name from the request body or REST path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	// For REST paths extract name from the URL path segment.
 	if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
-		parts := strings.Split(strings.TrimPrefix(c.Request().URL.Path, "/"), "/")
+		path := c.Request().URL.Path
+		// /tags/{ResourceArn} paths - return the ARN as resource.
+		if after, ok := strings.CutPrefix(path, "/"+schedulerTagsPathSegment+"/"); ok {
+			return after
+		}
+
+		parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 		if len(parts) >= schedulesPathMinSegments {
 			return parts[1]
 		}
@@ -183,41 +225,103 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // parseSchedulerRESTPath maps an HTTP method + path to a Scheduler operation name and
-// extracts the schedule name (if present in the path).
+// extracts the resource name (if present in the path).
 // Returns ("Unknown", "") when no pattern matches.
-//
-//nolint:cyclop // path routing table has necessary branches for each HTTP method + resource combination
 func parseSchedulerRESTPath(method, path string) (string, string) {
 	// Strip leading slash and split into segments.
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+
+	if len(segments) == 0 {
+		return restOpUnknown, ""
+	}
+
+	switch segments[0] {
+	case schedulerPathSegment:
+		return parseScheduleRESTPath(method, segments)
+	case scheduleGroupPathSegment:
+		return parseScheduleGroupRESTPath(method, segments)
+	case schedulerTagsPathSegment:
+		return parseTagsRESTPath(method, segments)
+	}
+
+	return restOpUnknown, ""
+}
+
+// parseTagsRESTPath handles REST routing for /tags/{ResourceArn} paths.
+func parseTagsRESTPath(method string, segments []string) (string, string) {
+	if len(segments) < schedulesPathMinSegments || segments[1] == "" {
+		return restOpUnknown, ""
+	}
+
+	resourceARN := strings.Join(segments[1:], "/")
+
+	switch method {
+	case http.MethodGet:
+		return "ListTagsForResource", resourceARN
+	case http.MethodPost:
+		return "TagResource", resourceARN
+	case http.MethodDelete:
+		return "UntagResource", resourceARN
+	}
+
+	return restOpUnknown, ""
+}
+
+// parseScheduleRESTPath handles REST routing for /schedules/... paths.
+func parseScheduleRESTPath(method string, segments []string) (string, string) {
 	switch {
 	// GET /schedules or GET /schedules/ → ListSchedules
-	case method == http.MethodGet && len(segments) >= 1 && segments[0] == schedulerPathSegment &&
-		(len(segments) == 1 || (len(segments) == 2 && segments[1] == "")):
+	case method == http.MethodGet &&
+		(len(segments) == 1 || (len(segments) == schedulesPathMinSegments && segments[1] == "")):
 		return "ListSchedules", ""
 	// POST /schedules/{name} → CreateSchedule
-	case method == http.MethodPost && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodPost && len(segments) == schedulesPathMinSegments:
 		return "CreateSchedule", segments[1]
 	// GET /schedules/{name} → GetSchedule
-	case method == http.MethodGet && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodGet && len(segments) == schedulesPathMinSegments:
 		return "GetSchedule", segments[1]
 	// DELETE /schedules/{name} → DeleteSchedule
-	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments:
 		return "DeleteSchedule", segments[1]
 	// PUT /schedules/{name} → UpdateSchedule
-	case method == http.MethodPut && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
+	case method == http.MethodPut && len(segments) == schedulesPathMinSegments:
 		return "UpdateSchedule", segments[1]
 	}
 
-	return "Unknown", ""
+	return restOpUnknown, ""
+}
+
+// parseScheduleGroupRESTPath handles REST routing for /schedule-groups/... paths.
+func parseScheduleGroupRESTPath(method string, segments []string) (string, string) {
+	switch {
+	// GET /schedule-groups or GET /schedule-groups/ → ListScheduleGroups
+	case method == http.MethodGet &&
+		(len(segments) == 1 || (len(segments) == schedulesPathMinSegments && segments[1] == "")):
+		return "ListScheduleGroups", ""
+	// POST /schedule-groups/{name} → CreateScheduleGroup
+	case method == http.MethodPost && len(segments) == schedulesPathMinSegments:
+		return "CreateScheduleGroup", segments[1]
+	// GET /schedule-groups/{name} → GetScheduleGroup
+	case method == http.MethodGet && len(segments) == schedulesPathMinSegments:
+		return "GetScheduleGroup", segments[1]
+	// DELETE /schedule-groups/{name} → DeleteScheduleGroup
+	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments:
+		return "DeleteScheduleGroup", segments[1]
+	}
+
+	return restOpUnknown, ""
 }
 
 // Handler returns the Echo handler function for Scheduler requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		// REST API path: /schedules or /schedules/{name}
-		if strings.HasPrefix(c.Request().URL.Path, "/"+schedulerPathSegment) &&
-			!strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
+		path := c.Request().URL.Path
+		isREST := !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix)
+
+		// REST API paths: /schedules/..., /schedule-groups/..., /tags/...
+		if isREST && (strings.HasPrefix(path, "/"+schedulerPathSegment) ||
+			strings.HasPrefix(path, "/"+scheduleGroupPathSegment) ||
+			strings.HasPrefix(path, "/"+schedulerTagsPathSegment+"/")) {
 			return h.handleREST(c)
 		}
 
@@ -231,14 +335,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// handleREST handles Scheduler REST API calls (/schedules/{name}).
-// It extracts the schedule name from the URL path, injects it into the request body,
+// handleREST handles Scheduler REST API calls.
+// It extracts path parameters from the URL, injects them into the request body,
 // and dispatches to the existing handler logic.
 func (h *Handler) handleREST(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	action, name := parseSchedulerRESTPath(c.Request().Method, c.Request().URL.Path)
-	if action == "Unknown" {
+	if action == restOpUnknown {
 		return c.String(http.StatusNotFound, "not found")
 	}
 
@@ -249,11 +353,8 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
-	// For operations that identify a schedule by URL path (not request body),
-	// inject the name into the JSON body so existing handlers can read it.
-	if name != "" {
-		body = injectJSONField(body, "Name", name)
-	}
+	q := c.Request().URL.Query()
+	body = h.enrichRESTBody(action, name, body, q)
 
 	response, dispErr := h.dispatch(ctx, action, body)
 	if dispErr != nil {
@@ -263,40 +364,131 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	return c.JSONBlob(http.StatusOK, response)
 }
 
-// injectJSONField merges a key/value string pair into a JSON object body.
-// If body is empty or not a valid JSON object, it returns {"key":"value"}.
-func injectJSONField(body []byte, key, value string) []byte {
-	var m map[string]json.RawMessage
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &m); err != nil {
-			m = make(map[string]json.RawMessage)
-		}
-	} else {
-		m = make(map[string]json.RawMessage)
-	}
+// enrichRESTBody injects path parameters and query parameters into the JSON body
+// so that the existing dispatch handlers can read them uniformly.
+func (h *Handler) enrichRESTBody(action, name string, body []byte, q interface{ Get(string) string }) []byte {
+	m := unmarshalOrEmpty(body)
 
-	quoted, _ := json.Marshal(value)
-	m[key] = json.RawMessage(quoted)
+	switch action {
+	case "GetSchedule", "DeleteSchedule", "UpdateSchedule":
+		enrichScheduleByPath(m, name, q)
+	case "CreateSchedule", "CreateScheduleGroup", "GetScheduleGroup", "DeleteScheduleGroup":
+		if name != "" {
+			setJSONString(m, "Name", name)
+		}
+	case "ListSchedules":
+		enrichListSchedulesQuery(m, q)
+	case "ListScheduleGroups":
+		enrichListScheduleGroupsQuery(m, q)
+	case "ListTagsForResource", "TagResource", opUntagResource:
+		enrichTagsPath(m, name, action, q)
+	}
 
 	result, _ := json.Marshal(m)
 
 	return result
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+// enrichScheduleByPath injects Name from the URL path and GroupName from the query string.
+func enrichScheduleByPath(m map[string]json.RawMessage, name string, q interface{ Get(string) string }) {
+	if name != "" {
+		setJSONString(m, "Name", name)
+	}
+
+	if gn := q.Get("groupName"); gn != "" {
+		setJSONString(m, "GroupName", gn)
+	}
+}
+
+// enrichListSchedulesQuery injects ListSchedules query parameters into the JSON map.
+func enrichListSchedulesQuery(m map[string]json.RawMessage, q interface{ Get(string) string }) {
+	if sg := q.Get("ScheduleGroup"); sg != "" {
+		setJSONString(m, "GroupName", sg)
+	}
+
+	for _, qk := range []struct{ query, json string }{
+		{"NamePrefix", "NamePrefix"},
+		{"State", "State"},
+		{"NextToken", "NextToken"},
+		{"MaxResults", "MaxResults"},
+	} {
+		if v := q.Get(qk.query); v != "" {
+			setJSONString(m, qk.json, v)
+		}
+	}
+}
+
+// enrichListScheduleGroupsQuery injects ListScheduleGroups query parameters into the JSON map.
+func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q interface{ Get(string) string }) {
+	for _, qk := range []struct{ query, json string }{
+		{"NamePrefix", "NamePrefix"},
+		{"NextToken", "NextToken"},
+		{"MaxResults", "MaxResults"},
+	} {
+		if v := q.Get(qk.query); v != "" {
+			setJSONString(m, qk.json, v)
+		}
+	}
+}
+
+// enrichTagsPath injects ResourceArn from the URL path and tag keys from the query string.
+func enrichTagsPath(m map[string]json.RawMessage, name, action string, q interface{ Get(string) string }) {
+	if name != "" {
+		setJSONString(m, "ResourceArn", name)
+	}
+
+	if tagKeys := q.Get("tagKeys"); tagKeys != "" && action == opUntagResource {
+		keys := strings.Split(tagKeys, ",")
+		keysJSON, _ := json.Marshal(keys)
+		m["TagKeys"] = json.RawMessage(keysJSON)
+	}
+}
+
+// unmarshalOrEmpty parses body as a JSON object, returning an empty map on failure.
+func unmarshalOrEmpty(body []byte) map[string]json.RawMessage {
+	var m map[string]json.RawMessage
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &m); err != nil {
+			return make(map[string]json.RawMessage)
+		}
+
+		return m
+	}
+
+	return make(map[string]json.RawMessage)
+}
+
+// setJSONString encodes value as a JSON string and sets it on key in the map,
+// unless key is already present.
+func setJSONString(m map[string]json.RawMessage, key, value string) {
+	if _, exists := m[key]; exists {
+		return
+	}
+
+	quoted, _ := json.Marshal(value)
+	m[key] = json.RawMessage(quoted)
+}
+
+// buildOps constructs the dispatch map once at handler creation time.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateSchedule":      service.WrapOp(h.handleCreateSchedule),
-		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
-		"ListSchedules":       service.WrapOp(h.handleListSchedules),
+		"CreateScheduleGroup": service.WrapOp(h.handleCreateScheduleGroup),
 		"DeleteSchedule":      service.WrapOp(h.handleDeleteSchedule),
-		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
-		"TagResource":         service.WrapOp(h.handleTagResource),
+		"DeleteScheduleGroup": service.WrapOp(h.handleDeleteScheduleGroup),
+		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
+		"GetScheduleGroup":    service.WrapOp(h.handleGetScheduleGroup),
+		"ListScheduleGroups":  service.WrapOp(h.handleListScheduleGroups),
+		"ListSchedules":       service.WrapOp(h.handleListSchedules),
 		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"UntagResource":       service.WrapOp(h.handleUntagResource),
+		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -328,6 +520,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
+	case errors.Is(err, ErrValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
@@ -343,18 +542,39 @@ type createScheduleOutput struct {
 func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*createScheduleOutput, error) {
 	state := in.State
 	if state == "" {
-		state = "ENABLED"
+		state = scheduleStateEnabled
+	}
+
+	var opts []ScheduleOption
+	if in.StartDate != nil {
+		opts = append(opts, WithStartDate(epochSecondsToTime(*in.StartDate)))
+	}
+
+	if in.EndDate != nil {
+		opts = append(opts, WithEndDate(epochSecondsToTime(*in.EndDate)))
+	}
+
+	if in.ActionAfterCompletion != "" {
+		opts = append(opts, WithActionAfterCompletion(in.ActionAfterCompletion))
+	}
+
+	if in.KmsKeyArn != "" {
+		opts = append(opts, WithKmsKeyArn(in.KmsKeyArn))
 	}
 
 	s, err := h.Backend.CreateSchedule(
 		in.Name,
+		in.GroupName,
 		in.ScheduleExpression,
+		in.Description,
+		in.ScheduleExpressionTimezone,
 		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
 		state,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,
 			MaximumWindowInMinutes: in.FlexibleTimeWindow.MaximumWindowInMinutes,
 		},
+		opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -372,59 +592,112 @@ type scheduleTargetOutput struct {
 
 type flexibleTimeWindowOutput struct {
 	Mode                   string `json:"Mode"`
-	MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
+	MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes,omitempty"`
 }
 
 type getScheduleOutput struct {
-	Name               string                   `json:"Name"`
-	Arn                string                   `json:"Arn"`
-	ScheduleExpression string                   `json:"ScheduleExpression"`
-	State              string                   `json:"State"`
-	Target             scheduleTargetOutput     `json:"Target"`
-	FlexibleTimeWindow flexibleTimeWindowOutput `json:"FlexibleTimeWindow"`
+	EndDate                    *float64                 `json:"EndDate,omitempty"`
+	Tags                       map[string]string        `json:"Tags,omitempty"`
+	StartDate                  *float64                 `json:"StartDate,omitempty"`
+	Target                     scheduleTargetOutput     `json:"Target"`
+	ScheduleExpression         string                   `json:"ScheduleExpression"`
+	Name                       string                   `json:"Name"`
+	Arn                        string                   `json:"Arn"`
+	GroupName                  string                   `json:"GroupName"`
+	ScheduleExpressionTimezone string                   `json:"ScheduleExpressionTimezone,omitempty"`
+	Description                string                   `json:"Description,omitempty"`
+	State                      string                   `json:"State"`
+	ActionAfterCompletion      string                   `json:"ActionAfterCompletion,omitempty"`
+	KmsKeyArn                  string                   `json:"KmsKeyArn,omitempty"`
+	FlexibleTimeWindow         flexibleTimeWindowOutput `json:"FlexibleTimeWindow"`
+	LastModificationDate       float64                  `json:"LastModificationDate"`
+	CreationDate               float64                  `json:"CreationDate"`
 }
 
 func (h *Handler) handleGetSchedule(_ context.Context, in *scheduleNameInput) (*getScheduleOutput, error) {
-	s, err := h.Backend.GetSchedule(in.Name)
+	s, err := h.Backend.GetSchedule(in.Name, in.GroupName)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getScheduleOutput{
-		Name:               s.Name,
-		Arn:                s.ARN,
-		ScheduleExpression: s.ScheduleExpression,
-		State:              s.State,
-		Target:             scheduleTargetOutput{Arn: s.Target.ARN, RoleArn: s.Target.RoleARN, Input: s.Target.Input},
+	var tagMap map[string]string
+	if s.Tags != nil {
+		tagMap = s.Tags.Clone()
+	}
+
+	out := &getScheduleOutput{
+		Name:                       s.Name,
+		Arn:                        s.ARN,
+		GroupName:                  s.GroupName,
+		ScheduleExpression:         s.ScheduleExpression,
+		ScheduleExpressionTimezone: s.ScheduleExpressionTimezone,
+		Description:                s.Description,
+		State:                      s.State,
+		ActionAfterCompletion:      s.ActionAfterCompletion,
+		KmsKeyArn:                  s.KmsKeyArn,
+		CreationDate:               float64(s.CreationDate.Unix()),
+		LastModificationDate:       float64(s.LastModificationDate.Unix()),
+		Tags:                       tagMap,
+		Target: scheduleTargetOutput{
+			Arn:     s.Target.ARN,
+			RoleArn: s.Target.RoleARN,
+			Input:   s.Target.Input,
+		},
 		FlexibleTimeWindow: flexibleTimeWindowOutput{
 			Mode:                   s.FlexibleTimeWindow.Mode,
 			MaximumWindowInMinutes: s.FlexibleTimeWindow.MaximumWindowInMinutes,
 		},
-	}, nil
+	}
+
+	if s.StartDate != nil {
+		v := float64(s.StartDate.Unix())
+		out.StartDate = &v
+	}
+
+	if s.EndDate != nil {
+		v := float64(s.EndDate.Unix())
+		out.EndDate = &v
+	}
+
+	return out, nil
 }
 
-type listSchedulesInput struct{}
+type listSchedulesInput struct {
+	GroupName  string `json:"GroupName"`
+	NamePrefix string `json:"NamePrefix"`
+	State      string `json:"State"`
+	NextToken  string `json:"NextToken"`
+	MaxResults string `json:"MaxResults"`
+}
 
 type scheduleSummary struct {
-	Name               string `json:"Name"`
-	Arn                string `json:"Arn"`
-	ScheduleExpression string `json:"ScheduleExpression"`
-	State              string `json:"State"`
+	Name                 string  `json:"Name"`
+	Arn                  string  `json:"Arn"`
+	GroupName            string  `json:"GroupName"`
+	ScheduleExpression   string  `json:"ScheduleExpression"`
+	State                string  `json:"State"`
+	CreationDate         float64 `json:"CreationDate"`
+	LastModificationDate float64 `json:"LastModificationDate"`
 }
 
 type listSchedulesOutput struct {
+	NextToken string            `json:"NextToken,omitempty"`
 	Schedules []scheduleSummary `json:"Schedules"`
 }
 
-func (h *Handler) handleListSchedules(_ context.Context, _ *listSchedulesInput) (*listSchedulesOutput, error) {
-	schedules := h.Backend.ListSchedules()
+func (h *Handler) handleListSchedules(_ context.Context, in *listSchedulesInput) (*listSchedulesOutput, error) {
+	schedules := h.Backend.ListSchedules(in.GroupName, in.NamePrefix, in.State)
 	items := make([]scheduleSummary, 0, len(schedules))
+
 	for _, s := range schedules {
 		items = append(items, scheduleSummary{
-			Name:               s.Name,
-			Arn:                s.ARN,
-			ScheduleExpression: s.ScheduleExpression,
-			State:              s.State,
+			Name:                 s.Name,
+			Arn:                  s.ARN,
+			GroupName:            s.GroupName,
+			ScheduleExpression:   s.ScheduleExpression,
+			State:                s.State,
+			CreationDate:         float64(s.CreationDate.Unix()),
+			LastModificationDate: float64(s.LastModificationDate.Unix()),
 		})
 	}
 
@@ -434,7 +707,7 @@ func (h *Handler) handleListSchedules(_ context.Context, _ *listSchedulesInput) 
 type deleteScheduleOutput struct{}
 
 func (h *Handler) handleDeleteSchedule(_ context.Context, in *scheduleNameInput) (*deleteScheduleOutput, error) {
-	if err := h.Backend.DeleteSchedule(in.Name); err != nil {
+	if err := h.Backend.DeleteSchedule(in.Name, in.GroupName); err != nil {
 		return nil, err
 	}
 
@@ -446,15 +719,36 @@ type updateScheduleOutput struct {
 }
 
 func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*updateScheduleOutput, error) {
+	var opts []ScheduleOption
+	if in.StartDate != nil {
+		opts = append(opts, WithStartDate(epochSecondsToTime(*in.StartDate)))
+	}
+
+	if in.EndDate != nil {
+		opts = append(opts, WithEndDate(epochSecondsToTime(*in.EndDate)))
+	}
+
+	if in.ActionAfterCompletion != "" {
+		opts = append(opts, WithActionAfterCompletion(in.ActionAfterCompletion))
+	}
+
+	if in.KmsKeyArn != "" {
+		opts = append(opts, WithKmsKeyArn(in.KmsKeyArn))
+	}
+
 	s, err := h.Backend.UpdateSchedule(
 		in.Name,
+		in.GroupName,
 		in.ScheduleExpression,
+		in.Description,
+		in.ScheduleExpressionTimezone,
 		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
 		in.State,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,
 			MaximumWindowInMinutes: in.FlexibleTimeWindow.MaximumWindowInMinutes,
 		},
+		opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -464,19 +758,14 @@ func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*u
 }
 
 type handleTagResourceInput struct {
-	Tags        *tags.Tags `json:"Tags"`
-	ResourceArn string     `json:"ResourceArn"`
+	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn"`
 }
 
 type tagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(_ context.Context, in *handleTagResourceInput) (*tagResourceOutput, error) {
-	var kv map[string]string
-	if in.Tags != nil {
-		kv = in.Tags.Clone()
-	}
-
-	if err := h.Backend.TagResource(in.ResourceArn, kv); err != nil {
+	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -495,10 +784,159 @@ func (h *Handler) handleListTagsForResource(
 	_ context.Context,
 	in *handleListTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	kv, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return &listTagsForResourceOutput{Tags: tags}, nil
+	return &listTagsForResourceOutput{Tags: kv}, nil
+}
+
+// handleUntagResource removes the specified tag keys from a resource.
+type handleUntagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleUntagResource(_ context.Context, in *handleUntagResourceInput) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
+}
+
+// Schedule group handlers.
+
+type createScheduleGroupInput struct {
+	Tags        map[string]string `json:"Tags"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description"`
+}
+
+type createScheduleGroupOutput struct {
+	ScheduleGroupArn string `json:"ScheduleGroupArn"`
+}
+
+func (h *Handler) handleCreateScheduleGroup(
+	_ context.Context,
+	in *createScheduleGroupInput,
+) (*createScheduleGroupOutput, error) {
+	g, err := h.Backend.CreateScheduleGroup(in.Name, in.Description, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createScheduleGroupOutput{ScheduleGroupArn: g.ARN}, nil
+}
+
+type scheduleGroupNameInput struct {
+	Name string `json:"Name"`
+}
+
+type deleteScheduleGroupOutput struct{}
+
+func (h *Handler) handleDeleteScheduleGroup(
+	_ context.Context,
+	in *scheduleGroupNameInput,
+) (*deleteScheduleGroupOutput, error) {
+	if err := h.Backend.DeleteScheduleGroup(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &deleteScheduleGroupOutput{}, nil
+}
+
+type getScheduleGroupOutput struct {
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	Arn                  string            `json:"Arn"`
+	Description          string            `json:"Description,omitempty"`
+	Name                 string            `json:"Name"`
+	State                string            `json:"State"`
+	CreationDate         float64           `json:"CreationDate"`
+	LastModificationDate float64           `json:"LastModificationDate"`
+}
+
+func (h *Handler) handleGetScheduleGroup(
+	_ context.Context,
+	in *scheduleGroupNameInput,
+) (*getScheduleGroupOutput, error) {
+	g, err := h.Backend.GetScheduleGroup(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	var tagMap map[string]string
+	if g.Tags != nil {
+		tagMap = g.Tags.Clone()
+	}
+
+	return &getScheduleGroupOutput{
+		Arn:                  g.ARN,
+		CreationDate:         float64(g.CreationDate.Unix()),
+		LastModificationDate: float64(g.LastModificationDate.Unix()),
+		Description:          g.Description,
+		Tags:                 tagMap,
+		Name:                 g.Name,
+		State:                g.State,
+	}, nil
+}
+
+type listScheduleGroupsInput struct {
+	NamePrefix string `json:"NamePrefix"`
+	NextToken  string `json:"NextToken"`
+	MaxResults string `json:"MaxResults"`
+}
+
+type scheduleGroupSummary struct {
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	Arn                  string            `json:"Arn"`
+	Name                 string            `json:"Name"`
+	State                string            `json:"State"`
+	CreationDate         float64           `json:"CreationDate"`
+	LastModificationDate float64           `json:"LastModificationDate"`
+}
+
+type listScheduleGroupsOutput struct {
+	NextToken      string                 `json:"NextToken,omitempty"`
+	ScheduleGroups []scheduleGroupSummary `json:"ScheduleGroups"`
+}
+
+func (h *Handler) handleListScheduleGroups(
+	_ context.Context,
+	in *listScheduleGroupsInput,
+) (*listScheduleGroupsOutput, error) {
+	groups := h.Backend.ListScheduleGroups(in.NamePrefix)
+	items := make([]scheduleGroupSummary, 0, len(groups))
+
+	for _, g := range groups {
+		var tagMap map[string]string
+		if g.Tags != nil {
+			tagMap = g.Tags.Clone()
+		}
+
+		items = append(items, scheduleGroupSummary{
+			Arn:                  g.ARN,
+			CreationDate:         float64(g.CreationDate.Unix()),
+			LastModificationDate: float64(g.LastModificationDate.Unix()),
+			Tags:                 tagMap,
+			Name:                 g.Name,
+			State:                g.State,
+		})
+	}
+
+	return &listScheduleGroupsOutput{ScheduleGroups: items}, nil
+}
+
+// nanosPerSecond is the number of nanoseconds in a second.
+const nanosPerSecond = 1e9
+
+// epochSecondsToTime converts a float64 Unix epoch seconds value to [time.Time].
+func epochSecondsToTime(epoch float64) time.Time {
+	sec := int64(epoch)
+	nsec := int64((epoch - float64(sec)) * nanosPerSecond)
+
+	return time.Unix(sec, nsec).UTC()
 }

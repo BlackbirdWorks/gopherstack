@@ -2070,6 +2070,10 @@ func TestResourceNameFromARN(t *testing.T) {
 					map[string]any{
 						"Name":               "my-plain-resource",
 						"ScheduleExpression": "rate(1 minute)",
+						"Target": map[string]any{
+							"Arn":     "arn:aws:lambda:us-east-1:000000000000:function:fn",
+							"RoleArn": "arn:aws:iam::000000000000:role/r",
+						},
 					}, nil, nil)
 				require.NoError(t, err)
 
@@ -2089,6 +2093,10 @@ func TestResourceNameFromARN(t *testing.T) {
 				map[string]any{
 					"Name":               schedName,
 					"ScheduleExpression": "rate(1 minute)",
+					"Target": map[string]any{
+						"Arn":     "arn:aws:lambda:us-east-1:000000000000:function:fn",
+						"RoleArn": "arn:aws:iam::000000000000:role/r",
+					},
 				}, nil, nil)
 			require.NoError(t, err)
 			assert.Contains(t, physID, schedName)

@@ -54,7 +54,7 @@ type StepFunctionsStarter interface {
 
 // Runner evaluates schedule expressions and invokes targets when due.
 type Runner struct {
-	backend     *InMemoryBackend
+	backend     StorageBackend
 	lambda      LambdaInvoker
 	sqs         SQSSender
 	sns         SNSPublisher
@@ -64,7 +64,7 @@ type Runner struct {
 }
 
 // NewRunner creates a new Runner for the given scheduler backend.
-func NewRunner(backend *InMemoryBackend) *Runner {
+func NewRunner(backend StorageBackend) *Runner {
 	return &Runner{
 		backend:     backend,
 		lastFiredAt: make(map[string]time.Time),
@@ -104,7 +104,7 @@ func (r *Runner) run(ctx context.Context) {
 }
 
 func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
-	schedules := r.backend.ListSchedules()
+	schedules := r.backend.ListSchedules("", "", "")
 
 	activeNames := make(map[string]struct{}, len(schedules))
 
