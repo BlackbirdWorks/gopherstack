@@ -29,12 +29,12 @@ const (
 
 // Handler is the Echo HTTP handler for SES operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 	janitor *Janitor
 }
 
 // NewHandler creates a new SES handler with the given backend and logger.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -43,7 +43,12 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // interval=0 uses the default interval.
 // The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
 func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
-	j := NewJanitor(h.Backend, interval)
+	ib, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h
+	}
+
+	j := NewJanitor(ib, interval)
 	if len(taskTimeout) > 0 {
 		j.TaskTimeout = taskTimeout[0]
 	}
@@ -89,18 +94,28 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteConfigurationSetTrackingOptions",
 		"DeleteCustomVerificationEmailTemplate",
 		"DeleteIdentity",
+		"DeleteReceiptFilter",
+		"DeleteReceiptRule",
+		"DeleteReceiptRuleSet",
 		"DeleteTemplate",
+		"DescribeActiveReceiptRuleSet",
+		"DescribeReceiptRuleSet",
 		"GetAccountSendingEnabled",
+		"GetCustomVerificationEmailTemplate",
 		"GetIdentityVerificationAttributes",
 		"GetSendQuota",
 		"GetSendStatistics",
 		"GetTemplate",
 		"ListConfigurationSets",
+		"ListCustomVerificationEmailTemplates",
 		"ListIdentities",
+		"ListReceiptFilters",
+		"ListReceiptRuleSets",
 		"ListTemplates",
 		"SendEmail",
 		"SendRawEmail",
 		"SendTemplatedEmail",
+		"SetActiveReceiptRuleSet",
 		"UpdateTemplate",
 		"VerifyEmailIdentity",
 	}
@@ -177,7 +192,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"Source", "EmailAddress", "Identity"} {
+	for _, key := range []string{"Source", "EmailAddress", "Identity", "RuleSetName", "FilterName"} {
 		if v := r.Form.Get(key); v != "" {
 			return v
 		}
@@ -316,6 +331,34 @@ func (h *Handler) dispatchNewOps(vals url.Values, reqID, action string) (any, er
 		return h.handleCreateCustomVerificationEmailTemplate(vals, reqID)
 	case "DeleteCustomVerificationEmailTemplate":
 		return h.handleDeleteCustomVerificationEmailTemplate(vals, reqID)
+	default:
+		return h.dispatchRefinedOps(vals, reqID, action)
+	}
+}
+
+// dispatchRefinedOps handles the newer receipt filter/rule set query and active rule set operations.
+func (h *Handler) dispatchRefinedOps(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "ListReceiptFilters":
+		return h.handleListReceiptFilters(reqID), nil
+	case "ListReceiptRuleSets":
+		return h.handleListReceiptRuleSets(reqID), nil
+	case "DeleteReceiptFilter":
+		return h.handleDeleteReceiptFilter(vals, reqID)
+	case "DeleteReceiptRule":
+		return h.handleDeleteReceiptRule(vals, reqID)
+	case "DeleteReceiptRuleSet":
+		return h.handleDeleteReceiptRuleSet(vals, reqID)
+	case "GetCustomVerificationEmailTemplate":
+		return h.handleGetCustomVerificationEmailTemplate(vals, reqID)
+	case "ListCustomVerificationEmailTemplates":
+		return h.handleListCustomVerificationEmailTemplates(reqID), nil
+	case "DescribeReceiptRuleSet":
+		return h.handleDescribeReceiptRuleSet(vals, reqID)
+	case "SetActiveReceiptRuleSet":
+		return h.handleSetActiveReceiptRuleSet(vals, reqID)
+	case "DescribeActiveReceiptRuleSet":
+		return h.handleDescribeActiveReceiptRuleSet(reqID)
 	default:
 		return nil, errUnknownSESAction
 	}
@@ -692,7 +735,7 @@ func sesNewOpsErrorCode(opErr error, status int) (string, int) {
 	case errors.Is(opErr, ErrReceiptRuleExists):
 		return errCodeAlreadyExists, status
 	case errors.Is(opErr, ErrReceiptFilterNotFound):
-		return "RuleDoesNotExist", status
+		return "FilterDoesNotExist", status
 	case errors.Is(opErr, ErrReceiptFilterExists):
 		return errCodeAlreadyExists, status
 	case errors.Is(opErr, ErrEventDestinationNotFound):
@@ -1224,4 +1267,308 @@ type deleteCustomVerificationEmailTemplateResponse struct {
 	XMLName   xml.Name `xml:"DeleteCustomVerificationEmailTemplateResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+func (h *Handler) handleListReceiptFilters(reqID string) any {
+	filters := h.Backend.ListReceiptFilters()
+	members := make([]xmlReceiptFilter, 0, len(filters))
+	for _, f := range filters {
+		members = append(members, xmlReceiptFilter(f))
+	}
+
+	return &listReceiptFiltersResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result: listReceiptFiltersResult{
+			Filters: xmlReceiptFilterList{Members: members},
+		},
+	}
+}
+
+func (h *Handler) handleDeleteReceiptFilter(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("FilterName")
+	if err := h.Backend.DeleteReceiptFilter(name); err != nil {
+		return nil, err
+	}
+
+	return &deleteReceiptFilterResponse{Xmlns: sesXMLNS, RequestID: reqID}, nil
+}
+
+func (h *Handler) handleListReceiptRuleSets(reqID string) any {
+	ruleSets := h.Backend.ListReceiptRuleSets()
+	members := make([]xmlRuleSetMetadata, 0, len(ruleSets))
+	for _, rs := range ruleSets {
+		members = append(members, xmlRuleSetMetadata{
+			Name:      rs.Name,
+			CreatedAt: rs.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	return &listReceiptRuleSetsResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result: listReceiptRuleSetsResult{
+			RuleSets: xmlRuleSetMetadataList{Members: members},
+		},
+	}
+}
+
+func (h *Handler) handleDescribeReceiptRuleSet(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("RuleSetName")
+	rs, err := h.Backend.DescribeReceiptRuleSet(name)
+	if err != nil {
+		return nil, err
+	}
+	rules := make([]xmlReceiptRule, 0, len(rs.Rules))
+	for _, r := range rs.Rules {
+		rules = append(rules, toXMLReceiptRule(r))
+	}
+
+	return &describeReceiptRuleSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result: describeReceiptRuleSetResult{
+			Metadata: xmlRuleSetMetadata{
+				Name:      rs.Name,
+				CreatedAt: rs.CreatedAt.UTC().Format(time.RFC3339),
+			},
+			Rules: xmlReceiptRuleList{Members: rules},
+		},
+	}, nil
+}
+
+func (h *Handler) handleDeleteReceiptRule(vals url.Values, reqID string) (any, error) {
+	ruleSetName := vals.Get("RuleSetName")
+	ruleName := vals.Get("RuleName")
+	if err := h.Backend.DeleteReceiptRule(ruleSetName, ruleName); err != nil {
+		return nil, err
+	}
+
+	return &deleteReceiptRuleResponse{Xmlns: sesXMLNS, RequestID: reqID}, nil
+}
+
+func (h *Handler) handleDeleteReceiptRuleSet(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("RuleSetName")
+	if err := h.Backend.DeleteReceiptRuleSet(name); err != nil {
+		return nil, err
+	}
+
+	return &deleteReceiptRuleSetResponse{Xmlns: sesXMLNS, RequestID: reqID}, nil
+}
+
+func (h *Handler) handleSetActiveReceiptRuleSet(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("RuleSetName")
+	if err := h.Backend.SetActiveReceiptRuleSet(name); err != nil {
+		return nil, err
+	}
+
+	return &setActiveReceiptRuleSetResponse{Xmlns: sesXMLNS, RequestID: reqID}, nil
+}
+
+func (h *Handler) handleDescribeActiveReceiptRuleSet(reqID string) (any, error) {
+	rs, active, err := h.Backend.DescribeActiveReceiptRuleSet()
+	if err != nil {
+		return nil, err
+	}
+	result := describeActiveReceiptRuleSetResult{}
+	if active {
+		rules := make([]xmlReceiptRule, 0, len(rs.Rules))
+		for _, r := range rs.Rules {
+			rules = append(rules, toXMLReceiptRule(r))
+		}
+		result.Metadata = &xmlRuleSetMetadata{
+			Name:      rs.Name,
+			CreatedAt: rs.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		result.Rules = xmlReceiptRuleList{Members: rules}
+	}
+
+	return &describeActiveReceiptRuleSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    result,
+	}, nil
+}
+
+func (h *Handler) handleGetCustomVerificationEmailTemplate(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("TemplateName")
+	tmpl, err := h.Backend.GetCustomVerificationEmailTemplate(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getCustomVerificationEmailTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result: getCustomVerificationEmailTemplateResult{
+			Template: xmlCustomVerifTemplate(tmpl),
+		},
+	}, nil
+}
+
+func (h *Handler) handleListCustomVerificationEmailTemplates(reqID string) any {
+	tmpls := h.Backend.ListCustomVerificationEmailTemplates()
+	members := make([]xmlCustomVerifTemplate, 0, len(tmpls))
+	for _, t := range tmpls {
+		members = append(members, xmlCustomVerifTemplate(t))
+	}
+
+	return &listCustomVerificationEmailTemplatesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result: listCustomVerificationEmailTemplatesResult{
+			CustomVerificationEmailTemplates: xmlCustomVerifTemplateList{Members: members},
+		},
+	}
+}
+
+func toXMLReceiptRule(r ReceiptRule) xmlReceiptRule {
+	recipients := make([]xmlMember, 0, len(r.Recipients))
+	for _, rec := range r.Recipients {
+		recipients = append(recipients, xmlMember{Value: rec})
+	}
+
+	return xmlReceiptRule{
+		Name:        r.Name,
+		Enabled:     r.Enabled,
+		TLSPolicy:   r.TLSPolicy,
+		ScanEnabled: r.ScanEnabled,
+		Recipients:  xmlMemberList{Members: recipients},
+	}
+}
+
+type xmlReceiptFilter struct {
+	Name   string `xml:"Name"`
+	Policy string `xml:"IpFilter>Policy"`
+	CIDR   string `xml:"IpFilter>Cidr"`
+}
+
+type xmlReceiptFilterList struct {
+	Members []xmlReceiptFilter `xml:"member"`
+}
+
+type listReceiptFiltersResult struct {
+	Filters xmlReceiptFilterList `xml:"Filters"`
+}
+
+type listReceiptFiltersResponse struct {
+	XMLName   xml.Name                 `xml:"ListReceiptFiltersResponse"`
+	Xmlns     string                   `xml:"xmlns,attr"`
+	RequestID string                   `xml:"ResponseMetadata>RequestId"`
+	Result    listReceiptFiltersResult `xml:"ListReceiptFiltersResult"`
+}
+
+type deleteReceiptFilterResponse struct {
+	XMLName   xml.Name `xml:"DeleteReceiptFilterResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type xmlRuleSetMetadata struct {
+	Name      string `xml:"Name"`
+	CreatedAt string `xml:"CreatedTimestamp"`
+}
+
+type xmlRuleSetMetadataList struct {
+	Members []xmlRuleSetMetadata `xml:"member"`
+}
+
+type listReceiptRuleSetsResult struct {
+	RuleSets xmlRuleSetMetadataList `xml:"RuleSets"`
+}
+
+type listReceiptRuleSetsResponse struct {
+	XMLName   xml.Name                  `xml:"ListReceiptRuleSetsResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
+	Result    listReceiptRuleSetsResult `xml:"ListReceiptRuleSetsResult"`
+}
+
+type xmlReceiptRule struct {
+	Name        string        `xml:"Name"`
+	TLSPolicy   string        `xml:"TlsPolicy,omitempty"`
+	Recipients  xmlMemberList `xml:"Recipients"`
+	Enabled     bool          `xml:"Enabled"`
+	ScanEnabled bool          `xml:"ScanEnabled"`
+}
+
+type xmlReceiptRuleList struct {
+	Members []xmlReceiptRule `xml:"member"`
+}
+
+type describeReceiptRuleSetResult struct {
+	Metadata xmlRuleSetMetadata `xml:"Metadata"`
+	Rules    xmlReceiptRuleList `xml:"Rules"`
+}
+
+type describeReceiptRuleSetResponse struct {
+	XMLName   xml.Name                     `xml:"DescribeReceiptRuleSetResponse"`
+	Xmlns     string                       `xml:"xmlns,attr"`
+	RequestID string                       `xml:"ResponseMetadata>RequestId"`
+	Result    describeReceiptRuleSetResult `xml:"DescribeReceiptRuleSetResult"`
+}
+
+type deleteReceiptRuleResponse struct {
+	XMLName   xml.Name `xml:"DeleteReceiptRuleResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type deleteReceiptRuleSetResponse struct {
+	XMLName   xml.Name `xml:"DeleteReceiptRuleSetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type setActiveReceiptRuleSetResponse struct {
+	XMLName   xml.Name `xml:"SetActiveReceiptRuleSetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type describeActiveReceiptRuleSetResult struct {
+	Metadata *xmlRuleSetMetadata `xml:"Metadata,omitempty"`
+	Rules    xmlReceiptRuleList  `xml:"Rules"`
+}
+
+type describeActiveReceiptRuleSetResponse struct {
+	XMLName   xml.Name                           `xml:"DescribeActiveReceiptRuleSetResponse"`
+	Xmlns     string                             `xml:"xmlns,attr"`
+	RequestID string                             `xml:"ResponseMetadata>RequestId"`
+	Result    describeActiveReceiptRuleSetResult `xml:"DescribeActiveReceiptRuleSetResult"`
+}
+
+type xmlCustomVerifTemplate struct {
+	TemplateName          string `xml:"TemplateName"`
+	FromEmailAddress      string `xml:"FromEmailAddress"`
+	TemplateSubject       string `xml:"TemplateSubject"`
+	TemplateContent       string `xml:"TemplateContent,omitempty"`
+	SuccessRedirectionURL string `xml:"SuccessRedirectionURL,omitempty"`
+	FailureRedirectionURL string `xml:"FailureRedirectionURL,omitempty"`
+}
+
+type getCustomVerificationEmailTemplateResult struct {
+	Template xmlCustomVerifTemplate `xml:"CustomVerificationEmailTemplate"`
+}
+
+type getCustomVerificationEmailTemplateResponse struct {
+	XMLName   xml.Name                                 `xml:"GetCustomVerificationEmailTemplateResponse"`
+	Xmlns     string                                   `xml:"xmlns,attr"`
+	RequestID string                                   `xml:"ResponseMetadata>RequestId"`
+	Result    getCustomVerificationEmailTemplateResult `xml:"GetCustomVerificationEmailTemplateResult"`
+}
+
+type xmlCustomVerifTemplateList struct {
+	Members []xmlCustomVerifTemplate `xml:"member"`
+}
+
+type listCustomVerificationEmailTemplatesResult struct {
+	CustomVerificationEmailTemplates xmlCustomVerifTemplateList `xml:"CustomVerificationEmailTemplates"`
+}
+
+type listCustomVerificationEmailTemplatesResponse struct {
+	XMLName   xml.Name                                   `xml:"ListCustomVerificationEmailTemplatesResponse"`
+	Xmlns     string                                     `xml:"xmlns,attr"`
+	RequestID string                                     `xml:"ResponseMetadata>RequestId"`
+	Result    listCustomVerificationEmailTemplatesResult `xml:"ListCustomVerificationEmailTemplatesResult"`
 }

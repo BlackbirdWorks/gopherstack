@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -35,6 +36,7 @@ var (
 	ErrTrackingOptionsExists       = errors.New("TrackingOptionsAlreadyExists")
 	ErrCustomVerifTemplateNotFound = errors.New("CustomVerificationEmailTemplateDoesNotExist")
 	ErrCustomVerifTemplateExists   = errors.New("CustomVerificationEmailTemplateAlreadyExists")
+	ErrValidation                  = errors.New("ValidationError")
 )
 
 // maxRetainedEmails is the maximum number of sent emails retained in memory.
@@ -43,6 +45,16 @@ const maxRetainedEmails = 10000
 
 // defaultEmailTTL is the default time-to-live for retained emails.
 const defaultEmailTTL = 24 * time.Hour
+
+const (
+	FilterPolicyAllow   = "Allow"
+	FilterPolicyBlock   = "Block"
+	TLSPolicyOptional   = "Optional"
+	TLSPolicyRequire    = "Require"
+	ruleSetStatusActive = "Active"
+)
+
+const defaultAccountID = "123456789012"
 
 // maxSendQuota24Hours is the simulated 24-hour send quota returned by GetSendQuota.
 const maxSendQuota24Hours = 200
@@ -127,6 +139,7 @@ type InMemoryBackend struct {
 	eventDestinations    map[string]map[string]*EventDestination
 	trackingOptions      map[string]*TrackingOptions
 	customVerifTemplates map[string]*CustomVerificationEmailTemplate
+	activeRuleSet        string
 	mu                   *lockmetrics.RWMutex
 	emails               []Email
 	emailTTL             time.Duration
@@ -179,6 +192,7 @@ func (b *InMemoryBackend) Reset() {
 	b.eventDestinations = make(map[string]map[string]*EventDestination)
 	b.trackingOptions = make(map[string]*TrackingOptions)
 	b.customVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
+	b.activeRuleSet = ""
 	b.emailTTL = b.configuredEmailTTL
 }
 
@@ -508,6 +522,8 @@ func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
 	}
 
 	delete(b.configSets, name)
+	delete(b.eventDestinations, name)
+	delete(b.trackingOptions, name)
 
 	return nil
 }
@@ -622,6 +638,24 @@ func findRuleIndex(rules []ReceiptRule, name string) int {
 	return -1
 }
 
+// cloneReceiptRuleSet returns a deep copy of a ReceiptRuleSet.
+func cloneReceiptRuleSet(rs *ReceiptRuleSet) ReceiptRuleSet {
+	rules := make([]ReceiptRule, len(rs.Rules))
+	for i, r := range rs.Rules {
+		recipients := make([]string, len(r.Recipients))
+		copy(recipients, r.Recipients)
+		rules[i] = ReceiptRule{
+			Name:        r.Name,
+			Enabled:     r.Enabled,
+			TLSPolicy:   r.TLSPolicy,
+			ScanEnabled: r.ScanEnabled,
+			Recipients:  recipients,
+		}
+	}
+
+	return ReceiptRuleSet{Name: rs.Name, CreatedAt: rs.CreatedAt, Rules: rules}
+}
+
 // CreateReceiptRuleSet creates a new receipt rule set.
 // Returns ErrReceiptRuleSetExists if it already exists.
 func (b *InMemoryBackend) CreateReceiptRuleSet(name string) error {
@@ -700,6 +734,10 @@ func (b *InMemoryBackend) CreateReceiptRule(ruleSetName string, rule ReceiptRule
 		return fmt.Errorf("%w: Rule.Name is required", ErrInvalidParameter)
 	}
 
+	if rule.TLSPolicy != "" && rule.TLSPolicy != TLSPolicyOptional && rule.TLSPolicy != TLSPolicyRequire {
+		return fmt.Errorf("%w: TlsPolicy must be Optional or Require", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateReceiptRule")
 	defer b.mu.Unlock()
 
@@ -715,7 +753,7 @@ func (b *InMemoryBackend) CreateReceiptRule(ruleSetName string, rule ReceiptRule
 	}
 
 	if after == "" {
-		rs.Rules = append(rs.Rules, rule)
+		rs.Rules = append([]ReceiptRule{rule}, rs.Rules...)
 
 		return nil
 	}
@@ -741,6 +779,10 @@ func (b *InMemoryBackend) CreateReceiptRule(ruleSetName string, rule ReceiptRule
 func (b *InMemoryBackend) CreateReceiptFilter(filter ReceiptFilter) error {
 	if strings.TrimSpace(filter.Name) == "" {
 		return fmt.Errorf("%w: Filter.Name is required", ErrInvalidParameter)
+	}
+
+	if filter.Policy != "" && filter.Policy != FilterPolicyAllow && filter.Policy != FilterPolicyBlock {
+		return fmt.Errorf("%w: Policy must be Allow or Block", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateReceiptFilter")
@@ -883,6 +925,26 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerif
 		return fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
 	}
 
+	if strings.TrimSpace(tmpl.FromEmailAddress) == "" {
+		return fmt.Errorf("%w: FromEmailAddress is required", ErrInvalidParameter)
+	}
+
+	if strings.TrimSpace(tmpl.TemplateSubject) == "" {
+		return fmt.Errorf("%w: TemplateSubject is required", ErrInvalidParameter)
+	}
+
+	if strings.TrimSpace(tmpl.TemplateContent) == "" {
+		return fmt.Errorf("%w: TemplateContent is required", ErrInvalidParameter)
+	}
+
+	if strings.TrimSpace(tmpl.SuccessRedirectionURL) == "" {
+		return fmt.Errorf("%w: SuccessRedirectionURL is required", ErrInvalidParameter)
+	}
+
+	if strings.TrimSpace(tmpl.FailureRedirectionURL) == "" {
+		return fmt.Errorf("%w: FailureRedirectionURL is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
@@ -916,4 +978,174 @@ func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(templateName str
 	delete(b.customVerifTemplates, templateName)
 
 	return nil
+}
+
+// ListReceiptFilters returns a sorted slice of all receipt filters.
+func (b *InMemoryBackend) ListReceiptFilters() []ReceiptFilter {
+	b.mu.RLock("ListReceiptFilters")
+	defer b.mu.RUnlock()
+
+	out := make([]ReceiptFilter, 0, len(b.receiptFilters))
+	for _, f := range b.receiptFilters {
+		out = append(out, *f)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	return out
+}
+
+// DeleteReceiptFilter removes a receipt filter by name.
+func (b *InMemoryBackend) DeleteReceiptFilter(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: Filter.Name is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("DeleteReceiptFilter")
+	defer b.mu.Unlock()
+	if _, exists := b.receiptFilters[name]; !exists {
+		return fmt.Errorf("%w: %s", ErrReceiptFilterNotFound, name)
+	}
+	delete(b.receiptFilters, name)
+
+	return nil
+}
+
+// ListReceiptRuleSets returns a sorted slice of all receipt rule sets (name + createdAt only).
+func (b *InMemoryBackend) ListReceiptRuleSets() []ReceiptRuleSet {
+	b.mu.RLock("ListReceiptRuleSets")
+	defer b.mu.RUnlock()
+
+	out := make([]ReceiptRuleSet, 0, len(b.receiptRuleSets))
+	for _, rs := range b.receiptRuleSets {
+		out = append(out, ReceiptRuleSet{Name: rs.Name, CreatedAt: rs.CreatedAt})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	return out
+}
+
+// DescribeReceiptRuleSet returns a deep copy of the named rule set.
+func (b *InMemoryBackend) DescribeReceiptRuleSet(name string) (ReceiptRuleSet, error) {
+	if strings.TrimSpace(name) == "" {
+		return ReceiptRuleSet{}, fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
+	}
+	b.mu.RLock("DescribeReceiptRuleSet")
+	defer b.mu.RUnlock()
+	rs, exists := b.receiptRuleSets[name]
+	if !exists {
+		return ReceiptRuleSet{}, fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
+	}
+
+	return cloneReceiptRuleSet(rs), nil
+}
+
+// DeleteReceiptRule removes a receipt rule from a rule set.
+func (b *InMemoryBackend) DeleteReceiptRule(ruleSetName, ruleName string) error {
+	if strings.TrimSpace(ruleSetName) == "" {
+		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
+	}
+	if strings.TrimSpace(ruleName) == "" {
+		return fmt.Errorf("%w: Rule.Name is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("DeleteReceiptRule")
+	defer b.mu.Unlock()
+	rs, exists := b.receiptRuleSets[ruleSetName]
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
+	}
+	idx := findRuleIndex(rs.Rules, ruleName)
+	if idx < 0 {
+		return fmt.Errorf("%w: %s", ErrReceiptRuleNotFound, ruleName)
+	}
+	rs.Rules = append(rs.Rules[:idx], rs.Rules[idx+1:]...)
+
+	return nil
+}
+
+// DeleteReceiptRuleSet removes a receipt rule set and its rules.
+func (b *InMemoryBackend) DeleteReceiptRuleSet(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("DeleteReceiptRuleSet")
+	defer b.mu.Unlock()
+	if _, exists := b.receiptRuleSets[name]; !exists {
+		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
+	}
+	delete(b.receiptRuleSets, name)
+	if b.activeRuleSet == name {
+		b.activeRuleSet = ""
+	}
+
+	return nil
+}
+
+// SetActiveReceiptRuleSet sets the named rule set as active.
+// Passing an empty name clears the active rule set.
+func (b *InMemoryBackend) SetActiveReceiptRuleSet(name string) error {
+	b.mu.Lock("SetActiveReceiptRuleSet")
+	defer b.mu.Unlock()
+	if name != "" {
+		if _, exists := b.receiptRuleSets[name]; !exists {
+			return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
+		}
+	}
+	b.activeRuleSet = name
+
+	return nil
+}
+
+// DescribeActiveReceiptRuleSet returns the active receipt rule set.
+// Returns false if none is set.
+func (b *InMemoryBackend) DescribeActiveReceiptRuleSet() (ReceiptRuleSet, bool, error) {
+	b.mu.RLock("DescribeActiveReceiptRuleSet")
+	defer b.mu.RUnlock()
+	if b.activeRuleSet == "" {
+		return ReceiptRuleSet{}, false, nil
+	}
+	rs, exists := b.receiptRuleSets[b.activeRuleSet]
+	if !exists {
+		return ReceiptRuleSet{}, false, nil
+	}
+
+	return cloneReceiptRuleSet(rs), true, nil
+}
+
+// GetCustomVerificationEmailTemplate returns the named custom verification email template.
+func (b *InMemoryBackend) GetCustomVerificationEmailTemplate(
+	templateName string,
+) (CustomVerificationEmailTemplate, error) {
+	if strings.TrimSpace(templateName) == "" {
+		return CustomVerificationEmailTemplate{}, fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
+	}
+	b.mu.RLock("GetCustomVerificationEmailTemplate")
+	defer b.mu.RUnlock()
+	tmpl, exists := b.customVerifTemplates[templateName]
+	if !exists {
+		return CustomVerificationEmailTemplate{}, fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, templateName)
+	}
+
+	return *tmpl, nil
+}
+
+// ListCustomVerificationEmailTemplates returns a sorted slice of all custom verification email templates.
+func (b *InMemoryBackend) ListCustomVerificationEmailTemplates() []CustomVerificationEmailTemplate {
+	b.mu.RLock("ListCustomVerificationEmailTemplates")
+	defer b.mu.RUnlock()
+	out := make([]CustomVerificationEmailTemplate, 0, len(b.customVerifTemplates))
+	for _, t := range b.customVerifTemplates {
+		out = append(out, *t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TemplateName < out[j].TemplateName })
+
+	return out
+}
+
+// Region returns the AWS region for this backend instance.
+func (b *InMemoryBackend) Region() string {
+	return config.DefaultRegion
+}
+
+// AccountID returns the simulated AWS account ID.
+func (b *InMemoryBackend) AccountID() string {
+	return defaultAccountID
 }

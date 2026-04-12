@@ -132,7 +132,7 @@ func TestSESNewOps_CloneReceiptRuleSet_CopiesRules(t *testing.T) {
 
 	rec := postForm(t, h, "Action=CloneReceiptRuleSet&Version=2010-12-01&OriginalRuleSetName=source&RuleSetName=clone")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 2, h.Backend.ReceiptRuleSetCount())
+	assert.Equal(t, 2, h.Backend.(*ses.InMemoryBackend).ReceiptRuleSetCount())
 }
 
 // TestSESNewOps_CreateReceiptRule covers the CreateReceiptRule handler.
@@ -565,14 +565,19 @@ func TestSESNewOps_CreateCustomVerificationEmailTemplate(t *testing.T) {
 		{
 			name: "duplicate_template_returns_error",
 			body: url.Values{
-				"Action":       {"CreateCustomVerificationEmailTemplate"},
-				"Version":      {"2010-12-01"},
-				"TemplateName": {"existing"},
+				"Action":                {"CreateCustomVerificationEmailTemplate"},
+				"Version":               {"2010-12-01"},
+				"TemplateName":          {"existing"},
+				"FromEmailAddress":      {"noreply@example.com"},
+				"TemplateSubject":       {"Verify"},
+				"TemplateContent":       {"<html>Click</html>"},
+				"SuccessRedirectionURL": {"https://example.com/success"},
+				"FailureRedirectionURL": {"https://example.com/failure"},
 			}.Encode(),
 			setup: func(h *ses.Handler) {
-				require.NoError(t, h.Backend.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
+				h.Backend.(*ses.InMemoryBackend).AddCustomVerifTemplateInternal(ses.CustomVerificationEmailTemplate{
 					TemplateName: "existing",
-				}))
+				})
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: "CustomVerificationEmailTemplateAlreadyExists",
@@ -620,9 +625,9 @@ func TestSESNewOps_DeleteCustomVerificationEmailTemplate(t *testing.T) {
 			name: "success",
 			body: "Action=DeleteCustomVerificationEmailTemplate&Version=2010-12-01&TemplateName=my-tmpl",
 			setup: func(h *ses.Handler) {
-				require.NoError(t, h.Backend.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
+				h.Backend.(*ses.InMemoryBackend).AddCustomVerifTemplateInternal(ses.CustomVerificationEmailTemplate{
 					TemplateName: "my-tmpl",
-				}))
+				})
 			},
 			wantCode:     http.StatusOK,
 			wantContains: "DeleteCustomVerificationEmailTemplateResponse",
@@ -668,10 +673,7 @@ func TestSESNewOps_BackendReset(t *testing.T) {
 	require.NoError(t, b.CreateConfigurationSet("cs1"))
 	require.NoError(t, b.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{Name: "dest1"}))
 	require.NoError(t, b.CreateConfigurationSetTrackingOptions("cs1", "track.example.com"))
-	require.NoError(
-		t,
-		b.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{TemplateName: "tmpl1"}),
-	)
+	b.AddCustomVerifTemplateInternal(ses.CustomVerificationEmailTemplate{TemplateName: "tmpl1"})
 
 	assert.Equal(t, 1, b.ReceiptRuleSetCount())
 	assert.Equal(t, 1, b.ReceiptFilterCount())
@@ -703,8 +705,12 @@ func TestSESNewOps_SnapshotRestore(t *testing.T) {
 	)
 	require.NoError(t, b.CreateConfigurationSetTrackingOptions("cs1", "track.example.com"))
 	require.NoError(t, b.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
-		TemplateName:     "my-tmpl",
-		FromEmailAddress: "noreply@example.com",
+		TemplateName:          "my-tmpl",
+		FromEmailAddress:      "noreply@example.com",
+		TemplateSubject:       "Please verify",
+		TemplateContent:       "<html>Verify</html>",
+		SuccessRedirectionURL: "https://example.com/success",
+		FailureRedirectionURL: "https://example.com/failure",
 	}))
 
 	snap := b.Snapshot()

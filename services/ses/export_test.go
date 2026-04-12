@@ -135,7 +135,51 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 // GetEmailTTL returns the email TTL configured on the handler's backend.
 // Used in provider tests to verify that the TTL is passed through correctly.
 func (h *Handler) GetEmailTTL() time.Duration {
-	return h.Backend.GetEmailTTL()
+	if ib, ok := h.Backend.(*InMemoryBackend); ok {
+		return ib.GetEmailTTL()
+	}
+
+	return 0
+}
+
+// HandlerOpsLen returns the number of operations in GetSupportedOperations().
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}
+
+// AddReceiptRuleSetInternal adds a receipt rule set directly for test seeding.
+func (b *InMemoryBackend) AddReceiptRuleSetInternal(rs ReceiptRuleSet) {
+	b.mu.Lock("AddReceiptRuleSetInternal")
+	defer b.mu.Unlock()
+	r := rs
+	if r.Rules == nil {
+		r.Rules = []ReceiptRule{}
+	}
+	b.receiptRuleSets[rs.Name] = &r
+}
+
+// AddReceiptFilterInternal adds a receipt filter directly for test seeding.
+func (b *InMemoryBackend) AddReceiptFilterInternal(f ReceiptFilter) {
+	b.mu.Lock("AddReceiptFilterInternal")
+	defer b.mu.Unlock()
+	fc := f
+	b.receiptFilters[f.Name] = &fc
+}
+
+// AddCustomVerifTemplateInternal adds a custom verification email template for test seeding.
+func (b *InMemoryBackend) AddCustomVerifTemplateInternal(t CustomVerificationEmailTemplate) {
+	b.mu.Lock("AddCustomVerifTemplateInternal")
+	defer b.mu.Unlock()
+	tc := t
+	b.customVerifTemplates[t.TemplateName] = &tc
+}
+
+// ActiveRuleSet returns the name of the currently active rule set.
+func (b *InMemoryBackend) ActiveRuleSet() string {
+	b.mu.RLock("ActiveRuleSet")
+	defer b.mu.RUnlock()
+
+	return b.activeRuleSet
 }
 
 // BackdateEmailForTest sets the Timestamp of the email at index i to the given time.

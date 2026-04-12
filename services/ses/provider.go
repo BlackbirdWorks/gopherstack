@@ -1,8 +1,13 @@
 package ses
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned by Init when the AppContext is nil.
+var ErrNilAppContext = errors.New("ses: AppContext is nil")
 
 // ConfigProvider is a private interface to extract SES configuration
 // from the abstract AppContext Config.
@@ -22,6 +27,9 @@ func (p *Provider) Name() string {
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
 	var settings Settings
 
 	if cp, ok := ctx.Config.(ConfigProvider); ok {

@@ -2,6 +2,7 @@ package ses
 
 import (
 	"encoding/json"
+	"log/slog"
 	"maps"
 	"time"
 )
@@ -15,6 +16,7 @@ type backendSnapshot struct {
 	EventDestinations    map[string]map[string]*EventDestination     `json:"eventDestinations"`
 	TrackingOptions      map[string]*TrackingOptions                 `json:"trackingOptions"`
 	CustomVerifTemplates map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
+	ActiveRuleSet        string                                      `json:"activeRuleSet,omitempty"`
 	Emails               []Email                                     `json:"emails"`
 }
 
@@ -37,23 +39,38 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	maps.Copy(cfgs, b.configSets)
 
 	ruleSets := make(map[string]*ReceiptRuleSet, len(b.receiptRuleSets))
-	maps.Copy(ruleSets, b.receiptRuleSets)
+	for k, rs := range b.receiptRuleSets {
+		clone := cloneReceiptRuleSet(rs)
+		ruleSets[k] = &clone
+	}
 
 	filters := make(map[string]*ReceiptFilter, len(b.receiptFilters))
-	maps.Copy(filters, b.receiptFilters)
+	for k, f := range b.receiptFilters {
+		fc := *f
+		filters[k] = &fc
+	}
 
 	evtDests := make(map[string]map[string]*EventDestination, len(b.eventDestinations))
 	for csName, dests := range b.eventDestinations {
 		destCopy := make(map[string]*EventDestination, len(dests))
-		maps.Copy(destCopy, dests)
+		for k, d := range dests {
+			dc := *d
+			destCopy[k] = &dc
+		}
 		evtDests[csName] = destCopy
 	}
 
 	trackOpts := make(map[string]*TrackingOptions, len(b.trackingOptions))
-	maps.Copy(trackOpts, b.trackingOptions)
+	for k, t := range b.trackingOptions {
+		tc := *t
+		trackOpts[k] = &tc
+	}
 
 	custTmpls := make(map[string]*CustomVerificationEmailTemplate, len(b.customVerifTemplates))
-	maps.Copy(custTmpls, b.customVerifTemplates)
+	for k, t := range b.customVerifTemplates {
+		tc := *t
+		custTmpls[k] = &tc
+	}
 
 	snap := backendSnapshot{
 		Identities:           ids,
@@ -65,10 +82,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		EventDestinations:    evtDests,
 		TrackingOptions:      trackOpts,
 		CustomVerifTemplates: custTmpls,
+		ActiveRuleSet:        b.activeRuleSet,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("ses: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -87,41 +107,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Identities == nil {
-		snap.Identities = make(map[string]bool)
-	}
-
-	if snap.Emails == nil {
-		snap.Emails = []Email{}
-	}
-
-	if snap.Templates == nil {
-		snap.Templates = make(map[string]EmailTemplate)
-	}
-
-	if snap.ConfigSets == nil {
-		snap.ConfigSets = make(map[string]struct{})
-	}
-
-	if snap.ReceiptRuleSets == nil {
-		snap.ReceiptRuleSets = make(map[string]*ReceiptRuleSet)
-	}
-
-	if snap.ReceiptFilters == nil {
-		snap.ReceiptFilters = make(map[string]*ReceiptFilter)
-	}
-
-	if snap.EventDestinations == nil {
-		snap.EventDestinations = make(map[string]map[string]*EventDestination)
-	}
-
-	if snap.TrackingOptions == nil {
-		snap.TrackingOptions = make(map[string]*TrackingOptions)
-	}
-
-	if snap.CustomVerifTemplates == nil {
-		snap.CustomVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
-	}
+	ensureNonNilMaps(&snap)
 
 	b.identities = snap.Identities
 	b.templates = snap.Templates
@@ -131,6 +117,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventDestinations = snap.EventDestinations
 	b.trackingOptions = snap.TrackingOptions
 	b.customVerifTemplates = snap.CustomVerifTemplates
+	b.activeRuleSet = snap.ActiveRuleSet
 
 	// Drop emails outside the current TTL window and cap to maxRetainedEmails
 	// so that memory is bounded immediately after restore.
@@ -168,4 +155,34 @@ func (h *Handler) Snapshot() []byte {
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error {
 	return h.Backend.Restore(data)
+}
+
+func ensureNonNilMaps(snap *backendSnapshot) {
+	if snap.Identities == nil {
+		snap.Identities = make(map[string]bool)
+	}
+	if snap.Emails == nil {
+		snap.Emails = []Email{}
+	}
+	if snap.Templates == nil {
+		snap.Templates = make(map[string]EmailTemplate)
+	}
+	if snap.ConfigSets == nil {
+		snap.ConfigSets = make(map[string]struct{})
+	}
+	if snap.ReceiptRuleSets == nil {
+		snap.ReceiptRuleSets = make(map[string]*ReceiptRuleSet)
+	}
+	if snap.ReceiptFilters == nil {
+		snap.ReceiptFilters = make(map[string]*ReceiptFilter)
+	}
+	if snap.EventDestinations == nil {
+		snap.EventDestinations = make(map[string]map[string]*EventDestination)
+	}
+	if snap.TrackingOptions == nil {
+		snap.TrackingOptions = make(map[string]*TrackingOptions)
+	}
+	if snap.CustomVerifTemplates == nil {
+		snap.CustomVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
+	}
 }
