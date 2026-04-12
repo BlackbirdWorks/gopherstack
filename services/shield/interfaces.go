@@ -3,15 +3,37 @@ package shield
 // StorageBackend is the interface for Shield Advanced storage operations.
 type StorageBackend interface {
 	CreateSubscription() error
+	DeleteSubscription() error
+	UpdateSubscription(autoRenew string) error
 	DescribeSubscription() (*Subscription, error)
 	GetSubscriptionState() string
 	CreateProtection(name, resourceARN string, tags map[string]string) (*Protection, error)
 	DescribeProtection(protectionID, resourceARN string) (*Protection, error)
 	DeleteProtection(protectionID string) error
 	ListProtections() []*Protection
+	AssociateHealthCheck(protectionID, healthCheckARN string) error
+	DisassociateHealthCheck(protectionID, healthCheckARN string) error
 	TagResource(resourceARN string, tags map[string]string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	UntagResource(resourceARN string, tagKeys []string) error
+	AssociateDRTLogBucket(bucket string) error
+	DisassociateDRTLogBucket(bucket string) error
+	AssociateDRTRole(roleARN string) error
+	DisassociateDRTRole() error
+	DescribeDRTAccess() *DRTAccess
+	AssociateProactiveEngagementDetails(contacts []EmergencyContact) error
+	UpdateEmergencyContactSettings(contacts []EmergencyContact) error
+	DescribeEmergencyContactSettings() []EmergencyContact
+	EnableProactiveEngagement() error
+	DisableProactiveEngagement() error
+	CreateProtectionGroup(id, aggregation, pattern, resourceType string, members []string) (*ProtectionGroup, error)
+	DescribeProtectionGroup(id string) (*ProtectionGroup, error)
+	ListProtectionGroups() []*ProtectionGroup
+	UpdateProtectionGroup(id, aggregation, pattern, resourceType string, members []string) error
+	DeleteProtectionGroup(protectionGroupID string) error
+	ListAttacks(resourceARN string, startTime, endTime int64) []*Attack
+	DescribeAttack(attackID string) (*Attack, error)
+	DescribeAttackStatistics() *AttackStatistics
 	AccountID() string
 	Region() string
 	Reset()
