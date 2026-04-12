@@ -2,6 +2,7 @@ package serverlessrepo
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 )
+
+// validNameRe matches AWS SAR-valid application names: alphanumeric and hyphens only.
+var validNameRe = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 
 const (
 	// templateStatusActive is the status of an active CloudFormation template.
@@ -302,6 +306,10 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
+	if !validNameRe.MatchString(name) {
+		return nil, fmt.Errorf("%w: name must contain only alphanumeric characters and hyphens", ErrValidation)
+	}
+
 	if author == "" {
 		return nil, fmt.Errorf("%w: author is required", ErrValidation)
 	}
@@ -446,17 +454,59 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 		)
 	}
 
+	// Generate a synthetic template URL when the caller provides only a sourceCodeURL.
+	resolvedTemplateURL := templateURL
+	if resolvedTemplateURL == "" && sourceCodeURL != "" {
+		resolvedTemplateURL = fmt.Sprintf(
+			"https://s3.amazonaws.com/serverlessrepo-templates/%s/%s.template",
+			appName,
+			semanticVersion,
+		)
+	}
+
 	v := &ApplicationVersion{
 		ApplicationID:        app.ApplicationID,
 		SemanticVersion:      semanticVersion,
 		SourceCodeURL:        sourceCodeURL,
-		TemplateURL:          templateURL,
+		TemplateURL:          resolvedTemplateURL,
 		CreationTime:         time.Now(),
 		ParameterDefinitions: []ParameterDefinition{},
 		RequiredCapabilities: []string{},
 		ResourcesSupported:   true,
 	}
 	b.appVersions[appName][semanticVersion] = v
+
+	return cloneVersion(v), nil
+}
+
+// GetApplicationVersion returns a specific version of an application by semantic version string.
+func (b *InMemoryBackend) GetApplicationVersion(appName, semanticVersion string) (*ApplicationVersion, error) {
+	b.mu.RLock("GetApplicationVersion")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[appName]; !ok {
+		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
+	}
+
+	versions, ok := b.appVersions[appName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: could not find version %q for application %q",
+			ErrApplicationNotFound,
+			semanticVersion,
+			appName,
+		)
+	}
+
+	v, ok := versions[semanticVersion]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: could not find version %q for application %q",
+			ErrApplicationNotFound,
+			semanticVersion,
+			appName,
+		)
+	}
 
 	return cloneVersion(v), nil
 }
@@ -597,7 +647,9 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSet(
 		SemanticVersion: semanticVersion,
 		StackID:         stackID,
 	}
-	b.cfChangeSets[appName][changeSetID] = cs
+	// Store a copy to prevent shared-pointer mutations after return.
+	csCopy := *cs
+	b.cfChangeSets[appName][changeSetID] = &csCopy
 
 	return cs, nil
 }
@@ -630,6 +682,12 @@ func (b *InMemoryBackend) PutApplicationPolicy(
 	for i, s := range statements {
 		if len(s.Actions) == 0 {
 			return nil, fmt.Errorf("%w: statement %d has no actions", ErrValidation, i)
+		}
+
+		for _, action := range s.Actions {
+			if !isValidPolicyAction(action) {
+				return nil, fmt.Errorf("%w: statement %d contains unsupported action %q", ErrValidation, i, action)
+			}
 		}
 
 		if len(s.Principals) == 0 {
@@ -670,4 +728,26 @@ func (b *InMemoryBackend) UnshareApplication(appName, _ string) error {
 	}
 
 	return nil
+}
+
+// validPolicyActions returns a set of AWS SAR application policy actions (case-sensitive map).
+func validPolicyActionsSet() map[string]struct{} {
+	return map[string]struct{}{
+		"deploy":                  {},
+		"Deploy":                  {},
+		"getapplication":          {},
+		"GetApplication":          {},
+		"listapplicationversions": {},
+		"ListApplicationVersions": {},
+		"searchapplications":      {},
+		"SearchApplications":      {},
+	}
+}
+
+// isValidPolicyAction returns true if the given action is a supported SAR policy action.
+// AWS SAR is case-insensitive for action names; we accept both mixed-case and lowercase variants.
+func isValidPolicyAction(action string) bool {
+	_, ok := validPolicyActionsSet()[action]
+
+	return ok
 }

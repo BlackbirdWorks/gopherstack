@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,12 @@ const (
 	pathSegPolicy       = "policy"
 	pathSegDependencies = "dependencies"
 	pathSegUnshare      = "unshare"
+
+	// templateStatusExpired is the status of an expired CloudFormation template.
+	templateStatusExpired = "EXPIRED"
+
+	// maxItemsDefault is the default maximum number of items returned in list operations.
+	maxItemsDefault = 100
 )
 
 var (
@@ -122,7 +129,9 @@ func (h *Handler) MatchPriority() int { return serverlessrepoMatchPriority }
 // ExtractOperation extracts the operation name from the HTTP method and request path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	method := c.Request().Method
-	path := c.Request().URL.Path
+	// Use the raw (percent-encoded) path for routing to correctly handle ARN application IDs
+	// that contain a literal '/' (encoded as %2F) in their path component.
+	path := rawPathOrPath(c.Request())
 
 	// /applications → list or create
 	if path == "/applications" || path == "/applications/" {
@@ -226,6 +235,18 @@ func extractThreeSegOp(method, seg string) string {
 	return ""
 }
 
+// rawPathOrPath returns URL.RawPath if non-empty (i.e. the path contains percent-encoded
+// characters whose decoded form would change the path structure, such as %2F → '/').
+// Otherwise it falls back to URL.Path. This is necessary for correctly routing requests where
+// the application ID is an ARN that contains a '/' encoded as '%2F'.
+func rawPathOrPath(req *http.Request) string {
+	if req.URL.RawPath != "" {
+		return req.URL.RawPath
+	}
+
+	return req.URL.Path
+}
+
 // ExtractResource extracts the resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	return h.ExtractOperation(c)
@@ -292,7 +313,7 @@ func (h *Handler) dispatchAppOps(ctx context.Context, op string, req *http.Reque
 
 		return result, true, err
 	case "ListApplications":
-		result, err := h.handleListApplications()
+		result, err := h.handleListApplications(req)
 
 		return result, true, err
 	case "UpdateApplication":
@@ -404,8 +425,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 // at /applications/{applicationId} (URL-encoded). If the segment is an ARN
 // (e.g. arn:aws:serverlessrepo:us-east-1:123:applications/my-app), the name
 // after the final "/" is extracted.
+//
+// Uses URL.RawPath (if set) to correctly handle ARN application IDs that contain
+// a literal '/' encoded as '%2F' in the path; otherwise falls back to URL.Path.
 func extractApplicationName(req *http.Request) (string, error) {
-	path := req.URL.Path
+	path := rawPathOrPath(req)
 	path = strings.TrimPrefix(path, "/applications/")
 	path = strings.SplitN(path, "/", pathSegmentsMax)[0]
 
@@ -415,16 +439,16 @@ func extractApplicationName(req *http.Request) (string, error) {
 	}
 
 	// Accept ARN-form application IDs (e.g. arn:aws:serverlessrepo:us-east-1:123456789:applications/my-app).
-	// Validate the ARN has the expected /applications/<name> structure before extracting the name.
+	// The SAR ARN format uses a colon before "applications", not a slash.
 	if strings.HasPrefix(name, "arn:") {
-		const arnResourcePrefix = "/applications/"
+		const arnAppResource = ":applications/"
 
-		idx := strings.Index(name, arnResourcePrefix)
+		idx := strings.Index(name, arnAppResource)
 		if idx < 0 {
-			return "", fmt.Errorf("%w: ARN does not contain expected /applications/ resource path", errInvalidRequest)
+			return "", fmt.Errorf("%w: ARN does not contain expected :applications/ resource path", errInvalidRequest)
 		}
 
-		name = strings.TrimSuffix(name[idx+len(arnResourcePrefix):], "/")
+		name = strings.TrimSuffix(name[idx+len(arnAppResource):], "/")
 		if name == "" {
 			return "", fmt.Errorf("%w: ARN has empty application name", errInvalidRequest)
 		}
@@ -439,8 +463,11 @@ func extractApplicationName(req *http.Request) (string, error) {
 
 // extractPathExtra extracts the application name and the trailing extra segment
 // from a path of the form /applications/{appId}/{segment}/{extra}.
+//
+// Uses URL.RawPath (if set) to correctly handle ARN application IDs that contain
+// a literal '/' encoded as '%2F' in the path; otherwise falls back to URL.Path.
 func extractPathExtra(req *http.Request) (string, string, error) {
-	path := strings.TrimPrefix(req.URL.Path, "/applications/")
+	path := strings.TrimPrefix(rawPathOrPath(req), "/applications/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
 
 	appName, urlErr := url.PathUnescape(parts[0])
@@ -449,11 +476,11 @@ func extractPathExtra(req *http.Request) (string, string, error) {
 	}
 
 	if strings.HasPrefix(appName, "arn:") {
-		const arnResourcePrefix = "/applications/"
+		const arnAppResource = ":applications/"
 
-		idx := strings.Index(appName, arnResourcePrefix)
+		idx := strings.Index(appName, arnAppResource)
 		if idx >= 0 {
-			appName = strings.TrimSuffix(appName[idx+len(arnResourcePrefix):], "/")
+			appName = strings.TrimSuffix(appName[idx+len(arnAppResource):], "/")
 		}
 	}
 
@@ -469,6 +496,21 @@ func extractPathExtra(req *http.Request) (string, string, error) {
 // isoTimestamp converts a [time.Time] to an RFC3339 UTC string, matching the AWS SAR API shape.
 func isoTimestamp(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
+}
+
+// parseMaxItems parses the maxItems query parameter, returning defaultVal when the parameter
+// is empty or invalid (non-positive). The returned value is always at least 1.
+func parseMaxItems(raw string, defaultVal int) int {
+	if raw == "" {
+		return defaultVal
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultVal
+	}
+
+	return n
 }
 
 // createApplicationRequest is the request body for CreateApplication.
@@ -601,14 +643,54 @@ func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
 
 	resp := toApplicationResponse(a)
 
+	// If a specific semantic version is requested, embed its full version details.
+	if sv := req.URL.Query().Get("semanticVersion"); sv != "" {
+		v, vErr := h.Backend.GetApplicationVersion(name, sv)
+		if vErr != nil {
+			return nil, vErr
+		}
+
+		resp.Version = &versionResponse{
+			ApplicationID:        v.ApplicationID,
+			CreationTime:         isoTimestamp(v.CreationTime),
+			SemanticVersion:      v.SemanticVersion,
+			TemplateURL:          v.TemplateURL,
+			SourceCodeURL:        v.SourceCodeURL,
+			ParameterDefinitions: v.ParameterDefinitions,
+			RequiredCapabilities: v.RequiredCapabilities,
+			ResourcesSupported:   v.ResourcesSupported,
+		}
+	}
+
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListApplications() ([]byte, error) {
+func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
 	apps := h.Backend.ListApplications()
-	summaries := make([]applicationSummary, 0, len(apps))
 
-	for _, a := range apps {
+	// Apply pagination: nextToken is treated as the last-seen application name (exclusive cursor).
+	nextToken := req.URL.Query().Get("nextToken")
+	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
+
+	start := 0
+
+	if nextToken != "" {
+		for i, a := range apps {
+			if a.Name == nextToken {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+
+	end := min(start+maxItems, len(apps))
+
+	page := apps[start:end]
+
+	summaries := make([]applicationSummary, 0, len(page))
+
+	for _, a := range page {
 		summaries = append(summaries, applicationSummary{
 			ApplicationID: a.ApplicationID,
 			Name:          a.Name,
@@ -621,7 +703,13 @@ func (h *Handler) handleListApplications() ([]byte, error) {
 		})
 	}
 
-	return json.Marshal(map[string]any{"applications": summaries})
+	resp := map[string]any{"applications": summaries}
+
+	if end < len(apps) {
+		resp["nextToken"] = apps[end-1].Name
+	}
+
+	return json.Marshal(resp)
 }
 
 // updateApplicationRequest is the request body for UpdateApplication.
@@ -737,8 +825,42 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 		return nil, err
 	}
 
-	summaries := make([]map[string]any, 0, len(versions))
-	for _, v := range versions {
+	// Optional: filter by specific semantic version.
+	if sv := req.URL.Query().Get("semanticVersion"); sv != "" {
+		filtered := versions[:0]
+
+		for _, v := range versions {
+			if v.SemanticVersion == sv {
+				filtered = append(filtered, v)
+			}
+		}
+
+		versions = filtered
+	}
+
+	// Apply pagination: nextToken is treated as the last-seen semantic version (exclusive cursor).
+	nextToken := req.URL.Query().Get("nextToken")
+	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
+
+	start := 0
+
+	if nextToken != "" {
+		for i, v := range versions {
+			if v.SemanticVersion == nextToken {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+
+	end := min(start+maxItems, len(versions))
+
+	page := versions[start:end]
+
+	summaries := make([]map[string]any, 0, len(page))
+
+	for _, v := range page {
 		summaries = append(summaries, map[string]any{
 			"applicationId":   v.ApplicationID,
 			"semanticVersion": v.SemanticVersion,
@@ -747,7 +869,13 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 		})
 	}
 
-	return json.Marshal(map[string]any{"versions": summaries})
+	resp := map[string]any{"versions": summaries}
+
+	if end < len(versions) {
+		resp["nextToken"] = versions[end-1].SemanticVersion
+	}
+
+	return json.Marshal(resp)
 }
 
 // toVersionResponse converts an ApplicationVersion to a map matching the AWS SAR Version shape.
@@ -829,11 +957,17 @@ func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, er
 		return nil, backendErr
 	}
 
+	// Dynamically compute the status: real SAR returns EXPIRED once past the expiration time.
+	status := t.Status
+	if status == templateStatusActive && time.Now().After(t.ExpirationTime) {
+		status = templateStatusExpired
+	}
+
 	return json.Marshal(map[string]any{
 		"applicationId":   t.ApplicationID,
 		"templateId":      t.TemplateID,
 		"semanticVersion": t.SemanticVersion,
-		"status":          t.Status,
+		"status":          status,
 		"creationTime":    isoTimestamp(t.CreationTime),
 		"expirationTime":  isoTimestamp(t.ExpirationTime),
 		"templateUrl":     t.TemplateURL,

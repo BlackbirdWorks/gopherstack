@@ -15,6 +15,7 @@ type StorageBackend interface {
 
 	// Application version operations
 	CreateApplicationVersion(appName, semanticVersion, sourceCodeURL, templateURL string) (*ApplicationVersion, error)
+	GetApplicationVersion(appName, semanticVersion string) (*ApplicationVersion, error)
 	ListApplicationVersions(appName string) ([]*ApplicationVersion, error)
 
 	// CloudFormation template operations

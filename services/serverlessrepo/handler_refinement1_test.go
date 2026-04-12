@@ -470,7 +470,7 @@ func TestRefinement1_Snapshot_DeepCopiesPolicies(t *testing.T) {
 
 	// Overwrite policy
 	_, err = b.PutApplicationPolicy("my-app", []*serverlessrepo.ApplicationPolicyStatement{
-		{Actions: []string{"read"}, Principals: []string{"111"}},
+		{Actions: []string{"Deploy"}, Principals: []string{"111"}},
 	})
 	require.NoError(t, err)
 
