@@ -189,18 +189,30 @@ func TestHandler_CreateApplication(t *testing.T) {
 				"author":          "test-author",
 				"semanticVersion": "1.0.0",
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusCreated,
 			wantARN:  true,
 		},
 		{
 			name:     "missing name returns bad request",
-			body:     map[string]any{"description": "No name"},
+			body:     map[string]any{"description": "No name", "author": "a"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing author returns bad request",
+			body:     map[string]any{"name": "my-app", "description": "desc"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing description returns bad request",
+			body:     map[string]any{"name": "my-app", "author": "author"},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "duplicate application returns conflict",
 			body: map[string]any{
-				"name": "existing-app",
+				"name":        "existing-app",
+				"description": "desc",
+				"author":      "author",
 			},
 			wantCode: http.StatusConflict,
 		},
@@ -213,7 +225,7 @@ func TestHandler_CreateApplication(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.wantCode == http.StatusConflict {
-				_, err := h.Backend.CreateApplication("existing-app", "", "", "", "", nil)
+				_, err := h.Backend.CreateApplication("existing-app", "desc", "author", "", "", nil, "", "", "")
 				require.NoError(t, err)
 			}
 
@@ -256,7 +268,7 @@ func TestHandler_GetApplication(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			_, err := h.Backend.CreateApplication("existing-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("existing-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodGet, "/applications/"+tt.appName, nil)
@@ -288,8 +300,8 @@ func TestHandler_ListApplications(t *testing.T) {
 		{
 			name: "list with applications",
 			setup: func(h *serverlessrepo.Handler) {
-				_, _ = h.Backend.CreateApplication("app-a", "A", "author", "", "1.0.0", nil)
-				_, _ = h.Backend.CreateApplication("app-b", "B", "author", "", "1.0.0", nil)
+				_, _ = h.Backend.CreateApplication("app-a", "A", "author", "", "1.0.0", nil, "", "", "")
+				_, _ = h.Backend.CreateApplication("app-b", "B", "author", "", "1.0.0", nil, "", "", "")
 			},
 			wantLen:  2,
 			wantCode: http.StatusOK,
@@ -351,7 +363,7 @@ func TestHandler_UpdateApplication(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "original", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "original", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPatch, "/applications/"+tt.appName, tt.body)
@@ -385,7 +397,7 @@ func TestHandler_DeleteApplication(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodDelete, "/applications/"+tt.appName, nil)
@@ -426,19 +438,25 @@ func TestHandler_CreateApplicationVersion(t *testing.T) {
 			body: map[string]any{
 				"sourceCodeUrl": "https://github.com/example/my-app",
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusCreated,
 		},
 		{
 			name:     "app not found returns 404",
 			path:     "/applications/not-found/versions/1.0.0",
-			body:     map[string]any{},
+			body:     map[string]any{"sourceCodeUrl": "https://example.com"},
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "duplicate version returns conflict",
 			path:     "/applications/my-app/versions/1.0.0",
-			body:     map[string]any{},
+			body:     map[string]any{"sourceCodeUrl": "https://example.com"},
 			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "missing source URL returns bad request",
+			path:     "/applications/my-app/versions/2.0.0",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -447,21 +465,23 @@ func TestHandler_CreateApplicationVersion(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "0.1.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "0.1.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			if tt.wantCode == http.StatusConflict {
-				_, err = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "", "")
+				_, err = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "https://example.com", "")
 				require.NoError(t, err)
 			}
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPut, tt.path, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
-			if tt.wantCode == http.StatusOK {
+			if tt.wantCode == http.StatusCreated {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Equal(t, "1.0.0", resp["semanticVersion"])
+				assert.NotNil(t, resp["parameterDefinitions"])
+				assert.NotNil(t, resp["requiredCapabilities"])
 			}
 		})
 	}
@@ -487,8 +507,8 @@ func TestHandler_ListApplicationVersions(t *testing.T) {
 			name:    "list with versions",
 			appName: "my-app",
 			setup: func(h *serverlessrepo.Handler) {
-				_, _ = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "", "")
-				_, _ = h.Backend.CreateApplicationVersion("my-app", "2.0.0", "", "")
+				_, _ = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "https://example.com", "")
+				_, _ = h.Backend.CreateApplicationVersion("my-app", "2.0.0", "https://example.com", "")
 			},
 			wantLen:  2,
 			wantCode: http.StatusOK,
@@ -505,7 +525,7 @@ func TestHandler_ListApplicationVersions(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "0.1.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "0.1.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			if tt.setup != nil {
@@ -541,7 +561,7 @@ func TestHandler_CreateCloudFormationTemplate(t *testing.T) {
 			body: map[string]any{
 				"semanticVersion": "1.0.0",
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusCreated,
 		},
 		{
 			name:     "app not found returns 404",
@@ -556,13 +576,13 @@ func TestHandler_CreateCloudFormationTemplate(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/"+tt.appName+"/templates", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
-			if tt.wantCode == http.StatusOK {
+			if tt.wantCode == http.StatusCreated {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.NotEmpty(t, resp["templateId"])
@@ -605,7 +625,7 @@ func TestHandler_GetCloudFormationTemplate(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			templateID := tt.templateID
@@ -651,7 +671,16 @@ func TestHandler_CreateCloudFormationChangeSet(t *testing.T) {
 				"stackName":       "my-stack",
 				"semanticVersion": "1.0.0",
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusCreated,
+		},
+		{
+			name:    "creates change set with custom name",
+			appName: "my-app",
+			body: map[string]any{
+				"stackName":     "my-stack",
+				"changeSetName": "my-changeset",
+			},
+			wantCode: http.StatusCreated,
 		},
 		{
 			name:     "missing stackName returns bad request",
@@ -674,13 +703,13 @@ func TestHandler_CreateCloudFormationChangeSet(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/"+tt.appName+"/changesets", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
-			if tt.wantCode == http.StatusOK {
+			if tt.wantCode == http.StatusCreated {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.NotEmpty(t, resp["changeSetId"])
@@ -729,7 +758,7 @@ func TestHandler_GetApplicationPolicy(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			if tt.setup != nil {
@@ -809,7 +838,7 @@ func TestHandler_PutApplicationPolicy(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPut, "/applications/"+tt.appName+"/policy", tt.body)
@@ -851,7 +880,7 @@ func TestHandler_ListApplicationDependencies(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodGet, "/applications/"+tt.appName+"/dependencies", nil)
@@ -906,7 +935,7 @@ func TestHandler_UnshareApplication(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil)
+			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/"+tt.appName+"/unshare", tt.body)
@@ -920,7 +949,7 @@ func TestServerlessRepoPersistenceNewOps(t *testing.T) {
 
 	b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil)
+	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateApplicationVersion("app1", "1.0.0", "https://github.com/example", "")
@@ -962,10 +991,10 @@ func TestServerlessRepoPersistence(t *testing.T) {
 
 	b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil)
+	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil, "", "", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication("app2", "desc2", "author2", "", "2.0.0", nil)
+	_, err = b.CreateApplication("app2", "desc2", "author2", "", "2.0.0", nil, "", "", "")
 	require.NoError(t, err)
 
 	// Snapshot

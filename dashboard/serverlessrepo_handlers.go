@@ -108,7 +108,17 @@ func (h *DashboardHandler) serverlessrepoCreate(c *echo.Context) error {
 	author := c.Request().FormValue("author")
 	ctx := c.Request().Context()
 
-	if _, err := h.ServerlessRepoOps.Backend.CreateApplication(name, description, author, "", "", nil); err != nil {
+	if _, err := h.ServerlessRepoOps.Backend.CreateApplication(
+		name,
+		description,
+		author,
+		"",
+		"",
+		nil,
+		"",
+		"",
+		"",
+	); err != nil {
 		h.Logger.ErrorContext(ctx, "serverlessrepo: failed to create application", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

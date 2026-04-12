@@ -55,6 +55,7 @@ import (
 	s3tablesclientsdk "github.com/aws/aws-sdk-go-v2/service/s3tables"
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	sarsdk "github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -1142,4 +1143,24 @@ func resetGopherstackState(ep string) error {
 	}
 
 	return nil
+}
+
+// createServerlessRepoClient returns a Serverless Application Repository client pointed at the shared test container.
+func createServerlessRepoClient(t *testing.T) *sarsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return sarsdk.NewFromConfig(cfg, func(o *sarsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

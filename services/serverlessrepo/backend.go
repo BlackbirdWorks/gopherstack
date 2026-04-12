@@ -2,7 +2,6 @@ package serverlessrepo
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 	"strconv"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/google/uuid"
 )
 
 const (
@@ -28,27 +28,48 @@ var (
 	ErrTemplateNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrVersionAlreadyExists is returned when an application version already exists.
 	ErrVersionAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrValidation is returned when a request contains an invalid or missing parameter.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
+
+// ParameterDefinition represents a CloudFormation parameter definition for an application version.
+type ParameterDefinition struct {
+	DefaultValue          string   `json:"defaultValue,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	Name                  string   `json:"name"`
+	Type                  string   `json:"type,omitempty"`
+	ReferencedByResources []string `json:"referencedByResources"`
+	AllowedValues         []string `json:"allowedValues,omitempty"`
+	NoEcho                bool     `json:"noEcho,omitempty"`
+}
 
 // Application represents an AWS Serverless Application Repository application.
 type Application struct {
-	CreationTime    time.Time         `json:"creationTime"`
-	Tags            map[string]string `json:"tags,omitempty"`
-	ApplicationID   string            `json:"applicationId"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description,omitempty"`
-	Author          string            `json:"author,omitempty"`
-	SourceCodeURL   string            `json:"sourceCodeUrl,omitempty"`
-	SemanticVersion string            `json:"semanticVersion,omitempty"`
+	CreationTime    time.Time `json:"creationTime"`
+	ApplicationID   string    `json:"applicationId"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description,omitempty"`
+	Author          string    `json:"author,omitempty"`
+	HomePageURL     string    `json:"homePageUrl,omitempty"`
+	LicenseURL      string    `json:"licenseUrl,omitempty"`
+	ReadmeURL       string    `json:"readmeUrl,omitempty"`
+	SpdxLicenseID   string    `json:"spdxLicenseId,omitempty"`
+	SourceCodeURL   string    `json:"sourceCodeUrl,omitempty"`
+	SemanticVersion string    `json:"semanticVersion,omitempty"`
+	Labels          []string  `json:"labels,omitempty"`
 }
 
 // ApplicationVersion represents a version of a Serverless Application Repository application.
 type ApplicationVersion struct {
-	CreationTime    time.Time `json:"creationTime"`
-	ApplicationID   string    `json:"applicationId"`
-	SemanticVersion string    `json:"semanticVersion"`
-	SourceCodeURL   string    `json:"sourceCodeUrl,omitempty"`
-	TemplateURL     string    `json:"templateUrl,omitempty"`
+	CreationTime         time.Time             `json:"creationTime"`
+	ApplicationID        string                `json:"applicationId"`
+	SemanticVersion      string                `json:"semanticVersion"`
+	SourceCodeURL        string                `json:"sourceCodeUrl,omitempty"`
+	SourceCodeArchiveURL string                `json:"sourceCodeArchiveUrl,omitempty"`
+	TemplateURL          string                `json:"templateUrl,omitempty"`
+	ParameterDefinitions []ParameterDefinition `json:"parameterDefinitions"`
+	RequiredCapabilities []string              `json:"requiredCapabilities"`
+	ResourcesSupported   bool                  `json:"resourcesSupported"`
 }
 
 // CloudFormationTemplate represents a CloudFormation template for an application.
@@ -84,19 +105,59 @@ type ApplicationDependency struct {
 	SemanticVersion string `json:"semanticVersion"`
 }
 
-// cloneApplication returns a deep copy of a, including its Tags map.
+// cloneApplication returns a deep copy of a, including its Labels slice.
 func cloneApplication(a *Application) *Application {
 	cp := *a
-	cp.Tags = maps.Clone(a.Tags)
+	cp.Labels = cloneStringSlice(a.Labels)
 
 	return &cp
 }
 
-// cloneVersion returns a deep copy of v.
+// cloneVersion returns a deep copy of v, including slice fields.
 func cloneVersion(v *ApplicationVersion) *ApplicationVersion {
 	cp := *v
+	cp.RequiredCapabilities = cloneStringSlice(v.RequiredCapabilities)
+	cp.ParameterDefinitions = cloneParameterDefinitions(v.ParameterDefinitions)
 
 	return &cp
+}
+
+// cloneStringSlice returns a copy of a string slice, returning nil for nil input.
+func cloneStringSlice(s []string) []string {
+	if s == nil {
+		return nil
+	}
+
+	result := make([]string, len(s))
+	copy(result, s)
+
+	return result
+}
+
+// nonNilStringSlice returns an empty slice for nil input.
+func nonNilStringSlice(s []string) []string {
+	if s != nil {
+		return s
+	}
+
+	return []string{}
+}
+
+// cloneParameterDefinitions returns a deep copy of a ParameterDefinition slice,
+// returning an empty (non-nil) slice for nil input.
+func cloneParameterDefinitions(defs []ParameterDefinition) []ParameterDefinition {
+	if defs == nil {
+		return []ParameterDefinition{}
+	}
+
+	out := make([]ParameterDefinition, len(defs))
+	for i, d := range defs {
+		out[i] = d
+		out[i].AllowedValues = cloneStringSlice(d.AllowedValues)
+		out[i].ReferencedByResources = cloneStringSlice(d.ReferencedByResources)
+	}
+
+	return out
 }
 
 // cloneTemplate returns a deep copy of t.
@@ -108,20 +169,17 @@ func cloneTemplate(t *CloudFormationTemplate) *CloudFormationTemplate {
 
 // clonePolicyStatement returns a deep copy of s.
 func clonePolicyStatement(s *ApplicationPolicyStatement) *ApplicationPolicyStatement {
-	cp := *s
-	cp.Actions = append([]string(nil), s.Actions...)
-	cp.Principals = append([]string(nil), s.Principals...)
-	cp.PrincipalOrgIDs = append([]string(nil), s.PrincipalOrgIDs...)
-
-	return &cp
+	return &ApplicationPolicyStatement{
+		StatementID:     s.StatementID,
+		Actions:         cloneStringSlice(s.Actions),
+		Principals:      cloneStringSlice(s.Principals),
+		PrincipalOrgIDs: cloneStringSlice(s.PrincipalOrgIDs),
+	}
 }
 
 // clonePolicyStatements returns deep copies of all policy statements.
+// Returns an empty (non-nil) slice when stmts is nil.
 func clonePolicyStatements(stmts []*ApplicationPolicyStatement) []*ApplicationPolicyStatement {
-	if stmts == nil {
-		return nil
-	}
-
 	out := make([]*ApplicationPolicyStatement, len(stmts))
 	for i, s := range stmts {
 		out[i] = clonePolicyStatement(s)
@@ -178,6 +236,53 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AddApplicationInternal creates an application directly in the backend, bypassing
+// validation and HTTP. Useful for seeding test state.
+func (b *InMemoryBackend) AddApplicationInternal(name, description, author string) *Application {
+	b.mu.Lock("AddApplicationInternal")
+	defer b.mu.Unlock()
+
+	appARN := arn.Build("serverlessrepo", b.region, b.accountID, "applications/"+name)
+	a := &Application{
+		ApplicationID: appARN,
+		Name:          name,
+		Description:   description,
+		Author:        author,
+		CreationTime:  time.Now(),
+	}
+	b.applications[name] = a
+
+	return cloneApplication(a)
+}
+
+// AddVersionInternal creates a version directly in the backend, bypassing validation.
+// Useful for seeding test state. The application must already exist.
+func (b *InMemoryBackend) AddVersionInternal(appName, semanticVersion string) *ApplicationVersion {
+	b.mu.Lock("AddVersionInternal")
+	defer b.mu.Unlock()
+
+	app := b.applications[appName]
+	if app == nil {
+		return nil
+	}
+
+	if _, exists := b.appVersions[appName]; !exists {
+		b.appVersions[appName] = make(map[string]*ApplicationVersion)
+	}
+
+	v := &ApplicationVersion{
+		ApplicationID:        app.ApplicationID,
+		SemanticVersion:      semanticVersion,
+		CreationTime:         time.Now(),
+		ParameterDefinitions: []ParameterDefinition{},
+		RequiredCapabilities: []string{},
+		ResourcesSupported:   true,
+	}
+	b.appVersions[appName][semanticVersion] = v
+
+	return cloneVersion(v)
+}
+
 // CreateApplication creates a new application.
 func (b *InMemoryBackend) CreateApplication(
 	name string,
@@ -185,10 +290,25 @@ func (b *InMemoryBackend) CreateApplication(
 	author string,
 	sourceCodeURL string,
 	semanticVersion string,
-	tags map[string]string,
+	labels []string,
+	homePageURL string,
+	licenseURL string,
+	spdxLicenseID string,
 ) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if author == "" {
+		return nil, fmt.Errorf("%w: author is required", ErrValidation)
+	}
+
+	if description == "" {
+		return nil, fmt.Errorf("%w: description is required", ErrValidation)
+	}
 
 	if _, ok := b.applications[name]; ok {
 		return nil, fmt.Errorf("%w: application %s already exists", ErrApplicationAlreadyExists, name)
@@ -203,8 +323,11 @@ func (b *InMemoryBackend) CreateApplication(
 		Author:          author,
 		SourceCodeURL:   sourceCodeURL,
 		SemanticVersion: semanticVersion,
+		HomePageURL:     homePageURL,
+		LicenseURL:      licenseURL,
+		SpdxLicenseID:   spdxLicenseID,
 		CreationTime:    time.Now(),
-		Tags:            mergeTags(nil, tags),
+		Labels:          nonNilStringSlice(cloneStringSlice(labels)),
 	}
 	b.applications[name] = a
 
@@ -243,7 +366,9 @@ func (b *InMemoryBackend) ListApplications() []*Application {
 }
 
 // UpdateApplication updates the description or author of an existing application.
-func (b *InMemoryBackend) UpdateApplication(name, description, author string) (*Application, error) {
+func (b *InMemoryBackend) UpdateApplication(
+	name, description, author, homePageURL, readmeURL string,
+) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
@@ -258,6 +383,14 @@ func (b *InMemoryBackend) UpdateApplication(name, description, author string) (*
 
 	if author != "" {
 		a.Author = author
+	}
+
+	if homePageURL != "" {
+		a.HomePageURL = homePageURL
+	}
+
+	if readmeURL != "" {
+		a.ReadmeURL = readmeURL
 	}
 
 	return cloneApplication(a), nil
@@ -296,6 +429,10 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
+	if sourceCodeURL == "" && templateURL == "" {
+		return nil, fmt.Errorf("%w: at least one of sourceCodeUrl or templateUrl is required", ErrValidation)
+	}
+
 	if _, exists := b.appVersions[appName]; !exists {
 		b.appVersions[appName] = make(map[string]*ApplicationVersion)
 	}
@@ -310,11 +447,14 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 	}
 
 	v := &ApplicationVersion{
-		ApplicationID:   app.ApplicationID,
-		SemanticVersion: semanticVersion,
-		SourceCodeURL:   sourceCodeURL,
-		TemplateURL:     templateURL,
-		CreationTime:    time.Now(),
+		ApplicationID:        app.ApplicationID,
+		SemanticVersion:      semanticVersion,
+		SourceCodeURL:        sourceCodeURL,
+		TemplateURL:          templateURL,
+		CreationTime:         time.Now(),
+		ParameterDefinitions: []ParameterDefinition{},
+		RequiredCapabilities: []string{},
+		ResourcesSupported:   true,
 	}
 	b.appVersions[appName][semanticVersion] = v
 
@@ -360,8 +500,8 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 		b.cfTemplates[appName] = make(map[string]*CloudFormationTemplate)
 	}
 
-	templateID := fmt.Sprintf("%s-%d", appName, time.Now().UnixNano())
 	now := time.Now()
+	templateID := fmt.Sprintf("%s-%d", appName, now.UnixNano())
 	t := &CloudFormationTemplate{
 		ApplicationID:   app.ApplicationID,
 		TemplateID:      templateID,
@@ -416,8 +556,8 @@ func (b *InMemoryBackend) GetCloudFormationTemplate(appName, templateID string) 
 func (b *InMemoryBackend) CreateCloudFormationChangeSet(
 	appName string,
 	stackName string,
+	changeSetName string,
 	semanticVersion string,
-	_ string,
 ) (*CloudFormationChangeSet, error) {
 	b.mu.Lock("CreateCloudFormationChangeSet")
 	defer b.mu.Unlock()
@@ -431,17 +571,24 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSet(
 		b.cfChangeSets[appName] = make(map[string]*CloudFormationChangeSet)
 	}
 
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	csName := changeSetName
+	if csName == "" {
+		csName = stackName + "-" + suffix
+	}
+
 	changeSetID := arn.Build(
 		"cloudformation",
 		b.region,
 		b.accountID,
-		"changeSet/"+stackName+"-"+strconv.FormatInt(time.Now().UnixNano(), 10),
+		"changeSet/"+csName,
 	)
 	stackID := arn.Build(
 		"cloudformation",
 		b.region,
 		b.accountID,
-		"stack/"+stackName+"/"+strconv.FormatInt(time.Now().UnixNano(), 10),
+		"stack/"+stackName+"/"+suffix,
 	)
 
 	cs := &CloudFormationChangeSet{
@@ -479,6 +626,21 @@ func (b *InMemoryBackend) PutApplicationPolicy(
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
+	// Validate and auto-generate statementIds.
+	for i, s := range statements {
+		if len(s.Actions) == 0 {
+			return nil, fmt.Errorf("%w: statement %d has no actions", ErrValidation, i)
+		}
+
+		if len(s.Principals) == 0 {
+			return nil, fmt.Errorf("%w: statement %d has no principals", ErrValidation, i)
+		}
+
+		if s.StatementID == "" {
+			statements[i].StatementID = uuid.NewString()
+		}
+	}
+
 	b.appPolicies[appName] = clonePolicyStatements(statements)
 
 	return clonePolicyStatements(b.appPolicies[appName]), nil
@@ -508,13 +670,4 @@ func (b *InMemoryBackend) UnshareApplication(appName, _ string) error {
 	}
 
 	return nil
-}
-
-// mergeTags merges new tags into existing ones, returning a new map.
-func mergeTags(existing, incoming map[string]string) map[string]string {
-	result := make(map[string]string, len(existing)+len(incoming))
-	maps.Copy(result, existing)
-	maps.Copy(result, incoming)
-
-	return result
 }

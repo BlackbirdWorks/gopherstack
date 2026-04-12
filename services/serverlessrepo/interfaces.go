@@ -5,11 +5,12 @@ type StorageBackend interface {
 	// Application CRUD
 	CreateApplication(
 		name, description, author, sourceCodeURL, semanticVersion string,
-		tags map[string]string,
+		labels []string,
+		homePageURL, licenseURL, spdxLicenseID string,
 	) (*Application, error)
 	GetApplication(name string) (*Application, error)
 	ListApplications() []*Application
-	UpdateApplication(name, description, author string) (*Application, error)
+	UpdateApplication(name, description, author, homePageURL, readmeURL string) (*Application, error)
 	DeleteApplication(name string) error
 
 	// Application version operations
@@ -22,7 +23,7 @@ type StorageBackend interface {
 
 	// CloudFormation change set operations
 	CreateCloudFormationChangeSet(
-		appName, stackName, semanticVersion, templateID string,
+		appName, stackName, changeSetName, semanticVersion string,
 	) (*CloudFormationChangeSet, error)
 
 	// Application policy operations

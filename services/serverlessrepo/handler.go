@@ -44,6 +44,9 @@ const (
 var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
+	// errHTTP201 is a sentinel returned by create handlers to signal HTTP 201 Created.
+	// It is checked in Handler() before other error handling.
+	errHTTP201 = errors.New("201 Created")
 )
 
 // Handler is the HTTP handler for the AWS Serverless Application Repository REST API.
@@ -244,6 +247,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		op := h.ExtractOperation(c)
 
 		result, dispErr := h.dispatch(ctx, op, c.Request(), body)
+
+		// errHTTP201 is a create-success sentinel; return 201 with body.
+		if errors.Is(dispErr, errHTTP201) {
+			return c.JSONBlob(http.StatusCreated, result)
+		}
+
 		if dispErr != nil {
 			return h.handleError(c, dispErr)
 		}
@@ -370,10 +379,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, errInvalidRequest),
+		errors.Is(err, errUnknownAction),
+		errors.As(err, &syntaxErr),
+		errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ValidationException",
+			"__type":  "BadRequestException",
 			"message": err.Error(),
 		})
 
@@ -461,41 +473,56 @@ func isoTimestamp(t time.Time) string {
 
 // createApplicationRequest is the request body for CreateApplication.
 type createApplicationRequest struct {
-	Tags            map[string]string `json:"tags"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"`
-	Author          string            `json:"author"`
-	SourceCodeURL   string            `json:"sourceCodeUrl"`
-	SemanticVersion string            `json:"semanticVersion"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	Author          string   `json:"author"`
+	HomePageURL     string   `json:"homePageUrl"`
+	LicenseURL      string   `json:"licenseUrl"`
+	SpdxLicenseID   string   `json:"spdxLicenseId"`
+	SourceCodeURL   string   `json:"sourceCodeUrl"`
+	SemanticVersion string   `json:"semanticVersion"`
+	Labels          []string `json:"labels"`
 }
 
 // versionResponse represents the SAR Version type in API responses.
 // The botocore SAR model expects "version" to be a struct, not a plain string.
 type versionResponse struct {
-	ApplicationID   string `json:"applicationId,omitempty"`
-	CreationTime    string `json:"creationTime,omitempty"`
-	SemanticVersion string `json:"semanticVersion,omitempty"`
+	ApplicationID        string                `json:"applicationId,omitempty"`
+	CreationTime         string                `json:"creationTime,omitempty"`
+	SemanticVersion      string                `json:"semanticVersion,omitempty"`
+	TemplateURL          string                `json:"templateUrl,omitempty"`
+	SourceCodeURL        string                `json:"sourceCodeUrl,omitempty"`
+	ParameterDefinitions []ParameterDefinition `json:"parameterDefinitions"`
+	RequiredCapabilities []string              `json:"requiredCapabilities"`
+	ResourcesSupported   bool                  `json:"resourcesSupported"`
 }
 
 // applicationResponse represents the API response shape for a single application.
 type applicationResponse struct {
-	Version       *versionResponse  `json:"version,omitempty"`
-	Tags          map[string]string `json:"labels,omitempty"`
-	CreationTime  string            `json:"creationTime"`
-	ApplicationID string            `json:"applicationId"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	Author        string            `json:"author"`
-	SourceCodeURL string            `json:"sourceCodeUrl,omitempty"`
+	Version       *versionResponse `json:"version,omitempty"`
+	CreationTime  string           `json:"creationTime"`
+	ApplicationID string           `json:"applicationId"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Author        string           `json:"author"`
+	HomePageURL   string           `json:"homePageUrl,omitempty"`
+	LicenseURL    string           `json:"licenseUrl,omitempty"`
+	ReadmeURL     string           `json:"readmeUrl,omitempty"`
+	SpdxLicenseID string           `json:"spdxLicenseId,omitempty"`
+	SourceCodeURL string           `json:"sourceCodeUrl,omitempty"`
+	Labels        []string         `json:"labels,omitempty"`
 }
 
 // applicationSummary is a summary used in list responses.
 type applicationSummary struct {
-	CreationTime  string `json:"creationTime"`
-	ApplicationID string `json:"applicationId"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Author        string `json:"author"`
+	CreationTime  string   `json:"creationTime"`
+	ApplicationID string   `json:"applicationId"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Author        string   `json:"author"`
+	HomePageURL   string   `json:"homePageUrl,omitempty"`
+	SpdxLicenseID string   `json:"spdxLicenseId,omitempty"`
+	Labels        []string `json:"labels,omitempty"`
 }
 
 func toApplicationResponse(a *Application) applicationResponse {
@@ -505,15 +532,22 @@ func toApplicationResponse(a *Application) applicationResponse {
 		Description:   a.Description,
 		Author:        a.Author,
 		SourceCodeURL: a.SourceCodeURL,
+		HomePageURL:   a.HomePageURL,
+		LicenseURL:    a.LicenseURL,
+		ReadmeURL:     a.ReadmeURL,
+		SpdxLicenseID: a.SpdxLicenseID,
 		CreationTime:  isoTimestamp(a.CreationTime),
-		Tags:          a.Tags,
+		Labels:        a.Labels,
 	}
 
 	if a.SemanticVersion != "" {
 		resp.Version = &versionResponse{
-			ApplicationID:   a.ApplicationID,
-			CreationTime:    isoTimestamp(a.CreationTime),
-			SemanticVersion: a.SemanticVersion,
+			ApplicationID:        a.ApplicationID,
+			CreationTime:         isoTimestamp(a.CreationTime),
+			SemanticVersion:      a.SemanticVersion,
+			ParameterDefinitions: []ParameterDefinition{},
+			RequiredCapabilities: []string{},
+			ResourcesSupported:   true,
 		}
 	}
 
@@ -526,17 +560,16 @@ func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
-	}
-
 	a, err := h.Backend.CreateApplication(
 		req.Name,
 		req.Description,
 		req.Author,
 		req.SourceCodeURL,
 		req.SemanticVersion,
-		req.Tags,
+		req.Labels,
+		req.HomePageURL,
+		req.LicenseURL,
+		req.SpdxLicenseID,
 	)
 	if err != nil {
 		return nil, err
@@ -547,7 +580,12 @@ func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]b
 
 	resp := toApplicationResponse(a)
 
-	return json.Marshal(resp)
+	b, marshalErr := json.Marshal(resp)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return b, errHTTP201
 }
 
 func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
@@ -576,6 +614,9 @@ func (h *Handler) handleListApplications() ([]byte, error) {
 			Name:          a.Name,
 			Description:   a.Description,
 			Author:        a.Author,
+			HomePageURL:   a.HomePageURL,
+			SpdxLicenseID: a.SpdxLicenseID,
+			Labels:        a.Labels,
 			CreationTime:  isoTimestamp(a.CreationTime),
 		})
 	}
@@ -587,6 +628,8 @@ func (h *Handler) handleListApplications() ([]byte, error) {
 type updateApplicationRequest struct {
 	Description string `json:"description"`
 	Author      string `json:"author"`
+	HomePageURL string `json:"homePageUrl"`
+	ReadmeURL   string `json:"readmeUrl"`
 }
 
 func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
@@ -600,7 +643,13 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	a, err := h.Backend.UpdateApplication(name, updateReq.Description, updateReq.Author)
+	a, err := h.Backend.UpdateApplication(
+		name,
+		updateReq.Description,
+		updateReq.Author,
+		updateReq.HomePageURL,
+		updateReq.ReadmeURL,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -631,8 +680,9 @@ func (h *Handler) handleDeleteApplication(ctx context.Context, req *http.Request
 
 // createApplicationVersionRequest is the request body for CreateApplicationVersion.
 type createApplicationVersionRequest struct {
-	SourceCodeURL string `json:"sourceCodeUrl"`
-	TemplateURL   string `json:"templateUrl"`
+	SourceCodeURL        string `json:"sourceCodeUrl"`
+	SourceCodeArchiveURL string `json:"sourceCodeArchiveUrl"`
+	TemplateURL          string `json:"templateUrl"`
 }
 
 func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
@@ -668,13 +718,12 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.
 	log.InfoContext(ctx, "serverlessrepo: created application version",
 		"app", appName, "version", v.SemanticVersion)
 
-	return json.Marshal(map[string]any{
-		"applicationId":   v.ApplicationID,
-		"semanticVersion": v.SemanticVersion,
-		"sourceCodeUrl":   v.SourceCodeURL,
-		"templateUrl":     v.TemplateURL,
-		"creationTime":    isoTimestamp(v.CreationTime),
-	})
+	b, marshalErr := json.Marshal(toVersionResponse(v))
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return b, errHTTP201
 }
 
 func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, error) {
@@ -699,6 +748,21 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 	}
 
 	return json.Marshal(map[string]any{"versions": summaries})
+}
+
+// toVersionResponse converts an ApplicationVersion to a map matching the AWS SAR Version shape.
+func toVersionResponse(v *ApplicationVersion) map[string]any {
+	return map[string]any{
+		"applicationId":        v.ApplicationID,
+		"semanticVersion":      v.SemanticVersion,
+		"sourceCodeUrl":        v.SourceCodeURL,
+		"sourceCodeArchiveUrl": v.SourceCodeArchiveURL,
+		"templateUrl":          v.TemplateURL,
+		"creationTime":         isoTimestamp(v.CreationTime),
+		"parameterDefinitions": v.ParameterDefinitions,
+		"requiredCapabilities": v.RequiredCapabilities,
+		"resourcesSupported":   v.ResourcesSupported,
+	}
 }
 
 // createCFTemplateRequest is the request body for CreateCloudFormationTemplate.
@@ -730,7 +794,7 @@ func (h *Handler) handleCreateCloudFormationTemplate(
 	log.InfoContext(ctx, "serverlessrepo: created CloudFormation template",
 		"app", appName, "templateId", t.TemplateID)
 
-	return json.Marshal(map[string]any{
+	b, marshalErr := json.Marshal(map[string]any{
 		"applicationId":   t.ApplicationID,
 		"templateId":      t.TemplateID,
 		"semanticVersion": t.SemanticVersion,
@@ -739,6 +803,11 @@ func (h *Handler) handleCreateCloudFormationTemplate(
 		"expirationTime":  isoTimestamp(t.ExpirationTime),
 		"templateUrl":     t.TemplateURL,
 	})
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return b, errHTTP201
 }
 
 func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, error) {
@@ -774,6 +843,7 @@ func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, er
 // createCFChangeSetRequest is the request body for CreateCloudFormationChangeSet.
 type createCFChangeSetRequest struct {
 	StackName       string `json:"stackName"`
+	ChangeSetName   string `json:"changeSetName"`
 	SemanticVersion string `json:"semanticVersion"`
 	TemplateID      string `json:"templateId"`
 }
@@ -800,8 +870,8 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 	cs, backendErr := h.Backend.CreateCloudFormationChangeSet(
 		appName,
 		createReq.StackName,
+		createReq.ChangeSetName,
 		createReq.SemanticVersion,
-		createReq.TemplateID,
 	)
 	if backendErr != nil {
 		return nil, backendErr
@@ -817,12 +887,17 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 		cs.ChangeSetID,
 	)
 
-	return json.Marshal(map[string]any{
+	b, marshalErr := json.Marshal(map[string]any{
 		"applicationId":   cs.ApplicationID,
 		"changeSetId":     cs.ChangeSetID,
 		"semanticVersion": cs.SemanticVersion,
 		"stackId":         cs.StackID,
 	})
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return b, errHTTP201
 }
 
 // policyStatementRequest represents a policy statement in a PutApplicationPolicy request.
@@ -885,17 +960,13 @@ func (h *Handler) handlePutApplicationPolicy(ctx context.Context, req *http.Requ
 }
 
 func toPolicyStatementsResponse(stmts []*ApplicationPolicyStatement) []map[string]any {
-	if stmts == nil {
-		return []map[string]any{}
-	}
-
 	out := make([]map[string]any, 0, len(stmts))
 
 	for _, s := range stmts {
 		out = append(out, map[string]any{
-			"actions":         s.Actions,
-			"principals":      s.Principals,
-			"principalOrgIDs": s.PrincipalOrgIDs,
+			"actions":         nonNilStringSlice(s.Actions),
+			"principals":      nonNilStringSlice(s.Principals),
+			"principalOrgIDs": nonNilStringSlice(s.PrincipalOrgIDs),
 			"statementId":     s.StatementID,
 		})
 	}
