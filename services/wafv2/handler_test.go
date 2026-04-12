@@ -681,3 +681,909 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
 	assert.Equal(t, "WAFInvalidOperationException", result["__type"])
 }
+
+func TestHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	tests := []struct {
+		name string
+		op   string
+	}{
+		{name: "AssociateWebACL", op: "AssociateWebACL"},
+		{name: "DisassociateWebACL", op: "DisassociateWebACL"},
+		{name: "GetWebACLForResource", op: "GetWebACLForResource"},
+		{name: "UntagResource", op: "UntagResource"},
+		{name: "TagResource", op: "TagResource"},
+		{name: "ListTagsForResource", op: "ListTagsForResource"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Contains(t, ops, tt.op)
+		})
+	}
+}
+
+func TestHandler_ChaosMetadata(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{name: "service_name", got: h.ChaosServiceName(), want: "wafv2"},
+		{name: "region", got: h.ChaosRegions()[0], want: "us-east-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.got)
+		})
+	}
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "valid_target", target: "AWSWAF_20190729.CreateWebACL", want: "CreateWebACL"},
+		{name: "no_prefix", target: "CreateWebACL", want: "CreateWebACL"},
+		{name: "empty", target: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateWebACL("acl1", "REGIONAL", "", "ALLOW", "", nil)
+	require.NoError(t, err)
+	_, err = b.CreateIPSet("set1", "REGIONAL", "", "IPV4", nil, nil)
+	require.NoError(t, err)
+
+	b.Reset()
+
+	assert.Empty(t, b.ListWebACLs())
+	assert.Empty(t, b.ListIPSets())
+}
+
+func TestHandler_AssociateWebACL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) (string, string)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) (string, string) {
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+
+				return webACLARN, "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_web_acl_arn",
+			setup: func(_ *wafv2.Handler) (string, string) {
+				return "", "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_resource_arn",
+			setup: func(h *wafv2.Handler) (string, string) {
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+
+				return webACLARN, ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "web_acl_not_found",
+			setup: func(_ *wafv2.Handler) (string, string) {
+				webACLARN := "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid"
+				resourceARN := "arn:aws:ec2:us-east-1:000000000000:instance/i-abc"
+
+				return webACLARN, resourceARN
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			webACLARN, resourceARN := tt.setup(h)
+
+			body := map[string]any{}
+			if webACLARN != "" {
+				body["WebACLArn"] = webACLARN
+			}
+			if resourceARN != "" {
+				body["ResourceArn"] = resourceARN
+			}
+
+			rec := doWafv2Request(t, h, "AssociateWebACL", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DisassociateWebACL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) string {
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
+				require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
+
+				return resourceARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_resource_arn",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "arn:aws:ec2:us-east-1:000000000000:instance/i-nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceARN := tt.setup(h)
+
+			body := map[string]any{}
+			if resourceARN != "" {
+				body["ResourceArn"] = resourceARN
+			}
+
+			rec := doWafv2Request(t, h, "DisassociateWebACL", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetWebACLForResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) string {
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
+				require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
+
+				return resourceARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_resource_arn",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "arn:aws:ec2:us-east-1:000000000000:instance/i-nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceARN := tt.setup(h)
+
+			body := map[string]any{}
+			if resourceARN != "" {
+				body["ResourceArn"] = resourceARN
+			}
+
+			rec := doWafv2Request(t, h, "GetWebACLForResource", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				webACL, ok := result["WebACL"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, webACL["Id"])
+				assert.Equal(t, "my-acl", webACL["Name"])
+			}
+		})
+	}
+}
+
+func TestHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		name       string
+		tagKeys    []string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) string {
+				w, _ := h.Backend.CreateWebACL(
+					"tagged-acl",
+					"REGIONAL",
+					"",
+					"ALLOW",
+					"",
+					map[string]string{"env": "prod", "team": "ops"},
+				)
+				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+
+				return arnStr
+			},
+			tagKeys:    []string{"env"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_resource_arn",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			tagKeys:    []string{"env"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid"
+			},
+			tagKeys:    []string{"env"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "ipset_success",
+			setup: func(h *wafv2.Handler) string {
+				s, _ := h.Backend.CreateIPSet(
+					"tagged-set",
+					"REGIONAL",
+					"",
+					"IPV4",
+					nil,
+					map[string]string{"env": "prod"},
+				)
+				arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
+
+				return arnStr
+			},
+			tagKeys:    []string{"env"},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceARN := tt.setup(h)
+
+			body := map[string]any{"TagKeys": tt.tagKeys}
+			if resourceARN != "" {
+				body["ResourceARN"] = resourceARN
+			}
+
+			rec := doWafv2Request(t, h, "UntagResource", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_TagResource_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "missing_resource_arn",
+			body:       map[string]any{"Tags": []map[string]string{{"Key": "k", "Value": "v"}}},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFInvalidParameterException",
+		},
+		{
+			name: "not_found",
+			body: map[string]any{
+				"ResourceARN": "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid",
+				"Tags":        []map[string]string{{"Key": "k", "Value": "v"}},
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFNonexistentItemException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, "TagResource", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var result map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			assert.Equal(t, tt.wantType, result["__type"])
+		})
+	}
+}
+
+func TestHandler_ListTagsForResource_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "missing_resource_arn",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFInvalidParameterException",
+		},
+		{
+			name: "not_found",
+			body: map[string]any{
+				"ResourceARN": "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid",
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFNonexistentItemException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, "ListTagsForResource", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var result map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			assert.Equal(t, tt.wantType, result["__type"])
+		})
+	}
+}
+
+func TestHandler_CreateWebACL_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doWafv2Request(t, h, "CreateWebACL", map[string]any{
+		"Name":  "my-acl",
+		"Scope": "REGIONAL",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doWafv2Request(t, h, "CreateWebACL", map[string]any{
+		"Name":  "my-acl",
+		"Scope": "REGIONAL",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result))
+	assert.Equal(t, "WAFDuplicateItemException", result["__type"])
+}
+
+func TestHandler_CreateIPSet_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doWafv2Request(t, h, "CreateIPSet", map[string]any{
+		"Name":             "my-set",
+		"Scope":            "REGIONAL",
+		"IPAddressVersion": "IPV4",
+		"Addresses":        []string{},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doWafv2Request(t, h, "CreateIPSet", map[string]any{
+		"Name":             "my-set",
+		"Scope":            "REGIONAL",
+		"IPAddressVersion": "IPV4",
+		"Addresses":        []string{},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result))
+	assert.Equal(t, "WAFDuplicateItemException", result["__type"])
+}
+
+func TestHandler_GetWebACL_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Name": "my-acl", "Scope": "REGIONAL"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	assert.Equal(t, "WAFInvalidParameterException", result["__type"])
+}
+
+func TestHandler_UpdateWebACL_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(
+		t,
+		h,
+		"UpdateWebACL",
+		map[string]any{"Name": "my-acl", "Scope": "REGIONAL", "LockToken": "tok"},
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DeleteWebACL_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(
+		t,
+		h,
+		"DeleteWebACL",
+		map[string]any{"Name": "my-acl", "Scope": "REGIONAL", "LockToken": "tok"},
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetIPSet_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(t, h, "GetIPSet", map[string]any{"Name": "my-set", "Scope": "REGIONAL"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UpdateIPSet_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(
+		t,
+		h,
+		"UpdateIPSet",
+		map[string]any{"Name": "my-set", "Scope": "REGIONAL", "LockToken": "tok"},
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DeleteIPSet_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(
+		t,
+		h,
+		"DeleteIPSet",
+		map[string]any{"Name": "my-set", "Scope": "REGIONAL", "LockToken": "tok"},
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListWebACLs_Scope_Filter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*wafv2.Handler)
+		name      string
+		scope     string
+		wantCount int
+	}{
+		{
+			name: "filter_cloudfront",
+			setup: func(h *wafv2.Handler) {
+				_, _ = h.Backend.CreateWebACL("regional-acl", "REGIONAL", "", "ALLOW", "", nil)
+				_, _ = h.Backend.CreateWebACL("cf-acl", "CLOUDFRONT", "", "ALLOW", "", nil)
+			},
+			scope:     "CLOUDFRONT",
+			wantCount: 1,
+		},
+		{
+			name: "no_filter_returns_all",
+			setup: func(h *wafv2.Handler) {
+				_, _ = h.Backend.CreateWebACL("regional-acl", "REGIONAL", "", "ALLOW", "", nil)
+				_, _ = h.Backend.CreateWebACL("cf-acl", "CLOUDFRONT", "", "ALLOW", "", nil)
+			},
+			scope:     "",
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setup(h)
+
+			body := map[string]any{}
+			if tt.scope != "" {
+				body["Scope"] = tt.scope
+			}
+
+			rec := doWafv2Request(t, h, "ListWebACLs", body)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			list, ok := result["WebACLs"].([]any)
+			require.True(t, ok)
+			assert.Len(t, list, tt.wantCount)
+		})
+	}
+}
+
+func TestHandler_ListIPSets_Scope_Filter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*wafv2.Handler)
+		name      string
+		scope     string
+		wantCount int
+	}{
+		{
+			name: "filter_cloudfront",
+			setup: func(h *wafv2.Handler) {
+				_, _ = h.Backend.CreateIPSet("regional-set", "REGIONAL", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet("cf-set", "CLOUDFRONT", "", "IPV4", nil, nil)
+			},
+			scope:     "CLOUDFRONT",
+			wantCount: 1,
+		},
+		{
+			name: "no_filter_returns_all",
+			setup: func(h *wafv2.Handler) {
+				_, _ = h.Backend.CreateIPSet("regional-set", "REGIONAL", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet("cf-set", "CLOUDFRONT", "", "IPV4", nil, nil)
+			},
+			scope:     "",
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setup(h)
+
+			body := map[string]any{}
+			if tt.scope != "" {
+				body["Scope"] = tt.scope
+			}
+
+			rec := doWafv2Request(t, h, "ListIPSets", body)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			list, ok := result["IPSets"].([]any)
+			require.True(t, ok)
+			assert.Len(t, list, tt.wantCount)
+		})
+	}
+}
+
+func TestBackend_WebACLARN(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+	tests := []struct {
+		name     string
+		wantPart string
+		scope    string
+	}{
+		{name: "regional_scope", scope: "REGIONAL", wantPart: "regional"},
+		{name: "cloudfront_scope", scope: "CLOUDFRONT", wantPart: "global"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			arnStr := b.WebACLARN("my-acl", "myid", tt.scope)
+			assert.Contains(t, arnStr, tt.wantPart)
+			assert.Contains(t, arnStr, "webacl")
+		})
+	}
+}
+
+func TestBackend_IPSetARN(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+	tests := []struct {
+		name     string
+		wantPart string
+		scope    string
+	}{
+		{name: "regional_scope", scope: "REGIONAL", wantPart: "regional"},
+		{name: "cloudfront_scope", scope: "CLOUDFRONT", wantPart: "global"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			arnStr := b.IPSetARN("my-set", "myid", tt.scope)
+			assert.Contains(t, arnStr, tt.wantPart)
+			assert.Contains(t, arnStr, "ipset")
+		})
+	}
+}
+
+func TestHandler_GetWebACL_BlockDefaultAction(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	w, err := h.Backend.CreateWebACL("blocked-acl", "REGIONAL", "", "BLOCK", "", nil)
+	require.NoError(t, err)
+
+	rec := doWafv2Request(t, h, "GetWebACL", map[string]any{
+		"Id":    w.ID,
+		"Name":  w.Name,
+		"Scope": w.Scope,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	webACL, ok := result["WebACL"].(map[string]any)
+	require.True(t, ok)
+	defaultAction, ok := webACL["DefaultAction"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, defaultAction, "Block")
+}
+
+func TestHandler_CreateWebACL_MissingScope(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(t, h, "CreateWebACL", map[string]any{"Name": "my-acl"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateIPSet_MissingScope(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(
+		t,
+		h,
+		"CreateIPSet",
+		map[string]any{"Name": "my-set", "IPAddressVersion": "IPV4", "Addresses": []string{}},
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestBackend_Snapshot_And_Restore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*wafv2.InMemoryBackend)
+		name    string
+		wantIDs int
+	}{
+		{
+			name:  "empty_backend",
+			setup: func(_ *wafv2.InMemoryBackend) {},
+		},
+		{
+			name: "with_webacls_and_ipsets",
+			setup: func(b *wafv2.InMemoryBackend) {
+				_, _ = b.CreateWebACL("acl1", "REGIONAL", "desc", "ALLOW", "", nil)
+				_, _ = b.CreateIPSet("set1", "REGIONAL", "desc", "IPV4", []string{"1.2.3.4/32"}, nil)
+			},
+			wantIDs: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+			tt.setup(b)
+
+			snap := b.Snapshot()
+			require.NotNil(t, snap)
+
+			b2 := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, b2.Restore(snap))
+
+			acls := b2.ListWebACLs()
+			sets := b2.ListIPSets()
+
+			assert.Len(t, acls, len(b.ListWebACLs()))
+			assert.Len(t, sets, len(b.ListIPSets()))
+		})
+	}
+}
+
+func TestHandler_Snapshot_And_Restore(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, err := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+	require.NoError(t, err)
+
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(snap))
+
+	acls := h2.Backend.ListWebACLs()
+	require.Len(t, acls, 1)
+	assert.Equal(t, "my-acl", acls[0].Name)
+}
+
+func TestBackend_Restore_InvalidData(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b.Restore([]byte("not-valid-json"))
+	require.Error(t, err)
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	assert.Equal(t, h.GetSupportedOperations(), ops)
+}
+
+func TestHandler_GetWebACL_WithVisibilityConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	visConfig := `{"CloudWatchMetricsEnabled":true,"MetricName":"my-acl","SampledRequestsEnabled":true}`
+	w, err := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", visConfig, nil)
+	require.NoError(t, err)
+
+	rec := doWafv2Request(t, h, "GetWebACL", map[string]any{
+		"Id":    w.ID,
+		"Name":  w.Name,
+		"Scope": w.Scope,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	webACL, ok := result["WebACL"].(map[string]any)
+	require.True(t, ok)
+	vis, ok := webACL["VisibilityConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, vis["CloudWatchMetricsEnabled"])
+}
+
+func TestHandler_GetWebACLForResource_WithVisibilityConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	visConfig := `{"CloudWatchMetricsEnabled":true,"MetricName":"my-acl","SampledRequestsEnabled":true}`
+	w, err := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "BLOCK", visConfig, nil)
+	require.NoError(t, err)
+
+	webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+	resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/xyz"
+	require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
+
+	rec := doWafv2Request(t, h, "GetWebACLForResource", map[string]any{
+		"ResourceArn": resourceARN,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	webACL, ok := result["WebACL"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "my-acl", webACL["Name"])
+	defaultAction, ok := webACL["DefaultAction"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, defaultAction, "Block")
+}
+
+func TestBackend_TagResource_IPSet(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	s, err := b.CreateIPSet("my-set", "REGIONAL", "", "IPV4", nil, nil)
+	require.NoError(t, err)
+
+	arnStr := b.IPSetARN(s.Name, s.ID, s.Scope)
+	require.NoError(t, b.TagResource(arnStr, map[string]string{"env": "test"}))
+
+	tags, err := b.ListTagsForResource(arnStr)
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"])
+}

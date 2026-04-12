@@ -193,13 +193,25 @@ func TestInMemoryBackend_JobHistoryCap(t *testing.T) {
 			insertDet: 5,
 			wantLen:   10,
 		},
+		{
+			name:      "above_cap_trims_oldest",
+			insertAna: 6,
+			insertDet: 0,
+			wantLen:   5,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := textract.NewInMemoryBackend()
+			var b *textract.InMemoryBackend
+
+			if tt.name == "above_cap_trims_oldest" {
+				b = textract.NewInMemoryBackendWithCap(5)
+			} else {
+				b = textract.NewInMemoryBackend()
+			}
 
 			for range tt.insertAna {
 				_, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")

@@ -654,6 +654,13 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "delete from non-existent store",
+			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) (string, string) {
+				return "nonexistent-store", "nonexistent-template"
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -674,6 +681,428 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 
 			_, err = b.GetPolicyTemplate(storeID, templateID)
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		numStores int
+	}{
+		{name: "reset empty backend", numStores: 0},
+		{name: "reset with data", numStores: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			for range tt.numStores {
+				_, err := b.CreatePolicyStore("desc", nil)
+				require.NoError(t, err)
+			}
+
+			assert.Len(t, b.ListPolicyStores(), tt.numStores)
+
+			b.Reset()
+
+			assert.Empty(t, b.ListPolicyStores())
+		})
+	}
+}
+
+func TestBackend_TagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*testing.T, *verifiedpermissions.InMemoryBackend) string
+		tags    map[string]string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "tag existing policy store",
+			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
+				t.Helper()
+
+				ps, err := b.CreatePolicyStore("desc", nil)
+				require.NoError(t, err)
+
+				return ps.Arn
+			},
+			tags:    map[string]string{"env": "prod", "team": "platform"},
+			wantErr: false,
+		},
+		{
+			name: "tag non-existent resource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) string {
+				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+			},
+			tags:    map[string]string{"key": "value"},
+			wantErr: true,
+		},
+		{
+			name: "add tags to already tagged store",
+			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
+				t.Helper()
+
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"existing": "tag"})
+				require.NoError(t, err)
+
+				return ps.Arn
+			},
+			tags:    map[string]string{"new": "tag"},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			arn := tt.setup(t, b)
+
+			err := b.TagResource(arn, tt.tags)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			tags, err := b.ListTagsForResource(arn)
+			require.NoError(t, err)
+
+			for k, v := range tt.tags {
+				assert.Equal(t, v, tags[k])
+			}
+		})
+	}
+}
+
+func TestBackend_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*testing.T, *verifiedpermissions.InMemoryBackend) string
+		name    string
+		tagKeys []string
+		wantErr bool
+	}{
+		{
+			name: "untag existing resource",
+			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
+				t.Helper()
+
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod", "team": "platform"})
+				require.NoError(t, err)
+
+				return ps.Arn
+			},
+			tagKeys: []string{"env"},
+			wantErr: false,
+		},
+		{
+			name: "untag non-existent resource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) string {
+				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+			},
+			tagKeys: []string{"key"},
+			wantErr: true,
+		},
+		{
+			name: "untag with empty keys removes nothing",
+			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
+				t.Helper()
+
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				return ps.Arn
+			},
+			tagKeys: []string{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			arn := tt.setup(t, b)
+
+			err := b.UntagResource(arn, tt.tagKeys)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if len(tt.tagKeys) > 0 {
+				tags, tagsErr := b.ListTagsForResource(arn)
+				require.NoError(t, tagsErr)
+
+				for _, k := range tt.tagKeys {
+					_, exists := tags[k]
+					assert.False(t, exists, "tag %q should have been removed", k)
+				}
+			}
+		})
+	}
+}
+
+func TestBackend_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.InMemoryBackend) string
+		wantTags map[string]string
+		name     string
+		wantErr  bool
+	}{
+		{
+			name: "list tags for existing resource with tags",
+			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
+				t.Helper()
+
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				return ps.Arn
+			},
+			wantTags: map[string]string{"env": "prod"},
+			wantErr:  false,
+		},
+		{
+			name: "list tags for resource without tags",
+			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
+				t.Helper()
+
+				ps, err := b.CreatePolicyStore("desc", nil)
+				require.NoError(t, err)
+
+				return ps.Arn
+			},
+			wantTags: map[string]string{},
+			wantErr:  false,
+		},
+		{
+			name: "list tags for non-existent resource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.InMemoryBackend) string {
+				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			arn := tt.setup(t, b)
+
+			tags, err := b.ListTagsForResource(arn)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			for k, v := range tt.wantTags {
+				assert.Equal(t, v, tags[k])
+			}
+		})
+	}
+}
+
+func TestBackend_CreatePolicy_NonExistentStore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.CreatePolicy("nonexistent-store", "STATIC", "permit(principal, action, resource);")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_GetPolicy_NonExistentPolicyInExistingStore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	ps, err := b.CreatePolicyStore("desc", nil)
+	require.NoError(t, err)
+
+	_, err = b.GetPolicy(ps.PolicyStoreID, "nonexistent-policy")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_DeletePolicy_NonExistentStore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	err := b.DeletePolicy("nonexistent-store", "nonexistent-policy")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_CreatePolicyTemplate_NonExistentStore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.CreatePolicyTemplate("nonexistent-store", "desc", "permit(principal == ?principal, action, resource);")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_GetPolicyTemplate_NonExistentInExistingStore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	ps, err := b.CreatePolicyStore("desc", nil)
+	require.NoError(t, err)
+
+	_, err = b.GetPolicyTemplate(ps.PolicyStoreID, "nonexistent-template")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_UpdatePolicyTemplate_NonExistentStore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.UpdatePolicyTemplate("nonexistent-store", "nonexistent-template", "desc", "stmt")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_UpdatePolicy_NonExistentPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	ps, err := b.CreatePolicyStore("desc", nil)
+	require.NoError(t, err)
+
+	_, err = b.UpdatePolicy(ps.PolicyStoreID, "nonexistent-policy", "forbid(principal, action, resource);")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+func TestBackend_Snapshot_Restore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		numStores int
+	}{
+		{name: "empty backend", numStores: 0},
+		{name: "with stores and policies", numStores: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			var storeIDs []string
+
+			for range tt.numStores {
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "test"})
+				require.NoError(t, err)
+
+				_, err = b.CreatePolicy(ps.PolicyStoreID, "STATIC", "permit(principal, action, resource);")
+				require.NoError(t, err)
+
+				_, err = b.CreatePolicyTemplate(
+					ps.PolicyStoreID, "tpl", "permit(principal == ?principal, action, resource);",
+				)
+				require.NoError(t, err)
+
+				storeIDs = append(storeIDs, ps.PolicyStoreID)
+			}
+
+			snap := b.Snapshot()
+			require.NotNil(t, snap)
+
+			b2 := newTestBackend()
+			require.NoError(t, b2.Restore(snap))
+
+			assert.Len(t, b2.ListPolicyStores(), tt.numStores)
+
+			for _, id := range storeIDs {
+				ps, err := b2.GetPolicyStore(id)
+				require.NoError(t, err)
+				assert.Equal(t, id, ps.PolicyStoreID)
+
+				policies, err := b2.ListPolicies(id)
+				require.NoError(t, err)
+				assert.Len(t, policies, 1)
+
+				templates, err := b2.ListPolicyTemplates(id)
+				require.NoError(t, err)
+				assert.Len(t, templates, 1)
+			}
+		})
+	}
+}
+
+func TestBackend_Restore_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	err := b.Restore([]byte("not-valid-json"))
+	require.Error(t, err)
+}
+
+func TestBackend_CreatePolicyStore_WithTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags map[string]string
+		name string
+	}{
+		{
+			name: "with tags",
+			tags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name: "with nil tags",
+			tags: nil,
+		},
+		{
+			name: "with empty tags",
+			tags: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			ps, err := b.CreatePolicyStore("desc", tt.tags)
+			require.NoError(t, err)
+			assert.NotEmpty(t, ps.PolicyStoreID)
+			assert.NotEmpty(t, ps.Arn)
+
+			for k, v := range tt.tags {
+				assert.Equal(t, v, ps.Tags[k])
+			}
 		})
 	}
 }

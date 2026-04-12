@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -370,4 +371,200 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			assert.Equal(t, tt.want, h.ExtractOperation(c))
 		})
 	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		want string
+	}{
+		{
+			name: "valid s3 location",
+			body: map[string]any{
+				"DocumentLocation": map[string]any{
+					"S3Object": map[string]any{
+						"Bucket": "my-bucket",
+						"Name":   "my-document.pdf",
+					},
+				},
+			},
+			want: "s3://my-bucket/my-document.pdf",
+		},
+		{
+			name: "missing bucket",
+			body: map[string]any{
+				"DocumentLocation": map[string]any{
+					"S3Object": map[string]any{
+						"Bucket": "",
+						"Name":   "my-document.pdf",
+					},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "missing key",
+			body: map[string]any{
+				"DocumentLocation": map[string]any{
+					"S3Object": map[string]any{
+						"Bucket": "my-bucket",
+						"Name":   "",
+					},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "empty body",
+			body: map[string]any{},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_ChaosServiceName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, "textract", h.ChaosServiceName())
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	assert.Equal(t, h.GetSupportedOperations(), ops)
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	regions := h.ChaosRegions()
+	assert.NotEmpty(t, regions)
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandler_StartDocumentTextDetection_MissingBucket(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]any{
+		"DocumentLocation": map[string]any{
+			"S3Object": map[string]any{
+				"Bucket": "",
+				"Name":   "",
+			},
+		},
+	}
+
+	rec := doTextractRequest(t, h, "StartDocumentTextDetection", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetDocumentTextDetection_MissingJobId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{}
+
+	rec := doTextractRequest(t, h, "GetDocumentTextDetection", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Snapshot_Restore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		jobCount int
+	}{
+		{name: "empty handler", jobCount: 0},
+		{name: "handler with jobs", jobCount: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.jobCount {
+				if i%2 == 0 {
+					doTextractRequest(t, h, "StartDocumentAnalysis", map[string]any{
+						"DocumentLocation": map[string]any{
+							"S3Object": map[string]any{
+								"Bucket": "bucket",
+								"Name":   "doc.pdf",
+							},
+						},
+					})
+				} else {
+					doTextractRequest(t, h, "StartDocumentTextDetection", map[string]any{
+						"DocumentLocation": map[string]any{
+							"S3Object": map[string]any{
+								"Bucket": "bucket",
+								"Name":   "doc.png",
+							},
+						},
+					})
+				}
+			}
+
+			snap := h.Snapshot()
+			require.NotNil(t, snap)
+
+			h2 := newTestHandler(t)
+			require.NoError(t, h2.Restore(snap))
+
+			jobs := h2.Backend.ListJobs()
+			assert.Len(t, jobs, tt.jobCount)
+		})
+	}
+}
+
+func TestProvider_Name(t *testing.T) {
+	t.Parallel()
+
+	p := &textract.Provider{}
+	assert.Equal(t, "Textract", p.Name())
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &textract.Provider{}
+	ctx := &service.AppContext{}
+	reg, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, reg)
+	assert.Equal(t, "Textract", reg.Name())
 }
