@@ -22,3 +22,6 @@ test/e2e/failures/go.mod.bak
 !dashboard/static/favicon.png
 *.tmp
 copilot_changes.patch
+ui/node_modules/
+ui/.svelte-kit/
+ui/build/

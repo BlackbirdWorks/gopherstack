@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Sidebar Mini Mode */
+.sidebar-mini #sidebar {
+  width: 4.5rem;
+  transition: width 0.2s ease;
+}
+
+.sidebar-mini #sidebar .sidebar-text,
+.sidebar-mini #sidebar .category-header-text,
+.sidebar-mini #sidebar .chevron-icon {
+  display: none;
+}
+
+.sidebar-mini #sidebar a {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar-mini #sidebar .category-btn {
+  justify-content: center;
+  pointer-events: none;
+  padding-top: 1rem;
+}
+
+.sidebar-mini .main-content {
+  margin-left: 4.5rem;
+  transition: margin-left 0.2s ease;
+}
+
+.sidebar-mini #sidebar-footer-toggle {
+  justify-content: center;
+}
+
+.sidebar-mini #sidebar-toggle-icon {
+  transform: rotate(180deg);
+}
+
+/* Sidebar transitions */
+#sidebar {
+  transition: width 0.2s ease;
+}
+

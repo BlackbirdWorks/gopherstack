@@ -1,0 +1,7 @@
+<section class="space-y-3">
+	<p class="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">Docs</p>
+	<h2 class="text-2xl font-semibold">Service Docs</h2>
+	<p class="text-sm text-zinc-600 dark:text-zinc-300">
+		Documentation route for service operation references and usage examples during the migration.
+	</p>
+</section>

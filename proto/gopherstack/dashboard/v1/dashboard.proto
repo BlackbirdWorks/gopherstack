@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package gopherstack.dashboard.v1;
+
+option go_package = "github.com/blackbirdworks/gopherstack/dashboard/api/v1;dashboardv1";
+
+import "google/protobuf/timestamp.proto";
+
+service DashboardService {
+  rpc StreamConsole(StreamConsoleRequest) returns (stream StreamConsoleResponse);
+  rpc StreamMetrics(StreamMetricsRequest) returns (stream StreamMetricsResponse);
+}
+
+message StreamConsoleRequest {}
+
+message StreamConsoleResponse {
+  CapturedRequest request = 1;
+}
+
+message CapturedRequest {
+  string id = 1;
+  string method = 2;
+  string path = 3;
+  map<string, string> headers = 4;
+  string body = 5;
+  int32 status = 6;
+  int64 duration_ms = 7;
+  google.protobuf.Timestamp timestamp = 8;
+}
+
+message StreamMetricsRequest {}
+
+message StreamMetricsResponse {
+  DashboardMetrics dashboard = 1;
+}
+
+message DashboardMetrics {
+  RuntimeMetrics runtime = 1;
+  repeated OperationSummary operations = 2;
+  repeated DeadlockInfo deadlocks = 3;
+  repeated WorkerStats workers = 4;
+}
+
+message RuntimeMetrics {
+  int32 goroutines = 1;
+  double heap_alloc_mb = 2;
+  double heap_inuse_mb = 3;
+  double heap_sys_mb = 4;
+  uint32 num_gc = 5;
+  double last_gc_pause_ms = 6;
+  double total_alloc_mb = 7;
+  int32 num_services = 8;
+}
+
+message OperationSummary {
+  string operation = 1;
+  int64 count = 2;
+  int64 error_count = 3;
+  double p50_ms = 4;
+  double p95_ms = 5;
+  double p99_ms = 6;
+  double avg_ms = 7;
+  double max_ms = 8;
+}
+
+message DeadlockInfo {
+  string lock = 1;
+  string operation = 2;
+  double held_sec = 3;
+  int32 waiters = 4;
+}
+
+message WorkerStats {
+  string service = 1;
+  string worker = 2;
+  int32 queue_depth = 3;
+  int64 tasks_total = 4;
+  int64 errors_total = 5;
+  int64 items_processed_total = 6;
+}

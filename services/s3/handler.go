@@ -337,6 +337,7 @@ func (h *S3Handler) RouteMatcher() service.Matcher {
 		// Matches /api/, /metrics/, /dashboard/ but NOT /api, /metrics, /dashboard
 		// which could be valid bucket names.
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics/") ||
+			path == "/dashboard2" || strings.HasPrefix(path, "/dashboard2/") ||
 			strings.HasPrefix(path, "/dashboard/") || strings.HasPrefix(path, "/_gopherstack/") ||
 			path == "/favicon.ico" || path == "/robots.txt" {
 			return false

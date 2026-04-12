@@ -1,0 +1,196 @@
+export type DashboardRoute = {
+	id: string;
+	href: string;
+	label: string;
+	icon: string;
+};
+
+export type DashboardCategory = {
+	id: string;
+	label: string;
+	routes: DashboardRoute[];
+};
+
+export const sidebarCategories: DashboardCategory[] = [
+	{
+		id: 'core-services',
+		label: 'Core Services',
+		routes: [
+			{ id: 'dynamodb', href: '/dashboard2/dynamodb', label: 'DynamoDB', icon: 'dynamodb' },
+			{ id: 's3', href: '/dashboard2/s3', label: 'S3', icon: 's3' },
+			{ id: 'elasticache', href: '/dashboard2/elasticache', label: 'ElastiCache', icon: 'elasticache' }
+		]
+	},
+	{
+		id: 'standard-services',
+		label: 'Standard Services',
+		routes: [
+			{ id: 'ssm', href: '/dashboard2/ssm', label: 'SSM', icon: 'ssm' },
+			{ id: 'iam', href: '/dashboard2/iam', label: 'IAM', icon: 'iam' },
+			{ id: 'sts', href: '/dashboard2/sts', label: 'STS', icon: 'sts' }
+		]
+	},
+	{
+		id: 'message-services',
+		label: 'Message Services',
+		routes: [
+			{ id: 'sns', href: '/dashboard2/sns', label: 'SNS', icon: 'sns' },
+			{ id: 'sqs', href: '/dashboard2/sqs', label: 'SQS', icon: 'sqs' },
+			{ id: 'lambda', href: '/dashboard2/lambda', label: 'Lambda', icon: 'lambda' }
+		]
+	},
+	{
+		id: 'security-services',
+		label: 'Security Services',
+		routes: [
+			{ id: 'kms', href: '/dashboard2/kms', label: 'KMS', icon: 'kms' },
+			{ id: 'secretsmanager', href: '/dashboard2/secretsmanager', label: 'Secrets Manager', icon: 'secretsmanager' },
+			{ id: 'acm', href: '/dashboard2/acm', label: 'ACM', icon: 'acm' },
+			{ id: 'acmpca', href: '/dashboard2/acmpca', label: 'ACM PCA', icon: 'acmpca' }
+		]
+	},
+	{
+		id: 'compute',
+		label: 'Compute & Containers',
+		routes: [
+			{ id: 'ec2', href: '/dashboard2/ec2', label: 'EC2', icon: 'ec2' },
+			{ id: 'ecr', href: '/dashboard2/ecr', label: 'ECR', icon: 'ecr' },
+			{ id: 'ecs', href: '/dashboard2/ecs', label: 'ECS', icon: 'ecs' },
+			{ id: 'eks', href: '/dashboard2/eks', label: 'EKS', icon: 'eks' },
+			{ id: 'elasticbeanstalk', href: '/dashboard2/elasticbeanstalk', label: 'Elastic Beanstalk', icon: 'elasticbeanstalk' }
+		]
+	},
+	{
+		id: 'database-analytics',
+		label: 'Databases & Analytics',
+		routes: [
+			{ id: 'elasticsearch', href: '/dashboard2/elasticsearch', label: 'Elasticsearch', icon: 'elasticsearch' },
+			{ id: 'opensearch', href: '/dashboard2/opensearch', label: 'OpenSearch', icon: 'opensearch' },
+			{ id: 'redshift', href: '/dashboard2/redshift', label: 'Redshift', icon: 'redshift' },
+			{ id: 'rds', href: '/dashboard2/rds', label: 'RDS', icon: 'rds' },
+			{ id: 'dms', href: '/dashboard2/dms', label: 'DMS', icon: 'dms' },
+			{ id: 'kinesis', href: '/dashboard2/kinesis', label: 'Kinesis', icon: 'kinesis' },
+			{ id: 'firehose', href: '/dashboard2/firehose', label: 'Firehose', icon: 'firehose' }
+		]
+	},
+	{
+		id: 'devtools',
+		label: 'Developer Tools',
+		routes: [
+			{ id: 'codecommit', href: '/dashboard2/codecommit', label: 'CodeCommit', icon: 'codecommit' },
+			{ id: 'codebuild', href: '/dashboard2/codebuild', label: 'CodeBuild', icon: 'codebuild' },
+			{ id: 'codedeploy', href: '/dashboard2/codedeploy', label: 'CodeDeploy', icon: 'codedeploy' },
+			{ id: 'codepipeline', href: '/dashboard2/codepipeline', label: 'CodePipeline', icon: 'codepipeline' },
+			{ id: 'codeartifact', href: '/dashboard2/codeartifact', label: 'CodeArtifact', icon: 'codeartifact' },
+			{ id: 'codeconnections', href: '/dashboard2/codeconnections', label: 'CodeConnections', icon: 'codeconnections' }
+		]
+	},
+	{
+		id: 'management',
+		label: 'Management & Governance',
+		routes: [
+			{ id: 'cloudwatch', href: '/dashboard2/cloudwatch', label: 'CloudWatch', icon: 'cloudwatch' },
+			{ id: 'cloudwatchlogs', href: '/dashboard2/cloudwatchlogs', label: 'CloudWatch Logs', icon: 'cloudwatchlogs' },
+			{ id: 'cloudformation', href: '/dashboard2/cloudformation', label: 'CloudFormation', icon: 'cloudformation' },
+			{ id: 'awsconfig', href: '/dashboard2/awsconfig', label: 'AWS Config', icon: 'awsconfig' },
+			{ id: 'resourcegroups', href: '/dashboard2/resourcegroups', label: 'Resource Groups', icon: 'resourcegroups' },
+			{ id: 'resourcegroupstaggingapi', href: '/dashboard2/resourcegroupstaggingapi', label: 'Tagging API', icon: 'resourcegroupstaggingapi' }
+		]
+	},
+	{
+		id: 'app-integration',
+		label: 'Application Integration',
+		routes: [
+			{ id: 'eventbridge', href: '/dashboard2/eventbridge', label: 'EventBridge', icon: 'eventbridge' },
+			{ id: 'apigateway', href: '/dashboard2/apigateway', label: 'API Gateway', icon: 'apigateway' },
+			{ id: 'apigatewayv2', href: '/dashboard2/apigatewayv2', label: 'API Gateway V2', icon: 'apigatewayv2' },
+			{ id: 'apigatewaymanagementapi', href: '/dashboard2/apigatewaymanagementapi', label: 'APIGW Management', icon: 'apigatewaymanagementapi' },
+			{ id: 'stepfunctions', href: '/dashboard2/stepfunctions', label: 'Step Functions', icon: 'stepfunctions' },
+			{ id: 'swf', href: '/dashboard2/swf', label: 'SWF', icon: 'swf' }
+		]
+	},
+	{
+		id: 'web-mobile',
+		label: 'Front-end Web & Mobile',
+		routes: [
+			{ id: 'amplify', href: '/dashboard2/amplify', label: 'Amplify', icon: 'amplify' },
+			{ id: 'appsync', href: '/dashboard2/appsync', label: 'AppSync', icon: 'appsync' }
+		]
+	},
+	{
+		id: 'iot-ai',
+		label: 'IoT & AI',
+		routes: [
+			{ id: 'iot', href: '/dashboard2/iot', label: 'IoT Core', icon: 'iot' },
+			{ id: 'iotdataplane', href: '/dashboard2/iotdataplane', label: 'IoT Data Plane', icon: 'iotdataplane' },
+			{ id: 'iotanalytics', href: '/dashboard2/iotanalytics', label: 'IoT Analytics', icon: 'iot' },
+			{ id: 'bedrockruntime', href: '/dashboard2/bedrockruntime', label: 'Bedrock Runtime', icon: 'bedrockruntime' }
+		]
+	},
+	{
+		id: 'networking-security',
+		label: 'Networking & Security',
+		routes: [
+			{ id: 'route53', href: '/dashboard2/route53', label: 'Route 53', icon: 'route53' },
+			{ id: 'route53resolver', href: '/dashboard2/route53resolver', label: 'Route 53 Resolver', icon: 'route53resolver' },
+			{ id: 'cognitoidentity', href: '/dashboard2/cognitoidentity', label: 'Cognito Identity', icon: 'cognitoidentity' },
+			{ id: 'cognitoidp', href: '/dashboard2/cognitoidp', label: 'Cognito IDP', icon: 'cognitoidentity' }
+		]
+	},
+	{
+		id: 'storage',
+		label: 'Storage',
+		routes: [
+			{ id: 's3control', href: '/dashboard2/s3control', label: 'S3 Control', icon: 's3control' }
+		]
+	},
+	{
+		id: 'business',
+		label: 'Business & Communication',
+		routes: [
+			{ id: 'ses', href: '/dashboard2/ses', label: 'SES', icon: 'ses' }
+		]
+	},
+	{
+		id: 'networking',
+		label: 'Networking',
+		routes: [
+			{ id: 'elb', href: '/dashboard2/elb', label: 'Elastic Load Balancing', icon: 'elb' },
+			{ id: 'elbv2', href: '/dashboard2/elbv2', label: 'Elastic Load Balancing v2', icon: 'elbv2' }
+		]
+	},
+	{
+		id: 'monitoring',
+		label: 'Monitoring',
+		routes: [
+			{ id: 'glacier', href: '/dashboard2/glacier', label: 'Glacier', icon: 'glacier' },
+			{ id: 'identitystore', href: '/dashboard2/identitystore', label: 'Identity Store', icon: 'identitystore' },
+			{ id: 'kafka', href: '/dashboard2/kafka', label: 'Kafka (MSK)', icon: 'kafka' },
+			{ id: 'kinesisanalyticsv2', href: '/dashboard2/kinesisanalyticsv2', label: 'Kinesis Analytics v2', icon: 'kinesisanalyticsv2' },
+			{ id: 'lakeformation', href: '/dashboard2/lakeformation', label: 'Lake Formation', icon: 'lakeformation' },
+			{ id: 'managedblockchain', href: '/dashboard2/managedblockchain', label: 'Managed Blockchain', icon: 'managedblockchain' },
+			{ id: 'mediastore', href: '/dashboard2/mediastore', label: 'MediaStore', icon: 'mediastore' },
+			{ id: 'mediastoredata', href: '/dashboard2/mediastoredata', label: 'MediaStore Data', icon: 'mediastoredata' },
+			{ id: 'memorydb', href: '/dashboard2/memorydb', label: 'MemoryDB', icon: 'memorydb' },
+			{ id: 'mq', href: '/dashboard2/mq', label: 'MQ', icon: 'mq' },
+			{ id: 'neptune', href: '/dashboard2/neptune', label: 'Neptune', icon: 'neptune' },
+			{ id: 'mwaa', href: '/dashboard2/mwaa', label: 'MWAA', icon: 'mwaa' },
+			{ id: 'organizations', href: '/dashboard2/organizations', label: 'Organizations', icon: 'organizations' },
+			{ id: 'pinpoint', href: '/dashboard2/pinpoint', label: 'Pinpoint', icon: 'pinpoint' },
+			{ id: 'pipes', href: '/dashboard2/pipes', label: 'Pipes', icon: 'pipes' },
+			{ id: 'qldb', href: '/dashboard2/qldb', label: 'QLDB', icon: 'qldb' },
+			{ id: 'qldbsession', href: '/dashboard2/qldbsession', label: 'QLDB Session', icon: 'qldbsession' },
+			{ id: 'ram', href: '/dashboard2/ram', label: 'RAM', icon: 'ram' },
+			{ id: 'redshiftdata', href: '/dashboard2/redshiftdata', label: 'Redshift Data', icon: 'redshiftdata' },
+			{ id: 'sagemaker', href: '/dashboard2/sagemaker', label: 'SageMaker', icon: 'sagemaker' }
+		]
+	},
+	{
+		id: 'settings-resilience',
+		label: 'Settings & Resilience',
+		routes: [
+			{ id: 'fis', href: '/dashboard2/fis', label: 'FIS', icon: 'fis' },
+			{ id: 'chaos', href: '/dashboard2/chaos', label: 'Chaos', icon: 'chaos' }
+		]
+	}
+];

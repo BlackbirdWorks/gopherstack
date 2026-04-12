@@ -4,8 +4,10 @@ import (
 	"embed"
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -288,7 +291,7 @@ type ConfigManager interface {
 	SaveConfig() error
 }
 
-//go:embed static/*
+//go:embed all:static
 var staticFS embed.FS
 
 //go:embed templates/*
@@ -1075,6 +1078,36 @@ func (h *DashboardHandler) initHandlers(logger *slog.Logger) {
 	h.setupSubRouter()
 }
 
+func (h *DashboardHandler) serveDashboard2(c *echo.Context) error {
+	dashboard2FS, err := fs.Sub(staticFS, "static/dashboard2")
+	if err != nil {
+		return c.String(http.StatusNotFound, "dashboard2 build assets not found")
+	}
+
+	cleanPath := strings.TrimPrefix(c.Request().URL.Path, "/dashboard2")
+	if cleanPath == "" || cleanPath == "/" {
+		http.ServeFileFS(c.Response(), c.Request(), dashboard2FS, "index.html")
+
+		return nil
+	}
+
+	relPath := strings.TrimPrefix(path.Clean(cleanPath), "/")
+	file, openErr := dashboard2FS.Open(relPath)
+	if openErr == nil {
+		defer file.Close()
+		stat, statErr := file.Stat()
+		if statErr == nil && !stat.IsDir() {
+			http.ServeFileFS(c.Response(), c.Request(), dashboard2FS, relPath)
+
+			return nil
+		}
+	}
+
+	http.ServeFileFS(c.Response(), c.Request(), dashboard2FS, "index.html")
+
+	return nil
+}
+
 func (h *DashboardHandler) setupStaticAndRootRoutes() {
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
@@ -1082,11 +1115,17 @@ func (h *DashboardHandler) setupStaticAndRootRoutes() {
 
 		return nil
 	})
+	h.SubRouter.GET("/dashboard2", h.serveDashboard2)
+	h.SubRouter.GET("/dashboard2/*", h.serveDashboard2)
 	h.SubRouter.GET("/dashboard", h.dashboardIndex)
 	h.SubRouter.GET("/dashboard/", h.dashboardIndex)
 	h.SubRouter.GET("/dashboard/console", h.consoleIndex)
 	h.SubRouter.GET("/dashboard/api/console", h.consoleAPI)
 	h.SubRouter.GET("/dashboard/api/console/stream", h.consoleAPIStream)
+
+	// Register Connect-RPC server
+	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(NewConnectDashboardServer())
+	h.SubRouter.Any(connectPath+"*", echo.WrapHandler(connectHandler))
 }
 
 func (h *DashboardHandler) setupProviderRoutes() {
@@ -1671,7 +1710,8 @@ func (h *DashboardHandler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		return path == "/dashboard" || strings.HasPrefix(path, "/dashboard/")
+		return path == "/dashboard" || strings.HasPrefix(path, "/dashboard/") ||
+			path == "/dashboard2" || strings.HasPrefix(path, "/dashboard2/")
 	}
 }
 

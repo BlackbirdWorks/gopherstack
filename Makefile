@@ -1,14 +1,30 @@
-.PHONY: build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
+.PHONY: build ui-install ui-lint ui-fmt ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
 BUILD_VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-build:
+build: ui-build
 	go build \
 		-trimpath \
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
 		-o bin/$(BINARY_NAME) .
+
+ui-install:
+	npm --prefix ui ci
+
+ui-lint: ui-install
+	npm --prefix ui run lint
+
+ui-fmt: ui-install
+	npm --prefix ui run fmt:check
+
+ui-test: ui-install
+	npm --prefix ui run test:coverage
+
+ui-build: ui-install
+	rm -rf dashboard/static/dashboard2
+	npm --prefix ui run build
 
 build-releaser:
 	go build \

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import", "unicorn"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "unicorn/prefer-module": "off",
+    "import/no-unassigned-import": "off",
+    "unicorn/no-empty-file": "off",
+    "unicorn/require-module-specifiers": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "max-lines-per-function": "off"
+  },
+  "ignorePatterns": ["build/**", ".svelte-kit/**", "node_modules/**"]
+}
