@@ -94,6 +94,32 @@ func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
 	body, err := page.TextContent("body")
 	require.NoError(t, err)
 	assert.Contains(t, body, "Runtime configuration")
+
+	autoPurgeInput := page.Locator("input[name='autoPurgeTTL']")
+	require.NoError(t, autoPurgeInput.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
+
+	currentValue, err := autoPurgeInput.InputValue()
+	require.NoError(t, err)
+
+	newValue := "35m"
+	if currentValue == newValue {
+		newValue = "36m"
+	}
+
+	require.NoError(t, autoPurgeInput.Fill(newValue))
+
+	saveBtn := page.Locator("#save-settings-btn")
+	require.NoError(t, saveBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
+
+	isDisabled, err := saveBtn.IsDisabled()
+	require.NoError(t, err)
+	require.False(t, isDisabled, "save button should be enabled after changing settings when arriving via navbar navigation")
 }
 
 func TestE2E_SettingsPage_SaveAutoPurgeTTL_PersistsAfterRefresh(t *testing.T) {

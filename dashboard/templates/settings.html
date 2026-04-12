@@ -395,33 +395,41 @@
 </button>
 
 <script>
-    document.addEventListener("DOMContentLoaded", function() {
+    function initSettingsPage() {
+        if (window.location.pathname !== '/dashboard/settings') {
+            return;
+        }
+
         // Clear URL parameters for a clean experience
         if (window.location.search) {
             window.history.replaceState({}, document.title, window.location.pathname);
         }
 
         // Fetch services and populate dropdown for reset
-        fetch("/_gopherstack/health")
-            .then(res => res.json())
-            .then(data => {
-                const selectElement = document.getElementById("reset-service-select");
-                if (data && data.services) {
-                    data.services.forEach(svc => {
-                        const option = document.createElement("option");
-                        option.value = svc;
-                        option.textContent = svc;
-                        selectElement.appendChild(option);
-                    });
-                }
-            })
-            .catch(err => console.error("Failed to fetch services list", err));
+        const resetServiceSelect = document.getElementById("reset-service-select");
+        if (resetServiceSelect && resetServiceSelect.dataset.servicesLoaded !== 'true') {
+            fetch("/_gopherstack/health")
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.services) {
+                        data.services.forEach(svc => {
+                            const option = document.createElement("option");
+                            option.value = svc;
+                            option.textContent = svc;
+                            resetServiceSelect.appendChild(option);
+                        });
+                        resetServiceSelect.dataset.servicesLoaded = 'true';
+                    }
+                })
+                .catch(err => console.error("Failed to fetch services list", err));
+        }
 
         // Form change detection
         const setupChangeDetection = (formId, btnId) => {
             const form = document.getElementById(formId);
             const btn = document.getElementById(btnId);
             if (!form || !btn) return;
+            if (form.dataset.changeDetectionBound === 'true') return;
 
             const controls = Array.from(form.querySelectorAll('input, select, textarea')).filter(control => control.name);
 
@@ -473,6 +481,7 @@
 
             form.addEventListener('input', checkChanges);
             form.addEventListener('change', checkChanges);
+            form.dataset.changeDetectionBound = 'true';
             
             // Expose reset for use after successful save
             form.resetInitialState = () => {
@@ -495,7 +504,15 @@
                 btn.classList.remove("opacity-100", "translate-y-0");
             }
         };
-    });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener("DOMContentLoaded", initSettingsPage);
+    } else {
+        initSettingsPage();
+    }
+
+    document.addEventListener('htmx:afterSettle', initSettingsPage);
 
     function showToast(message, type = "success") {
         const container = document.getElementById("toast-container");
