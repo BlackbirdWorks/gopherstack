@@ -611,6 +611,17 @@ func (b *InMemoryBackend) GetSendStatistics() []SendDataPoint {
 
 // ---- receipt rule set operations ----
 
+// findRuleIndex returns the index of the rule with the given name, or -1 if not found.
+func findRuleIndex(rules []ReceiptRule, name string) int {
+	for i, r := range rules {
+		if r.Name == name {
+			return i
+		}
+	}
+
+	return -1
+}
+
 // CreateReceiptRuleSet creates a new receipt rule set.
 // Returns ErrReceiptRuleSetExists if it already exists.
 func (b *InMemoryBackend) CreateReceiptRuleSet(name string) error {
@@ -709,20 +720,17 @@ func (b *InMemoryBackend) CreateReceiptRule(ruleSetName string, rule ReceiptRule
 		return nil
 	}
 
-	idx := -1
-	for i, r := range rs.Rules {
-		if r.Name == after {
-			idx = i
-
-			break
-		}
-	}
+	idx := findRuleIndex(rs.Rules, after)
 
 	if idx < 0 {
 		return fmt.Errorf("%w: after rule %s not found", ErrReceiptRuleNotFound, after)
 	}
 
-	rs.Rules = append(rs.Rules[:idx+1], append([]ReceiptRule{rule}, rs.Rules[idx+1:]...)...)
+	newRules := make([]ReceiptRule, 0, len(rs.Rules)+1)
+	newRules = append(newRules, rs.Rules[:idx+1]...)
+	newRules = append(newRules, rule)
+	newRules = append(newRules, rs.Rules[idx+1:]...)
+	rs.Rules = newRules
 
 	return nil
 }
