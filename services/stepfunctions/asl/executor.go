@@ -78,6 +78,15 @@ type DynamoDBIntegration interface {
 	SFNGetItem(ctx context.Context, input any) (any, error)
 	SFNDeleteItem(ctx context.Context, input any) (any, error)
 	SFNUpdateItem(ctx context.Context, input any) (any, error)
+	SFNBatchExecuteStatement(ctx context.Context, input any) (any, error)
+	SFNBatchGetItem(ctx context.Context, input any) (any, error)
+	SFNBatchWriteItem(ctx context.Context, input any) (any, error)
+	SFNCreateBackup(ctx context.Context, input any) (any, error)
+	SFNCreateGlobalTable(ctx context.Context, input any) (any, error)
+	SFNCreateTable(ctx context.Context, input any) (any, error)
+	SFNDeleteBackup(ctx context.Context, input any) (any, error)
+	SFNDeleteResourcePolicy(ctx context.Context, input any) (any, error)
+	SFNDeleteTable(ctx context.Context, input any) (any, error)
 }
 
 // HistoryRecorder is called during execution to record state transition events.
@@ -703,18 +712,85 @@ func (e *Executor) invokeDynamoDBTask(ctx context.Context, state *State, input a
 
 	action := serviceAction(state.Resource)
 
+	if out, ok, err := e.invokeDynamoDBItemOps(ctx, action, input); ok {
+		return out, err
+	}
+
+	if out, ok, err := e.invokeDynamoDBTableOps(ctx, action, input); ok {
+		return out, err
+	}
+
+	return nil, fmt.Errorf("%w: %q", ErrUnsupportedDynamoDBAction, action)
+}
+
+// invokeDynamoDBItemOps handles per-item and batch DynamoDB actions.
+// Returns (result, true, err) on a match, or (nil, false, nil) when no action matches.
+func (e *Executor) invokeDynamoDBItemOps(ctx context.Context, action string, input any) (any, bool, error) {
 	switch action {
 	case "putItem":
-		return e.dynamodb.SFNPutItem(ctx, input)
+		out, err := e.dynamodb.SFNPutItem(ctx, input)
+
+		return out, true, err
 	case "getItem":
-		return e.dynamodb.SFNGetItem(ctx, input)
+		out, err := e.dynamodb.SFNGetItem(ctx, input)
+
+		return out, true, err
 	case "deleteItem":
-		return e.dynamodb.SFNDeleteItem(ctx, input)
+		out, err := e.dynamodb.SFNDeleteItem(ctx, input)
+
+		return out, true, err
 	case "updateItem":
-		return e.dynamodb.SFNUpdateItem(ctx, input)
-	default:
-		return nil, fmt.Errorf("%w: %q", ErrUnsupportedDynamoDBAction, action)
+		out, err := e.dynamodb.SFNUpdateItem(ctx, input)
+
+		return out, true, err
+	case "batchExecuteStatement":
+		out, err := e.dynamodb.SFNBatchExecuteStatement(ctx, input)
+
+		return out, true, err
+	case "batchGetItem":
+		out, err := e.dynamodb.SFNBatchGetItem(ctx, input)
+
+		return out, true, err
+	case "batchWriteItem":
+		out, err := e.dynamodb.SFNBatchWriteItem(ctx, input)
+
+		return out, true, err
 	}
+
+	return nil, false, nil
+}
+
+// invokeDynamoDBTableOps handles table-level and backup/policy DynamoDB actions.
+// Returns (result, true, err) on a match, or (nil, false, nil) when no action matches.
+func (e *Executor) invokeDynamoDBTableOps(ctx context.Context, action string, input any) (any, bool, error) {
+	switch action {
+	case "createTable":
+		out, err := e.dynamodb.SFNCreateTable(ctx, input)
+
+		return out, true, err
+	case "deleteTable":
+		out, err := e.dynamodb.SFNDeleteTable(ctx, input)
+
+		return out, true, err
+	case "createGlobalTable":
+		out, err := e.dynamodb.SFNCreateGlobalTable(ctx, input)
+
+		return out, true, err
+	case "createBackup":
+		out, err := e.dynamodb.SFNCreateBackup(ctx, input)
+
+		return out, true, err
+	case "deleteBackup":
+		out, err := e.dynamodb.SFNDeleteBackup(ctx, input)
+
+		return out, true, err
+	case "deleteResourcePolicy":
+		out, err := e.dynamodb.SFNDeleteResourcePolicy(ctx, input)
+
+		return out, true, err
+	}
+
+	return nil, false, nil
 }
 
 // serviceAction extracts the action name from a States service integration ARN,
