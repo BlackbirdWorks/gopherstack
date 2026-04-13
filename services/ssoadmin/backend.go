@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -17,9 +18,19 @@ const (
 	identityStoreIDPrefixLen = 8
 	identityStoreIDMaxLen    = 12
 	uuidShortLen             = 8
+
+	// Instance/application status constants.
+	instanceStatusActive = "ACTIVE"
+	appStatusEnabled     = "ENABLED"
+
+	// Default session duration for new permission sets.
+	defaultSessionDuration = "PT1H"
 )
 
 var (
+	// ErrValidation is returned when input validation fails.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+
 	ErrInstanceNotFound                = errors.New("ResourceNotFoundException")
 	ErrPermissionSetNotFound           = errors.New("ResourceNotFoundException")
 	ErrPermissionSetAlreadyExists      = errors.New("ConflictException")
@@ -35,97 +46,98 @@ var (
 
 // Instance represents an AWS SSO instance.
 type Instance struct {
-	CreatedDate     time.Time
-	IdentityStoreID string
-	InstanceArn     string
-	Name            string
-	OwnerAccountID  string
-	Status          string
+	CreatedDate     time.Time         `json:"CreatedDate"`
+	Tags            map[string]string `json:"Tags"`
+	IdentityStoreID string            `json:"IdentityStoreId"`
+	InstanceArn     string            `json:"InstanceArn"`
+	Name            string            `json:"Name"`
+	OwnerAccountID  string            `json:"OwnerAccountId"`
+	Status          string            `json:"Status"`
 }
 
 // PermissionSet represents an AWS SSO permission set.
 type PermissionSet struct {
-	CreatedDate      time.Time
-	Tags             map[string]string
-	PermissionSetArn string
-	InstanceArn      string
-	Name             string
-	Description      string
-	SessionDuration  string
-	RelayState       string
-	InlinePolicy     string
-	ManagedPolicies  []ManagedPolicy
+	CreatedDate      time.Time         `json:"CreatedDate"`
+	Tags             map[string]string `json:"Tags"`
+	PermissionSetArn string            `json:"PermissionSetArn"`
+	InstanceArn      string            `json:"InstanceArn"`
+	Name             string            `json:"Name"`
+	Description      string            `json:"Description"`
+	SessionDuration  string            `json:"SessionDuration"`
+	RelayState       string            `json:"RelayState"`
+	InlinePolicy     string            `json:"InlinePolicy"`
+	ManagedPolicies  []ManagedPolicy   `json:"ManagedPolicies"`
 }
 
 // ManagedPolicy represents an IAM managed policy attached to a permission set.
 type ManagedPolicy struct {
-	Arn  string
-	Name string
+	Arn  string `json:"Arn"`
+	Name string `json:"Name"`
 }
 
 // AccountAssignment represents an assignment of a permission set to a principal in an account.
 type AccountAssignment struct {
-	AccountID        string
-	PermissionSetArn string
-	PrincipalID      string
-	PrincipalType    string
+	AccountID        string `json:"AccountId"`
+	PermissionSetArn string `json:"PermissionSetArn"`
+	PrincipalID      string `json:"PrincipalId"`
+	PrincipalType    string `json:"PrincipalType"`
 }
 
 // ProvisioningStatus represents the status of an async provisioning request.
 type ProvisioningStatus struct {
-	CreatedDate   time.Time
-	RequestID     string
-	Status        string
-	FailureReason string
+	CreatedDate   time.Time `json:"CreatedDate"`
+	RequestID     string    `json:"RequestId"`
+	Status        string    `json:"Status"`
+	FailureReason string    `json:"FailureReason"`
 }
 
 // CustomerManagedPolicyReference references a customer-managed policy.
 type CustomerManagedPolicyReference struct {
-	Name string
-	Path string
+	Name string `json:"Name"`
+	Path string `json:"Path"`
 }
 
 // Application represents an AWS SSO application.
 type Application struct {
-	CreatedDate            time.Time
-	Tags                   map[string]string
-	ApplicationArn         string
-	ApplicationProviderArn string
-	Description            string
-	InstanceArn            string
-	Name                   string
-	Status                 string
+	CreatedDate            time.Time         `json:"CreatedDate"`
+	Tags                   map[string]string `json:"Tags"`
+	ApplicationArn         string            `json:"ApplicationArn"`
+	ApplicationProviderArn string            `json:"ApplicationProviderArn"`
+	Description            string            `json:"Description"`
+	InstanceArn            string            `json:"InstanceArn"`
+	Name                   string            `json:"Name"`
+	Status                 string            `json:"Status"`
 }
 
 // ApplicationAssignment represents a principal assigned to an application.
 type ApplicationAssignment struct {
-	ApplicationArn string
-	PrincipalID    string
-	PrincipalType  string
+	ApplicationArn string `json:"ApplicationArn"`
+	PrincipalID    string `json:"PrincipalId"`
+	PrincipalType  string `json:"PrincipalType"`
 }
 
 // AccessControlAttributeValue holds the source list for an attribute.
 type AccessControlAttributeValue struct {
-	Source []string
+	Source []string `json:"Source"`
 }
 
 // AccessControlAttribute represents a single ABAC attribute.
 type AccessControlAttribute struct {
-	Key   string
-	Value AccessControlAttributeValue
+	Key   string                      `json:"Key"`
+	Value AccessControlAttributeValue `json:"Value"`
 }
 
 // InstanceAccessControlAttributeConfiguration holds ABAC configuration for an instance.
 type InstanceAccessControlAttributeConfiguration struct {
-	AccessControlAttributes []AccessControlAttribute
+	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
 }
 
 // TrustedTokenIssuer represents a trusted token issuer.
 type TrustedTokenIssuer struct {
-	TrustedTokenIssuerArn  string
-	InstanceArn            string
-	Name                   string
-	TrustedTokenIssuerType string
+	TrustedTokenIssuerArn  string `json:"TrustedTokenIssuerArn"`
+	InstanceArn            string `json:"InstanceArn"`
+	Name                   string `json:"Name"`
+	TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
 }
 
 // InMemoryBackend is the in-memory backend for the SSO Admin service.
@@ -184,11 +196,32 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		Name:            "default",
 		OwnerAccountID:  accountID,
 		IdentityStoreID: identityStoreID,
-		Status:          "ACTIVE",
+		Status:          instanceStatusActive,
 		CreatedDate:     time.Now().UTC(),
 	}
 
 	return b
+}
+
+// Reset clears all backend state, including the default pre-seeded instance.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.instances = make(map[string]*Instance)
+	b.permissionSets = make(map[string]*PermissionSet)
+	b.assignments = make(map[string][]*AccountAssignment)
+	b.creationStatuses = make(map[string]*ProvisioningStatus)
+	b.deletionStatuses = make(map[string]*ProvisioningStatus)
+	b.provisioningStatuses = make(map[string]*ProvisioningStatus)
+	b.instanceRegions = make(map[string][]string)
+	b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
+	b.applications = make(map[string]*Application)
+	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
+	b.applicationScopes = make(map[string][]string)
+	b.applicationAuthMethods = make(map[string][]string)
+	b.instanceACAs = make(map[string]*InstanceAccessControlAttributeConfiguration)
+	b.trustedTokenIssuers = make(map[string]*TrustedTokenIssuer)
 }
 
 // AccountID returns the backend account ID.
@@ -225,7 +258,7 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 		Name:            name,
 		OwnerAccountID:  ownerAccountID,
 		IdentityStoreID: identityStoreID,
-		Status:          "ACTIVE",
+		Status:          instanceStatusActive,
 		CreatedDate:     time.Now().UTC(),
 	}
 	b.instances[instanceArn] = inst
@@ -264,7 +297,7 @@ func (b *InMemoryBackend) DescribeInstance(instanceArn string) (*Instance, error
 	return &cp, nil
 }
 
-// DeleteInstance removes an SSO instance.
+// DeleteInstance removes an SSO instance and cascades to all dependent resources.
 func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
@@ -273,6 +306,37 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 		return ErrInstanceNotFound
 	}
 	delete(b.instances, instanceArn)
+
+	// Cascade: remove all permission sets and their assignments for this instance.
+	for psArn, ps := range b.permissionSets {
+		if ps.InstanceArn == instanceArn {
+			key := assignmentKey(instanceArn, psArn)
+			delete(b.assignments, key)
+			delete(b.customerManagedPolicies, psArn)
+			delete(b.permissionSets, psArn)
+		}
+	}
+
+	// Cascade: remove ACA configuration and region list for this instance.
+	delete(b.instanceACAs, instanceArn)
+	delete(b.instanceRegions, instanceArn)
+
+	// Cascade: remove all applications belonging to this instance.
+	for appArn, app := range b.applications {
+		if app.InstanceArn == instanceArn {
+			delete(b.applicationAssignments, appArn)
+			delete(b.applicationScopes, appArn)
+			delete(b.applicationAuthMethods, appArn)
+			delete(b.applications, appArn)
+		}
+	}
+
+	// Cascade: remove all trusted token issuers for this instance.
+	for ttiArn, tti := range b.trustedTokenIssuers {
+		if tti.InstanceArn == instanceArn {
+			delete(b.trustedTokenIssuers, ttiArn)
+		}
+	}
 
 	return nil
 }
@@ -300,7 +364,7 @@ func (b *InMemoryBackend) CreatePermissionSet(
 	psArn := fmt.Sprintf("arn:aws:sso:::permissionSet/%s/%s", instanceID, id)
 
 	if sessionDuration == "" {
-		sessionDuration = "PT1H"
+		sessionDuration = defaultSessionDuration
 	}
 
 	ps := &PermissionSet{
@@ -433,7 +497,9 @@ func (b *InMemoryBackend) DescribeAccountAssignmentCreationStatus(
 		return nil, ErrRequestNotFound
 	}
 
-	return status, nil
+	cp := *status
+
+	return &cp, nil
 }
 
 // ListAccountAssignments returns assignments for a permission set in an instance, optionally filtered by account.
@@ -447,7 +513,8 @@ func (b *InMemoryBackend) ListAccountAssignments(instanceArn, permissionSetArn, 
 	var result []*AccountAssignment
 	for _, a := range all {
 		if accountID == "" || a.AccountID == accountID {
-			result = append(result, a)
+			cp := *a
+			result = append(result, &cp)
 		}
 	}
 
@@ -501,7 +568,9 @@ func (b *InMemoryBackend) DescribeAccountAssignmentDeletionStatus(
 		return nil, ErrRequestNotFound
 	}
 
-	return status, nil
+	cp := *status
+
+	return &cp, nil
 }
 
 // AttachManagedPolicyToPermissionSet attaches a managed policy to a permission set.
@@ -645,7 +714,7 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 	return &cp, nil
 }
 
-// TagResource adds tags to a resource (permission set or instance).
+// TagResource adds tags to a resource (permission set, instance, or application).
 func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
@@ -659,14 +728,28 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 		return nil
 	}
 
-	if _, ok := b.instances[resourceArn]; ok {
+	if inst, ok := b.instances[resourceArn]; ok {
+		if inst.Tags == nil {
+			inst.Tags = make(map[string]string)
+		}
+		maps.Copy(inst.Tags, tags)
+
+		return nil
+	}
+
+	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
+		if app.Tags == nil {
+			app.Tags = make(map[string]string)
+		}
+		maps.Copy(app.Tags, tags)
+
 		return nil
 	}
 
 	return ErrInstanceNotFound
 }
 
-// UntagResource removes tags from a resource.
+// UntagResource removes tags from a resource (permission set, instance, or application).
 func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
@@ -683,10 +766,18 @@ func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys
 		return nil
 	}
 
+	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
+		for _, k := range tagKeys {
+			delete(app.Tags, k)
+		}
+
+		return nil
+	}
+
 	return ErrInstanceNotFound
 }
 
-// ListTagsForResource returns the tags on a resource.
+// ListTagsForResource returns the tags on a resource (permission set, instance, or application).
 func (b *InMemoryBackend) ListTagsForResource(instanceArn, resourceArn string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
@@ -698,8 +789,18 @@ func (b *InMemoryBackend) ListTagsForResource(instanceArn, resourceArn string) (
 		return result, nil
 	}
 
-	if _, ok := b.instances[resourceArn]; ok {
-		return map[string]string{}, nil
+	if inst, ok := b.instances[resourceArn]; ok {
+		result := make(map[string]string, len(inst.Tags))
+		maps.Copy(result, inst.Tags)
+
+		return result, nil
+	}
+
+	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
+		result := make(map[string]string, len(app.Tags))
+		maps.Copy(result, app.Tags)
+
+		return result, nil
 	}
 
 	return nil, ErrInstanceNotFound
@@ -716,6 +817,33 @@ func (b *InMemoryBackend) copyPermissionSet(ps *PermissionSet) *PermissionSet {
 	return &cp
 }
 
+// copyApplication returns a deep copy of an Application. Must be called with mu held.
+func copyApplication(app *Application) *Application {
+	cp := *app
+	cp.Tags = make(map[string]string, len(app.Tags))
+	maps.Copy(cp.Tags, app.Tags)
+
+	return &cp
+}
+
+// copyAccessControlAttributes returns a deep copy of an AccessControlAttribute slice.
+func copyAccessControlAttributes(attrs []AccessControlAttribute) []AccessControlAttribute {
+	if attrs == nil {
+		return nil
+	}
+	result := make([]AccessControlAttribute, len(attrs))
+	for i, a := range attrs {
+		result[i] = AccessControlAttribute{
+			Key: a.Key,
+			Value: AccessControlAttributeValue{
+				Source: slices.Clone(a.Value.Source),
+			},
+		}
+	}
+
+	return result
+}
+
 // instanceARNToID extracts the instance ID segment from an instance ARN.
 // ARN format: arn:aws:sso:::instance/ssoins-<id>.
 func instanceARNToID(instanceArn string) string {
@@ -729,6 +857,73 @@ func instanceARNToID(instanceArn string) string {
 
 func assignmentKey(instanceArn, permissionSetArn string) string {
 	return instanceArn + "|" + permissionSetArn
+}
+
+// AddInstanceInternal adds a pre-built Instance directly to the backend for test seeding.
+// Must NOT be called concurrently with other backend methods.
+func (b *InMemoryBackend) AddInstanceInternal(name string) *Instance {
+	b.mu.Lock("AddInstanceInternal")
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()[:uuidShortLen]
+	arn := "arn:aws:sso:::instance/ssoins-" + id
+	inst := &Instance{
+		InstanceArn:     arn,
+		Name:            name,
+		OwnerAccountID:  b.accountID,
+		IdentityStoreID: "d-" + b.accountID[:min(len(b.accountID), identityStoreIDPrefixLen)],
+		Status:          instanceStatusActive,
+		CreatedDate:     time.Now().UTC(),
+		Tags:            make(map[string]string),
+	}
+	b.instances[arn] = inst
+	cp := *inst
+	cp.Tags = make(map[string]string)
+
+	return &cp
+}
+
+// AddPermissionSetInternal adds a pre-built PermissionSet directly to the backend for test seeding.
+func (b *InMemoryBackend) AddPermissionSetInternal(instanceArn, name string) *PermissionSet {
+	b.mu.Lock("AddPermissionSetInternal")
+	defer b.mu.Unlock()
+
+	instanceID := instanceARNToID(instanceArn)
+	id := uuid.NewString()[:uuidShortLen]
+	psArn := fmt.Sprintf("arn:aws:sso:::permissionSet/%s/%s", instanceID, id)
+	ps := &PermissionSet{
+		PermissionSetArn: psArn,
+		InstanceArn:      instanceArn,
+		Name:             name,
+		SessionDuration:  defaultSessionDuration,
+		CreatedDate:      time.Now().UTC(),
+		Tags:             make(map[string]string),
+	}
+	b.permissionSets[psArn] = ps
+
+	return b.copyPermissionSet(ps)
+}
+
+// AddApplicationInternal adds a pre-built Application directly to the backend for test seeding.
+func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Application {
+	b.mu.Lock("AddApplicationInternal")
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()[:uuidShortLen]
+	instanceID := instanceARNToID(instanceArn)
+	appArn := fmt.Sprintf("arn:aws:sso::%s:application/%s/apl-%s", b.accountID, instanceID, id)
+	app := &Application{
+		ApplicationArn:         appArn,
+		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/custom",
+		InstanceArn:            instanceArn,
+		Name:                   name,
+		Status:                 appStatusEnabled,
+		CreatedDate:            time.Now().UTC(),
+		Tags:                   make(map[string]string),
+	}
+	b.applications[appArn] = app
+
+	return copyApplication(app)
 }
 
 // AddRegion adds a region to an SSO instance.
@@ -798,17 +993,13 @@ func (b *InMemoryBackend) CreateApplication(
 		Description:            description,
 		InstanceArn:            instanceArn,
 		Name:                   name,
-		Status:                 "ENABLED",
+		Status:                 appStatusEnabled,
 		Tags:                   make(map[string]string),
 	}
 	maps.Copy(app.Tags, tags)
 	b.applications[appArn] = app
 
-	cp := *app
-	cp.Tags = make(map[string]string)
-	maps.Copy(cp.Tags, app.Tags)
-
-	return &cp, nil
+	return copyApplication(app), nil
 }
 
 // DeleteApplication deletes an application.
@@ -942,7 +1133,7 @@ func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 		return ErrInstanceNotFound
 	}
 	b.instanceACAs[instanceArn] = &InstanceAccessControlAttributeConfiguration{
-		AccessControlAttributes: attributes,
+		AccessControlAttributes: copyAccessControlAttributes(attributes),
 	}
 
 	return nil

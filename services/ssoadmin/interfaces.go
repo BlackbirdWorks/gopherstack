@@ -4,6 +4,9 @@ package ssoadmin
 type StorageBackend interface {
 	AccountID() string
 	Region() string
+	Reset()
+	Snapshot() []byte
+	Restore(data []byte) error
 	CreateInstance(name, ownerAccountID, identityStoreID string) (*Instance, error)
 	ListInstances() []*Instance
 	DescribeInstance(instanceArn string) (*Instance, error)
@@ -28,6 +31,7 @@ type StorageBackend interface {
 	GetInlinePolicyForPermissionSet(instanceArn, permissionSetArn string) (string, error)
 	DeleteInlinePolicyFromPermissionSet(instanceArn, permissionSetArn string) error
 	ProvisionPermissionSet(instanceArn, permissionSetArn string) (string, error)
+	DescribePermissionSetProvisioningStatus(instanceArn, provisioningRequestID string) (*ProvisioningStatus, error)
 	TagResource(instanceArn, resourceARN string, tags map[string]string) error
 	UntagResource(instanceArn, resourceARN string, tagKeys []string) error
 	ListTagsForResource(instanceArn, resourceARN string) (map[string]string, error)

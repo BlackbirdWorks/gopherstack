@@ -58,6 +58,28 @@ func parseResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]any 
 	return m
 }
 
+// doRequestRaw sends a POST request with a raw byte body and returns the recorder.
+func doRequestRaw(
+	t *testing.T,
+	h *ssoadmin.Handler,
+	op string,
+	bodyBytes []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "SWBExternalService."+op)
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
 func createInstance(t *testing.T, h *ssoadmin.Handler, name string) string {
 	t.Helper()
 	rec := doRequest(t, h, "CreateInstance", map[string]any{"Name": name})

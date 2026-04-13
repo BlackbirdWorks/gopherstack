@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -21,55 +22,60 @@ const (
 
 // Handler is the Echo HTTP handler for the SSO Admin service.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new SSO Admin handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // Name returns the handler name.
 func (h *Handler) Name() string { return "SsoAdmin" }
 
-// GetSupportedOperations returns all supported SSO Admin operations.
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
+// GetSupportedOperations returns all supported SSO Admin operations (sorted).
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"ListInstances",
-		"CreateInstance",
-		"DescribeInstance",
-		"DeleteInstance",
-		"CreatePermissionSet",
-		"DescribePermissionSet",
-		"ListPermissionSets",
-		"DeletePermissionSet",
-		"UpdatePermissionSet",
-		"CreateAccountAssignment",
-		"DescribeAccountAssignmentCreationStatus",
-		"DeleteAccountAssignment",
-		"DescribeAccountAssignmentDeletionStatus",
-		"ListAccountAssignments",
-		"AttachManagedPolicyToPermissionSet",
-		"DetachManagedPolicyFromPermissionSet",
-		"ListManagedPoliciesInPermissionSet",
-		"PutInlinePolicyToPermissionSet",
-		"GetInlinePolicyForPermissionSet",
-		"DeleteInlinePolicyFromPermissionSet",
-		"ProvisionPermissionSet",
-		"DescribePermissionSetProvisioningStatus",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
 		"AddRegion",
 		"AttachCustomerManagedPolicyReferenceToPermissionSet",
+		"AttachManagedPolicyToPermissionSet",
+		"CreateAccountAssignment",
 		"CreateApplication",
 		"CreateApplicationAssignment",
+		"CreateInstance",
 		"CreateInstanceAccessControlAttributeConfiguration",
+		"CreatePermissionSet",
 		"CreateTrustedTokenIssuer",
+		"DeleteAccountAssignment",
 		"DeleteApplication",
 		"DeleteApplicationAccessScope",
 		"DeleteApplicationAssignment",
 		"DeleteApplicationAuthenticationMethod",
+		"DeleteInlinePolicyFromPermissionSet",
+		"DeleteInstance",
+		"DeletePermissionSet",
+		"DescribeAccountAssignmentCreationStatus",
+		"DescribeAccountAssignmentDeletionStatus",
+		"DescribeInstance",
+		"DescribePermissionSet",
+		"DescribePermissionSetProvisioningStatus",
+		"DetachManagedPolicyFromPermissionSet",
+		"GetInlinePolicyForPermissionSet",
+		"ListAccountAssignments",
+		"ListInstances",
+		"ListManagedPoliciesInPermissionSet",
+		"ListPermissionSets",
+		"ListTagsForResource",
+		"ProvisionPermissionSet",
+		"PutInlinePolicyToPermissionSet",
+		"TagResource",
+		"UntagResource",
+		"UpdatePermissionSet",
 	}
 }
 
@@ -908,6 +914,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 
 // handleBackendError maps a backend error to the appropriate HTTP response.
 func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
+	if errors.Is(err, awserr.ErrInvalidParameter) {
+		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
 	switch err.Error() {
 	case "ResourceNotFoundException":
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", notFoundMsg)
@@ -1011,6 +1021,12 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.Name == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
 	}
 
 	tags := make(map[string]string, len(req.Tags))
@@ -1179,6 +1195,12 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.Name == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
 	}
 
 	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType)
