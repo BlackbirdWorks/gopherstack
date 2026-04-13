@@ -18,7 +18,7 @@ import (
 func newTestHandler(t *testing.T) *textract.Handler {
 	t.Helper()
 
-	return textract.NewHandler(textract.NewInMemoryBackend())
+	return textract.NewHandler(textract.NewInMemoryBackend("123456789012", "us-east-1"))
 }
 
 func doTextractRequest(
@@ -567,4 +567,439 @@ func TestProvider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, reg)
 	assert.Equal(t, "Textract", reg.Name())
+}
+
+func TestHandler_AnalyzeExpense(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+		wantDocs   bool
+	}{
+		{
+			name: "success with S3 document",
+			body: map[string]any{
+				"Document": map[string]any{
+					"S3Object": map[string]any{
+						"Bucket": "my-bucket",
+						"Name":   "invoice.pdf",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantDocs:   true,
+		},
+		{
+			name:       "empty body still returns expense docs",
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantDocs:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTextractRequest(t, h, "AnalyzeExpense", tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantDocs {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				docs, ok := resp["ExpenseDocuments"].([]any)
+				assert.True(t, ok)
+				assert.NotEmpty(t, docs)
+			}
+		})
+	}
+}
+
+func TestHandler_AnalyzeID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success with document pages",
+			body: map[string]any{
+				"DocumentPages": []any{
+					map[string]any{
+						"S3Object": map[string]any{
+							"Bucket": "my-bucket",
+							"Name":   "id-front.jpg",
+						},
+					},
+					map[string]any{
+						"S3Object": map[string]any{
+							"Bucket": "my-bucket",
+							"Name":   "id-back.jpg",
+						},
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "empty document pages returns error",
+			body:       map[string]any{"DocumentPages": []any{}},
+			wantStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTextractRequest(t, h, "AnalyzeID", tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if !tt.wantErr {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				docs, ok := resp["IdentityDocuments"].([]any)
+				assert.True(t, ok)
+				assert.Len(t, docs, 2)
+			}
+		})
+	}
+}
+
+func TestHandler_AdapterLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		adapterName string
+		description string
+		wantStatus  int
+	}{
+		{
+			name:        "full adapter lifecycle",
+			adapterName: "my-adapter",
+			description: "test adapter",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "missing adapter name returns error",
+			adapterName: "",
+			description: "",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// CreateAdapter
+			createBody := map[string]any{
+				"AdapterName":  tt.adapterName,
+				"Description":  tt.description,
+				"FeatureTypes": []string{"QUERIES"},
+			}
+			createRec := doTextractRequest(t, h, "CreateAdapter", createBody)
+			assert.Equal(t, tt.wantStatus, createRec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var createResp map[string]string
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			adapterID := createResp["AdapterId"]
+			assert.NotEmpty(t, adapterID)
+
+			// GetAdapter
+			getBody := map[string]string{"AdapterId": adapterID}
+			getRec := doTextractRequest(t, h, "GetAdapter", getBody)
+			assert.Equal(t, http.StatusOK, getRec.Code)
+
+			var getResp map[string]any
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			assert.Equal(t, tt.adapterName, getResp["AdapterName"])
+			assert.Equal(t, tt.description, getResp["Description"])
+
+			// DeleteAdapter
+			deleteBody := map[string]string{"AdapterId": adapterID}
+			deleteRec := doTextractRequest(t, h, "DeleteAdapter", deleteBody)
+			assert.Equal(t, http.StatusOK, deleteRec.Code)
+
+			// GetAdapter after delete returns error
+			getRec2 := doTextractRequest(t, h, "GetAdapter", getBody)
+			assert.Equal(t, http.StatusBadRequest, getRec2.Code)
+		})
+	}
+}
+
+func TestHandler_GetAdapter_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{"AdapterId": "nonexistent-adapter"}
+	rec := doTextractRequest(t, h, "GetAdapter", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetAdapter_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{}
+	rec := doTextractRequest(t, h, "GetAdapter", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DeleteAdapter_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{"AdapterId": "nonexistent-adapter"}
+	rec := doTextractRequest(t, h, "DeleteAdapter", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_AdapterVersionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{name: "full adapter version lifecycle", wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// First create an adapter
+			createAdapterBody := map[string]any{
+				"AdapterName":  "version-test-adapter",
+				"FeatureTypes": []string{"QUERIES"},
+			}
+			createAdapterRec := doTextractRequest(t, h, "CreateAdapter", createAdapterBody)
+			require.Equal(t, tt.wantStatus, createAdapterRec.Code)
+
+			var createAdapterResp map[string]string
+			require.NoError(t, json.Unmarshal(createAdapterRec.Body.Bytes(), &createAdapterResp))
+			adapterID := createAdapterResp["AdapterId"]
+
+			// CreateAdapterVersion
+			createVersionBody := map[string]any{
+				"AdapterId": adapterID,
+				"Tags":      map[string]string{"env": "test"},
+			}
+			createVersionRec := doTextractRequest(t, h, "CreateAdapterVersion", createVersionBody)
+			assert.Equal(t, http.StatusOK, createVersionRec.Code)
+
+			var createVersionResp map[string]string
+			require.NoError(t, json.Unmarshal(createVersionRec.Body.Bytes(), &createVersionResp))
+			adapterVersion := createVersionResp["AdapterVersion"]
+			assert.NotEmpty(t, adapterVersion)
+			assert.Equal(t, adapterID, createVersionResp["AdapterId"])
+
+			// GetAdapterVersion
+			getVersionBody := map[string]string{
+				"AdapterId":      adapterID,
+				"AdapterVersion": adapterVersion,
+			}
+			getVersionRec := doTextractRequest(t, h, "GetAdapterVersion", getVersionBody)
+			assert.Equal(t, http.StatusOK, getVersionRec.Code)
+
+			var getVersionResp map[string]any
+			require.NoError(t, json.Unmarshal(getVersionRec.Body.Bytes(), &getVersionResp))
+			assert.Equal(t, adapterID, getVersionResp["AdapterId"])
+			assert.Equal(t, adapterVersion, getVersionResp["AdapterVersion"])
+			assert.Equal(t, "ACTIVE", getVersionResp["Status"])
+
+			// DeleteAdapterVersion
+			deleteVersionRec := doTextractRequest(t, h, "DeleteAdapterVersion", getVersionBody)
+			assert.Equal(t, http.StatusOK, deleteVersionRec.Code)
+
+			// GetAdapterVersion after delete returns error
+			getVersionRec2 := doTextractRequest(t, h, "GetAdapterVersion", getVersionBody)
+			assert.Equal(t, http.StatusBadRequest, getVersionRec2.Code)
+		})
+	}
+}
+
+func TestHandler_CreateAdapterVersion_MissingAdapterId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]any{"AdapterId": ""}
+	rec := doTextractRequest(t, h, "CreateAdapterVersion", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateAdapterVersion_AdapterNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]any{"AdapterId": "nonexistent-adapter"}
+	rec := doTextractRequest(t, h, "CreateAdapterVersion", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetAdapterVersion_MissingFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]string
+		name string
+	}{
+		{
+			name: "missing adapter id",
+			body: map[string]string{"AdapterId": "", "AdapterVersion": "v1"},
+		},
+		{
+			name: "missing adapter version",
+			body: map[string]string{"AdapterId": "adapter-id", "AdapterVersion": ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTextractRequest(t, h, "GetAdapterVersion", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteAdapter_CascadesVersions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create adapter
+	createResp := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+		"AdapterName":  "cascade-test",
+		"FeatureTypes": []string{"QUERIES"},
+	})
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	var cr map[string]string
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &cr))
+	adapterID := cr["AdapterId"]
+
+	// Create a version
+	versionResp := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{
+		"AdapterId": adapterID,
+	})
+	require.Equal(t, http.StatusOK, versionResp.Code)
+
+	var vr map[string]string
+	require.NoError(t, json.Unmarshal(versionResp.Body.Bytes(), &vr))
+	adapterVersion := vr["AdapterVersion"]
+
+	// Delete adapter should cascade to versions
+	deleteResp := doTextractRequest(t, h, "DeleteAdapter", map[string]string{
+		"AdapterId": adapterID,
+	})
+	require.Equal(t, http.StatusOK, deleteResp.Code)
+
+	// Version should now be gone
+	getVersionResp := doTextractRequest(t, h, "GetAdapterVersion", map[string]string{
+		"AdapterId":      adapterID,
+		"AdapterVersion": adapterVersion,
+	})
+	assert.Equal(t, http.StatusBadRequest, getVersionResp.Code)
+}
+
+func TestHandler_GetExpenseAnalysis_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{"JobId": "nonexistent-job"}
+	rec := doTextractRequest(t, h, "GetExpenseAnalysis", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetExpenseAnalysis_MissingJobId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{}
+	rec := doTextractRequest(t, h, "GetExpenseAnalysis", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetLendingAnalysis_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{"JobId": "nonexistent-job"}
+	rec := doTextractRequest(t, h, "GetLendingAnalysis", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetLendingAnalysis_MissingJobId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]string{}
+	rec := doTextractRequest(t, h, "GetLendingAnalysis", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_HandlerOpsLen(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	opsLen := textract.HandlerOpsLen(h)
+	assert.Equal(t, len(h.GetSupportedOperations()), opsLen)
+}
+
+func TestHandler_Snapshot_Restore_WithAdapters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		adapterCount int
+	}{
+		{name: "empty backend", adapterCount: 0},
+		{name: "backend with adapters", adapterCount: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for range tt.adapterCount {
+				doTextractRequest(t, h, "CreateAdapter", map[string]any{
+					"AdapterName":  "test-adapter",
+					"FeatureTypes": []string{"QUERIES"},
+				})
+			}
+
+			snap := h.Snapshot()
+			require.NotNil(t, snap)
+
+			h2 := newTestHandler(t)
+			require.NoError(t, h2.Restore(snap))
+
+			assert.Equal(t, tt.adapterCount, textract.AdapterCount(h2.Backend.(*textract.InMemoryBackend)))
+		})
+	}
 }

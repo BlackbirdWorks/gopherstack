@@ -985,7 +985,9 @@ func populateLatestMLHandlers(h *handlers) {
 	h.shield = shieldbackend.NewHandler(
 		shieldbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
-	h.textract = textractbackend.NewHandler(textractbackend.NewInMemoryBackend())
+	h.textract = textractbackend.NewHandler(
+		textractbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.timestreamwrite = timestreamwritebackend.NewHandler(timestreamwritebackend.NewInMemoryBackend())
 	h.timestreamquery = timestreamquerybackend.NewHandler(
 		timestreamquerybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
