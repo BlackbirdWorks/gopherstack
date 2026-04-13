@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -18,20 +19,24 @@ import (
 
 const supportTargetPrefix = "AWSSupport_20130415."
 
-var (
-	errUnknownAction  = errors.New("unknown action")
-	errInvalidRequest = errors.New("invalid request")
-)
+var errUnknownAction = errors.New("unknown action")
 
 // Handler is the Echo HTTP handler for AWS Support operations.
 type Handler struct {
 	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Support handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
 }
+
+// Reset clears the handler's backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Support" }
@@ -123,31 +128,40 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+// buildOps constructs the dispatch map once at handler creation time.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateCase":                   service.WrapOp(h.handleCreateCase),
-		"DescribeCases":                service.WrapOp(h.handleDescribeCases),
-		"ResolveCase":                  service.WrapOp(h.handleResolveCase),
-		"AddCommunicationToCase":       service.WrapOp(h.handleAddCommunicationToCase),
-		"DescribeCommunications":       service.WrapOp(h.handleDescribeCommunications),
-		"DescribeTrustedAdvisorChecks": service.WrapOp(h.handleDescribeTrustedAdvisorChecks),
-		"AddAttachmentsToSet":          service.WrapOp(h.handleAddAttachmentsToSet),
-		"DescribeAttachment":           service.WrapOp(h.handleDescribeAttachment),
-		"DescribeCreateCaseOptions":    service.WrapOp(h.handleDescribeCreateCaseOptions),
-		"DescribeServices":             service.WrapOp(h.handleDescribeServices),
-		"DescribeSeverityLevels":       service.WrapOp(h.handleDescribeSeverityLevels),
-		"DescribeSupportedLanguages":   service.WrapOp(h.handleDescribeSupportedLanguages),
+		"CreateCase":             service.WrapOp(h.handleCreateCase),
+		"DescribeCases":          service.WrapOp(h.handleDescribeCases),
+		"ResolveCase":            service.WrapOp(h.handleResolveCase),
+		"AddCommunicationToCase": service.WrapOp(h.handleAddCommunicationToCase),
+		"DescribeCommunications": service.WrapOp(h.handleDescribeCommunications),
+		"DescribeTrustedAdvisorChecks": service.WrapOp(
+			h.handleDescribeTrustedAdvisorChecks,
+		),
+		"AddAttachmentsToSet":       service.WrapOp(h.handleAddAttachmentsToSet),
+		"DescribeAttachment":        service.WrapOp(h.handleDescribeAttachment),
+		"DescribeCreateCaseOptions": service.WrapOp(h.handleDescribeCreateCaseOptions),
+		"DescribeServices":          service.WrapOp(h.handleDescribeServices),
+		"DescribeSeverityLevels":    service.WrapOp(h.handleDescribeSeverityLevels),
+		"DescribeSupportedLanguages": service.WrapOp(
+			h.handleDescribeSupportedLanguages,
+		),
 		"DescribeTrustedAdvisorCheckRefreshStatuses": service.WrapOp(
 			h.handleDescribeTrustedAdvisorCheckRefreshStatuses,
 		),
-		"DescribeTrustedAdvisorCheckResult":    service.WrapOp(h.handleDescribeTrustedAdvisorCheckResult),
-		"DescribeTrustedAdvisorCheckSummaries": service.WrapOp(h.handleDescribeTrustedAdvisorCheckSummaries),
-		"RefreshTrustedAdvisorCheck":           service.WrapOp(h.handleRefreshTrustedAdvisorCheck),
+		"DescribeTrustedAdvisorCheckResult": service.WrapOp(
+			h.handleDescribeTrustedAdvisorCheckResult,
+		),
+		"DescribeTrustedAdvisorCheckSummaries": service.WrapOp(
+			h.handleDescribeTrustedAdvisorCheckSummaries,
+		),
+		"RefreshTrustedAdvisorCheck": service.WrapOp(h.handleRefreshTrustedAdvisorCheck),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -167,7 +181,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-	case errors.Is(err, ErrAlreadyResolved), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, ErrValidation), errors.Is(err, ErrAlreadyResolved),
+		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	default:
@@ -176,12 +191,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type caseView struct {
-	CaseID       string `json:"caseId"`
-	Subject      string `json:"subject"`
-	Status       string `json:"status"`
-	ServiceCode  string `json:"serviceCode"`
-	CategoryCode string `json:"categoryCode"`
-	SeverityCode string `json:"severityCode"`
+	CreatedTime  string  `json:"timeCreated"`
+	ResolvedTime *string `json:"timeResolved,omitempty"`
+	CaseID       string  `json:"caseId"`
+	Subject      string  `json:"subject"`
+	Status       string  `json:"status"`
+	ServiceCode  string  `json:"serviceCode"`
+	CategoryCode string  `json:"categoryCode"`
+	SeverityCode string  `json:"severityCode"`
 }
 
 type createCaseOutput struct {
@@ -207,7 +224,7 @@ type handleCreateCaseInput struct {
 
 func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput) (*createCaseOutput, error) {
 	if in.Subject == "" {
-		return nil, fmt.Errorf("%w: subject is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: subject is required", ErrValidation)
 	}
 
 	c2, err := h.Backend.CreateCase(
@@ -225,22 +242,37 @@ func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput)
 }
 
 type handleDescribeCasesInput struct {
-	CaseIDList []string `json:"caseIdList"`
+	Language             string   `json:"language"`
+	NextToken            string   `json:"nextToken,omitempty"`
+	CaseIDList           []string `json:"caseIdList"`
+	MaxResults           int      `json:"maxResults,omitempty"`
+	IncludeResolvedCases bool     `json:"includeResolvedCases"`
 }
 
-func (h *Handler) handleDescribeCases(_ context.Context, in *handleDescribeCasesInput) (*describeCasesOutput, error) {
-	cases := h.Backend.DescribeCases(in.CaseIDList)
+func (h *Handler) handleDescribeCases(
+	_ context.Context,
+	in *handleDescribeCasesInput,
+) (*describeCasesOutput, error) {
+	cases := h.Backend.DescribeCases(in.CaseIDList, in.IncludeResolvedCases)
 
 	views := make([]caseView, 0, len(cases))
 	for _, cs := range cases {
-		views = append(views, caseView{
+		v := caseView{
 			CaseID:       cs.CaseID,
 			Subject:      cs.Subject,
 			Status:       cs.Status,
 			ServiceCode:  cs.ServiceCode,
 			CategoryCode: cs.CategoryCode,
 			SeverityCode: cs.SeverityCode,
-		})
+			CreatedTime:  cs.CreatedTime.UTC().Format(time.RFC3339),
+		}
+
+		if cs.ResolvedTime != nil {
+			s := cs.ResolvedTime.UTC().Format(time.RFC3339)
+			v.ResolvedTime = &s
+		}
+
+		views = append(views, v)
 	}
 
 	return &describeCasesOutput{Cases: views}, nil
@@ -257,7 +289,7 @@ func (h *Handler) handleResolveCase(_ context.Context, in *handleResolveCaseInpu
 	}
 
 	return &resolveCaseOutput{
-		InitialCaseStatus: "opened",
+		InitialCaseStatus: caseStatusOpened,
 		FinalCaseStatus:   cs.Status,
 	}, nil
 }
@@ -265,6 +297,7 @@ func (h *Handler) handleResolveCase(_ context.Context, in *handleResolveCaseInpu
 type addCommunicationToCaseInput struct {
 	CaseID            string `json:"caseId"`
 	CommunicationBody string `json:"communicationBody"`
+	AttachmentSetID   string `json:"attachmentSetId,omitempty"`
 }
 
 type addCommunicationToCaseOutput struct {
@@ -276,10 +309,10 @@ func (h *Handler) handleAddCommunicationToCase(
 	in *addCommunicationToCaseInput,
 ) (*addCommunicationToCaseOutput, error) {
 	if in.CaseID == "" {
-		return nil, fmt.Errorf("%w: caseId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: caseId is required", ErrValidation)
 	}
 
-	if err := h.Backend.AddCommunicationToCase(in.CaseID, in.CommunicationBody); err != nil {
+	if err := h.Backend.AddCommunicationToCase(in.CaseID, in.CommunicationBody, in.AttachmentSetID); err != nil {
 		return nil, err
 	}
 
@@ -287,13 +320,17 @@ func (h *Handler) handleAddCommunicationToCase(
 }
 
 type describeCommunicationsInput struct {
-	CaseID string `json:"caseId"`
+	CaseID     string `json:"caseId"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type communicationView struct {
-	CaseID      string `json:"caseId"`
-	Body        string `json:"body"`
-	SubmittedBy string `json:"submittedBy"`
+	CaseID          string `json:"caseId"`
+	Body            string `json:"body"`
+	SubmittedBy     string `json:"submittedBy"`
+	TimeCreated     string `json:"timeCreated"`
+	AttachmentSetID string `json:"attachmentSetId,omitempty"`
 }
 
 type describeCommunicationsOutput struct {
@@ -306,7 +343,7 @@ func (h *Handler) handleDescribeCommunications(
 	in *describeCommunicationsInput,
 ) (*describeCommunicationsOutput, error) {
 	if in.CaseID == "" {
-		return nil, fmt.Errorf("%w: caseId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: caseId is required", ErrValidation)
 	}
 
 	comms, err := h.Backend.DescribeCommunications(in.CaseID)
@@ -317,9 +354,11 @@ func (h *Handler) handleDescribeCommunications(
 	views := make([]communicationView, 0, len(comms))
 	for _, c := range comms {
 		views = append(views, communicationView{
-			CaseID:      c.CaseID,
-			Body:        c.Body,
-			SubmittedBy: c.SubmittedBy,
+			CaseID:          c.CaseID,
+			Body:            c.Body,
+			SubmittedBy:     c.SubmittedBy,
+			TimeCreated:     c.TimeCreated.UTC().Format(time.RFC3339),
+			AttachmentSetID: c.AttachmentSetID,
 		})
 	}
 
@@ -398,7 +437,7 @@ func (h *Handler) handleDescribeAttachment(
 	in *describeAttachmentInput,
 ) (*describeAttachmentOutput, error) {
 	if in.AttachmentID == "" {
-		return nil, fmt.Errorf("%w: attachmentId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: attachmentId is required", ErrValidation)
 	}
 
 	a, err := h.Backend.DescribeAttachment(in.AttachmentID)
@@ -614,7 +653,7 @@ func (h *Handler) handleDescribeTrustedAdvisorCheckResult(
 	in *describeTrustedAdvisorCheckResultInput,
 ) (*describeTrustedAdvisorCheckResultOutput, error) {
 	if in.CheckID == "" {
-		return nil, fmt.Errorf("%w: checkId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: checkId is required", ErrValidation)
 	}
 
 	result := h.Backend.DescribeTrustedAdvisorCheckResult(in.CheckID, in.Language)
@@ -694,7 +733,7 @@ func (h *Handler) handleRefreshTrustedAdvisorCheck(
 	in *refreshTrustedAdvisorCheckInput,
 ) (*refreshTrustedAdvisorCheckOutput, error) {
 	if in.CheckID == "" {
-		return nil, fmt.Errorf("%w: checkId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: checkId is required", ErrValidation)
 	}
 
 	status, err := h.Backend.RefreshTrustedAdvisorCheck(in.CheckID)

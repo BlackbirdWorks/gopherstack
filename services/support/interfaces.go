@@ -5,10 +5,11 @@ import "time"
 // StorageBackend defines the interface for Support backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
+	Reset()
 	CreateCase(subject, serviceCode, categoryCode, severityCode, body string) (*Case, error)
-	DescribeCases(caseIDs []string) []Case
+	DescribeCases(caseIDs []string, includeResolvedCases bool) []Case
 	ResolveCase(caseID string) (*Case, error)
-	AddCommunicationToCase(caseID, body string) error
+	AddCommunicationToCase(caseID, body, attachmentSetID string) error
 	DescribeCommunications(caseID string) ([]Communication, error)
 	DescribeTrustedAdvisorChecks() []TrustedAdvisorCheck
 	AddAttachmentsToSet(attachmentSetID string) (string, time.Time, error)

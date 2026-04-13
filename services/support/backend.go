@@ -12,6 +12,11 @@ import (
 )
 
 const (
+	// caseStatusOpened is the initial status for a new support case.
+	caseStatusOpened = "opened"
+	// caseStatusResolved is the status for a resolved support case.
+	caseStatusResolved = "resolved"
+
 	checkRefreshStatusNone       = "none"
 	checkRefreshStatusEnqueued   = "enqueued"
 	checkRefreshStatusProcessing = "processing"
@@ -30,6 +35,8 @@ var (
 	ErrAlreadyResolved = errors.New("CaseAlreadyResolved")
 	// ErrAttachmentNotFound is returned when an attachment is not found.
 	ErrAttachmentNotFound = awserr.New("AttachmentIdNotFound", awserr.ErrNotFound)
+	// ErrValidation is returned when required input fields are missing or invalid.
+	ErrValidation = awserr.New("ValidationError", awserr.ErrInvalidParameter)
 )
 
 // Case represents an AWS Support case.
@@ -47,10 +54,11 @@ type Case struct {
 
 // Communication represents a message added to a support case.
 type Communication struct {
-	SubmittedBy string    `json:"submittedBy"`
-	TimeCreated time.Time `json:"timeCreated"`
-	Body        string    `json:"body"`
-	CaseID      string    `json:"caseId"`
+	TimeCreated     time.Time `json:"timeCreated"`
+	SubmittedBy     string    `json:"submittedBy"`
+	Body            string    `json:"body"`
+	CaseID          string    `json:"caseId"`
+	AttachmentSetID string    `json:"attachmentSetId,omitempty"`
 }
 
 // TrustedAdvisorCheck represents a Trusted Advisor check.
@@ -194,6 +202,47 @@ func trustedAdvisorChecks() []TrustedAdvisorCheck {
 			Category: "cost_optimizing",
 			Metadata: []string{"Region", "IP Address"},
 		},
+		{
+			ID:          "hjLMh88uM8",
+			Name:        "MFA on Root Account",
+			Description: "Checks the root account and warns if multi-factor authentication (MFA) is not enabled.",
+			Category:    "security",
+			Metadata:    []string{"Status"},
+		},
+		{
+			ID:          "H7IgqkgtmV",
+			Name:        "IAM Use",
+			Description: "Checks for your use of AWS Identity and Access Management (IAM).",
+			Category:    "security",
+			Metadata:    []string{"Status"},
+		},
+		{
+			ID:          "1iG5NDGVre",
+			Name:        "Amazon S3 Bucket Permissions",
+			Description: "Checks buckets in Amazon Simple Storage Service (Amazon S3) that have open access permissions.",
+			Category:    "security",
+			Metadata: []string{
+				"Region",
+				"Bucket Name",
+				"ACL Allows List",
+				"ACL Allows Upload/Delete",
+				"Policy Allows Access",
+			},
+		},
+		{
+			ID:          "R365s2Qddf",
+			Name:        "Amazon RDS Multi-AZ",
+			Description: "Checks for Amazon RDS DB instances that are deployed in a single Availability Zone.",
+			Category:    "fault_tolerance",
+			Metadata:    []string{"Region", "DB Instance", "Multi-AZ"},
+		},
+		{
+			ID:          "xSqX82fQu",
+			Name:        "Amazon EC2 Availability Zone Balance",
+			Description: "Checks the distribution of Amazon EC2 instances across Availability Zones in a region.",
+			Category:    "fault_tolerance",
+			Metadata:    []string{"Region", "Availability Zone", "Instance Count"},
+		},
 	}
 }
 
@@ -219,6 +268,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// Reset clears all backend state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.cases = make(map[string]*Case)
+	b.communications = make(map[string][]Communication)
+	b.attachmentSets = make(map[string]time.Time)
+	b.attachments = make(map[string]*Attachment)
+	b.checkRefreshStatuses = make(map[string]*TrustedAdvisorCheckRefreshStatus)
+}
+
 // CreateCase creates a new support case.
 func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severityCode, body string) (*Case, error) {
 	b.mu.Lock("CreateCase")
@@ -228,7 +289,7 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 	c := &Case{
 		CaseID:       caseID,
 		Subject:      subject,
-		Status:       "opened",
+		Status:       caseStatusOpened,
 		ServiceCode:  serviceCode,
 		CategoryCode: categoryCode,
 		SeverityCode: severityCode,
@@ -243,28 +304,28 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 }
 
 // DescribeCases returns all support cases, optionally filtered by caseIds.
-func (b *InMemoryBackend) DescribeCases(caseIDs []string) []Case {
+// When includeResolvedCases is false, resolved cases are excluded.
+func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases bool) []Case {
 	b.mu.RLock("DescribeCases")
 	defer b.mu.RUnlock()
-
-	out := make([]Case, 0, len(b.cases))
-	if len(caseIDs) == 0 {
-		for _, c := range b.cases {
-			out = append(out, *c)
-		}
-
-		return out
-	}
 
 	idSet := make(map[string]bool, len(caseIDs))
 	for _, id := range caseIDs {
 		idSet[id] = true
 	}
 
+	out := make([]Case, 0, len(b.cases))
+
 	for _, c := range b.cases {
-		if idSet[c.CaseID] {
-			out = append(out, *c)
+		if !includeResolvedCases && c.Status == caseStatusResolved {
+			continue
 		}
+
+		if len(caseIDs) > 0 && !idSet[c.CaseID] {
+			continue
+		}
+
+		out = append(out, *c)
 	}
 
 	return out
@@ -280,12 +341,12 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
 
-	if c.Status == "resolved" {
+	if c.Status == caseStatusResolved {
 		return nil, fmt.Errorf("%w: %s", ErrAlreadyResolved, caseID)
 	}
 
 	now := time.Now()
-	c.Status = "resolved"
+	c.Status = caseStatusResolved
 	c.ResolvedTime = &now
 
 	cp := *c
@@ -294,19 +355,24 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 }
 
 // AddCommunicationToCase adds a communication to an existing support case.
-func (b *InMemoryBackend) AddCommunicationToCase(caseID, body string) error {
+func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID string) error {
 	b.mu.Lock("AddCommunicationToCase")
 	defer b.mu.Unlock()
+
+	if body == "" {
+		return fmt.Errorf("%w: communicationBody is required", ErrValidation)
+	}
 
 	if _, ok := b.cases[caseID]; !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
 
 	comm := Communication{
-		CaseID:      caseID,
-		Body:        body,
-		SubmittedBy: "customer",
-		TimeCreated: time.Now(),
+		CaseID:          caseID,
+		Body:            body,
+		SubmittedBy:     "customer",
+		TimeCreated:     time.Now(),
+		AttachmentSetID: attachmentSetID,
 	}
 
 	b.communications[caseID] = append(b.communications[caseID], comm)
@@ -371,7 +437,21 @@ func (b *InMemoryBackend) AddAttachmentInternal(a *Attachment) {
 	defer b.mu.Unlock()
 
 	cp := *a
+	if a.Data != nil {
+		cp.Data = make([]byte, len(a.Data))
+		copy(cp.Data, a.Data)
+	}
+
 	b.attachments[a.AttachmentID] = &cp
+}
+
+// AddCaseInternal seeds a case directly into the backend (for testing).
+func (b *InMemoryBackend) AddCaseInternal(c *Case) {
+	b.mu.Lock("AddCaseInternal")
+	defer b.mu.Unlock()
+
+	cp := *c
+	b.cases[c.CaseID] = &cp
 }
 
 // DescribeCreateCaseOptions returns available case creation options.

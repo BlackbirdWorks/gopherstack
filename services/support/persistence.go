@@ -3,10 +3,13 @@ package support
 import (
 	"encoding/json"
 	"log/slog"
+	"time"
 )
 
 type backendSnapshot struct {
 	Cases                map[string]*Case                             `json:"cases"`
+	Communications       map[string][]Communication                   `json:"communications"`
+	AttachmentSets       map[string]time.Time                         `json:"attachmentSets"`
 	Attachments          map[string]*Attachment                       `json:"attachments"`
 	CheckRefreshStatuses map[string]*TrustedAdvisorCheckRefreshStatus `json:"checkRefreshStatuses"`
 }
@@ -19,6 +22,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	snap := backendSnapshot{
 		Cases:                b.cases,
+		Communications:       b.communications,
+		AttachmentSets:       b.attachmentSets,
 		Attachments:          b.attachments,
 		CheckRefreshStatuses: b.checkRefreshStatuses,
 	}
@@ -48,6 +53,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	ensureNonNilMaps(&snap)
 
 	b.cases = snap.Cases
+	b.communications = snap.Communications
+	b.attachmentSets = snap.AttachmentSets
 	b.attachments = snap.Attachments
 	b.checkRefreshStatuses = snap.CheckRefreshStatuses
 
@@ -57,6 +64,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Cases == nil {
 		snap.Cases = make(map[string]*Case)
+	}
+
+	if snap.Communications == nil {
+		snap.Communications = make(map[string][]Communication)
+	}
+
+	if snap.AttachmentSets == nil {
+		snap.AttachmentSets = make(map[string]time.Time)
 	}
 
 	if snap.Attachments == nil {
