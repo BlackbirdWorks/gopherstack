@@ -19,29 +19,24 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Deep-copy maps to ensure snapshot isolation.
 	domains := make(map[string]*Domain, len(b.domains))
 	for k, v := range b.domains {
-		cp := *v
-		domains[k] = &cp
+		domains[k] = cloneDomain(v)
 	}
 
 	workflows := make(map[string]*WorkflowType, len(b.workflows))
 	for k, v := range b.workflows {
-		cp := *v
-		workflows[k] = &cp
+		workflows[k] = cloneWorkflowType(v)
 	}
 
 	activities := make(map[string]*ActivityType, len(b.activities))
 	for k, v := range b.activities {
-		cp := *v
-		activities[k] = &cp
+		activities[k] = cloneActivityType(v)
 	}
 
 	executions := make(map[string]*WorkflowExecution, len(b.executions))
 	for k, v := range b.executions {
-		cp := *v
-		executions[k] = &cp
+		executions[k] = cloneExecution(v)
 	}
 
 	order := make([]string, len(b.executionOrder))
@@ -65,6 +60,34 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
+// cloneDomain returns a shallow copy of d.
+func cloneDomain(d *Domain) *Domain {
+	cp := *d
+
+	return &cp
+}
+
+// cloneWorkflowType returns a shallow copy of wt.
+func cloneWorkflowType(wt *WorkflowType) *WorkflowType {
+	cp := *wt
+
+	return &cp
+}
+
+// cloneActivityType returns a shallow copy of at.
+func cloneActivityType(at *ActivityType) *ActivityType {
+	cp := *at
+
+	return &cp
+}
+
+// cloneExecution returns a shallow copy of e.
+func cloneExecution(e *WorkflowExecution) *WorkflowExecution {
+	cp := *e
+
+	return &cp
+}
+
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(data []byte) error {
@@ -74,24 +97,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Domains == nil {
-		snap.Domains = make(map[string]*Domain)
-	}
-
-	if snap.Workflows == nil {
-		snap.Workflows = make(map[string]*WorkflowType)
-	}
-
-	if snap.Activities == nil {
-		snap.Activities = make(map[string]*ActivityType)
-	}
-
-	if snap.Executions == nil {
-		snap.Executions = make(map[string]*WorkflowExecution)
-	}
 
 	b.domains = snap.Domains
 	b.workflows = snap.Workflows
@@ -100,6 +109,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.executionOrder = snap.ExecutionOrder
 
 	return nil
+}
+
+// ensureNonNilMaps replaces any nil maps in the snapshot with empty maps.
+func ensureNonNilMaps(s *backendSnapshot) {
+	if s.Domains == nil {
+		s.Domains = make(map[string]*Domain)
+	}
+
+	if s.Workflows == nil {
+		s.Workflows = make(map[string]*WorkflowType)
+	}
+
+	if s.Activities == nil {
+		s.Activities = make(map[string]*ActivityType)
+	}
+
+	if s.Executions == nil {
+		s.Executions = make(map[string]*WorkflowExecution)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
