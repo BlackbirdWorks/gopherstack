@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	scheduledQueryArnFormat = "arn:aws:timestream:%s:%s:scheduled-query/%s"
-	defaultQueryState       = "ENABLED"
+	scheduledQueryArnFormat  = "arn:aws:timestream:%s:%s:scheduled-query/%s"
+	defaultQueryState        = "ENABLED"
+	pricingModelBytesScanned = "BYTES_SCANNED"
+	pricingModelComputeUnits = "COMPUTE_UNITS"
 )
 
 var (
@@ -56,12 +58,26 @@ type QueryResult struct {
 	Columns     []map[string]any
 }
 
+// AccountSettings holds the account-level settings for Timestream Query.
+type AccountSettings struct {
+	MaxQueryTCU       *int32
+	QueryPricingModel string
+}
+
+// PrepareQueryResult holds the result of a PrepareQuery call.
+type PrepareQueryResult struct {
+	QueryString string
+	Columns     []map[string]any
+	Parameters  []map[string]any
+}
+
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	scheduledQueries map[string]*ScheduledQuery // keyed by name
 	arnIndex         map[string]string          // ARN → name
 	queries          map[string]*QueryResult
+	accountSettings  AccountSettings
 	accountID        string
 	region           string
 }
@@ -73,6 +89,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		scheduledQueries: make(map[string]*ScheduledQuery),
 		arnIndex:         make(map[string]string),
 		queries:          make(map[string]*QueryResult),
+		accountSettings:  AccountSettings{QueryPricingModel: pricingModelBytesScanned},
 		accountID:        accountID,
 		region:           region,
 	}
@@ -362,4 +379,57 @@ func (b *InMemoryBackend) ListScheduledQueriesFull() []*ScheduledQuery {
 	}
 
 	return out
+}
+
+// DescribeAccountSettings returns the current account-level settings.
+func (b *InMemoryBackend) DescribeAccountSettings() AccountSettings {
+	b.mu.RLock("DescribeAccountSettings")
+	defer b.mu.RUnlock()
+
+	return b.accountSettings
+}
+
+// PrepareQuery validates a query string and returns its column and parameter metadata.
+// This is a simulated implementation: the query string is accepted but not evaluated.
+func (b *InMemoryBackend) PrepareQuery(queryString string, _ bool) (*PrepareQueryResult, error) {
+	if queryString == "" {
+		return nil, fmt.Errorf("%w: QueryString is required", ErrInvalidRequest)
+	}
+
+	return &PrepareQueryResult{
+		QueryString: queryString,
+		Columns:     []map[string]any{},
+		Parameters:  []map[string]any{},
+	}, nil
+}
+
+// isValidPricingModel reports whether the given pricing model string is recognised.
+func isValidPricingModel(model string) bool {
+	return model == pricingModelBytesScanned || model == pricingModelComputeUnits
+}
+
+// UpdateAccountSettings updates the account-level settings and returns the new state.
+// Only non-empty queryPricingModel and non-nil maxQueryTCU values are applied;
+// omitted fields preserve their current values.
+func (b *InMemoryBackend) UpdateAccountSettings(queryPricingModel string, maxQueryTCU *int32) (AccountSettings, error) {
+	b.mu.Lock("UpdateAccountSettings")
+	defer b.mu.Unlock()
+
+	if queryPricingModel != "" {
+		if !isValidPricingModel(queryPricingModel) {
+			return AccountSettings{}, fmt.Errorf(
+				"%w: invalid QueryPricingModel %q, must be one of BYTES_SCANNED or COMPUTE_UNITS",
+				ErrInvalidRequest,
+				queryPricingModel,
+			)
+		}
+
+		b.accountSettings.QueryPricingModel = queryPricingModel
+	}
+
+	if maxQueryTCU != nil {
+		b.accountSettings.MaxQueryTCU = maxQueryTCU
+	}
+
+	return b.accountSettings, nil
 }
