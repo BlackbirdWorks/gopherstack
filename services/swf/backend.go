@@ -4,9 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 var (
@@ -18,11 +17,22 @@ var (
 	ErrDeprecated = errors.New("DomainDeprecatedFault")
 	// ErrTypeAlreadyExists is returned when a workflow type already exists.
 	ErrTypeAlreadyExists = errors.New("TypeAlreadyExistsFault")
+	// ErrTypeDeprecated is returned when a type is already deprecated.
+	ErrTypeDeprecated = errors.New("TypeDeprecatedFault")
 )
 
 // maxWorkflowExecutions is the maximum number of workflow executions retained.
 // Oldest executions are evicted when this limit is exceeded.
 const maxWorkflowExecutions = 10_000
+
+// statusDeprecated is the status string for deprecated resources.
+const statusDeprecated = "DEPRECATED"
+
+// statusRegistered is the status string for registered resources.
+const statusRegistered = "REGISTERED"
+
+// statusRunning is the status string for running workflow executions.
+const statusRunning = "RUNNING"
 
 // Domain represents an SWF domain.
 type Domain struct {
@@ -31,12 +41,22 @@ type Domain struct {
 	Status      string `json:"status"` // REGISTERED or DEPRECATED
 }
 
+// ActivityType represents an SWF activity type.
+type ActivityType struct {
+	Domain      string `json:"domain"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+}
+
 // WorkflowType represents an SWF workflow type.
 type WorkflowType struct {
-	Domain  string `json:"domain"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Status  string `json:"status"`
+	Domain      string `json:"domain"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
 }
 
 // WorkflowExecution represents an SWF workflow execution.
@@ -51,6 +71,7 @@ type WorkflowExecution struct {
 type InMemoryBackend struct {
 	domains        map[string]*Domain
 	workflows      map[string]*WorkflowType      // key: domain+":"+name+":"+version
+	activities     map[string]*ActivityType      // key: domain+":"+name+":"+version
 	executions     map[string]*WorkflowExecution // key: domain+":"+workflowID
 	mu             *lockmetrics.RWMutex
 	executionOrder []string // FIFO order of execution keys for eviction
@@ -61,9 +82,19 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		domains:    make(map[string]*Domain),
 		workflows:  make(map[string]*WorkflowType),
+		activities: make(map[string]*ActivityType),
 		executions: make(map[string]*WorkflowExecution),
 		mu:         lockmetrics.New("swf"),
 	}
+}
+
+// AddActivityTypeInternal seeds an activity type directly for testing.
+func (b *InMemoryBackend) AddActivityTypeInternal(domain, name, version, status string) {
+	b.mu.Lock("AddActivityTypeInternal")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	b.activities[key] = &ActivityType{Domain: domain, Name: name, Version: version, Status: status}
 }
 
 // RegisterDomain registers a new SWF domain.
@@ -72,14 +103,14 @@ func (b *InMemoryBackend) RegisterDomain(name, description string) error {
 	defer b.mu.Unlock()
 
 	if d, ok := b.domains[name]; ok {
-		if d.Status == "DEPRECATED" {
+		if d.Status == statusDeprecated {
 			return fmt.Errorf("%w: %s", ErrDeprecated, name)
 		}
 
 		return fmt.Errorf("%w: %s", ErrAlreadyExists, name)
 	}
 
-	b.domains[name] = &Domain{Name: name, Description: description, Status: "REGISTERED"}
+	b.domains[name] = &Domain{Name: name, Description: description, Status: statusRegistered}
 
 	return nil
 }
@@ -124,7 +155,7 @@ func (b *InMemoryBackend) DeprecateDomain(name string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
-	d.Status = "DEPRECATED"
+	d.Status = statusDeprecated
 
 	return nil
 }
@@ -139,7 +170,7 @@ func (b *InMemoryBackend) RegisterWorkflowType(domain, name, version string) err
 		return fmt.Errorf("%w: %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 
-	b.workflows[key] = &WorkflowType{Domain: domain, Name: name, Version: version, Status: "REGISTERED"}
+	b.workflows[key] = &WorkflowType{Domain: domain, Name: name, Version: version, Status: statusRegistered}
 
 	return nil
 }
@@ -157,6 +188,148 @@ func (b *InMemoryBackend) ListWorkflowTypes(domain string) []WorkflowType {
 	}
 
 	return out
+}
+
+// DescribeWorkflowType returns the details of a workflow type.
+func (b *InMemoryBackend) DescribeWorkflowType(domain, name, version string) (*WorkflowType, error) {
+	b.mu.RLock("DescribeWorkflowType")
+	defer b.mu.RUnlock()
+
+	key := domain + ":" + name + ":" + version
+	wt, ok := b.workflows[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
+	}
+
+	cp := *wt
+
+	return &cp, nil
+}
+
+// DeprecateWorkflowType marks a workflow type as deprecated.
+func (b *InMemoryBackend) DeprecateWorkflowType(domain, name, version string) error {
+	b.mu.Lock("DeprecateWorkflowType")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	wt, ok := b.workflows[key]
+	if !ok {
+		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
+	}
+
+	if wt.Status == statusDeprecated {
+		return fmt.Errorf("%w: workflow type %s/%s", ErrTypeDeprecated, name, version)
+	}
+
+	wt.Status = statusDeprecated
+
+	return nil
+}
+
+// DeleteWorkflowType removes a workflow type.
+func (b *InMemoryBackend) DeleteWorkflowType(domain, name, version string) error {
+	b.mu.Lock("DeleteWorkflowType")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	if _, ok := b.workflows[key]; !ok {
+		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
+	}
+
+	delete(b.workflows, key)
+
+	return nil
+}
+
+// DescribeActivityType returns the details of an activity type.
+func (b *InMemoryBackend) DescribeActivityType(domain, name, version string) (*ActivityType, error) {
+	b.mu.RLock("DescribeActivityType")
+	defer b.mu.RUnlock()
+
+	key := domain + ":" + name + ":" + version
+	at, ok := b.activities[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
+	}
+
+	cp := *at
+
+	return &cp, nil
+}
+
+// DeprecateActivityType marks an activity type as deprecated.
+func (b *InMemoryBackend) DeprecateActivityType(domain, name, version string) error {
+	b.mu.Lock("DeprecateActivityType")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	at, ok := b.activities[key]
+	if !ok {
+		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
+	}
+
+	if at.Status == statusDeprecated {
+		return fmt.Errorf("%w: activity type %s/%s", ErrTypeDeprecated, name, version)
+	}
+
+	at.Status = statusDeprecated
+
+	return nil
+}
+
+// DeleteActivityType removes an activity type.
+func (b *InMemoryBackend) DeleteActivityType(domain, name, version string) error {
+	b.mu.Lock("DeleteActivityType")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	if _, ok := b.activities[key]; !ok {
+		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
+	}
+
+	delete(b.activities, key)
+
+	return nil
+}
+
+// CountOpenWorkflowExecutions counts RUNNING workflow executions in a domain.
+func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string) int {
+	b.mu.RLock("CountOpenWorkflowExecutions")
+	defer b.mu.RUnlock()
+
+	count := 0
+	for _, e := range b.executions {
+		if e.Domain == domain && e.Status == statusRunning {
+			count++
+		}
+	}
+
+	return count
+}
+
+// CountClosedWorkflowExecutions counts non-RUNNING workflow executions in a domain.
+func (b *InMemoryBackend) CountClosedWorkflowExecutions(domain string) int {
+	b.mu.RLock("CountClosedWorkflowExecutions")
+	defer b.mu.RUnlock()
+
+	count := 0
+	for _, e := range b.executions {
+		if e.Domain == domain && e.Status != statusRunning {
+			count++
+		}
+	}
+
+	return count
+}
+
+// CountPendingActivityTasks returns 0 since task-level tracking is not implemented.
+func (b *InMemoryBackend) CountPendingActivityTasks(_ string) int {
+	return 0
+}
+
+// CountPendingDecisionTasks returns 0 since task-level tracking is not implemented.
+func (b *InMemoryBackend) CountPendingDecisionTasks(_ string) int {
+	return 0
 }
 
 // StartWorkflowExecution starts a new workflow execution.
@@ -177,7 +350,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(domain, workflowID, runID strin
 		}
 	}
 
-	exec := &WorkflowExecution{Domain: domain, WorkflowID: workflowID, RunID: runID, Status: "RUNNING"}
+	exec := &WorkflowExecution{Domain: domain, WorkflowID: workflowID, RunID: runID, Status: statusRunning}
 	b.executions[key] = exec
 
 	cp := *exec

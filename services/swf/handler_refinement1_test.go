@@ -45,7 +45,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := swf.NewInMemoryBackend()
 	h := swf.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 8)
+	assert.Len(t, h.GetSupportedOperations(), 18)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.

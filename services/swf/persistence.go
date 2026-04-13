@@ -2,11 +2,13 @@ package swf
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 type backendSnapshot struct {
 	Domains        map[string]*Domain            `json:"domains"`
 	Workflows      map[string]*WorkflowType      `json:"workflows"`
+	Activities     map[string]*ActivityType      `json:"activities"`
 	Executions     map[string]*WorkflowExecution `json:"executions"`
 	ExecutionOrder []string                      `json:"executionOrder"`
 }
@@ -30,6 +32,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		workflows[k] = &cp
 	}
 
+	activities := make(map[string]*ActivityType, len(b.activities))
+	for k, v := range b.activities {
+		cp := *v
+		activities[k] = &cp
+	}
+
 	executions := make(map[string]*WorkflowExecution, len(b.executions))
 	for k, v := range b.executions {
 		cp := *v
@@ -42,12 +50,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	snap := backendSnapshot{
 		Domains:        domains,
 		Workflows:      workflows,
+		Activities:     activities,
 		Executions:     executions,
 		ExecutionOrder: order,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("swf: snapshot marshal failed", "error", err)
+
 		return nil
 	}
 
@@ -74,12 +85,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Workflows = make(map[string]*WorkflowType)
 	}
 
+	if snap.Activities == nil {
+		snap.Activities = make(map[string]*ActivityType)
+	}
+
 	if snap.Executions == nil {
 		snap.Executions = make(map[string]*WorkflowExecution)
 	}
 
 	b.domains = snap.Domains
 	b.workflows = snap.Workflows
+	b.activities = snap.Activities
 	b.executions = snap.Executions
 	b.executionOrder = snap.ExecutionOrder
 
