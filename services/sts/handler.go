@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -311,6 +312,8 @@ func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRol
 		WebIdentityToken: r.FormValue("WebIdentityToken"),
 		ProviderID:       r.FormValue("ProviderId"),
 		Policy:           r.FormValue("Policy"),
+		SourceIdentity:   r.FormValue("SourceIdentity"),
+		Tags:             parseSessionTags(r),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")
@@ -329,10 +332,12 @@ func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRol
 // dispatchAssumeRoleWithSAML handles the AssumeRoleWithSAML action.
 func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSAMLResponse, error) {
 	input := &AssumeRoleWithSAMLInput{
-		RoleArn:       r.FormValue("RoleArn"),
-		PrincipalArn:  r.FormValue("PrincipalArn"),
-		SAMLAssertion: r.FormValue("SAMLAssertion"),
-		Policy:        r.FormValue("Policy"),
+		RoleArn:         r.FormValue("RoleArn"),
+		PrincipalArn:    r.FormValue("PrincipalArn"),
+		SAMLAssertion:   r.FormValue("SAMLAssertion"),
+		Policy:          r.FormValue("Policy"),
+		RoleSessionName: r.FormValue("RoleSessionName"),
+		SourceIdentity:  r.FormValue("SourceIdentity"),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")
@@ -374,6 +379,16 @@ func (h *Handler) dispatchGetDelegatedAccessToken(r *http.Request) (*GetDelegate
 		TradeInToken: r.FormValue("TradeInToken"),
 	}
 
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
 	return h.Backend.GetDelegatedAccessToken(input)
 }
 
@@ -409,9 +424,9 @@ func (h *Handler) dispatchGetWebIdentityToken(r *http.Request) (*GetWebIdentityT
 
 // dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
-	_ = r.FormValue("AccessKeyId") // consumed but not validated in mock
+	accessKeyID := r.FormValue("AccessKeyId")
 
-	callerIdentity, err := h.Backend.GetCallerIdentity("")
+	callerIdentity, err := h.Backend.GetCallerIdentity(accessKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +512,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 			Code:    code,
 			Message: reqErr.Error(),
 		},
-		RequestID: "00000000-0000-0000-0000-000000000000",
+		RequestID: uuid.NewString(),
 	}
 
 	return writeXMLResponse(c, httpStatus, errResp)

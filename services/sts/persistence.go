@@ -2,6 +2,7 @@ package sts
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 )
 
@@ -15,16 +16,31 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	snap := backendSnapshot{
-		Sessions: b.sessions,
+	sessions := make(map[string]*SessionInfo, len(b.sessions))
+	for k, v := range b.sessions {
+		if v != nil {
+			cp := *v
+			sessions[k] = &cp
+		}
 	}
+
+	snap := backendSnapshot{Sessions: sessions}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("sts: failed to snapshot backend state", "error", err)
+
 		return nil
 	}
 
 	return data
+}
+
+// ensureNonNilMaps initialises any nil internal maps. Must be called under b.mu.
+func (b *InMemoryBackend) ensureNonNilMaps() {
+	if b.sessions == nil {
+		b.sessions = make(map[string]*SessionInfo)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -46,6 +62,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.ensureNonNilMaps()
 	b.sessions = make(map[string]*SessionInfo)
 
 	for k, s := range snap.Sessions {

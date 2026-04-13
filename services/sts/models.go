@@ -240,6 +240,8 @@ type AssumeRoleWithWebIdentityInput struct {
 	WebIdentityToken string
 	ProviderID       string
 	Policy           string
+	SourceIdentity   string
+	Tags             []Tag
 	DurationSeconds  int32
 }
 
@@ -249,6 +251,8 @@ type AssumeRoleWithSAMLInput struct {
 	PrincipalArn    string
 	SAMLAssertion   string
 	Policy          string
+	RoleSessionName string
+	SourceIdentity  string
 	DurationSeconds int32
 }
 
@@ -296,7 +300,8 @@ type AssumeRootResponse struct {
 
 // GetDelegatedAccessTokenInput holds the parameters for a GetDelegatedAccessToken call.
 type GetDelegatedAccessTokenInput struct {
-	TradeInToken string
+	TradeInToken    string
+	DurationSeconds int32
 }
 
 // GetDelegatedAccessTokenResult wraps the principal and credentials returned by GetDelegatedAccessToken.

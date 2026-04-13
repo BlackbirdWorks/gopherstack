@@ -2,6 +2,7 @@ package sts
 
 import (
 	"crypto/rand"
+	"crypto/sha1" //nolint:gosec // SHA1 is used only for NameQualifier per AWS spec, not for security
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -56,6 +57,9 @@ var (
 
 	// ErrMissingSigningAlgorithm is returned when GetWebIdentityToken is called without a SigningAlgorithm.
 	ErrMissingSigningAlgorithm = errors.New("SigningAlgorithm is required for GetWebIdentityToken")
+
+	// ErrSessionNotFound is returned when a session lookup by access key ID yields no result.
+	ErrSessionNotFound = errors.New("session not found")
 )
 
 const (
@@ -77,6 +81,13 @@ const (
 
 	// webIdentitySubjectPlaceholder is returned when the sub claim cannot be extracted from the token.
 	webIdentitySubjectPlaceholder = "WebIdentitySubject"
+
+	// defaultSTSRegion is the AWS region for the STS backend (STS is global, defaults to us-east-1).
+	defaultSTSRegion = "us-east-1"
+
+	samlSessionName      = "saml-session"
+	rootSessionName      = "root"
+	delegatedSessionName = "delegated"
 )
 
 // RoleLookup is implemented by services (e.g. IAM) that can provide role metadata
@@ -102,19 +113,6 @@ type trustPolicy struct {
 // trustStatement is a single statement in a trust policy.
 type trustStatement struct {
 	Condition map[string]map[string]json.RawMessage `json:"Condition"`
-}
-
-// StorageBackend defines the STS service backend interface.
-type StorageBackend interface {
-	AssumeRole(input *AssumeRoleInput) (*AssumeRoleResponse, error)
-	AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*AssumeRoleWithSAMLResponse, error)
-	AssumeRoleWithWebIdentity(input *AssumeRoleWithWebIdentityInput) (*AssumeRoleWithWebIdentityResponse, error)
-	AssumeRoot(input *AssumeRootInput) (*AssumeRootResponse, error)
-	GetCallerIdentity(accessKeyID string) (*GetCallerIdentityResponse, error)
-	GetDelegatedAccessToken(input *GetDelegatedAccessTokenInput) (*GetDelegatedAccessTokenResponse, error)
-	GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error)
-	GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error)
-	GetWebIdentityToken(input *GetWebIdentityTokenInput) (*GetWebIdentityTokenResponse, error)
 }
 
 // InMemoryBackend is a stateful in-memory STS backend.
@@ -145,6 +143,19 @@ func (b *InMemoryBackend) SetRoleLookup(rl RoleLookup) {
 	defer b.mu.Unlock()
 
 	b.roleLookup = rl
+}
+
+// AccountID returns the AWS account ID configured for this backend.
+func (b *InMemoryBackend) AccountID() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.accountID
+}
+
+// Region returns the AWS region for this STS backend (STS is global, defaults to us-east-1).
+func (b *InMemoryBackend) Region() string {
+	return defaultSTSRegion
 }
 
 // AssumeRole generates temporary credentials for the given role.
@@ -487,9 +498,14 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	}
 
 	subject := extractWebIdentitySubject(input.WebIdentityToken)
+	audience := extractWebIdentityAudience(input.WebIdentityToken)
 	provider := input.ProviderID
 	if provider == "" {
 		provider = "cognito-identity.amazonaws.com"
+	}
+
+	if audience == "" {
+		audience = provider
 	}
 
 	session := &SessionInfo{
@@ -499,6 +515,8 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		SessionName:    input.RoleSessionName,
 		AccessKeyID:    accessKeyID,
 		AssumedRoleID:  assumedRoleID,
+		Tags:           input.Tags,
+		SourceIdentity: input.SourceIdentity,
 	}
 
 	b.mu.Lock()
@@ -519,8 +537,9 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 				Expiration:      expiration.Format(time.RFC3339),
 			},
 			SubjectFromWebIdentityToken: subject,
-			Audience:                    subject,
+			Audience:                    audience,
 			Provider:                    provider,
+			SourceIdentity:              input.SourceIdentity,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
@@ -571,8 +590,12 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	roleID := deriveRoleID(input.RoleArn)
 
-	// Derive a session name from the SAML assertion (use a fixed placeholder for mock).
-	sessionName := "saml-session"
+	// Use input.RoleSessionName if provided, otherwise fall back to the samlSessionName constant.
+	sessionName := samlSessionName
+	if input.RoleSessionName != "" {
+		sessionName = input.RoleSessionName
+	}
+
 	assumedRoleID := roleID + ":" + sessionName
 	assumedRoleArn := buildAssumedRoleArn(input.RoleArn, sessionName)
 
@@ -588,6 +611,7 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 		SessionName:    sessionName,
 		AccessKeyID:    accessKeyID,
 		AssumedRoleID:  assumedRoleID,
+		SourceIdentity: input.SourceIdentity,
 	}
 
 	b.mu.Lock()
@@ -597,6 +621,7 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 	// Derive issuer from PrincipalArn (last segment after /).
 	issuerParts := strings.Split(input.PrincipalArn, "/")
 	issuer := issuerParts[len(issuerParts)-1]
+	nameQualifier := computeNameQualifier(issuer, account, issuer)
 
 	return &AssumeRoleWithSAMLResponse{
 		Xmlns: STSNamespace,
@@ -611,10 +636,12 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 				SessionToken:    sessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
-			Audience:    input.PrincipalArn,
-			Issuer:      issuer,
-			SubjectType: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
-			Subject:     account + ":saml-subject",
+			Audience:       input.PrincipalArn,
+			Issuer:         issuer,
+			NameQualifier:  nameQualifier,
+			SubjectType:    "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+			Subject:        account + ":saml-subject",
+			SourceIdentity: input.SourceIdentity,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
@@ -659,14 +686,16 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+	account := extractAccountFromPrincipal(input.TargetPrincipal)
+	assumedRoleArn := arn.Build("sts", "", account, "assumed-root")
 
 	session := &SessionInfo{
 		Expiration:     expiration,
-		AssumedRoleArn: arn.Build("sts", "", b.accountID, "assumed-root"),
-		AccountID:      b.accountID,
-		SessionName:    "root",
+		AssumedRoleArn: assumedRoleArn,
+		AccountID:      account,
+		SessionName:    rootSessionName,
 		AccessKeyID:    accessKeyID,
-		AssumedRoleID:  b.accountID + ":root",
+		AssumedRoleID:  account + ":" + rootSessionName,
 	}
 
 	b.mu.Lock()
@@ -696,6 +725,18 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		return nil, ErrMissingTradeInToken
 	}
 
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultDurationSeconds
+	}
+
+	if duration < MinDurationSeconds || duration > MaxDurationSeconds {
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for GetDelegatedAccessToken",
+			ErrInvalidDuration, MinDurationSeconds, MaxDurationSeconds,
+		)
+	}
+
 	accessKeyID, err := generateAccessKeyID()
 	if err != nil {
 		return nil, fmt.Errorf("generate access key: %w", err)
@@ -711,16 +752,16 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		return nil, fmt.Errorf("generate session token: %w", err)
 	}
 
-	expiration := time.Now().UTC().Add(DefaultDurationSeconds * time.Second)
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	assumedPrincipal := arn.Build("iam", "", b.accountID, "root")
 
 	session := &SessionInfo{
 		Expiration:     expiration,
 		AssumedRoleArn: assumedPrincipal,
 		AccountID:      b.accountID,
-		SessionName:    "delegated",
+		SessionName:    delegatedSessionName,
 		AccessKeyID:    accessKeyID,
-		AssumedRoleID:  b.accountID + ":delegated",
+		AssumedRoleID:  b.accountID + ":" + delegatedSessionName,
 	}
 
 	b.mu.Lock()
@@ -968,6 +1009,89 @@ func buildAssumedRoleArn(roleArn, sessionName string) string {
 	rolePath := strings.TrimPrefix(parts[5], "role/")
 
 	return arn.Build("sts", "", account, "assumed-role/"+rolePath+"/"+sessionName)
+}
+
+// extractAccountFromPrincipal returns the account portion of an ARN or the principal itself
+// if it looks like a 12-digit account ID.
+func extractAccountFromPrincipal(principal string) string {
+	if len(principal) == 12 && allDigits(principal) {
+		return principal
+	}
+
+	parts := strings.SplitN(principal, ":", arnComponentCount)
+	if len(parts) >= arnComponentCount {
+		return parts[4]
+	}
+
+	return principal
+}
+
+// allDigits reports whether every character in s is an ASCII digit.
+func allDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// computeNameQualifier computes the AWS SAML NameQualifier:
+// BASE64(SHA1(issuer + ";" + accountID + ";" + idpName)).
+func computeNameQualifier(issuer, accountID, idpName string) string {
+	h := sha1.New() //nolint:gosec // SHA1 per AWS SAML spec
+	_, _ = h.Write([]byte(issuer + ";" + accountID + ";" + idpName))
+
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// extractWebIdentityAudience attempts to extract the "aud" claim from a JWT token's
+// payload without validating the signature. If the aud is an array, the first element is used.
+// If extraction fails, an empty string is returned.
+func extractWebIdentityAudience(token string) string {
+	parts := strings.SplitN(token, ".", jwtPartCount)
+	if len(parts) < jwtMinParts {
+		return ""
+	}
+
+	rawPayload := parts[1]
+	paddedPayload := rawPayload
+
+	switch len(rawPayload) % 4 {
+	case base64Pad2:
+		paddedPayload += "=="
+	case base64Pad1:
+		paddedPayload += "="
+	}
+
+	decoded, decodeErr := base64.URLEncoding.DecodeString(paddedPayload)
+	if decodeErr != nil {
+		var fallbackErr error
+
+		decoded, fallbackErr = base64.RawURLEncoding.DecodeString(rawPayload)
+		if fallbackErr != nil {
+			return ""
+		}
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return ""
+	}
+
+	switch v := claims["aud"].(type) {
+	case string:
+		return v
+	case []any:
+		if len(v) > 0 {
+			if s, ok := v[0].(string); ok {
+				return s
+			}
+		}
+	}
+
+	return ""
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
