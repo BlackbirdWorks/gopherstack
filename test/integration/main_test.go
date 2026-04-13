@@ -62,6 +62,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
+	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/moby/moby/client"
@@ -1162,5 +1163,25 @@ func createServerlessRepoClient(t *testing.T) *sarsdk.Client {
 
 	return sarsdk.NewFromConfig(cfg, func(o *sarsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTimestreamWriteClient returns a Timestream Write client pointed at the shared test container.
+// Endpoint discovery is disabled so the client uses the provided BaseEndpoint directly.
+func createTimestreamWriteClient(t *testing.T) *timestreamwritesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return timestreamwritesdk.NewFromConfig(cfg, func(o *timestreamwritesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+		o.EndpointDiscovery.EnableEndpointDiscovery = aws.EndpointDiscoveryDisabled
 	})
 }
