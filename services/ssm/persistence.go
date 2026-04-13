@@ -2,26 +2,29 @@ package ssm
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
-	Parameters          map[string]Parameter            `json:"parameters"`
-	History             map[string][]ParameterHistory   `json:"history"`
-	Tags                map[string]*tags.Tags           `json:"tags"`
-	Documents           map[string]Document             `json:"documents"`
-	DocumentVersions    map[string][]DocumentVersion    `json:"document_versions"`
-	DocumentPermissions map[string][]string             `json:"document_permissions"`
-	Commands            map[string]Command              `json:"commands"`
-	CommandInvocations  map[string][]CommandInvocation  `json:"command_invocations"`
-	Activations         map[string]Activation           `json:"activations"`
-	Associations        map[string]Association          `json:"associations"`
-	MaintenanceWindows  map[string]MaintenanceWindow    `json:"maintenance_windows"`
-	OpsItems            map[string]OpsItem              `json:"ops_items"`
-	OpsItemRelatedItems map[string][]OpsItemRelatedItem `json:"ops_item_related_items"`
-	OpsMetadata         map[string]OpsMetadata          `json:"ops_metadata"`
-	PatchBaselines      map[string]PatchBaseline        `json:"patch_baselines"`
+	Parameters                 map[string]Parameter            `json:"parameters"`
+	History                    map[string][]ParameterHistory   `json:"history"`
+	Tags                       map[string]*tags.Tags           `json:"tags"`
+	Documents                  map[string]Document             `json:"documents"`
+	DocumentVersions           map[string][]DocumentVersion    `json:"document_versions"`
+	DocumentPermissions        map[string][]string             `json:"document_permissions"`
+	Commands                   map[string]Command              `json:"commands"`
+	CommandInvocations         map[string][]CommandInvocation  `json:"command_invocations"`
+	Activations                map[string]Activation           `json:"activations"`
+	Associations               map[string]Association          `json:"associations"`
+	MaintenanceWindows         map[string]MaintenanceWindow    `json:"maintenance_windows"`
+	OpsItems                   map[string]OpsItem              `json:"ops_items"`
+	OpsItemRelatedItems        map[string][]OpsItemRelatedItem `json:"ops_item_related_items"`
+	OpsMetadata                map[string]OpsMetadata          `json:"ops_metadata"`
+	PatchBaselines             map[string]PatchBaseline        `json:"patch_baselines"`
+	ResourceIDToOpsMetadataArn map[string]string               `json:"resource_id_to_ops_metadata_arn"`
+	MiscResourceTags           map[string]map[string]string    `json:"misc_resource_tags"`
 }
 
 // initSnapshotDefaults initializes nil maps in the snapshot for core fields.
@@ -88,6 +91,14 @@ func initSnapshotNewFields(snap *backendSnapshot) {
 	if snap.PatchBaselines == nil {
 		snap.PatchBaselines = make(map[string]PatchBaseline)
 	}
+
+	if snap.ResourceIDToOpsMetadataArn == nil {
+		snap.ResourceIDToOpsMetadataArn = make(map[string]string)
+	}
+
+	if snap.MiscResourceTags == nil {
+		snap.MiscResourceTags = make(map[string]map[string]string)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -97,25 +108,29 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Parameters:          b.parameters,
-		History:             b.history,
-		Tags:                b.tags,
-		Documents:           b.documents,
-		DocumentVersions:    b.documentVersions,
-		DocumentPermissions: b.documentPermissions,
-		Commands:            b.commands,
-		CommandInvocations:  b.commandInvocations,
-		Activations:         b.activations,
-		Associations:        b.associations,
-		MaintenanceWindows:  b.maintenanceWindows,
-		OpsItems:            b.opsItems,
-		OpsItemRelatedItems: b.opsItemRelatedItems,
-		OpsMetadata:         b.opsMetadata,
-		PatchBaselines:      b.patchBaselines,
+		Parameters:                 b.parameters,
+		History:                    b.history,
+		Tags:                       b.tags,
+		Documents:                  b.documents,
+		DocumentVersions:           b.documentVersions,
+		DocumentPermissions:        b.documentPermissions,
+		Commands:                   b.commands,
+		CommandInvocations:         b.commandInvocations,
+		Activations:                b.activations,
+		Associations:               b.associations,
+		MaintenanceWindows:         b.maintenanceWindows,
+		OpsItems:                   b.opsItems,
+		OpsItemRelatedItems:        b.opsItemRelatedItems,
+		OpsMetadata:                b.opsMetadata,
+		PatchBaselines:             b.patchBaselines,
+		ResourceIDToOpsMetadataArn: b.resourceIDToOpsMetadataArn,
+		MiscResourceTags:           b.miscResourceTags,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("ssm: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -157,6 +172,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.opsItemRelatedItems = snap.OpsItemRelatedItems
 	b.opsMetadata = snap.OpsMetadata
 	b.patchBaselines = snap.PatchBaselines
+	b.resourceIDToOpsMetadataArn = snap.ResourceIDToOpsMetadataArn
+	b.miscResourceTags = snap.MiscResourceTags
 
 	// Re-seed built-in documents if they are absent from the snapshot
 	// (e.g. snapshots taken before document support was added).

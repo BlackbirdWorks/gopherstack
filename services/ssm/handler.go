@@ -20,17 +20,21 @@ import (
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+const errCodeDoesNotExist = "DoesNotExistException"
+
 // Handler is the Echo HTTP service handler for SSM operations.
 type Handler struct {
 	Backend StorageBackend
 	janitor *Janitor
+	ops     map[string]ssmActionFn
 }
 
 // NewHandler creates a new SSM handler with the given storage backend.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
-		Backend: backend,
-	}
+	h := &Handler{Backend: backend}
+	h.ops = h.ssmDispatchTable()
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -396,7 +400,7 @@ func (h *Handler) ssmCommandOps() map[string]ssmActionFn {
 
 // dispatch routes the operation to the appropriate handler.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.ssmDispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -441,14 +445,18 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return "ActivationNotFound", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
+	case errors.Is(reqErr, ErrMaintenanceWindowExecutionNotFound):
+		return errCodeDoesNotExist, statusCode
 	case errors.Is(reqErr, ErrMaintenanceWindowNotFound):
-		return "DoesNotExistException", statusCode
+		return errCodeDoesNotExist, statusCode
 	case errors.Is(reqErr, ErrOpsItemNotFound):
 		return "OpsItemNotFoundException", statusCode
 	case errors.Is(reqErr, ErrOpsMetadataNotFound):
 		return "OpsMetadataNotFoundException", statusCode
+	case errors.Is(reqErr, ErrOpsMetadataAlreadyExists):
+		return "OpsMetadataAlreadyExistsException", statusCode
 	case errors.Is(reqErr, ErrPatchBaselineNotFound):
-		return "DoesNotExistException", statusCode
+		return errCodeDoesNotExist, statusCode
 	case errors.Is(reqErr, ErrUnknownOperation):
 		return "UnknownOperationException", statusCode
 	default:

@@ -681,3 +681,21 @@ func TestNewOps_ResetClearsAllMaps(t *testing.T) {
 	assert.Equal(t, 0, backend.PatchBaselineCount())
 	assert.Equal(t, 0, backend.OpsMetadataCount())
 }
+
+func TestNewOps_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	ops := []string{
+		"CancelCommand", "CancelMaintenanceWindowExecution",
+		"CreateActivation", "CreateAssociation", "CreateAssociationBatch",
+		"CreateMaintenanceWindow", "CreateOpsItem", "CreateOpsMetadata",
+		"CreatePatchBaseline", "AssociateOpsItemRelatedItem",
+	}
+	for _, op := range ops {
+		t.Run(op, func(t *testing.T) {
+			t.Parallel()
+			h, _ := newTestHandler(t)
+			rec := doRequest(t, h, op, "invalid json{{{")
+			assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		})
+	}
+}

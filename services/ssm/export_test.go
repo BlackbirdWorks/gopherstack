@@ -150,3 +150,61 @@ func (b *InMemoryBackend) PatchBaselineCount() int {
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.GetSupportedOperations())
 }
+
+// AddActivationInternal seeds an activation directly into the backend for testing.
+func (b *InMemoryBackend) AddActivationInternal(act Activation) {
+	b.mu.Lock("AddActivationInternal")
+	defer b.mu.Unlock()
+	b.activations[act.ActivationID] = act
+}
+
+// AddAssociationInternal seeds an association directly into the backend for testing.
+func (b *InMemoryBackend) AddAssociationInternal(assoc Association) {
+	b.mu.Lock("AddAssociationInternal")
+	defer b.mu.Unlock()
+	b.associations[assoc.AssociationID] = assoc
+}
+
+// AddMaintenanceWindowInternal seeds a maintenance window directly into the backend for testing.
+func (b *InMemoryBackend) AddMaintenanceWindowInternal(mw MaintenanceWindow) {
+	b.mu.Lock("AddMaintenanceWindowInternal")
+	defer b.mu.Unlock()
+	b.maintenanceWindows[mw.WindowID] = mw
+}
+
+// AddOpsItemInternal seeds an OpsItem directly into the backend for testing.
+func (b *InMemoryBackend) AddOpsItemInternal(item OpsItem) {
+	b.mu.Lock("AddOpsItemInternal")
+	defer b.mu.Unlock()
+	b.opsItems[item.OpsItemID] = item
+}
+
+// AddOpsMetadataInternal seeds OpsMetadata directly into the backend for testing.
+func (b *InMemoryBackend) AddOpsMetadataInternal(meta OpsMetadata) {
+	b.mu.Lock("AddOpsMetadataInternal")
+	defer b.mu.Unlock()
+	b.opsMetadata[meta.OpsMetadataArn] = meta
+}
+
+// AddPatchBaselineInternal seeds a patch baseline directly into the backend for testing.
+func (b *InMemoryBackend) AddPatchBaselineInternal(bl PatchBaseline) {
+	b.mu.Lock("AddPatchBaselineInternal")
+	defer b.mu.Unlock()
+	b.patchBaselines[bl.BaselineID] = bl
+}
+
+// OpsItemRelatedItemCount returns the total number of related items across all OpsItems.
+func (b *InMemoryBackend) OpsItemRelatedItemCount(opsItemID string) int {
+	b.mu.RLock("OpsItemRelatedItemCount")
+	defer b.mu.RUnlock()
+
+	return len(b.opsItemRelatedItems[opsItemID])
+}
+
+// GetPatchBaselineInternal retrieves a patch baseline directly from the backend for testing.
+func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
+	b.mu.RLock("GetPatchBaselineInternal")
+	defer b.mu.RUnlock()
+
+	return b.patchBaselines[id]
+}
