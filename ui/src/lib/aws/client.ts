@@ -5,7 +5,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 const defaultRegion = "us-east-1";
 
 function endpointURL(): string {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || !window.location) {
     return "http://localhost:8000";
   }
 

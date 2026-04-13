@@ -1,0 +1,1 @@
+import{D as e,H as t,K as n,ct as r,k as i,m as a}from"./D38XEU1t.js";import"./CsaauQz1.js";var o=i(`<section><iframe class="h-[88vh] w-full rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"></iframe></section>`);function s(i,s){var c=o(),l=n(c);r(c),t(()=>{a(l,`title`,s.title),a(l,`src`,s.src)}),e(i,c)}export{s as t};

@@ -6,16 +6,104 @@
 
 	let requests = $state<CapturedRequest[]>([]);
 	let isConnected = $state(false);
-	let abortController = new AbortController();
+	let autoRefresh = $state(true);
+	let abortController: AbortController | null = null;
+	let searchQuery = $state('');
+	let drawerOpen = $state(false);
+	let selectedRequest = $state<CapturedRequest | null>(null);
 
-	async function startConsoleStream() {
+	const filteredRequests = $derived(
+		searchQuery.trim() === ''
+			? requests
+			: requests.filter((r) => {
+					const q = searchQuery.toLowerCase();
+					return (
+						r.method.toLowerCase().includes(q) ||
+						r.path.toLowerCase().includes(q) ||
+						r.status.toString().includes(q) ||
+						guessService(r).toLowerCase().includes(q)
+					);
+				})
+	);
+
+	function guessService(req: CapturedRequest): string {
+		const headers = req.headers ?? {};
+		if (headers['X-Amz-Target']) {
+			return headers['X-Amz-Target'].split('.')[0];
+		}
+		if (req.path.startsWith('/latest/meta-data') || req.path.startsWith('/latest/api/token')) return 'IMDS (EC2)';
+		const auth = headers['Authorization'] ?? '';
+		if (auth.includes('Credential=')) {
+			const parts = auth.split('Credential=')[1]?.split('/');
+			if (parts && parts.length > 3) return parts[3].toUpperCase();
+		}
+		return 'HTTP';
+	}
+
+	function displayPath(req: CapturedRequest): string {
+		if (req.path === '/') {
+			const headers = req.headers ?? {};
+			if (headers['X-Amz-Target']) {
+				const targetParts = headers['X-Amz-Target'].split('.');
+				if (targetParts.length > 1) return targetParts[1].split('_')[0];
+			}
+			if (req.body?.includes('Action=')) {
+				const match = req.body.match(/(?:^|&)Action=([^&]+)/);
+				if (match?.[1]) return match[1];
+			}
+		}
+		return req.path;
+	}
+
+	function statusColor(status: number): string {
+		if (status >= 200 && status < 300) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300';
+		if (status >= 400 && status < 500) return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
+		if (status >= 500) return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+		return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+	}
+
+	function methodColor(method: string): string {
+		switch (method.toUpperCase()) {
+			case 'GET': return 'text-blue-600 dark:text-blue-400';
+			case 'POST': return 'text-emerald-600 dark:text-emerald-400';
+			case 'PUT': return 'text-amber-600 dark:text-amber-400';
+			case 'DELETE': return 'text-red-600 dark:text-red-400';
+			default: return 'text-slate-600 dark:text-slate-400';
+		}
+	}
+
+	function formatBody(req: CapturedRequest): string {
+		if (!req.body) return '';
+		const ct = (req.headers ?? {})['Content-Type'] ?? '';
+		try {
+			if (ct.includes('json')) return JSON.stringify(JSON.parse(req.body), null, 2);
+			if (ct.includes('x-www-form-urlencoded')) return req.body.split('&').join('\n');
+		} catch {}
+		return req.body;
+	}
+
+	function formatTime(req: CapturedRequest): string {
+		if (!req.timestamp) return '';
+		return new Date(Number(req.timestamp.seconds) * 1000).toLocaleTimeString();
+	}
+
+	function openDrawer(req: CapturedRequest) {
+		selectedRequest = req;
+		drawerOpen = true;
+	}
+
+	function closeDrawer() {
+		drawerOpen = false;
+	}
+
+	async function startStream() {
+		abortController = new AbortController();
 		try {
 			const stream = await dashboardClient.streamConsole({}, { signal: abortController.signal });
 			isConnected = true;
 			for await (const response of stream) {
 				if (response.request) {
-					// Prepend new requests, keep up to 100
-					requests = [response.request, ...requests].slice(0, 100);
+					requests = [response.request, ...requests].slice(0, 200);
 				}
 			}
 		} catch (err: unknown) {
@@ -27,152 +115,180 @@
 		}
 	}
 
-	onMount(() => {
-		startConsoleStream();
-	});
-
-	onDestroy(() => {
-		abortController.abort();
-	});
-
-	let selectedRequest = $state<CapturedRequest | null>(null);
-
-	function openDetails(req: CapturedRequest) {
-		selectedRequest = req;
+	function stopStream() {
+		if (abortController) {
+			abortController.abort();
+			abortController = null;
+			isConnected = false;
+		}
 	}
 
-	function closeDetails() {
-		selectedRequest = null;
+	function toggleAutoRefresh(enabled: boolean) {
+		autoRefresh = enabled;
+		if (enabled) startStream(); else stopStream();
 	}
+
+	onMount(() => { if (autoRefresh) startStream(); });
+	onDestroy(() => { stopStream(); });
 </script>
 
-<div class="space-y-6">
+<div class="container mx-auto h-full flex flex-col space-y-6">
 	<!-- Header -->
-	<div class="flex justify-between items-center bg-white/40 dark:bg-zinc-900/40 p-4 rounded-xl shadow-lg border border-white/60 dark:border-zinc-800/60 backdrop-blur-md">
-		<h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">Live API Console</h1>
-		<div class="flex items-center gap-4">
-			<button
-				onclick={() => requests = []}
-				class="text-xs px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition"
-			>
-				Clear
-			</button>
-			<div class="flex items-center gap-2">
-				<span class="relative flex h-3 w-3">
+	<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+		<div>
+			<h1 class="text-4xl font-extrabold tracking-tight text-blue-600 dark:text-blue-400">Live API Console</h1>
+			<p class="text-slate-500 dark:text-slate-400 mt-2">View real-time AWS API requests hitting Gopherstack</p>
+		</div>
+		<div class="flex items-center gap-3">
+			<div class={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border ${isConnected ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'}`}>
+				<span class="relative flex h-2 w-2">
 					{#if isConnected}
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-						<span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
 					{:else}
-						<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
 					{/if}
 				</span>
-				<span class="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-					{isConnected ? 'Live' : 'Disconnected'}
-				</span>
+				{isConnected ? 'Recording' : 'Paused'}
 			</div>
+			<label class="relative inline-flex items-center cursor-pointer">
+				<input type="checkbox" checked={autoRefresh} onchange={(e) => toggleAutoRefresh((e.target as HTMLInputElement).checked)} class="sr-only peer" />
+				<div class="relative shrink-0 w-11 h-6 bg-slate-200 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+				<span class="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300">Auto</span>
+			</label>
 		</div>
 	</div>
 
-	<!-- Requests List -->
-	<div class="grid grid-cols-1 md:grid-cols-[1fr_350px] gap-6 items-start">
-		<div class="overflow-hidden rounded-xl bg-white/50 shadow backdrop-blur ring-1 ring-black/5 dark:bg-zinc-900/50 dark:ring-white/10 flex flex-col max-h-[700px]">
-			{#if requests.length === 0}
-				<div class="flex flex-col items-center justify-center p-12 h-64">
-					<p class="text-zinc-500">Waiting for API requests...</p>
-					<p class="text-xs text-zinc-400 mt-2">Make a request to Gopherstack locally to see it appear here.</p>
-				</div>
-			{:else}
-				<div class="overflow-auto grow">
-					<table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 relative">
-						<thead class="bg-zinc-50/80 dark:bg-zinc-800/80 backdrop-blur sticky top-0 z-10">
-							<tr>
-								<th scope="col" class="py-3.5 pl-4 pr-3 text-left text-xs font-semibold uppercase sm:pl-6 text-zinc-500">Time</th>
-								<th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold uppercase text-zinc-500">Method</th>
-								<th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold uppercase text-zinc-500 border-r border-zinc-200 dark:border-zinc-700">Path</th>
-								<th scope="col" class="px-3 py-3.5 text-left text-xs font-semibold uppercase text-zinc-500">Status</th>
-								<th scope="col" class="px-3 py-3.5 text-right text-xs font-semibold uppercase text-zinc-500">Duration</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-zinc-200 dark:divide-zinc-800 bg-transparent cursor-pointer">
-							{#each requests as req}
-								<tr 
-									class={`hover:bg-blue-50 dark:hover:bg-blue-900/20 transition ${selectedRequest === req ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
-									onclick={() => openDetails(req)}
-								>
-									<td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm text-zinc-500 sm:pl-6">
-										{req.timestamp ? new Date(Number(req.timestamp.seconds) * 1000).toLocaleTimeString() : ''}
-									</td>
-									<td class="whitespace-nowrap px-3 py-3 text-sm font-medium">
-										<span class={`rounded px-2 py-0.5 text-xs font-bold ${
-											req.method === 'GET' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' :
-											req.method === 'POST' ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' :
-											req.method === 'PUT' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200' :
-											req.method === 'DELETE' ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200' :
-											'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200'
-										}`}>
-											{req.method}
-										</span>
-									</td>
-									<td class="px-3 py-3 text-sm text-zinc-900 dark:text-zinc-100 font-mono truncate max-w-[200px] border-r border-zinc-200 dark:border-zinc-700" title={req.path}>
-										{req.path}
-									</td>
-									<td class="whitespace-nowrap px-3 py-3 text-sm font-medium">
-										<span class={`rounded-full flex items-center justify-center w-8 h-6 text-xs ${
-											req.status >= 200 && req.status < 300 ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' :
-											req.status >= 400 && req.status < 500 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300' :
-											req.status >= 500 ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' :
-											'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300'
-										}`}>
-											{req.status}
-										</span>
-									</td>
-									<td class="whitespace-nowrap px-3 py-3 text-sm text-right text-zinc-500">
-										{req.durationMs}ms
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
+	<!-- Filter Bar -->
+	<div class="flex gap-4 items-center bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+		<div class="relative flex-grow">
+			<div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+				<svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+			</div>
+			<input type="text" bind:value={searchQuery} class="bg-white/50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 p-2.5 dark:bg-slate-800 dark:border-slate-600 dark:text-white" placeholder="Filter logs (e.g. s3, POST, 404)..." />
+		</div>
+		<button onclick={() => { requests = []; }} class="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 focus:ring-4 focus:outline-none focus:ring-indigo-300 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-900/50">
+			Clear
+		</button>
+	</div>
+
+	<!-- Log Grid -->
+	<div class="flex-grow rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col min-h-[500px] bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+		<!-- Header Row -->
+		<div class="grid grid-cols-12 gap-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/80 p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+			<div class="col-span-1">Status</div>
+			<div class="col-span-1">Method</div>
+			<div class="col-span-4 pl-4">Path</div>
+			<div class="col-span-2">Service</div>
+			<div class="col-span-2">Time</div>
+			<div class="col-span-2 text-right">Duration</div>
 		</div>
 
-		<!-- Details Panel -->
-		<div class="rounded-xl border border-white/40 bg-white/45 p-4 shadow-lg backdrop-blur-md dark:border-zinc-800/70 dark:bg-zinc-900/40 min-h-[400px]">
-			{#if selectedRequest}
-				<div class="flex justify-between items-start mb-4">
-					<h3 class="font-bold text-lg">Request Details</h3>
-					<button onclick={closeDetails} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
-						✕
-					</button>
-				</div>
-				<div class="space-y-4">
-					<div>
-						<p class="text-xs font-semibold text-zinc-500 uppercase mb-1">Request ID</p>
-						<p class="text-sm font-mono break-all bg-white/60 dark:bg-zinc-950/50 p-2 rounded">{selectedRequest.id || 'N/A'}</p>
-					</div>
-					<div>
-						<p class="text-xs font-semibold text-zinc-500 uppercase mb-1">Headers</p>
-						<div class="bg-white/60 dark:bg-zinc-950/50 p-2 rounded max-h-48 overflow-y-auto">
-							{#each Object.entries(selectedRequest.headers || {}) as [key, value]}
-								<div class="text-xs font-mono mb-1 break-all">
-									<span class="font-bold text-blue-600 dark:text-blue-400">{key}:</span> {value}
-								</div>
-							{/each}
-						</div>
-					</div>
-					<div>
-						<p class="text-xs font-semibold text-zinc-500 uppercase mb-1">Body Preview</p>
-						<div class="bg-white/60 dark:bg-zinc-950/50 p-2 rounded max-h-48 overflow-y-auto font-mono text-xs whitespace-pre-wrap break-all">
-							{selectedRequest.body || '(Empty body)'}
-						</div>
-					</div>
+		<!-- Log List -->
+		<div class="flex-grow overflow-y-auto">
+			{#if filteredRequests.length === 0}
+				<div class="flex flex-col items-center justify-center h-full text-slate-400 py-12">
+					{#if requests.length === 0}
+						<svg class="w-12 h-12 mb-4 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+						<p>Waiting for requests...</p>
+						<p class="text-xs mt-2">Try running a command via AWS CLI targeting http://localhost:8000</p>
+					{:else}
+						<p>No logs match your filter.</p>
+					{/if}
 				</div>
 			{:else}
-				<div class="h-full flex flex-col items-center justify-center text-zinc-400">
-					<p>Select a request to view details</p>
-				</div>
+				{#each filteredRequests as req}
+					<button type="button" class="grid grid-cols-12 gap-4 p-3 w-full text-left border border-transparent border-b-slate-100 dark:border-b-slate-800 rounded-lg hover:border-indigo-200 dark:hover:border-indigo-500/40 hover:bg-white dark:hover:bg-slate-800 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg dark:hover:shadow-indigo-500/20 transition-all duration-200 relative" onclick={() => openDrawer(req)}>
+						<div class="col-span-1 flex items-center">
+							<span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor(req.status)}`}>{req.status}</span>
+						</div>
+						<div class="col-span-1 flex items-center">
+							<span class={`font-mono text-xs font-bold ${methodColor(req.method)}`}>{req.method}</span>
+						</div>
+						<div class="col-span-4 pl-4 flex items-center overflow-hidden">
+							<span class="truncate font-mono text-xs text-slate-700 dark:text-slate-300" title={displayPath(req)}>{displayPath(req)}</span>
+						</div>
+						<div class="col-span-2 flex items-center overflow-hidden">
+							<span class="truncate text-xs text-slate-500 uppercase font-semibold">{guessService(req)}</span>
+						</div>
+						<div class="col-span-2 flex items-center text-xs text-slate-500">{formatTime(req)}</div>
+						<div class="col-span-2 flex items-center justify-end text-xs font-mono text-slate-600 dark:text-slate-400">{req.durationMs.toFixed(2)}ms</div>
+					</button>
+				{/each}
 			{/if}
 		</div>
 	</div>
 </div>
+
+<!-- Slide-out Drawer -->
+{#if drawerOpen && selectedRequest}
+	<!-- Backdrop -->
+	<button type="button" class="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity" onclick={closeDrawer} aria-label="Close drawer"></button>
+
+	<!-- Drawer Panel -->
+	<div class="fixed top-0 right-0 z-50 h-screen p-6 overflow-y-auto bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl w-[500px] sm:w-[600px]">
+		<div class="flex justify-between items-center mb-6">
+			<h3 class="inline-flex items-center text-lg font-semibold text-slate-800 dark:text-white">
+				<svg class="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+				Request Details
+			</h3>
+			<button type="button" onclick={closeDrawer} class="text-slate-400 hover:bg-slate-200 hover:text-slate-900 rounded-lg p-1.5 dark:hover:bg-slate-700 dark:hover:text-white">
+				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+			</button>
+		</div>
+
+		<div class="space-y-5 text-sm">
+			<!-- Overview -->
+			<div>
+				<div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Overview</div>
+				<div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<span class="text-xs text-slate-500">Method</span>
+							<p class={`font-bold font-mono ${methodColor(selectedRequest.method)}`}>{selectedRequest.method}</p>
+						</div>
+						<div>
+							<span class="text-xs text-slate-500">Status</span>
+							<p class="font-bold font-mono text-slate-900 dark:text-slate-100">{selectedRequest.status}</p>
+						</div>
+						<div class="col-span-2">
+							<span class="text-xs text-slate-500">Path</span>
+							<p class="font-mono text-xs break-all text-slate-800 dark:text-slate-200">{selectedRequest.path}</p>
+						</div>
+						<div>
+							<span class="text-xs text-slate-500">Time</span>
+							<p class="font-mono text-xs text-slate-700 dark:text-slate-300">{selectedRequest.timestamp ? new Date(Number(selectedRequest.timestamp.seconds) * 1000).toISOString() : 'N/A'}</p>
+						</div>
+						<div>
+							<span class="text-xs text-slate-500">Duration</span>
+							<p class="font-mono text-xs text-slate-700 dark:text-slate-300">{selectedRequest.durationMs.toFixed(2)}ms</p>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Headers -->
+			<div>
+				<div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Headers</div>
+				<div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50">
+					<div class="grid grid-cols-12 gap-2 text-xs font-mono">
+						{#each Object.entries(selectedRequest.headers ?? {}) as [key, value]}
+							<div class="col-span-4 text-slate-500 break-words">{key}</div>
+							<div class="col-span-8 text-slate-800 dark:text-slate-200 break-words">{value}</div>
+						{/each}
+					</div>
+				</div>
+			</div>
+
+			<!-- Request Payload -->
+			<div>
+				<div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Request Payload</div>
+				{#if selectedRequest.body}
+					<div class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-300 p-4 rounded-lg overflow-x-auto font-mono text-xs whitespace-pre-wrap break-all">{formatBody(selectedRequest)}</div>
+				{:else}
+					<div class="text-slate-400 italic p-4">No Body</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
