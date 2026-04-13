@@ -13,6 +13,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+// timeFormat is the ISO 8601 timestamp format used by Verified Permissions API responses.
+const timeFormat = "2006-01-02T15:04:05.000Z"
+
 var (
 	// ErrPolicyStoreNotFound is returned when a policy store is not found.
 	ErrPolicyStoreNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -24,6 +27,8 @@ var (
 	ErrIdentitySourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrSchemaNotFound is returned when no schema has been set for a policy store.
 	ErrSchemaNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrValidation is returned when input fails validation.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // PolicyStore represents an Amazon Verified Permissions policy store.
@@ -89,8 +94,10 @@ type AuthorizationRequest struct {
 
 // AuthDecision is the result of a single authorization evaluation.
 type AuthDecision struct {
-	Decision string               `json:"decision"`
-	Request  AuthorizationRequest `json:"request"`
+	Request             AuthorizationRequest `json:"request"`
+	Decision            string               `json:"decision"`
+	DeterminingPolicies []string             `json:"determiningPolicies"`
+	Errors              []string             `json:"errors"`
 }
 
 // BatchGetPolicyItem identifies a policy to retrieve in a batch request.
@@ -119,6 +126,9 @@ type batchGetPolicyErrorItem struct {
 	Code          string `json:"code"`
 	Message       string `json:"message"`
 }
+
+// decisionAllow is the ALLOW decision string returned by authorization evaluations.
+const decisionAllow = "ALLOW"
 
 // policyStoreARN builds the ARN for a policy store.
 func policyStoreARN(accountID, region, policyStoreID string) string {
@@ -150,11 +160,12 @@ func clonePolicyTemplate(pt *PolicyTemplate) *PolicyTemplate {
 
 // InMemoryBackend is the in-memory store for Verified Permissions resources.
 type InMemoryBackend struct {
-	policyStores    map[string]*PolicyStore
+	policyStores    map[string]*PolicyStore               // policyStoreID -> PolicyStore
 	policies        map[string]map[string]*Policy         // policyStoreID -> policyID -> Policy
 	policyTemplates map[string]map[string]*PolicyTemplate // policyStoreID -> templateID -> PolicyTemplate
 	identitySources map[string]map[string]*IdentitySource // policyStoreID -> identitySourceID -> IdentitySource
 	schemas         map[string]*PolicyStoreSchema         // policyStoreID -> schema
+	arnIndex        map[string]string                     // ARN -> policyStoreID for O(1) tag ops
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -168,11 +179,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		policyTemplates: make(map[string]map[string]*PolicyTemplate),
 		identitySources: make(map[string]map[string]*IdentitySource),
 		schemas:         make(map[string]*PolicyStoreSchema),
+		arnIndex:        make(map[string]string),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("verifiedpermissions"),
 	}
 }
+
+// AccountID returns the AWS account ID configured for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // CreatePolicyStore creates a new policy store.
 func (b *InMemoryBackend) CreatePolicyStore(description string, tags map[string]string) (*PolicyStore, error) {
@@ -198,6 +213,7 @@ func (b *InMemoryBackend) CreatePolicyStore(description string, tags map[string]
 	b.policies[id] = make(map[string]*Policy)
 	b.policyTemplates[id] = make(map[string]*PolicyTemplate)
 	b.identitySources[id] = make(map[string]*IdentitySource)
+	b.arnIndex[ps.Arn] = id
 
 	return clonePolicyStore(ps), nil
 }
@@ -253,10 +269,12 @@ func (b *InMemoryBackend) DeletePolicyStore(policyStoreID string) error {
 	b.mu.Lock("DeletePolicyStore")
 	defer b.mu.Unlock()
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	ps, ok := b.policyStores[policyStoreID]
+	if !ok {
 		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
+	delete(b.arnIndex, ps.Arn)
 	delete(b.policyStores, policyStoreID)
 	delete(b.policies, policyStoreID)
 	delete(b.policyTemplates, policyStoreID)
@@ -496,6 +514,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policyTemplates = make(map[string]map[string]*PolicyTemplate)
 	b.identitySources = make(map[string]map[string]*IdentitySource)
 	b.schemas = make(map[string]*PolicyStoreSchema)
+	b.arnIndex = make(map[string]string)
 }
 
 // TagResource adds or updates tags on a policy store identified by its ARN.
@@ -503,19 +522,19 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, ps := range b.policyStores {
-		if ps.Arn == resourceARN {
-			if ps.Tags == nil {
-				ps.Tags = make(map[string]string, len(tags))
-			}
-
-			maps.Copy(ps.Tags, tags)
-
-			return nil
-		}
+	id, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+	ps := b.policyStores[id]
+	if ps.Tags == nil {
+		ps.Tags = make(map[string]string, len(tags))
+	}
+
+	maps.Copy(ps.Tags, tags)
+
+	return nil
 }
 
 // UntagResource removes tags from a policy store identified by its ARN.
@@ -523,17 +542,17 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, ps := range b.policyStores {
-		if ps.Arn == resourceARN {
-			for _, k := range tagKeys {
-				delete(ps.Tags, k)
-			}
-
-			return nil
-		}
+	id, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+	ps := b.policyStores[id]
+	for _, k := range tagKeys {
+		delete(ps.Tags, k)
+	}
+
+	return nil
 }
 
 // ListTagsForResource returns the tags for a policy store identified by its ARN.
@@ -541,13 +560,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, ps := range b.policyStores {
-		if ps.Arn == resourceARN {
-			return maps.Clone(ps.Tags), nil
-		}
+	id, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 	}
 
-	return nil, fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+	return maps.Clone(b.policyStores[id].Tags), nil
 }
 
 // BatchGetPolicy retrieves multiple policies in a single request.
@@ -589,8 +607,8 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 			PolicyStoreID:   p.PolicyStoreID,
 			PolicyID:        p.PolicyID,
 			PolicyType:      p.PolicyType,
-			CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -614,8 +632,10 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 
 	for _, req := range requests {
 		decisions = append(decisions, AuthDecision{
-			Decision: "ALLOW",
-			Request:  req,
+			Decision:            decisionAllow,
+			DeterminingPolicies: []string{},
+			Errors:              []string{},
+			Request:             req,
 		})
 	}
 
@@ -639,12 +659,53 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 
 	for _, req := range requests {
 		decisions = append(decisions, AuthDecision{
-			Decision: "ALLOW",
-			Request:  req,
+			Decision:            decisionAllow,
+			DeterminingPolicies: []string{},
+			Errors:              []string{},
+			Request:             req,
 		})
 	}
 
 	return decisions, nil
+}
+
+// IsAuthorized evaluates a single authorization request.
+// In this in-memory implementation it returns ALLOW when the policy store exists.
+func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error) {
+	b.mu.RLock("IsAuthorized")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	return &AuthDecision{
+		Decision:            decisionAllow,
+		DeterminingPolicies: []string{},
+		Errors:              []string{},
+		Request:             req,
+	}, nil
+}
+
+// IsAuthorizedWithToken evaluates a single authorization request using a token.
+// In this in-memory implementation it returns ALLOW when the policy store exists.
+func (b *InMemoryBackend) IsAuthorizedWithToken(
+	policyStoreID string,
+	req AuthorizationRequest,
+) (*AuthDecision, error) {
+	b.mu.RLock("IsAuthorizedWithToken")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	return &AuthDecision{
+		Decision:            decisionAllow,
+		DeterminingPolicies: []string{},
+		Errors:              []string{},
+		Request:             req,
+	}, nil
 }
 
 // CreateIdentitySource creates a new identity source in the given policy store.
@@ -799,4 +860,91 @@ func (b *InMemoryBackend) ListIdentitySources(policyStoreID string) ([]IdentityS
 	})
 
 	return out, nil
+}
+
+// UpdateIdentitySource updates the configuration and principal entity type of an identity source.
+func (b *InMemoryBackend) UpdateIdentitySource(
+	policyStoreID, identitySourceID, userPoolArn, openIDIssuer, principalEntityType string,
+	clientIDs []string,
+) (*IdentitySource, error) {
+	b.mu.Lock("UpdateIdentitySource")
+	defer b.mu.Unlock()
+
+	sources, ok := b.identitySources[policyStoreID]
+	if !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	is, ok := sources[identitySourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
+	}
+
+	if userPoolArn != "" {
+		is.UserPoolArn = userPoolArn
+		cloned := make([]string, len(clientIDs))
+		copy(cloned, clientIDs)
+		is.ClientIDs = cloned
+		is.OpenIDIssuer = ""
+	} else if openIDIssuer != "" {
+		is.OpenIDIssuer = openIDIssuer
+		is.UserPoolArn = ""
+		is.ClientIDs = nil
+	}
+
+	if principalEntityType != "" {
+		is.PrincipalEntityType = principalEntityType
+	}
+
+	is.LastUpdated = time.Now()
+
+	return cloneIdentitySource(is), nil
+}
+
+// AddPolicyStoreInternal inserts a pre-built PolicyStore directly into the backend (for test seeding).
+func (b *InMemoryBackend) AddPolicyStoreInternal(ps *PolicyStore) {
+	b.mu.Lock("AddPolicyStoreInternal")
+	defer b.mu.Unlock()
+
+	b.policyStores[ps.PolicyStoreID] = ps
+	b.policies[ps.PolicyStoreID] = make(map[string]*Policy)
+	b.policyTemplates[ps.PolicyStoreID] = make(map[string]*PolicyTemplate)
+	b.identitySources[ps.PolicyStoreID] = make(map[string]*IdentitySource)
+	b.arnIndex[ps.Arn] = ps.PolicyStoreID
+}
+
+// AddPolicyInternal inserts a pre-built Policy directly into the backend (for test seeding).
+func (b *InMemoryBackend) AddPolicyInternal(p *Policy) {
+	b.mu.Lock("AddPolicyInternal")
+	defer b.mu.Unlock()
+
+	if b.policies[p.PolicyStoreID] == nil {
+		b.policies[p.PolicyStoreID] = make(map[string]*Policy)
+	}
+
+	b.policies[p.PolicyStoreID][p.PolicyID] = p
+}
+
+// AddPolicyTemplateInternal inserts a pre-built PolicyTemplate directly into the backend (for test seeding).
+func (b *InMemoryBackend) AddPolicyTemplateInternal(pt *PolicyTemplate) {
+	b.mu.Lock("AddPolicyTemplateInternal")
+	defer b.mu.Unlock()
+
+	if b.policyTemplates[pt.PolicyStoreID] == nil {
+		b.policyTemplates[pt.PolicyStoreID] = make(map[string]*PolicyTemplate)
+	}
+
+	b.policyTemplates[pt.PolicyStoreID][pt.PolicyTemplateID] = pt
+}
+
+// AddIdentitySourceInternal inserts a pre-built IdentitySource directly into the backend (for test seeding).
+func (b *InMemoryBackend) AddIdentitySourceInternal(is *IdentitySource) {
+	b.mu.Lock("AddIdentitySourceInternal")
+	defer b.mu.Unlock()
+
+	if b.identitySources[is.PolicyStoreID] == nil {
+		b.identitySources[is.PolicyStoreID] = make(map[string]*IdentitySource)
+	}
+
+	b.identitySources[is.PolicyStoreID][is.IdentitySourceID] = is
 }

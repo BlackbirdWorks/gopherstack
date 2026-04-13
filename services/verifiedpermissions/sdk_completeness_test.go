@@ -17,9 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := verifiedpermissions.NewInMemoryBackend("000000000000", "us-east-1")
 	h := verifiedpermissions.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &verifiedpermissionssdk.Client{}, h.GetSupportedOperations(), []string{
-		"IsAuthorized",
-		"IsAuthorizedWithToken",
-		"UpdateIdentitySource",
-	})
+	sdkcheck.CheckCompleteness(t, &verifiedpermissionssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

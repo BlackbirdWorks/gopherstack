@@ -1,6 +1,9 @@
 package verifiedpermissions
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	PolicyStores    map[string]*PolicyStore               `json:"policyStores"`
@@ -27,9 +30,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:          b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("verifiedpermissions: snapshot marshal failed", "err", err)
 
-	if data == nil {
 		return nil
 	}
 
@@ -44,9 +48,32 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureNonNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.policyStores = snap.PolicyStores
+	b.policies = snap.Policies
+	b.policyTemplates = snap.PolicyTemplates
+	b.identitySources = snap.IdentitySources
+	b.schemas = snap.Schemas
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	// Rebuild the ARN index from the restored policy stores.
+	b.arnIndex = make(map[string]string, len(snap.PolicyStores))
+
+	for id, ps := range snap.PolicyStores {
+		b.arnIndex[ps.Arn] = id
+	}
+
+	return nil
+}
+
+// ensureNonNilMaps initialises any nil maps in a snapshot so Restore never
+// assigns a nil map to the backend.
+func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.PolicyStores == nil {
 		snap.PolicyStores = make(map[string]*PolicyStore)
 	}
@@ -66,16 +93,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Schemas == nil {
 		snap.Schemas = make(map[string]*PolicyStoreSchema)
 	}
-
-	b.policyStores = snap.PolicyStores
-	b.policies = snap.Policies
-	b.policyTemplates = snap.PolicyTemplates
-	b.identitySources = snap.IdentitySources
-	b.schemas = snap.Schemas
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

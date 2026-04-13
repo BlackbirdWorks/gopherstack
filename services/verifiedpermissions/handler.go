@@ -26,12 +26,21 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Verified Permissions operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Verified Permissions handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all Verified Permissions state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -56,6 +65,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetPolicyStore",
 		"GetPolicyTemplate",
 		"GetSchema",
+		"IsAuthorized",
+		"IsAuthorizedWithToken",
 		"ListIdentitySources",
 		"ListPolicies",
 		"ListPolicyStores",
@@ -64,6 +75,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutSchema",
 		"TagResource",
 		"UntagResource",
+		"UpdateIdentitySource",
 		"UpdatePolicy",
 		"UpdatePolicyStore",
 		"UpdatePolicyTemplate",
@@ -139,7 +151,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"BatchGetPolicy":             service.WrapOp(h.handleBatchGetPolicy),
 		"BatchIsAuthorized":          service.WrapOp(h.handleBatchIsAuthorized),
@@ -157,6 +169,8 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetPolicy":                  service.WrapOp(h.handleGetPolicy),
 		"GetPolicyTemplate":          service.WrapOp(h.handleGetPolicyTemplate),
 		"GetSchema":                  service.WrapOp(h.handleGetSchema),
+		"IsAuthorized":               service.WrapOp(h.handleIsAuthorized),
+		"IsAuthorizedWithToken":      service.WrapOp(h.handleIsAuthorizedWithToken),
 		"ListIdentitySources":        service.WrapOp(h.handleListIdentitySources),
 		"ListPolicyStores":           service.WrapOp(h.handleListPolicyStores),
 		"ListPolicies":               service.WrapOp(h.handleListPolicies),
@@ -165,6 +179,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"PutSchema":                  service.WrapOp(h.handlePutSchema),
 		"TagResource":                service.WrapOp(h.handleTagResource),
 		"UntagResource":              service.WrapOp(h.handleUntagResource),
+		"UpdateIdentitySource":       service.WrapOp(h.handleUpdateIdentitySource),
 		"UpdatePolicyStore":          service.WrapOp(h.handleUpdatePolicyStore),
 		"UpdatePolicy":               service.WrapOp(h.handleUpdatePolicy),
 		"UpdatePolicyTemplate":       service.WrapOp(h.handleUpdatePolicyTemplate),
@@ -172,7 +187,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -200,8 +215,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			"__type":  "ResourceConflictException",
 			"message": err.Error(),
 		})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
+		errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
@@ -240,8 +255,8 @@ func (h *Handler) handleCreatePolicyStore(
 	return &createPolicyStoreOutput{
 		PolicyStoreID:   ps.PolicyStoreID,
 		Arn:             ps.Arn,
-		CreatedDate:     ps.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -279,8 +294,8 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		PolicyStoreID:   ps.PolicyStoreID,
 		Arn:             ps.Arn,
 		Description:     ps.Description,
-		CreatedDate:     ps.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -298,8 +313,8 @@ func (h *Handler) handleListPolicyStores(_ context.Context, _ *struct{}) (*listP
 			PolicyStoreID:   ps.PolicyStoreID,
 			Arn:             ps.Arn,
 			Description:     ps.Description,
-			CreatedDate:     ps.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -333,7 +348,7 @@ func (h *Handler) handleUpdatePolicyStore(
 	return &updatePolicyStoreOutput{
 		PolicyStoreID:   ps.PolicyStoreID,
 		Arn:             ps.Arn,
-		LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -415,8 +430,8 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -459,8 +474,8 @@ func (h *Handler) handleGetPolicy(_ context.Context, in *policyInput) (*getPolic
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -490,8 +505,8 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 			PolicyStoreID:   p.PolicyStoreID,
 			PolicyID:        p.PolicyID,
 			PolicyType:      p.PolicyType,
-			CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -530,8 +545,8 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -586,8 +601,8 @@ func (h *Handler) handleCreatePolicyTemplate(
 	return &policyTemplateIDsOutput{
 		PolicyStoreID:    pt.PolicyStoreID,
 		PolicyTemplateID: pt.PolicyTemplateID,
-		CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -636,8 +651,8 @@ func (h *Handler) handleGetPolicyTemplate(
 		PolicyTemplateID: pt.PolicyTemplateID,
 		Description:      pt.Description,
 		Statement:        pt.Statement,
-		CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -671,8 +686,8 @@ func (h *Handler) handleListPolicyTemplates(
 			PolicyTemplateID: pt.PolicyTemplateID,
 			Description:      pt.Description,
 			Statement:        pt.Statement,
-			CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -710,8 +725,8 @@ func (h *Handler) handleUpdatePolicyTemplate(
 	return &policyTemplateIDsOutput{
 		PolicyStoreID:    pt.PolicyStoreID,
 		PolicyTemplateID: pt.PolicyTemplateID,
-		CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -852,8 +867,10 @@ type batchIsAuthorizedInput struct {
 }
 
 type batchIsAuthorizedDecision struct {
-	Decision string               `json:"decision"`
-	Request  AuthorizationRequest `json:"request"`
+	Request             AuthorizationRequest `json:"request"`
+	Decision            string               `json:"decision"`
+	DeterminingPolicies []string             `json:"determiningPolicies"`
+	Errors              []string             `json:"errors"`
 }
 
 type batchIsAuthorizedOutput struct {
@@ -997,8 +1014,8 @@ func identitySourceToOutput(is *IdentitySource) *identitySourceOutput {
 		IdentitySourceID:    is.IdentitySourceID,
 		PolicyStoreID:       is.PolicyStoreID,
 		PrincipalEntityType: is.PrincipalEntityType,
-		CreatedDate:         is.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:     is.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
 	}
 }
 
@@ -1159,8 +1176,8 @@ func (h *Handler) handlePutSchema(_ context.Context, in *putSchemaInput) (*putSc
 
 	return &putSchemaOutput{
 		PolicyStoreID:   in.PolicyStoreID,
-		CreatedDate:     s.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: s.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
 		Namespaces:      []string{},
 	}, nil
 }
@@ -1189,7 +1206,184 @@ func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSc
 	return &getSchemaOutput{
 		PolicyStoreID:   in.PolicyStoreID,
 		Schema:          s.Schema,
-		CreatedDate:     s.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: s.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
+	}, nil
+}
+
+// --- IsAuthorized ---
+
+type isAuthorizedInput struct {
+	Principal     *entityIdentifierJSON `json:"principal,omitempty"`
+	Action        *actionIdentifierJSON `json:"action,omitempty"`
+	Resource      *entityIdentifierJSON `json:"resource,omitempty"`
+	PolicyStoreID string                `json:"policyStoreId"`
+}
+
+type isAuthorizedOutput struct {
+	Decision            string   `json:"decision"`
+	DeterminingPolicies []string `json:"determiningPolicies"`
+	Errors              []string `json:"errors"`
+}
+
+func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (*isAuthorizedOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	req := AuthorizationRequest{}
+
+	if in.Principal != nil {
+		req.PrincipalEntityType = in.Principal.EntityType
+		req.PrincipalEntityID = in.Principal.EntityID
+	}
+
+	if in.Action != nil {
+		req.ActionType = in.Action.ActionType
+		req.ActionID = in.Action.ActionID
+	}
+
+	if in.Resource != nil {
+		req.ResourceEntityType = in.Resource.EntityType
+		req.ResourceEntityID = in.Resource.EntityID
+	}
+
+	decision, err := h.Backend.IsAuthorized(in.PolicyStoreID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &isAuthorizedOutput{
+		Decision:            decision.Decision,
+		DeterminingPolicies: decision.DeterminingPolicies,
+		Errors:              decision.Errors,
+	}, nil
+}
+
+// --- IsAuthorizedWithToken ---
+
+type isAuthorizedWithTokenInput struct {
+	Action        *actionIdentifierJSON `json:"action,omitempty"`
+	Resource      *entityIdentifierJSON `json:"resource,omitempty"`
+	PolicyStoreID string                `json:"policyStoreId"`
+	AccessToken   string                `json:"accessToken,omitempty"`
+	IdentityToken string                `json:"identityToken,omitempty"`
+}
+
+func (h *Handler) handleIsAuthorizedWithToken(
+	_ context.Context,
+	in *isAuthorizedWithTokenInput,
+) (*isAuthorizedOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.AccessToken == "" && in.IdentityToken == "" {
+		return nil, fmt.Errorf("%w: accessToken or identityToken is required", errInvalidRequest)
+	}
+
+	req := AuthorizationRequest{}
+
+	if in.Action != nil {
+		req.ActionType = in.Action.ActionType
+		req.ActionID = in.Action.ActionID
+	}
+
+	if in.Resource != nil {
+		req.ResourceEntityType = in.Resource.EntityType
+		req.ResourceEntityID = in.Resource.EntityID
+	}
+
+	decision, err := h.Backend.IsAuthorizedWithToken(in.PolicyStoreID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &isAuthorizedOutput{
+		Decision:            decision.Decision,
+		DeterminingPolicies: decision.DeterminingPolicies,
+		Errors:              decision.Errors,
+	}, nil
+}
+
+// --- UpdateIdentitySource ---
+
+type updateIdentitySourceInput struct {
+	UpdateConfiguration identitySourceConfigJSON `json:"updateConfiguration"`
+	PolicyStoreID       string                   `json:"policyStoreId"`
+	IdentitySourceID    string                   `json:"identitySourceId"`
+	PrincipalEntityType string                   `json:"principalEntityType,omitempty"`
+}
+
+type updateIdentitySourceOutput struct {
+	IdentitySourceID    string `json:"identitySourceId"`
+	PolicyStoreID       string `json:"policyStoreId"`
+	PrincipalEntityType string `json:"principalEntityType"`
+	CreatedDate         string `json:"createdDate"`
+	LastUpdatedDate     string `json:"lastUpdatedDate"`
+}
+
+func (h *Handler) handleUpdateIdentitySource(
+	_ context.Context,
+	in *updateIdentitySourceInput,
+) (*updateIdentitySourceOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.IdentitySourceID == "" {
+		return nil, fmt.Errorf("%w: identitySourceId is required", errInvalidRequest)
+	}
+
+	if in.UpdateConfiguration.CognitoUserPool == nil && in.UpdateConfiguration.OpenIDConnect == nil {
+		return nil, fmt.Errorf(
+			"%w: updateConfiguration must contain cognitoUserPoolConfiguration or openIdConnectConfiguration",
+			errInvalidRequest,
+		)
+	}
+
+	var userPoolArn, openIDIssuer string
+
+	var clientIDs []string
+
+	if in.UpdateConfiguration.CognitoUserPool != nil {
+		if in.UpdateConfiguration.CognitoUserPool.UserPoolArn == "" {
+			return nil, fmt.Errorf(
+				"%w: updateConfiguration.cognitoUserPoolConfiguration.userPoolArn is required",
+				errInvalidRequest,
+			)
+		}
+
+		userPoolArn = in.UpdateConfiguration.CognitoUserPool.UserPoolArn
+		clientIDs = in.UpdateConfiguration.CognitoUserPool.ClientIDs
+	} else {
+		if in.UpdateConfiguration.OpenIDConnect.Issuer == "" {
+			return nil, fmt.Errorf(
+				"%w: updateConfiguration.openIdConnectConfiguration.issuer is required",
+				errInvalidRequest,
+			)
+		}
+
+		openIDIssuer = in.UpdateConfiguration.OpenIDConnect.Issuer
+	}
+
+	is, err := h.Backend.UpdateIdentitySource(
+		in.PolicyStoreID,
+		in.IdentitySourceID,
+		userPoolArn,
+		openIDIssuer,
+		in.PrincipalEntityType,
+		clientIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateIdentitySourceOutput{
+		IdentitySourceID:    is.IdentitySourceID,
+		PolicyStoreID:       is.PolicyStoreID,
+		PrincipalEntityType: is.PrincipalEntityType,
+		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }

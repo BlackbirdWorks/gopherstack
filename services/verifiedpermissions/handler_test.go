@@ -37,8 +37,19 @@ func doVPRequest(
 		require.NoError(t, err)
 	}
 
+	return doVPRequestRaw(t, h, target, bodyBytes)
+}
+
+func doVPRequestRaw(
+	t *testing.T,
+	h *verifiedpermissions.Handler,
+	target string,
+	body []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	req.Header.Set("X-Amz-Target", "VerifiedPermissions."+target)
 
