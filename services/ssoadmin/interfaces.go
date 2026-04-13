@@ -31,6 +31,19 @@ type StorageBackend interface {
 	TagResource(instanceArn, resourceARN string, tags map[string]string) error
 	UntagResource(instanceArn, resourceARN string, tagKeys []string) error
 	ListTagsForResource(instanceArn, resourceARN string) (map[string]string, error)
+	AddRegion(instanceArn, regionName string) error
+	AttachCustomerManagedPolicyReferenceToPermissionSet(instanceArn, permissionSetArn, name, path string) error
+	CreateApplication(
+		instanceArn, applicationProviderArn, name, description string,
+		tags map[string]string,
+	) (*Application, error)
+	CreateApplicationAssignment(applicationArn, principalID, principalType string) error
+	CreateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
+	CreateTrustedTokenIssuer(instanceArn, name, issuerType string) (*TrustedTokenIssuer, error)
+	DeleteApplication(applicationArn string) error
+	DeleteApplicationAccessScope(applicationArn, scope string) error
+	DeleteApplicationAssignment(applicationArn, principalID, principalType string) error
+	DeleteApplicationAuthenticationMethod(applicationArn, authMethodType string) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
