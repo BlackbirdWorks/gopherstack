@@ -17,6 +17,10 @@ type StorageBackend interface {
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) map[string]string
+	CreateBatchLoadTask(targetDatabase, targetTable string) (*BatchLoadTask, error)
+	DescribeBatchLoadTask(taskID string) (*BatchLoadTask, error)
+	ListBatchLoadTasks(statusFilter string) []BatchLoadTask
+	ResumeBatchLoadTask(taskID string) error
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

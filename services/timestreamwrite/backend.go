@@ -20,6 +20,16 @@ var (
 	ErrDatabaseAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
 	// ErrTableAlreadyExists is returned when a table with the same name already exists.
 	ErrTableAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrBatchLoadTaskNotFound is returned when the requested batch load task does not exist.
+	ErrBatchLoadTaskNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidBatchLoadStatus is returned when a task cannot be resumed from its current status.
+	ErrInvalidBatchLoadStatus = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+)
+
+const (
+	batchLoadStatusCreated       = "CREATED"
+	batchLoadStatusPendingResume = "PENDING_RESUME"
+	batchLoadStatusFailed        = "FAILED"
 )
 
 // Database represents a Timestream database.
@@ -59,23 +69,36 @@ type Record struct {
 	Version          int64
 }
 
+// BatchLoadTask represents a Timestream batch load task.
+type BatchLoadTask struct {
+	CreationTime       time.Time
+	LastUpdatedTime    time.Time
+	TargetDatabaseName string
+	TargetTableName    string
+	TaskID             string
+	TaskStatus         string
+}
+
 // InMemoryBackend is the in-memory store for Timestream Write resources.
 type InMemoryBackend struct {
-	databases map[string]*Database
-	tables    map[string]map[string]*Table
-	records   map[string]map[string][]Record
-	tags      map[string]map[string]string
-	mu        *lockmetrics.RWMutex
+	databases      map[string]*Database
+	tables         map[string]map[string]*Table
+	records        map[string]map[string][]Record
+	tags           map[string]map[string]string
+	batchLoadTasks map[string]*BatchLoadTask
+	mu             *lockmetrics.RWMutex
+	nextTaskID     int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		databases: make(map[string]*Database),
-		tables:    make(map[string]map[string]*Table),
-		records:   make(map[string]map[string][]Record),
-		tags:      make(map[string]map[string]string),
-		mu:        lockmetrics.New("timestreamwrite"),
+		databases:      make(map[string]*Database),
+		tables:         make(map[string]map[string]*Table),
+		records:        make(map[string]map[string][]Record),
+		tags:           make(map[string]map[string]string),
+		batchLoadTasks: make(map[string]*BatchLoadTask),
+		mu:             lockmetrics.New("timestreamwrite"),
 	}
 }
 
@@ -361,4 +384,116 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) map[string]string {
 	maps.Copy(result, b.tags[arn])
 
 	return result
+}
+
+// CreateBatchLoadTask creates a new batch load task targeting the specified database and table.
+func (b *InMemoryBackend) CreateBatchLoadTask(targetDatabase, targetTable string) (*BatchLoadTask, error) {
+	b.mu.Lock("CreateBatchLoadTask")
+	defer b.mu.Unlock()
+
+	if _, ok := b.databases[targetDatabase]; !ok {
+		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, targetDatabase)
+	}
+
+	if _, ok := b.tables[targetDatabase][targetTable]; !ok {
+		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, targetTable)
+	}
+
+	b.nextTaskID++
+	taskID := fmt.Sprintf("batch-load-task-%d", b.nextTaskID)
+
+	now := time.Now()
+	task := &BatchLoadTask{
+		TaskID:             taskID,
+		TargetDatabaseName: targetDatabase,
+		TargetTableName:    targetTable,
+		TaskStatus:         batchLoadStatusCreated,
+		CreationTime:       now,
+		LastUpdatedTime:    now,
+	}
+	b.batchLoadTasks[taskID] = task
+
+	cp := *task
+
+	return &cp, nil
+}
+
+// DescribeBatchLoadTask returns information about a batch load task.
+func (b *InMemoryBackend) DescribeBatchLoadTask(taskID string) (*BatchLoadTask, error) {
+	b.mu.RLock("DescribeBatchLoadTask")
+	defer b.mu.RUnlock()
+
+	task, ok := b.batchLoadTasks[taskID]
+	if !ok {
+		return nil, fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
+	}
+
+	cp := *task
+
+	return &cp, nil
+}
+
+// ListBatchLoadTasks returns all batch load tasks, optionally filtered by status.
+func (b *InMemoryBackend) ListBatchLoadTasks(statusFilter string) []BatchLoadTask {
+	b.mu.RLock("ListBatchLoadTasks")
+	defer b.mu.RUnlock()
+
+	out := make([]BatchLoadTask, 0, len(b.batchLoadTasks))
+
+	for _, task := range b.batchLoadTasks {
+		if statusFilter != "" && task.TaskStatus != statusFilter {
+			continue
+		}
+
+		cp := *task
+		out = append(out, cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].TaskID < out[j].TaskID
+	})
+
+	return out
+}
+
+// ResumeBatchLoadTask resumes a batch load task that is in PENDING_RESUME or FAILED status.
+func (b *InMemoryBackend) ResumeBatchLoadTask(taskID string) error {
+	b.mu.Lock("ResumeBatchLoadTask")
+	defer b.mu.Unlock()
+
+	task, ok := b.batchLoadTasks[taskID]
+	if !ok {
+		return fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
+	}
+
+	if task.TaskStatus != batchLoadStatusPendingResume && task.TaskStatus != batchLoadStatusFailed {
+		return fmt.Errorf(
+			"%w: task %s cannot be resumed from status %s",
+			ErrInvalidBatchLoadStatus,
+			taskID,
+			task.TaskStatus,
+		)
+	}
+
+	task.TaskStatus = batchLoadStatusCreated
+	task.LastUpdatedTime = time.Now()
+
+	return nil
+}
+
+// SetBatchLoadTaskStatus sets the status of a batch load task directly.
+// This is intended as a test helper to seed specific task states.
+func (b *InMemoryBackend) SetBatchLoadTaskStatus(taskID, status string) error {
+	b.mu.Lock("SetBatchLoadTaskStatus")
+	defer b.mu.Unlock()
+
+	task, ok := b.batchLoadTasks[taskID]
+	if !ok {
+		return fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
+	}
+
+	task.TaskStatus = status
+	task.LastUpdatedTime = time.Now()
+
+	return nil
 }

@@ -704,3 +704,268 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_CreateBatchLoadTask(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       map[string]string{"TargetDatabaseName": "db", "TargetTableName": "tbl"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing target database",
+			body:       map[string]string{"TargetTableName": "tbl"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing target table",
+			body:       map[string]string{"TargetDatabaseName": "db"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "database not found",
+			body:       map[string]string{"TargetDatabaseName": "missing-db", "TargetTableName": "tbl"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "table not found",
+			body:       map[string]string{"TargetDatabaseName": "db", "TargetTableName": "missing-tbl"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, "CreateBatchLoadTask", tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["TaskId"])
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeBatchLoadTask(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]string{
+		"TargetDatabaseName": "db",
+		"TargetTableName":    "tbl",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	taskID, _ := createResp["TaskId"].(string)
+	require.NotEmpty(t, taskID)
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       map[string]string{"TaskId": taskID},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			body:       map[string]string{"TaskId": "nonexistent-task"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing task id",
+			body:       map[string]string{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, "DescribeBatchLoadTask", tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp))
+				desc, ok := resp["BatchLoadTaskDescription"].(map[string]any)
+				assert.True(t, ok)
+				assert.Equal(t, taskID, desc["TaskId"])
+				assert.Equal(t, "db", desc["TargetDatabaseName"])
+				assert.Equal(t, "tbl", desc["TargetTableName"])
+				assert.Equal(t, "CREATED", desc["TaskStatus"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListBatchLoadTasks(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	for range 3 {
+		rec = doRequest(t, h, "CreateBatchLoadTask", map[string]string{
+			"TargetDatabaseName": "db",
+			"TargetTableName":    "tbl",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	tests := []struct {
+		body       any
+		name       string
+		wantLen    int
+		wantStatus int
+	}{
+		{
+			name:       "list all",
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantLen:    3,
+		},
+		{
+			name:       "filter by status CREATED",
+			body:       map[string]string{"TaskStatus": "CREATED"},
+			wantStatus: http.StatusOK,
+			wantLen:    3,
+		},
+		{
+			name:       "filter by status IN_PROGRESS returns none",
+			body:       map[string]string{"TaskStatus": "IN_PROGRESS"},
+			wantStatus: http.StatusOK,
+			wantLen:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, "ListBatchLoadTasks", tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp))
+			tasks, ok := resp["BatchLoadTasks"].([]any)
+			assert.True(t, ok)
+			assert.Len(t, tasks, tt.wantLen)
+		})
+	}
+}
+
+func TestHandler_ResumeBatchLoadTask(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]string{
+		"TargetDatabaseName": "db",
+		"TargetTableName":    "tbl",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	taskID, _ := createResp["TaskId"].(string)
+	require.NotEmpty(t, taskID)
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "task not in resumable state",
+			body:       map[string]string{"TaskId": taskID},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "task not found",
+			body:       map[string]string{"TaskId": "nonexistent"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing task id",
+			body:       map[string]string{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, "ResumeBatchLoadTask", tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
+	t.Parallel()
+
+	b := timestreamwrite.NewInMemoryBackend()
+	h := timestreamwrite.NewHandler(b)
+
+	_, err := b.CreateDatabase("db")
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("db", "tbl")
+	require.NoError(t, err)
+
+	task, err := b.CreateBatchLoadTask("db", "tbl")
+	require.NoError(t, err)
+
+	err = b.SetBatchLoadTaskStatus(task.TaskID, "PENDING_RESUME")
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, "ResumeBatchLoadTask", map[string]string{"TaskId": task.TaskID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	described, err := b.DescribeBatchLoadTask(task.TaskID)
+	require.NoError(t, err)
+	assert.Equal(t, "CREATED", described.TaskStatus)
+}

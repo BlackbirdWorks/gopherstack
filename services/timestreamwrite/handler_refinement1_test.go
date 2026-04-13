@@ -45,7 +45,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := timestreamwrite.NewInMemoryBackend()
 	h := timestreamwrite.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 15)
+	assert.Len(t, h.GetSupportedOperations(), 19)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.

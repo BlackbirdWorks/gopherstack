@@ -49,16 +49,20 @@ func (h *Handler) Name() string { return "TimestreamWrite" }
 // GetSupportedOperations returns the list of supported Timestream Write operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CreateBatchLoadTask",
 		"CreateDatabase",
 		"CreateTable",
 		"DeleteDatabase",
 		"DeleteTable",
+		"DescribeBatchLoadTask",
 		"DescribeDatabase",
 		"DescribeEndpoints",
 		"DescribeTable",
+		"ListBatchLoadTasks",
 		"ListDatabases",
 		"ListTables",
 		"ListTagsForResource",
+		"ResumeBatchLoadTask",
 		"TagResource",
 		"UntagResource",
 		"UpdateDatabase",
@@ -125,21 +129,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateDatabase":      service.WrapOp(h.handleCreateDatabase),
-		"DescribeDatabase":    service.WrapOp(h.handleDescribeDatabase),
-		"ListDatabases":       service.WrapOp(h.handleListDatabases),
-		"DeleteDatabase":      service.WrapOp(h.handleDeleteDatabase),
-		"UpdateDatabase":      service.WrapOp(h.handleUpdateDatabase),
-		"CreateTable":         service.WrapOp(h.handleCreateTable),
-		"DescribeTable":       service.WrapOp(h.handleDescribeTable),
-		"ListTables":          service.WrapOp(h.handleListTables),
-		"DeleteTable":         service.WrapOp(h.handleDeleteTable),
-		"UpdateTable":         service.WrapOp(h.handleUpdateTable),
-		"WriteRecords":        service.WrapOp(h.handleWriteRecords),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"UntagResource":       service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-		"DescribeEndpoints":   service.WrapOp(h.handleDescribeEndpoints),
+		"CreateBatchLoadTask":   service.WrapOp(h.handleCreateBatchLoadTask),
+		"CreateDatabase":        service.WrapOp(h.handleCreateDatabase),
+		"DescribeDatabase":      service.WrapOp(h.handleDescribeDatabase),
+		"ListDatabases":         service.WrapOp(h.handleListDatabases),
+		"DeleteDatabase":        service.WrapOp(h.handleDeleteDatabase),
+		"UpdateDatabase":        service.WrapOp(h.handleUpdateDatabase),
+		"CreateTable":           service.WrapOp(h.handleCreateTable),
+		"DescribeTable":         service.WrapOp(h.handleDescribeTable),
+		"ListTables":            service.WrapOp(h.handleListTables),
+		"DeleteTable":           service.WrapOp(h.handleDeleteTable),
+		"UpdateTable":           service.WrapOp(h.handleUpdateTable),
+		"WriteRecords":          service.WrapOp(h.handleWriteRecords),
+		"TagResource":           service.WrapOp(h.handleTagResource),
+		"UntagResource":         service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
+		"DescribeEndpoints":     service.WrapOp(h.handleDescribeEndpoints),
+		"DescribeBatchLoadTask": service.WrapOp(h.handleDescribeBatchLoadTask),
+		"ListBatchLoadTasks":    service.WrapOp(h.handleListBatchLoadTasks),
+		"ResumeBatchLoadTask":   service.WrapOp(h.handleResumeBatchLoadTask),
 	}
 }
 
@@ -172,7 +180,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			"__type":  "ConflictException",
 			"message": err.Error(),
 		})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "ValidationException",
@@ -596,4 +605,137 @@ func (h *Handler) handleDescribeEndpoints(
 			{Address: "localhost", CachePeriodInMinutes: endpointCachePeriodMinutes},
 		},
 	}, nil
+}
+
+// --- batch load task types ---
+
+type createBatchLoadTaskInput struct {
+	TargetDatabaseName string `json:"TargetDatabaseName"`
+	TargetTableName    string `json:"TargetTableName"`
+	ClientToken        string `json:"ClientToken"`
+}
+
+type createBatchLoadTaskOutput struct {
+	TaskID string `json:"TaskId"`
+}
+
+type batchLoadTaskIDInput struct {
+	TaskID string `json:"TaskId"`
+}
+
+type batchLoadTaskDescriptionView struct {
+	TaskID             string `json:"TaskId"`
+	TargetDatabaseName string `json:"TargetDatabaseName"`
+	TargetTableName    string `json:"TargetTableName"`
+	TaskStatus         string `json:"TaskStatus"`
+	CreationTime       string `json:"CreationTime"`
+	LastUpdatedTime    string `json:"LastUpdatedTime"`
+}
+
+type describeBatchLoadTaskOutput struct {
+	BatchLoadTaskDescription batchLoadTaskDescriptionView `json:"BatchLoadTaskDescription"`
+}
+
+type listBatchLoadTasksInput struct {
+	NextToken  string `json:"NextToken"`
+	TaskStatus string `json:"TaskStatus"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type batchLoadTaskSummaryView struct {
+	TaskID          string `json:"TaskId"`
+	DatabaseName    string `json:"DatabaseName"`
+	TableName       string `json:"TableName"`
+	TaskStatus      string `json:"TaskStatus"`
+	CreationTime    string `json:"CreationTime"`
+	LastUpdatedTime string `json:"LastUpdatedTime"`
+}
+
+type listBatchLoadTasksOutput struct {
+	BatchLoadTasks []batchLoadTaskSummaryView `json:"BatchLoadTasks"`
+}
+
+func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptionView {
+	return batchLoadTaskDescriptionView{
+		TaskID:             task.TaskID,
+		TargetDatabaseName: task.TargetDatabaseName,
+		TargetTableName:    task.TargetTableName,
+		TaskStatus:         task.TaskStatus,
+		CreationTime:       task.CreationTime.Format("2006-01-02T15:04:05Z"),
+		LastUpdatedTime:    task.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+	}
+}
+
+func toBatchLoadTaskSummaryView(task *BatchLoadTask) batchLoadTaskSummaryView {
+	return batchLoadTaskSummaryView{
+		TaskID:          task.TaskID,
+		DatabaseName:    task.TargetDatabaseName,
+		TableName:       task.TargetTableName,
+		TaskStatus:      task.TaskStatus,
+		CreationTime:    task.CreationTime.Format("2006-01-02T15:04:05Z"),
+		LastUpdatedTime: task.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+	}
+}
+
+func (h *Handler) handleCreateBatchLoadTask(
+	_ context.Context,
+	in *createBatchLoadTaskInput,
+) (*createBatchLoadTaskOutput, error) {
+	if in.TargetDatabaseName == "" || in.TargetTableName == "" {
+		return nil, fmt.Errorf("%w: TargetDatabaseName and TargetTableName are required", errInvalidRequest)
+	}
+
+	task, err := h.Backend.CreateBatchLoadTask(in.TargetDatabaseName, in.TargetTableName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createBatchLoadTaskOutput{TaskID: task.TaskID}, nil
+}
+
+func (h *Handler) handleDescribeBatchLoadTask(
+	_ context.Context,
+	in *batchLoadTaskIDInput,
+) (*describeBatchLoadTaskOutput, error) {
+	if in.TaskID == "" {
+		return nil, fmt.Errorf("%w: TaskId is required", errInvalidRequest)
+	}
+
+	task, err := h.Backend.DescribeBatchLoadTask(in.TaskID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeBatchLoadTaskOutput{
+		BatchLoadTaskDescription: toBatchLoadTaskDescriptionView(task),
+	}, nil
+}
+
+func (h *Handler) handleListBatchLoadTasks(
+	_ context.Context,
+	in *listBatchLoadTasksInput,
+) (*listBatchLoadTasksOutput, error) {
+	tasks := h.Backend.ListBatchLoadTasks(in.TaskStatus)
+	views := make([]batchLoadTaskSummaryView, 0, len(tasks))
+
+	for i := range tasks {
+		views = append(views, toBatchLoadTaskSummaryView(&tasks[i]))
+	}
+
+	return &listBatchLoadTasksOutput{BatchLoadTasks: views}, nil
+}
+
+func (h *Handler) handleResumeBatchLoadTask(
+	_ context.Context,
+	in *batchLoadTaskIDInput,
+) (*emptyOutput, error) {
+	if in.TaskID == "" {
+		return nil, fmt.Errorf("%w: TaskId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.ResumeBatchLoadTask(in.TaskID); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
 }
