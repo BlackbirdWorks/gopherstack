@@ -42,8 +42,18 @@ func (h *Handler) Name() string { return "Transfer" }
 // GetSupportedOperations returns the list of supported Transfer operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CreateAccess",
+		"CreateAgreement",
+		"CreateConnector",
+		"CreateProfile",
 		"CreateServer",
 		"CreateUser",
+		"CreateWebApp",
+		"CreateWorkflow",
+		"DeleteAccess",
+		"DeleteAgreement",
+		"DeleteCertificate",
+		"DeleteConnector",
 		"DeleteServer",
 		"DeleteUser",
 		"DescribeServer",
@@ -123,18 +133,28 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateServer":   service.WrapOp(h.handleCreateServer),
-		"DescribeServer": service.WrapOp(h.handleDescribeServer),
-		"ListServers":    service.WrapOp(h.handleListServers),
-		"StartServer":    service.WrapOp(h.handleStartServer),
-		"StopServer":     service.WrapOp(h.handleStopServer),
-		"DeleteServer":   service.WrapOp(h.handleDeleteServer),
-		"UpdateServer":   service.WrapOp(h.handleUpdateServer),
-		"CreateUser":     service.WrapOp(h.handleCreateUser),
-		"DescribeUser":   service.WrapOp(h.handleDescribeUser),
-		"ListUsers":      service.WrapOp(h.handleListUsers),
-		"DeleteUser":     service.WrapOp(h.handleDeleteUser),
-		"UpdateUser":     service.WrapOp(h.handleUpdateUser),
+		"CreateServer":      service.WrapOp(h.handleCreateServer),
+		"DescribeServer":    service.WrapOp(h.handleDescribeServer),
+		"ListServers":       service.WrapOp(h.handleListServers),
+		"StartServer":       service.WrapOp(h.handleStartServer),
+		"StopServer":        service.WrapOp(h.handleStopServer),
+		"DeleteServer":      service.WrapOp(h.handleDeleteServer),
+		"UpdateServer":      service.WrapOp(h.handleUpdateServer),
+		"CreateUser":        service.WrapOp(h.handleCreateUser),
+		"DescribeUser":      service.WrapOp(h.handleDescribeUser),
+		"ListUsers":         service.WrapOp(h.handleListUsers),
+		"DeleteUser":        service.WrapOp(h.handleDeleteUser),
+		"UpdateUser":        service.WrapOp(h.handleUpdateUser),
+		"CreateAccess":      service.WrapOp(h.handleCreateAccess),
+		"DeleteAccess":      service.WrapOp(h.handleDeleteAccess),
+		"CreateAgreement":   service.WrapOp(h.handleCreateAgreement),
+		"DeleteAgreement":   service.WrapOp(h.handleDeleteAgreement),
+		"CreateConnector":   service.WrapOp(h.handleCreateConnector),
+		"DeleteConnector":   service.WrapOp(h.handleDeleteConnector),
+		"CreateProfile":     service.WrapOp(h.handleCreateProfile),
+		"CreateWebApp":      service.WrapOp(h.handleCreateWebApp),
+		"CreateWorkflow":    service.WrapOp(h.handleCreateWorkflow),
+		"DeleteCertificate": service.WrapOp(h.handleDeleteCertificate),
 	}
 }
 
@@ -514,6 +534,252 @@ func toUserView(u *User, arnStr string) userView {
 		Role:     u.Role,
 		Tags:     tagsToList(u.Tags),
 	}
+}
+
+// --- Access operations ---
+
+type createAccessInput struct {
+	ServerID   string              `json:"ServerId"`
+	ExternalID string              `json:"ExternalId"`
+	Role       string              `json:"Role"`
+	HomeDir    string              `json:"HomeDirectory"`
+	Tags       []map[string]string `json:"Tags"`
+}
+
+type createAccessOutput struct {
+	ServerID   string `json:"ServerId"`
+	ExternalID string `json:"ExternalId"`
+}
+
+func (h *Handler) handleCreateAccess(_ context.Context, in *createAccessInput) (*createAccessOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.ExternalID == "" {
+		return nil, fmt.Errorf("%w: ExternalId is required", errInvalidRequest)
+	}
+
+	tags := tagsFromList(in.Tags)
+
+	a, err := h.Backend.CreateAccess(in.ServerID, in.ExternalID, in.Role, in.HomeDir, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createAccessOutput{ServerID: a.ServerID, ExternalID: a.ExternalID}, nil
+}
+
+type deleteAccessInput struct {
+	ServerID   string `json:"ServerId"`
+	ExternalID string `json:"ExternalId"`
+}
+
+func (h *Handler) handleDeleteAccess(_ context.Context, in *deleteAccessInput) (*struct{}, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.ExternalID == "" {
+		return nil, fmt.Errorf("%w: ExternalId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteAccess(in.ServerID, in.ExternalID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- Agreement operations ---
+
+type createAgreementInput struct {
+	ServerID         string              `json:"ServerId"`
+	Description      string              `json:"Description"`
+	LocalProfileID   string              `json:"LocalProfileId"`
+	PartnerProfileID string              `json:"PartnerProfileId"`
+	BaseDirectory    string              `json:"BaseDirectory"`
+	AccessRole       string              `json:"AccessRole"`
+	Tags             []map[string]string `json:"Tags"`
+}
+
+type createAgreementOutput struct {
+	AgreementID string `json:"AgreementId"`
+}
+
+func (h *Handler) handleCreateAgreement(_ context.Context, in *createAgreementInput) (*createAgreementOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	tags := tagsFromList(in.Tags)
+
+	ag, err := h.Backend.CreateAgreement(
+		in.ServerID,
+		in.Description,
+		in.LocalProfileID,
+		in.PartnerProfileID,
+		in.BaseDirectory,
+		in.AccessRole,
+		tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createAgreementOutput{AgreementID: ag.AgreementID}, nil
+}
+
+type deleteAgreementInput struct {
+	ServerID    string `json:"ServerId"`
+	AgreementID string `json:"AgreementId"`
+}
+
+func (h *Handler) handleDeleteAgreement(_ context.Context, in *deleteAgreementInput) (*struct{}, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.AgreementID == "" {
+		return nil, fmt.Errorf("%w: AgreementId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteAgreement(in.ServerID, in.AgreementID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- Connector operations ---
+
+type createConnectorInput struct {
+	URL        string              `json:"Url"`
+	AccessRole string              `json:"AccessRole"`
+	Tags       []map[string]string `json:"Tags"`
+}
+
+type createConnectorOutput struct {
+	ConnectorID string `json:"ConnectorId"`
+}
+
+func (h *Handler) handleCreateConnector(_ context.Context, in *createConnectorInput) (*createConnectorOutput, error) {
+	if in.URL == "" {
+		return nil, fmt.Errorf("%w: Url is required", errInvalidRequest)
+	}
+
+	tags := tagsFromList(in.Tags)
+
+	c, err := h.Backend.CreateConnector(in.URL, in.AccessRole, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createConnectorOutput{ConnectorID: c.ConnectorID}, nil
+}
+
+type deleteConnectorInput struct {
+	ConnectorID string `json:"ConnectorId"`
+}
+
+func (h *Handler) handleDeleteConnector(_ context.Context, in *deleteConnectorInput) (*struct{}, error) {
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteConnector(in.ConnectorID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- Profile operations ---
+
+type createProfileInput struct {
+	ProfileType string              `json:"ProfileType"`
+	As2ID       string              `json:"As2Id"`
+	Tags        []map[string]string `json:"Tags"`
+}
+
+type createProfileOutput struct {
+	ProfileID string `json:"ProfileId"`
+}
+
+func (h *Handler) handleCreateProfile(_ context.Context, in *createProfileInput) (*createProfileOutput, error) {
+	if in.ProfileType == "" {
+		return nil, fmt.Errorf("%w: ProfileType is required", errInvalidRequest)
+	}
+
+	tags := tagsFromList(in.Tags)
+
+	p, err := h.Backend.CreateProfile(in.ProfileType, in.As2ID, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createProfileOutput{ProfileID: p.ProfileID}, nil
+}
+
+// --- WebApp operations ---
+
+type createWebAppInput struct {
+	Tags []map[string]string `json:"Tags"`
+}
+
+type createWebAppOutput struct {
+	WebAppID string `json:"WebAppId"`
+}
+
+func (h *Handler) handleCreateWebApp(_ context.Context, in *createWebAppInput) (*createWebAppOutput, error) {
+	tags := tagsFromList(in.Tags)
+
+	w, err := h.Backend.CreateWebApp(tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createWebAppOutput{WebAppID: w.WebAppID}, nil
+}
+
+// --- Workflow operations ---
+
+type createWorkflowInput struct {
+	Description string              `json:"Description"`
+	Tags        []map[string]string `json:"Tags"`
+}
+
+type createWorkflowOutput struct {
+	WorkflowID string `json:"WorkflowId"`
+}
+
+func (h *Handler) handleCreateWorkflow(_ context.Context, in *createWorkflowInput) (*createWorkflowOutput, error) {
+	tags := tagsFromList(in.Tags)
+
+	wf, err := h.Backend.CreateWorkflow(in.Description, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createWorkflowOutput{WorkflowID: wf.WorkflowID}, nil
+}
+
+// --- Certificate operations ---
+
+type deleteCertificateInput struct {
+	CertificateID string `json:"CertificateId"`
+}
+
+func (h *Handler) handleDeleteCertificate(_ context.Context, in *deleteCertificateInput) (*struct{}, error) {
+	if in.CertificateID == "" {
+		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteCertificate(in.CertificateID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
 }
 
 // tagsToList converts a map of tags to the AWS list format sorted by key.

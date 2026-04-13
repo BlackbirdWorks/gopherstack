@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &transfersdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateAccess",
-		"CreateAgreement",
-		"CreateConnector",
-		"CreateProfile",
-		"CreateWebApp",
-		"CreateWorkflow",
-		"DeleteAccess",
-		"DeleteAgreement",
-		"DeleteCertificate",
-		"DeleteConnector",
 		"DeleteHostKey",
 		"DeleteProfile",
 		"DeleteSshPublicKey",

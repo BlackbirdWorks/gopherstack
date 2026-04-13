@@ -45,7 +45,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 12)
+	assert.Len(t, h.GetSupportedOperations(), 22)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
