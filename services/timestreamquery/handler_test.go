@@ -15,10 +15,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
 
-func newTestHandler() *timestreamquery.Handler {
+func newTestBackendAndHandler() (*timestreamquery.InMemoryBackend, *timestreamquery.Handler) {
 	backend := timestreamquery.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	return timestreamquery.NewHandler(backend)
+	return backend, timestreamquery.NewHandler(backend)
+}
+
+func newTestHandler() *timestreamquery.Handler {
+	_, h := newTestBackendAndHandler()
+
+	return h
 }
 
 func doRequest(
@@ -37,6 +43,27 @@ func doRequest(
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", "Timestream_20181101."+op)
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func doRequestRaw(
+	t *testing.T,
+	h *timestreamquery.Handler,
+	op string,
+	body []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	req.Header.Set("X-Amz-Target", "Timestream_20181101."+op)
 	rec := httptest.NewRecorder()
@@ -490,6 +517,19 @@ func TestTimestreamQueryHandler_ExtractResource(t *testing.T) {
 		want string
 	}{
 		{
+			name: "extracts ScheduledQueryArn with highest priority",
+			body: map[string]any{
+				"ScheduledQueryArn": "arn:aws:timestream:us-east-1:123:scheduled-query/sq",
+				"Arn":               "arn:aws:timestream:us-east-1:123:scheduled-query/other",
+			},
+			want: "arn:aws:timestream:us-east-1:123:scheduled-query/sq",
+		},
+		{
+			name: "extracts ResourceARN as second priority",
+			body: map[string]any{"ResourceARN": "arn:aws:timestream:us-east-1:123:scheduled-query/resource"},
+			want: "arn:aws:timestream:us-east-1:123:scheduled-query/resource",
+		},
+		{
 			name: "extracts arn",
 			body: map[string]any{"Arn": "arn:aws:timestream:us-east-1:123:scheduled-query/test"},
 			want: "arn:aws:timestream:us-east-1:123:scheduled-query/test",
@@ -557,7 +597,8 @@ func TestTimestreamQueryBackend_ListScheduledQueriesFull(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := newTestHandler()
+
+			backend, h := newTestBackendAndHandler()
 
 			for _, name := range tt.queries {
 				createBody := map[string]any{
@@ -577,7 +618,7 @@ func TestTimestreamQueryBackend_ListScheduledQueriesFull(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			queries := h.Backend.ListScheduledQueriesFull()
+			queries := backend.ListScheduledQueriesFull()
 			assert.Len(t, queries, tt.wantCount)
 
 			if len(queries) > 1 {

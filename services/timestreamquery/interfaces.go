@@ -15,6 +15,7 @@ type StorageBackend interface {
 	DescribeScheduledQuery(arnStr string) (*ScheduledQuery, error)
 	DeleteScheduledQuery(arnStr string) error
 	ListScheduledQueries() []ScheduledQuerySummary
+	ListScheduledQueriesFull() []*ScheduledQuery
 	UpdateScheduledQuery(arnStr, state string) error
 	ExecuteScheduledQuery(arnStr string, invocationTime time.Time) error
 	Query(queryString string) *QueryResult

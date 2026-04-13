@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,20 +30,28 @@ var ErrUnknownOperation = errors.New("unknown operation")
 
 // Handler is the Echo HTTP handler for the Timestream Query service.
 type Handler struct {
-	Backend      *InMemoryBackend
+	Backend      StorageBackend
 	supportedOps map[string]bool
 }
 
 // NewHandler creates a new Timestream Query handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend}
 	ops := h.GetSupportedOperations()
 	h.supportedOps = make(map[string]bool, len(ops))
+
 	for _, op := range ops {
 		h.supportedOps[op] = true
 	}
 
 	return h
+}
+
+// Reset clears handler state, delegating to the backend if it supports Reset.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
 }
 
 // Name returns the handler name.
@@ -104,6 +113,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource returns the ARN or name from the request body.
+// It checks ScheduledQueryArn, ResourceARN, Arn, and Name fields in order.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -111,12 +121,22 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		Arn  string `json:"Arn"`
-		Name string `json:"Name"`
+		ScheduledQueryArn string `json:"ScheduledQueryArn"`
+		ResourceARN       string `json:"ResourceARN"`
+		Arn               string `json:"Arn"`
+		Name              string `json:"Name"`
 	}
 
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
+	}
+
+	if req.ScheduledQueryArn != "" {
+		return req.ScheduledQueryArn
+	}
+
+	if req.ResourceARN != "" {
+		return req.ResourceARN
 	}
 
 	if req.Arn != "" {
@@ -146,11 +166,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleError(c, dispErr)
 		}
 
+		c.Response().Header().Set("Content-Type", contentType)
+
 		if result == nil {
 			return c.JSONBlob(http.StatusOK, []byte(`{}`))
 		}
-
-		c.Response().Header().Set("Content-Type", contentType)
 
 		return c.JSONBlob(http.StatusOK, result)
 	}
@@ -230,7 +250,7 @@ func (h *Handler) handleQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.QueryString == "" {
-		return nil, fmt.Errorf("%w: QueryString is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
 	result := h.Backend.Query(req.QueryString)
@@ -257,7 +277,7 @@ func (h *Handler) handleCancelQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.QueryID == "" {
-		return nil, fmt.Errorf("%w: QueryId is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
 	}
 
 	if err := h.Backend.CancelQuery(req.QueryID); err != nil {
@@ -304,11 +324,19 @@ func (h *Handler) handleCreateScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
 	if req.QueryString == "" {
-		return nil, fmt.Errorf("%w: QueryString is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
+	}
+
+	if req.ScheduledQueryExecutionRoleArn == "" {
+		return nil, fmt.Errorf("%w: ScheduledQueryExecutionRoleArn is required", ErrValidation)
+	}
+
+	if req.ScheduleConfiguration.ScheduleExpression == "" {
+		return nil, fmt.Errorf("%w: ScheduleConfiguration.ScheduleExpression is required", ErrValidation)
 	}
 
 	notificationTopicArn := ""
@@ -362,7 +390,7 @@ func (h *Handler) handleDeleteScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.ScheduledQueryArn == "" {
-		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrValidation)
 	}
 
 	if err := h.Backend.DeleteScheduledQuery(req.ScheduledQueryArn); err != nil {
@@ -382,7 +410,7 @@ func (h *Handler) handleDescribeScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.ScheduledQueryArn == "" {
-		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrValidation)
 	}
 
 	sq, err := h.Backend.DescribeScheduledQuery(req.ScheduledQueryArn)
@@ -406,11 +434,11 @@ func (h *Handler) handleExecuteScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.ScheduledQueryArn == "" {
-		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrValidation)
 	}
 
 	if req.InvocationTime == 0 {
-		return nil, fmt.Errorf("%w: InvocationTime is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: InvocationTime is required", ErrValidation)
 	}
 
 	invocationTime := time.Unix(int64(req.InvocationTime), 0)
@@ -450,11 +478,11 @@ func (h *Handler) handleUpdateScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.ScheduledQueryArn == "" {
-		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrValidation)
 	}
 
 	if req.State == "" {
-		return nil, fmt.Errorf("%w: State is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: State is required", ErrValidation)
 	}
 
 	if err := h.Backend.UpdateScheduledQuery(req.ScheduledQueryArn, req.State); err != nil {
@@ -478,7 +506,7 @@ func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
 	}
 
 	if req.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceARN is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
 	}
 
 	tags := make(map[string]string, len(req.Tags))
@@ -505,7 +533,7 @@ func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
 	}
 
 	if req.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceARN is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
 	}
 
 	if err := h.Backend.UntagResource(req.ResourceARN, req.TagKeys); err != nil {
@@ -525,7 +553,7 @@ func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
 	}
 
 	if req.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceARN is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
 	}
 
 	tags, err := h.Backend.ListTagsForResource(req.ResourceARN)
@@ -563,7 +591,7 @@ func (h *Handler) handlePrepareQuery(body []byte) ([]byte, error) {
 	}
 
 	if req.QueryString == "" {
-		return nil, fmt.Errorf("%w: QueryString is required", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
 	result, err := h.Backend.PrepareQuery(req.QueryString, req.ValidateOnly)
@@ -612,7 +640,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ConflictException", err.Error()))
-	case errors.Is(err, ErrInvalidRequest):
+	case errors.Is(err, ErrValidation):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ValidationException", err.Error()))
 	case errors.Is(err, ErrUnknownOperation):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ValidationException", err.Error()))
@@ -681,6 +709,22 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 		}
 	}
 
+	if len(sq.Tags) > 0 {
+		tagKeys := make([]string, 0, len(sq.Tags))
+		for k := range sq.Tags {
+			tagKeys = append(tagKeys, k)
+		}
+
+		sort.Strings(tagKeys)
+
+		tagList := make([]map[string]string, 0, len(tagKeys))
+		for _, k := range tagKeys {
+			tagList = append(tagList, map[string]string{"Key": k, "Value": sq.Tags[k]})
+		}
+
+		view["Tags"] = tagList
+	}
+
 	return view
 }
 
@@ -688,6 +732,3 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }
-
-// ErrInvalidRequest indicates a bad request.
-var ErrInvalidRequest = errors.New("ValidationException")
