@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := sts.NewInMemoryBackend()
 	h := sts.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &stssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssumeRoleWithSAML",
-		"AssumeRoot",
-		"GetDelegatedAccessToken",
-		"GetWebIdentityToken",
-	})
+	sdkcheck.CheckCompleteness(t, &stssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

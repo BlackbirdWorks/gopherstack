@@ -36,3 +36,16 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 func (h *Handler) GetJanitorInterval() time.Duration {
 	return h.janitor.Interval
 }
+
+// HandlerOpsLen returns the number of supported operations.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}
+
+// AddSessionInternal inserts a session directly into the backend for test seeding.
+func (b *InMemoryBackend) AddSessionInternal(session *SessionInfo) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.sessions[session.AccessKeyID] = session
+}
