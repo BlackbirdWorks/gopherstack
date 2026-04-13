@@ -52,6 +52,9 @@ const (
 
 	// MaxWebIdentityTokenDurationSeconds is the maximum allowed lifetime for GetWebIdentityToken (1 hour).
 	MaxWebIdentityTokenDurationSeconds = 3600
+
+	// MaxAudienceCount is the maximum number of audience entries for GetWebIdentityToken.
+	MaxAudienceCount = 10
 )
 
 // Tag represents a session tag key-value pair passed to AssumeRole.

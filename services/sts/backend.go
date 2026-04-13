@@ -767,8 +767,8 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 
-	// Build a minimal unsigned JWT payload.
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	// Build a minimal mock JWT payload (unsigned, for testing purposes only).
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"mock","typ":"JWT"}`))
 	payload, err := json.Marshal(map[string]any{
 		"sub": MockUserID,
 		"aud": input.Audience,

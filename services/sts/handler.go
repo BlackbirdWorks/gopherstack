@@ -385,7 +385,7 @@ func (h *Handler) dispatchGetWebIdentityToken(r *http.Request) (*GetWebIdentityT
 	}
 
 	// Parse Audience list: Audience.member.N
-	for i := 1; i <= MaxTagCount; i++ {
+	for i := 1; i <= MaxAudienceCount; i++ {
 		aud := r.FormValue(fmt.Sprintf("Audience.member.%d", i))
 		if aud == "" {
 			break
