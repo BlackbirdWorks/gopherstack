@@ -56,12 +56,21 @@ func (m *mockSNS) SFNPublish(_ context.Context, topicARN, message, subject strin
 }
 
 type mockDynamoDB struct {
-	returnOutput any
-	returnErr    error
-	calledPut    bool
-	calledGet    bool
-	calledDelete bool
-	calledUpdate bool
+	returnOutput               any
+	returnErr                  error
+	calledPut                  bool
+	calledGet                  bool
+	calledDelete               bool
+	calledUpdate               bool
+	calledBatchExecuteStmt     bool
+	calledBatchGet             bool
+	calledBatchWrite           bool
+	calledCreateBackup         bool
+	calledCreateGlobalTable    bool
+	calledCreateTable          bool
+	calledDeleteBackup         bool
+	calledDeleteResourcePolicy bool
+	calledDeleteTable          bool
 }
 
 func (m *mockDynamoDB) SFNPutItem(_ context.Context, _ any) (any, error) {
@@ -84,6 +93,60 @@ func (m *mockDynamoDB) SFNDeleteItem(_ context.Context, _ any) (any, error) {
 
 func (m *mockDynamoDB) SFNUpdateItem(_ context.Context, _ any) (any, error) {
 	m.calledUpdate = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNBatchExecuteStatement(_ context.Context, _ any) (any, error) {
+	m.calledBatchExecuteStmt = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNBatchGetItem(_ context.Context, _ any) (any, error) {
+	m.calledBatchGet = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNBatchWriteItem(_ context.Context, _ any) (any, error) {
+	m.calledBatchWrite = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNCreateBackup(_ context.Context, _ any) (any, error) {
+	m.calledCreateBackup = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNCreateGlobalTable(_ context.Context, _ any) (any, error) {
+	m.calledCreateGlobalTable = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNCreateTable(_ context.Context, _ any) (any, error) {
+	m.calledCreateTable = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNDeleteBackup(_ context.Context, _ any) (any, error) {
+	m.calledDeleteBackup = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNDeleteResourcePolicy(_ context.Context, _ any) (any, error) {
+	m.calledDeleteResourcePolicy = true
+
+	return m.returnOutput, m.returnErr
+}
+
+func (m *mockDynamoDB) SFNDeleteTable(_ context.Context, _ any) (any, error) {
+	m.calledDeleteTable = true
 
 	return m.returnOutput, m.returnErr
 }
@@ -646,6 +709,232 @@ func TestExecutor_DynamoDB(t *testing.T) {
 				assert.Equal(t, tt.wantCalledGet, tt.mock.calledGet)
 				assert.Equal(t, tt.wantCalledDelete, tt.mock.calledDelete)
 				assert.Equal(t, tt.wantCalledUpdate, tt.mock.calledUpdate)
+			}
+		})
+	}
+}
+
+func TestExecutor_DynamoDB_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                        string
+		def                         string
+		mock                        *mockDynamoDB
+		wantError                   string
+		wantCauseContains           string
+		wantCalledBatchExecuteStmt  bool
+		wantCalledBatchGet          bool
+		wantCalledBatchWrite        bool
+		wantCalledCreateBackup      bool
+		wantCalledCreateGlobalTable bool
+		wantCalledCreateTable       bool
+		wantCalledDeleteBackup      bool
+		wantCalledDeleteResPolicy   bool
+		wantCalledDeleteTable       bool
+	}{
+		{
+			name: "batch_execute_statement",
+			def: `{
+				"StartAt": "Batch",
+				"States": {
+					"Batch": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:batchExecuteStatement",
+						"Parameters": {
+							"Statements": [{"Statement": "SELECT * FROM MyTable"}]
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                       &mockDynamoDB{returnOutput: map[string]any{"Responses": []any{}}},
+			wantCalledBatchExecuteStmt: true,
+		},
+		{
+			name: "batch_get_item",
+			def: `{
+				"StartAt": "BatchGet",
+				"States": {
+					"BatchGet": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:batchGetItem",
+						"Parameters": {
+							"RequestItems": {}
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:               &mockDynamoDB{returnOutput: map[string]any{"Responses": map[string]any{}}},
+			wantCalledBatchGet: true,
+		},
+		{
+			name: "batch_write_item",
+			def: `{
+				"StartAt": "BatchWrite",
+				"States": {
+					"BatchWrite": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:batchWriteItem",
+						"Parameters": {
+							"RequestItems": {}
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                 &mockDynamoDB{returnOutput: map[string]any{}},
+			wantCalledBatchWrite: true,
+		},
+		{
+			name: "create_backup",
+			def: `{
+				"StartAt": "CreateBkp",
+				"States": {
+					"CreateBkp": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:createBackup",
+						"Parameters": {
+							"TableName": "MyTable",
+							"BackupName": "my-backup"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                   &mockDynamoDB{returnOutput: map[string]any{"BackupDetails": map[string]any{}}},
+			wantCalledCreateBackup: true,
+		},
+		{
+			name: "create_global_table",
+			def: `{
+				"StartAt": "CreateGT",
+				"States": {
+					"CreateGT": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:createGlobalTable",
+						"Parameters": {
+							"GlobalTableName": "MyGlobalTable",
+							"ReplicationGroup": [{"RegionName": "us-east-1"}]
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock: &mockDynamoDB{
+				returnOutput: map[string]any{"GlobalTableDescription": map[string]any{}},
+			},
+			wantCalledCreateGlobalTable: true,
+		},
+		{
+			name: "create_table",
+			def: `{
+				"StartAt": "Create",
+				"States": {
+					"Create": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:createTable",
+						"Parameters": {
+							"TableName": "NewTable",
+							"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
+							"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
+							"BillingMode": "PAY_PER_REQUEST"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                  &mockDynamoDB{returnOutput: map[string]any{"TableDescription": map[string]any{}}},
+			wantCalledCreateTable: true,
+		},
+		{
+			name: "delete_backup",
+			def: `{
+				"StartAt": "DeleteBkp",
+				"States": {
+					"DeleteBkp": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:deleteBackup",
+						"Parameters": {
+							"BackupArn": "arn:aws:dynamodb:us-east-1:123:backup/TestTable-backup"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                   &mockDynamoDB{returnOutput: map[string]any{"BackupDescription": map[string]any{}}},
+			wantCalledDeleteBackup: true,
+		},
+		{
+			name: "delete_resource_policy",
+			def: `{
+				"StartAt": "DeletePolicy",
+				"States": {
+					"DeletePolicy": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:deleteResourcePolicy",
+						"Parameters": {
+							"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/MyTable"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                      &mockDynamoDB{returnOutput: map[string]any{}},
+			wantCalledDeleteResPolicy: true,
+		},
+		{
+			name: "delete_table",
+			def: `{
+				"StartAt": "DeleteTbl",
+				"States": {
+					"DeleteTbl": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:deleteTable",
+						"Parameters": {
+							"TableName": "OldTable"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mock:                  &mockDynamoDB{returnOutput: map[string]any{"TableDescription": map[string]any{}}},
+			wantCalledDeleteTable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, err := asl.Parse(tt.def)
+			require.NoError(t, err)
+
+			exec := asl.NewExecutor(sm, nil, nil)
+			if tt.mock != nil {
+				exec.SetDynamoDBIntegration(tt.mock)
+			}
+
+			result, err := exec.Execute(t.Context(), "test-exec", `{}`)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantError, result.Error)
+
+			if tt.wantCauseContains != "" {
+				assert.Contains(t, result.Cause, tt.wantCauseContains)
+			}
+
+			if tt.mock != nil && tt.wantError == "" {
+				assert.Equal(t, tt.wantCalledBatchExecuteStmt, tt.mock.calledBatchExecuteStmt)
+				assert.Equal(t, tt.wantCalledBatchGet, tt.mock.calledBatchGet)
+				assert.Equal(t, tt.wantCalledBatchWrite, tt.mock.calledBatchWrite)
+				assert.Equal(t, tt.wantCalledCreateBackup, tt.mock.calledCreateBackup)
+				assert.Equal(t, tt.wantCalledCreateGlobalTable, tt.mock.calledCreateGlobalTable)
+				assert.Equal(t, tt.wantCalledCreateTable, tt.mock.calledCreateTable)
+				assert.Equal(t, tt.wantCalledDeleteBackup, tt.mock.calledDeleteBackup)
+				assert.Equal(t, tt.wantCalledDeleteResPolicy, tt.mock.calledDeleteResourcePolicy)
+				assert.Equal(t, tt.wantCalledDeleteTable, tt.mock.calledDeleteTable)
 			}
 		})
 	}
