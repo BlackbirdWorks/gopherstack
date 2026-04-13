@@ -1,0 +1,49 @@
+package timestreamwrite
+
+// DatabaseCount returns the number of databases stored in the backend.
+// Exposed for testing only.
+func DatabaseCount(b *InMemoryBackend) int {
+	b.mu.RLock("DatabaseCount")
+	defer b.mu.RUnlock()
+
+	return len(b.databases)
+}
+
+// TableCount returns the total number of tables across all databases.
+// Exposed for testing only.
+func TableCount(b *InMemoryBackend) int {
+	b.mu.RLock("TableCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+
+	for _, tbls := range b.tables {
+		total += len(tbls)
+	}
+
+	return total
+}
+
+// BatchLoadTaskCount returns the number of batch load tasks stored in the backend.
+// Exposed for testing only.
+func BatchLoadTaskCount(b *InMemoryBackend) int {
+	b.mu.RLock("BatchLoadTaskCount")
+	defer b.mu.RUnlock()
+
+	return len(b.batchLoadTasks)
+}
+
+// TagCount returns the total number of tagged ARNs stored in the backend.
+// Exposed for testing only.
+func TagCount(b *InMemoryBackend) int {
+	b.mu.RLock("TagCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tags)
+}
+
+// HandlerOpsLen returns the number of operations registered in the handler's
+// dispatch table. Exposed for testing only.
+func HandlerOpsLen(h *Handler) int {
+	return len(h.GetSupportedOperations())
+}

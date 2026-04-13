@@ -492,6 +492,15 @@ func TestTimestreamQueryHandler_RouteMatcher(t *testing.T) {
 		{name: "matches create", target: "Timestream_20181101.CreateScheduledQuery", want: true},
 		{name: "does not match athena", target: "AmazonAthena.Query", want: false},
 		{name: "does not match empty", target: "", want: false},
+		// Tag ops are deferred to the TimestreamWrite handler so that a single
+		// unified tag store handles all Timestream resource types.
+		{name: "TagResource deferred to write service", target: "Timestream_20181101.TagResource", want: false},
+		{name: "UntagResource deferred to write service", target: "Timestream_20181101.UntagResource", want: false},
+		{
+			name:   "ListTagsForResource deferred to write service",
+			target: "Timestream_20181101.ListTagsForResource",
+			want:   false,
+		},
 	}
 
 	for _, tt := range tests {
