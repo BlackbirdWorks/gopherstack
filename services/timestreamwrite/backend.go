@@ -24,59 +24,73 @@ var (
 	ErrBatchLoadTaskNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrInvalidBatchLoadStatus is returned when a task cannot be resumed from its current status.
 	ErrInvalidBatchLoadStatus = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrValidation is returned for invalid request parameters.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 const (
-	batchLoadStatusCreated       = "CREATED"
-	batchLoadStatusPendingResume = "PENDING_RESUME"
-	batchLoadStatusFailed        = "FAILED"
+	// BatchLoadStatusCreated indicates a task has been created and is pending execution.
+	BatchLoadStatusCreated = "CREATED"
+	// BatchLoadStatusInProgress indicates a task is currently loading data.
+	BatchLoadStatusInProgress = "IN_PROGRESS"
+	// BatchLoadStatusFailed indicates a task has failed.
+	BatchLoadStatusFailed = "FAILED"
+	// BatchLoadStatusSucceeded indicates a task completed successfully.
+	BatchLoadStatusSucceeded = "SUCCEEDED"
+	// BatchLoadStatusProgressStopped indicates a task was stopped before completion.
+	BatchLoadStatusProgressStopped = "PROGRESS_STOPPED"
+	// BatchLoadStatusPendingResume indicates a task is pending a resume operation.
+	BatchLoadStatusPendingResume = "PENDING_RESUME"
+
+	// tableStatusActive is the normal operational state for a table.
+	tableStatusActive = "ACTIVE"
 )
 
 // Database represents a Timestream database.
 type Database struct {
-	CreationTime    time.Time
-	LastUpdatedTime time.Time
-	DatabaseName    string
-	ARN             string
-	KmsKeyID        string
-	TableCount      int
+	CreationTime    time.Time `json:"creation_time"`
+	LastUpdatedTime time.Time `json:"last_updated_time"`
+	DatabaseName    string    `json:"database_name"`
+	ARN             string    `json:"arn"`
+	KmsKeyID        string    `json:"kms_key_id,omitempty"`
+	TableCount      int       `json:"table_count"`
 }
 
 // Table represents a Timestream table within a database.
 type Table struct {
-	CreationTime    time.Time
-	LastUpdatedTime time.Time
-	DatabaseName    string
-	TableName       string
-	ARN             string
-	TableStatus     string
+	CreationTime    time.Time `json:"creation_time"`
+	LastUpdatedTime time.Time `json:"last_updated_time"`
+	DatabaseName    string    `json:"database_name"`
+	TableName       string    `json:"table_name"`
+	ARN             string    `json:"arn"`
+	TableStatus     string    `json:"table_status"`
 }
 
 // Dimension holds a name/value pair for a time-series record.
 type Dimension struct {
-	Name  string
-	Value string
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // Record represents a time-series data point written to a table.
 type Record struct {
-	MeasureName      string
-	MeasureValue     string
-	MeasureValueType string
-	Time             string
-	TimeUnit         string
-	Dimensions       []Dimension
-	Version          int64
+	MeasureName      string      `json:"measure_name"`
+	MeasureValue     string      `json:"measure_value"`
+	MeasureValueType string      `json:"measure_value_type"`
+	Time             string      `json:"time"`
+	TimeUnit         string      `json:"time_unit"`
+	Dimensions       []Dimension `json:"dimensions,omitempty"`
+	Version          int64       `json:"version,omitempty"`
 }
 
 // BatchLoadTask represents a Timestream batch load task.
 type BatchLoadTask struct {
-	CreationTime       time.Time
-	LastUpdatedTime    time.Time
-	TargetDatabaseName string
-	TargetTableName    string
-	TaskID             string
-	TaskStatus         string
+	CreationTime       time.Time `json:"creation_time"`
+	LastUpdatedTime    time.Time `json:"last_updated_time"`
+	TargetDatabaseName string    `json:"target_database_name"`
+	TargetTableName    string    `json:"target_table_name"`
+	TaskID             string    `json:"task_id"`
+	TaskStatus         string    `json:"task_status"`
 }
 
 // InMemoryBackend is the in-memory store for Timestream Write resources.
@@ -92,14 +106,43 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		databases:      make(map[string]*Database),
-		tables:         make(map[string]map[string]*Table),
-		records:        make(map[string]map[string][]Record),
-		tags:           make(map[string]map[string]string),
-		batchLoadTasks: make(map[string]*BatchLoadTask),
-		mu:             lockmetrics.New("timestreamwrite"),
-	}
+	b := &InMemoryBackend{mu: lockmetrics.New("timestreamwrite")}
+	b.ensureNonNilMaps()
+
+	return b
+}
+
+// Reset clears all stored state, returning the backend to its initial empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.nextTaskID = 0
+	b.ensureNonNilMapsLocked()
+}
+
+// AccountID returns the simulated AWS account ID.
+func (b *InMemoryBackend) AccountID() string { return config.DefaultAccountID }
+
+// Region returns the simulated AWS region.
+func (b *InMemoryBackend) Region() string { return config.DefaultRegion }
+
+// ensureNonNilMaps initialises all maps (called without lock held during construction or restore).
+func (b *InMemoryBackend) ensureNonNilMaps() {
+	b.databases = make(map[string]*Database)
+	b.tables = make(map[string]map[string]*Table)
+	b.records = make(map[string]map[string][]Record)
+	b.tags = make(map[string]map[string]string)
+	b.batchLoadTasks = make(map[string]*BatchLoadTask)
+}
+
+// ensureNonNilMapsLocked initialises all maps when the lock is already held.
+func (b *InMemoryBackend) ensureNonNilMapsLocked() {
+	b.databases = make(map[string]*Database)
+	b.tables = make(map[string]map[string]*Table)
+	b.records = make(map[string]map[string][]Record)
+	b.tags = make(map[string]map[string]string)
+	b.batchLoadTasks = make(map[string]*BatchLoadTask)
 }
 
 func databaseARN(name string) string {
@@ -116,8 +159,8 @@ func tableARN(dbName, tblName string) string {
 	)
 }
 
-// CreateDatabase creates a new Timestream database.
-func (b *InMemoryBackend) CreateDatabase(name string) (*Database, error) {
+// CreateDatabase creates a new Timestream database with optional initial tags.
+func (b *InMemoryBackend) CreateDatabase(name string, tags map[string]string) (*Database, error) {
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
@@ -136,6 +179,11 @@ func (b *InMemoryBackend) CreateDatabase(name string) (*Database, error) {
 	b.databases[name] = db
 	b.tables[name] = make(map[string]*Table)
 	b.records[name] = make(map[string][]Record)
+
+	if len(tags) > 0 {
+		b.tags[db.ARN] = make(map[string]string, len(tags))
+		maps.Copy(b.tags[db.ARN], tags)
+	}
 
 	cp := *db
 
@@ -214,8 +262,8 @@ func (b *InMemoryBackend) UpdateDatabase(name, kmsKeyID string) (*Database, erro
 	return &cp, nil
 }
 
-// CreateTable creates a new table in the specified database.
-func (b *InMemoryBackend) CreateTable(dbName, tblName string) (*Table, error) {
+// CreateTable creates a new table in the specified database with optional initial tags.
+func (b *InMemoryBackend) CreateTable(dbName, tblName string, tags map[string]string) (*Table, error) {
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
@@ -232,13 +280,18 @@ func (b *InMemoryBackend) CreateTable(dbName, tblName string) (*Table, error) {
 		DatabaseName:    dbName,
 		TableName:       tblName,
 		ARN:             tableARN(dbName, tblName),
-		TableStatus:     "ACTIVE",
+		TableStatus:     tableStatusActive,
 		CreationTime:    now,
 		LastUpdatedTime: now,
 	}
 	b.tables[dbName][tblName] = tbl
 	b.records[dbName][tblName] = []Record{}
 	b.databases[dbName].TableCount++
+
+	if len(tags) > 0 {
+		b.tags[tbl.ARN] = make(map[string]string, len(tags))
+		maps.Copy(b.tags[tbl.ARN], tags)
+	}
 
 	cp := *tbl
 
@@ -307,7 +360,7 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 	return nil
 }
 
-// UpdateTable updates a table's status.
+// UpdateTable updates a table's last-updated timestamp.
 func (b *InMemoryBackend) UpdateTable(dbName, tblName string) (*Table, error) {
 	b.mu.Lock("UpdateTable")
 	defer b.mu.Unlock()
@@ -380,7 +433,7 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) map[string]string {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	result := make(map[string]string)
+	result := make(map[string]string, len(b.tags[arn]))
 	maps.Copy(result, b.tags[arn])
 
 	return result
@@ -407,7 +460,7 @@ func (b *InMemoryBackend) CreateBatchLoadTask(targetDatabase, targetTable string
 		TaskID:             taskID,
 		TargetDatabaseName: targetDatabase,
 		TargetTableName:    targetTable,
-		TaskStatus:         batchLoadStatusCreated,
+		TaskStatus:         BatchLoadStatusCreated,
 		CreationTime:       now,
 		LastUpdatedTime:    now,
 	}
@@ -466,7 +519,7 @@ func (b *InMemoryBackend) ResumeBatchLoadTask(taskID string) error {
 		return fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
 	}
 
-	if task.TaskStatus != batchLoadStatusPendingResume && task.TaskStatus != batchLoadStatusFailed {
+	if task.TaskStatus != BatchLoadStatusPendingResume && task.TaskStatus != BatchLoadStatusFailed {
 		return fmt.Errorf(
 			"%w: task %s cannot be resumed from status %s",
 			ErrInvalidBatchLoadStatus,
@@ -475,14 +528,14 @@ func (b *InMemoryBackend) ResumeBatchLoadTask(taskID string) error {
 		)
 	}
 
-	task.TaskStatus = batchLoadStatusCreated
+	task.TaskStatus = BatchLoadStatusCreated
 	task.LastUpdatedTime = time.Now()
 
 	return nil
 }
 
-// SetBatchLoadTaskStatus sets the status of a batch load task directly.
-// This is intended as a test helper to seed specific task states.
+// SetBatchLoadTaskStatus sets the status of a batch load task.
+// This is a test seed helper to set specific task states.
 func (b *InMemoryBackend) SetBatchLoadTaskStatus(taskID, status string) error {
 	b.mu.Lock("SetBatchLoadTaskStatus")
 	defer b.mu.Unlock()
@@ -496,4 +549,55 @@ func (b *InMemoryBackend) SetBatchLoadTaskStatus(taskID, status string) error {
 	task.LastUpdatedTime = time.Now()
 
 	return nil
+}
+
+// AddDatabaseInternal directly inserts a database into the backend, bypassing
+// validation. Intended only for test setup.
+func (b *InMemoryBackend) AddDatabaseInternal(db *Database) {
+	b.mu.Lock("AddDatabaseInternal")
+	defer b.mu.Unlock()
+
+	cp := *db
+	b.databases[db.DatabaseName] = &cp
+
+	if b.tables[db.DatabaseName] == nil {
+		b.tables[db.DatabaseName] = make(map[string]*Table)
+	}
+
+	if b.records[db.DatabaseName] == nil {
+		b.records[db.DatabaseName] = make(map[string][]Record)
+	}
+}
+
+// AddTableInternal directly inserts a table into the backend, bypassing
+// validation. The parent database must exist. Intended only for test setup.
+func (b *InMemoryBackend) AddTableInternal(tbl *Table) {
+	b.mu.Lock("AddTableInternal")
+	defer b.mu.Unlock()
+
+	if b.tables[tbl.DatabaseName] == nil {
+		b.tables[tbl.DatabaseName] = make(map[string]*Table)
+	}
+
+	if b.records[tbl.DatabaseName] == nil {
+		b.records[tbl.DatabaseName] = make(map[string][]Record)
+	}
+
+	cp := *tbl
+	b.tables[tbl.DatabaseName][tbl.TableName] = &cp
+	b.records[tbl.DatabaseName][tbl.TableName] = []Record{}
+
+	if db, ok := b.databases[tbl.DatabaseName]; ok {
+		db.TableCount++
+	}
+}
+
+// AddBatchLoadTaskInternal directly inserts a batch load task, bypassing
+// validation. Intended only for test setup.
+func (b *InMemoryBackend) AddBatchLoadTaskInternal(task *BatchLoadTask) {
+	b.mu.Lock("AddBatchLoadTaskInternal")
+	defer b.mu.Unlock()
+
+	cp := *task
+	b.batchLoadTasks[task.TaskID] = &cp
 }

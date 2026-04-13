@@ -110,7 +110,7 @@ func (h *DashboardHandler) timestreamwriteCreateDatabase(c *echo.Context) error 
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.TimestreamWriteOps.Backend.CreateDatabase(name); err != nil {
+	if _, err := h.TimestreamWriteOps.Backend.CreateDatabase(name, nil); err != nil {
 		h.Logger.Error("failed to create timestream database", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

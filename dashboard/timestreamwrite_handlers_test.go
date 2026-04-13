@@ -38,7 +38,7 @@ func TestDashboard_TimestreamWrite_Index(t *testing.T) {
 			setup: func(t *testing.T, s *teststack.Stack) {
 				t.Helper()
 
-				_, err := s.TimestreamWriteHandler.Backend.CreateDatabase("test-db")
+				_, err := s.TimestreamWriteHandler.Backend.CreateDatabase("test-db", nil)
 				require.NoError(t, err)
 			},
 			wantCode:     http.StatusOK,
@@ -125,7 +125,7 @@ func TestDashboard_TimestreamWrite_DeleteDatabase(t *testing.T) {
 			setup: func(t *testing.T, s *teststack.Stack) {
 				t.Helper()
 
-				_, err := s.TimestreamWriteHandler.Backend.CreateDatabase("del-db")
+				_, err := s.TimestreamWriteHandler.Backend.CreateDatabase("del-db", nil)
 				require.NoError(t, err)
 			},
 			wantCode: http.StatusSeeOther,

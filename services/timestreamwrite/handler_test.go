@@ -950,10 +950,10 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 	b := timestreamwrite.NewInMemoryBackend()
 	h := timestreamwrite.NewHandler(b)
 
-	_, err := b.CreateDatabase("db")
+	_, err := b.CreateDatabase("db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "tbl")
+	_, err = b.CreateTable("db", "tbl", nil)
 	require.NoError(t, err)
 
 	task, err := b.CreateBatchLoadTask("db", "tbl")
