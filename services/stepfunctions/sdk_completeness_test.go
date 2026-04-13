@@ -26,12 +26,10 @@ func TestSDKCompleteness(t *testing.T) {
 		"DescribeStateMachineForExecution",
 		"ListMapRuns",
 		"ListStateMachineAliases",
-		"ListStateMachineVersions",
 		"PublishStateMachineVersion",
 		"RedriveExecution",
 		"TestState",
 		"UpdateMapRun",
 		"UpdateStateMachineAlias",
-		"ValidateStateMachineDefinition",
 	})
 }

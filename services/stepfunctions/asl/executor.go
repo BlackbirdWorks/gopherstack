@@ -724,7 +724,7 @@ func (e *Executor) invokeDynamoDBTask(ctx context.Context, state *State, input a
 }
 
 // invokeDynamoDBItemOps handles per-item and batch DynamoDB actions.
-// Returns (result, true, err) when the action was matched (regardless of error), or (nil, false, nil) when no action matches.
+// Returns (result, true, err) on a match, or (nil, false, nil) when no action matches.
 func (e *Executor) invokeDynamoDBItemOps(ctx context.Context, action string, input any) (any, bool, error) {
 	switch action {
 	case "putItem":
@@ -761,7 +761,7 @@ func (e *Executor) invokeDynamoDBItemOps(ctx context.Context, action string, inp
 }
 
 // invokeDynamoDBTableOps handles table-level and backup/policy DynamoDB actions.
-// Returns (result, true, err) when the action was matched (regardless of error), or (nil, false, nil) when no action matches.
+// Returns (result, true, err) on a match, or (nil, false, nil) when no action matches.
 func (e *Executor) invokeDynamoDBTableOps(ctx context.Context, action string, input any) (any, bool, error) {
 	switch action {
 	case "createTable":

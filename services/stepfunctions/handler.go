@@ -161,6 +161,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetExecutionHistory",
 		"ListActivities",
 		"ListExecutions",
+		"ListStateMachineVersions",
 		"ListStateMachines",
 		"ListTagsForResource",
 		"SendTaskFailure",
@@ -172,6 +173,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"UpdateStateMachine",
+		"ValidateStateMachineDefinition",
 	}
 }
 

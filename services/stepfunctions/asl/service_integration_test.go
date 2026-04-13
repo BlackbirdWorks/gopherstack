@@ -524,6 +524,171 @@ func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
 				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
 			},
 		},
+		{
+			name: "dynamodb_batch_execute_statement_aws-sdk_prefix",
+			def: `{
+				"StartAt": "Batch",
+				"States": {
+					"Batch": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:batchExecuteStatement",
+						"Parameters": {"Statements": []},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"Responses": []any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_batch_get_item_aws-sdk_prefix",
+			def: `{
+				"StartAt": "BatchGet",
+				"States": {
+					"BatchGet": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:batchGetItem",
+						"Parameters": {"RequestItems": {}},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"Responses": map[string]any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_batch_write_item_aws-sdk_prefix",
+			def: `{
+				"StartAt": "BatchWrite",
+				"States": {
+					"BatchWrite": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:batchWriteItem",
+						"Parameters": {"RequestItems": {}},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_create_backup_aws-sdk_prefix",
+			def: `{
+				"StartAt": "CreateBkp",
+				"States": {
+					"CreateBkp": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:createBackup",
+						"Parameters": {"TableName": "T", "BackupName": "B"},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"BackupDetails": map[string]any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_create_global_table_aws-sdk_prefix",
+			def: `{
+				"StartAt": "GT",
+				"States": {
+					"GT": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:createGlobalTable",
+						"Parameters": {
+							"GlobalTableName": "G",
+							"ReplicationGroup": [{"RegionName": "us-east-1"}]
+						},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"GlobalTableDescription": map[string]any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_create_table_aws-sdk_prefix",
+			def: `{
+				"StartAt": "Create",
+				"States": {
+					"Create": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:createTable",
+						"Parameters": {"TableName": "T", "BillingMode": "PAY_PER_REQUEST"},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"TableDescription": map[string]any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_delete_backup_aws-sdk_prefix",
+			def: `{
+				"StartAt": "DelBkp",
+				"States": {
+					"DelBkp": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:deleteBackup",
+						"Parameters": {"BackupArn": "arn:aws:dynamodb:us-east-1:123:backup/T"},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"BackupDescription": map[string]any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_delete_resource_policy_aws-sdk_prefix",
+			def: `{
+				"StartAt": "DelPolicy",
+				"States": {
+					"DelPolicy": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:deleteResourcePolicy",
+						"Parameters": {"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/T"},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+		{
+			name: "dynamodb_delete_table_aws-sdk_prefix",
+			def: `{
+				"StartAt": "DelTbl",
+				"States": {
+					"DelTbl": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:deleteTable",
+						"Parameters": {"TableName": "OldTable"},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{"TableDescription": map[string]any{}}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -901,6 +1066,86 @@ func TestExecutor_DynamoDB_NewOps(t *testing.T) {
 			}`,
 			mock:                  &mockDynamoDB{returnOutput: map[string]any{"TableDescription": map[string]any{}}},
 			wantCalledDeleteTable: true,
+		},
+		{
+			name: "not_configured",
+			def: `{
+				"StartAt": "CreateTbl",
+				"States": {
+					"CreateTbl": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:createTable",
+						"End": true
+					}
+				}
+			}`,
+			mock:              nil,
+			wantError:         "TaskFailed",
+			wantCauseContains: "DynamoDB integration not configured",
+		},
+		{
+			name: "integration_error_create_backup",
+			def: `{
+				"StartAt": "CreateBkp",
+				"States": {
+					"CreateBkp": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:createBackup",
+						"End": true
+					}
+				}
+			}`,
+			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
+			wantError:         "TaskFailed",
+			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
+		},
+		{
+			name: "integration_error_delete_backup",
+			def: `{
+				"StartAt": "DelBkp",
+				"States": {
+					"DelBkp": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:deleteBackup",
+						"End": true
+					}
+				}
+			}`,
+			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
+			wantError:         "TaskFailed",
+			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
+		},
+		{
+			name: "integration_error_batch_execute_statement",
+			def: `{
+				"StartAt": "Batch",
+				"States": {
+					"Batch": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:batchExecuteStatement",
+						"End": true
+					}
+				}
+			}`,
+			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
+			wantError:         "TaskFailed",
+			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
+		},
+		{
+			name: "integration_error_delete_table",
+			def: `{
+				"StartAt": "DelTbl",
+				"States": {
+					"DelTbl": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::dynamodb:deleteTable",
+						"End": true
+					}
+				}
+			}`,
+			mock:              &mockDynamoDB{returnErr: errDynamoDBIntegrationNotConfigured},
+			wantError:         "TaskFailed",
+			wantCauseContains: errDynamoDBIntegrationNotConfigured.Error(),
 		},
 	}
 

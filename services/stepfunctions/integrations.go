@@ -62,6 +62,9 @@ type dynamoDBAdapter struct {
 	backend dynamodbpkg.StorageBackend
 }
 
+// Compile-time assertion: dynamoDBAdapter must implement asl.DynamoDBIntegration.
+var _ asl.DynamoDBIntegration = (*dynamoDBAdapter)(nil)
+
 // NewDynamoDBIntegration creates a new DynamoDB integration adapter.
 func NewDynamoDBIntegration(backend dynamodbpkg.StorageBackend) asl.DynamoDBIntegration {
 	return &dynamoDBAdapter{backend: backend}
@@ -84,12 +87,17 @@ func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error
 		return nil, err
 	}
 
-	_, err := a.backend.PutItem(ctx, &req)
+	out, err := a.backend.PutItem(ctx, &req)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	var result any
+	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+
+	return result, nil
 }
 
 // SFNGetItem implements asl.DynamoDBIntegration.
@@ -119,12 +127,17 @@ func (a *dynamoDBAdapter) SFNDeleteItem(ctx context.Context, input any) (any, er
 		return nil, err
 	}
 
-	_, err := a.backend.DeleteItem(ctx, &req)
+	out, err := a.backend.DeleteItem(ctx, &req)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	var result any
+	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+
+	return result, nil
 }
 
 // SFNUpdateItem implements asl.DynamoDBIntegration.

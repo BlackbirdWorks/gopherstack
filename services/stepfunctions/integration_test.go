@@ -258,6 +258,162 @@ func (m *mockLambdaForBackend) InvokeFunction(
 	return []byte(`{"result": "ok"}`), 200, nil
 }
 
+func TestNewDynamoDBIntegration_NewOps(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ddbBackend := dynamodb.NewInMemoryDB()
+	const tableName = "sfn-newops-table"
+	const deleteableTable = "sfn-deleteable-table"
+
+	for _, tbl := range []string{tableName, deleteableTable} {
+		_, setupErr := ddbBackend.CreateTable(ctx, &awsdynamodb.CreateTableInput{
+			TableName: aws.String(tbl),
+			KeySchema: []types.KeySchemaElement{
+				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+			},
+			AttributeDefinitions: []types.AttributeDefinition{
+				{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			},
+			BillingMode: types.BillingModePayPerRequest,
+		})
+		require.NoError(t, setupErr)
+	}
+
+	adapter := stepfunctions.NewDynamoDBIntegration(ddbBackend)
+
+	tests := []struct {
+		op      func() (any, error)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "BatchExecuteStatement_empty",
+			op: func() (any, error) {
+				return adapter.SFNBatchExecuteStatement(ctx, map[string]any{
+					"Statements": []any{},
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "BatchGetItem_empty",
+			op: func() (any, error) {
+				return adapter.SFNBatchGetItem(ctx, map[string]any{
+					"RequestItems": map[string]any{},
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "BatchWriteItem_empty_is_error",
+			op: func() (any, error) {
+				return adapter.SFNBatchWriteItem(ctx, map[string]any{
+					"RequestItems": map[string]any{},
+				})
+			},
+			wantErr: true, // AWS rejects empty batch writes
+		},
+		{
+			name: "CreateBackup_nonexistent_table",
+			op: func() (any, error) {
+				return adapter.SFNCreateBackup(ctx, map[string]any{
+					"TableName":  "ghost-table",
+					"BackupName": "ghost-backup",
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "CreateBackup_success",
+			op: func() (any, error) {
+				return adapter.SFNCreateBackup(ctx, map[string]any{
+					"TableName":  tableName,
+					"BackupName": "test-backup",
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "DeleteBackup_not_found",
+			op: func() (any, error) {
+				return adapter.SFNDeleteBackup(ctx, map[string]any{
+					"BackupArn": "arn:aws:dynamodb:us-east-1:123:backup/ghost",
+				})
+			},
+			wantErr: true,
+		},
+		{
+			// AWS's DeleteResourcePolicy on a nonexistent resource returns success (idempotent).
+			name: "DeleteResourcePolicy_nonexistent_is_success",
+			op: func() (any, error) {
+				return adapter.SFNDeleteResourcePolicy(ctx, map[string]any{
+					"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/ghost",
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "CreateTable_new",
+			op: func() (any, error) {
+				return adapter.SFNCreateTable(ctx, map[string]any{
+					"TableName":   "brand-new-created-table",
+					"BillingMode": "PAY_PER_REQUEST",
+					"KeySchema": []any{
+						map[string]any{"AttributeName": "pk", "KeyType": "HASH"},
+					},
+					"AttributeDefinitions": []any{
+						map[string]any{"AttributeName": "pk", "AttributeType": "S"},
+					},
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "DeleteTable_nonexistent",
+			op: func() (any, error) {
+				return adapter.SFNDeleteTable(ctx, map[string]any{
+					"TableName": "ghost-table",
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "DeleteTable_success",
+			op: func() (any, error) {
+				return adapter.SFNDeleteTable(ctx, map[string]any{
+					"TableName": deleteableTable,
+				})
+			},
+			wantErr: false,
+		},
+		{
+			name: "CreateGlobalTable_with_replication",
+			op: func() (any, error) {
+				return adapter.SFNCreateGlobalTable(ctx, map[string]any{
+					"GlobalTableName": "my-global-table",
+					"ReplicationGroup": []any{
+						map[string]any{"RegionName": "us-east-1"},
+					},
+				})
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, callErr := tt.op()
+			if tt.wantErr {
+				require.Error(t, callErr)
+			} else {
+				require.NoError(t, callErr)
+			}
+		})
+	}
+}
+
 func TestRecordTask_SucceededAndFailed(t *testing.T) {
 	t.Parallel()
 
