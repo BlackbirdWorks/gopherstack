@@ -115,10 +115,10 @@ func TestRegisterWorkflowType(t *testing.T) {
 	b := swf.NewInMemoryBackend()
 	require.NoError(t, b.RegisterDomain("my-domain", ""))
 
-	err := b.RegisterWorkflowType("my-domain", "my-workflow", "1.0")
+	err := b.RegisterWorkflowType("my-domain", "my-workflow", "1.0", "")
 	require.NoError(t, err)
 
-	wts := b.ListWorkflowTypes("my-domain")
+	wts := b.ListWorkflowTypes("my-domain", "")
 	require.Len(t, wts, 1)
 	assert.Equal(t, "my-workflow", wts[0].Name)
 }

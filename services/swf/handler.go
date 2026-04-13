@@ -28,12 +28,21 @@ const swfTargetPrefix = "SimpleWorkflowService."
 
 // Handler is the Echo HTTP handler for SWF operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
-// NewHandler creates a new SWF handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+// NewHandler creates a new SWF handler with a cached dispatch table.
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -42,14 +51,30 @@ func (h *Handler) Name() string { return "SWF" }
 // GetSupportedOperations returns the list of supported SWF operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CountClosedWorkflowExecutions",
+		"CountOpenWorkflowExecutions",
+		"CountPendingActivityTasks",
+		"CountPendingDecisionTasks",
+		"DeleteActivityType",
+		"DeleteWorkflowType",
+		"DeprecateActivityType",
 		"DeprecateDomain",
+		"DeprecateWorkflowType",
+		"DescribeActivityType",
 		"DescribeDomain",
 		"DescribeWorkflowExecution",
+		"DescribeWorkflowType",
+		"ListActivityTypes",
 		"ListDomains",
 		"ListWorkflowTypes",
+		"RegisterActivityType",
 		"RegisterDomain",
 		"RegisterWorkflowType",
 		"StartWorkflowExecution",
+		"TerminateWorkflowExecution",
+		"UndeprecateActivityType",
+		"UndeprecateDomain",
+		"UndeprecateWorkflowType",
 	}
 }
 
@@ -118,21 +143,37 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RegisterDomain":            service.WrapOp(h.handleRegisterDomain),
-		"DescribeDomain":            service.WrapOp(h.handleDescribeDomain),
-		"ListDomains":               service.WrapOp(h.handleListDomains),
-		"DeprecateDomain":           service.WrapOp(h.handleDeprecateDomain),
-		"RegisterWorkflowType":      service.WrapOp(h.handleRegisterWorkflowType),
-		"ListWorkflowTypes":         service.WrapOp(h.handleListWorkflowTypes),
-		"StartWorkflowExecution":    service.WrapOp(h.handleStartWorkflowExecution),
-		"DescribeWorkflowExecution": service.WrapOp(h.handleDescribeWorkflowExecution),
+		"RegisterDomain":                service.WrapOp(h.handleRegisterDomain),
+		"DescribeDomain":                service.WrapOp(h.handleDescribeDomain),
+		"ListDomains":                   service.WrapOp(h.handleListDomains),
+		"DeprecateDomain":               service.WrapOp(h.handleDeprecateDomain),
+		"UndeprecateDomain":             service.WrapOp(h.handleUndeprecateDomain),
+		"RegisterWorkflowType":          service.WrapOp(h.handleRegisterWorkflowType),
+		"ListWorkflowTypes":             service.WrapOp(h.handleListWorkflowTypes),
+		"DescribeWorkflowType":          service.WrapOp(h.handleDescribeWorkflowType),
+		"DeprecateWorkflowType":         service.WrapOp(h.handleDeprecateWorkflowType),
+		"UndeprecateWorkflowType":       service.WrapOp(h.handleUndeprecateWorkflowType),
+		"DeleteWorkflowType":            service.WrapOp(h.handleDeleteWorkflowType),
+		"RegisterActivityType":          service.WrapOp(h.handleRegisterActivityType),
+		"ListActivityTypes":             service.WrapOp(h.handleListActivityTypes),
+		"DescribeActivityType":          service.WrapOp(h.handleDescribeActivityType),
+		"DeprecateActivityType":         service.WrapOp(h.handleDeprecateActivityType),
+		"UndeprecateActivityType":       service.WrapOp(h.handleUndeprecateActivityType),
+		"DeleteActivityType":            service.WrapOp(h.handleDeleteActivityType),
+		"CountOpenWorkflowExecutions":   service.WrapOp(h.handleCountOpenWorkflowExecutions),
+		"CountClosedWorkflowExecutions": service.WrapOp(h.handleCountClosedWorkflowExecutions),
+		"CountPendingActivityTasks":     service.WrapOp(h.handleCountPendingActivityTasks),
+		"CountPendingDecisionTasks":     service.WrapOp(h.handleCountPendingDecisionTasks),
+		"StartWorkflowExecution":        service.WrapOp(h.handleStartWorkflowExecution),
+		"TerminateWorkflowExecution":    service.WrapOp(h.handleTerminateWorkflowExecution),
+		"DescribeWorkflowExecution":     service.WrapOp(h.handleDescribeWorkflowExecution),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, ErrUnknownOperation
 	}
@@ -162,6 +203,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrTypeAlreadyExists):
 		code = http.StatusBadRequest
 		errType = "TypeAlreadyExistsFault"
+	case errors.Is(err, ErrTypeDeprecated):
+		code = http.StatusBadRequest
+		errType = "TypeDeprecatedFault"
+	case errors.Is(err, ErrValidation):
+		code = http.StatusBadRequest
+		errType = "ValidationException"
 	case errors.Is(err, ErrNotFound):
 		code = http.StatusNotFound
 		errType = "UnknownResourceFault"
@@ -277,17 +324,35 @@ func (h *Handler) handleDeprecateDomain(
 	return &deprecateDomainOutput{}, nil
 }
 
+type handleUndeprecateDomainInput struct {
+	Name string `json:"name"`
+}
+
+type undeprecateDomainOutput struct{}
+
+func (h *Handler) handleUndeprecateDomain(
+	_ context.Context,
+	in *handleUndeprecateDomainInput,
+) (*undeprecateDomainOutput, error) {
+	if err := h.Backend.UndeprecateDomain(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &undeprecateDomainOutput{}, nil
+}
+
 type handleRegisterWorkflowTypeInput struct {
-	Domain  string `json:"domain"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Domain      string `json:"domain"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
 }
 
 func (h *Handler) handleRegisterWorkflowType(
 	_ context.Context,
 	in *handleRegisterWorkflowTypeInput,
 ) (*registerWorkflowTypeOutput, error) {
-	if err := h.Backend.RegisterWorkflowType(in.Domain, in.Name, in.Version); err != nil {
+	if err := h.Backend.RegisterWorkflowType(in.Domain, in.Name, in.Version, in.Description); err != nil {
 		return nil, err
 	}
 
@@ -295,16 +360,17 @@ func (h *Handler) handleRegisterWorkflowType(
 }
 
 type handleListWorkflowTypesInput struct {
-	Domain          string `json:"domain"`
-	NextPageToken   string `json:"nextPageToken,omitempty"`
-	MaximumPageSize int    `json:"maximumPageSize,omitempty"`
+	Domain             string `json:"domain"`
+	RegistrationStatus string `json:"registrationStatus,omitempty"`
+	NextPageToken      string `json:"nextPageToken,omitempty"`
+	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
 }
 
 func (h *Handler) handleListWorkflowTypes(
 	_ context.Context,
 	in *handleListWorkflowTypesInput,
 ) (*listWorkflowTypesOutput, error) {
-	wts := h.Backend.ListWorkflowTypes(in.Domain)
+	wts := h.Backend.ListWorkflowTypes(in.Domain, in.RegistrationStatus)
 
 	sort.Slice(wts, func(i, j int) bool { return wts[i].Name < wts[j].Name })
 
@@ -353,6 +419,323 @@ func (h *Handler) handleDescribeWorkflowExecution(
 	}
 
 	return &describeWorkflowExecutionOutput{ExecutionInfo: exec}, nil
+}
+
+type handleTerminateWorkflowExecutionInput struct {
+	Domain     string `json:"domain"`
+	WorkflowID string `json:"workflowId"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type terminateWorkflowExecutionOutput struct{}
+
+func (h *Handler) handleTerminateWorkflowExecution(
+	_ context.Context,
+	in *handleTerminateWorkflowExecutionInput,
+) (*terminateWorkflowExecutionOutput, error) {
+	if err := h.Backend.TerminateWorkflowExecution(in.Domain, in.WorkflowID); err != nil {
+		return nil, err
+	}
+
+	return &terminateWorkflowExecutionOutput{}, nil
+}
+
+// workflowTypeRef identifies a workflow type by name and version.
+type workflowTypeRef struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// activityTypeRef identifies an activity type by name and version.
+type activityTypeRef struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type typeInfoOutput struct {
+	WorkflowType *workflowTypeRef `json:"workflowType,omitempty"`
+	ActivityType *activityTypeRef `json:"activityType,omitempty"`
+	Status       string           `json:"status"`
+	Description  string           `json:"description,omitempty"`
+}
+
+type typeConfigOutput struct{}
+
+type handleDescribeWorkflowTypeInput struct {
+	Domain       string          `json:"domain"`
+	WorkflowType workflowTypeRef `json:"workflowType"`
+}
+
+type describeWorkflowTypeOutput struct {
+	Configuration typeConfigOutput `json:"configuration"`
+	TypeInfo      typeInfoOutput   `json:"typeInfo"`
+}
+
+func (h *Handler) handleDescribeWorkflowType(
+	_ context.Context,
+	in *handleDescribeWorkflowTypeInput,
+) (*describeWorkflowTypeOutput, error) {
+	wt, err := h.Backend.DescribeWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeWorkflowTypeOutput{
+		TypeInfo: typeInfoOutput{
+			WorkflowType: &workflowTypeRef{Name: wt.Name, Version: wt.Version},
+			Status:       wt.Status,
+			Description:  wt.Description,
+		},
+	}, nil
+}
+
+type handleDeprecateWorkflowTypeInput struct {
+	Domain       string          `json:"domain"`
+	WorkflowType workflowTypeRef `json:"workflowType"`
+}
+
+type deprecateWorkflowTypeOutput struct{}
+
+func (h *Handler) handleDeprecateWorkflowType(
+	_ context.Context,
+	in *handleDeprecateWorkflowTypeInput,
+) (*deprecateWorkflowTypeOutput, error) {
+	if err := h.Backend.DeprecateWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
+		return nil, err
+	}
+
+	return &deprecateWorkflowTypeOutput{}, nil
+}
+
+type handleUndeprecateWorkflowTypeInput struct {
+	Domain       string          `json:"domain"`
+	WorkflowType workflowTypeRef `json:"workflowType"`
+}
+
+type undeprecateWorkflowTypeOutput struct{}
+
+func (h *Handler) handleUndeprecateWorkflowType(
+	_ context.Context,
+	in *handleUndeprecateWorkflowTypeInput,
+) (*undeprecateWorkflowTypeOutput, error) {
+	if err := h.Backend.UndeprecateWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
+		return nil, err
+	}
+
+	return &undeprecateWorkflowTypeOutput{}, nil
+}
+
+type handleDeleteWorkflowTypeInput struct {
+	Domain       string          `json:"domain"`
+	WorkflowType workflowTypeRef `json:"workflowType"`
+}
+
+type deleteWorkflowTypeOutput struct{}
+
+func (h *Handler) handleDeleteWorkflowType(
+	_ context.Context,
+	in *handleDeleteWorkflowTypeInput,
+) (*deleteWorkflowTypeOutput, error) {
+	if err := h.Backend.DeleteWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
+		return nil, err
+	}
+
+	return &deleteWorkflowTypeOutput{}, nil
+}
+
+type registerActivityTypeOutput struct{}
+
+type handleRegisterActivityTypeInput struct {
+	Domain      string `json:"domain"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+}
+
+func (h *Handler) handleRegisterActivityType(
+	_ context.Context,
+	in *handleRegisterActivityTypeInput,
+) (*registerActivityTypeOutput, error) {
+	if err := h.Backend.RegisterActivityType(in.Domain, in.Name, in.Version, in.Description); err != nil {
+		return nil, err
+	}
+
+	return &registerActivityTypeOutput{}, nil
+}
+
+type listActivityTypesOutput struct {
+	NextPageToken string         `json:"nextPageToken,omitempty"`
+	TypeInfos     []ActivityType `json:"typeInfos"`
+}
+
+type handleListActivityTypesInput struct {
+	Domain             string `json:"domain"`
+	RegistrationStatus string `json:"registrationStatus,omitempty"`
+	NextPageToken      string `json:"nextPageToken,omitempty"`
+	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
+}
+
+func (h *Handler) handleListActivityTypes(
+	_ context.Context,
+	in *handleListActivityTypesInput,
+) (*listActivityTypesOutput, error) {
+	ats := h.Backend.ListActivityTypes(in.Domain, in.RegistrationStatus)
+
+	sort.Slice(ats, func(i, j int) bool { return ats[i].Name < ats[j].Name })
+
+	ats, nextPageToken := applyPageTokenSlice(ats, in.NextPageToken, in.MaximumPageSize)
+
+	return &listActivityTypesOutput{TypeInfos: ats, NextPageToken: nextPageToken}, nil
+}
+
+type handleDescribeActivityTypeInput struct {
+	Domain       string          `json:"domain"`
+	ActivityType activityTypeRef `json:"activityType"`
+}
+
+type describeActivityTypeOutput struct {
+	Configuration typeConfigOutput `json:"configuration"`
+	TypeInfo      typeInfoOutput   `json:"typeInfo"`
+}
+
+func (h *Handler) handleDescribeActivityType(
+	_ context.Context,
+	in *handleDescribeActivityTypeInput,
+) (*describeActivityTypeOutput, error) {
+	at, err := h.Backend.DescribeActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeActivityTypeOutput{
+		TypeInfo: typeInfoOutput{
+			ActivityType: &activityTypeRef{Name: at.Name, Version: at.Version},
+			Status:       at.Status,
+			Description:  at.Description,
+		},
+	}, nil
+}
+
+type handleDeprecateActivityTypeInput struct {
+	Domain       string          `json:"domain"`
+	ActivityType activityTypeRef `json:"activityType"`
+}
+
+type deprecateActivityTypeOutput struct{}
+
+func (h *Handler) handleDeprecateActivityType(
+	_ context.Context,
+	in *handleDeprecateActivityTypeInput,
+) (*deprecateActivityTypeOutput, error) {
+	if err := h.Backend.DeprecateActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
+		return nil, err
+	}
+
+	return &deprecateActivityTypeOutput{}, nil
+}
+
+type handleUndeprecateActivityTypeInput struct {
+	Domain       string          `json:"domain"`
+	ActivityType activityTypeRef `json:"activityType"`
+}
+
+type undeprecateActivityTypeOutput struct{}
+
+func (h *Handler) handleUndeprecateActivityType(
+	_ context.Context,
+	in *handleUndeprecateActivityTypeInput,
+) (*undeprecateActivityTypeOutput, error) {
+	if err := h.Backend.UndeprecateActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
+		return nil, err
+	}
+
+	return &undeprecateActivityTypeOutput{}, nil
+}
+
+type handleDeleteActivityTypeInput struct {
+	Domain       string          `json:"domain"`
+	ActivityType activityTypeRef `json:"activityType"`
+}
+
+type deleteActivityTypeOutput struct{}
+
+func (h *Handler) handleDeleteActivityType(
+	_ context.Context,
+	in *handleDeleteActivityTypeInput,
+) (*deleteActivityTypeOutput, error) {
+	if err := h.Backend.DeleteActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
+		return nil, err
+	}
+
+	return &deleteActivityTypeOutput{}, nil
+}
+
+type taskListRef struct {
+	Name string `json:"name"`
+}
+
+type workflowExecutionCountOutput struct {
+	Count     int  `json:"count"`
+	Truncated bool `json:"truncated"`
+}
+
+type handleCountOpenWorkflowExecutionsInput struct {
+	Domain string `json:"domain"`
+}
+
+func (h *Handler) handleCountOpenWorkflowExecutions(
+	_ context.Context,
+	in *handleCountOpenWorkflowExecutionsInput,
+) (*workflowExecutionCountOutput, error) {
+	count := h.Backend.CountOpenWorkflowExecutions(in.Domain)
+
+	return &workflowExecutionCountOutput{Count: count}, nil
+}
+
+type handleCountClosedWorkflowExecutionsInput struct {
+	Domain string `json:"domain"`
+}
+
+func (h *Handler) handleCountClosedWorkflowExecutions(
+	_ context.Context,
+	in *handleCountClosedWorkflowExecutionsInput,
+) (*workflowExecutionCountOutput, error) {
+	count := h.Backend.CountClosedWorkflowExecutions(in.Domain)
+
+	return &workflowExecutionCountOutput{Count: count}, nil
+}
+
+type pendingTaskCountOutput struct {
+	Count     int  `json:"count"`
+	Truncated bool `json:"truncated"`
+}
+
+type handleCountPendingActivityTasksInput struct {
+	Domain   string      `json:"domain"`
+	TaskList taskListRef `json:"taskList"`
+}
+
+func (h *Handler) handleCountPendingActivityTasks(
+	_ context.Context,
+	in *handleCountPendingActivityTasksInput,
+) (*pendingTaskCountOutput, error) {
+	count := h.Backend.CountPendingActivityTasks(in.TaskList.Name)
+
+	return &pendingTaskCountOutput{Count: count}, nil
+}
+
+type handleCountPendingDecisionTasksInput struct {
+	Domain   string      `json:"domain"`
+	TaskList taskListRef `json:"taskList"`
+}
+
+func (h *Handler) handleCountPendingDecisionTasks(
+	_ context.Context,
+	in *handleCountPendingDecisionTasksInput,
+) (*pendingTaskCountOutput, error) {
+	count := h.Backend.CountPendingDecisionTasks(in.TaskList.Name)
+
+	return &pendingTaskCountOutput{Count: count}, nil
 }
 
 const defaultSWFMaxPageSize = 1000
