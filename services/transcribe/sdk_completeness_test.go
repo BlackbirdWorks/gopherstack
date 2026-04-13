@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := transcribe.NewInMemoryBackend()
 	h := transcribe.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &transcribesdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCallAnalyticsCategory",
-		"CreateLanguageModel",
-		"CreateMedicalVocabulary",
-		"CreateVocabulary",
-		"CreateVocabularyFilter",
-		"DeleteCallAnalyticsCategory",
-		"DeleteCallAnalyticsJob",
-		"DeleteLanguageModel",
-		"DeleteMedicalScribeJob",
-		"DeleteMedicalTranscriptionJob",
 		"DeleteMedicalVocabulary",
 		"DeleteVocabulary",
 		"DeleteVocabularyFilter",

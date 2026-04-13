@@ -25,11 +25,11 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Transcribe operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Transcribe handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -39,6 +39,16 @@ func (h *Handler) Name() string { return "Transcribe" }
 // GetSupportedOperations returns the list of supported Transcribe operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CreateCallAnalyticsCategory",
+		"CreateLanguageModel",
+		"CreateMedicalVocabulary",
+		"CreateVocabulary",
+		"CreateVocabularyFilter",
+		"DeleteCallAnalyticsCategory",
+		"DeleteCallAnalyticsJob",
+		"DeleteLanguageModel",
+		"DeleteMedicalScribeJob",
+		"DeleteMedicalTranscriptionJob",
 		"DeleteTranscriptionJob",
 		"GetTranscriptionJob",
 		"ListTranscriptionJobs",
@@ -108,10 +118,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"StartTranscriptionJob":  service.WrapOp(h.handleStartTranscriptionJob),
-		"GetTranscriptionJob":    service.WrapOp(h.handleGetTranscriptionJob),
-		"ListTranscriptionJobs":  service.WrapOp(h.handleListTranscriptionJobs),
-		"DeleteTranscriptionJob": service.WrapOp(h.handleDeleteTranscriptionJob),
+		"StartTranscriptionJob":         service.WrapOp(h.handleStartTranscriptionJob),
+		"GetTranscriptionJob":           service.WrapOp(h.handleGetTranscriptionJob),
+		"ListTranscriptionJobs":         service.WrapOp(h.handleListTranscriptionJobs),
+		"DeleteTranscriptionJob":        service.WrapOp(h.handleDeleteTranscriptionJob),
+		"CreateCallAnalyticsCategory":   service.WrapOp(h.handleCreateCallAnalyticsCategory),
+		"DeleteCallAnalyticsCategory":   service.WrapOp(h.handleDeleteCallAnalyticsCategory),
+		"CreateLanguageModel":           service.WrapOp(h.handleCreateLanguageModel),
+		"DeleteLanguageModel":           service.WrapOp(h.handleDeleteLanguageModel),
+		"CreateMedicalVocabulary":       service.WrapOp(h.handleCreateMedicalVocabulary),
+		"CreateVocabulary":              service.WrapOp(h.handleCreateVocabulary),
+		"CreateVocabularyFilter":        service.WrapOp(h.handleCreateVocabularyFilter),
+		"DeleteCallAnalyticsJob":        service.WrapOp(h.handleDeleteCallAnalyticsJob),
+		"DeleteMedicalScribeJob":        service.WrapOp(h.handleDeleteMedicalScribeJob),
+		"DeleteMedicalTranscriptionJob": service.WrapOp(h.handleDeleteMedicalTranscriptionJob),
 	}
 }
 
@@ -264,6 +284,262 @@ func (h *Handler) handleDeleteTranscriptionJob(
 	in *transcriptionJobNameInput,
 ) (*struct{}, error) {
 	if err := h.Backend.DeleteTranscriptionJob(in.TranscriptionJobName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- CreateCallAnalyticsCategory ---
+
+type createCallAnalyticsCategoryInput struct {
+	CategoryName string `json:"CategoryName"`
+	InputType    string `json:"InputType"`
+}
+
+type callAnalyticsCategoryProperties struct {
+	CategoryName string `json:"CategoryName"`
+	InputType    string `json:"InputType,omitempty"`
+}
+
+type createCallAnalyticsCategoryOutput struct {
+	CategoryProperties *callAnalyticsCategoryProperties `json:"CategoryProperties"`
+}
+
+func (h *Handler) handleCreateCallAnalyticsCategory(
+	_ context.Context,
+	in *createCallAnalyticsCategoryInput,
+) (*createCallAnalyticsCategoryOutput, error) {
+	if in.CategoryName == "" {
+		return nil, fmt.Errorf("%w: CategoryName is required", errInvalidRequest)
+	}
+
+	cat, err := h.Backend.CreateCallAnalyticsCategory(in.CategoryName, in.InputType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createCallAnalyticsCategoryOutput{
+		CategoryProperties: &callAnalyticsCategoryProperties{
+			CategoryName: cat.CategoryName,
+			InputType:    cat.InputType,
+		},
+	}, nil
+}
+
+// --- DeleteCallAnalyticsCategory ---
+
+type deleteCallAnalyticsCategoryInput struct {
+	CategoryName string `json:"CategoryName"`
+}
+
+func (h *Handler) handleDeleteCallAnalyticsCategory(
+	_ context.Context,
+	in *deleteCallAnalyticsCategoryInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteCallAnalyticsCategory(in.CategoryName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- CreateLanguageModel ---
+
+type createLanguageModelInput struct {
+	ModelName     string `json:"ModelName"`
+	BaseModelName string `json:"BaseModelName"`
+	LanguageCode  string `json:"LanguageCode"`
+}
+
+type createLanguageModelOutput struct {
+	ModelName     string `json:"ModelName"`
+	BaseModelName string `json:"BaseModelName"`
+	LanguageCode  string `json:"LanguageCode"`
+	ModelStatus   string `json:"ModelStatus"`
+}
+
+func (h *Handler) handleCreateLanguageModel(
+	_ context.Context,
+	in *createLanguageModelInput,
+) (*createLanguageModelOutput, error) {
+	if in.ModelName == "" {
+		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
+	}
+
+	m, err := h.Backend.CreateLanguageModel(in.ModelName, in.BaseModelName, in.LanguageCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLanguageModelOutput{
+		ModelName:     m.ModelName,
+		BaseModelName: m.BaseModelName,
+		LanguageCode:  m.LanguageCode,
+		ModelStatus:   m.ModelStatus,
+	}, nil
+}
+
+// --- DeleteLanguageModel ---
+
+type deleteLanguageModelInput struct {
+	ModelName string `json:"ModelName"`
+}
+
+func (h *Handler) handleDeleteLanguageModel(
+	_ context.Context,
+	in *deleteLanguageModelInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteLanguageModel(in.ModelName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- CreateMedicalVocabulary ---
+
+type createMedicalVocabularyInput struct {
+	VocabularyName    string `json:"VocabularyName"`
+	LanguageCode      string `json:"LanguageCode"`
+	VocabularyFileURI string `json:"VocabularyFileUri"`
+}
+
+type createMedicalVocabularyOutput struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+func (h *Handler) handleCreateMedicalVocabulary(
+	_ context.Context,
+	in *createMedicalVocabularyInput,
+) (*createMedicalVocabularyOutput, error) {
+	if in.VocabularyName == "" {
+		return nil, fmt.Errorf("%w: VocabularyName is required", errInvalidRequest)
+	}
+
+	v, err := h.Backend.CreateMedicalVocabulary(in.VocabularyName, in.LanguageCode, in.VocabularyFileURI)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createMedicalVocabularyOutput{
+		VocabularyName:  v.VocabularyName,
+		LanguageCode:    v.LanguageCode,
+		VocabularyState: v.VocabularyState,
+	}, nil
+}
+
+// --- CreateVocabulary ---
+
+type createVocabularyInput struct {
+	VocabularyName string `json:"VocabularyName"`
+	LanguageCode   string `json:"LanguageCode"`
+}
+
+type createVocabularyOutput struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+func (h *Handler) handleCreateVocabulary(
+	_ context.Context,
+	in *createVocabularyInput,
+) (*createVocabularyOutput, error) {
+	if in.VocabularyName == "" {
+		return nil, fmt.Errorf("%w: VocabularyName is required", errInvalidRequest)
+	}
+
+	v, err := h.Backend.CreateVocabulary(in.VocabularyName, in.LanguageCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createVocabularyOutput{
+		VocabularyName:  v.VocabularyName,
+		LanguageCode:    v.LanguageCode,
+		VocabularyState: v.VocabularyState,
+	}, nil
+}
+
+// --- CreateVocabularyFilter ---
+
+type createVocabularyFilterInput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+	LanguageCode         string `json:"LanguageCode"`
+}
+
+type createVocabularyFilterOutput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+	LanguageCode         string `json:"LanguageCode"`
+}
+
+func (h *Handler) handleCreateVocabularyFilter(
+	_ context.Context,
+	in *createVocabularyFilterInput,
+) (*createVocabularyFilterOutput, error) {
+	if in.VocabularyFilterName == "" {
+		return nil, fmt.Errorf("%w: VocabularyFilterName is required", errInvalidRequest)
+	}
+
+	f, err := h.Backend.CreateVocabularyFilter(in.VocabularyFilterName, in.LanguageCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createVocabularyFilterOutput{
+		VocabularyFilterName: f.VocabularyFilterName,
+		LanguageCode:         f.LanguageCode,
+	}, nil
+}
+
+// --- DeleteCallAnalyticsJob ---
+
+type deleteCallAnalyticsJobInput struct {
+	CallAnalyticsJobName string `json:"CallAnalyticsJobName"`
+}
+
+func (h *Handler) handleDeleteCallAnalyticsJob(
+	_ context.Context,
+	in *deleteCallAnalyticsJobInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteCallAnalyticsJob(in.CallAnalyticsJobName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- DeleteMedicalScribeJob ---
+
+type deleteMedicalScribeJobInput struct {
+	MedicalScribeJobName string `json:"MedicalScribeJobName"`
+}
+
+func (h *Handler) handleDeleteMedicalScribeJob(
+	_ context.Context,
+	in *deleteMedicalScribeJobInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteMedicalScribeJob(in.MedicalScribeJobName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- DeleteMedicalTranscriptionJob ---
+
+type deleteMedicalTranscriptionJobInput struct {
+	MedicalTranscriptionJobName string `json:"MedicalTranscriptionJobName"`
+}
+
+func (h *Handler) handleDeleteMedicalTranscriptionJob(
+	_ context.Context,
+	in *deleteMedicalTranscriptionJobInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteMedicalTranscriptionJob(in.MedicalTranscriptionJobName); err != nil {
 		return nil, err
 	}
 
