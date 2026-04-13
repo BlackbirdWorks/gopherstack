@@ -29,7 +29,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *support.InMemoryBackend, id string) {
 				t.Helper()
 
-				cases := b.DescribeCases([]string{id})
+				cases := b.DescribeCases([]string{id}, true)
 				require.Len(t, cases, 1)
 				assert.Equal(t, id, cases[0].CaseID)
 				assert.Equal(t, "test subject", cases[0].Subject)
@@ -41,7 +41,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *support.InMemoryBackend, _ string) {
 				t.Helper()
 
-				cases := b.DescribeCases(nil)
+				cases := b.DescribeCases(nil, false)
 				assert.Empty(t, cases)
 			},
 		},

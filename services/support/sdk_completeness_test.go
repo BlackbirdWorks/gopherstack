@@ -17,15 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := support.NewInMemoryBackend()
 	h := support.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &supportsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeAttachment",
-		"DescribeCreateCaseOptions",
-		"DescribeServices",
-		"DescribeSeverityLevels",
-		"DescribeSupportedLanguages",
-		"DescribeTrustedAdvisorCheckRefreshStatuses",
-		"DescribeTrustedAdvisorCheckResult",
-		"DescribeTrustedAdvisorCheckSummaries",
-		"RefreshTrustedAdvisorCheck",
-	})
+	sdkcheck.CheckCompleteness(t, &supportsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
