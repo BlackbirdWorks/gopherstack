@@ -60,6 +60,18 @@ var (
 
 	// ErrSessionNotFound is returned when a session lookup by access key ID yields no result.
 	ErrSessionNotFound = errors.New("session not found")
+
+	// ErrInvalidSessionName is returned when the session name does not meet AWS length requirements.
+	ErrInvalidSessionName = errors.New("session name must be 2-64 characters")
+
+	// ErrInvalidFederationName is returned when the federation token name does not meet AWS length requirements.
+	ErrInvalidFederationName = errors.New("federation token name must be 2-32 characters")
+
+	// ErrMissingEncodedMessage is returned when DecodeAuthorizationMessage is called without an EncodedMessage.
+	ErrMissingEncodedMessage = errors.New("EncodedMessage is required for DecodeAuthorizationMessage")
+
+	// ErrValidation is returned when a parameter value fails semantic validation.
+	ErrValidation = errors.New("invalid parameter value")
 )
 
 const (
@@ -89,6 +101,25 @@ const (
 	rootSessionName      = "root"
 	delegatedSessionName = "delegated"
 )
+
+// validateRoleSessionName checks that the session name meets AWS length requirements.
+func validateRoleSessionName(name string) error {
+	if len(name) < MinRoleSessionNameLen || len(name) > MaxRoleSessionNameLen {
+		return fmt.Errorf("%w: got length %d", ErrInvalidSessionName, len(name))
+	}
+
+	return nil
+}
+
+// isValidWebIdentitySigningAlgorithm reports whether the given signing algorithm is supported.
+func isValidWebIdentitySigningAlgorithm(alg string) bool {
+	switch alg {
+	case "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512":
+		return true
+	}
+
+	return false
+}
 
 // RoleLookup is implemented by services (e.g. IAM) that can provide role metadata
 // to STS for ExternalId validation and MaxSessionDuration enforcement.
@@ -166,6 +197,10 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 
 	if input.RoleSessionName == "" {
 		return nil, ErrMissingSessionName
+	}
+
+	if err := validateRoleSessionName(input.RoleSessionName); err != nil {
+		return nil, err
 	}
 
 	duration := input.DurationSeconds
@@ -268,6 +303,11 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 	b.sessions[accessKeyID] = session
 	b.mu.Unlock()
 
+	var packedPolicySize int32
+	if input.Policy != "" {
+		packedPolicySize = 50
+	}
+
 	result := AssumeRoleResult{
 		AssumedRoleUser: AssumedRoleUser{
 			Arn:           assumedRoleArn,
@@ -279,7 +319,8 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 			SessionToken:    sessionToken,
 			Expiration:      expiration.Format(time.RFC3339),
 		},
-		SourceIdentity: input.SourceIdentity,
+		SourceIdentity:   input.SourceIdentity,
+		PackedPolicySize: packedPolicySize,
 	}
 
 	return &AssumeRoleResponse{
@@ -358,6 +399,20 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 
+	// Store session for GetCallerIdentity lookups.
+	session := &SessionInfo{
+		Expiration:     expiration,
+		AssumedRoleArn: MockUserArn,
+		AccountID:      b.accountID,
+		SessionName:    "session-token",
+		AccessKeyID:    accessKeyID,
+		AssumedRoleID:  MockUserID,
+	}
+
+	b.mu.Lock()
+	b.sessions[accessKeyID] = session
+	b.mu.Unlock()
+
 	return &GetSessionTokenResponse{
 		Xmlns: STSNamespace,
 		GetSessionTokenResult: GetSessionTokenResult{
@@ -377,6 +432,10 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error) {
 	if input.Name == "" {
 		return nil, ErrMissingFederationTokenName
+	}
+
+	if len(input.Name) < MinFederationTokenNameLen || len(input.Name) > MaxFederationTokenNameLen {
+		return nil, fmt.Errorf("%w: got length %d", ErrInvalidFederationName, len(input.Name))
 	}
 
 	duration := input.DurationSeconds
@@ -456,6 +515,10 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		return nil, ErrMissingSessionName
 	}
 
+	if err := validateRoleSessionName(input.RoleSessionName); err != nil {
+		return nil, err
+	}
+
 	if input.WebIdentityToken == "" {
 		return nil, ErrMissingWebIdentityToken
 	}
@@ -498,15 +561,7 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	}
 
 	subject := extractWebIdentitySubject(input.WebIdentityToken)
-	audience := extractWebIdentityAudience(input.WebIdentityToken)
-	provider := input.ProviderID
-	if provider == "" {
-		provider = "cognito-identity.amazonaws.com"
-	}
-
-	if audience == "" {
-		audience = provider
-	}
+	provider, audience := resolveWebIdentityProvider(input.WebIdentityToken, input.ProviderID)
 
 	session := &SessionInfo{
 		Expiration:     expiration,
@@ -522,6 +577,11 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	b.mu.Lock()
 	b.sessions[accessKeyID] = session
 	b.mu.Unlock()
+
+	var packedPolicySize int32
+	if input.Policy != "" {
+		packedPolicySize = 50
+	}
 
 	return &AssumeRoleWithWebIdentityResponse{
 		Xmlns: STSNamespace,
@@ -540,6 +600,7 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 			Audience:                    audience,
 			Provider:                    provider,
 			SourceIdentity:              input.SourceIdentity,
+			PackedPolicySize:            packedPolicySize,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
@@ -794,6 +855,10 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 		return nil, ErrMissingSigningAlgorithm
 	}
 
+	if !isValidWebIdentitySigningAlgorithm(input.SigningAlgorithm) {
+		return nil, fmt.Errorf("%w: unsupported signing algorithm %q", ErrValidation, input.SigningAlgorithm)
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = DefaultWebIdentityTokenDurationSeconds
@@ -807,15 +872,18 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+	now := time.Now().UTC()
+	issuer := "https://sts.mock.aws.com/" + b.accountID
 
 	// Build a minimal mock JWT payload (unsigned, for testing purposes only).
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"mock","typ":"JWT"}`))
 	payload, err := json.Marshal(map[string]any{
 		"sub": MockUserID,
 		"aud": input.Audience,
-		"iss": "https://sts.amazonaws.com",
+		"iss": issuer,
 		"exp": expiration.Unix(),
-		"iat": time.Now().UTC().Unix(),
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
 		"acc": b.accountID,
 	})
 	if err != nil {
@@ -875,6 +943,67 @@ func extractWebIdentitySubject(token string) string {
 	}
 
 	return webIdentitySubjectPlaceholder
+}
+
+// extractWebIdentityIssuer attempts to extract the "iss" claim from a JWT token's
+// payload without validating the signature. Returns an empty string if extraction fails.
+func extractWebIdentityIssuer(token string) string {
+	parts := strings.SplitN(token, ".", jwtPartCount)
+	if len(parts) < jwtMinParts {
+		return ""
+	}
+
+	rawPayload := parts[1]
+	paddedPayload := rawPayload
+
+	switch len(rawPayload) % 4 {
+	case base64Pad2:
+		paddedPayload += "=="
+	case base64Pad1:
+		paddedPayload += "="
+	}
+
+	decoded, decodeErr := base64.URLEncoding.DecodeString(paddedPayload)
+	if decodeErr != nil {
+		var fallbackErr error
+
+		decoded, fallbackErr = base64.RawURLEncoding.DecodeString(rawPayload)
+		if fallbackErr != nil {
+			return ""
+		}
+	}
+
+	var claims map[string]any
+	if unmarshalErr := json.Unmarshal(decoded, &claims); unmarshalErr != nil {
+		return ""
+	}
+
+	if iss, ok := claims["iss"].(string); ok && iss != "" {
+		return iss
+	}
+
+	return ""
+}
+
+// resolveWebIdentityProvider resolves the OIDC provider and audience from the token and input.
+// The providerID, when non-empty, overrides the issuer extracted from the JWT.
+func resolveWebIdentityProvider(token, providerID string) (string, string) {
+	issuer := extractWebIdentityIssuer(token)
+	if providerID != "" {
+		issuer = providerID
+	}
+
+	provider := issuer
+	if provider == "" {
+		provider = "cognito-identity.amazonaws.com"
+	}
+
+	audience := extractWebIdentityAudience(token)
+	if audience == "" {
+		audience = provider
+	}
+
+	return provider, audience
 }
 
 // validateExternalID parses a trust policy JSON document and validates that the

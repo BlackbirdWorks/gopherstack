@@ -55,12 +55,36 @@ const (
 
 	// MaxAudienceCount is the maximum number of audience entries for GetWebIdentityToken.
 	MaxAudienceCount = 10
+
+	// MinRoleSessionNameLen is the minimum allowed session name length per AWS.
+	MinRoleSessionNameLen = 2
+
+	// MaxRoleSessionNameLen is the maximum allowed session name length per AWS.
+	MaxRoleSessionNameLen = 64
+
+	// MaxFederationTokenNameLen is the maximum allowed federation token name length per AWS.
+	MaxFederationTokenNameLen = 32
+
+	// MinFederationTokenNameLen is the minimum allowed federation token name length per AWS.
+	MinFederationTokenNameLen = 2
+
+	// MaxPolicyArnsCount is the maximum number of managed policy ARNs allowed per operation.
+	MaxPolicyArnsCount = 10
+
+	// MaxProvidedContextsCount is the maximum number of provided contexts per operation.
+	MaxProvidedContextsCount = 5
 )
 
 // Tag represents a session tag key-value pair passed to AssumeRole.
 type Tag struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+// ProvidedContext carries a federated identity context assertion.
+type ProvidedContext struct {
+	ProviderArn      string
+	ContextAssertion string
 }
 
 // AssumeRoleInput holds the parameters for an AssumeRole call.
@@ -72,6 +96,8 @@ type AssumeRoleInput struct {
 	SourceIdentity    string
 	Tags              []Tag
 	TransitiveTagKeys []string
+	PolicyArns        []string
+	ProvidedContexts  []ProvidedContext
 	DurationSeconds   int32
 }
 
@@ -242,6 +268,7 @@ type AssumeRoleWithWebIdentityInput struct {
 	Policy           string
 	SourceIdentity   string
 	Tags             []Tag
+	PolicyArns       []string
 	DurationSeconds  int32
 }
 
@@ -253,6 +280,7 @@ type AssumeRoleWithSAMLInput struct {
 	Policy          string
 	RoleSessionName string
 	SourceIdentity  string
+	PolicyArns      []string
 	DurationSeconds int32
 }
 
