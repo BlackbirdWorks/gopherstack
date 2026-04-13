@@ -20,6 +20,10 @@ var (
 	ErrPolicyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrPolicyTemplateNotFound is returned when a policy template is not found.
 	ErrPolicyTemplateNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrIdentitySourceNotFound is returned when an identity source is not found.
+	ErrIdentitySourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrSchemaNotFound is returned when no schema has been set for a policy store.
+	ErrSchemaNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
 
 // PolicyStore represents an Amazon Verified Permissions policy store.
@@ -52,6 +56,68 @@ type PolicyTemplate struct {
 	PolicyTemplateID string    `json:"policyTemplateID"`
 	Description      string    `json:"description"`
 	Statement        string    `json:"statement"`
+}
+
+// IdentitySource represents an Amazon Verified Permissions identity source.
+type IdentitySource struct {
+	CreatedDate         time.Time `json:"createdDate"`
+	LastUpdated         time.Time `json:"lastUpdated"`
+	IdentitySourceID    string    `json:"identitySourceId"`
+	PolicyStoreID       string    `json:"policyStoreId"`
+	PrincipalEntityType string    `json:"principalEntityType"`
+	UserPoolArn         string    `json:"userPoolArn,omitempty"`
+	OpenIDIssuer        string    `json:"openIdIssuer,omitempty"`
+	ClientIDs           []string  `json:"clientIds,omitempty"`
+}
+
+// PolicyStoreSchema holds the Cedar schema for a policy store.
+type PolicyStoreSchema struct {
+	CreatedDate time.Time `json:"createdDate"`
+	LastUpdated time.Time `json:"lastUpdated"`
+	Schema      string    `json:"schema"`
+}
+
+// AuthorizationRequest represents a single authorization evaluation request.
+type AuthorizationRequest struct {
+	PrincipalEntityType string `json:"principalEntityType,omitempty"`
+	PrincipalEntityID   string `json:"principalEntityId,omitempty"`
+	ActionType          string `json:"actionType,omitempty"`
+	ActionID            string `json:"actionId,omitempty"`
+	ResourceEntityType  string `json:"resourceEntityType,omitempty"`
+	ResourceEntityID    string `json:"resourceEntityId,omitempty"`
+}
+
+// AuthDecision is the result of a single authorization evaluation.
+type AuthDecision struct {
+	Decision string               `json:"decision"`
+	Request  AuthorizationRequest `json:"request"`
+}
+
+// BatchGetPolicyItem identifies a policy to retrieve in a batch request.
+type BatchGetPolicyItem struct {
+	PolicyStoreID string `json:"policyStoreId"`
+	PolicyID      string `json:"policyId"`
+}
+
+// BatchGetPolicyResult holds the results of a BatchGetPolicy call.
+type BatchGetPolicyResult struct {
+	Results []batchGetPolicyOutputItem `json:"results"`
+	Errors  []batchGetPolicyErrorItem  `json:"errors"`
+}
+
+type batchGetPolicyOutputItem struct {
+	PolicyStoreID   string `json:"policyStoreId"`
+	PolicyID        string `json:"policyId"`
+	PolicyType      string `json:"policyType"`
+	CreatedDate     string `json:"createdDate"`
+	LastUpdatedDate string `json:"lastUpdatedDate"`
+}
+
+type batchGetPolicyErrorItem struct {
+	PolicyStoreID string `json:"policyStoreId"`
+	PolicyID      string `json:"policyId"`
+	Code          string `json:"code"`
+	Message       string `json:"message"`
 }
 
 // policyStoreARN builds the ARN for a policy store.
@@ -87,6 +153,8 @@ type InMemoryBackend struct {
 	policyStores    map[string]*PolicyStore
 	policies        map[string]map[string]*Policy         // policyStoreID -> policyID -> Policy
 	policyTemplates map[string]map[string]*PolicyTemplate // policyStoreID -> templateID -> PolicyTemplate
+	identitySources map[string]map[string]*IdentitySource // policyStoreID -> identitySourceID -> IdentitySource
+	schemas         map[string]*PolicyStoreSchema         // policyStoreID -> schema
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -98,6 +166,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		policyStores:    make(map[string]*PolicyStore),
 		policies:        make(map[string]map[string]*Policy),
 		policyTemplates: make(map[string]map[string]*PolicyTemplate),
+		identitySources: make(map[string]map[string]*IdentitySource),
+		schemas:         make(map[string]*PolicyStoreSchema),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("verifiedpermissions"),
@@ -127,6 +197,7 @@ func (b *InMemoryBackend) CreatePolicyStore(description string, tags map[string]
 	b.policyStores[id] = ps
 	b.policies[id] = make(map[string]*Policy)
 	b.policyTemplates[id] = make(map[string]*PolicyTemplate)
+	b.identitySources[id] = make(map[string]*IdentitySource)
 
 	return clonePolicyStore(ps), nil
 }
@@ -189,6 +260,8 @@ func (b *InMemoryBackend) DeletePolicyStore(policyStoreID string) error {
 	delete(b.policyStores, policyStoreID)
 	delete(b.policies, policyStoreID)
 	delete(b.policyTemplates, policyStoreID)
+	delete(b.identitySources, policyStoreID)
+	delete(b.schemas, policyStoreID)
 
 	return nil
 }
@@ -421,6 +494,8 @@ func (b *InMemoryBackend) Reset() {
 	b.policyStores = make(map[string]*PolicyStore)
 	b.policies = make(map[string]map[string]*Policy)
 	b.policyTemplates = make(map[string]map[string]*PolicyTemplate)
+	b.identitySources = make(map[string]map[string]*IdentitySource)
+	b.schemas = make(map[string]*PolicyStoreSchema)
 }
 
 // TagResource adds or updates tags on a policy store identified by its ARN.
@@ -473,4 +548,255 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	}
 
 	return nil, fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+}
+
+// BatchGetPolicy retrieves multiple policies in a single request.
+func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPolicyResult {
+	b.mu.RLock("BatchGetPolicy")
+	defer b.mu.RUnlock()
+
+	result := BatchGetPolicyResult{
+		Results: make([]batchGetPolicyOutputItem, 0),
+		Errors:  make([]batchGetPolicyErrorItem, 0),
+	}
+
+	for _, item := range items {
+		policies, ok := b.policies[item.PolicyStoreID]
+		if !ok {
+			result.Errors = append(result.Errors, batchGetPolicyErrorItem{
+				PolicyStoreID: item.PolicyStoreID,
+				PolicyID:      item.PolicyID,
+				Code:          "POLICY_STORE_NOT_FOUND",
+				Message:       fmt.Sprintf("policy store %s not found", item.PolicyStoreID),
+			})
+
+			continue
+		}
+
+		p, ok := policies[item.PolicyID]
+		if !ok {
+			result.Errors = append(result.Errors, batchGetPolicyErrorItem{
+				PolicyStoreID: item.PolicyStoreID,
+				PolicyID:      item.PolicyID,
+				Code:          "POLICY_NOT_FOUND",
+				Message:       fmt.Sprintf("policy %s not found", item.PolicyID),
+			})
+
+			continue
+		}
+
+		result.Results = append(result.Results, batchGetPolicyOutputItem{
+			PolicyStoreID:   p.PolicyStoreID,
+			PolicyID:        p.PolicyID,
+			PolicyType:      p.PolicyType,
+			CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
+			LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		})
+	}
+
+	return result
+}
+
+// BatchIsAuthorized evaluates a batch of authorization requests.
+// In this in-memory implementation all requests return ALLOW when the policy store exists.
+func (b *InMemoryBackend) BatchIsAuthorized(
+	policyStoreID string,
+	requests []AuthorizationRequest,
+) ([]AuthDecision, error) {
+	b.mu.RLock("BatchIsAuthorized")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	decisions := make([]AuthDecision, 0, len(requests))
+
+	for _, req := range requests {
+		decisions = append(decisions, AuthDecision{
+			Decision: "ALLOW",
+			Request:  req,
+		})
+	}
+
+	return decisions, nil
+}
+
+// BatchIsAuthorizedWithToken evaluates a batch of authorization requests using a token.
+// In this in-memory implementation all requests return ALLOW when the policy store exists.
+func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
+	policyStoreID string,
+	requests []AuthorizationRequest,
+) ([]AuthDecision, error) {
+	b.mu.RLock("BatchIsAuthorizedWithToken")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	decisions := make([]AuthDecision, 0, len(requests))
+
+	for _, req := range requests {
+		decisions = append(decisions, AuthDecision{
+			Decision: "ALLOW",
+			Request:  req,
+		})
+	}
+
+	return decisions, nil
+}
+
+// CreateIdentitySource creates a new identity source in the given policy store.
+func (b *InMemoryBackend) CreateIdentitySource(
+	policyStoreID, userPoolArn, openIDIssuer, principalEntityType string,
+	clientIDs []string,
+) (*IdentitySource, error) {
+	b.mu.Lock("CreateIdentitySource")
+	defer b.mu.Unlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	id := uuid.NewString()
+	now := time.Now()
+
+	cloned := make([]string, len(clientIDs))
+	copy(cloned, clientIDs)
+
+	is := &IdentitySource{
+		IdentitySourceID:    id,
+		PolicyStoreID:       policyStoreID,
+		PrincipalEntityType: principalEntityType,
+		UserPoolArn:         userPoolArn,
+		ClientIDs:           cloned,
+		OpenIDIssuer:        openIDIssuer,
+		CreatedDate:         now,
+		LastUpdated:         now,
+	}
+
+	if b.identitySources[policyStoreID] == nil {
+		b.identitySources[policyStoreID] = make(map[string]*IdentitySource)
+	}
+
+	b.identitySources[policyStoreID][id] = is
+
+	return cloneIdentitySource(is), nil
+}
+
+// GetIdentitySource returns the identity source with the given ID.
+func (b *InMemoryBackend) GetIdentitySource(policyStoreID, identitySourceID string) (*IdentitySource, error) {
+	b.mu.RLock("GetIdentitySource")
+	defer b.mu.RUnlock()
+
+	sources, ok := b.identitySources[policyStoreID]
+	if !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	is, ok := sources[identitySourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
+	}
+
+	return cloneIdentitySource(is), nil
+}
+
+// DeleteIdentitySource removes an identity source from the given policy store.
+func (b *InMemoryBackend) DeleteIdentitySource(policyStoreID, identitySourceID string) error {
+	b.mu.Lock("DeleteIdentitySource")
+	defer b.mu.Unlock()
+
+	sources, ok := b.identitySources[policyStoreID]
+	if !ok {
+		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	if _, exists := sources[identitySourceID]; !exists {
+		return fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
+	}
+
+	delete(sources, identitySourceID)
+
+	return nil
+}
+
+// PutSchema creates or replaces the schema for a policy store.
+func (b *InMemoryBackend) PutSchema(policyStoreID, schema string) error {
+	b.mu.Lock("PutSchema")
+	defer b.mu.Unlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	existing, ok := b.schemas[policyStoreID]
+	if ok {
+		existing.Schema = schema
+		existing.LastUpdated = time.Now()
+	} else {
+		now := time.Now()
+		b.schemas[policyStoreID] = &PolicyStoreSchema{
+			Schema:      schema,
+			CreatedDate: now,
+			LastUpdated: now,
+		}
+	}
+
+	return nil
+}
+
+// GetSchema returns the schema for a policy store.
+func (b *InMemoryBackend) GetSchema(policyStoreID string) (*PolicyStoreSchema, error) {
+	b.mu.RLock("GetSchema")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	s, ok := b.schemas[policyStoreID]
+	if !ok {
+		return nil, fmt.Errorf("%w: no schema found for policy store %s", ErrSchemaNotFound, policyStoreID)
+	}
+
+	cp := *s
+
+	return &cp, nil
+}
+
+// cloneIdentitySource returns a deep copy of an IdentitySource.
+func cloneIdentitySource(is *IdentitySource) *IdentitySource {
+	cp := *is
+
+	if len(is.ClientIDs) > 0 {
+		cp.ClientIDs = make([]string, len(is.ClientIDs))
+		copy(cp.ClientIDs, is.ClientIDs)
+	}
+
+	return &cp
+}
+
+// ListIdentitySources returns all identity sources for a policy store sorted by creation date.
+func (b *InMemoryBackend) ListIdentitySources(policyStoreID string) ([]IdentitySource, error) {
+	b.mu.RLock("ListIdentitySources")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policyStores[policyStoreID]; !ok {
+		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	sources := b.identitySources[policyStoreID]
+	out := make([]IdentitySource, 0, len(sources))
+
+	for _, is := range sources {
+		out = append(out, *cloneIdentitySource(is))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedDate.Before(out[j].CreatedDate)
+	})
+
+	return out, nil
 }

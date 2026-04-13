@@ -6,6 +6,8 @@ type backendSnapshot struct {
 	PolicyStores    map[string]*PolicyStore               `json:"policyStores"`
 	Policies        map[string]map[string]*Policy         `json:"policies"`
 	PolicyTemplates map[string]map[string]*PolicyTemplate `json:"policyTemplates"`
+	IdentitySources map[string]map[string]*IdentitySource `json:"identitySources"`
+	Schemas         map[string]*PolicyStoreSchema         `json:"schemas"`
 	AccountID       string                                `json:"accountID"`
 	Region          string                                `json:"region"`
 }
@@ -19,6 +21,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		PolicyStores:    b.policyStores,
 		Policies:        b.policies,
 		PolicyTemplates: b.policyTemplates,
+		IdentitySources: b.identitySources,
+		Schemas:         b.schemas,
 		AccountID:       b.accountID,
 		Region:          b.region,
 	}
@@ -55,9 +59,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.PolicyTemplates = make(map[string]map[string]*PolicyTemplate)
 	}
 
+	if snap.IdentitySources == nil {
+		snap.IdentitySources = make(map[string]map[string]*IdentitySource)
+	}
+
+	if snap.Schemas == nil {
+		snap.Schemas = make(map[string]*PolicyStoreSchema)
+	}
+
 	b.policyStores = snap.PolicyStores
 	b.policies = snap.Policies
 	b.policyTemplates = snap.PolicyTemplates
+	b.identitySources = snap.IdentitySources
+	b.schemas = snap.Schemas
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

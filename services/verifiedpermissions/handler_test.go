@@ -1237,3 +1237,893 @@ func TestVPHandler_CreatePolicyStore_WithTags(t *testing.T) {
 	assert.NotEmpty(t, resp["policyStoreId"])
 	assert.NotEmpty(t, resp["arn"])
 }
+
+// createTestPolicyStore is a helper to create a policy store and return its ID.
+func createTestPolicyStore(t *testing.T, h *verifiedpermissions.Handler) string {
+	t.Helper()
+
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp["policyStoreId"].(string)
+}
+
+func TestVPHandler_BatchGetPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) map[string]any
+		check    func(*testing.T, map[string]any)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "batch get existing policies",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) map[string]any {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+
+				rec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+					"policyStoreId": storeID,
+					"definition": map[string]any{
+						"static": map[string]any{"statement": "permit(principal, action, resource);"},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var pResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pResp))
+				policyID := pResp["policyId"].(string)
+
+				return map[string]any{
+					"requests": []any{
+						map[string]any{"policyStoreId": storeID, "policyId": policyID},
+					},
+				}
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+
+				results := resp["results"].([]any)
+				assert.Len(t, results, 1)
+				assert.Empty(t, resp["errors"])
+			},
+		},
+		{
+			name: "batch get with missing policy",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) map[string]any {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+
+				return map[string]any{
+					"requests": []any{
+						map[string]any{"policyStoreId": storeID, "policyId": "nonexistent-policy"},
+					},
+				}
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+
+				errors := resp["errors"].([]any)
+				assert.Len(t, errors, 1)
+			},
+		},
+		{
+			name: "batch get missing required fields",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) map[string]any {
+				return map[string]any{
+					"requests": []any{
+						map[string]any{"policyStoreId": "", "policyId": ""},
+					},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+			check:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			body := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "BatchGetPolicy", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.check != nil {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
+}
+
+func TestVPHandler_BatchIsAuthorized(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) map[string]any
+		name     string
+		wantCode int
+		wantLen  int
+	}{
+		{
+			name: "batch authorization with requests",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) map[string]any {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+
+				return map[string]any{
+					"policyStoreId": storeID,
+					"requests": []any{
+						map[string]any{
+							"principal": map[string]any{"entityType": "User", "entityId": "alice"},
+							"action":    map[string]any{"actionType": "Action", "actionId": "view"},
+							"resource":  map[string]any{"entityType": "Photo", "entityId": "photo1"},
+						},
+					},
+				}
+			},
+			wantCode: http.StatusOK,
+			wantLen:  1,
+		},
+		{
+			name: "missing policyStoreId",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) map[string]any {
+				return map[string]any{
+					"requests": []any{},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+			wantLen:  0,
+		},
+		{
+			name: "non-existent policy store",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) map[string]any {
+				return map[string]any{
+					"policyStoreId": "nonexistent",
+					"requests":      []any{},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+			wantLen:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			body := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "BatchIsAuthorized", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantLen > 0 {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				results := resp["results"].([]any)
+				assert.Len(t, results, tt.wantLen)
+
+				first := results[0].(map[string]any)
+				assert.Equal(t, "ALLOW", first["decision"])
+			}
+		})
+	}
+}
+
+func TestVPHandler_BatchIsAuthorizedWithToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "with access token",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) map[string]any {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+
+				return map[string]any{
+					"policyStoreId": storeID,
+					"accessToken":   "fake-access-token",
+					"requests": []any{
+						map[string]any{
+							"action":   map[string]any{"actionType": "Action", "actionId": "view"},
+							"resource": map[string]any{"entityType": "Photo", "entityId": "photo1"},
+						},
+					},
+				}
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "with identity token",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) map[string]any {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+
+				return map[string]any{
+					"policyStoreId": storeID,
+					"identityToken": "fake-identity-token",
+					"requests":      []any{},
+				}
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "missing token",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) map[string]any {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+
+				return map[string]any{
+					"policyStoreId": storeID,
+					"requests":      []any{},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing policyStoreId",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) map[string]any {
+				return map[string]any{
+					"accessToken": "fake-token",
+					"requests":    []any{},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			body := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "BatchIsAuthorizedWithToken", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_IdentitySource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*testing.T, *verifiedpermissions.Handler) (string, string)
+		check     func(*testing.T, map[string]any)
+		name      string
+		operation string
+		wantCode  int
+	}{
+		{
+			name:      "create with Cognito config",
+			operation: "CreateIdentitySource",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				return createTestPolicyStore(t, h), ""
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+
+				assert.NotEmpty(t, resp["identitySourceId"])
+				assert.NotEmpty(t, resp["policyStoreId"])
+			},
+		},
+		{
+			name:      "create with OIDC config",
+			operation: "CreateIdentitySource",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				return createTestPolicyStore(t, h), "oidc"
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+
+				assert.NotEmpty(t, resp["identitySourceId"])
+			},
+		},
+		{
+			name:      "create missing policyStoreId",
+			operation: "CreateIdentitySource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) (string, string) {
+				return "", ""
+			},
+			wantCode: http.StatusBadRequest,
+			check:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID, configType := tt.setup(t, h)
+
+			var body map[string]any
+
+			switch {
+			case storeID == "":
+				body = map[string]any{
+					"configuration": map[string]any{},
+				}
+			case configType == "oidc":
+				body = map[string]any{
+					"policyStoreId":       storeID,
+					"principalEntityType": "MyCorp::User",
+					"configuration": map[string]any{
+						"openIdConnectConfiguration": map[string]any{
+							"issuer": "https://example.com",
+						},
+					},
+				}
+			default:
+				body = map[string]any{
+					"policyStoreId":       storeID,
+					"principalEntityType": "MyCorp::User",
+					"configuration": map[string]any{
+						"cognitoUserPoolConfiguration": map[string]any{
+							"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+							"clientIds":   []string{"client1"},
+						},
+					},
+				}
+			}
+
+			rec := doVPRequest(t, h, tt.operation, body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.check != nil {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
+}
+
+func TestVPHandler_GetIdentitySource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) (string, string)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "get existing identity source",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+				rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+					"policyStoreId":       storeID,
+					"principalEntityType": "MyCorp::User",
+					"configuration": map[string]any{
+						"cognitoUserPoolConfiguration": map[string]any{
+							"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var isResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp))
+
+				return storeID, isResp["identitySourceId"].(string)
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "get non-existent identity source",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				return createTestPolicyStore(t, h), "nonexistent-id"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing identitySourceId",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				return createTestPolicyStore(t, h), ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID, isID := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "GetIdentitySource", map[string]any{
+				"policyStoreId":    storeID,
+				"identitySourceId": isID,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_DeleteIdentitySource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) (string, string)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "delete existing identity source",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+				rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+					"policyStoreId":       storeID,
+					"principalEntityType": "MyCorp::User",
+					"configuration": map[string]any{
+						"cognitoUserPoolConfiguration": map[string]any{
+							"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var isResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp))
+
+				return storeID, isResp["identitySourceId"].(string)
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "delete non-existent identity source",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, string) {
+				t.Helper()
+
+				return createTestPolicyStore(t, h), "nonexistent-id"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID, isID := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "DeleteIdentitySource", map[string]any{
+				"policyStoreId":    storeID,
+				"identitySourceId": isID,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_ListIdentitySources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		numSrcs   int
+		wantCode  int
+		wantCount int
+	}{
+		{
+			name:      "list empty",
+			numSrcs:   0,
+			wantCode:  http.StatusOK,
+			wantCount: 0,
+		},
+		{
+			name:      "list with identity sources",
+			numSrcs:   2,
+			wantCode:  http.StatusOK,
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID := createTestPolicyStore(t, h)
+
+			for range tt.numSrcs {
+				doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+					"policyStoreId":       storeID,
+					"principalEntityType": "MyCorp::User",
+					"configuration": map[string]any{
+						"cognitoUserPoolConfiguration": map[string]any{
+							"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+						},
+					},
+				})
+			}
+
+			rec := doVPRequest(t, h, "ListIdentitySources", map[string]any{"policyStoreId": storeID})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			sources := resp["identitySources"].([]any)
+			assert.Len(t, sources, tt.wantCount)
+		})
+	}
+}
+
+func TestVPHandler_PutSchema(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) string
+		name     string
+		wantCode int
+	}{
+		{
+			name: "put schema successfully",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
+				t.Helper()
+
+				return createTestPolicyStore(t, h)
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "missing policyStoreId",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing cedarJson",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
+				t.Helper()
+
+				return createTestPolicyStore(t, h)
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID := tt.setup(t, h)
+
+			var body map[string]any
+
+			switch tt.name {
+			case "missing policyStoreId":
+				body = map[string]any{
+					"definition": map[string]any{"cedarJson": `{"namespace": "MyCorp"}`},
+				}
+			case "missing cedarJson":
+				body = map[string]any{
+					"policyStoreId": storeID,
+					"definition":    map[string]any{"cedarJson": ""},
+				}
+			default:
+				body = map[string]any{
+					"policyStoreId": storeID,
+					"definition":    map[string]any{"cedarJson": `{"namespace": "MyCorp"}`},
+				}
+			}
+
+			rec := doVPRequest(t, h, "PutSchema", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, storeID, resp["policyStoreId"])
+				assert.NotEmpty(t, resp["createdDate"])
+				assert.NotEmpty(t, resp["lastUpdatedDate"])
+			}
+		})
+	}
+}
+
+func TestVPHandler_GetSchema(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) (string, bool)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "get schema after put",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, bool) {
+				t.Helper()
+
+				storeID := createTestPolicyStore(t, h)
+				rec := doVPRequest(t, h, "PutSchema", map[string]any{
+					"policyStoreId": storeID,
+					"definition":    map[string]any{"cedarJson": `{"namespace": "MyCorp"}`},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return storeID, true
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "get schema when none exists",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) (string, bool) {
+				t.Helper()
+
+				return createTestPolicyStore(t, h), false
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "get schema for non-existent store",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) (string, bool) {
+				return "nonexistent-store", false
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing policyStoreId",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) (string, bool) {
+				return "", false
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID, hasPut := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "GetSchema", map[string]any{"policyStoreId": storeID})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if hasPut && tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, storeID, resp["policyStoreId"])
+				assert.JSONEq(t, `{"namespace": "MyCorp"}`, resp["schema"].(string))
+			}
+		})
+	}
+}
+
+func TestVPHandler_NewOperations_InSupportedList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, op := range []string{
+		"BatchGetPolicy",
+		"BatchIsAuthorized",
+		"BatchIsAuthorizedWithToken",
+		"CreateIdentitySource",
+		"DeleteIdentitySource",
+		"GetIdentitySource",
+		"GetSchema",
+		"ListIdentitySources",
+		"PutSchema",
+	} {
+		assert.Contains(t, ops, op)
+	}
+}
+
+func TestVPHandler_Snapshot_Restore_WithNewResources(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	// Create identity source
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "MyCorp::User",
+		"configuration": map[string]any{
+			"cognitoUserPoolConfiguration": map[string]any{
+				"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var isResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp))
+	isID := isResp["identitySourceId"].(string)
+
+	// Put schema
+	rec = doVPRequest(t, h, "PutSchema", map[string]any{
+		"policyStoreId": storeID,
+		"definition":    map[string]any{"cedarJson": `{"ns": "test"}`},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Snapshot
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	// Restore to new handler
+	h2 := newTestVPHandler(t)
+	require.NoError(t, h2.Restore(snap))
+
+	// Verify identity source persisted
+	rec = doVPRequest(t, h2, "GetIdentitySource", map[string]any{
+		"policyStoreId":    storeID,
+		"identitySourceId": isID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify schema persisted
+	rec = doVPRequest(t, h2, "GetSchema", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var schemaResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schemaResp))
+	assert.JSONEq(t, `{"ns": "test"}`, schemaResp["schema"].(string))
+}
+
+func TestVPHandler_PutSchema_UpdateSchema(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	// Put schema first time
+	rec := doVPRequest(t, h, "PutSchema", map[string]any{
+		"policyStoreId": storeID,
+		"definition":    map[string]any{"cedarJson": `{"v": 1}`},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Update schema
+	rec = doVPRequest(t, h, "PutSchema", map[string]any{
+		"policyStoreId": storeID,
+		"definition":    map[string]any{"cedarJson": `{"v": 2}`},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Get updated schema
+	rec = doVPRequest(t, h, "GetSchema", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, `{"v": 2}`, resp["schema"])
+}
+
+func TestVPHandler_CreateIdentitySource_MissingConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "MyCorp::User",
+		"configuration":       map[string]any{},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_CreateIdentitySource_MissingUserPoolArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "MyCorp::User",
+		"configuration": map[string]any{
+			"cognitoUserPoolConfiguration": map[string]any{
+				"userPoolArn": "",
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_BatchGetPolicy_EmptyRequests(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	rec := doVPRequest(t, h, "BatchGetPolicy", map[string]any{
+		"requests": []any{},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp["results"])
+	assert.Empty(t, resp["errors"])
+}
+
+func TestVPHandler_DeletePolicyStore_CascadesIdentitySources(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	// Create identity source
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "MyCorp::User",
+		"configuration": map[string]any{
+			"cognitoUserPoolConfiguration": map[string]any{
+				"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Delete the policy store
+	rec = doVPRequest(t, h, "DeletePolicyStore", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Try to list identity sources - policy store should be gone
+	rec = doVPRequest(t, h, "ListIdentitySources", map[string]any{"policyStoreId": storeID})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_GetSupportedOperations_UpdatedList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	ops := h.GetSupportedOperations()
+
+	assert.Contains(t, ops, "TagResource")
+	assert.Contains(t, ops, "UntagResource")
+	assert.Contains(t, ops, "ListTagsForResource")
+}
+
+func TestVPHandler_ServiceSummary(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
+	assert.Equal(t, "verifiedpermissions", h.ChaosServiceName())
+}

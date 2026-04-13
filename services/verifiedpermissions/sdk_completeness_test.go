@@ -18,20 +18,8 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := verifiedpermissions.NewInMemoryBackend("000000000000", "us-east-1")
 	h := verifiedpermissions.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &verifiedpermissionssdk.Client{}, h.GetSupportedOperations(), []string{
-		"BatchGetPolicy",
-		"BatchIsAuthorized",
-		"BatchIsAuthorizedWithToken",
-		"CreateIdentitySource",
-		"DeleteIdentitySource",
-		"GetIdentitySource",
-		"GetSchema",
 		"IsAuthorized",
 		"IsAuthorizedWithToken",
-		"ListIdentitySources",
-		"ListTagsForResource",
-		"PutSchema",
-		"TagResource",
-		"UntagResource",
 		"UpdateIdentitySource",
 	})
 }
