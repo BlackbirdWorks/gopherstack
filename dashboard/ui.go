@@ -1073,6 +1073,19 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 // initHandlers wires provider callbacks and sets up the subrouter.
 func (h *DashboardHandler) initHandlers(logger *slog.Logger) {
 	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
+
+	// Embed middleware: when ?embed=1 is present, set a response header flag
+	// so renderTemplate can skip the layout wrapper.
+	h.SubRouter.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if c.Request().URL.Query().Get("embed") == "1" {
+				c.Response().Header().Set("X-Embed-Mode", "1")
+			}
+
+			return next(c)
+		}
+	})
+
 	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
 	h.s3Provider.Handlers.HandleS3 = h.handleS3
 	h.setupSubRouter()
@@ -1701,8 +1714,13 @@ func (h *DashboardHandler) Name() string {
 // RouteMatcher returns a matcher for dashboard requests (by path prefix).
 func (h *DashboardHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
+		reqPath := c.Request().URL.Path
 		method := c.Request().Method
+
+		// ConnectRPC endpoints (server-streaming RPCs) use POST.
+		if strings.HasPrefix(reqPath, "/"+dashboardv1connect.DashboardServiceName+"/") {
+			return method == http.MethodPost
+		}
 
 		// Dashboard UI uses GET, POST, PUT and DELETE (for purge operations).
 		if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut &&
@@ -1710,8 +1728,8 @@ func (h *DashboardHandler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		return path == "/dashboard" || strings.HasPrefix(path, "/dashboard/") ||
-			path == "/dashboard2" || strings.HasPrefix(path, "/dashboard2/")
+		return reqPath == "/dashboard" || strings.HasPrefix(reqPath, "/dashboard/") ||
+			reqPath == "/dashboard2" || strings.HasPrefix(reqPath, "/dashboard2/")
 	}
 }
 
@@ -1853,6 +1871,12 @@ func (h *DashboardHandler) GetSupportedOperations() []string {
 
 // renderTemplate renders a page template by cloning the layout and parsing the specific page.
 func (h *DashboardHandler) renderTemplate(w http.ResponseWriter, pageFile string, data any) {
+	// If the X-Embed-Mode header was set by the embed middleware, render content only.
+	embedOnly := w.Header().Get("X-Embed-Mode") == "1"
+	h.doRenderTemplate(w, pageFile, data, embedOnly)
+}
+
+func (h *DashboardHandler) doRenderTemplate(w http.ResponseWriter, pageFile string, data any, embedOnly bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	// Clone the layout (which includes components)
@@ -1874,8 +1898,13 @@ func (h *DashboardHandler) renderTemplate(w http.ResponseWriter, pageFile string
 		return
 	}
 
-	// Execute layout.html which should include the content block
-	if err = tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+	// In embed mode, render only the content block (no layout wrapper).
+	templateName := "layout.html"
+	if embedOnly {
+		templateName = "content"
+	}
+
+	if err = tmpl.ExecuteTemplate(w, templateName, data); err != nil {
 		h.Logger.Error("Failed to execute template", "page", pageFile, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}

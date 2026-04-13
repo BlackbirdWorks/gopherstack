@@ -24,7 +24,7 @@ function clientConfig(region = defaultRegion) {
 }
 
 export function newS3Client(region?: string): S3Client {
-  return new S3Client(clientConfig(region));
+  return new S3Client({ ...clientConfig(region), forcePathStyle: true });
 }
 
 export function newDynamoDBClient(region?: string): DynamoDBClient {
