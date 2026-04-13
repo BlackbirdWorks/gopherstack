@@ -334,7 +334,7 @@ func (h *Handler) handleGetDocumentAnalysis(
 	in *getJobInput,
 ) (*getJobResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetDocumentAnalysis(in.JobID)
@@ -377,7 +377,7 @@ func (h *Handler) handleGetDocumentTextDetection(
 	in *getJobInput,
 ) (*getJobResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetDocumentTextDetection(in.JobID)
@@ -875,7 +875,7 @@ func (h *Handler) handleGetExpenseAnalysis(
 	in *getExpenseAnalysisInput,
 ) (*getExpenseAnalysisResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetExpenseAnalysis(in.JobID)
@@ -944,7 +944,7 @@ func (h *Handler) handleGetLendingAnalysis(
 	in *getLendingAnalysisInput,
 ) (*getLendingAnalysisResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetLendingAnalysis(in.JobID)
@@ -981,7 +981,7 @@ func (h *Handler) handleGetLendingAnalysisSummary(
 	in *getLendingAnalysisSummaryInput,
 ) (*getLendingAnalysisSummaryResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetLendingAnalysisSummary(in.JobID)
