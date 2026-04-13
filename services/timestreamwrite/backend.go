@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -26,6 +27,8 @@ var (
 	ErrInvalidBatchLoadStatus = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned for invalid request parameters.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrResourceNotFound is returned when tagging an ARN that is not registered in the backend.
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
 
 const (
@@ -44,7 +47,23 @@ const (
 
 	// tableStatusActive is the normal operational state for a table.
 	tableStatusActive = "ACTIVE"
+
+	// scheduledQueryARNFragment identifies scheduled-query ARNs from the Timestream
+	// Query service.  These are accepted by TagResource so that the unified write-service
+	// tag store can hold tags for both resource types.
+	scheduledQueryARNFragment = "scheduled-query/"
 )
+
+// RetentionProperties holds the memory and magnetic store retention durations.
+type RetentionProperties struct {
+	MemoryStoreRetentionPeriodInHours  int64 `json:"MemoryStoreRetentionPeriodInHours,omitempty"`
+	MagneticStoreRetentionPeriodInDays int64 `json:"MagneticStoreRetentionPeriodInDays,omitempty"`
+}
+
+// MagneticStoreWriteProperties configures rejected-record delivery for the magnetic store.
+type MagneticStoreWriteProperties struct {
+	EnableMagneticStoreWrites bool `json:"EnableMagneticStoreWrites"`
+}
 
 // Database represents a Timestream database.
 type Database struct {
@@ -58,12 +77,14 @@ type Database struct {
 
 // Table represents a Timestream table within a database.
 type Table struct {
-	CreationTime    time.Time `json:"creation_time"`
-	LastUpdatedTime time.Time `json:"last_updated_time"`
-	DatabaseName    string    `json:"database_name"`
-	TableName       string    `json:"table_name"`
-	ARN             string    `json:"arn"`
-	TableStatus     string    `json:"table_status"`
+	CreationTime                  time.Time                     `json:"creation_time"`
+	LastUpdatedTime               time.Time                     `json:"last_updated_time"`
+	DatabaseName                  string                        `json:"database_name"`
+	TableName                     string                        `json:"table_name"`
+	ARN                           string                        `json:"arn"`
+	TableStatus                   string                        `json:"table_status"`
+	RetentionProperties           *RetentionProperties          `json:"retention_properties,omitempty"`
+	MagneticStoreWriteProperties  *MagneticStoreWriteProperties `json:"magnetic_store_write_properties,omitempty"`
 }
 
 // Dimension holds a name/value pair for a time-series record.
@@ -83,14 +104,37 @@ type Record struct {
 	Version          int64       `json:"version,omitempty"`
 }
 
+// DataSourceS3Configuration holds S3 source configuration for batch loads.
+type DataSourceS3Configuration struct {
+	BucketName string `json:"BucketName"`
+	ObjectKeyPrefix string `json:"ObjectKeyPrefix,omitempty"`
+	DataFormat  string `json:"DataFormat,omitempty"`
+}
+
+// DataSourceConfiguration holds the data source for a batch load task.
+type DataSourceConfiguration struct {
+	DataFormat                string                      `json:"DataFormat,omitempty"`
+	DataSourceS3Configuration *DataSourceS3Configuration  `json:"DataSourceS3Configuration,omitempty"`
+}
+
+// ReportConfiguration holds the report output configuration for a batch load task.
+type ReportConfiguration struct {
+	ReportS3Configuration *DataSourceS3Configuration `json:"ReportS3Configuration,omitempty"`
+}
+
 // BatchLoadTask represents a Timestream batch load task.
 type BatchLoadTask struct {
-	CreationTime       time.Time `json:"creation_time"`
-	LastUpdatedTime    time.Time `json:"last_updated_time"`
-	TargetDatabaseName string    `json:"target_database_name"`
-	TargetTableName    string    `json:"target_table_name"`
-	TaskID             string    `json:"task_id"`
-	TaskStatus         string    `json:"task_status"`
+	CreationTime            time.Time                `json:"creation_time"`
+	LastUpdatedTime         time.Time                `json:"last_updated_time"`
+	ResumableUntil          *time.Time               `json:"resumable_until,omitempty"`
+	TargetDatabaseName      string                   `json:"target_database_name"`
+	TargetTableName         string                   `json:"target_table_name"`
+	TaskID                  string                   `json:"task_id"`
+	TaskStatus              string                   `json:"task_status"`
+	ErrorMessage            string                   `json:"error_message,omitempty"`
+	DataSourceConfiguration *DataSourceConfiguration `json:"data_source_configuration,omitempty"`
+	ReportConfiguration     *ReportConfiguration     `json:"report_configuration,omitempty"`
+	RecordVersion           int64                    `json:"record_version,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for Timestream Write resources.
@@ -157,6 +201,34 @@ func tableARN(dbName, tblName string) string {
 		dbName,
 		tblName,
 	)
+}
+
+// isKnownARN reports whether the ARN is registered in the backend (database, table,
+// or batch-load-task ARNs derived from the resource maps) or belongs to an external
+// Timestream resource type (e.g. scheduled-query) that shares the same API endpoint.
+// Must be called with at least a read-lock held.
+func (b *InMemoryBackend) isKnownARNLocked(arn string) bool {
+	// Accept scheduled-query ARNs from the Timestream Query service which shares
+	// the same TagResource endpoint.
+	if strings.Contains(arn, scheduledQueryARNFragment) {
+		return true
+	}
+
+	// Check against database ARNs.
+	for _, db := range b.databases {
+		if db.ARN == arn {
+			return true
+		}
+
+		// Check against table ARNs.
+		for _, tbl := range b.tables[db.DatabaseName] {
+			if tbl.ARN == arn {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // CreateDatabase creates a new Timestream database with optional initial tags.
@@ -262,8 +334,14 @@ func (b *InMemoryBackend) UpdateDatabase(name, kmsKeyID string) (*Database, erro
 	return &cp, nil
 }
 
+// CreateTableInput holds the parameters for creating a table.
+type CreateTableInput struct {
+	RetentionProperties          *RetentionProperties
+	MagneticStoreWriteProperties *MagneticStoreWriteProperties
+}
+
 // CreateTable creates a new table in the specified database with optional initial tags.
-func (b *InMemoryBackend) CreateTable(dbName, tblName string, tags map[string]string) (*Table, error) {
+func (b *InMemoryBackend) CreateTable(dbName, tblName string, tags map[string]string, inp *CreateTableInput) (*Table, error) {
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
@@ -284,6 +362,12 @@ func (b *InMemoryBackend) CreateTable(dbName, tblName string, tags map[string]st
 		CreationTime:    now,
 		LastUpdatedTime: now,
 	}
+
+	if inp != nil {
+		tbl.RetentionProperties = inp.RetentionProperties
+		tbl.MagneticStoreWriteProperties = inp.MagneticStoreWriteProperties
+	}
+
 	b.tables[dbName][tblName] = tbl
 	b.records[dbName][tblName] = []Record{}
 	b.databases[dbName].TableCount++
@@ -360,8 +444,14 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 	return nil
 }
 
-// UpdateTable updates a table's last-updated timestamp.
-func (b *InMemoryBackend) UpdateTable(dbName, tblName string) (*Table, error) {
+// UpdateTableInput holds the parameters for updating a table.
+type UpdateTableInput struct {
+	RetentionProperties          *RetentionProperties
+	MagneticStoreWriteProperties *MagneticStoreWriteProperties
+}
+
+// UpdateTable updates a table's properties.
+func (b *InMemoryBackend) UpdateTable(dbName, tblName string, inp *UpdateTableInput) (*Table, error) {
 	b.mu.Lock("UpdateTable")
 	defer b.mu.Unlock()
 
@@ -374,34 +464,58 @@ func (b *InMemoryBackend) UpdateTable(dbName, tblName string) (*Table, error) {
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
+	if inp != nil {
+		if inp.RetentionProperties != nil {
+			tbl.RetentionProperties = inp.RetentionProperties
+		}
+
+		if inp.MagneticStoreWriteProperties != nil {
+			tbl.MagneticStoreWriteProperties = inp.MagneticStoreWriteProperties
+		}
+	}
+
 	tbl.LastUpdatedTime = time.Now()
 	cp := *tbl
 
 	return &cp, nil
 }
 
+// WriteRecordsOutput summarises the results of a WriteRecords call.
+type WriteRecordsOutput struct {
+	Total       int32
+	MemoryStore int32
+}
+
 // WriteRecords appends records to the specified table.
-func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record) error {
+func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record) (*WriteRecordsOutput, error) {
 	b.mu.Lock("WriteRecords")
 	defer b.mu.Unlock()
 
 	if _, ok := b.databases[dbName]; !ok {
-		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
+		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
 	if _, ok := b.tables[dbName][tblName]; !ok {
-		return fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
+		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
 	b.records[dbName][tblName] = append(b.records[dbName][tblName], records...)
 
-	return nil
+	count := int32(len(records))
+
+	return &WriteRecordsOutput{Total: count, MemoryStore: count}, nil
 }
 
 // TagResource stores tags for the given ARN.
+// It accepts database, table, and scheduled-query ARNs because the Timestream
+// Write and Query services share a single TagResource endpoint.
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	if !b.isKnownARNLocked(arn) {
+		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
+	}
 
 	if b.tags[arn] == nil {
 		b.tags[arn] = make(map[string]string)
@@ -440,7 +554,11 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) map[string]string {
 }
 
 // CreateBatchLoadTask creates a new batch load task targeting the specified database and table.
-func (b *InMemoryBackend) CreateBatchLoadTask(targetDatabase, targetTable string) (*BatchLoadTask, error) {
+func (b *InMemoryBackend) CreateBatchLoadTask(
+	targetDatabase, targetTable string,
+	dataSourceCfg *DataSourceConfiguration,
+	reportCfg *ReportConfiguration,
+) (*BatchLoadTask, error) {
 	b.mu.Lock("CreateBatchLoadTask")
 	defer b.mu.Unlock()
 
@@ -457,12 +575,14 @@ func (b *InMemoryBackend) CreateBatchLoadTask(targetDatabase, targetTable string
 
 	now := time.Now()
 	task := &BatchLoadTask{
-		TaskID:             taskID,
-		TargetDatabaseName: targetDatabase,
-		TargetTableName:    targetTable,
-		TaskStatus:         BatchLoadStatusCreated,
-		CreationTime:       now,
-		LastUpdatedTime:    now,
+		TaskID:                  taskID,
+		TargetDatabaseName:      targetDatabase,
+		TargetTableName:         targetTable,
+		TaskStatus:              BatchLoadStatusCreated,
+		CreationTime:            now,
+		LastUpdatedTime:         now,
+		DataSourceConfiguration: dataSourceCfg,
+		ReportConfiguration:     reportCfg,
 	}
 	b.batchLoadTasks[taskID] = task
 
@@ -487,6 +607,7 @@ func (b *InMemoryBackend) DescribeBatchLoadTask(taskID string) (*BatchLoadTask, 
 }
 
 // ListBatchLoadTasks returns all batch load tasks, optionally filtered by status.
+// Results are sorted by creation time (oldest first).
 func (b *InMemoryBackend) ListBatchLoadTasks(statusFilter string) []BatchLoadTask {
 	b.mu.RLock("ListBatchLoadTasks")
 	defer b.mu.RUnlock()
@@ -503,7 +624,7 @@ func (b *InMemoryBackend) ListBatchLoadTasks(statusFilter string) []BatchLoadTas
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].TaskID < out[j].TaskID
+		return out[i].CreationTime.Before(out[j].CreationTime)
 	})
 
 	return out
@@ -601,3 +722,4 @@ func (b *InMemoryBackend) AddBatchLoadTaskInternal(task *BatchLoadTask) {
 	cp := *task
 	b.batchLoadTasks[task.TaskID] = &cp
 }
+

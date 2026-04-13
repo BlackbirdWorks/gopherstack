@@ -397,6 +397,11 @@ func TestHandler_TagResource_UntagResource_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+
+	// Create the database first so that the ARN is known to the backend.
+	dbRec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "my-db"})
+	require.Equal(t, http.StatusOK, dbRec.Code)
+
 	arn := "arn:aws:timestream:us-east-1:000000000000:database/my-db"
 
 	rec := doRequest(t, h, "TagResource", map[string]any{
@@ -953,10 +958,10 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 	_, err := b.CreateDatabase("db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "tbl", nil)
+	_, err = b.CreateTable("db", "tbl", nil, nil)
 	require.NoError(t, err)
 
-	task, err := b.CreateBatchLoadTask("db", "tbl")
+	task, err := b.CreateBatchLoadTask("db", "tbl", nil, nil)
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task.TaskID, "PENDING_RESUME")

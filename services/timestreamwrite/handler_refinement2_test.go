@@ -286,7 +286,10 @@ func TestRefinement2_ExportTagCount(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	err := b.TagResource("arn:aws:timestream:us-east-1:000000000000:database/db1", map[string]string{"k": "v"})
+	_, err := b.CreateDatabase("db1", nil)
+	require.NoError(t, err)
+
+	err = b.TagResource("arn:aws:timestream:us-east-1:000000000000:database/db1", map[string]string{"k": "v"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, timestreamwrite.TagCount(b))
 }
@@ -372,9 +375,9 @@ func TestRefinement2_PersistenceSnapshotRestore(t *testing.T) {
 	b := timestreamwrite.NewInMemoryBackend()
 	_, err := b.CreateDatabase("snap-db", map[string]string{"key": "value"})
 	require.NoError(t, err)
-	_, err = b.CreateTable("snap-db", "snap-tbl", nil)
+	_, err = b.CreateTable("snap-db", "snap-tbl", nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateBatchLoadTask("snap-db", "snap-tbl")
+	_, err = b.CreateBatchLoadTask("snap-db", "snap-tbl", nil, nil)
 	require.NoError(t, err)
 
 	data, err := b.Snapshot()
@@ -407,7 +410,7 @@ func TestRefinement2_ResumeBatchLoadTask_FromFailed(t *testing.T) {
 		TableStatus: "ACTIVE", CreationTime: now, LastUpdatedTime: now,
 	})
 
-	task, err := b.CreateBatchLoadTask("rbt-db", "rbt-tbl")
+	task, err := b.CreateBatchLoadTask("rbt-db", "rbt-tbl", nil, nil)
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task.TaskID, timestreamwrite.BatchLoadStatusFailed)
@@ -453,10 +456,10 @@ func TestRefinement2_ListBatchLoadTasks_StatusFilter(t *testing.T) {
 		TableStatus: "ACTIVE", CreationTime: now, LastUpdatedTime: now,
 	})
 
-	task1, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl")
+	task1, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil)
 	require.NoError(t, err)
 
-	task2, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl")
+	task2, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil)
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task2.TaskID, timestreamwrite.BatchLoadStatusSucceeded)
@@ -563,9 +566,9 @@ func TestRefinement2_DatabaseTableCountTracking(t *testing.T) {
 	_, err := b.CreateDatabase("cnt-db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("cnt-db", "t1", nil)
+	_, err = b.CreateTable("cnt-db", "t1", nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateTable("cnt-db", "t2", nil)
+	_, err = b.CreateTable("cnt-db", "t2", nil, nil)
 	require.NoError(t, err)
 
 	db, err := b.DescribeDatabase("cnt-db")
