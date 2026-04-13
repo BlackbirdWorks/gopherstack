@@ -84,12 +84,16 @@ func (h *Handler) Name() string {
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AssumeRole",
+		"AssumeRoleWithSAML",
 		"AssumeRoleWithWebIdentity",
+		"AssumeRoot",
 		"DecodeAuthorizationMessage",
 		"GetAccessKeyInfo",
 		"GetCallerIdentity",
+		"GetDelegatedAccessToken",
 		"GetFederationToken",
 		"GetSessionToken",
+		"GetWebIdentityToken",
 	}
 }
 
@@ -204,14 +208,22 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 	switch action {
 	case "AssumeRole":
 		return h.dispatchAssumeRole(r)
+	case "AssumeRoleWithSAML":
+		return h.dispatchAssumeRoleWithSAML(r)
 	case "AssumeRoleWithWebIdentity":
 		return h.dispatchAssumeRoleWithWebIdentity(r)
+	case "AssumeRoot":
+		return h.dispatchAssumeRoot(r)
 	case "GetCallerIdentity":
 		return h.Backend.GetCallerIdentity(extractAccessKeyFromAuth(r))
+	case "GetDelegatedAccessToken":
+		return h.dispatchGetDelegatedAccessToken(r)
 	case "GetFederationToken":
 		return h.dispatchGetFederationToken(r)
 	case "GetSessionToken":
 		return h.dispatchGetSessionToken(r)
+	case "GetWebIdentityToken":
+		return h.dispatchGetWebIdentityToken(r)
 	case "GetAccessKeyInfo":
 		return h.dispatchGetAccessKeyInfo(r)
 	case "DecodeAuthorizationMessage":
@@ -314,6 +326,87 @@ func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRol
 	return h.Backend.AssumeRoleWithWebIdentity(input)
 }
 
+// dispatchAssumeRoleWithSAML handles the AssumeRoleWithSAML action.
+func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSAMLResponse, error) {
+	input := &AssumeRoleWithSAMLInput{
+		RoleArn:       r.FormValue("RoleArn"),
+		PrincipalArn:  r.FormValue("PrincipalArn"),
+		SAMLAssertion: r.FormValue("SAMLAssertion"),
+		Policy:        r.FormValue("Policy"),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.AssumeRoleWithSAML(input)
+}
+
+// dispatchAssumeRoot handles the AssumeRoot action.
+func (h *Handler) dispatchAssumeRoot(r *http.Request) (*AssumeRootResponse, error) {
+	input := &AssumeRootInput{
+		TargetPrincipal: r.FormValue("TargetPrincipal"),
+		TaskPolicyArn:   r.FormValue("TaskPolicyArn"),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.AssumeRoot(input)
+}
+
+// dispatchGetDelegatedAccessToken handles the GetDelegatedAccessToken action.
+func (h *Handler) dispatchGetDelegatedAccessToken(r *http.Request) (*GetDelegatedAccessTokenResponse, error) {
+	input := &GetDelegatedAccessTokenInput{
+		TradeInToken: r.FormValue("TradeInToken"),
+	}
+
+	return h.Backend.GetDelegatedAccessToken(input)
+}
+
+// dispatchGetWebIdentityToken handles the GetWebIdentityToken action.
+func (h *Handler) dispatchGetWebIdentityToken(r *http.Request) (*GetWebIdentityTokenResponse, error) {
+	input := &GetWebIdentityTokenInput{
+		SigningAlgorithm: r.FormValue("SigningAlgorithm"),
+		Tags:             parseSessionTags(r),
+	}
+
+	// Parse Audience list: Audience.member.N
+	for i := 1; i <= MaxTagCount; i++ {
+		aud := r.FormValue(fmt.Sprintf("Audience.member.%d", i))
+		if aud == "" {
+			break
+		}
+
+		input.Audience = append(input.Audience, aud)
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.GetWebIdentityToken(input)
+}
+
 // dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
 	_ = r.FormValue("AccessKeyId") // consumed but not validated in mock
@@ -368,7 +461,11 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 
 	switch {
 	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName),
-		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken):
+		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken),
+		errors.Is(reqErr, ErrMissingSAMLAssertion), errors.Is(reqErr, ErrMissingPrincipalArn),
+		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
+		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
+		errors.Is(reqErr, ErrMissingSigningAlgorithm):
 		code = "MissingParameter"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidDuration):

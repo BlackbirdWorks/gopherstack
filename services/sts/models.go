@@ -40,6 +40,18 @@ const (
 
 	// MaxFederationTokenDurationSeconds is the maximum allowed lifetime for GetFederationToken (36 hours).
 	MaxFederationTokenDurationSeconds = 129600
+
+	// MaxRootDurationSeconds is the maximum allowed lifetime for AssumeRoot (15 minutes).
+	MaxRootDurationSeconds = 900
+
+	// DefaultWebIdentityTokenDurationSeconds is the default lifetime for GetWebIdentityToken (5 minutes).
+	DefaultWebIdentityTokenDurationSeconds = 300
+
+	// MinWebIdentityTokenDurationSeconds is the minimum allowed lifetime for GetWebIdentityToken (1 minute).
+	MinWebIdentityTokenDurationSeconds = 60
+
+	// MaxWebIdentityTokenDurationSeconds is the maximum allowed lifetime for GetWebIdentityToken (1 hour).
+	MaxWebIdentityTokenDurationSeconds = 3600
 )
 
 // Tag represents a session tag key-value pair passed to AssumeRole.
@@ -226,6 +238,99 @@ type AssumeRoleWithWebIdentityInput struct {
 	ProviderID       string
 	Policy           string
 	DurationSeconds  int32
+}
+
+// AssumeRoleWithSAMLInput holds the parameters for an AssumeRoleWithSAML call.
+type AssumeRoleWithSAMLInput struct {
+	RoleArn         string
+	PrincipalArn    string
+	SAMLAssertion   string
+	Policy          string
+	DurationSeconds int32
+}
+
+// AssumeRoleWithSAMLResult wraps the assumed-role user, credentials, and SAML provider details.
+type AssumeRoleWithSAMLResult struct {
+	AssumedRoleUser  AssumedRoleUser `xml:"AssumedRoleUser"`
+	Credentials      Credentials     `xml:"Credentials"`
+	Audience         string          `xml:"Audience,omitempty"`
+	Issuer           string          `xml:"Issuer,omitempty"`
+	NameQualifier    string          `xml:"NameQualifier,omitempty"`
+	Subject          string          `xml:"Subject,omitempty"`
+	SubjectType      string          `xml:"SubjectType,omitempty"`
+	SourceIdentity   string          `xml:"SourceIdentity,omitempty"`
+	PackedPolicySize int32           `xml:"PackedPolicySize,omitempty"`
+}
+
+// AssumeRoleWithSAMLResponse is the top-level XML envelope returned by AssumeRoleWithSAML.
+type AssumeRoleWithSAMLResponse struct {
+	XMLName                  xml.Name                 `xml:"AssumeRoleWithSAMLResponse"`
+	Xmlns                    string                   `xml:"xmlns,attr"`
+	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
+	AssumeRoleWithSAMLResult AssumeRoleWithSAMLResult `xml:"AssumeRoleWithSAMLResult"`
+}
+
+// AssumeRootInput holds the parameters for an AssumeRoot call.
+type AssumeRootInput struct {
+	TargetPrincipal string
+	TaskPolicyArn   string
+	DurationSeconds int32
+}
+
+// AssumeRootResult wraps the credentials returned by AssumeRoot.
+type AssumeRootResult struct {
+	Credentials    Credentials `xml:"Credentials"`
+	SourceIdentity string      `xml:"SourceIdentity,omitempty"`
+}
+
+// AssumeRootResponse is the top-level XML envelope returned by AssumeRoot.
+type AssumeRootResponse struct {
+	XMLName          xml.Name         `xml:"AssumeRootResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	AssumeRootResult AssumeRootResult `xml:"AssumeRootResult"`
+}
+
+// GetDelegatedAccessTokenInput holds the parameters for a GetDelegatedAccessToken call.
+type GetDelegatedAccessTokenInput struct {
+	TradeInToken string
+}
+
+// GetDelegatedAccessTokenResult wraps the principal and credentials returned by GetDelegatedAccessToken.
+type GetDelegatedAccessTokenResult struct {
+	AssumedPrincipal string      `xml:"AssumedPrincipal,omitempty"`
+	Credentials      Credentials `xml:"Credentials"`
+	PackedPolicySize int32       `xml:"PackedPolicySize,omitempty"`
+}
+
+// GetDelegatedAccessTokenResponse is the top-level XML envelope returned by GetDelegatedAccessToken.
+type GetDelegatedAccessTokenResponse struct {
+	XMLName                       xml.Name                      `xml:"GetDelegatedAccessTokenResponse"`
+	Xmlns                         string                        `xml:"xmlns,attr"`
+	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
+	GetDelegatedAccessTokenResult GetDelegatedAccessTokenResult `xml:"GetDelegatedAccessTokenResult"`
+}
+
+// GetWebIdentityTokenInput holds the parameters for a GetWebIdentityToken call.
+type GetWebIdentityTokenInput struct {
+	SigningAlgorithm string
+	Audience         []string
+	Tags             []Tag
+	DurationSeconds  int32
+}
+
+// GetWebIdentityTokenResult wraps the token and expiration returned by GetWebIdentityToken.
+type GetWebIdentityTokenResult struct {
+	WebIdentityToken string `xml:"WebIdentityToken"`
+	Expiration       string `xml:"Expiration"`
+}
+
+// GetWebIdentityTokenResponse is the top-level XML envelope returned by GetWebIdentityToken.
+type GetWebIdentityTokenResponse struct {
+	XMLName                   xml.Name                  `xml:"GetWebIdentityTokenResponse"`
+	Xmlns                     string                    `xml:"xmlns,attr"`
+	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
+	GetWebIdentityTokenResult GetWebIdentityTokenResult `xml:"GetWebIdentityTokenResult"`
 }
 
 // AssumeRoleWithWebIdentityResult wraps the assumed-role user, credentials, and OIDC provider details.

@@ -35,6 +35,27 @@ var (
 
 	// ErrMissingWebIdentityToken is returned when AssumeRoleWithWebIdentity is called without a WebIdentityToken.
 	ErrMissingWebIdentityToken = errors.New("WebIdentityToken is required for AssumeRoleWithWebIdentity")
+
+	// ErrMissingSAMLAssertion is returned when AssumeRoleWithSAML is called without a SAMLAssertion.
+	ErrMissingSAMLAssertion = errors.New("SAMLAssertion is required for AssumeRoleWithSAML")
+
+	// ErrMissingPrincipalArn is returned when AssumeRoleWithSAML is called without a PrincipalArn.
+	ErrMissingPrincipalArn = errors.New("PrincipalArn is required for AssumeRoleWithSAML")
+
+	// ErrMissingTargetPrincipal is returned when AssumeRoot is called without a TargetPrincipal.
+	ErrMissingTargetPrincipal = errors.New("TargetPrincipal is required for AssumeRoot")
+
+	// ErrMissingTaskPolicyArn is returned when AssumeRoot is called without a TaskPolicyArn.
+	ErrMissingTaskPolicyArn = errors.New("TaskPolicyArn is required for AssumeRoot")
+
+	// ErrMissingTradeInToken is returned when GetDelegatedAccessToken is called without a TradeInToken.
+	ErrMissingTradeInToken = errors.New("TradeInToken is required for GetDelegatedAccessToken")
+
+	// ErrMissingAudience is returned when GetWebIdentityToken is called without an Audience.
+	ErrMissingAudience = errors.New("audience list is required for GetWebIdentityToken")
+
+	// ErrMissingSigningAlgorithm is returned when GetWebIdentityToken is called without a SigningAlgorithm.
+	ErrMissingSigningAlgorithm = errors.New("SigningAlgorithm is required for GetWebIdentityToken")
 )
 
 const (
@@ -86,10 +107,14 @@ type trustStatement struct {
 // StorageBackend defines the STS service backend interface.
 type StorageBackend interface {
 	AssumeRole(input *AssumeRoleInput) (*AssumeRoleResponse, error)
+	AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*AssumeRoleWithSAMLResponse, error)
 	AssumeRoleWithWebIdentity(input *AssumeRoleWithWebIdentityInput) (*AssumeRoleWithWebIdentityResponse, error)
+	AssumeRoot(input *AssumeRootInput) (*AssumeRootResponse, error)
 	GetCallerIdentity(accessKeyID string) (*GetCallerIdentityResponse, error)
+	GetDelegatedAccessToken(input *GetDelegatedAccessTokenInput) (*GetDelegatedAccessTokenResponse, error)
 	GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error)
 	GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error)
+	GetWebIdentityToken(input *GetWebIdentityTokenInput) (*GetWebIdentityTokenResponse, error)
 }
 
 // InMemoryBackend is a stateful in-memory STS backend.
@@ -496,6 +521,273 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 			SubjectFromWebIdentityToken: subject,
 			Audience:                    subject,
 			Provider:                    provider,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// AssumeRoleWithSAML generates temporary credentials using a SAML 2.0 assertion.
+// In this mock, the SAMLAssertion is not cryptographically validated.
+func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*AssumeRoleWithSAMLResponse, error) {
+	if input.RoleArn == "" {
+		return nil, ErrMissingRoleArn
+	}
+
+	if input.PrincipalArn == "" {
+		return nil, ErrMissingPrincipalArn
+	}
+
+	if input.SAMLAssertion == "" {
+		return nil, ErrMissingSAMLAssertion
+	}
+
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultDurationSeconds
+	}
+
+	if duration < MinDurationSeconds || duration > MaxDurationSeconds {
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for AssumeRoleWithSAML",
+			ErrInvalidDuration, MinDurationSeconds, MaxDurationSeconds,
+		)
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+	roleID := deriveRoleID(input.RoleArn)
+
+	// Derive a session name from the SAML assertion (use a fixed placeholder for mock).
+	sessionName := "saml-session"
+	assumedRoleID := roleID + ":" + sessionName
+	assumedRoleArn := buildAssumedRoleArn(input.RoleArn, sessionName)
+
+	account := b.accountID
+	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(parts) >= arnComponentCount {
+		account = parts[4]
+	}
+
+	session := &SessionInfo{
+		Expiration:     expiration,
+		AssumedRoleArn: assumedRoleArn,
+		AccountID:      account,
+		SessionName:    sessionName,
+		AccessKeyID:    accessKeyID,
+		AssumedRoleID:  assumedRoleID,
+	}
+
+	b.mu.Lock()
+	b.sessions[accessKeyID] = session
+	b.mu.Unlock()
+
+	// Derive issuer from PrincipalArn (last segment after /).
+	issuerParts := strings.Split(input.PrincipalArn, "/")
+	issuer := issuerParts[len(issuerParts)-1]
+
+	return &AssumeRoleWithSAMLResponse{
+		Xmlns: STSNamespace,
+		AssumeRoleWithSAMLResult: AssumeRoleWithSAMLResult{
+			AssumedRoleUser: AssumedRoleUser{
+				Arn:           assumedRoleArn,
+				AssumedRoleID: assumedRoleID,
+			},
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
+			Audience:    input.PrincipalArn,
+			Issuer:      issuer,
+			SubjectType: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+			Subject:     account + ":saml-subject",
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// AssumeRoot generates short-term privileged credentials for a member account root.
+// In this mock, the TaskPolicyArn and TargetPrincipal are accepted as-is without validation.
+func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootResponse, error) {
+	if input.TargetPrincipal == "" {
+		return nil, ErrMissingTargetPrincipal
+	}
+
+	if input.TaskPolicyArn == "" {
+		return nil, ErrMissingTaskPolicyArn
+	}
+
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = MaxRootDurationSeconds
+	}
+
+	if duration < MinDurationSeconds || duration > MaxRootDurationSeconds {
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for AssumeRoot",
+			ErrInvalidDuration, MinDurationSeconds, MaxRootDurationSeconds,
+		)
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+
+	session := &SessionInfo{
+		Expiration:     expiration,
+		AssumedRoleArn: arn.Build("sts", "", b.accountID, "assumed-root"),
+		AccountID:      b.accountID,
+		SessionName:    "root",
+		AccessKeyID:    accessKeyID,
+		AssumedRoleID:  b.accountID + ":root",
+	}
+
+	b.mu.Lock()
+	b.sessions[accessKeyID] = session
+	b.mu.Unlock()
+
+	return &AssumeRootResponse{
+		Xmlns: STSNamespace,
+		AssumeRootResult: AssumeRootResult{
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// GetDelegatedAccessToken exchanges a trade-in token for temporary AWS credentials.
+// In this mock, the TradeInToken is accepted as-is without validation.
+func (b *InMemoryBackend) GetDelegatedAccessToken(
+	input *GetDelegatedAccessTokenInput,
+) (*GetDelegatedAccessTokenResponse, error) {
+	if input.TradeInToken == "" {
+		return nil, ErrMissingTradeInToken
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(DefaultDurationSeconds * time.Second)
+	assumedPrincipal := arn.Build("iam", "", b.accountID, "root")
+
+	session := &SessionInfo{
+		Expiration:     expiration,
+		AssumedRoleArn: assumedPrincipal,
+		AccountID:      b.accountID,
+		SessionName:    "delegated",
+		AccessKeyID:    accessKeyID,
+		AssumedRoleID:  b.accountID + ":delegated",
+	}
+
+	b.mu.Lock()
+	b.sessions[accessKeyID] = session
+	b.mu.Unlock()
+
+	return &GetDelegatedAccessTokenResponse{
+		Xmlns: STSNamespace,
+		GetDelegatedAccessTokenResult: GetDelegatedAccessTokenResult{
+			AssumedPrincipal: assumedPrincipal,
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// GetWebIdentityToken returns a signed JWT representing the caller's AWS identity.
+// In this mock, the token is an unsigned JWT containing the caller's account and audience.
+func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (*GetWebIdentityTokenResponse, error) {
+	if len(input.Audience) == 0 {
+		return nil, ErrMissingAudience
+	}
+
+	if input.SigningAlgorithm == "" {
+		return nil, ErrMissingSigningAlgorithm
+	}
+
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultWebIdentityTokenDurationSeconds
+	}
+
+	if duration < MinWebIdentityTokenDurationSeconds || duration > MaxWebIdentityTokenDurationSeconds {
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for GetWebIdentityToken",
+			ErrInvalidDuration, MinWebIdentityTokenDurationSeconds, MaxWebIdentityTokenDurationSeconds,
+		)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+
+	// Build a minimal unsigned JWT payload.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, err := json.Marshal(map[string]any{
+		"sub": MockUserID,
+		"aud": input.Audience,
+		"iss": "https://sts.amazonaws.com",
+		"exp": expiration.Unix(),
+		"iat": time.Now().UTC().Unix(),
+		"acc": b.accountID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build token payload: %w", err)
+	}
+
+	token := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".mock-signature"
+
+	return &GetWebIdentityTokenResponse{
+		Xmlns: STSNamespace,
+		GetWebIdentityTokenResult: GetWebIdentityTokenResult{
+			WebIdentityToken: token,
+			Expiration:       expiration.Format(time.RFC3339),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil

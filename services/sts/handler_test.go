@@ -586,14 +586,28 @@ func (b *errorBackend) AssumeRole(_ *sts.AssumeRoleInput) (*sts.AssumeRoleRespon
 	return nil, fmt.Errorf("AssumeRole: %w", errBackendFailure)
 }
 
+func (b *errorBackend) AssumeRoleWithSAML(_ *sts.AssumeRoleWithSAMLInput) (*sts.AssumeRoleWithSAMLResponse, error) {
+	return nil, fmt.Errorf("AssumeRoleWithSAML: %w", errBackendFailure)
+}
+
 func (b *errorBackend) AssumeRoleWithWebIdentity(
 	_ *sts.AssumeRoleWithWebIdentityInput,
 ) (*sts.AssumeRoleWithWebIdentityResponse, error) {
 	return nil, fmt.Errorf("AssumeRoleWithWebIdentity: %w", errBackendFailure)
 }
 
+func (b *errorBackend) AssumeRoot(_ *sts.AssumeRootInput) (*sts.AssumeRootResponse, error) {
+	return nil, fmt.Errorf("AssumeRoot: %w", errBackendFailure)
+}
+
 func (b *errorBackend) GetCallerIdentity(_ string) (*sts.GetCallerIdentityResponse, error) {
 	return nil, fmt.Errorf("GetCallerIdentity: %w", errBackendFailure)
+}
+
+func (b *errorBackend) GetDelegatedAccessToken(
+	_ *sts.GetDelegatedAccessTokenInput,
+) (*sts.GetDelegatedAccessTokenResponse, error) {
+	return nil, fmt.Errorf("GetDelegatedAccessToken: %w", errBackendFailure)
 }
 
 func (b *errorBackend) GetFederationToken(_ *sts.GetFederationTokenInput) (*sts.GetFederationTokenResponse, error) {
@@ -602,6 +616,10 @@ func (b *errorBackend) GetFederationToken(_ *sts.GetFederationTokenInput) (*sts.
 
 func (b *errorBackend) GetSessionToken(_ *sts.GetSessionTokenInput) (*sts.GetSessionTokenResponse, error) {
 	return nil, fmt.Errorf("GetSessionToken: %w", errBackendFailure)
+}
+
+func (b *errorBackend) GetWebIdentityToken(_ *sts.GetWebIdentityTokenInput) (*sts.GetWebIdentityTokenResponse, error) {
+	return nil, fmt.Errorf("GetWebIdentityToken: %w", errBackendFailure)
 }
 
 // TestHandler_InternalError tests the default (InternalFailure) path in handleError.
