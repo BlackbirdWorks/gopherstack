@@ -15,6 +15,7 @@ type StorageBackend interface {
 	DescribeScheduledQuery(arnStr string) (*ScheduledQuery, error)
 	DeleteScheduledQuery(arnStr string) error
 	ListScheduledQueries() []ScheduledQuerySummary
+	ListScheduledQueriesFull() []*ScheduledQuery
 	UpdateScheduledQuery(arnStr, state string) error
 	ExecuteScheduledQuery(arnStr string, invocationTime time.Time) error
 	Query(queryString string) *QueryResult
@@ -22,6 +23,9 @@ type StorageBackend interface {
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) ([]map[string]string, error)
+	DescribeAccountSettings() AccountSettings
+	PrepareQuery(queryString string, validateOnly bool) (*PrepareQueryResult, error)
+	UpdateAccountSettings(queryPricingModel string, maxQueryTCU *int32) (AccountSettings, error)
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.
