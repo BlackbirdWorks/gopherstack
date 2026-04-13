@@ -6,19 +6,34 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 var (
 	// ErrNotFound is returned when a transcription job is not found.
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a transcription job already exists.
+	// ErrAlreadyExists is returned when a resource with the given name already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned for invalid or missing input parameters.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
-const transcribeDefaultPageSize = 100
+const (
+	transcribeDefaultPageSize = 100
+
+	// job/scribe status constants.
+	jobStatusCompleted = "COMPLETED"
+
+	// vocabulary state constants.
+	vocabStateReady = "READY"
+
+	// language model status constant – gopherstack immediately completes models.
+	modelStatusCompleted = "COMPLETED"
+
+	// defaultAccountID is the synthetic AWS account ID used by the in-memory backend.
+	defaultAccountID = "123456789012"
+)
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.
 type TranscriptionJob struct {
@@ -115,22 +130,47 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		jobs:                     make(map[string]*TranscriptionJob),
-		callAnalyticsCategories:  make(map[string]*CallAnalyticsCategory),
-		languageModels:           make(map[string]*LanguageModel),
-		medicalVocabularies:      make(map[string]*MedicalVocabulary),
-		vocabularies:             make(map[string]*Vocabulary),
-		vocabularyFilters:        make(map[string]*VocabularyFilter),
-		callAnalyticsJobs:        make(map[string]*CallAnalyticsJob),
-		medicalScribeJobs:        make(map[string]*MedicalScribeJob),
-		medicalTranscriptionJobs: make(map[string]*MedicalTranscriptionJob),
-		mu:                       lockmetrics.New("transcribe"),
-	}
+	b := &InMemoryBackend{mu: lockmetrics.New("transcribe")}
+	b.ensureNonNilMaps()
+
+	return b
+}
+
+// Reset clears all stored state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.ensureNonNilMaps()
+}
+
+// AccountID returns the synthetic AWS account ID used by this backend.
+func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
+
+// ensureNonNilMaps initialises all maps. Must be called with b.mu held (or
+// before the backend is shared between goroutines, as in NewInMemoryBackend).
+func (b *InMemoryBackend) ensureNonNilMaps() {
+	b.jobs = make(map[string]*TranscriptionJob)
+	b.callAnalyticsCategories = make(map[string]*CallAnalyticsCategory)
+	b.languageModels = make(map[string]*LanguageModel)
+	b.medicalVocabularies = make(map[string]*MedicalVocabulary)
+	b.vocabularies = make(map[string]*Vocabulary)
+	b.vocabularyFilters = make(map[string]*VocabularyFilter)
+	b.callAnalyticsJobs = make(map[string]*CallAnalyticsJob)
+	b.medicalScribeJobs = make(map[string]*MedicalScribeJob)
+	b.medicalTranscriptionJobs = make(map[string]*MedicalTranscriptionJob)
 }
 
 // StartTranscriptionJob creates a new transcription job with synthetic results.
 func (b *InMemoryBackend) StartTranscriptionJob(jobName, languageCode, mediaFileURI string) (*TranscriptionJob, error) {
+	if jobName == "" {
+		return nil, fmt.Errorf("%w: TranscriptionJobName is required", ErrValidation)
+	}
+
+	if languageCode == "" {
+		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
 	b.mu.Lock("StartTranscriptionJob")
 	defer b.mu.Unlock()
 
@@ -141,7 +181,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(jobName, languageCode, mediaFile
 	now := time.Now()
 	job := &TranscriptionJob{
 		JobName:        jobName,
-		JobStatus:      "COMPLETED",
+		JobStatus:      jobStatusCompleted,
 		LanguageCode:   languageCode,
 		MediaFileURI:   mediaFileURI,
 		TranscriptText: "This is a synthetic transcription result for " + jobName + ".",
@@ -201,6 +241,10 @@ func (b *InMemoryBackend) ListTranscriptionJobs(statusFilter, nextToken string) 
 
 // DeleteTranscriptionJob removes a transcription job by name.
 func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: TranscriptionJobName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteTranscriptionJob")
 	defer b.mu.Unlock()
 
@@ -215,6 +259,10 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 
 // CreateCallAnalyticsCategory creates a new Call Analytics category.
 func (b *InMemoryBackend) CreateCallAnalyticsCategory(categoryName, inputType string) (*CallAnalyticsCategory, error) {
+	if categoryName == "" {
+		return nil, fmt.Errorf("%w: CategoryName is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
@@ -238,6 +286,10 @@ func (b *InMemoryBackend) CreateCallAnalyticsCategory(categoryName, inputType st
 
 // DeleteCallAnalyticsCategory removes a Call Analytics category by name.
 func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error {
+	if categoryName == "" {
+		return fmt.Errorf("%w: CategoryName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
@@ -252,6 +304,18 @@ func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error
 
 // CreateLanguageModel creates a new custom language model.
 func (b *InMemoryBackend) CreateLanguageModel(modelName, baseModelName, languageCode string) (*LanguageModel, error) {
+	if modelName == "" {
+		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
+	}
+
+	if baseModelName == "" {
+		return nil, fmt.Errorf("%w: BaseModelName is required", ErrValidation)
+	}
+
+	if languageCode == "" {
+		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateLanguageModel")
 	defer b.mu.Unlock()
 
@@ -264,7 +328,7 @@ func (b *InMemoryBackend) CreateLanguageModel(modelName, baseModelName, language
 		ModelName:        modelName,
 		BaseModelName:    baseModelName,
 		LanguageCode:     languageCode,
-		ModelStatus:      "COMPLETED",
+		ModelStatus:      modelStatusCompleted,
 		CreateTime:       now,
 		LastModifiedTime: now,
 	}
@@ -277,6 +341,10 @@ func (b *InMemoryBackend) CreateLanguageModel(modelName, baseModelName, language
 
 // DeleteLanguageModel removes a custom language model by name.
 func (b *InMemoryBackend) DeleteLanguageModel(modelName string) error {
+	if modelName == "" {
+		return fmt.Errorf("%w: ModelName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteLanguageModel")
 	defer b.mu.Unlock()
 
@@ -293,6 +361,18 @@ func (b *InMemoryBackend) DeleteLanguageModel(modelName string) error {
 func (b *InMemoryBackend) CreateMedicalVocabulary(
 	vocabularyName, languageCode, vocabularyFileURI string,
 ) (*MedicalVocabulary, error) {
+	if vocabularyName == "" {
+		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	if languageCode == "" {
+		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
+	if vocabularyFileURI == "" {
+		return nil, fmt.Errorf("%w: VocabularyFileUri is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateMedicalVocabulary")
 	defer b.mu.Unlock()
 
@@ -304,7 +384,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 	v := &MedicalVocabulary{
 		VocabularyName:    vocabularyName,
 		LanguageCode:      languageCode,
-		VocabularyState:   "READY",
+		VocabularyState:   vocabStateReady,
 		VocabularyFileURI: vocabularyFileURI,
 		LastModifiedTime:  now,
 	}
@@ -317,6 +397,14 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 
 // CreateVocabulary creates a new custom vocabulary.
 func (b *InMemoryBackend) CreateVocabulary(vocabularyName, languageCode string) (*Vocabulary, error) {
+	if vocabularyName == "" {
+		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	if languageCode == "" {
+		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateVocabulary")
 	defer b.mu.Unlock()
 
@@ -328,7 +416,7 @@ func (b *InMemoryBackend) CreateVocabulary(vocabularyName, languageCode string) 
 	v := &Vocabulary{
 		VocabularyName:   vocabularyName,
 		LanguageCode:     languageCode,
-		VocabularyState:  "READY",
+		VocabularyState:  vocabStateReady,
 		LastModifiedTime: now,
 	}
 	b.vocabularies[vocabularyName] = v
@@ -340,6 +428,14 @@ func (b *InMemoryBackend) CreateVocabulary(vocabularyName, languageCode string) 
 
 // CreateVocabularyFilter creates a new custom vocabulary filter.
 func (b *InMemoryBackend) CreateVocabularyFilter(vocabularyFilterName, languageCode string) (*VocabularyFilter, error) {
+	if vocabularyFilterName == "" {
+		return nil, fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
+	}
+
+	if languageCode == "" {
+		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateVocabularyFilter")
 	defer b.mu.Unlock()
 
@@ -362,6 +458,10 @@ func (b *InMemoryBackend) CreateVocabularyFilter(vocabularyFilterName, languageC
 
 // DeleteCallAnalyticsJob removes a Call Analytics job by name.
 func (b *InMemoryBackend) DeleteCallAnalyticsJob(jobName string) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: CallAnalyticsJobName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteCallAnalyticsJob")
 	defer b.mu.Unlock()
 
@@ -376,6 +476,10 @@ func (b *InMemoryBackend) DeleteCallAnalyticsJob(jobName string) error {
 
 // DeleteMedicalScribeJob removes a Medical Scribe job by name.
 func (b *InMemoryBackend) DeleteMedicalScribeJob(jobName string) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: MedicalScribeJobName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteMedicalScribeJob")
 	defer b.mu.Unlock()
 
@@ -390,6 +494,10 @@ func (b *InMemoryBackend) DeleteMedicalScribeJob(jobName string) error {
 
 // DeleteMedicalTranscriptionJob removes a medical transcription job by name.
 func (b *InMemoryBackend) DeleteMedicalTranscriptionJob(jobName string) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: MedicalTranscriptionJobName is required", ErrValidation)
+	}
+
 	b.mu.Lock("DeleteMedicalTranscriptionJob")
 	defer b.mu.Unlock()
 
@@ -427,6 +535,51 @@ func (b *InMemoryBackend) AddMedicalTranscriptionJobInternal(job *MedicalTranscr
 
 	cp := *job
 	b.medicalTranscriptionJobs[job.MedicalTranscriptionJobName] = &cp
+}
+
+// AddCallAnalyticsCategoryInternal seeds a Call Analytics category directly (test helper).
+func (b *InMemoryBackend) AddCallAnalyticsCategoryInternal(cat *CallAnalyticsCategory) {
+	b.mu.Lock("AddCallAnalyticsCategoryInternal")
+	defer b.mu.Unlock()
+
+	cp := *cat
+	b.callAnalyticsCategories[cat.CategoryName] = &cp
+}
+
+// AddLanguageModelInternal seeds a language model directly (test helper).
+func (b *InMemoryBackend) AddLanguageModelInternal(m *LanguageModel) {
+	b.mu.Lock("AddLanguageModelInternal")
+	defer b.mu.Unlock()
+
+	cp := *m
+	b.languageModels[m.ModelName] = &cp
+}
+
+// AddMedicalVocabularyInternal seeds a medical vocabulary directly (test helper).
+func (b *InMemoryBackend) AddMedicalVocabularyInternal(v *MedicalVocabulary) {
+	b.mu.Lock("AddMedicalVocabularyInternal")
+	defer b.mu.Unlock()
+
+	cp := *v
+	b.medicalVocabularies[v.VocabularyName] = &cp
+}
+
+// AddVocabularyInternal seeds a vocabulary directly (test helper).
+func (b *InMemoryBackend) AddVocabularyInternal(v *Vocabulary) {
+	b.mu.Lock("AddVocabularyInternal")
+	defer b.mu.Unlock()
+
+	cp := *v
+	b.vocabularies[v.VocabularyName] = &cp
+}
+
+// AddVocabularyFilterInternal seeds a vocabulary filter directly (test helper).
+func (b *InMemoryBackend) AddVocabularyFilterInternal(f *VocabularyFilter) {
+	b.mu.Lock("AddVocabularyFilterInternal")
+	defer b.mu.Unlock()
+
+	cp := *f
+	b.vocabularyFilters[f.VocabularyFilterName] = &cp
 }
 
 // parseNextToken parses a pagination token (integer offset) into a slice index.

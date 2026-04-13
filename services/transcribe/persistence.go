@@ -111,53 +111,27 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*TranscriptionJob)
-	}
-
-	if snap.CallAnalyticsCategories == nil {
-		snap.CallAnalyticsCategories = make(map[string]*CallAnalyticsCategory)
-	}
-
-	if snap.LanguageModels == nil {
-		snap.LanguageModels = make(map[string]*LanguageModel)
-	}
-
-	if snap.MedicalVocabularies == nil {
-		snap.MedicalVocabularies = make(map[string]*MedicalVocabulary)
-	}
-
-	if snap.Vocabularies == nil {
-		snap.Vocabularies = make(map[string]*Vocabulary)
-	}
-
-	if snap.VocabularyFilters == nil {
-		snap.VocabularyFilters = make(map[string]*VocabularyFilter)
-	}
-
-	if snap.CallAnalyticsJobs == nil {
-		snap.CallAnalyticsJobs = make(map[string]*CallAnalyticsJob)
-	}
-
-	if snap.MedicalScribeJobs == nil {
-		snap.MedicalScribeJobs = make(map[string]*MedicalScribeJob)
-	}
-
-	if snap.MedicalTranscriptionJobs == nil {
-		snap.MedicalTranscriptionJobs = make(map[string]*MedicalTranscriptionJob)
-	}
-
-	b.jobs = snap.Jobs
-	b.callAnalyticsCategories = snap.CallAnalyticsCategories
-	b.languageModels = snap.LanguageModels
-	b.medicalVocabularies = snap.MedicalVocabularies
-	b.vocabularies = snap.Vocabularies
-	b.vocabularyFilters = snap.VocabularyFilters
-	b.callAnalyticsJobs = snap.CallAnalyticsJobs
-	b.medicalScribeJobs = snap.MedicalScribeJobs
-	b.medicalTranscriptionJobs = snap.MedicalTranscriptionJobs
+	// Restore maps, replacing nil with empty maps so the backend is always usable.
+	b.jobs = nonNilMap(snap.Jobs)
+	b.callAnalyticsCategories = nonNilMap(snap.CallAnalyticsCategories)
+	b.languageModels = nonNilMap(snap.LanguageModels)
+	b.medicalVocabularies = nonNilMap(snap.MedicalVocabularies)
+	b.vocabularies = nonNilMap(snap.Vocabularies)
+	b.vocabularyFilters = nonNilMap(snap.VocabularyFilters)
+	b.callAnalyticsJobs = nonNilMap(snap.CallAnalyticsJobs)
+	b.medicalScribeJobs = nonNilMap(snap.MedicalScribeJobs)
+	b.medicalTranscriptionJobs = nonNilMap(snap.MedicalTranscriptionJobs)
 
 	return nil
+}
+
+// nonNilMap returns m if it is not nil, otherwise returns a new empty map.
+func nonNilMap[K comparable, V any](m map[K]V) map[K]V {
+	if m != nil {
+		return m
+	}
+
+	return make(map[K]V)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

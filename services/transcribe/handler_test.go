@@ -166,7 +166,7 @@ func TestTranscribe_HandlerActions(t *testing.T) {
 				"TranscriptionJobName": "dup-job",
 				"LanguageCode":         "en-US",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name: "GetTranscriptionJob",
@@ -276,7 +276,7 @@ func TestTranscribe_DeleteTranscriptionJob(t *testing.T) {
 			name:     "missing_name",
 			setup:    func(_ *testing.T, _ *transcribe.Handler) {},
 			body:     map[string]any{},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -392,7 +392,7 @@ func TestTranscribe_CreateCallAnalyticsCategory(t *testing.T) {
 			body: map[string]any{
 				"CategoryName": "dup-cat",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name:     "missing_name",
@@ -494,7 +494,7 @@ func TestTranscribe_CreateLanguageModel(t *testing.T) {
 				"BaseModelName": "WideBand",
 				"LanguageCode":  "en-US",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name:     "missing_name",
@@ -592,10 +592,11 @@ func TestTranscribe_CreateMedicalVocabulary(t *testing.T) {
 				require.NoError(t, err)
 			},
 			body: map[string]any{
-				"VocabularyName": "dup-med-vocab",
-				"LanguageCode":   "en-US",
+				"VocabularyName":    "dup-med-vocab",
+				"LanguageCode":      "en-US",
+				"VocabularyFileUri": "s3://bucket/f.txt",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name:     "missing_name",
@@ -654,7 +655,7 @@ func TestTranscribe_CreateVocabulary(t *testing.T) {
 				"VocabularyName": "dup-vocab",
 				"LanguageCode":   "en-US",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name:     "missing_name",
@@ -713,7 +714,7 @@ func TestTranscribe_CreateVocabularyFilter(t *testing.T) {
 				"VocabularyFilterName": "dup-filter",
 				"LanguageCode":         "en-US",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name:     "missing_name",

@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -26,11 +27,22 @@ var (
 // Handler is the Echo HTTP handler for Amazon Transcribe operations.
 type Handler struct {
 	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Transcribe handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears handler state by delegating to the backend.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -86,21 +98,50 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
-type transcriptionJobNameInput struct {
-	TranscriptionJobName string `json:"TranscriptionJobName"`
+// extractResourceRequest is the union of all resource-name fields across Transcribe operations.
+type extractResourceRequest struct {
+	TranscriptionJobName        string `json:"TranscriptionJobName"`
+	CallAnalyticsJobName        string `json:"CallAnalyticsJobName"`
+	CategoryName                string `json:"CategoryName"`
+	ModelName                   string `json:"ModelName"`
+	VocabularyName              string `json:"VocabularyName"`
+	VocabularyFilterName        string `json:"VocabularyFilterName"`
+	MedicalScribeJobName        string `json:"MedicalScribeJobName"`
+	MedicalTranscriptionJobName string `json:"MedicalTranscriptionJobName"`
 }
 
-// ExtractResource extracts the job name from the request body.
+// ExtractResource extracts the primary resource name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
 
-	var req transcriptionJobNameInput
-	_ = json.Unmarshal(body, &req)
+	var req extractResourceRequest
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return ""
+	}
 
-	return req.TranscriptionJobName
+	switch {
+	case req.TranscriptionJobName != "":
+		return req.TranscriptionJobName
+	case req.CallAnalyticsJobName != "":
+		return req.CallAnalyticsJobName
+	case req.CategoryName != "":
+		return req.CategoryName
+	case req.ModelName != "":
+		return req.ModelName
+	case req.VocabularyName != "":
+		return req.VocabularyName
+	case req.VocabularyFilterName != "":
+		return req.VocabularyFilterName
+	case req.MedicalScribeJobName != "":
+		return req.MedicalScribeJobName
+	case req.MedicalTranscriptionJobName != "":
+		return req.MedicalTranscriptionJobName
+	default:
+		return ""
+	}
 }
 
 // Handler returns the Echo handler function.
@@ -116,7 +157,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"StartTranscriptionJob":         service.WrapOp(h.handleStartTranscriptionJob),
 		"GetTranscriptionJob":           service.WrapOp(h.handleGetTranscriptionJob),
@@ -136,7 +177,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -154,14 +195,30 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, awserr.ErrNotFound):
+		return c.JSON(http.StatusNotFound, errorBody("NotFoundException", err.Error()))
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return c.JSON(http.StatusConflict, errorBody("ConflictException", err.Error()))
+	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, errorBody("BadRequestException", err.Error()))
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, errorBody("UnknownOperationException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, errorBody("InternalFailureException", err.Error()))
 	}
+}
+
+// errorBody builds the standard Transcribe error response body.
+func errorBody(code, msg string) map[string]string {
+	return map[string]string{
+		"__type":  code,
+		"message": msg,
+	}
+}
+
+type transcriptionJobNameInput struct {
+	TranscriptionJobName string `json:"TranscriptionJobName"`
 }
 
 type transcriptOutput struct {
@@ -199,10 +256,6 @@ func (h *Handler) handleStartTranscriptionJob(
 	_ context.Context,
 	in *handleStartTranscriptionJobInput,
 ) (*startTranscriptionJobOutput, error) {
-	if in.TranscriptionJobName == "" {
-		return nil, fmt.Errorf("%w: TranscriptionJobName is required", errInvalidRequest)
-	}
-
 	job, err := h.Backend.StartTranscriptionJob(in.TranscriptionJobName, in.LanguageCode, in.Media.MediaFileURI)
 	if err != nil {
 		return nil, err
@@ -310,10 +363,6 @@ func (h *Handler) handleCreateCallAnalyticsCategory(
 	_ context.Context,
 	in *createCallAnalyticsCategoryInput,
 ) (*createCallAnalyticsCategoryOutput, error) {
-	if in.CategoryName == "" {
-		return nil, fmt.Errorf("%w: CategoryName is required", errInvalidRequest)
-	}
-
 	cat, err := h.Backend.CreateCallAnalyticsCategory(in.CategoryName, in.InputType)
 	if err != nil {
 		return nil, err
@@ -363,10 +412,6 @@ func (h *Handler) handleCreateLanguageModel(
 	_ context.Context,
 	in *createLanguageModelInput,
 ) (*createLanguageModelOutput, error) {
-	if in.ModelName == "" {
-		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
-	}
-
 	m, err := h.Backend.CreateLanguageModel(in.ModelName, in.BaseModelName, in.LanguageCode)
 	if err != nil {
 		return nil, err
@@ -415,10 +460,6 @@ func (h *Handler) handleCreateMedicalVocabulary(
 	_ context.Context,
 	in *createMedicalVocabularyInput,
 ) (*createMedicalVocabularyOutput, error) {
-	if in.VocabularyName == "" {
-		return nil, fmt.Errorf("%w: VocabularyName is required", errInvalidRequest)
-	}
-
 	v, err := h.Backend.CreateMedicalVocabulary(in.VocabularyName, in.LanguageCode, in.VocabularyFileURI)
 	if err != nil {
 		return nil, err
@@ -448,10 +489,6 @@ func (h *Handler) handleCreateVocabulary(
 	_ context.Context,
 	in *createVocabularyInput,
 ) (*createVocabularyOutput, error) {
-	if in.VocabularyName == "" {
-		return nil, fmt.Errorf("%w: VocabularyName is required", errInvalidRequest)
-	}
-
 	v, err := h.Backend.CreateVocabulary(in.VocabularyName, in.LanguageCode)
 	if err != nil {
 		return nil, err
@@ -480,10 +517,6 @@ func (h *Handler) handleCreateVocabularyFilter(
 	_ context.Context,
 	in *createVocabularyFilterInput,
 ) (*createVocabularyFilterOutput, error) {
-	if in.VocabularyFilterName == "" {
-		return nil, fmt.Errorf("%w: VocabularyFilterName is required", errInvalidRequest)
-	}
-
 	f, err := h.Backend.CreateVocabularyFilter(in.VocabularyFilterName, in.LanguageCode)
 	if err != nil {
 		return nil, err
