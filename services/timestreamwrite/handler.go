@@ -246,11 +246,11 @@ type updateDatabaseInput struct {
 }
 
 type createTableInput struct {
+	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
+	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 	DatabaseName                 string                        `json:"DatabaseName"`
 	TableName                    string                        `json:"TableName"`
 	Tags                         []tagInput                    `json:"Tags"`
-	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
-	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 }
 
 type retentionPropertiesInput struct {
@@ -268,10 +268,10 @@ type tableInput struct {
 }
 
 type updateTableInput struct {
-	DatabaseName                 string                        `json:"DatabaseName"`
-	TableName                    string                        `json:"TableName"`
 	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
 	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
+	DatabaseName                 string                        `json:"DatabaseName"`
+	TableName                    string                        `json:"TableName"`
 }
 
 type tableOutput struct {
@@ -279,14 +279,14 @@ type tableOutput struct {
 }
 
 type tableView struct {
+	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
+	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 	Arn                          string                        `json:"Arn"`
 	DatabaseName                 string                        `json:"DatabaseName"`
 	TableName                    string                        `json:"TableName"`
 	TableStatus                  string                        `json:"TableStatus"`
 	CreationTime                 float64                       `json:"CreationTime"`
 	LastUpdatedTime              float64                       `json:"LastUpdatedTime"`
-	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
-	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
 }
 
 type listTablesInput struct {
@@ -322,8 +322,8 @@ type dimensionInput struct {
 
 type writeRecordsOutput struct {
 	RecordsIngested struct {
-		Total       int32 `json:"Total"`
-		MemoryStore int32 `json:"MemoryStore"`
+		Total         int32 `json:"Total"`
+		MemoryStore   int32 `json:"MemoryStore"`
 		MagneticStore int32 `json:"MagneticStore"`
 	} `json:"RecordsIngested"`
 }
@@ -720,8 +720,8 @@ type dataSourceS3ConfigInput struct {
 }
 
 type dataSourceConfigInput struct {
-	DataFormat                string                   `json:"DataFormat,omitempty"`
 	DataSourceS3Configuration *dataSourceS3ConfigInput `json:"DataSourceS3Configuration,omitempty"`
+	DataFormat                string                   `json:"DataFormat,omitempty"`
 }
 
 type reportConfigInput struct {
@@ -729,11 +729,11 @@ type reportConfigInput struct {
 }
 
 type createBatchLoadTaskInput struct {
+	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
+	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
 	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
 	TargetTableName         string                 `json:"TargetTableName"`
 	ClientToken             string                 `json:"ClientToken"`
-	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
-	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
 }
 
 type createBatchLoadTaskOutput struct {
@@ -745,17 +745,17 @@ type batchLoadTaskIDInput struct {
 }
 
 type batchLoadTaskDescriptionView struct {
+	ResumableUntil          *float64               `json:"ResumableUntil,omitempty"`
+	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
+	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
 	TaskID                  string                 `json:"TaskId"`
 	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
 	TargetTableName         string                 `json:"TargetTableName"`
 	TaskStatus              string                 `json:"TaskStatus"`
+	ErrorMessage            string                 `json:"ErrorMessage,omitempty"`
 	CreationTime            float64                `json:"CreationTime"`
 	LastUpdatedTime         float64                `json:"LastUpdatedTime"`
-	ResumableUntil          *float64               `json:"ResumableUntil,omitempty"`
-	ErrorMessage            string                 `json:"ErrorMessage,omitempty"`
 	RecordVersion           int64                  `json:"RecordVersion,omitempty"`
-	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
-	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
 }
 
 type describeBatchLoadTaskOutput struct {
@@ -769,13 +769,13 @@ type listBatchLoadTasksInput struct {
 }
 
 type batchLoadTaskSummaryView struct {
+	ResumableUntil  *float64 `json:"ResumableUntil,omitempty"`
 	TaskID          string   `json:"TaskId"`
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
 	TaskStatus      string   `json:"TaskStatus"`
 	CreationTime    float64  `json:"CreationTime"`
 	LastUpdatedTime float64  `json:"LastUpdatedTime"`
-	ResumableUntil  *float64 `json:"ResumableUntil,omitempty"`
 }
 
 type listBatchLoadTasksOutput struct {

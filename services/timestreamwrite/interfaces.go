@@ -26,7 +26,11 @@ type StorageBackend interface {
 	ListTagsForResource(arn string) map[string]string
 
 	// Batch load task operations.
-	CreateBatchLoadTask(targetDatabase, targetTable string, dataSourceCfg *DataSourceConfiguration, reportCfg *ReportConfiguration) (*BatchLoadTask, error)
+	CreateBatchLoadTask(
+		targetDatabase, targetTable string,
+		dataSourceCfg *DataSourceConfiguration,
+		reportCfg *ReportConfiguration,
+	) (*BatchLoadTask, error)
 	DescribeBatchLoadTask(taskID string) (*BatchLoadTask, error)
 	ListBatchLoadTasks(statusFilter string) []BatchLoadTask
 	ResumeBatchLoadTask(taskID string) error

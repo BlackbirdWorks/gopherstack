@@ -25,15 +25,16 @@ const (
 	queryProgressPercentage     = 100.0
 )
 
-// writeServiceTagOps are tag operations shared between the Timestream Write and Query
-// services.  Both services use the same X-Amz-Target prefix so the RouteMatcher for
-// the Query service must exclude them; the Write service's handler is responsible for
-// routing these operations for all Timestream resource ARN types (databases, tables,
-// and scheduled queries).
-var writeServiceTagOps = map[string]bool{
-	"TagResource":         true,
-	"UntagResource":       true,
-	"ListTagsForResource": true,
+// writeServiceTagOps returns the set of tag operations shared between the
+// Timestream Write and Query services.  The Write service provides a unified
+// tag store for all Timestream resource types, so the Query RouteMatcher must
+// not claim these operations.
+func writeServiceTagOps() map[string]bool {
+	return map[string]bool{
+		"TagResource":         true,
+		"UntagResource":       true,
+		"ListTagsForResource": true,
+	}
 }
 
 // ErrUnknownOperation is returned when an unrecognized operation is requested.
@@ -117,7 +118,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		// Defer shared tag operations to the TimestreamWrite handler so that
 		// database/table ARNs and scheduled-query ARNs all share the same tag
 		// store under a single endpoint.
-		if writeServiceTagOps[operation] {
+		if writeServiceTagOps()[operation] {
 			return false
 		}
 

@@ -77,14 +77,14 @@ type Database struct {
 
 // Table represents a Timestream table within a database.
 type Table struct {
-	CreationTime                  time.Time                     `json:"creation_time"`
-	LastUpdatedTime               time.Time                     `json:"last_updated_time"`
-	DatabaseName                  string                        `json:"database_name"`
-	TableName                     string                        `json:"table_name"`
-	ARN                           string                        `json:"arn"`
-	TableStatus                   string                        `json:"table_status"`
-	RetentionProperties           *RetentionProperties          `json:"retention_properties,omitempty"`
-	MagneticStoreWriteProperties  *MagneticStoreWriteProperties `json:"magnetic_store_write_properties,omitempty"`
+	CreationTime                 time.Time                     `json:"creation_time"`
+	LastUpdatedTime              time.Time                     `json:"last_updated_time"`
+	RetentionProperties          *RetentionProperties          `json:"retention_properties,omitempty"`
+	MagneticStoreWriteProperties *MagneticStoreWriteProperties `json:"magnetic_store_write_properties,omitempty"`
+	DatabaseName                 string                        `json:"database_name"`
+	TableName                    string                        `json:"table_name"`
+	ARN                          string                        `json:"arn"`
+	TableStatus                  string                        `json:"table_status"`
 }
 
 // Dimension holds a name/value pair for a time-series record.
@@ -106,15 +106,15 @@ type Record struct {
 
 // DataSourceS3Configuration holds S3 source configuration for batch loads.
 type DataSourceS3Configuration struct {
-	BucketName string `json:"BucketName"`
+	BucketName      string `json:"BucketName"`
 	ObjectKeyPrefix string `json:"ObjectKeyPrefix,omitempty"`
-	DataFormat  string `json:"DataFormat,omitempty"`
+	DataFormat      string `json:"DataFormat,omitempty"`
 }
 
 // DataSourceConfiguration holds the data source for a batch load task.
 type DataSourceConfiguration struct {
-	DataFormat                string                      `json:"DataFormat,omitempty"`
-	DataSourceS3Configuration *DataSourceS3Configuration  `json:"DataSourceS3Configuration,omitempty"`
+	DataSourceS3Configuration *DataSourceS3Configuration `json:"DataSourceS3Configuration,omitempty"`
+	DataFormat                string                     `json:"DataFormat,omitempty"`
 }
 
 // ReportConfiguration holds the report output configuration for a batch load task.
@@ -127,13 +127,13 @@ type BatchLoadTask struct {
 	CreationTime            time.Time                `json:"creation_time"`
 	LastUpdatedTime         time.Time                `json:"last_updated_time"`
 	ResumableUntil          *time.Time               `json:"resumable_until,omitempty"`
+	DataSourceConfiguration *DataSourceConfiguration `json:"data_source_configuration,omitempty"`
+	ReportConfiguration     *ReportConfiguration     `json:"report_configuration,omitempty"`
 	TargetDatabaseName      string                   `json:"target_database_name"`
 	TargetTableName         string                   `json:"target_table_name"`
 	TaskID                  string                   `json:"task_id"`
 	TaskStatus              string                   `json:"task_status"`
 	ErrorMessage            string                   `json:"error_message,omitempty"`
-	DataSourceConfiguration *DataSourceConfiguration `json:"data_source_configuration,omitempty"`
-	ReportConfiguration     *ReportConfiguration     `json:"report_configuration,omitempty"`
 	RecordVersion           int64                    `json:"record_version,omitempty"`
 }
 
@@ -341,7 +341,11 @@ type CreateTableInput struct {
 }
 
 // CreateTable creates a new table in the specified database with optional initial tags.
-func (b *InMemoryBackend) CreateTable(dbName, tblName string, tags map[string]string, inp *CreateTableInput) (*Table, error) {
+func (b *InMemoryBackend) CreateTable(
+	dbName, tblName string,
+	tags map[string]string,
+	inp *CreateTableInput,
+) (*Table, error) {
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
@@ -501,7 +505,8 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 
 	b.records[dbName][tblName] = append(b.records[dbName][tblName], records...)
 
-	count := int32(len(records))
+	// Record counts are bounded by request size limits (< MaxInt32).
+	count := int32(len(records)) //#nosec G115
 
 	return &WriteRecordsOutput{Total: count, MemoryStore: count}, nil
 }
@@ -722,4 +727,3 @@ func (b *InMemoryBackend) AddBatchLoadTaskInternal(task *BatchLoadTask) {
 	cp := *task
 	b.batchLoadTasks[task.TaskID] = &cp
 }
-
