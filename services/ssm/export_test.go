@@ -97,3 +97,114 @@ func (b *InMemoryBackend) GetCommandExpirySecs() float64 {
 
 	return b.commandExpirySecs
 }
+
+// ActivationCount returns the number of activations stored.
+func (b *InMemoryBackend) ActivationCount() int {
+	b.mu.RLock("ActivationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.activations)
+}
+
+// AssociationCount returns the number of associations stored.
+func (b *InMemoryBackend) AssociationCount() int {
+	b.mu.RLock("AssociationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.associations)
+}
+
+// MaintenanceWindowCount returns the number of maintenance windows stored.
+func (b *InMemoryBackend) MaintenanceWindowCount() int {
+	b.mu.RLock("MaintenanceWindowCount")
+	defer b.mu.RUnlock()
+
+	return len(b.maintenanceWindows)
+}
+
+// OpsItemCount returns the number of OpsItems stored.
+func (b *InMemoryBackend) OpsItemCount() int {
+	b.mu.RLock("OpsItemCount")
+	defer b.mu.RUnlock()
+
+	return len(b.opsItems)
+}
+
+// OpsMetadataCount returns the number of OpsMetadata entries stored.
+func (b *InMemoryBackend) OpsMetadataCount() int {
+	b.mu.RLock("OpsMetadataCount")
+	defer b.mu.RUnlock()
+
+	return len(b.opsMetadata)
+}
+
+// PatchBaselineCount returns the number of patch baselines stored.
+func (b *InMemoryBackend) PatchBaselineCount() int {
+	b.mu.RLock("PatchBaselineCount")
+	defer b.mu.RUnlock()
+
+	return len(b.patchBaselines)
+}
+
+// HandlerOpsLen returns the number of supported operations.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}
+
+// AddActivationInternal seeds an activation directly into the backend for testing.
+func (b *InMemoryBackend) AddActivationInternal(act Activation) {
+	b.mu.Lock("AddActivationInternal")
+	defer b.mu.Unlock()
+	b.activations[act.ActivationID] = act
+}
+
+// AddAssociationInternal seeds an association directly into the backend for testing.
+func (b *InMemoryBackend) AddAssociationInternal(assoc Association) {
+	b.mu.Lock("AddAssociationInternal")
+	defer b.mu.Unlock()
+	b.associations[assoc.AssociationID] = assoc
+}
+
+// AddMaintenanceWindowInternal seeds a maintenance window directly into the backend for testing.
+func (b *InMemoryBackend) AddMaintenanceWindowInternal(mw MaintenanceWindow) {
+	b.mu.Lock("AddMaintenanceWindowInternal")
+	defer b.mu.Unlock()
+	b.maintenanceWindows[mw.WindowID] = mw
+}
+
+// AddOpsItemInternal seeds an OpsItem directly into the backend for testing.
+func (b *InMemoryBackend) AddOpsItemInternal(item OpsItem) {
+	b.mu.Lock("AddOpsItemInternal")
+	defer b.mu.Unlock()
+	b.opsItems[item.OpsItemID] = item
+}
+
+// AddOpsMetadataInternal seeds OpsMetadata directly into the backend for testing.
+func (b *InMemoryBackend) AddOpsMetadataInternal(meta OpsMetadata) {
+	b.mu.Lock("AddOpsMetadataInternal")
+	defer b.mu.Unlock()
+	b.opsMetadata[meta.OpsMetadataArn] = meta
+}
+
+// AddPatchBaselineInternal seeds a patch baseline directly into the backend for testing.
+func (b *InMemoryBackend) AddPatchBaselineInternal(bl PatchBaseline) {
+	b.mu.Lock("AddPatchBaselineInternal")
+	defer b.mu.Unlock()
+	b.patchBaselines[bl.BaselineID] = bl
+}
+
+// OpsItemRelatedItemCount returns the total number of related items across all OpsItems.
+func (b *InMemoryBackend) OpsItemRelatedItemCount(opsItemID string) int {
+	b.mu.RLock("OpsItemRelatedItemCount")
+	defer b.mu.RUnlock()
+
+	return len(b.opsItemRelatedItems[opsItemID])
+}
+
+// GetPatchBaselineInternal retrieves a patch baseline directly from the backend for testing.
+func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
+	b.mu.RLock("GetPatchBaselineInternal")
+	defer b.mu.RUnlock()
+
+	return b.patchBaselines[id]
+}

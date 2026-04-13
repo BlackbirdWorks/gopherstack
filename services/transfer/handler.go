@@ -43,16 +43,16 @@ func (h *Handler) Name() string { return "Transfer" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateServer",
+		"CreateUser",
+		"DeleteServer",
+		"DeleteUser",
 		"DescribeServer",
+		"DescribeUser",
 		"ListServers",
+		"ListUsers",
 		"StartServer",
 		"StopServer",
-		"DeleteServer",
 		"UpdateServer",
-		"CreateUser",
-		"DescribeUser",
-		"ListUsers",
-		"DeleteUser",
 		"UpdateUser",
 	}
 }

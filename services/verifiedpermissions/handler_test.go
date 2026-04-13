@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
@@ -818,4 +819,421 @@ func TestVPHandler_PolicyTemplateValidation(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+func TestVPHandler_TagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) string
+		tags     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "tag existing resource",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
+				t.Helper()
+
+				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["arn"].(string)
+			},
+			tags:     map[string]any{"env": "prod"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "tag non-existent resource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+			},
+			tags:     map[string]any{"key": "value"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing resource arn",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return ""
+			},
+			tags:     map[string]any{"key": "value"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			arn := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "TagResource", map[string]any{
+				"resourceArn": arn,
+				"tags":        tt.tags,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) string
+		name     string
+		tagKeys  []string
+		wantCode int
+	}{
+		{
+			name: "untag existing resource",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
+				t.Helper()
+
+				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
+					"description": "test",
+					"tags":        map[string]any{"env": "prod"},
+				})
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["arn"].(string)
+			},
+			tagKeys:  []string{"env"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "untag non-existent resource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+			},
+			tagKeys:  []string{"key"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing resource arn",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return ""
+			},
+			tagKeys:  []string{"key"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			arn := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "UntagResource", map[string]any{
+				"resourceArn": arn,
+				"tagKeys":     tt.tagKeys,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) string
+		name     string
+		wantCode int
+		wantTags bool
+	}{
+		{
+			name: "list tags for existing resource",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
+				t.Helper()
+
+				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
+					"description": "test",
+					"tags":        map[string]any{"env": "prod"},
+				})
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["arn"].(string)
+			},
+			wantCode: http.StatusOK,
+			wantTags: true,
+		},
+		{
+			name: "list tags for non-existent resource",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return "arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store/nonexistent"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing resource arn",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			arn := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "ListTagsForResource", map[string]any{
+				"resourceArn": arn,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantTags {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp, "tags")
+			}
+		})
+	}
+}
+
+func TestVPHandler_ChaosServiceName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	assert.Equal(t, "verifiedpermissions", h.ChaosServiceName())
+}
+
+func TestVPHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	ops := h.ChaosOperations()
+	assert.Equal(t, h.GetSupportedOperations(), ops)
+}
+
+func TestVPHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	regions := h.ChaosRegions()
+	assert.NotEmpty(t, regions)
+}
+
+func TestVPHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestVPHandler_Snapshot_Restore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		numStores int
+	}{
+		{name: "empty handler", numStores: 0},
+		{name: "handler with data", numStores: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+
+			for range tt.numStores {
+				doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+			}
+
+			snap := h.Snapshot()
+			require.NotNil(t, snap)
+
+			h2 := newTestVPHandler(t)
+			require.NoError(t, h2.Restore(snap))
+
+			rec := doVPRequest(t, h2, "ListPolicyStores", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			stores := resp["policyStores"].([]any)
+			assert.Len(t, stores, tt.numStores)
+		})
+	}
+}
+
+func TestVPProvider_Name(t *testing.T) {
+	t.Parallel()
+
+	p := &verifiedpermissions.Provider{}
+	assert.Equal(t, "VerifiedPermissions", p.Name())
+}
+
+func TestVPProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &verifiedpermissions.Provider{}
+	ctx := &service.AppContext{}
+	reg, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, reg)
+	assert.Equal(t, "VerifiedPermissions", reg.Name())
+}
+
+func TestVPHandler_GetPolicyStore_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	rec := doVPRequest(t, h, "GetPolicyStore", map[string]any{"policyStoreId": ""})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_DeletePolicyStore_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	rec := doVPRequest(t, h, "DeletePolicyStore", map[string]any{"policyStoreId": ""})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_UpdatePolicyStore_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	rec := doVPRequest(t, h, "UpdatePolicyStore", map[string]any{
+		"policyStoreId": "nonexistent-id",
+		"description":   "updated",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_ListPolicyTemplates_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	rec := doVPRequest(t, h, "ListPolicyTemplates", map[string]any{
+		"policyStoreId": "nonexistent-store",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_UpdatePolicyTemplate_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	// Create a store but use nonexistent template
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	var storeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	storeID := storeResp["policyStoreId"].(string)
+
+	rec = doVPRequest(t, h, "UpdatePolicyTemplate", map[string]any{
+		"policyStoreId":    storeID,
+		"policyTemplateId": "nonexistent-template",
+		"statement":        "permit(principal == ?principal, action, resource);",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_DeletePolicyTemplate_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	// Create a store but use nonexistent template
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	var storeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	storeID := storeResp["policyStoreId"].(string)
+
+	rec = doVPRequest(t, h, "DeletePolicyTemplate", map[string]any{
+		"policyStoreId":    storeID,
+		"policyTemplateId": "nonexistent-template",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_GetPolicy_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	var storeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	storeID := storeResp["policyStoreId"].(string)
+
+	rec = doVPRequest(t, h, "GetPolicy", map[string]any{
+		"policyStoreId": storeID,
+		"policyId":      "nonexistent-policy",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_DeletePolicy_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	var storeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	storeID := storeResp["policyStoreId"].(string)
+
+	rec = doVPRequest(t, h, "DeletePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"policyId":      "nonexistent-policy",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestVPHandler_CreatePolicy_TemplateLinked(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	// Create store
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "test"})
+	var storeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	storeID := storeResp["policyStoreId"].(string)
+
+	// Create template-linked policy
+	rec = doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"templateLinked": map[string]any{
+				"policyTemplateId": "some-template-id",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var policyResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp))
+	assert.Equal(t, "TEMPLATE_LINKED", policyResp["policyType"])
+}
+
+func TestVPHandler_CreatePolicyStore_WithTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
+		"description": "tagged store",
+		"tags":        map[string]any{"env": "prod", "team": "platform"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["policyStoreId"])
+	assert.NotEmpty(t, resp["arn"])
 }

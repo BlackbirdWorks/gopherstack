@@ -17,9 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := timestreamquery.NewInMemoryBackend("000000000000", "us-east-1")
 	h := timestreamquery.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &timestreamquerysdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeAccountSettings",
-		"PrepareQuery",
-		"UpdateAccountSettings",
-	})
+	sdkcheck.CheckCompleteness(t, &timestreamquerysdk.Client{}, h.GetSupportedOperations(), []string{})
 }

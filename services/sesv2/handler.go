@@ -22,12 +22,17 @@ const (
 
 // Handler is the Echo HTTP handler for SES v2 operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new SES v2 handler with the given backend.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// Reset resets the backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -38,16 +43,26 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported SES v2 operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateEmailIdentity",
-		"GetEmailIdentity",
-		"ListEmailIdentities",
-		"DeleteEmailIdentity",
-		"SendEmail",
+		"BatchGetMetricData",
+		"CancelExportJob",
 		"CreateConfigurationSet",
-		"GetConfigurationSet",
-		"ListConfigurationSets",
+		"CreateConfigurationSetEventDestination",
+		"CreateContact",
+		"CreateContactList",
+		"CreateCustomVerificationEmailTemplate",
+		"CreateDedicatedIpPool",
+		"CreateDeliverabilityTestReport",
+		"CreateEmailIdentity",
+		"CreateEmailIdentityPolicy",
+		"CreateEmailTemplate",
 		"DeleteConfigurationSet",
+		"DeleteEmailIdentity",
+		"GetConfigurationSet",
+		"GetEmailIdentity",
+		"ListConfigurationSets",
+		"ListEmailIdentities",
 		"ListTagsForResource",
+		"SendEmail",
 		"TagResource",
 		"UntagResource",
 	}
@@ -107,7 +122,7 @@ func parseSESv2Path(method, path string) (string, string) {
 	// Strip /v2/email/ prefix and split remaining path into segments.
 	tail := strings.TrimPrefix(path, sesv2PathPrefix)
 	tail = strings.TrimSuffix(tail, "/")
-	segments := strings.SplitN(tail, "/", segmentSplitN)
+	segments := strings.Split(tail, "/")
 
 	if len(segments) == 0 || segments[0] == "" {
 		return unknownAction, ""
@@ -124,12 +139,67 @@ func parseSESv2Path(method, path string) (string, string) {
 		return parseConfigSetPath(method, segments)
 	case "tags":
 		return parseTagsPath(method)
+	default:
+		return parseMiscPaths(method, segments)
 	}
 
 	return unknownAction, ""
 }
 
-const segmentSplitN = 2
+// parseMiscPaths handles the newer SES v2 path prefixes.
+func parseMiscPaths(method string, segments []string) (string, string) {
+	switch segments[0] {
+	case "metrics":
+		return parseMetricsPath(method, segments)
+	case "export-jobs":
+		return parseExportJobsPath(method, segments)
+	case "contact-lists":
+		return parseContactListPath(method, segments)
+	case "custom-verification-email-templates":
+		if method == http.MethodPost && len(segments) == 1 {
+			return "CreateCustomVerificationEmailTemplate", ""
+		}
+	case "dedicated-ip-pools":
+		if method == http.MethodPost && len(segments) == 1 {
+			return "CreateDedicatedIpPool", ""
+		}
+	case "deliverability-dashboard":
+		return parseDeliverabilityDashboardPath(method, segments)
+	case "templates":
+		if method == http.MethodPost && len(segments) == 1 {
+			return "CreateEmailTemplate", ""
+		}
+	}
+
+	return unknownAction, ""
+}
+
+const metricsPathSegments = 2
+const exportJobPathSegments = 3
+
+func parseMetricsPath(method string, segments []string) (string, string) {
+	if len(segments) == metricsPathSegments && segments[1] == "batch" && method == http.MethodPost {
+		return "BatchGetMetricData", ""
+	}
+
+	return unknownAction, ""
+}
+
+func parseExportJobsPath(method string, segments []string) (string, string) {
+	if len(segments) == exportJobPathSegments && segments[2] == "cancel" && method == http.MethodPut {
+		return "CancelExportJob", segments[1]
+	}
+
+	return unknownAction, ""
+}
+
+func parseDeliverabilityDashboardPath(method string, segments []string) (string, string) {
+	if len(segments) == metricsPathSegments && segments[1] == "test" && method == http.MethodPost {
+		return "CreateDeliverabilityTestReport", ""
+	}
+
+	return unknownAction, ""
+}
 
 func parseIdentityPath(method string, segments []string) (string, string) {
 	switch {
@@ -137,10 +207,24 @@ func parseIdentityPath(method string, segments []string) (string, string) {
 		return "ListEmailIdentities", ""
 	case method == http.MethodPost && len(segments) == 1:
 		return "CreateEmailIdentity", ""
-	case method == http.MethodGet && len(segments) == segmentSplitN:
+	case method == http.MethodGet && len(segments) == 2:
 		return "GetEmailIdentity", segments[1]
-	case method == http.MethodDelete && len(segments) == segmentSplitN:
+	case method == http.MethodDelete && len(segments) == 2:
 		return "DeleteEmailIdentity", segments[1]
+	case method == http.MethodPost && len(segments) == 4 && segments[2] == "policies":
+		// POST /v2/email/identities/{identity}/policies/{policyName}
+		return "CreateEmailIdentityPolicy", segments[1]
+	}
+
+	return unknownAction, ""
+}
+
+func parseContactListPath(method string, segments []string) (string, string) {
+	switch {
+	case method == http.MethodPost && len(segments) == 1:
+		return "CreateContactList", ""
+	case method == http.MethodPost && len(segments) == 3 && segments[2] == "contacts":
+		return "CreateContact", segments[1]
 	}
 
 	return unknownAction, ""
@@ -152,10 +236,12 @@ func parseConfigSetPath(method string, segments []string) (string, string) {
 		return "ListConfigurationSets", ""
 	case method == http.MethodPost && len(segments) == 1:
 		return "CreateConfigurationSet", ""
-	case method == http.MethodGet && len(segments) == segmentSplitN:
+	case method == http.MethodGet && len(segments) == 2:
 		return "GetConfigurationSet", segments[1]
-	case method == http.MethodDelete && len(segments) == segmentSplitN:
+	case method == http.MethodDelete && len(segments) == 2:
 		return "DeleteConfigurationSet", segments[1]
+	case method == http.MethodPost && len(segments) == 3 && segments[2] == "event-destinations":
+		return "CreateConfigurationSetEventDestination", segments[1]
 	}
 
 	return unknownAction, ""
@@ -210,8 +296,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// errOpNotHandled is returned by sub-dispatchers when they don't recognise an operation.
+var errOpNotHandled = errors.New("sesv2: operation not handled by this dispatcher")
+
 // dispatchOp routes an already-identified operation to its handler.
 func (h *Handler) dispatchOp(c *echo.Context, op, resource string) (any, error) {
+	resp, err := h.dispatchCoreOps(c, op, resource)
+	if !errors.Is(err, errOpNotHandled) {
+		return resp, err
+	}
+
+	resp, err = h.dispatchNewOps(c, op, resource)
+	if !errors.Is(err, errOpNotHandled) {
+		return resp, err
+	}
+
+	return nil, fmt.Errorf("%w: %s is not a valid SES v2 operation", ErrInvalidInput, op)
+}
+
+// dispatchCoreOps handles the original 12 SES v2 operations.
+func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string) (any, error) {
 	switch op {
 	case "CreateEmailIdentity":
 		return h.handleCreateEmailIdentity(c)
@@ -234,10 +338,37 @@ func (h *Handler) dispatchOp(c *echo.Context, op, resource string) (any, error) 
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(), nil
 	case "TagResource", "UntagResource":
-		// Tags are not persisted; accept and ignore.
 		return &emptyDeleteOutput{}, nil
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid SES v2 operation", ErrInvalidParameter, op)
+		return nil, errOpNotHandled
+	}
+}
+
+// dispatchNewOps handles the 10 newly added SES v2 operations.
+func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
+	case "BatchGetMetricData":
+		return h.handleBatchGetMetricData(c)
+	case "CancelExportJob":
+		return h.handleCancelExportJob(resource)
+	case "CreateConfigurationSetEventDestination":
+		return h.handleCreateConfigurationSetEventDestination(c, resource)
+	case "CreateContact":
+		return h.handleCreateContact(c, resource)
+	case "CreateContactList":
+		return h.handleCreateContactList(c)
+	case "CreateCustomVerificationEmailTemplate":
+		return h.handleCreateCustomVerificationEmailTemplate(c)
+	case "CreateDedicatedIpPool":
+		return h.handleCreateDedicatedIPPool(c)
+	case "CreateDeliverabilityTestReport":
+		return h.handleCreateDeliverabilityTestReport(c)
+	case "CreateEmailIdentityPolicy":
+		return h.handleCreateEmailIdentityPolicy(c, resource)
+	case "CreateEmailTemplate":
+		return h.handleCreateEmailTemplate(c)
+	default:
+		return nil, errOpNotHandled
 	}
 }
 
@@ -489,15 +620,278 @@ func (h *Handler) handleListTagsForResource() any {
 	return &listTagsOutput{Tags: []tagEntry{}}
 }
 
+// ---- new operation request/response types ----
+
+type batchGetMetricDataInput struct {
+	Queries []struct {
+		ID        string `json:"Id"`
+		Namespace string `json:"Namespace"`
+		Metric    string `json:"Metric"`
+	} `json:"Queries"`
+}
+
+type batchGetMetricDataOutput struct {
+	Results []struct {
+		ID         string    `json:"Id"`
+		Timestamps []any     `json:"Timestamps"`
+		Values     []float64 `json:"Values"`
+	} `json:"Results"`
+}
+
+type createConfigurationSetEventDestinationInput struct {
+	EventDestinationName string `json:"EventDestinationName"`
+	EventDestination     struct {
+		MatchingEventTypes []string `json:"MatchingEventTypes"`
+		Enabled            bool     `json:"Enabled"`
+	} `json:"EventDestination"`
+}
+
+type createContactInput struct {
+	EmailAddress     string            `json:"EmailAddress"`
+	TopicPreferences []TopicPreference `json:"TopicPreferences"`
+}
+
+type createContactListInput struct {
+	ContactListName string `json:"ContactListName"`
+	Description     string `json:"Description"`
+}
+
+type createCustomVerificationEmailTemplateInput struct {
+	TemplateName          string `json:"TemplateName"`
+	FromEmailAddress      string `json:"FromEmailAddress"`
+	TemplateSubject       string `json:"TemplateSubject"`
+	TemplateContent       string `json:"TemplateContent"`
+	SuccessRedirectionURL string `json:"SuccessRedirectionURL"`
+	FailureRedirectionURL string `json:"FailureRedirectionURL"`
+}
+
+type createDedicatedIPPoolInput struct {
+	PoolName    string `json:"PoolName"`
+	ScalingMode string `json:"ScalingMode"`
+}
+
+type createDeliverabilityTestReportInput struct {
+	ReportName       string `json:"ReportName"`
+	FromEmailAddress string `json:"FromEmailAddress"`
+}
+
+type createDeliverabilityTestReportOutput struct {
+	ReportID                 string `json:"ReportId"`
+	DeliverabilityTestStatus string `json:"DeliverabilityTestStatus"`
+}
+
+type createEmailIdentityPolicyInput struct {
+	Policy string `json:"Policy"`
+}
+
+type createEmailTemplateInput struct {
+	TemplateName    string               `json:"TemplateName"`
+	TemplateContent EmailTemplateContent `json:"TemplateContent"`
+}
+
+// ---- new operation handlers ----
+
+func (h *Handler) handleBatchGetMetricData(c *echo.Context) (any, error) {
+	var in batchGetMetricDataInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	queries := make([]MetricDataQuery, 0, len(in.Queries))
+	for _, q := range in.Queries {
+		queries = append(queries, MetricDataQuery{ID: q.ID, Namespace: q.Namespace, Metric: q.Metric})
+	}
+
+	results, err := h.Backend.BatchGetMetricData(queries)
+	if err != nil {
+		return nil, err
+	}
+
+	out := batchGetMetricDataOutput{}
+	for _, r := range results {
+		out.Results = append(out.Results, struct {
+			ID         string    `json:"Id"`
+			Timestamps []any     `json:"Timestamps"`
+			Values     []float64 `json:"Values"`
+		}{
+			ID:         r.ID,
+			Timestamps: []any{},
+			Values:     r.Values,
+		})
+	}
+
+	if out.Results == nil {
+		out.Results = []struct {
+			ID         string    `json:"Id"`
+			Timestamps []any     `json:"Timestamps"`
+			Values     []float64 `json:"Values"`
+		}{}
+	}
+
+	return &out, nil
+}
+
+func (h *Handler) handleCancelExportJob(jobID string) (any, error) {
+	if err := h.Backend.CancelExportJob(jobID); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateConfigurationSetEventDestination(c *echo.Context, configSetName string) (any, error) {
+	var in createConfigurationSetEventDestinationInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if _, err := h.Backend.CreateConfigurationSetEventDestination(
+		configSetName,
+		in.EventDestinationName,
+		in.EventDestination.Enabled,
+		in.EventDestination.MatchingEventTypes,
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateContact(c *echo.Context, contactListName string) (any, error) {
+	var in createContactInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if _, err := h.Backend.CreateContact(contactListName, in.EmailAddress, in.TopicPreferences); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateContactList(c *echo.Context) (any, error) {
+	var in createContactListInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if _, err := h.Backend.CreateContactList(in.ContactListName, in.Description); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateCustomVerificationEmailTemplate(c *echo.Context) (any, error) {
+	var in createCustomVerificationEmailTemplateInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	tmpl := &CustomVerificationEmailTemplate{
+		TemplateName:          in.TemplateName,
+		FromEmailAddress:      in.FromEmailAddress,
+		TemplateSubject:       in.TemplateSubject,
+		TemplateContent:       in.TemplateContent,
+		SuccessRedirectionURL: in.SuccessRedirectionURL,
+		FailureRedirectionURL: in.FailureRedirectionURL,
+	}
+
+	if _, err := h.Backend.CreateCustomVerificationEmailTemplate(tmpl); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateDedicatedIPPool(c *echo.Context) (any, error) {
+	var in createDedicatedIPPoolInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if _, err := h.Backend.CreateDedicatedIPPool(in.PoolName, in.ScalingMode); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateDeliverabilityTestReport(c *echo.Context) (any, error) {
+	var in createDeliverabilityTestReportInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	report, err := h.Backend.CreateDeliverabilityTestReport(in.ReportName, in.FromEmailAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDeliverabilityTestReportOutput{
+		ReportID:                 report.ReportID,
+		DeliverabilityTestStatus: report.DeliverabilityTestStatus,
+	}, nil
+}
+
+const policyPathMinSegments = 4
+
+func (h *Handler) handleCreateEmailIdentityPolicy(c *echo.Context, identity string) (any, error) {
+	// Extract policyName from the URL: .../identities/{identity}/policies/{policyName}
+	segments := strings.Split(strings.TrimPrefix(c.Request().URL.Path, sesv2PathPrefix), "/")
+	if len(segments) < policyPathMinSegments {
+		return nil, fmt.Errorf("%w: invalid policy path", ErrInvalidInput)
+	}
+
+	policyName := segments[3]
+	if decoded, decErr := url.PathUnescape(policyName); decErr == nil {
+		policyName = decoded
+	}
+
+	var in createEmailIdentityPolicyInput
+
+	if decErr := json.NewDecoder(c.Request().Body).Decode(&in); decErr != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, decErr.Error())
+	}
+
+	if backErr := h.Backend.CreateEmailIdentityPolicy(identity, policyName, in.Policy); backErr != nil {
+		return nil, backErr
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleCreateEmailTemplate(c *echo.Context) (any, error) {
+	var in createEmailTemplateInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if _, err := h.Backend.CreateEmailTemplate(in.TemplateName, &in.TemplateContent); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
 // ---- error handling ----
 
 func (h *Handler) handleOpError(c *echo.Context, op string, opErr error) error {
 	switch {
-	case errors.Is(opErr, ErrIdentityNotFound), errors.Is(opErr, ErrConfigSetNotFound):
+	case errors.Is(opErr, ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFoundException", opErr.Error())
-	case errors.Is(opErr, ErrIdentityAlreadyExists), errors.Is(opErr, ErrConfigSetAlreadyExists):
+	case errors.Is(opErr, ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "AlreadyExistsException", opErr.Error())
-	case errors.Is(opErr, ErrInvalidParameter):
+	case errors.Is(opErr, ErrInvalidInput):
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", opErr.Error())
 	default:
 		logger.Load(c.Request().Context()).Error("SESv2 internal error", "error", opErr, "op", op)

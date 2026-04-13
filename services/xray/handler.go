@@ -98,21 +98,21 @@ func (h *Handler) Name() string { return "Xray" }
 // GetSupportedOperations returns the list of supported X-Ray operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"PutTraceSegments",
-		"PutTelemetryRecords",
-		"GetTraceSummaries",
 		"BatchGetTraces",
 		"CreateGroup",
-		"GetGroup",
-		"GetGroups",
-		"UpdateGroup",
-		"DeleteGroup",
 		"CreateSamplingRule",
-		"GetSamplingRules",
-		"UpdateSamplingRule",
+		"DeleteGroup",
 		"DeleteSamplingRule",
 		"GetEncryptionConfig",
+		"GetGroup",
+		"GetGroups",
+		"GetSamplingRules",
+		"GetTraceSummaries",
 		"PutEncryptionConfig",
+		"PutTelemetryRecords",
+		"PutTraceSegments",
+		"UpdateGroup",
+		"UpdateSamplingRule",
 	}
 }
 

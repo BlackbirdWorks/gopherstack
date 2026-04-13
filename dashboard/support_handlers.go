@@ -57,7 +57,7 @@ client = boto3.client('support', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	cases := h.SupportOps.Backend.DescribeCases(nil)
+	cases := h.SupportOps.Backend.DescribeCases(nil, true)
 	views := make([]supportCaseView, 0, len(cases))
 
 	for _, cs := range cases {

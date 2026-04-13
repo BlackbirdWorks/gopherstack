@@ -13,8 +13,11 @@ import (
 )
 
 const (
-	scheduledQueryArnFormat = "arn:aws:timestream:%s:%s:scheduled-query/%s"
-	defaultQueryState       = "ENABLED"
+	scheduledQueryArnFormat     = "arn:aws:timestream:%s:%s:scheduled-query/%s"
+	pricingModelBytesScanned    = "BYTES_SCANNED"
+	pricingModelComputeUnits    = "COMPUTE_UNITS"
+	scheduledQueryStateEnabled  = "ENABLED"
+	scheduledQueryStateDisabled = "DISABLED"
 )
 
 var (
@@ -22,23 +25,25 @@ var (
 	ErrNotFound = errors.New("ResourceNotFoundException")
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = errors.New("ConflictException")
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = errors.New("ValidationException")
 )
 
 // ScheduledQuery represents a Timestream scheduled query.
 type ScheduledQuery struct {
-	LastRunTime             time.Time
-	CreationTime            time.Time
-	Tags                    map[string]string
-	NotificationTopicArn    string
-	ScheduleExpression      string
-	ExecutionRoleArn        string
-	QueryString             string
-	ErrorReportS3BucketName string
-	TargetDatabase          string
-	TargetTable             string
-	State                   string
-	Name                    string
-	Arn                     string
+	LastRunTime             time.Time         `json:"last_run_time"`
+	CreationTime            time.Time         `json:"creation_time"`
+	Tags                    map[string]string `json:"tags"`
+	NotificationTopicArn    string            `json:"notification_topic_arn"`
+	ScheduleExpression      string            `json:"schedule_expression"`
+	ExecutionRoleArn        string            `json:"execution_role_arn"`
+	QueryString             string            `json:"query_string"`
+	ErrorReportS3BucketName string            `json:"error_report_s3_bucket_name"`
+	TargetDatabase          string            `json:"target_database"`
+	TargetTable             string            `json:"target_table"`
+	State                   string            `json:"state"`
+	Name                    string            `json:"name"`
+	Arn                     string            `json:"arn"`
 }
 
 // ScheduledQuerySummary is a reduced view used in list responses.
@@ -56,12 +61,26 @@ type QueryResult struct {
 	Columns     []map[string]any
 }
 
+// AccountSettings holds the account-level settings for Timestream Query.
+type AccountSettings struct {
+	MaxQueryTCU       *int32
+	QueryPricingModel string
+}
+
+// PrepareQueryResult holds the result of a PrepareQuery call.
+type PrepareQueryResult struct {
+	QueryString string
+	Columns     []map[string]any
+	Parameters  []map[string]any
+}
+
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	scheduledQueries map[string]*ScheduledQuery // keyed by name
 	arnIndex         map[string]string          // ARN → name
 	queries          map[string]*QueryResult
+	accountSettings  AccountSettings
 	accountID        string
 	region           string
 }
@@ -73,9 +92,21 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		scheduledQueries: make(map[string]*ScheduledQuery),
 		arnIndex:         make(map[string]string),
 		queries:          make(map[string]*QueryResult),
+		accountSettings:  AccountSettings{QueryPricingModel: pricingModelBytesScanned},
 		accountID:        accountID,
 		region:           region,
 	}
+}
+
+// Reset clears all backend state, returning it to a freshly initialised condition.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.scheduledQueries = make(map[string]*ScheduledQuery)
+	b.arnIndex = make(map[string]string)
+	b.queries = make(map[string]*QueryResult)
+	b.accountSettings = AccountSettings{QueryPricingModel: pricingModelBytesScanned}
 }
 
 // AccountID returns the account ID for the backend.
@@ -109,7 +140,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		ErrorReportS3BucketName: errorReportS3BucketName,
 		TargetDatabase:          targetDatabase,
 		TargetTable:             targetTable,
-		State:                   defaultQueryState,
+		State:                   scheduledQueryStateEnabled,
 		CreationTime:            time.Now(),
 		Tags:                    make(map[string]string),
 	}
@@ -121,9 +152,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	b.scheduledQueries[name] = sq
 	b.arnIndex[arn] = name
 
-	cp := *sq
-
-	return &cp, nil
+	return cloneScheduledQuery(sq), nil
 }
 
 // DescribeScheduledQuery returns details of a scheduled query by ARN.
@@ -136,9 +165,7 @@ func (b *InMemoryBackend) DescribeScheduledQuery(arnStr string) (*ScheduledQuery
 		return nil, err
 	}
 
-	cp := *sq
-
-	return &cp, nil
+	return cloneScheduledQuery(sq), nil
 }
 
 // DeleteScheduledQuery deletes a scheduled query by ARN.
@@ -184,7 +211,13 @@ func (b *InMemoryBackend) ListScheduledQueries() []ScheduledQuerySummary {
 }
 
 // UpdateScheduledQuery updates the state of a scheduled query by ARN.
+// Only ENABLED and DISABLED are valid states.
 func (b *InMemoryBackend) UpdateScheduledQuery(arnStr, state string) error {
+	if state != scheduledQueryStateEnabled && state != scheduledQueryStateDisabled {
+		return fmt.Errorf("%w: State must be %s or %s",
+			ErrValidation, scheduledQueryStateEnabled, scheduledQueryStateDisabled)
+	}
+
 	b.mu.Lock("UpdateScheduledQuery")
 	defer b.mu.Unlock()
 
@@ -362,4 +395,75 @@ func (b *InMemoryBackend) ListScheduledQueriesFull() []*ScheduledQuery {
 	}
 
 	return out
+}
+
+// DescribeAccountSettings returns the current account-level settings.
+func (b *InMemoryBackend) DescribeAccountSettings() AccountSettings {
+	b.mu.RLock("DescribeAccountSettings")
+	defer b.mu.RUnlock()
+
+	return b.accountSettings
+}
+
+// PrepareQuery validates a query string and returns its column and parameter metadata.
+// This is a simulated implementation: the query string is accepted but not evaluated.
+func (b *InMemoryBackend) PrepareQuery(queryString string, _ bool) (*PrepareQueryResult, error) {
+	if queryString == "" {
+		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
+	}
+
+	return &PrepareQueryResult{
+		QueryString: queryString,
+		Columns:     []map[string]any{},
+		Parameters:  []map[string]any{},
+	}, nil
+}
+
+// isValidPricingModel reports whether the given pricing model string is recognised.
+func isValidPricingModel(model string) bool {
+	return model == pricingModelBytesScanned || model == pricingModelComputeUnits
+}
+
+// UpdateAccountSettings updates the account-level settings and returns the new state.
+// Only non-empty queryPricingModel and non-nil maxQueryTCU values are applied;
+// omitted fields preserve their current values.
+func (b *InMemoryBackend) UpdateAccountSettings(queryPricingModel string, maxQueryTCU *int32) (AccountSettings, error) {
+	b.mu.Lock("UpdateAccountSettings")
+	defer b.mu.Unlock()
+
+	if queryPricingModel != "" {
+		if !isValidPricingModel(queryPricingModel) {
+			return AccountSettings{}, fmt.Errorf(
+				"%w: invalid QueryPricingModel %q, must be one of BYTES_SCANNED or COMPUTE_UNITS",
+				ErrValidation,
+				queryPricingModel,
+			)
+		}
+
+		b.accountSettings.QueryPricingModel = queryPricingModel
+	}
+
+	if maxQueryTCU != nil {
+		if *maxQueryTCU <= 0 {
+			return AccountSettings{}, fmt.Errorf("%w: MaxQueryTCU must be a positive integer", ErrValidation)
+		}
+
+		b.accountSettings.MaxQueryTCU = maxQueryTCU
+	}
+
+	return b.accountSettings, nil
+}
+
+// AddScheduledQueryInternal is a test-only seed helper that stores a scheduled query directly,
+// bypassing normal validation. It is used to pre-populate backend state in tests.
+func (b *InMemoryBackend) AddScheduledQueryInternal(sq *ScheduledQuery) {
+	b.mu.Lock("AddScheduledQueryInternal")
+	defer b.mu.Unlock()
+
+	if sq.Tags == nil {
+		sq.Tags = make(map[string]string)
+	}
+
+	b.scheduledQueries[sq.Name] = sq
+	b.arnIndex[sq.Arn] = sq.Name
 }

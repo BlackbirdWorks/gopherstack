@@ -13,7 +13,7 @@ import (
 func TestInMemoryBackend_AnalyzeDocument(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 	blocks := b.AnalyzeDocument("s3://my-bucket/doc.pdf")
 
 	assert.NotEmpty(t, blocks)
@@ -23,7 +23,7 @@ func TestInMemoryBackend_AnalyzeDocument(t *testing.T) {
 func TestInMemoryBackend_DetectDocumentText(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 	blocks := b.DetectDocumentText("s3://my-bucket/doc.pdf")
 
 	assert.NotEmpty(t, blocks)
@@ -47,7 +47,7 @@ func TestInMemoryBackend_StartAndGetDocumentAnalysis(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := textract.NewInMemoryBackend()
+			b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 
 			job, err := b.StartDocumentAnalysis(tt.documentURI)
 
@@ -75,7 +75,7 @@ func TestInMemoryBackend_StartAndGetDocumentAnalysis(t *testing.T) {
 func TestInMemoryBackend_GetDocumentAnalysis_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetDocumentAnalysis("nonexistent-job-id")
 
 	require.Error(t, err)
@@ -100,7 +100,7 @@ func TestInMemoryBackend_StartAndGetDocumentTextDetection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := textract.NewInMemoryBackend()
+			b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 
 			job, err := b.StartDocumentTextDetection(tt.documentURI)
 
@@ -128,7 +128,7 @@ func TestInMemoryBackend_StartAndGetDocumentTextDetection(t *testing.T) {
 func TestInMemoryBackend_GetDocumentTextDetection_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetDocumentTextDetection("nonexistent-job-id")
 
 	require.Error(t, err)
@@ -138,7 +138,7 @@ func TestInMemoryBackend_GetDocumentTextDetection_NotFound(t *testing.T) {
 func TestInMemoryBackend_ListJobs(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 
 	_, err := b.StartDocumentAnalysis("s3://bucket/doc1.pdf")
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestInMemoryBackend_ListJobs(t *testing.T) {
 func TestInMemoryBackend_GetDocumentAnalysis_WrongType(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 
 	job, err := b.StartDocumentTextDetection("s3://bucket/doc.png")
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestInMemoryBackend_GetDocumentAnalysis_WrongType(t *testing.T) {
 func TestInMemoryBackend_GetDocumentTextDetection_WrongType(t *testing.T) {
 	t.Parallel()
 
-	b := textract.NewInMemoryBackend()
+	b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 
 	job, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")
 	require.NoError(t, err)
@@ -193,13 +193,25 @@ func TestInMemoryBackend_JobHistoryCap(t *testing.T) {
 			insertDet: 5,
 			wantLen:   10,
 		},
+		{
+			name:      "above_cap_trims_oldest",
+			insertAna: 6,
+			insertDet: 0,
+			wantLen:   5,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := textract.NewInMemoryBackend()
+			var b *textract.InMemoryBackend
+
+			if tt.name == "above_cap_trims_oldest" {
+				b = textract.NewInMemoryBackendWithCap(5)
+			} else {
+				b = textract.NewInMemoryBackend("123456789012", "us-east-1")
+			}
 
 			for range tt.insertAna {
 				_, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")
@@ -238,7 +250,7 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := textract.NewInMemoryBackend()
+			b := textract.NewInMemoryBackend("123456789012", "us-east-1")
 
 			var lastJobID string
 
@@ -259,7 +271,7 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 			snap := b.Snapshot()
 			require.NotNil(t, snap)
 
-			b2 := textract.NewInMemoryBackend()
+			b2 := textract.NewInMemoryBackend("123456789012", "us-east-1")
 			require.NoError(t, b2.Restore(snap))
 
 			jobs := b2.ListJobs()
