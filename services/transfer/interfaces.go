@@ -3,6 +3,9 @@ package transfer
 // StorageBackend defines the interface for Transfer backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
+	AccountID() string
+	Region() string
+	Reset()
 	CreateServer(protocols []string, tags map[string]string) (*Server, error)
 	DescribeServer(serverID string) (*Server, error)
 	ListServers() []Server

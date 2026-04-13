@@ -28,12 +28,22 @@ var (
 
 // Handler is the Echo HTTP handler for AWS Transfer Family operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Transfer handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears the handler state and rebuilds the dispatch table.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+	h.ops = h.buildOps()
 }
 
 // Name returns the service name.
@@ -131,7 +141,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateServer":      service.WrapOp(h.handleCreateServer),
 		"DescribeServer":    service.WrapOp(h.handleDescribeServer),
@@ -159,7 +169,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -253,7 +263,7 @@ func (h *Handler) handleDescribeServer(_ context.Context, in *serverIDInput) (*d
 		return nil, err
 	}
 
-	return &describeServerOutput{Server: toServerView(s, h.Backend.serverARNForServer(s))}, nil
+	return &describeServerOutput{Server: toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID))}, nil
 }
 
 type listServersOutput struct {
@@ -280,7 +290,7 @@ func (h *Handler) handleListServers(_ context.Context, in *listServersInput) (*l
 	for i := range servers {
 		s := &servers[i]
 		items = append(items, serverListItem{
-			Arn:      h.Backend.serverARNForServer(s),
+			Arn:      serverARN(s.AccountID, s.Region, s.ServerID),
 			ServerID: s.ServerID,
 			State:    s.State,
 			Domain:   s.Domain,
@@ -418,7 +428,7 @@ func (h *Handler) handleDescribeUser(_ context.Context, in *describeUserInput) (
 
 	return &describeUserOutput{
 		ServerID: u.ServerID,
-		User:     toUserView(u, h.Backend.userARNForUser(u)),
+		User:     toUserView(u, userARN(u.AccountID, u.Region, u.ServerID, u.UserName)),
 	}, nil
 }
 
@@ -456,7 +466,7 @@ func (h *Handler) handleListUsers(_ context.Context, in *listUsersInput) (*listU
 	for i := range users {
 		u := &users[i]
 		items = append(items, userListItem{
-			Arn:      h.Backend.userARNForUser(u),
+			Arn:      userARN(u.AccountID, u.Region, u.ServerID, u.UserName),
 			UserName: u.UserName,
 			HomeDir:  u.HomeDir,
 			Role:     u.Role,

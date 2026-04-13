@@ -569,15 +569,15 @@ func TestHandler_DeleteCertificate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*transfer.Handler) string
+		setup    func(*transfer.InMemoryBackend) string
 		name     string
 		wantCode int
 	}{
 		{
 			name: "success",
-			setup: func(h *transfer.Handler) string {
+			setup: func(b *transfer.InMemoryBackend) string {
 				certID := "cert-abc123"
-				h.Backend.AddCertificateInternal(certID)
+				b.AddCertificateInternal(certID)
 
 				return certID
 			},
@@ -585,14 +585,14 @@ func TestHandler_DeleteCertificate(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *transfer.Handler) string {
+			setup: func(_ *transfer.InMemoryBackend) string {
 				return "cert-doesnotexist"
 			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "missing certificate id",
-			setup: func(_ *transfer.Handler) string {
+			setup: func(_ *transfer.InMemoryBackend) string {
 				return ""
 			},
 			wantCode: http.StatusBadRequest,
@@ -603,8 +603,9 @@ func TestHandler_DeleteCertificate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			certID := tt.setup(h)
+			b := transfer.NewInMemoryBackend(testAccountID, testRegion)
+			h := transfer.NewHandler(b)
+			certID := tt.setup(b)
 
 			rec := doTransferRequest(t, h, "DeleteCertificate", map[string]any{
 				"CertificateId": certID,
