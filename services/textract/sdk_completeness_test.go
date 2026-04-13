@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := textract.NewInMemoryBackend()
 	h := textract.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &textractsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AnalyzeExpense",
-		"AnalyzeID",
-		"CreateAdapter",
-		"CreateAdapterVersion",
-		"DeleteAdapter",
-		"DeleteAdapterVersion",
-		"GetAdapter",
-		"GetAdapterVersion",
-		"GetExpenseAnalysis",
-		"GetLendingAnalysis",
 		"GetLendingAnalysisSummary",
 		"ListAdapterVersions",
 		"ListAdapters",

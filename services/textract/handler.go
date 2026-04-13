@@ -41,11 +41,21 @@ func (h *Handler) Name() string { return "Textract" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AnalyzeDocument",
+		"AnalyzeExpense",
+		"AnalyzeID",
+		"CreateAdapter",
+		"CreateAdapterVersion",
+		"DeleteAdapter",
+		"DeleteAdapterVersion",
 		"DetectDocumentText",
-		"StartDocumentAnalysis",
+		"GetAdapter",
+		"GetAdapterVersion",
 		"GetDocumentAnalysis",
-		"StartDocumentTextDetection",
 		"GetDocumentTextDetection",
+		"GetExpenseAnalysis",
+		"GetLendingAnalysis",
+		"StartDocumentAnalysis",
+		"StartDocumentTextDetection",
 	}
 }
 
@@ -124,11 +134,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"AnalyzeDocument":            service.WrapOp(h.handleAnalyzeDocument),
+		"AnalyzeExpense":             service.WrapOp(h.handleAnalyzeExpense),
+		"AnalyzeID":                  service.WrapOp(h.handleAnalyzeID),
+		"CreateAdapter":              service.WrapOp(h.handleCreateAdapter),
+		"CreateAdapterVersion":       service.WrapOp(h.handleCreateAdapterVersion),
+		"DeleteAdapter":              service.WrapOp(h.handleDeleteAdapter),
+		"DeleteAdapterVersion":       service.WrapOp(h.handleDeleteAdapterVersion),
 		"DetectDocumentText":         service.WrapOp(h.handleDetectDocumentText),
-		"StartDocumentAnalysis":      service.WrapOp(h.handleStartDocumentAnalysis),
+		"GetAdapter":                 service.WrapOp(h.handleGetAdapter),
+		"GetAdapterVersion":          service.WrapOp(h.handleGetAdapterVersion),
 		"GetDocumentAnalysis":        service.WrapOp(h.handleGetDocumentAnalysis),
-		"StartDocumentTextDetection": service.WrapOp(h.handleStartDocumentTextDetection),
 		"GetDocumentTextDetection":   service.WrapOp(h.handleGetDocumentTextDetection),
+		"GetExpenseAnalysis":         service.WrapOp(h.handleGetExpenseAnalysis),
+		"GetLendingAnalysis":         service.WrapOp(h.handleGetLendingAnalysis),
+		"StartDocumentAnalysis":      service.WrapOp(h.handleStartDocumentAnalysis),
+		"StartDocumentTextDetection": service.WrapOp(h.handleStartDocumentTextDetection),
 	}
 }
 
@@ -335,6 +355,351 @@ func (h *Handler) handleGetDocumentTextDetection(
 	resp := &getJobResponse{
 		JobStatus: job.JobStatus,
 		Blocks:    job.Blocks,
+	}
+	resp.DocumentMetadata.Pages = 1
+
+	return resp, nil
+}
+
+// analyzeExpenseInput is the input for AnalyzeExpense.
+type analyzeExpenseInput struct {
+	Document struct {
+		S3Object struct {
+			Bucket string `json:"Bucket"`
+			Name   string `json:"Name"`
+		} `json:"S3Object"`
+		Bytes []byte `json:"Bytes"`
+	} `json:"Document"`
+}
+
+// analyzeExpenseResponse is the response for AnalyzeExpense.
+type analyzeExpenseResponse struct {
+	ExpenseDocuments []ExpenseDocument `json:"ExpenseDocuments"`
+	DocumentMetadata struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
+func (h *Handler) handleAnalyzeExpense(
+	_ context.Context,
+	in *analyzeExpenseInput,
+) (*analyzeExpenseResponse, error) {
+	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
+	docs := h.Backend.AnalyzeExpense(uri)
+
+	resp := &analyzeExpenseResponse{ExpenseDocuments: docs}
+	resp.DocumentMetadata.Pages = 1
+
+	return resp, nil
+}
+
+// analyzeIDInput is the input for AnalyzeID.
+type analyzeIDInput struct {
+	DocumentPages []struct {
+		S3Object struct {
+			Bucket string `json:"Bucket"`
+			Name   string `json:"Name"`
+		} `json:"S3Object"`
+		Bytes []byte `json:"Bytes"`
+	} `json:"DocumentPages"`
+}
+
+// analyzeIDResponse is the response for AnalyzeID.
+type analyzeIDResponse struct {
+	AnalyzeIDModelVersion string             `json:"AnalyzeIDModelVersion"`
+	IdentityDocuments     []IdentityDocument `json:"IdentityDocuments"`
+	DocumentMetadata      struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
+func (h *Handler) handleAnalyzeID(
+	_ context.Context,
+	in *analyzeIDInput,
+) (*analyzeIDResponse, error) {
+	if len(in.DocumentPages) == 0 {
+		return nil, fmt.Errorf("%w: DocumentPages is required", errInvalidRequest)
+	}
+
+	uris := make([]string, 0, len(in.DocumentPages))
+	for _, dp := range in.DocumentPages {
+		uris = append(uris, documentURI(dp.S3Object.Bucket, dp.S3Object.Name))
+	}
+
+	docs := h.Backend.AnalyzeID(uris)
+
+	resp := &analyzeIDResponse{
+		AnalyzeIDModelVersion: "1.0",
+		IdentityDocuments:     docs,
+	}
+	resp.DocumentMetadata.Pages = len(in.DocumentPages)
+
+	return resp, nil
+}
+
+// createAdapterInput is the input for CreateAdapter.
+type createAdapterInput struct {
+	Tags         map[string]string `json:"Tags"`
+	AdapterName  string            `json:"AdapterName"`
+	Description  string            `json:"Description"`
+	FeatureTypes []string          `json:"FeatureTypes"`
+}
+
+// createAdapterResponse is the response for CreateAdapter.
+type createAdapterResponse struct {
+	AdapterID string `json:"AdapterId"`
+}
+
+func (h *Handler) handleCreateAdapter(
+	_ context.Context,
+	in *createAdapterInput,
+) (*createAdapterResponse, error) {
+	if in.AdapterName == "" {
+		return nil, fmt.Errorf("%w: AdapterName is required", errInvalidRequest)
+	}
+
+	adapter, err := h.Backend.CreateAdapter(in.AdapterName, in.Description, in.FeatureTypes, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createAdapterResponse{AdapterID: adapter.AdapterID}, nil
+}
+
+// getAdapterInput is the input for GetAdapter.
+type getAdapterInput struct {
+	AdapterID string `json:"AdapterId"`
+}
+
+// getAdapterResponse is the response for GetAdapter.
+type getAdapterResponse struct {
+	Tags         map[string]string `json:"Tags"`
+	AdapterID    string            `json:"AdapterId"`
+	AdapterName  string            `json:"AdapterName"`
+	AutoUpdate   string            `json:"AutoUpdate"`
+	CreationTime string            `json:"CreationTime"`
+	Description  string            `json:"Description"`
+	FeatureTypes []string          `json:"FeatureTypes"`
+}
+
+func (h *Handler) handleGetAdapter(
+	_ context.Context,
+	in *getAdapterInput,
+) (*getAdapterResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	adapter, err := h.Backend.GetAdapter(in.AdapterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getAdapterResponse{
+		AdapterID:    adapter.AdapterID,
+		AdapterName:  adapter.AdapterName,
+		AutoUpdate:   adapter.AutoUpdate,
+		CreationTime: adapter.CreationTime.Format("2006-01-02T15:04:05Z"),
+		Description:  adapter.Description,
+		FeatureTypes: adapter.FeatureTypes,
+		Tags:         adapter.Tags,
+	}, nil
+}
+
+// deleteAdapterInput is the input for DeleteAdapter.
+type deleteAdapterInput struct {
+	AdapterID string `json:"AdapterId"`
+}
+
+// emptyResponse is a response with no fields.
+type emptyResponse struct{}
+
+func (h *Handler) handleDeleteAdapter(
+	_ context.Context,
+	in *deleteAdapterInput,
+) (*emptyResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteAdapter(in.AdapterID); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{}, nil
+}
+
+// createAdapterVersionInput is the input for CreateAdapterVersion.
+type createAdapterVersionInput struct {
+	Tags      map[string]string `json:"Tags"`
+	AdapterID string            `json:"AdapterId"`
+}
+
+// createAdapterVersionResponse is the response for CreateAdapterVersion.
+type createAdapterVersionResponse struct {
+	AdapterID      string `json:"AdapterId"`
+	AdapterVersion string `json:"AdapterVersion"`
+}
+
+func (h *Handler) handleCreateAdapterVersion(
+	_ context.Context,
+	in *createAdapterVersionInput,
+) (*createAdapterVersionResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	av, err := h.Backend.CreateAdapterVersion(in.AdapterID, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createAdapterVersionResponse{
+		AdapterID:      av.AdapterID,
+		AdapterVersion: av.AdapterVersion,
+	}, nil
+}
+
+// getAdapterVersionInput is the input for GetAdapterVersion.
+type getAdapterVersionInput struct {
+	AdapterID      string `json:"AdapterId"`
+	AdapterVersion string `json:"AdapterVersion"`
+}
+
+// getAdapterVersionResponse is the response for GetAdapterVersion.
+type getAdapterVersionResponse struct {
+	Tags           map[string]string `json:"Tags"`
+	AdapterID      string            `json:"AdapterId"`
+	AdapterVersion string            `json:"AdapterVersion"`
+	CreationTime   string            `json:"CreationTime"`
+	Status         string            `json:"Status"`
+	StatusMessage  string            `json:"StatusMessage"`
+	FeatureTypes   []string          `json:"FeatureTypes"`
+}
+
+func (h *Handler) handleGetAdapterVersion(
+	_ context.Context,
+	in *getAdapterVersionInput,
+) (*getAdapterVersionResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	if in.AdapterVersion == "" {
+		return nil, fmt.Errorf("%w: AdapterVersion is required", errInvalidRequest)
+	}
+
+	av, err := h.Backend.GetAdapterVersion(in.AdapterID, in.AdapterVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getAdapterVersionResponse{
+		AdapterID:      av.AdapterID,
+		AdapterVersion: av.AdapterVersion,
+		CreationTime:   av.CreationTime.Format("2006-01-02T15:04:05Z"),
+		FeatureTypes:   av.FeatureTypes,
+		Status:         av.Status,
+		StatusMessage:  av.StatusMessage,
+		Tags:           av.Tags,
+	}, nil
+}
+
+// deleteAdapterVersionInput is the input for DeleteAdapterVersion.
+type deleteAdapterVersionInput struct {
+	AdapterID      string `json:"AdapterId"`
+	AdapterVersion string `json:"AdapterVersion"`
+}
+
+func (h *Handler) handleDeleteAdapterVersion(
+	_ context.Context,
+	in *deleteAdapterVersionInput,
+) (*emptyResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	if in.AdapterVersion == "" {
+		return nil, fmt.Errorf("%w: AdapterVersion is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteAdapterVersion(in.AdapterID, in.AdapterVersion); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{}, nil
+}
+
+// getExpenseAnalysisInput is the input for GetExpenseAnalysis.
+type getExpenseAnalysisInput struct {
+	JobID string `json:"JobId"`
+}
+
+// getExpenseAnalysisResponse is the response for GetExpenseAnalysis.
+type getExpenseAnalysisResponse struct {
+	AnalyzeExpenseModelVersion string            `json:"AnalyzeExpenseModelVersion"`
+	JobStatus                  string            `json:"JobStatus"`
+	ExpenseDocuments           []ExpenseDocument `json:"ExpenseDocuments"`
+	DocumentMetadata           struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
+func (h *Handler) handleGetExpenseAnalysis(
+	_ context.Context,
+	in *getExpenseAnalysisInput,
+) (*getExpenseAnalysisResponse, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+	}
+
+	job, err := h.Backend.GetExpenseAnalysis(in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &getExpenseAnalysisResponse{
+		AnalyzeExpenseModelVersion: "1.0",
+		ExpenseDocuments:           job.ExpenseDocuments,
+		JobStatus:                  job.JobStatus,
+	}
+	resp.DocumentMetadata.Pages = 1
+
+	return resp, nil
+}
+
+// getLendingAnalysisInput is the input for GetLendingAnalysis.
+type getLendingAnalysisInput struct {
+	JobID string `json:"JobId"`
+}
+
+// getLendingAnalysisResponse is the response for GetLendingAnalysis.
+type getLendingAnalysisResponse struct {
+	AnalyzeLendingModelVersion string          `json:"AnalyzeLendingModelVersion"`
+	JobStatus                  string          `json:"JobStatus"`
+	Results                    []LendingResult `json:"Results"`
+	DocumentMetadata           struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
+func (h *Handler) handleGetLendingAnalysis(
+	_ context.Context,
+	in *getLendingAnalysisInput,
+) (*getLendingAnalysisResponse, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+	}
+
+	job, err := h.Backend.GetLendingAnalysis(in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &getLendingAnalysisResponse{
+		AnalyzeLendingModelVersion: "1.0",
+		JobStatus:                  job.JobStatus,
+		Results:                    job.Results,
 	}
 	resp.DocumentMetadata.Pages = 1
 
