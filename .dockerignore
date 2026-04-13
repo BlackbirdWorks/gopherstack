@@ -9,5 +9,6 @@ coverage.html
 .idea/
 .vscode/
 node_modules/
+ui/node_modules/
 vendor/
 *.log

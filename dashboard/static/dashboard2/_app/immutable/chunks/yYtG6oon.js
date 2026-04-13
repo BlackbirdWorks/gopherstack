@@ -1,0 +1,1 @@
+import{L as e,S as t,V as n,d as r,rt as i,w as a}from"./C_TiHZB5.js";import"./v_jBEYI6.js";var o=a(`<section><iframe class="h-[88vh] w-full rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"></iframe></section>`);function s(a,s){var c=o(),l=n(c);i(c),e(()=>{r(l,`title`,s.title),r(l,`src`,s.src)}),t(a,c)}export{s as t};

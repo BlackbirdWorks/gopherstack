@@ -13,4 +13,4 @@
 	const src = $derived(`/dashboard/${serviceId}`);
 </script>
 
-<LegacyServiceFrame title={label} description={`Manage ${label} resources`} {src} />
+<LegacyServiceFrame title={label} {src} />

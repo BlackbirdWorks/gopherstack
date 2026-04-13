@@ -1,0 +1,1 @@
+import"../chunks/C_TiHZB5.js";import"../chunks/v_jBEYI6.js";import{t as e}from"../chunks/yYtG6oon.js";function t(t){e(t,{title:`Settings`,src:`/dashboard/settings`})}export{t as component};

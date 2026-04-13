@@ -17,6 +17,7 @@ RUN go mod download
 COPY . .
 
 # Build dashboard2 frontend assets before embedding in Go binary
+RUN npm --prefix ui ci --include=optional
 RUN npm --prefix ui run build
 
 # Build the Go app
