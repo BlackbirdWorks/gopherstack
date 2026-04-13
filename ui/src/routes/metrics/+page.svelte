@@ -7,6 +7,7 @@
 	let metrics = $state<DashboardMetrics | null>(null);
 	let isConnected = $state(false);
 	let abortController = new AbortController();
+	let destroying = false;
 
 	const allServices = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager', 'ECR', 'AppSync'];
 	let enabledServices = $state<Set<string>>(new Set(allServices));
@@ -76,7 +77,7 @@
 			}
 		} catch (err: unknown) {
 			const e = err as Error;
-			if (e.name !== 'AbortError') {
+			if (e.name !== 'AbortError' && !destroying) {
 				isConnected = false;
 				toast.error(`Metrics stream disconnected: ${e.message}`);
 			}
@@ -84,7 +85,7 @@
 	}
 
 	onMount(() => { startMetricsStream(); });
-	onDestroy(() => { abortController.abort(); });
+	onDestroy(() => { destroying = true; abortController.abort(); });
 </script>
 
 <div class="container mx-auto space-y-8">
@@ -215,11 +216,12 @@
 					{#if showFilterDropdown}
 						<div class="absolute right-0 z-10 mt-1 bg-white rounded-lg shadow-lg w-60 dark:bg-slate-700 border border-slate-200 dark:border-slate-600">
 							<div class="p-3">
-								<label class="relative inline-flex items-center cursor-pointer mb-2">
-									<input type="checkbox" checked={allEnabled} onchange={(e) => toggleAll((e.target as HTMLInputElement).checked)} class="sr-only peer" />
-									<div class="shrink-0 w-9 h-5 bg-slate-200 rounded-full peer dark:bg-slate-600 peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+								<button type="button" onclick={() => toggleAll(!allEnabled)} class="inline-flex items-center cursor-pointer mb-2" role="switch" aria-checked={allEnabled}>
+									<div class="relative shrink-0 w-9 h-5 rounded-full transition-colors {allEnabled ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-600'}">
+										<div class="absolute top-[2px] left-[2px] bg-white border border-slate-300 rounded-full h-4 w-4 transition-transform {allEnabled ? 'translate-x-4 border-white' : ''}"></div>
+									</div>
 									<span class="ml-3 text-sm font-medium text-slate-900 dark:text-slate-300">All Services</span>
-								</label>
+								</button>
 							</div>
 							<ul class="h-48 px-3 pb-3 overflow-y-auto text-sm text-slate-700 dark:text-slate-200">
 								{#each allServices as svc}

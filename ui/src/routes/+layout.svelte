@@ -67,7 +67,7 @@
 	<title>Gopherstack Dashboard</title>
 </svelte:head>
 
-<Toaster position="top-right" />
+<Toaster position="bottom-left" />
 
 <div class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 antialiased font-sans min-h-screen">
 	<!-- Top Navbar -->

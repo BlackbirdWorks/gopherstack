@@ -19,6 +19,7 @@
 		type AttributeValue
 	} from '@aws-sdk/client-dynamodb';
 	import { toast } from 'svelte-sonner';
+	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
 
 	const ddb = newDynamoDBClient();
 
@@ -91,102 +92,8 @@
 		tableNames.filter((t) => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase()))
 	);
 
-	const currentKeySchema = $derived.by(() => {
-		const desc = selectedTableDesc;
-		if (!desc) return { pkName: '', skName: '', pkType: 'S' as string, skType: 'S' as string };
-		let keySchema: KeySchemaElement[] = desc.KeySchema ?? [];
-		if (queryIndexName) {
-			const gsi = (desc.GlobalSecondaryIndexes ?? []).find((i) => i.IndexName === queryIndexName);
-			if (gsi) keySchema = gsi.KeySchema ?? [];
-			else {
-				const lsi = (desc.LocalSecondaryIndexes ?? []).find((i) => i.IndexName === queryIndexName);
-				if (lsi) keySchema = lsi.KeySchema ?? [];
-			}
-		}
-		let pkName = '', skName = '';
-		for (const k of keySchema) {
-			if (k.KeyType === 'HASH') pkName = k.AttributeName ?? '';
-			if (k.KeyType === 'RANGE') skName = k.AttributeName ?? '';
-		}
-		let pkType = 'S', skType = 'S';
-		for (const attr of desc.AttributeDefinitions ?? []) {
-			if (attr.AttributeName === pkName) pkType = attr.AttributeType ?? 'S';
-			if (attr.AttributeName === skName) skType = attr.AttributeType ?? 'S';
-		}
-		return { pkName, skName, pkType, skType };
-	});
-
-	const tableKeySchema = $derived.by(() => {
-		const desc = selectedTableDesc;
-		if (!desc) return { pkName: '', skName: '', pkType: 'S' as string, skType: 'S' as string };
-		let pkName = '', skName = '';
-		for (const k of desc.KeySchema ?? []) {
-			if (k.KeyType === 'HASH') pkName = k.AttributeName ?? '';
-			if (k.KeyType === 'RANGE') skName = k.AttributeName ?? '';
-		}
-		let pkType = 'S', skType = 'S';
-		for (const attr of desc.AttributeDefinitions ?? []) {
-			if (attr.AttributeName === pkName) pkType = attr.AttributeType ?? 'S';
-			if (attr.AttributeName === skName) skType = attr.AttributeType ?? 'S';
-		}
-		return { pkName, skName, pkType, skType };
-	});
-
-	// Helpers
-	function avToJson(av: AttributeValue): unknown {
-		if (av.S !== undefined) return av.S;
-		if (av.N !== undefined) return Number(av.N);
-		if (av.BOOL !== undefined) return av.BOOL;
-		if (av.NULL) return null;
-		if (av.L) return av.L.map(avToJson);
-		if (av.M) {
-			const obj: Record<string, unknown> = {};
-			for (const [k, v] of Object.entries(av.M)) obj[k] = avToJson(v);
-			return obj;
-		}
-		if (av.SS) return av.SS;
-		if (av.NS) return av.NS?.map(Number);
-		if (av.B) return '(binary)';
-		if (av.BS) return '(binary set)';
-		return JSON.stringify(av);
-	}
-
-	function itemToJson(item: Record<string, AttributeValue>): Record<string, unknown> {
-		const obj: Record<string, unknown> = {};
-		for (const [k, v] of Object.entries(item)) obj[k] = avToJson(v);
-		return obj;
-	}
-
-	function jsonToAv(val: unknown): AttributeValue {
-		if (typeof val === 'string') return { S: val };
-		if (typeof val === 'number') return { N: String(val) };
-		if (typeof val === 'boolean') return { BOOL: val };
-		if (val === null || val === undefined) return { NULL: true };
-		if (Array.isArray(val)) return { L: val.map(jsonToAv) };
-		if (typeof val === 'object') {
-			const m: Record<string, AttributeValue> = {};
-			for (const [k, v] of Object.entries(val as Record<string, unknown>)) m[k] = jsonToAv(v);
-			return { M: m };
-		}
-		return { S: String(val) };
-	}
-
-	function jsonToItem(json: Record<string, unknown>): Record<string, AttributeValue> {
-		const item: Record<string, AttributeValue> = {};
-		for (const [k, v] of Object.entries(json)) item[k] = jsonToAv(v);
-		return item;
-	}
-
-	function getColumns(items: Record<string, unknown>[]): string[] {
-		const cols = new Set<string>();
-		for (const item of items) for (const key of Object.keys(item)) cols.add(key);
-		return Array.from(cols);
-	}
-
-	function getKeySchema(desc: TableDescription | undefined): string {
-		if (!desc?.KeySchema) return '';
-		return desc.KeySchema.map((k) => `${k.AttributeName} (${k.KeyType})`).join(', ');
-	}
+	const currentKeySchema = $derived(resolveKeySchema(selectedTableDesc, queryIndexName || undefined));
+	const tableKeySchema = $derived(resolveKeySchema(selectedTableDesc));
 
 	// Table List Operations
 	async function loadTables() {
@@ -285,28 +192,12 @@
 		queryLoading = true;
 		try {
 			const { pkName, skName, pkType, skType } = currentKeySchema;
-			const exprNames: Record<string, string> = { '#pk': pkName };
-			const exprValues: Record<string, AttributeValue> = {
-				':pkval': pkType === 'N' ? { N: queryPKValue } : { S: queryPKValue }
-			};
-			let keyCondition = '#pk = :pkval';
-			if (querySKOperator && skName && querySKValue) {
-				exprNames['#sk'] = skName;
-				exprValues[':skval'] = skType === 'N' ? { N: querySKValue } : { S: querySKValue };
-				if (querySKOperator === 'BETWEEN' && querySKValue2) {
-					exprValues[':skval2'] = skType === 'N' ? { N: querySKValue2 } : { S: querySKValue2 };
-					keyCondition += ' AND #sk BETWEEN :skval AND :skval2';
-				} else if (querySKOperator === 'begins_with') {
-					keyCondition += ' AND begins_with(#sk, :skval)';
-				} else {
-					keyCondition += ` AND #sk ${querySKOperator} :skval`;
-				}
-			}
+			const kc = buildKeyCondition(pkName, queryPKValue, pkType, skName, querySKOperator, querySKValue, querySKValue2, skType);
 			const input = {
 				TableName: selectedTable,
-				KeyConditionExpression: keyCondition,
-				ExpressionAttributeNames: exprNames,
-				ExpressionAttributeValues: exprValues,
+				KeyConditionExpression: kc.expression,
+				ExpressionAttributeNames: kc.names,
+				ExpressionAttributeValues: kc.values,
 				Limit: queryLimit,
 				...(queryIndexName ? { IndexName: queryIndexName } : {}),
 				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {})

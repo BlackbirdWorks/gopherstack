@@ -8,6 +8,7 @@
 	let isConnected = $state(false);
 	let autoRefresh = $state(true);
 	let abortController: AbortController | null = null;
+	let destroying = false;
 	let searchQuery = $state('');
 	let drawerOpen = $state(false);
 	let selectedRequest = $state<CapturedRequest | null>(null);
@@ -108,7 +109,7 @@
 			}
 		} catch (err: unknown) {
 			const e = err as Error;
-			if (e.name !== 'AbortError') {
+			if (e.name !== 'AbortError' && !destroying) {
 				isConnected = false;
 				toast.error(`Console stream disconnected: ${e.message}`);
 			}
@@ -129,7 +130,7 @@
 	}
 
 	onMount(() => { if (autoRefresh) startStream(); });
-	onDestroy(() => { stopStream(); });
+	onDestroy(() => { destroying = true; stopStream(); });
 </script>
 
 <div class="container mx-auto h-full flex flex-col space-y-6">
@@ -151,11 +152,12 @@
 				</span>
 				{isConnected ? 'Recording' : 'Paused'}
 			</div>
-			<label class="relative inline-flex items-center cursor-pointer">
-				<input type="checkbox" checked={autoRefresh} onchange={(e) => toggleAutoRefresh((e.target as HTMLInputElement).checked)} class="sr-only peer" />
-				<div class="relative shrink-0 w-11 h-6 bg-slate-200 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+			<button type="button" onclick={() => toggleAutoRefresh(!autoRefresh)} class="relative inline-flex items-center cursor-pointer group" role="switch" aria-checked={autoRefresh}>
+				<div class="relative shrink-0 w-11 h-6 rounded-full transition-colors {autoRefresh ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}">
+					<div class="absolute top-[2px] left-[2px] bg-white border border-slate-300 rounded-full h-5 w-5 transition-transform {autoRefresh ? 'translate-x-5 border-white' : ''}"></div>
+				</div>
 				<span class="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300">Auto</span>
-			</label>
+			</button>
 		</div>
 	</div>
 
@@ -212,7 +214,7 @@
 							<span class="truncate text-xs text-slate-500 uppercase font-semibold">{guessService(req)}</span>
 						</div>
 						<div class="col-span-2 flex items-center text-xs text-slate-500">{formatTime(req)}</div>
-						<div class="col-span-2 flex items-center justify-end text-xs font-mono text-slate-600 dark:text-slate-400">{req.durationMs.toFixed(2)}ms</div>
+						<div class="col-span-2 flex items-center justify-end text-xs font-mono text-slate-600 dark:text-slate-400">{Number(req.durationMs).toFixed(2)}ms</div>
 					</button>
 				{/each}
 			{/if}
@@ -261,7 +263,7 @@
 						</div>
 						<div>
 							<span class="text-xs text-slate-500">Duration</span>
-							<p class="font-mono text-xs text-slate-700 dark:text-slate-300">{selectedRequest.durationMs.toFixed(2)}ms</p>
+							<p class="font-mono text-xs text-slate-700 dark:text-slate-300">{Number(selectedRequest.durationMs).toFixed(2)}ms</p>
 						</div>
 					</div>
 				</div>
