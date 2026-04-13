@@ -18,7 +18,7 @@ import (
 func newTestHandler(t *testing.T) *textract.Handler {
 	t.Helper()
 
-	return textract.NewHandler(textract.NewInMemoryBackend())
+	return textract.NewHandler(textract.NewInMemoryBackend("123456789012", "us-east-1"))
 }
 
 func doTextractRequest(
@@ -999,7 +999,7 @@ func TestHandler_Snapshot_Restore_WithAdapters(t *testing.T) {
 			h2 := newTestHandler(t)
 			require.NoError(t, h2.Restore(snap))
 
-			assert.Equal(t, tt.adapterCount, textract.AdapterCount(h2.Backend))
+			assert.Equal(t, tt.adapterCount, textract.AdapterCount(h2.Backend.(*textract.InMemoryBackend)))
 		})
 	}
 }

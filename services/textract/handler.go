@@ -10,7 +10,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -26,12 +25,21 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Textract operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Textract handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all backend state. Implements service.Resettable.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -54,8 +62,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDocumentTextDetection",
 		"GetExpenseAnalysis",
 		"GetLendingAnalysis",
+		"GetLendingAnalysisSummary",
+		"ListAdapterVersions",
+		"ListAdapters",
+		"ListTagsForResource",
 		"StartDocumentAnalysis",
 		"StartDocumentTextDetection",
+		"StartExpenseAnalysis",
+		"StartLendingAnalysis",
+		"TagResource",
+		"UntagResource",
+		"UpdateAdapter",
 	}
 }
 
@@ -131,7 +148,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+// buildOps constructs the dispatch map once at handler creation time.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"AnalyzeDocument":            service.WrapOp(h.handleAnalyzeDocument),
 		"AnalyzeExpense":             service.WrapOp(h.handleAnalyzeExpense),
@@ -147,13 +165,22 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetDocumentTextDetection":   service.WrapOp(h.handleGetDocumentTextDetection),
 		"GetExpenseAnalysis":         service.WrapOp(h.handleGetExpenseAnalysis),
 		"GetLendingAnalysis":         service.WrapOp(h.handleGetLendingAnalysis),
+		"GetLendingAnalysisSummary":  service.WrapOp(h.handleGetLendingAnalysisSummary),
+		"ListAdapterVersions":        service.WrapOp(h.handleListAdapterVersions),
+		"ListAdapters":               service.WrapOp(h.handleListAdapters),
+		"ListTagsForResource":        service.WrapOp(h.handleListTagsForResource),
 		"StartDocumentAnalysis":      service.WrapOp(h.handleStartDocumentAnalysis),
 		"StartDocumentTextDetection": service.WrapOp(h.handleStartDocumentTextDetection),
+		"StartExpenseAnalysis":       service.WrapOp(h.handleStartExpenseAnalysis),
+		"StartLendingAnalysis":       service.WrapOp(h.handleStartLendingAnalysis),
+		"TagResource":                service.WrapOp(h.handleTagResource),
+		"UntagResource":              service.WrapOp(h.handleUntagResource),
+		"UpdateAdapter":              service.WrapOp(h.handleUpdateAdapter),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -171,12 +198,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, awserr.ErrNotFound):
+	case errors.Is(err, ErrJobNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "InvalidJobIdException",
 			"message": err.Error(),
 		})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, ErrAdapterNotFound), errors.Is(err, ErrAdapterVersionNotFound):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"__type":  "InvalidParameterException",
+			"message": err.Error(),
+		})
+	case errors.Is(err, ErrValidation), errors.Is(err, errInvalidRequest),
+		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "ValidationException",
@@ -301,7 +334,7 @@ func (h *Handler) handleGetDocumentAnalysis(
 	in *getJobInput,
 ) (*getJobResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetDocumentAnalysis(in.JobID)
@@ -344,7 +377,7 @@ func (h *Handler) handleGetDocumentTextDetection(
 	in *getJobInput,
 ) (*getJobResponse, error) {
 	if in.JobID == "" {
-		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.GetDocumentTextDetection(in.JobID)
@@ -441,6 +474,7 @@ func (h *Handler) handleAnalyzeID(
 type createAdapterInput struct {
 	Tags         map[string]string `json:"Tags"`
 	AdapterName  string            `json:"AdapterName"`
+	AutoUpdate   string            `json:"AutoUpdate"`
 	Description  string            `json:"Description"`
 	FeatureTypes []string          `json:"FeatureTypes"`
 }
@@ -458,7 +492,7 @@ func (h *Handler) handleCreateAdapter(
 		return nil, fmt.Errorf("%w: AdapterName is required", errInvalidRequest)
 	}
 
-	adapter, err := h.Backend.CreateAdapter(in.AdapterName, in.Description, in.FeatureTypes, in.Tags)
+	adapter, err := h.Backend.CreateAdapter(in.AdapterName, in.Description, in.AutoUpdate, in.FeatureTypes, in.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -504,6 +538,82 @@ func (h *Handler) handleGetAdapter(
 		FeatureTypes: adapter.FeatureTypes,
 		Tags:         adapter.Tags,
 	}, nil
+}
+
+// updateAdapterInput is the input for UpdateAdapter.
+type updateAdapterInput struct {
+	AdapterID   string `json:"AdapterId"`
+	AutoUpdate  string `json:"AutoUpdate"`
+	Description string `json:"Description"`
+}
+
+// updateAdapterResponse is the response for UpdateAdapter.
+type updateAdapterResponse struct {
+	Tags         map[string]string `json:"Tags"`
+	AdapterID    string            `json:"AdapterId"`
+	AdapterName  string            `json:"AdapterName"`
+	AutoUpdate   string            `json:"AutoUpdate"`
+	CreationTime string            `json:"CreationTime"`
+	Description  string            `json:"Description"`
+	FeatureTypes []string          `json:"FeatureTypes"`
+}
+
+func (h *Handler) handleUpdateAdapter(
+	_ context.Context,
+	in *updateAdapterInput,
+) (*updateAdapterResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	adapter, err := h.Backend.UpdateAdapter(in.AdapterID, in.Description, in.AutoUpdate)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateAdapterResponse{
+		AdapterID:    adapter.AdapterID,
+		AdapterName:  adapter.AdapterName,
+		AutoUpdate:   adapter.AutoUpdate,
+		CreationTime: adapter.CreationTime.Format("2006-01-02T15:04:05Z"),
+		Description:  adapter.Description,
+		FeatureTypes: adapter.FeatureTypes,
+		Tags:         adapter.Tags,
+	}, nil
+}
+
+// listAdaptersInput is the input for ListAdapters.
+type listAdaptersInput struct{}
+
+// listAdaptersResponse is the response for ListAdapters.
+type listAdaptersResponse struct {
+	Adapters []adapterSummary `json:"Adapters"`
+}
+
+type adapterSummary struct {
+	Tags         map[string]string `json:"Tags"`
+	AdapterID    string            `json:"AdapterId"`
+	AdapterName  string            `json:"AdapterName"`
+	CreationTime string            `json:"CreationTime"`
+}
+
+func (h *Handler) handleListAdapters(
+	_ context.Context,
+	_ *listAdaptersInput,
+) (*listAdaptersResponse, error) {
+	adapters := h.Backend.ListAdapters()
+	summaries := make([]adapterSummary, 0, len(adapters))
+
+	for _, a := range adapters {
+		summaries = append(summaries, adapterSummary{
+			AdapterID:    a.AdapterID,
+			AdapterName:  a.AdapterName,
+			CreationTime: a.CreationTime.Format("2006-01-02T15:04:05Z"),
+			Tags:         a.Tags,
+		})
+	}
+
+	return &listAdaptersResponse{Adapters: summaries}, nil
 }
 
 // deleteAdapterInput is the input for DeleteAdapter.
@@ -605,6 +715,53 @@ func (h *Handler) handleGetAdapterVersion(
 	}, nil
 }
 
+// listAdapterVersionsInput is the input for ListAdapterVersions.
+type listAdapterVersionsInput struct {
+	AdapterID string `json:"AdapterId"`
+}
+
+// listAdapterVersionsResponse is the response for ListAdapterVersions.
+type listAdapterVersionsResponse struct {
+	AdapterID       string                  `json:"AdapterId"`
+	AdapterVersions []adapterVersionSummary `json:"AdapterVersions"`
+}
+
+type adapterVersionSummary struct {
+	Tags           map[string]string `json:"Tags"`
+	AdapterVersion string            `json:"AdapterVersion"`
+	CreationTime   string            `json:"CreationTime"`
+	Status         string            `json:"Status"`
+}
+
+func (h *Handler) handleListAdapterVersions(
+	_ context.Context,
+	in *listAdapterVersionsInput,
+) (*listAdapterVersionsResponse, error) {
+	if in.AdapterID == "" {
+		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
+	}
+
+	versions, err := h.Backend.ListAdapterVersions(in.AdapterID)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]adapterVersionSummary, 0, len(versions))
+	for _, av := range versions {
+		summaries = append(summaries, adapterVersionSummary{
+			AdapterVersion: av.AdapterVersion,
+			CreationTime:   av.CreationTime.Format("2006-01-02T15:04:05Z"),
+			Status:         av.Status,
+			Tags:           av.Tags,
+		})
+	}
+
+	return &listAdapterVersionsResponse{
+		AdapterID:       in.AdapterID,
+		AdapterVersions: summaries,
+	}, nil
+}
+
 // deleteAdapterVersionInput is the input for DeleteAdapterVersion.
 type deleteAdapterVersionInput struct {
 	AdapterID      string `json:"AdapterId"`
@@ -628,6 +785,74 @@ func (h *Handler) handleDeleteAdapterVersion(
 	}
 
 	return &emptyResponse{}, nil
+}
+
+// tagResourceInput is the input for TagResource.
+type tagResourceInput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceARN string            `json:"ResourceARN"`
+}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	in *tagResourceInput,
+) (*emptyResponse, error) {
+	if in.ResourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{}, nil
+}
+
+// untagResourceInput is the input for UntagResource.
+type untagResourceInput struct {
+	ResourceARN string   `json:"ResourceARN"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *untagResourceInput,
+) (*emptyResponse, error) {
+	if in.ResourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{}, nil
+}
+
+// listTagsForResourceInput is the input for ListTagsForResource.
+type listTagsForResourceInput struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+// listTagsForResourceResponse is the response for ListTagsForResource.
+type listTagsForResourceResponse struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceResponse, error) {
+	if in.ResourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listTagsForResourceResponse{Tags: tags}, nil
 }
 
 // getExpenseAnalysisInput is the input for GetExpenseAnalysis.
@@ -668,6 +893,37 @@ func (h *Handler) handleGetExpenseAnalysis(
 	return resp, nil
 }
 
+// startExpenseAnalysisInput is the input for StartExpenseAnalysis.
+type startExpenseAnalysisInput struct {
+	DocumentLocation struct {
+		S3Object struct {
+			Bucket string `json:"Bucket"`
+			Name   string `json:"Name"`
+		} `json:"S3Object"`
+	} `json:"DocumentLocation"`
+}
+
+func (h *Handler) handleStartExpenseAnalysis(
+	_ context.Context,
+	in *startExpenseAnalysisInput,
+) (*startJobResponse, error) {
+	bucket := in.DocumentLocation.S3Object.Bucket
+	key := in.DocumentLocation.S3Object.Name
+
+	if bucket == "" || key == "" {
+		return nil, fmt.Errorf("%w: DocumentLocation.S3Object.Bucket and Name are required", errInvalidRequest)
+	}
+
+	uri := "s3://" + bucket + "/" + key
+
+	job, err := h.Backend.StartExpenseAnalysis(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startJobResponse{JobID: job.JobID}, nil
+}
+
 // getLendingAnalysisInput is the input for GetLendingAnalysis.
 type getLendingAnalysisInput struct {
 	JobID string `json:"JobId"`
@@ -704,4 +960,71 @@ func (h *Handler) handleGetLendingAnalysis(
 	resp.DocumentMetadata.Pages = 1
 
 	return resp, nil
+}
+
+// getLendingAnalysisSummaryInput is the input for GetLendingAnalysisSummary.
+type getLendingAnalysisSummaryInput struct {
+	JobID string `json:"JobId"`
+}
+
+// getLendingAnalysisSummaryResponse is the response for GetLendingAnalysisSummary.
+type getLendingAnalysisSummaryResponse struct {
+	AnalyzeLendingModelVersion string `json:"AnalyzeLendingModelVersion"`
+	JobStatus                  string `json:"JobStatus"`
+	DocumentMetadata           struct {
+		Pages int `json:"Pages"`
+	} `json:"DocumentMetadata"`
+}
+
+func (h *Handler) handleGetLendingAnalysisSummary(
+	_ context.Context,
+	in *getLendingAnalysisSummaryInput,
+) (*getLendingAnalysisSummaryResponse, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: JobId is required", errInvalidRequest)
+	}
+
+	job, err := h.Backend.GetLendingAnalysisSummary(in.JobID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &getLendingAnalysisSummaryResponse{
+		AnalyzeLendingModelVersion: "1.0",
+		JobStatus:                  job.JobStatus,
+	}
+	resp.DocumentMetadata.Pages = 1
+
+	return resp, nil
+}
+
+// startLendingAnalysisInput is the input for StartLendingAnalysis.
+type startLendingAnalysisInput struct {
+	DocumentLocation struct {
+		S3Object struct {
+			Bucket string `json:"Bucket"`
+			Name   string `json:"Name"`
+		} `json:"S3Object"`
+	} `json:"DocumentLocation"`
+}
+
+func (h *Handler) handleStartLendingAnalysis(
+	_ context.Context,
+	in *startLendingAnalysisInput,
+) (*startJobResponse, error) {
+	bucket := in.DocumentLocation.S3Object.Bucket
+	key := in.DocumentLocation.S3Object.Name
+
+	if bucket == "" || key == "" {
+		return nil, fmt.Errorf("%w: DocumentLocation.S3Object.Bucket and Name are required", errInvalidRequest)
+	}
+
+	uri := "s3://" + bucket + "/" + key
+
+	job, err := h.Backend.StartLendingAnalysis(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startJobResponse{JobID: job.JobID}, nil
 }

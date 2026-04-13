@@ -15,17 +15,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := textract.NewInMemoryBackend()
+	backend := textract.NewInMemoryBackend("123456789012", "us-east-1")
 	h := textract.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &textractsdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetLendingAnalysisSummary",
-		"ListAdapterVersions",
-		"ListAdapters",
-		"ListTagsForResource",
-		"StartExpenseAnalysis",
-		"StartLendingAnalysis",
-		"TagResource",
-		"UntagResource",
-		"UpdateAdapter",
-	})
+	sdkcheck.CheckCompleteness(t, &textractsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

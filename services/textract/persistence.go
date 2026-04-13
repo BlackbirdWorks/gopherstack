@@ -13,6 +13,29 @@ type backendSnapshot struct {
 	AdapterVersions map[string]*AdapterVersion `json:"adapterVersions"`
 }
 
+// ensureNonNilMaps guarantees that all map fields in the snapshot are non-nil.
+func (s *backendSnapshot) ensureNonNilMaps() {
+	if s.Jobs == nil {
+		s.Jobs = make(map[string]*DocumentJob)
+	}
+
+	if s.ExpenseJobs == nil {
+		s.ExpenseJobs = make(map[string]*ExpenseJob)
+	}
+
+	if s.LendingJobs == nil {
+		s.LendingJobs = make(map[string]*LendingJob)
+	}
+
+	if s.Adapters == nil {
+		s.Adapters = make(map[string]*Adapter)
+	}
+
+	if s.AdapterVersions == nil {
+		s.AdapterVersions = make(map[string]*AdapterVersion)
+	}
+}
+
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
@@ -26,18 +49,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	expenseJobsCopy := make(map[string]*ExpenseJob, len(b.expenseJobs))
 	for k, v := range b.expenseJobs {
-		cp := *v
-		cp.ExpenseDocuments = make([]ExpenseDocument, len(v.ExpenseDocuments))
-		copy(cp.ExpenseDocuments, v.ExpenseDocuments)
-		expenseJobsCopy[k] = &cp
+		expenseJobsCopy[k] = cloneExpenseJob(v)
 	}
 
 	lendingJobsCopy := make(map[string]*LendingJob, len(b.lendingJobs))
 	for k, v := range b.lendingJobs {
-		cp := *v
-		cp.Results = make([]LendingResult, len(v.Results))
-		copy(cp.Results, v.Results)
-		lendingJobsCopy[k] = &cp
+		lendingJobsCopy[k] = cloneLendingJob(v)
 	}
 
 	adaptersCopy := make(map[string]*Adapter, len(b.adapters))
@@ -77,28 +94,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.ensureNonNilMaps()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*DocumentJob)
-	}
-
-	if snap.ExpenseJobs == nil {
-		snap.ExpenseJobs = make(map[string]*ExpenseJob)
-	}
-
-	if snap.LendingJobs == nil {
-		snap.LendingJobs = make(map[string]*LendingJob)
-	}
-
-	if snap.Adapters == nil {
-		snap.Adapters = make(map[string]*Adapter)
-	}
-
-	if snap.AdapterVersions == nil {
-		snap.AdapterVersions = make(map[string]*AdapterVersion)
-	}
 
 	b.jobs = snap.Jobs
 	b.expenseJobs = snap.ExpenseJobs

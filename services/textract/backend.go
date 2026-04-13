@@ -19,7 +19,42 @@ var (
 	ErrAdapterNotFound = awserr.New("InvalidParameterException", awserr.ErrNotFound)
 	// ErrAdapterVersionNotFound is returned when an adapter version is not found.
 	ErrAdapterVersionNotFound = awserr.New("InvalidParameterException", awserr.ErrNotFound)
+	// ErrValidation is returned when request parameters fail validation.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+// Job status constants.
+const (
+	jobStatusSucceeded  = "SUCCEEDED"
+	jobStatusInProgress = "IN_PROGRESS"
+	jobStatusFailed     = "FAILED"
+)
+
+// Job type constants.
+const (
+	jobTypeDocumentAnalysis = "DocumentAnalysis"
+	jobTypeTextDetection    = "TextDetection"
+	jobTypeExpenseAnalysis  = "ExpenseAnalysis"
+	jobTypeLendingAnalysis  = "LendingAnalysis"
+)
+
+// Adapter feature type constants.
+const (
+	featureTypeTables     = "TABLES"
+	featureTypeForms      = "FORMS"
+	featureTypeQueries    = "QUERIES"
+	featureTypeSignatures = "SIGNATURES"
+	featureTypeLayout     = "LAYOUT"
+)
+
+// Adapter auto-update constants.
+const (
+	autoUpdateEnabled  = "ENABLED"
+	autoUpdateDisabled = "DISABLED"
+)
+
+// adapterVersionActive is the status for a ready adapter version.
+const adapterVersionActive = "ACTIVE"
 
 // Block represents a detected text element returned by Textract.
 type Block struct {
@@ -99,8 +134,16 @@ const maxJobHistory = 10000
 // MaxJobHistory is the exported value for testing.
 const MaxJobHistory = maxJobHistory
 
-// adapterVersionActive is the status for a ready adapter version.
-const adapterVersionActive = "ACTIVE"
+// allowedFeatureTypes returns the set of allowed feature type values for an adapter.
+func allowedFeatureTypes() map[string]bool {
+	return map[string]bool{
+		featureTypeTables:     true,
+		featureTypeForms:      true,
+		featureTypeQueries:    true,
+		featureTypeSignatures: true,
+		featureTypeLayout:     true,
+	}
+}
 
 // InMemoryBackend is the in-memory store for Textract jobs.
 type InMemoryBackend struct {
@@ -110,11 +153,13 @@ type InMemoryBackend struct {
 	adapters        map[string]*Adapter
 	adapterVersions map[string]*AdapterVersion // key: adapterId+"#"+version
 	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 	maxJobs         int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
-func NewInMemoryBackend() *InMemoryBackend {
+func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		jobs:            make(map[string]*DocumentJob),
 		expenseJobs:     make(map[string]*ExpenseJob),
@@ -122,8 +167,28 @@ func NewInMemoryBackend() *InMemoryBackend {
 		adapters:        make(map[string]*Adapter),
 		adapterVersions: make(map[string]*AdapterVersion),
 		mu:              lockmetrics.New("textract"),
+		accountID:       accountID,
+		region:          region,
 		maxJobs:         maxJobHistory,
 	}
+}
+
+// AccountID returns the AWS account ID for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Region returns the AWS region for this backend.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// Reset clears all stored resources, resetting the backend to its initial state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.jobs = make(map[string]*DocumentJob)
+	b.expenseJobs = make(map[string]*ExpenseJob)
+	b.lendingJobs = make(map[string]*LendingJob)
+	b.adapters = make(map[string]*Adapter)
+	b.adapterVersions = make(map[string]*AdapterVersion)
 }
 
 const (
@@ -155,6 +220,30 @@ func cloneJob(j *DocumentJob) *DocumentJob {
 	cp := *j
 	cp.Blocks = make([]Block, len(j.Blocks))
 	copy(cp.Blocks, j.Blocks)
+
+	return &cp
+}
+
+// cloneExpenseJob returns a deep copy of an ExpenseJob.
+func cloneExpenseJob(j *ExpenseJob) *ExpenseJob {
+	cp := *j
+	cp.ExpenseDocuments = make([]ExpenseDocument, len(j.ExpenseDocuments))
+
+	for i, doc := range j.ExpenseDocuments {
+		docCopy := doc
+		docCopy.Blocks = make([]Block, len(doc.Blocks))
+		copy(docCopy.Blocks, doc.Blocks)
+		cp.ExpenseDocuments[i] = docCopy
+	}
+
+	return &cp
+}
+
+// cloneLendingJob returns a deep copy of a LendingJob.
+func cloneLendingJob(j *LendingJob) *LendingJob {
+	cp := *j
+	cp.Results = make([]LendingResult, len(j.Results))
+	copy(cp.Results, j.Results)
 
 	return &cp
 }
@@ -206,8 +295,8 @@ func (b *InMemoryBackend) StartDocumentAnalysis(documentURI string) (*DocumentJo
 	jobID := uuid.NewString()
 	job := &DocumentJob{
 		JobID:        jobID,
-		JobStatus:    "SUCCEEDED",
-		JobType:      "DocumentAnalysis",
+		JobStatus:    jobStatusSucceeded,
+		JobType:      jobTypeDocumentAnalysis,
 		CreationTime: time.Now(),
 		Blocks:       syntheticBlocks(documentURI),
 	}
@@ -223,7 +312,7 @@ func (b *InMemoryBackend) GetDocumentAnalysis(jobID string) (*DocumentJob, error
 	defer b.mu.RUnlock()
 
 	job, ok := b.jobs[jobID]
-	if !ok || job.JobType != "DocumentAnalysis" {
+	if !ok || job.JobType != jobTypeDocumentAnalysis {
 		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
 	}
 
@@ -238,8 +327,8 @@ func (b *InMemoryBackend) StartDocumentTextDetection(documentURI string) (*Docum
 	jobID := uuid.NewString()
 	job := &DocumentJob{
 		JobID:        jobID,
-		JobStatus:    "SUCCEEDED",
-		JobType:      "TextDetection",
+		JobStatus:    jobStatusSucceeded,
+		JobType:      jobTypeTextDetection,
 		CreationTime: time.Now(),
 		Blocks:       syntheticBlocks(documentURI),
 	}
@@ -255,7 +344,7 @@ func (b *InMemoryBackend) GetDocumentTextDetection(jobID string) (*DocumentJob, 
 	defer b.mu.RUnlock()
 
 	job, ok := b.jobs[jobID]
-	if !ok || job.JobType != "TextDetection" {
+	if !ok || job.JobType != jobTypeTextDetection {
 		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
 	}
 
@@ -305,12 +394,8 @@ func cloneAdapterVersion(av *AdapterVersion) *AdapterVersion {
 	return &cp
 }
 
-// cloneTags returns a shallow copy of a tags map.
+// cloneTags returns a non-nil copy of a tags map.
 func cloneTags(tags map[string]string) map[string]string {
-	if tags == nil {
-		return map[string]string{}
-	}
-
 	cp := make(map[string]string, len(tags))
 	maps.Copy(cp, tags)
 
@@ -340,12 +425,109 @@ func (b *InMemoryBackend) AnalyzeID(documentURIs []string) []IdentityDocument {
 	return docs
 }
 
+// StartExpenseAnalysis creates an async expense analysis job.
+func (b *InMemoryBackend) StartExpenseAnalysis(documentURI string) (*ExpenseJob, error) {
+	b.mu.Lock("StartExpenseAnalysis")
+	defer b.mu.Unlock()
+
+	jobID := uuid.NewString()
+	job := &ExpenseJob{
+		JobID:        jobID,
+		JobStatus:    jobStatusSucceeded,
+		CreationTime: time.Now(),
+		ExpenseDocuments: []ExpenseDocument{
+			{
+				ExpenseIndex: 1,
+				Blocks:       syntheticBlocks(documentURI),
+			},
+		},
+	}
+	b.expenseJobs[jobID] = job
+
+	return cloneExpenseJob(job), nil
+}
+
+// GetExpenseAnalysis retrieves the results of an expense analysis job.
+func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) {
+	b.mu.RLock("GetExpenseAnalysis")
+	defer b.mu.RUnlock()
+
+	job, ok := b.expenseJobs[jobID]
+	if !ok {
+		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
+	}
+
+	return cloneExpenseJob(job), nil
+}
+
+// StartLendingAnalysis creates an async lending analysis job.
+func (b *InMemoryBackend) StartLendingAnalysis(_ string) (*LendingJob, error) {
+	b.mu.Lock("StartLendingAnalysis")
+	defer b.mu.Unlock()
+
+	jobID := uuid.NewString()
+	job := &LendingJob{
+		JobID:        jobID,
+		JobStatus:    jobStatusSucceeded,
+		CreationTime: time.Now(),
+		Results:      []LendingResult{{Page: 1}},
+	}
+	b.lendingJobs[jobID] = job
+
+	return cloneLendingJob(job), nil
+}
+
+// GetLendingAnalysis retrieves the results of a lending analysis job.
+func (b *InMemoryBackend) GetLendingAnalysis(jobID string) (*LendingJob, error) {
+	b.mu.RLock("GetLendingAnalysis")
+	defer b.mu.RUnlock()
+
+	job, ok := b.lendingJobs[jobID]
+	if !ok {
+		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
+	}
+
+	return cloneLendingJob(job), nil
+}
+
+// validateFeatureTypes checks that the given slice contains at least one valid feature type.
+func validateFeatureTypes(featureTypes []string) error {
+	if len(featureTypes) == 0 {
+		return fmt.Errorf("%w: FeatureTypes must contain at least one value", ErrValidation)
+	}
+
+	for _, ft := range featureTypes {
+		if !allowedFeatureTypes()[ft] {
+			return fmt.Errorf(
+				"%w: invalid FeatureType %q (valid: TABLES, FORMS, QUERIES, SIGNATURES, LAYOUT)",
+				ErrValidation,
+				ft,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateAdapter creates a new Textract adapter and returns it.
 func (b *InMemoryBackend) CreateAdapter(
-	name, description string,
+	name, description, autoUpdate string,
 	featureTypes []string,
 	tags map[string]string,
 ) (*Adapter, error) {
+	if err := validateFeatureTypes(featureTypes); err != nil {
+		return nil, err
+	}
+
+	if autoUpdate == "" {
+		autoUpdate = autoUpdateDisabled
+	} else if autoUpdate != autoUpdateEnabled && autoUpdate != autoUpdateDisabled {
+		return nil, fmt.Errorf(
+			"%w: AutoUpdate must be ENABLED or DISABLED",
+			ErrValidation,
+		)
+	}
+
 	b.mu.Lock("CreateAdapter")
 	defer b.mu.Unlock()
 
@@ -353,10 +535,10 @@ func (b *InMemoryBackend) CreateAdapter(
 	adapter := &Adapter{
 		AdapterID:    adapterID,
 		AdapterName:  name,
-		AutoUpdate:   "DISABLED",
+		AutoUpdate:   autoUpdate,
 		CreationTime: time.Now(),
 		Description:  description,
-		FeatureTypes: featureTypes,
+		FeatureTypes: append([]string{}, featureTypes...),
 		Tags:         cloneTags(tags),
 	}
 	b.adapters[adapterID] = adapter
@@ -377,6 +559,48 @@ func (b *InMemoryBackend) GetAdapter(adapterID string) (*Adapter, error) {
 	return cloneAdapter(adapter), nil
 }
 
+// UpdateAdapter updates mutable fields on an existing adapter.
+func (b *InMemoryBackend) UpdateAdapter(adapterID, description, autoUpdate string) (*Adapter, error) {
+	if autoUpdate != "" && autoUpdate != autoUpdateEnabled && autoUpdate != autoUpdateDisabled {
+		return nil, fmt.Errorf("%w: AutoUpdate must be ENABLED or DISABLED", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateAdapter")
+	defer b.mu.Unlock()
+
+	adapter, ok := b.adapters[adapterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
+	}
+
+	if description != "" {
+		adapter.Description = description
+	}
+
+	if autoUpdate != "" {
+		adapter.AutoUpdate = autoUpdate
+	}
+
+	return cloneAdapter(adapter), nil
+}
+
+// ListAdapters returns a sorted list of all adapters.
+func (b *InMemoryBackend) ListAdapters() []Adapter {
+	b.mu.RLock("ListAdapters")
+	defer b.mu.RUnlock()
+
+	out := make([]Adapter, 0, len(b.adapters))
+	for _, a := range b.adapters {
+		out = append(out, *cloneAdapter(a))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].AdapterID < out[j].AdapterID
+	})
+
+	return out
+}
+
 // DeleteAdapter removes an adapter and all its versions by ID.
 func (b *InMemoryBackend) DeleteAdapter(adapterID string) error {
 	b.mu.Lock("DeleteAdapter")
@@ -389,8 +613,8 @@ func (b *InMemoryBackend) DeleteAdapter(adapterID string) error {
 	delete(b.adapters, adapterID)
 
 	// Remove all versions belonging to this adapter.
-	for key := range b.adapterVersions {
-		if b.adapterVersions[key].AdapterID == adapterID {
+	for key, av := range b.adapterVersions {
+		if av.AdapterID == adapterID {
 			delete(b.adapterVersions, key)
 		}
 	}
@@ -435,6 +659,29 @@ func (b *InMemoryBackend) GetAdapterVersion(adapterID, version string) (*Adapter
 	return cloneAdapterVersion(av), nil
 }
 
+// ListAdapterVersions returns all versions for a given adapter, sorted by version string.
+func (b *InMemoryBackend) ListAdapterVersions(adapterID string) ([]AdapterVersion, error) {
+	b.mu.RLock("ListAdapterVersions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.adapters[adapterID]; !ok {
+		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
+	}
+
+	out := make([]AdapterVersion, 0)
+	for _, av := range b.adapterVersions {
+		if av.AdapterID == adapterID {
+			out = append(out, *cloneAdapterVersion(av))
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].AdapterVersion < out[j].AdapterVersion
+	})
+
+	return out, nil
+}
+
 // DeleteAdapterVersion removes a specific adapter version.
 func (b *InMemoryBackend) DeleteAdapterVersion(adapterID, version string) error {
 	b.mu.Lock("DeleteAdapterVersion")
@@ -450,26 +697,59 @@ func (b *InMemoryBackend) DeleteAdapterVersion(adapterID, version string) error 
 	return nil
 }
 
-// GetExpenseAnalysis retrieves the results of an expense analysis job.
-func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) {
-	b.mu.RLock("GetExpenseAnalysis")
-	defer b.mu.RUnlock()
+// TagResource adds or replaces tags on an adapter.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
 
-	job, ok := b.expenseJobs[jobID]
-	if !ok {
-		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
+	// We identify adapters by ARN (resourceARN). For simplicity we also accept
+	// adapter IDs directly as the resource identifier.
+	for _, a := range b.adapters {
+		if a.AdapterID == resourceARN {
+			maps.Copy(a.Tags, tags)
+
+			return nil
+		}
 	}
 
-	cp := *job
-	cp.ExpenseDocuments = make([]ExpenseDocument, len(job.ExpenseDocuments))
-	copy(cp.ExpenseDocuments, job.ExpenseDocuments)
-
-	return &cp, nil
+	return fmt.Errorf("%w: resource %s not found", ErrAdapterNotFound, resourceARN)
 }
 
-// GetLendingAnalysis retrieves the results of a lending analysis job.
-func (b *InMemoryBackend) GetLendingAnalysis(jobID string) (*LendingJob, error) {
-	b.mu.RLock("GetLendingAnalysis")
+// UntagResource removes the specified tag keys from an adapter.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	for _, a := range b.adapters {
+		if a.AdapterID == resourceARN {
+			for _, k := range tagKeys {
+				delete(a.Tags, k)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrAdapterNotFound, resourceARN)
+}
+
+// ListTagsForResource returns a copy of the tags for an adapter.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	for _, a := range b.adapters {
+		if a.AdapterID == resourceARN {
+			return cloneTags(a.Tags), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: resource %s not found", ErrAdapterNotFound, resourceARN)
+}
+
+// GetLendingAnalysisSummary returns a lightweight summary of a lending analysis job.
+func (b *InMemoryBackend) GetLendingAnalysisSummary(jobID string) (*LendingJob, error) {
+	b.mu.RLock("GetLendingAnalysisSummary")
 	defer b.mu.RUnlock()
 
 	job, ok := b.lendingJobs[jobID]
@@ -477,9 +757,9 @@ func (b *InMemoryBackend) GetLendingAnalysis(jobID string) (*LendingJob, error) 
 		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
 	}
 
+	// Return a summary: same job but without per-page lending results.
 	cp := *job
-	cp.Results = make([]LendingResult, len(job.Results))
-	copy(cp.Results, job.Results)
+	cp.Results = nil
 
 	return &cp, nil
 }
