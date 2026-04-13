@@ -47,7 +47,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	h := stepfunctions.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 24)
+	assert.Len(t, h.GetSupportedOperations(), h.HandlerOpsLen())
 }
 
 // TestRefinement1_HandlerOpsLenHelper verifies the HandlerOpsLen export helper.

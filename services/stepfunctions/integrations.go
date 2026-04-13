@@ -80,6 +80,18 @@ func convertViaJSON(input, target any) error {
 	return json.Unmarshal(b, target)
 }
 
+// outputToAny converts a typed SDK output struct to an untyped map via JSON round-trip.
+// This is used by all DynamoDB adapter methods to return an `any` value that the
+// ASL executor can pass as the state's Result.
+func outputToAny(out any) (any, error) {
+	var result any
+	if err := convertViaJSON(out, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // SFNPutItem implements asl.DynamoDBIntegration.
 func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error) {
 	var req awsdynamodb.PutItemInput
@@ -92,12 +104,7 @@ func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNGetItem implements asl.DynamoDBIntegration.
@@ -112,12 +119,7 @@ func (a *dynamoDBAdapter) SFNGetItem(ctx context.Context, input any) (any, error
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNDeleteItem implements asl.DynamoDBIntegration.
@@ -132,12 +134,7 @@ func (a *dynamoDBAdapter) SFNDeleteItem(ctx context.Context, input any) (any, er
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNUpdateItem implements asl.DynamoDBIntegration.
@@ -152,12 +149,7 @@ func (a *dynamoDBAdapter) SFNUpdateItem(ctx context.Context, input any) (any, er
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNBatchExecuteStatement implements asl.DynamoDBIntegration.
@@ -172,12 +164,7 @@ func (a *dynamoDBAdapter) SFNBatchExecuteStatement(ctx context.Context, input an
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNBatchGetItem implements asl.DynamoDBIntegration.
@@ -192,12 +179,7 @@ func (a *dynamoDBAdapter) SFNBatchGetItem(ctx context.Context, input any) (any, 
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNBatchWriteItem implements asl.DynamoDBIntegration.
@@ -212,12 +194,7 @@ func (a *dynamoDBAdapter) SFNBatchWriteItem(ctx context.Context, input any) (any
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNCreateBackup implements asl.DynamoDBIntegration.
@@ -232,12 +209,7 @@ func (a *dynamoDBAdapter) SFNCreateBackup(ctx context.Context, input any) (any, 
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNCreateGlobalTable implements asl.DynamoDBIntegration.
@@ -252,12 +224,7 @@ func (a *dynamoDBAdapter) SFNCreateGlobalTable(ctx context.Context, input any) (
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNCreateTable implements asl.DynamoDBIntegration.
@@ -272,12 +239,7 @@ func (a *dynamoDBAdapter) SFNCreateTable(ctx context.Context, input any) (any, e
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNDeleteBackup implements asl.DynamoDBIntegration.
@@ -292,12 +254,7 @@ func (a *dynamoDBAdapter) SFNDeleteBackup(ctx context.Context, input any) (any, 
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNDeleteResourcePolicy implements asl.DynamoDBIntegration.
@@ -307,12 +264,12 @@ func (a *dynamoDBAdapter) SFNDeleteResourcePolicy(ctx context.Context, input any
 		return nil, err
 	}
 
-	_, err := a.backend.DeleteResourcePolicy(ctx, &req)
+	out, err := a.backend.DeleteResourcePolicy(ctx, &req)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return outputToAny(out)
 }
 
 // SFNDeleteTable implements asl.DynamoDBIntegration.
@@ -327,10 +284,5 @@ func (a *dynamoDBAdapter) SFNDeleteTable(ctx context.Context, input any) (any, e
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
