@@ -166,7 +166,7 @@ func TestTranscribe_HandlerActions(t *testing.T) {
 				"TranscriptionJobName": "dup-job",
 				"LanguageCode":         "en-US",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusConflict,
 		},
 		{
 			name: "GetTranscriptionJob",
@@ -276,7 +276,7 @@ func TestTranscribe_DeleteTranscriptionJob(t *testing.T) {
 			name:     "missing_name",
 			setup:    func(_ *testing.T, _ *transcribe.Handler) {},
 			body:     map[string]any{},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -358,6 +358,512 @@ func TestTranscribe_ListTranscriptionJobsPagination(t *testing.T) {
 				assert.Len(t, summaries, tt.count)
 				assert.Empty(t, resp["NextToken"])
 			}
+		})
+	}
+}
+
+func TestTranscribe_CreateCallAnalyticsCategory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantKey  string
+		wantCode int
+	}{
+		{
+			name:  "success",
+			setup: func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body: map[string]any{
+				"CategoryName": "my-category",
+				"InputType":    "POST_CALL",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "my-category",
+		},
+		{
+			name: "duplicate",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateCallAnalyticsCategory("dup-cat", "POST_CALL")
+				require.NoError(t, err)
+			},
+			body: map[string]any{
+				"CategoryName": "dup-cat",
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "missing_name",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "CreateCallAnalyticsCategory", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantKey != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestTranscribe_DeleteCallAnalyticsCategory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateCallAnalyticsCategory("cat-to-delete", "POST_CALL")
+				require.NoError(t, err)
+			},
+			body:     map[string]any{"CategoryName": "cat-to-delete"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{"CategoryName": "missing-cat"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "DeleteCallAnalyticsCategory", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestTranscribe_CreateLanguageModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantKey  string
+		wantCode int
+	}{
+		{
+			name:  "success",
+			setup: func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body: map[string]any{
+				"ModelName":     "my-model",
+				"BaseModelName": "WideBand",
+				"LanguageCode":  "en-US",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "my-model",
+		},
+		{
+			name: "duplicate",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLanguageModel("dup-model", "WideBand", "en-US")
+				require.NoError(t, err)
+			},
+			body: map[string]any{
+				"ModelName":     "dup-model",
+				"BaseModelName": "WideBand",
+				"LanguageCode":  "en-US",
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "missing_name",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "CreateLanguageModel", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantKey != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestTranscribe_DeleteLanguageModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLanguageModel("model-to-delete", "WideBand", "en-US")
+				require.NoError(t, err)
+			},
+			body:     map[string]any{"ModelName": "model-to-delete"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{"ModelName": "missing-model"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "DeleteLanguageModel", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestTranscribe_CreateMedicalVocabulary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantKey  string
+		wantCode int
+	}{
+		{
+			name:  "success",
+			setup: func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body: map[string]any{
+				"VocabularyName":    "my-med-vocab",
+				"LanguageCode":      "en-US",
+				"VocabularyFileUri": "s3://bucket/med-vocab.txt",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "my-med-vocab",
+		},
+		{
+			name: "duplicate",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateMedicalVocabulary("dup-med-vocab", "en-US", "s3://bucket/f.txt")
+				require.NoError(t, err)
+			},
+			body: map[string]any{
+				"VocabularyName":    "dup-med-vocab",
+				"LanguageCode":      "en-US",
+				"VocabularyFileUri": "s3://bucket/f.txt",
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "missing_name",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "CreateMedicalVocabulary", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantKey != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestTranscribe_CreateVocabulary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantKey  string
+		wantCode int
+	}{
+		{
+			name:  "success",
+			setup: func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body: map[string]any{
+				"VocabularyName": "my-vocab",
+				"LanguageCode":   "en-US",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "my-vocab",
+		},
+		{
+			name: "duplicate",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateVocabulary("dup-vocab", "en-US")
+				require.NoError(t, err)
+			},
+			body: map[string]any{
+				"VocabularyName": "dup-vocab",
+				"LanguageCode":   "en-US",
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "missing_name",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "CreateVocabulary", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantKey != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestTranscribe_CreateVocabularyFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantKey  string
+		wantCode int
+	}{
+		{
+			name:  "success",
+			setup: func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body: map[string]any{
+				"VocabularyFilterName": "my-filter",
+				"LanguageCode":         "en-US",
+			},
+			wantCode: http.StatusOK,
+			wantKey:  "my-filter",
+		},
+		{
+			name: "duplicate",
+			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateVocabularyFilter("dup-filter", "en-US")
+				require.NoError(t, err)
+			},
+			body: map[string]any{
+				"VocabularyFilterName": "dup-filter",
+				"LanguageCode":         "en-US",
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "missing_name",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "CreateVocabularyFilter", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantKey != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestTranscribe_DeleteCallAnalyticsJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(_ *testing.T, b *transcribe.InMemoryBackend) {
+				b.AddCallAnalyticsJobInternal(&transcribe.CallAnalyticsJob{
+					CallAnalyticsJobName:   "ca-job-del",
+					CallAnalyticsJobStatus: "COMPLETED",
+				})
+			},
+			body:     map[string]any{"CallAnalyticsJobName": "ca-job-del"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{"CallAnalyticsJobName": "no-such-ca-job"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "DeleteCallAnalyticsJob", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestTranscribe_DeleteMedicalScribeJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(_ *testing.T, b *transcribe.InMemoryBackend) {
+				b.AddMedicalScribeJobInternal(&transcribe.MedicalScribeJob{
+					MedicalScribeJobName:   "ms-job-del",
+					MedicalScribeJobStatus: "COMPLETED",
+				})
+			},
+			body:     map[string]any{"MedicalScribeJobName": "ms-job-del"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{"MedicalScribeJobName": "no-such-ms-job"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "DeleteMedicalScribeJob", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestTranscribe_DeleteMedicalTranscriptionJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *transcribe.InMemoryBackend)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(_ *testing.T, b *transcribe.InMemoryBackend) {
+				b.AddMedicalTranscriptionJobInternal(&transcribe.MedicalTranscriptionJob{
+					MedicalTranscriptionJobName: "mt-job-del",
+					TranscriptionJobStatus:      "COMPLETED",
+				})
+			},
+			body:     map[string]any{"MedicalTranscriptionJobName": "mt-job-del"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			setup:    func(_ *testing.T, _ *transcribe.InMemoryBackend) {},
+			body:     map[string]any{"MedicalTranscriptionJobName": "no-such-mt-job"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+			tt.setup(t, b)
+
+			rec := doTranscribeRequest(t, h, "DeleteMedicalTranscriptionJob", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
 }
