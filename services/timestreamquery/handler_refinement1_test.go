@@ -652,12 +652,11 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	}
 }
 
-// TestRefinement1_HandlerSnapshotNil verifies handler Snapshot returns nil when backend
-// does not support snapshot (non-InMemoryBackend implementation).
-func TestRefinement1_HandlerSnapshotNil(t *testing.T) {
+// TestRefinement1_HandlerSnapshotWithInMemoryBackend verifies that Handler.Snapshot
+// delegates correctly to the InMemoryBackend.
+func TestRefinement1_HandlerSnapshotWithInMemoryBackend(t *testing.T) {
 	t.Parallel()
 
-	// Use a mock StorageBackend that doesn't implement Snapshot.
 	h := timestreamquery.NewHandler(timestreamquery.NewInMemoryBackend("123", "us-east-1"))
 
 	snap := h.Snapshot()
