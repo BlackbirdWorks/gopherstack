@@ -435,3 +435,265 @@ type ListCommandInvocationsOutput struct {
 	NextToken          string              `json:"NextToken,omitempty"`
 	CommandInvocations []CommandInvocation `json:"CommandInvocations"`
 }
+
+// Activation represents an SSM activation for managed instances.
+type Activation struct {
+	ActivationID        string  `json:"ActivationId"`
+	ActivationCode      string  `json:"ActivationCode"`
+	Description         string  `json:"Description,omitempty"`
+	DefaultInstanceName string  `json:"DefaultInstanceName,omitempty"`
+	IamRole             string  `json:"IamRole"`
+	RegistrationLimit   int32   `json:"RegistrationLimit"`
+	RegistrationsCount  int32   `json:"RegistrationsCount"`
+	ExpirationDate      float64 `json:"ExpirationDate"`
+	Expired             bool    `json:"Expired"`
+	CreatedDate         float64 `json:"CreatedDate"`
+}
+
+// CreateActivationInput is the request payload for CreateActivation.
+type CreateActivationInput struct {
+	DefaultInstanceName string  `json:"DefaultInstanceName,omitempty"`
+	Description         string  `json:"Description,omitempty"`
+	IamRole             string  `json:"IamRole"`
+	Tags                []Tag   `json:"Tags,omitempty"`
+	ExpirationDate      float64 `json:"ExpirationDate,omitempty"`
+	RegistrationLimit   int32   `json:"RegistrationLimit,omitempty"`
+}
+
+// CreateActivationOutput is the response payload for CreateActivation.
+type CreateActivationOutput struct {
+	ActivationCode string `json:"ActivationCode"`
+	ActivationID   string `json:"ActivationId"`
+}
+
+// AssociationTarget is a target for an association (key/values).
+type AssociationTarget struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
+
+// Association represents an SSM association between a document and targets.
+type Association struct {
+	AssociationID             string               `json:"AssociationId"`
+	AssociationName           string               `json:"AssociationName,omitempty"`
+	DocumentVersion           string               `json:"DocumentVersion,omitempty"`
+	InstanceID                string               `json:"InstanceId,omitempty"`
+	Name                      string               `json:"Name"`
+	Overview                  *AssociationOverview `json:"Overview,omitempty"`
+	Parameters                map[string][]string  `json:"Parameters,omitempty"`
+	Targets                   []AssociationTarget  `json:"Targets,omitempty"`
+	LastUpdateAssociationDate float64              `json:"LastUpdateAssociationDate"`
+}
+
+// AssociationOverview is a summary of an association.
+type AssociationOverview struct {
+	Status string `json:"Status"`
+}
+
+// CreateAssociationInput is the request payload for CreateAssociation.
+type CreateAssociationInput struct {
+	Name            string              `json:"Name"`
+	AssociationName string              `json:"AssociationName,omitempty"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	InstanceID      string              `json:"InstanceId,omitempty"`
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	Targets         []AssociationTarget `json:"Targets,omitempty"`
+}
+
+// CreateAssociationOutput is the response payload for CreateAssociation.
+type CreateAssociationOutput struct {
+	AssociationDescription Association `json:"AssociationDescription"`
+}
+
+// CreateAssociationBatchRequestEntry is a single entry in a batch create association request.
+type CreateAssociationBatchRequestEntry struct {
+	Name            string              `json:"Name"`
+	AssociationName string              `json:"AssociationName,omitempty"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	InstanceID      string              `json:"InstanceId,omitempty"`
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	Targets         []AssociationTarget `json:"Targets,omitempty"`
+}
+
+// FailedCreateAssociation represents a failed association entry in a batch.
+type FailedCreateAssociation struct {
+	Message string                             `json:"Message"`
+	Fault   string                             `json:"Fault"`
+	Entry   CreateAssociationBatchRequestEntry `json:"Entry"`
+}
+
+// CreateAssociationBatchInput is the request payload for CreateAssociationBatch.
+type CreateAssociationBatchInput struct {
+	Entries []CreateAssociationBatchRequestEntry `json:"Entries"`
+}
+
+// CreateAssociationBatchOutput is the response payload for CreateAssociationBatch.
+type CreateAssociationBatchOutput struct {
+	Failed     []FailedCreateAssociation `json:"Failed"`
+	Successful []Association             `json:"Successful"`
+}
+
+// MaintenanceWindow represents an SSM maintenance window.
+type MaintenanceWindow struct {
+	WindowID                 string  `json:"WindowId"`
+	Name                     string  `json:"Name"`
+	Description              string  `json:"Description,omitempty"`
+	Schedule                 string  `json:"Schedule"`
+	Duration                 int32   `json:"Duration"`
+	Cutoff                   int32   `json:"Cutoff"`
+	AllowUnassociatedTargets bool    `json:"AllowUnassociatedTargets"`
+	Enabled                  bool    `json:"Enabled"`
+	CreatedDate              float64 `json:"CreatedDate"`
+	ModifiedDate             float64 `json:"ModifiedDate"`
+}
+
+// CreateMaintenanceWindowInput is the request payload for CreateMaintenanceWindow.
+type CreateMaintenanceWindowInput struct {
+	Name                     string `json:"Name"`
+	Description              string `json:"Description,omitempty"`
+	Schedule                 string `json:"Schedule"`
+	Tags                     []Tag  `json:"Tags,omitempty"`
+	Duration                 int32  `json:"Duration"`
+	Cutoff                   int32  `json:"Cutoff"`
+	AllowUnassociatedTargets bool   `json:"AllowUnassociatedTargets"`
+}
+
+// CreateMaintenanceWindowOutput is the response payload for CreateMaintenanceWindow.
+type CreateMaintenanceWindowOutput struct {
+	WindowID string `json:"WindowId"`
+}
+
+// CancelMaintenanceWindowExecutionInput is the request payload for CancelMaintenanceWindowExecution.
+type CancelMaintenanceWindowExecutionInput struct {
+	WindowExecutionID string `json:"WindowExecutionId"`
+}
+
+// CancelMaintenanceWindowExecutionOutput is the response payload for CancelMaintenanceWindowExecution.
+type CancelMaintenanceWindowExecutionOutput struct {
+	WindowExecutionID string `json:"WindowExecutionId"`
+}
+
+// CancelCommandInput is the request payload for CancelCommand.
+type CancelCommandInput struct {
+	CommandID   string   `json:"CommandId"`
+	InstanceIDs []string `json:"InstanceIds,omitempty"`
+}
+
+// CancelCommandOutput is the response payload for CancelCommand.
+type CancelCommandOutput struct{}
+
+// OpsItemDataValue represents a value in OpsItem OperationalData.
+type OpsItemDataValue struct {
+	Type  string `json:"Type,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
+// OpsItem represents an SSM OpsItem.
+type OpsItem struct {
+	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	OpsItemID        string                      `json:"OpsItemId"`
+	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
+	OpsItemType      string                      `json:"OpsItemType,omitempty"`
+	Title            string                      `json:"Title"`
+	Source           string                      `json:"Source"`
+	Description      string                      `json:"Description,omitempty"`
+	Status           string                      `json:"Status"`
+	Severity         string                      `json:"Severity,omitempty"`
+	Category         string                      `json:"Category,omitempty"`
+	CreatedTime      float64                     `json:"CreatedTime"`
+	LastModifiedTime float64                     `json:"LastModifiedTime"`
+}
+
+// OpsItemRelatedItem represents an item related to an OpsItem.
+type OpsItemRelatedItem struct {
+	AssociationID   string `json:"AssociationId"`
+	AssociationType string `json:"AssociationType"`
+	ResourceType    string `json:"ResourceType"`
+	ResourceURI     string `json:"ResourceUri"`
+}
+
+// CreateOpsItemInput is the request payload for CreateOpsItem.
+type CreateOpsItemInput struct {
+	Title           string                      `json:"Title"`
+	Source          string                      `json:"Source"`
+	Description     string                      `json:"Description,omitempty"`
+	OpsItemType     string                      `json:"OpsItemType,omitempty"`
+	Severity        string                      `json:"Severity,omitempty"`
+	Category        string                      `json:"Category,omitempty"`
+	OperationalData map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	Tags            []Tag                       `json:"Tags,omitempty"`
+}
+
+// CreateOpsItemOutput is the response payload for CreateOpsItem.
+type CreateOpsItemOutput struct {
+	OpsItemArn string `json:"OpsItemArn,omitempty"`
+	OpsItemID  string `json:"OpsItemId"`
+}
+
+// AssociateOpsItemRelatedItemInput is the request payload for AssociateOpsItemRelatedItem.
+type AssociateOpsItemRelatedItemInput struct {
+	OpsItemID       string `json:"OpsItemId"`
+	AssociationType string `json:"AssociationType"`
+	ResourceType    string `json:"ResourceType"`
+	ResourceURI     string `json:"ResourceUri"`
+}
+
+// AssociateOpsItemRelatedItemOutput is the response payload for AssociateOpsItemRelatedItem.
+type AssociateOpsItemRelatedItemOutput struct {
+	AssociationID string `json:"AssociationId"`
+}
+
+// MetadataValue represents a single metadata entry value.
+type MetadataValue struct {
+	Value string `json:"Value,omitempty"`
+}
+
+// OpsMetadata represents SSM OpsMetadata for a resource.
+type OpsMetadata struct {
+	Metadata         map[string]MetadataValue `json:"Metadata,omitempty"`
+	OpsMetadataArn   string                   `json:"OpsMetadataArn"`
+	ResourceID       string                   `json:"ResourceId"`
+	CreationDate     float64                  `json:"CreationDate"`
+	LastModifiedDate float64                  `json:"LastModifiedDate"`
+}
+
+// CreateOpsMetadataInput is the request payload for CreateOpsMetadata.
+type CreateOpsMetadataInput struct {
+	ResourceID string                   `json:"ResourceId"`
+	Metadata   map[string]MetadataValue `json:"Metadata,omitempty"`
+	Tags       []Tag                    `json:"Tags,omitempty"`
+}
+
+// CreateOpsMetadataOutput is the response payload for CreateOpsMetadata.
+type CreateOpsMetadataOutput struct {
+	OpsMetadataArn string `json:"OpsMetadataArn"`
+}
+
+// PatchBaseline represents an SSM patch baseline.
+type PatchBaseline struct {
+	BaselineID                     string   `json:"BaselineId"`
+	Name                           string   `json:"Name"`
+	Description                    string   `json:"Description,omitempty"`
+	OperatingSystem                string   `json:"OperatingSystem,omitempty"`
+	ApprovedPatchesComplianceLevel string   `json:"ApprovedPatchesComplianceLevel,omitempty"`
+	ApprovedPatches                []string `json:"ApprovedPatches,omitempty"`
+	RejectedPatches                []string `json:"RejectedPatches,omitempty"`
+	CreatedDate                    float64  `json:"CreatedDate"`
+	ModifiedDate                   float64  `json:"ModifiedDate"`
+}
+
+// CreatePatchBaselineInput is the request payload for CreatePatchBaseline.
+type CreatePatchBaselineInput struct {
+	Name                           string   `json:"Name"`
+	Description                    string   `json:"Description,omitempty"`
+	OperatingSystem                string   `json:"OperatingSystem,omitempty"`
+	ApprovedPatches                []string `json:"ApprovedPatches,omitempty"`
+	RejectedPatches                []string `json:"RejectedPatches,omitempty"`
+	ApprovedPatchesComplianceLevel string   `json:"ApprovedPatchesComplianceLevel,omitempty"`
+	Tags                           []Tag    `json:"Tags,omitempty"`
+}
+
+// CreatePatchBaselineOutput is the response payload for CreatePatchBaseline.
+type CreatePatchBaselineOutput struct {
+	BaselineID string `json:"BaselineId"`
+}
