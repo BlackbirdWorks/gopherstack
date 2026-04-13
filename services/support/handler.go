@@ -25,11 +25,11 @@ var (
 
 // Handler is the Echo HTTP handler for AWS Support operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 }
 
 // NewHandler creates a new Support handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
@@ -42,9 +42,18 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddAttachmentsToSet",
 		"AddCommunicationToCase",
 		"CreateCase",
+		"DescribeAttachment",
 		"DescribeCases",
 		"DescribeCommunications",
+		"DescribeCreateCaseOptions",
+		"DescribeServices",
+		"DescribeSeverityLevels",
+		"DescribeSupportedLanguages",
+		"DescribeTrustedAdvisorCheckRefreshStatuses",
+		"DescribeTrustedAdvisorCheckResult",
+		"DescribeTrustedAdvisorCheckSummaries",
 		"DescribeTrustedAdvisorChecks",
+		"RefreshTrustedAdvisorCheck",
 		"ResolveCase",
 	}
 }
@@ -123,6 +132,17 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DescribeCommunications":       service.WrapOp(h.handleDescribeCommunications),
 		"DescribeTrustedAdvisorChecks": service.WrapOp(h.handleDescribeTrustedAdvisorChecks),
 		"AddAttachmentsToSet":          service.WrapOp(h.handleAddAttachmentsToSet),
+		"DescribeAttachment":           service.WrapOp(h.handleDescribeAttachment),
+		"DescribeCreateCaseOptions":    service.WrapOp(h.handleDescribeCreateCaseOptions),
+		"DescribeServices":             service.WrapOp(h.handleDescribeServices),
+		"DescribeSeverityLevels":       service.WrapOp(h.handleDescribeSeverityLevels),
+		"DescribeSupportedLanguages":   service.WrapOp(h.handleDescribeSupportedLanguages),
+		"DescribeTrustedAdvisorCheckRefreshStatuses": service.WrapOp(
+			h.handleDescribeTrustedAdvisorCheckRefreshStatuses,
+		),
+		"DescribeTrustedAdvisorCheckResult":    service.WrapOp(h.handleDescribeTrustedAdvisorCheckResult),
+		"DescribeTrustedAdvisorCheckSummaries": service.WrapOp(h.handleDescribeTrustedAdvisorCheckSummaries),
+		"RefreshTrustedAdvisorCheck":           service.WrapOp(h.handleRefreshTrustedAdvisorCheck),
 	}
 }
 
@@ -145,7 +165,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 	case errors.Is(err, ErrAlreadyResolved), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
@@ -357,5 +377,336 @@ func (h *Handler) handleAddAttachmentsToSet(
 	return &addAttachmentsToSetOutput{
 		AttachmentSetID: setID,
 		ExpiryTime:      expiry.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}, nil
+}
+
+type describeAttachmentInput struct {
+	AttachmentID string `json:"attachmentId"`
+}
+
+type attachmentView struct {
+	FileName string `json:"fileName"`
+	Data     []byte `json:"data"`
+}
+
+type describeAttachmentOutput struct {
+	Attachment attachmentView `json:"attachment"`
+}
+
+func (h *Handler) handleDescribeAttachment(
+	_ context.Context,
+	in *describeAttachmentInput,
+) (*describeAttachmentOutput, error) {
+	if in.AttachmentID == "" {
+		return nil, fmt.Errorf("%w: attachmentId is required", errInvalidRequest)
+	}
+
+	a, err := h.Backend.DescribeAttachment(in.AttachmentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeAttachmentOutput{
+		Attachment: attachmentView{
+			FileName: a.FileName,
+			Data:     a.Data,
+		},
+	}, nil
+}
+
+type describeCreateCaseOptionsInput struct {
+	IssueType    string `json:"issueType"`
+	ServiceCode  string `json:"serviceCode"`
+	CategoryCode string `json:"categoryCode"`
+	Language     string `json:"language"`
+}
+
+type communicationTypeOptionsView struct {
+	Type                string          `json:"type"`
+	SupportedHours      []SupportedHour `json:"supportedHours"`
+	DatesWithoutSupport []DateInterval  `json:"datesWithoutSupport"`
+}
+
+type describeCreateCaseOptionsOutput struct {
+	LanguageAvailability string                         `json:"languageAvailability"`
+	CommunicationTypes   []communicationTypeOptionsView `json:"communicationTypes"`
+}
+
+func (h *Handler) handleDescribeCreateCaseOptions(
+	_ context.Context,
+	in *describeCreateCaseOptionsInput,
+) (*describeCreateCaseOptionsOutput, error) {
+	result := h.Backend.DescribeCreateCaseOptions(in.IssueType, in.ServiceCode, in.CategoryCode, in.Language)
+
+	views := make([]communicationTypeOptionsView, 0, len(result.CommunicationTypes))
+	for _, ct := range result.CommunicationTypes {
+		views = append(views, communicationTypeOptionsView(ct))
+	}
+
+	return &describeCreateCaseOptionsOutput{
+		CommunicationTypes:   views,
+		LanguageAvailability: result.LanguageAvailability,
+	}, nil
+}
+
+type describeServicesInput struct {
+	Language        string   `json:"language"`
+	ServiceCodeList []string `json:"serviceCodeList"`
+}
+
+type serviceCategoryView struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type serviceView struct {
+	Code       string                `json:"code"`
+	Name       string                `json:"name"`
+	Categories []serviceCategoryView `json:"categories"`
+}
+
+type describeServicesOutput struct {
+	Services []serviceView `json:"services"`
+}
+
+func (h *Handler) handleDescribeServices(
+	_ context.Context,
+	in *describeServicesInput,
+) (*describeServicesOutput, error) {
+	services := h.Backend.DescribeServices(in.ServiceCodeList)
+
+	views := make([]serviceView, 0, len(services))
+	for _, svc := range services {
+		cats := make([]serviceCategoryView, 0, len(svc.Categories))
+		for _, c := range svc.Categories {
+			cats = append(cats, serviceCategoryView(c))
+		}
+
+		views = append(views, serviceView{
+			Code:       svc.Code,
+			Name:       svc.Name,
+			Categories: cats,
+		})
+	}
+
+	return &describeServicesOutput{Services: views}, nil
+}
+
+type describeSeverityLevelsInput struct {
+	Language string `json:"language"`
+}
+
+type severityLevelView struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type describeSeverityLevelsOutput struct {
+	SeverityLevels []severityLevelView `json:"severityLevels"`
+}
+
+func (h *Handler) handleDescribeSeverityLevels(
+	_ context.Context,
+	in *describeSeverityLevelsInput,
+) (*describeSeverityLevelsOutput, error) {
+	levels := h.Backend.DescribeSeverityLevels(in.Language)
+
+	views := make([]severityLevelView, 0, len(levels))
+	for _, l := range levels {
+		views = append(views, severityLevelView(l))
+	}
+
+	return &describeSeverityLevelsOutput{SeverityLevels: views}, nil
+}
+
+type describeSupportedLanguagesInput struct {
+	IssueType     string `json:"issueType"`
+	ServiceCode   string `json:"serviceCode"`
+	SeverityLevel string `json:"severityLevel"`
+}
+
+type supportedLanguageView struct {
+	Code     string `json:"code"`
+	Display  string `json:"display"`
+	Language string `json:"language"`
+}
+
+type describeSupportedLanguagesOutput struct {
+	SupportedLanguages []supportedLanguageView `json:"supportedLanguages"`
+}
+
+func (h *Handler) handleDescribeSupportedLanguages(
+	_ context.Context,
+	in *describeSupportedLanguagesInput,
+) (*describeSupportedLanguagesOutput, error) {
+	langs := h.Backend.DescribeSupportedLanguages(in.IssueType, in.ServiceCode, in.SeverityLevel)
+
+	views := make([]supportedLanguageView, 0, len(langs))
+	for _, l := range langs {
+		views = append(views, supportedLanguageView(l))
+	}
+
+	return &describeSupportedLanguagesOutput{SupportedLanguages: views}, nil
+}
+
+type describeTrustedAdvisorCheckRefreshStatusesInput struct {
+	CheckIDs []string `json:"checkIds"`
+}
+
+type trustedAdvisorCheckRefreshStatusView struct {
+	CheckID                    string `json:"checkId"`
+	Status                     string `json:"status"`
+	MillisUntilNextRefreshable int64  `json:"millisUntilNextRefreshable"`
+}
+
+type describeTrustedAdvisorCheckRefreshStatusesOutput struct {
+	Statuses []trustedAdvisorCheckRefreshStatusView `json:"statuses"`
+}
+
+func (h *Handler) handleDescribeTrustedAdvisorCheckRefreshStatuses(
+	_ context.Context,
+	in *describeTrustedAdvisorCheckRefreshStatusesInput,
+) (*describeTrustedAdvisorCheckRefreshStatusesOutput, error) {
+	statuses := h.Backend.DescribeTrustedAdvisorCheckRefreshStatuses(in.CheckIDs)
+
+	views := make([]trustedAdvisorCheckRefreshStatusView, 0, len(statuses))
+	for _, s := range statuses {
+		views = append(views, trustedAdvisorCheckRefreshStatusView(s))
+	}
+
+	return &describeTrustedAdvisorCheckRefreshStatusesOutput{Statuses: views}, nil
+}
+
+type describeTrustedAdvisorCheckResultInput struct {
+	CheckID  string `json:"checkId"`
+	Language string `json:"language"`
+}
+
+type trustedAdvisorResourceDetailView struct {
+	ResourceID   string   `json:"resourceId"`
+	Status       string   `json:"status"`
+	Region       string   `json:"region"`
+	Metadata     []string `json:"metadata"`
+	IsSuppressed bool     `json:"isSuppressed"`
+}
+
+type trustedAdvisorResourcesSummaryView struct {
+	ResourcesFlagged    int64 `json:"resourcesFlagged"`
+	ResourcesIgnored    int64 `json:"resourcesIgnored"`
+	ResourcesProcessed  int64 `json:"resourcesProcessed"`
+	ResourcesSuppressed int64 `json:"resourcesSuppressed"`
+}
+
+type trustedAdvisorCheckResultView struct {
+	CheckID          string                             `json:"checkId"`
+	Status           string                             `json:"status"`
+	Timestamp        string                             `json:"timestamp"`
+	FlaggedResources []trustedAdvisorResourceDetailView `json:"flaggedResources"`
+	ResourcesSummary trustedAdvisorResourcesSummaryView `json:"resourcesSummary"`
+}
+
+type describeTrustedAdvisorCheckResultOutput struct {
+	Result trustedAdvisorCheckResultView `json:"result"`
+}
+
+func (h *Handler) handleDescribeTrustedAdvisorCheckResult(
+	_ context.Context,
+	in *describeTrustedAdvisorCheckResultInput,
+) (*describeTrustedAdvisorCheckResultOutput, error) {
+	if in.CheckID == "" {
+		return nil, fmt.Errorf("%w: checkId is required", errInvalidRequest)
+	}
+
+	result := h.Backend.DescribeTrustedAdvisorCheckResult(in.CheckID, in.Language)
+
+	flagged := make([]trustedAdvisorResourceDetailView, 0, len(result.FlaggedResources))
+	for _, r := range result.FlaggedResources {
+		flagged = append(flagged, trustedAdvisorResourceDetailView(r))
+	}
+
+	return &describeTrustedAdvisorCheckResultOutput{
+		Result: trustedAdvisorCheckResultView{
+			CheckID:          result.CheckID,
+			Status:           result.Status,
+			Timestamp:        result.Timestamp,
+			FlaggedResources: flagged,
+			ResourcesSummary: trustedAdvisorResourcesSummaryView{
+				ResourcesFlagged:    result.ResourcesSummary.ResourcesFlagged,
+				ResourcesIgnored:    result.ResourcesSummary.ResourcesIgnored,
+				ResourcesProcessed:  result.ResourcesSummary.ResourcesProcessed,
+				ResourcesSuppressed: result.ResourcesSummary.ResourcesSuppressed,
+			},
+		},
+	}, nil
+}
+
+type describeTrustedAdvisorCheckSummariesInput struct {
+	CheckIDs []string `json:"checkIds"`
+}
+
+type trustedAdvisorCheckSummaryView struct {
+	CheckID             string                             `json:"checkId"`
+	Status              string                             `json:"status"`
+	Timestamp           string                             `json:"timestamp"`
+	HasFlaggedResources bool                               `json:"hasFlaggedResources"`
+	ResourcesSummary    trustedAdvisorResourcesSummaryView `json:"resourcesSummary"`
+}
+
+type describeTrustedAdvisorCheckSummariesOutput struct {
+	Summaries []trustedAdvisorCheckSummaryView `json:"summaries"`
+}
+
+func (h *Handler) handleDescribeTrustedAdvisorCheckSummaries(
+	_ context.Context,
+	in *describeTrustedAdvisorCheckSummariesInput,
+) (*describeTrustedAdvisorCheckSummariesOutput, error) {
+	summaries := h.Backend.DescribeTrustedAdvisorCheckSummaries(in.CheckIDs)
+
+	views := make([]trustedAdvisorCheckSummaryView, 0, len(summaries))
+	for _, s := range summaries {
+		views = append(views, trustedAdvisorCheckSummaryView{
+			CheckID:             s.CheckID,
+			Status:              s.Status,
+			Timestamp:           s.Timestamp,
+			HasFlaggedResources: s.HasFlaggedResources,
+			ResourcesSummary: trustedAdvisorResourcesSummaryView{
+				ResourcesFlagged:    s.ResourcesSummary.ResourcesFlagged,
+				ResourcesIgnored:    s.ResourcesSummary.ResourcesIgnored,
+				ResourcesProcessed:  s.ResourcesSummary.ResourcesProcessed,
+				ResourcesSuppressed: s.ResourcesSummary.ResourcesSuppressed,
+			},
+		})
+	}
+
+	return &describeTrustedAdvisorCheckSummariesOutput{Summaries: views}, nil
+}
+
+type refreshTrustedAdvisorCheckInput struct {
+	CheckID string `json:"checkId"`
+}
+
+type refreshTrustedAdvisorCheckOutput struct {
+	Status trustedAdvisorCheckRefreshStatusView `json:"status"`
+}
+
+func (h *Handler) handleRefreshTrustedAdvisorCheck(
+	_ context.Context,
+	in *refreshTrustedAdvisorCheckInput,
+) (*refreshTrustedAdvisorCheckOutput, error) {
+	if in.CheckID == "" {
+		return nil, fmt.Errorf("%w: checkId is required", errInvalidRequest)
+	}
+
+	status, err := h.Backend.RefreshTrustedAdvisorCheck(in.CheckID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &refreshTrustedAdvisorCheckOutput{
+		Status: trustedAdvisorCheckRefreshStatusView{
+			CheckID:                    status.CheckID,
+			Status:                     status.Status,
+			MillisUntilNextRefreshable: status.MillisUntilNextRefreshable,
+		},
 	}, nil
 }
