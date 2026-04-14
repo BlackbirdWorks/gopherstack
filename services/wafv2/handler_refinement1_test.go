@@ -11,13 +11,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
-// createRegexPatternSetHelper creates a regex pattern set and returns its ID.
-func createRegexPatternSetHelper(t *testing.T, h *wafv2.Handler, name, scope string) string {
+// createRegexPatternSetHelper creates a regex pattern set with REGIONAL scope and returns its ID.
+func createRegexPatternSetHelper(t *testing.T, h *wafv2.Handler, name string) string {
 	t.Helper()
 
 	rec := doWafv2Request(t, h, "CreateRegexPatternSet", map[string]any{
 		"Name":  name,
-		"Scope": scope,
+		"Scope": "REGIONAL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -34,13 +34,13 @@ func createRegexPatternSetHelper(t *testing.T, h *wafv2.Handler, name, scope str
 	return id
 }
 
-// createRuleGroupHelper creates a rule group and returns its ID and ARN.
-func createRuleGroupHelper(t *testing.T, h *wafv2.Handler, name, scope string) (string, string) {
+// createRuleGroupHelper creates a rule group with REGIONAL scope and returns its ID and ARN.
+func createRuleGroupHelper(t *testing.T, h *wafv2.Handler, name string) (string, string) {
 	t.Helper()
 
 	rec := doWafv2Request(t, h, "CreateRuleGroup", map[string]any{
 		"Name":     name,
-		"Scope":    scope,
+		"Scope":    "REGIONAL",
 		"Capacity": 10,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -121,7 +121,7 @@ func TestHandler_GetRegexPatternSet(t *testing.T) {
 
 			id := tt.requestID
 			if tt.setupName != "" {
-				id = createRegexPatternSetHelper(t, h, tt.setupName, "REGIONAL")
+				id = createRegexPatternSetHelper(t, h, tt.setupName)
 			}
 
 			var body any
@@ -187,7 +187,7 @@ func TestHandler_ListRegexPatternSets(t *testing.T) {
 			h := newTestHandler(t)
 
 			for _, name := range tt.setup {
-				createRegexPatternSetHelper(t, h, name, "REGIONAL")
+				createRegexPatternSetHelper(t, h, name)
 			}
 
 			rec := doWafv2Request(t, h, "ListRegexPatternSets", map[string]any{"Scope": tt.scope})
@@ -238,7 +238,7 @@ func TestHandler_UpdateRegexPatternSet(t *testing.T) {
 
 			id := tt.requestID
 			if tt.setupName != "" {
-				id = createRegexPatternSetHelper(t, h, tt.setupName, "REGIONAL")
+				id = createRegexPatternSetHelper(t, h, tt.setupName)
 			}
 
 			var body any
@@ -295,7 +295,7 @@ func TestHandler_GetRuleGroup(t *testing.T) {
 
 			id := tt.requestID
 			if tt.setupName != "" {
-				id, _ = createRuleGroupHelper(t, h, tt.setupName, "REGIONAL")
+				id, _ = createRuleGroupHelper(t, h, tt.setupName)
 			}
 
 			var body any
@@ -361,7 +361,7 @@ func TestHandler_ListRuleGroups(t *testing.T) {
 			h := newTestHandler(t)
 
 			for _, name := range tt.setup {
-				createRuleGroupHelper(t, h, name, "REGIONAL")
+				createRuleGroupHelper(t, h, name)
 			}
 
 			rec := doWafv2Request(t, h, "ListRuleGroups", map[string]any{"Scope": tt.scope})
@@ -412,7 +412,7 @@ func TestHandler_UpdateRuleGroup(t *testing.T) {
 
 			id := tt.requestID
 			if tt.setupName != "" {
-				id, _ = createRuleGroupHelper(t, h, tt.setupName, "REGIONAL")
+				id, _ = createRuleGroupHelper(t, h, tt.setupName)
 			}
 
 			var body any
@@ -1048,4 +1048,181 @@ func TestHandler_DeleteWebACL_CascadeLogging(t *testing.T) {
 	// The logging config should be gone.
 	rec = doWafv2Request(t, h, "GetLoggingConfiguration", map[string]any{"ResourceArn": webACLArn})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Reset_EdgesAndCoverage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(h *wafv2.Handler)
+		verify func(t *testing.T, b *wafv2.InMemoryBackend)
+		name   string
+	}{
+		{
+			name:  "reset_empty_backend",
+			setup: func(_ *wafv2.Handler) {},
+			verify: func(t *testing.T, b *wafv2.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 0, wafv2.WebACLCount(b))
+				assert.Equal(t, 0, wafv2.IPSetCount(b))
+				assert.Equal(t, 0, wafv2.RegexPatternSetCount(b))
+				assert.Equal(t, 0, wafv2.RuleGroupCount(b))
+				assert.Equal(t, 0, wafv2.APIKeyCount(b))
+			},
+		},
+		{
+			name: "reset_after_partial_creation",
+			setup: func(h *wafv2.Handler) {
+				doWafv2Request(t, h, "CreateWebACL", map[string]any{"Name": "a", "Scope": "REGIONAL"})
+				doWafv2Request(
+					t,
+					h,
+					"CreateIPSet",
+					map[string]any{"Name": "b", "Scope": "REGIONAL", "IPAddressVersion": "IPV4"},
+				)
+				doWafv2Request(t, h, "CreateRegexPatternSet", map[string]any{"Name": "c", "Scope": "REGIONAL"})
+			},
+			verify: func(t *testing.T, b *wafv2.InMemoryBackend) {
+				t.Helper()
+				assert.Equal(t, 0, wafv2.WebACLCount(b))
+				assert.Equal(t, 0, wafv2.IPSetCount(b))
+				assert.Equal(t, 0, wafv2.RegexPatternSetCount(b))
+				assert.Equal(t, 0, wafv2.AssociationCount(b))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+			h := wafv2.NewHandler(b)
+			tt.setup(h)
+			h.Reset()
+			tt.verify(t, b)
+		})
+	}
+}
+
+func TestCheckCapacity_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		rules      []map[string]any
+		wantExact  int
+		wantStatus int
+	}{
+		{
+			name:       "nil_rules",
+			rules:      nil,
+			wantExact:  0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "empty_rules",
+			rules:      []map[string]any{},
+			wantExact:  0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "single_rule",
+			rules:      []map[string]any{{"Name": "r1"}},
+			wantExact:  1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "five_rules",
+			rules: []map[string]any{
+				{"Name": "r1"},
+				{"Name": "r2"},
+				{"Name": "r3"},
+				{"Name": "r4"},
+				{"Name": "r5"},
+			},
+			wantExact:  5,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_scope",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var body map[string]any
+			if tt.name == "missing_scope" {
+				body = map[string]any{"Rules": tt.rules}
+			} else {
+				body = map[string]any{"Scope": "REGIONAL", "Rules": tt.rules}
+			}
+
+			rec := doWafv2Request(t, h, "CheckCapacity", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+
+				consumed, ok := result["ConsumedCapacity"].(float64)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantExact, int(consumed))
+			}
+		})
+	}
+}
+
+func TestSnapshotRestore_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := wafv2.NewInMemoryBackend("123456789012", "eu-west-1")
+	h1 := wafv2.NewHandler(b1)
+
+	_, arnWebACL := createWebACLHelper(t, h1, "my-acl", "REGIONAL")
+	doWafv2Request(t, h1, "CreateIPSet", map[string]any{
+		"Name": "my-ipset", "Scope": "REGIONAL", "IPAddressVersion": "IPV4",
+	})
+	createRegexPatternSetHelper(t, h1, "my-rps")
+	createRuleGroupHelper(t, h1, "my-rg")
+
+	// Put logging config.
+	rec := doWafv2Request(t, h1, "PutLoggingConfiguration", map[string]any{
+		"LoggingConfiguration": map[string]any{"ResourceArn": arnWebACL},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	snap := b1.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := wafv2.NewInMemoryBackend("123456789012", "eu-west-1")
+	require.NoError(t, b2.Restore(snap))
+
+	assert.Equal(t, 1, wafv2.WebACLCount(b2))
+	assert.Equal(t, 1, wafv2.IPSetCount(b2))
+	assert.Equal(t, 1, wafv2.RegexPatternSetCount(b2))
+	assert.Equal(t, 1, wafv2.RuleGroupCount(b2))
+
+	// Logging config should be present after restore.
+	h2 := wafv2.NewHandler(b2)
+	rec = doWafv2Request(t, h2, "GetLoggingConfiguration", map[string]any{"ResourceArn": arnWebACL})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSnapshotRestore_NilMaps(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	snap := []byte(`{"webACLs":null,"ipSets":null,"accountID":"123","region":"us-east-1"}`)
+	require.NoError(t, b.Restore(snap))
+
+	// After restore with nil maps, counts should be 0 (not panic).
+	assert.Equal(t, 0, wafv2.WebACLCount(b))
+	assert.Equal(t, 0, wafv2.IPSetCount(b))
+	assert.Equal(t, 0, wafv2.RegexPatternSetCount(b))
 }
