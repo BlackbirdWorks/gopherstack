@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	iotwirelesssdk "github.com/aws/aws-sdk-go-v2/service/iotwireless"
+	iotwirelesstypes "github.com/aws/aws-sdk-go-v2/service/iotwireless/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +37,7 @@ func createIoTWirelessClient(t *testing.T) *iotwirelesssdk.Client {
 // TestIntegration_IoTWireless_ServiceProfileLifecycle tests the full service profile CRUD lifecycle.
 func TestIntegration_IoTWireless_ServiceProfileLifecycle(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
 		name        string
@@ -42,7 +45,7 @@ func TestIntegration_IoTWireless_ServiceProfileLifecycle(t *testing.T) {
 	}{
 		{
 			name:        "full_lifecycle",
-			profileName: "integration-test-profile-" + t.Name(),
+			profileName: "integration-test-profile-" + uuid.NewString()[:8],
 		},
 	}
 
@@ -60,6 +63,14 @@ func TestIntegration_IoTWireless_ServiceProfileLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateServiceProfile should succeed")
 			require.NotEmpty(t, aws.ToString(createOut.Id))
 			profileID := aws.ToString(createOut.Id)
+
+			// Get service profile — verify name.
+			getOut, err := client.GetServiceProfile(ctx, &iotwirelesssdk.GetServiceProfileInput{
+				Id: aws.String(profileID),
+			})
+			require.NoError(t, err, "GetServiceProfile should succeed")
+			assert.Equal(t, profileID, aws.ToString(getOut.Id))
+			assert.Equal(t, tt.profileName, aws.ToString(getOut.Name))
 
 			// List service profiles — should contain the created one.
 			listOut, err := client.ListServiceProfiles(ctx, &iotwirelesssdk.ListServiceProfilesInput{})
@@ -96,21 +107,22 @@ func TestIntegration_IoTWireless_ServiceProfileLifecycle(t *testing.T) {
 // TestIntegration_IoTWireless_WirelessDevice tests wireless device CRUD lifecycle.
 func TestIntegration_IoTWireless_WirelessDevice(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
 		name       string
 		deviceName string
-		devType    iotwirelesssdk.WirelessDeviceType
+		devType    iotwirelesstypes.WirelessDeviceType
 	}{
 		{
 			name:       "lorawan_device",
-			deviceName: "integration-device-lorawan-" + t.Name(),
-			devType:    iotwirelesssdk.WirelessDeviceTypeLoRaWAN,
+			deviceName: "integration-device-lorawan-" + uuid.NewString()[:8],
+			devType:    iotwirelesstypes.WirelessDeviceTypeLoRaWAN,
 		},
 		{
 			name:       "sidewalk_device",
-			deviceName: "integration-device-sidewalk-" + t.Name(),
-			devType:    iotwirelesssdk.WirelessDeviceTypeSidewalk,
+			deviceName: "integration-device-sidewalk-" + uuid.NewString()[:8],
+			devType:    iotwirelesstypes.WirelessDeviceTypeSidewalk,
 		},
 	}
 
@@ -134,7 +146,7 @@ func TestIntegration_IoTWireless_WirelessDevice(t *testing.T) {
 			// Get wireless device.
 			getOut, err := client.GetWirelessDevice(ctx, &iotwirelesssdk.GetWirelessDeviceInput{
 				Identifier:     aws.String(deviceID),
-				IdentifierType: iotwirelesssdk.WirelessDeviceIdTypeWirelessDeviceId,
+				IdentifierType: iotwirelesstypes.WirelessDeviceIdTypeWirelessDeviceId,
 			})
 			require.NoError(t, err, "GetWirelessDevice should succeed")
 			assert.Equal(t, tt.deviceName, aws.ToString(getOut.Name))
