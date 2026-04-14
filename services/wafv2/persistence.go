@@ -15,7 +15,7 @@ type backendSnapshot struct {
 	Region             string                      `json:"region"`
 }
 
-// Snapshot serialises the backend state to JSON.
+// Snapshot serializes the backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -42,7 +42,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// ensureNonNilMaps initialises any nil maps in the snapshot so that downstream
+// ensureNonNilMaps initializes any nil maps in the snapshot so that downstream
 // code can unconditionally assign them to the backend fields.
 func (snap *backendSnapshot) ensureNonNilMaps() {
 	if snap.WebACLs == nil {
