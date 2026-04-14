@@ -26,38 +26,58 @@ var (
 
 // xrayPaths is the set of supported X-Ray REST API paths.
 var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level routing table
-	"/TraceSegments":      true,
-	"/TelemetryRecords":   true,
-	"/TraceSummaries":     true,
-	"/Traces":             true,
-	"/CreateGroup":        true,
-	"/GetGroup":           true,
-	"/Groups":             true,
-	"/UpdateGroup":        true,
-	"/DeleteGroup":        true,
-	"/CreateSamplingRule": true,
-	"/GetSamplingRules":   true,
-	"/UpdateSamplingRule": true,
-	"/DeleteSamplingRule": true,
-	pathEncryptionConfig:  true,
+	"/TraceSegments":                 true,
+	"/TelemetryRecords":              true,
+	"/TraceSummaries":                true,
+	"/Traces":                        true,
+	"/CreateGroup":                   true,
+	"/GetGroup":                      true,
+	"/Groups":                        true,
+	"/UpdateGroup":                   true,
+	"/DeleteGroup":                   true,
+	"/CreateSamplingRule":            true,
+	"/GetSamplingRules":              true,
+	"/UpdateSamplingRule":            true,
+	"/DeleteSamplingRule":            true,
+	pathEncryptionConfig:             true,
+	"/CancelTraceRetrieval":          true,
+	"/DeleteResourcePolicy":          true,
+	"/GetIndexingRules":              true,
+	"/GetInsight":                    true,
+	"/GetInsightEvents":              true,
+	"/GetInsightImpactGraph":         true,
+	"/GetInsightSummaries":           true,
+	"/GetRetrievedTracesGraph":       true,
+	"/GetSamplingStatisticSummaries": true,
+	"/GetSamplingTargets":            true,
 }
 
 // pathToOperation maps X-Ray REST API paths to operation names.
 var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-level routing table
-	"/TraceSegments":      "PutTraceSegments",
-	"/TelemetryRecords":   "PutTelemetryRecords",
-	"/TraceSummaries":     "GetTraceSummaries",
-	"/Traces":             "BatchGetTraces",
-	"/CreateGroup":        "CreateGroup",
-	"/GetGroup":           "GetGroup",
-	"/Groups":             "GetGroups",
-	"/UpdateGroup":        "UpdateGroup",
-	"/DeleteGroup":        "DeleteGroup",
-	"/CreateSamplingRule": "CreateSamplingRule",
-	"/GetSamplingRules":   "GetSamplingRules",
-	"/UpdateSamplingRule": "UpdateSamplingRule",
-	"/DeleteSamplingRule": "DeleteSamplingRule",
-	pathEncryptionConfig:  "GetEncryptionConfig", // default; overridden by method
+	"/TraceSegments":                 "PutTraceSegments",
+	"/TelemetryRecords":              "PutTelemetryRecords",
+	"/TraceSummaries":                "GetTraceSummaries",
+	"/Traces":                        "BatchGetTraces",
+	"/CreateGroup":                   "CreateGroup",
+	"/GetGroup":                      "GetGroup",
+	"/Groups":                        "GetGroups",
+	"/UpdateGroup":                   "UpdateGroup",
+	"/DeleteGroup":                   "DeleteGroup",
+	"/CreateSamplingRule":            "CreateSamplingRule",
+	"/GetSamplingRules":              "GetSamplingRules",
+	"/UpdateSamplingRule":            "UpdateSamplingRule",
+	"/DeleteSamplingRule":            "DeleteSamplingRule",
+	pathEncryptionConfig:             "GetEncryptionConfig", // default; overridden by method
+	"/CancelTraceRetrieval":          "CancelTraceRetrieval",
+	"/DeleteResourcePolicy":          "DeleteResourcePolicy",
+	"/GetIndexingRules":              "GetIndexingRules",
+	"/GetInsight":                    "GetInsight",
+	"/GetInsightEvents":              "GetInsightEvents",
+	"/GetInsightImpactGraph":         "GetInsightImpactGraph",
+	"/GetInsightSummaries":           "GetInsightSummaries",
+	"/GetRetrievedTracesGraph":       "GetRetrievedTracesGraph",
+	"/GetSamplingStatisticSummaries": "GetSamplingStatisticSummaries",
+	"/GetSamplingTargets":            "GetSamplingTargets",
 }
 
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
@@ -99,14 +119,24 @@ func (h *Handler) Name() string { return "Xray" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"BatchGetTraces",
+		"CancelTraceRetrieval",
 		"CreateGroup",
 		"CreateSamplingRule",
 		"DeleteGroup",
+		"DeleteResourcePolicy",
 		"DeleteSamplingRule",
 		"GetEncryptionConfig",
 		"GetGroup",
 		"GetGroups",
+		"GetIndexingRules",
+		"GetInsight",
+		"GetInsightEvents",
+		"GetInsightImpactGraph",
+		"GetInsightSummaries",
+		"GetRetrievedTracesGraph",
 		"GetSamplingRules",
+		"GetSamplingStatisticSummaries",
+		"GetSamplingTargets",
 		"GetTraceSummaries",
 		"PutEncryptionConfig",
 		"PutTelemetryRecords",
@@ -233,20 +263,30 @@ type xrayHandlerFn func(*Handler, context.Context, []byte) ([]byte, error)
 // dispatchTable maps X-Ray paths to their handler functions (POST operations).
 // This table-driven approach keeps the dispatch cyclomatic complexity at O(1).
 var dispatchTable = map[string]xrayHandlerFn{ //nolint:gochecknoglobals // package-level dispatch table
-	"/TraceSegments":      (*Handler).handlePutTraceSegments,
-	"/TelemetryRecords":   (*Handler).handlePutTelemetryRecords,
-	"/TraceSummaries":     (*Handler).handleGetTraceSummaries,
-	"/Traces":             (*Handler).handleBatchGetTraces,
-	"/CreateGroup":        (*Handler).handleCreateGroup,
-	"/GetGroup":           (*Handler).handleGetGroup,
-	"/Groups":             (*Handler).handleGetGroups,
-	"/UpdateGroup":        (*Handler).handleUpdateGroup,
-	"/DeleteGroup":        (*Handler).handleDeleteGroup,
-	"/CreateSamplingRule": (*Handler).handleCreateSamplingRule,
-	"/GetSamplingRules":   (*Handler).handleGetSamplingRules,
-	"/UpdateSamplingRule": (*Handler).handleUpdateSamplingRule,
-	"/DeleteSamplingRule": (*Handler).handleDeleteSamplingRule,
-	pathEncryptionConfig:  (*Handler).handlePutEncryptionConfig,
+	"/TraceSegments":                 (*Handler).handlePutTraceSegments,
+	"/TelemetryRecords":              (*Handler).handlePutTelemetryRecords,
+	"/TraceSummaries":                (*Handler).handleGetTraceSummaries,
+	"/Traces":                        (*Handler).handleBatchGetTraces,
+	"/CreateGroup":                   (*Handler).handleCreateGroup,
+	"/GetGroup":                      (*Handler).handleGetGroup,
+	"/Groups":                        (*Handler).handleGetGroups,
+	"/UpdateGroup":                   (*Handler).handleUpdateGroup,
+	"/DeleteGroup":                   (*Handler).handleDeleteGroup,
+	"/CreateSamplingRule":            (*Handler).handleCreateSamplingRule,
+	"/GetSamplingRules":              (*Handler).handleGetSamplingRules,
+	"/UpdateSamplingRule":            (*Handler).handleUpdateSamplingRule,
+	"/DeleteSamplingRule":            (*Handler).handleDeleteSamplingRule,
+	pathEncryptionConfig:             (*Handler).handlePutEncryptionConfig,
+	"/CancelTraceRetrieval":          (*Handler).handleCancelTraceRetrieval,
+	"/DeleteResourcePolicy":          (*Handler).handleDeleteResourcePolicy,
+	"/GetIndexingRules":              (*Handler).handleGetIndexingRules,
+	"/GetInsight":                    (*Handler).handleGetInsight,
+	"/GetInsightEvents":              (*Handler).handleGetInsightEvents,
+	"/GetInsightImpactGraph":         (*Handler).handleGetInsightImpactGraph,
+	"/GetInsightSummaries":           (*Handler).handleGetInsightSummaries,
+	"/GetRetrievedTracesGraph":       (*Handler).handleGetRetrievedTracesGraph,
+	"/GetSamplingStatisticSummaries": (*Handler).handleGetSamplingStatisticSummaries,
+	"/GetSamplingTargets":            (*Handler).handleGetSamplingTargets,
 }
 
 func (h *Handler) dispatch(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -773,5 +813,361 @@ func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(map[string]any{
 		"EncryptionConfig": cfg,
+	})
+}
+
+// --- CancelTraceRetrieval ---
+
+type cancelTraceRetrievalInput struct {
+	RetrievalToken string `json:"RetrievalToken"`
+}
+
+func (h *Handler) handleCancelTraceRetrieval(_ context.Context, body []byte) ([]byte, error) {
+	var in cancelTraceRetrievalInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.RetrievalToken == "" {
+		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
+	}
+
+	h.Backend.CancelTraceRetrieval(in.RetrievalToken)
+
+	return json.Marshal(map[string]any{})
+}
+
+// --- DeleteResourcePolicy ---
+
+type deleteResourcePolicyInput struct {
+	PolicyName       string `json:"PolicyName"`
+	PolicyRevisionID string `json:"PolicyRevisionId"`
+}
+
+func (h *Handler) handleDeleteResourcePolicy(_ context.Context, body []byte) ([]byte, error) {
+	var in deleteResourcePolicyInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.PolicyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteResourcePolicy(in.PolicyName); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+// --- GetIndexingRules ---
+
+type indexingRuleView struct {
+	Name       string  `json:"Name"`
+	ModifiedAt float64 `json:"ModifiedAt"`
+}
+
+func (h *Handler) handleGetIndexingRules(_ context.Context, _ []byte) ([]byte, error) {
+	rules := h.Backend.GetIndexingRules()
+	views := make([]indexingRuleView, 0, len(rules))
+
+	for _, r := range rules {
+		views = append(views, indexingRuleView{
+			Name:       r.Name,
+			ModifiedAt: float64(r.ModifiedAt.Unix()),
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"IndexingRules": views,
+		"NextToken":     "",
+	})
+}
+
+// --- GetInsight ---
+
+type getInsightInput struct {
+	InsightID string `json:"InsightId"`
+}
+
+type insightView struct {
+	InsightID string  `json:"InsightId"`
+	GroupARN  string  `json:"GroupARN"`
+	GroupName string  `json:"GroupName"`
+	State     string  `json:"State"`
+	Summary   string  `json:"Summary"`
+	StartTime float64 `json:"StartTime"`
+}
+
+func toInsightView(i *Insight) insightView {
+	return insightView{
+		InsightID: i.InsightID,
+		GroupARN:  i.GroupARN,
+		GroupName: i.GroupName,
+		State:     i.State,
+		Summary:   i.Summary,
+		StartTime: float64(i.StartTime.Unix()),
+	}
+}
+
+func (h *Handler) handleGetInsight(_ context.Context, body []byte) ([]byte, error) {
+	var in getInsightInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.InsightID == "" {
+		return nil, fmt.Errorf("%w: InsightId is required", errInvalidRequest)
+	}
+
+	i, err := h.Backend.GetInsight(in.InsightID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"Insight": toInsightView(i),
+	})
+}
+
+// --- GetInsightEvents ---
+
+type getInsightEventsInput struct {
+	InsightID  string `json:"InsightId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+type insightEventView struct {
+	Summary   string  `json:"Summary"`
+	EventTime float64 `json:"EventTime"`
+}
+
+func (h *Handler) handleGetInsightEvents(_ context.Context, body []byte) ([]byte, error) {
+	var in getInsightEventsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.InsightID == "" {
+		return nil, fmt.Errorf("%w: InsightId is required", errInvalidRequest)
+	}
+
+	events, err := h.Backend.GetInsightEvents(in.InsightID)
+	if err != nil {
+		return nil, err
+	}
+
+	views := make([]insightEventView, 0, len(events))
+	for _, e := range events {
+		views = append(views, insightEventView{
+			Summary:   e.Summary,
+			EventTime: float64(e.EventTime.Unix()),
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"InsightEvents": views,
+		"NextToken":     "",
+	})
+}
+
+// --- GetInsightImpactGraph ---
+
+type getInsightImpactGraphInput struct {
+	InsightID string  `json:"InsightId"`
+	NextToken string  `json:"NextToken"`
+	StartTime float64 `json:"StartTime"`
+	EndTime   float64 `json:"EndTime"`
+}
+
+func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([]byte, error) {
+	var in getInsightImpactGraphInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.InsightID == "" {
+		return nil, fmt.Errorf("%w: InsightId is required", errInvalidRequest)
+	}
+
+	return json.Marshal(map[string]any{
+		"InsightId":             in.InsightID,
+		"Services":              []any{},
+		"StartTime":             in.StartTime,
+		"EndTime":               in.EndTime,
+		"ServiceGraphStartTime": in.StartTime,
+		"ServiceGraphEndTime":   in.EndTime,
+		"NextToken":             "",
+	})
+}
+
+// --- GetInsightSummaries ---
+
+type getInsightSummariesInput struct {
+	GroupARN   string   `json:"GroupARN"`
+	GroupName  string   `json:"GroupName"`
+	NextToken  string   `json:"NextToken"`
+	States     []string `json:"States"`
+	StartTime  float64  `json:"StartTime"`
+	EndTime    float64  `json:"EndTime"`
+	MaxResults int32    `json:"MaxResults"`
+}
+
+func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]byte, error) {
+	var in getInsightSummariesInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	summaries := h.Backend.GetInsightSummaries()
+	views := make([]insightView, 0, len(summaries))
+
+	for i := range summaries {
+		views = append(views, toInsightView(&summaries[i]))
+	}
+
+	return json.Marshal(map[string]any{
+		"InsightSummaries": views,
+		"NextToken":        "",
+	})
+}
+
+// --- GetRetrievedTracesGraph ---
+
+type getRetrievedTracesGraphInput struct {
+	RetrievalToken string `json:"RetrievalToken"`
+	NextToken      string `json:"NextToken"`
+}
+
+func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) ([]byte, error) {
+	var in getRetrievedTracesGraphInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.RetrievalToken == "" {
+		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
+	}
+
+	status, _ := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
+
+	return json.Marshal(map[string]any{
+		"RetrievalStatus": status,
+		"Services":        []any{},
+		"NextToken":       "",
+	})
+}
+
+// --- GetSamplingStatisticSummaries ---
+
+type samplingStatisticSummaryView struct {
+	RuleName     string  `json:"RuleName"`
+	RequestCount int32   `json:"RequestCount"`
+	SampledCount int32   `json:"SampledCount"`
+	BorrowCount  int32   `json:"BorrowCount"`
+	Timestamp    float64 `json:"Timestamp"`
+}
+
+func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, _ []byte) ([]byte, error) {
+	summaries := h.Backend.GetSamplingStatisticSummaries()
+	views := make([]samplingStatisticSummaryView, 0, len(summaries))
+
+	for _, s := range summaries {
+		views = append(views, samplingStatisticSummaryView{
+			RuleName:     s.RuleName,
+			RequestCount: s.RequestCount,
+			SampledCount: s.SampledCount,
+			BorrowCount:  s.BorrowCount,
+			Timestamp:    float64(s.Timestamp.Unix()),
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"SamplingStatisticSummaries": views,
+		"NextToken":                  "",
+	})
+}
+
+// --- GetSamplingTargets ---
+
+type samplingStatisticsDocumentInput struct {
+	RuleName     string `json:"RuleName"`
+	ClientID     string `json:"ClientId"`
+	RequestCount int32  `json:"RequestCount"`
+	SampledCount int32  `json:"SampledCount"`
+	BorrowCount  int32  `json:"BorrowCount"`
+}
+
+type getSamplingTargetsInput struct {
+	SamplingStatisticsDocuments []samplingStatisticsDocumentInput `json:"SamplingStatisticsDocuments"`
+}
+
+type samplingTargetDocumentView struct {
+	RuleName       string  `json:"RuleName"`
+	FixedRate      float64 `json:"FixedRate"`
+	ReservoirQuota int32   `json:"ReservoirQuota"`
+	Interval       int32   `json:"Interval"`
+}
+
+type unprocessedStatisticsView struct {
+	RuleName  string `json:"RuleName"`
+	ErrorCode string `json:"ErrorCode"`
+	Message   string `json:"Message"`
+}
+
+func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]byte, error) {
+	var in getSamplingTargetsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	ruleNames := make([]string, 0, len(in.SamplingStatisticsDocuments))
+	for _, d := range in.SamplingStatisticsDocuments {
+		ruleNames = append(ruleNames, d.RuleName)
+	}
+
+	targets, unprocessedNames := h.Backend.GetSamplingTargets(ruleNames)
+
+	targetViews := make([]samplingTargetDocumentView, 0, len(targets))
+	for _, t := range targets {
+		targetViews = append(targetViews, samplingTargetDocumentView{
+			RuleName:       t.RuleName,
+			FixedRate:      t.FixedRate,
+			ReservoirQuota: t.ReservoirSize,
+			Interval:       samplingTargetInterval,
+		})
+	}
+
+	unprocessedViews := make([]unprocessedStatisticsView, 0, len(unprocessedNames))
+	for _, name := range unprocessedNames {
+		unprocessedViews = append(unprocessedViews, unprocessedStatisticsView{
+			RuleName:  name,
+			ErrorCode: "RuleDoesNotExist",
+			Message:   "sampling rule " + name + " not found",
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"SamplingTargetDocuments": targetViews,
+		"UnprocessedStatistics":   unprocessedViews,
+		"LastRuleModification":    float64(time.Now().Unix()),
 	})
 }

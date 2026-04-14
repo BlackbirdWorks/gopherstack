@@ -1,11 +1,18 @@
 package xray
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
-	Groups        map[string]*Group        `json:"groups"`
-	SamplingRules map[string]*SamplingRule `json:"samplingRules"`
-	Traces        map[string]*Trace        `json:"traces"`
+	Groups           map[string]*Group          `json:"groups"`
+	SamplingRules    map[string]*SamplingRule   `json:"samplingRules"`
+	Traces           map[string]*Trace          `json:"traces"`
+	Insights         map[string]*Insight        `json:"insights"`
+	InsightEvents    map[string][]*InsightEvent `json:"insightEvents"`
+	ResourcePolicies map[string]*ResourcePolicy `json:"resourcePolicies"`
+	TraceRetrievals  map[string]*TraceRetrieval `json:"traceRetrievals"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -14,13 +21,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Groups:        b.groups,
-		SamplingRules: b.samplingRules,
-		Traces:        b.traces,
+		Groups:           b.groups,
+		SamplingRules:    b.samplingRules,
+		Traces:           b.traces,
+		Insights:         b.insights,
+		InsightEvents:    b.insightEvents,
+		ResourcePolicies: b.resourcePolicies,
+		TraceRetrievals:  b.traceRetrievals,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("xray: failed to marshal snapshot", "error", err)
+
 		return nil
 	}
 
@@ -50,9 +63,29 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Traces = make(map[string]*Trace)
 	}
 
+	if snap.Insights == nil {
+		snap.Insights = make(map[string]*Insight)
+	}
+
+	if snap.InsightEvents == nil {
+		snap.InsightEvents = make(map[string][]*InsightEvent)
+	}
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]*ResourcePolicy)
+	}
+
+	if snap.TraceRetrievals == nil {
+		snap.TraceRetrievals = make(map[string]*TraceRetrieval)
+	}
+
 	b.groups = snap.Groups
 	b.samplingRules = snap.SamplingRules
 	b.traces = snap.Traces
+	b.insights = snap.Insights
+	b.insightEvents = snap.InsightEvents
+	b.resourcePolicies = snap.ResourcePolicies
+	b.traceRetrievals = snap.TraceRetrievals
 
 	return nil
 }

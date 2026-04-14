@@ -18,16 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := xray.NewInMemoryBackend()
 	h := xray.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &xraysdk.Client{}, h.GetSupportedOperations(), []string{
-		"CancelTraceRetrieval",
-		"DeleteResourcePolicy",
-		"GetIndexingRules",
-		"GetInsight",
-		"GetInsightEvents",
-		"GetInsightImpactGraph",
-		"GetInsightSummaries",
-		"GetRetrievedTracesGraph",
-		"GetSamplingStatisticSummaries",
-		"GetSamplingTargets",
 		"GetServiceGraph",
 		"GetTimeSeriesServiceStatistics",
 		"GetTraceGraph",

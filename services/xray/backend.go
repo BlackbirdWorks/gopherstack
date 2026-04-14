@@ -22,6 +22,10 @@ var (
 	ErrSamplingRuleNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrSamplingRuleAlreadyExists is returned when a sampling rule already exists.
 	ErrSamplingRuleAlreadyExists = awserr.New("RuleAlreadyExistsException", awserr.ErrConflict)
+	// ErrInsightNotFound is returned when an X-Ray insight is not found.
+	ErrInsightNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
+	// ErrResourcePolicyNotFound is returned when a resource policy is not found.
+	ErrResourcePolicyNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 )
 
 // Group represents an X-Ray group used to filter trace data.
@@ -62,26 +66,98 @@ type EncryptionConfig struct {
 	Type   string `json:"Type"`
 }
 
+// Insight represents an X-Ray insight.
+type Insight struct {
+	StartTime time.Time `json:"startTime"`
+	InsightID string    `json:"insightId"`
+	GroupARN  string    `json:"groupARN"`
+	GroupName string    `json:"groupName"`
+	State     string    `json:"state"`
+	Summary   string    `json:"summary"`
+}
+
+// InsightEvent represents an event within an X-Ray insight.
+type InsightEvent struct {
+	EventTime time.Time `json:"eventTime"`
+	InsightID string    `json:"insightId"`
+	Summary   string    `json:"summary"`
+}
+
+// ResourcePolicy represents a resource-based policy attached to the X-Ray account.
+type ResourcePolicy struct {
+	PolicyName       string `json:"policyName"`
+	PolicyDocument   string `json:"policyDocument"`
+	PolicyRevisionID string `json:"policyRevisionId"`
+}
+
+// TraceRetrieval represents an ongoing trace retrieval operation.
+type TraceRetrieval struct {
+	StartTime      time.Time `json:"startTime"`
+	RetrievalToken string    `json:"retrievalToken"`
+	Status         string    `json:"status"`
+}
+
+// IndexingRule represents an X-Ray CloudWatch Logs indexing rule.
+type IndexingRule struct {
+	ModifiedAt time.Time `json:"modifiedAt"`
+	Name       string    `json:"name"`
+}
+
+// SamplingStatisticSummary holds aggregated request sampling data for a rule.
+type SamplingStatisticSummary struct {
+	Timestamp    time.Time `json:"timestamp"`
+	RuleName     string    `json:"ruleName"`
+	RequestCount int32     `json:"requestCount"`
+	SampledCount int32     `json:"sampledCount"`
+	BorrowCount  int32     `json:"borrowCount"`
+}
+
+const (
+	// traceRetrievalStatusComplete is the retrieval status returned for unknown tokens.
+	traceRetrievalStatusComplete = "COMPLETE"
+	// samplingTargetInterval is the recommended polling interval for sampling targets.
+	samplingTargetInterval = 10
+)
+
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
 	groups           map[string]*Group
 	samplingRules    map[string]*SamplingRule
 	traces           map[string]*Trace
+	insights         map[string]*Insight
+	insightEvents    map[string][]*InsightEvent
+	resourcePolicies map[string]*ResourcePolicy
+	traceRetrievals  map[string]*TraceRetrieval
 	encryptionConfig *EncryptionConfig
 	mu               *lockmetrics.RWMutex
+	indexingRules    []*IndexingRule
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		groups:        make(map[string]*Group),
-		samplingRules: make(map[string]*SamplingRule),
-		traces:        make(map[string]*Trace),
-		mu:            lockmetrics.New("xray"),
+		groups:           make(map[string]*Group),
+		samplingRules:    make(map[string]*SamplingRule),
+		traces:           make(map[string]*Trace),
+		insights:         make(map[string]*Insight),
+		insightEvents:    make(map[string][]*InsightEvent),
+		resourcePolicies: make(map[string]*ResourcePolicy),
+		traceRetrievals:  make(map[string]*TraceRetrieval),
+		indexingRules:    defaultIndexingRules(),
+		mu:               lockmetrics.New("xray"),
 		encryptionConfig: &EncryptionConfig{
 			Type:   "NONE",
 			Status: "ACTIVE",
 		},
+	}
+}
+
+// defaultIndexingRules returns the built-in X-Ray indexing rules.
+func defaultIndexingRules() []*IndexingRule {
+	now := time.Now()
+
+	return []*IndexingRule{
+		{Name: "Default", ModifiedAt: now},
 	}
 }
 
@@ -364,6 +440,11 @@ func (b *InMemoryBackend) Reset() {
 	b.groups = make(map[string]*Group)
 	b.samplingRules = make(map[string]*SamplingRule)
 	b.traces = make(map[string]*Trace)
+	b.insights = make(map[string]*Insight)
+	b.insightEvents = make(map[string][]*InsightEvent)
+	b.resourcePolicies = make(map[string]*ResourcePolicy)
+	b.traceRetrievals = make(map[string]*TraceRetrieval)
+	b.indexingRules = defaultIndexingRules()
 	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: "ACTIVE"}
 }
 
@@ -392,4 +473,187 @@ func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) *Encryption
 	cp := *b.encryptionConfig
 
 	return &cp
+}
+
+// --- Insight operations ---
+
+func cloneInsight(i *Insight) *Insight {
+	cp := *i
+
+	return &cp
+}
+
+// AddInsightInternal seeds an insight directly for testing.
+func (b *InMemoryBackend) AddInsightInternal(insight Insight) {
+	b.mu.Lock("AddInsightInternal")
+	defer b.mu.Unlock()
+
+	b.insights[insight.InsightID] = &insight
+}
+
+// GetInsight returns the insight with the given ID.
+func (b *InMemoryBackend) GetInsight(insightID string) (*Insight, error) {
+	b.mu.RLock("GetInsight")
+	defer b.mu.RUnlock()
+
+	i, ok := b.insights[insightID]
+	if !ok {
+		return nil, fmt.Errorf("%w: insight %s not found", ErrInsightNotFound, insightID)
+	}
+
+	return cloneInsight(i), nil
+}
+
+// GetInsightEvents returns all events for the given insight ID.
+func (b *InMemoryBackend) GetInsightEvents(insightID string) ([]*InsightEvent, error) {
+	b.mu.RLock("GetInsightEvents")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.insights[insightID]; !ok {
+		return nil, fmt.Errorf("%w: insight %s not found", ErrInsightNotFound, insightID)
+	}
+
+	events := b.insightEvents[insightID]
+	out := make([]*InsightEvent, len(events))
+
+	for idx, e := range events {
+		cp := *e
+		out[idx] = &cp
+	}
+
+	return out, nil
+}
+
+// GetInsightSummaries returns all insights as summaries.
+func (b *InMemoryBackend) GetInsightSummaries() []Insight {
+	b.mu.RLock("GetInsightSummaries")
+	defer b.mu.RUnlock()
+
+	out := make([]Insight, 0, len(b.insights))
+	for _, i := range b.insights {
+		out = append(out, *cloneInsight(i))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].InsightID < out[j].InsightID
+	})
+
+	return out
+}
+
+// --- Resource policy operations ---
+
+func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
+	cp := *p
+
+	return &cp
+}
+
+// DeleteResourcePolicy removes the resource policy with the given name.
+func (b *InMemoryBackend) DeleteResourcePolicy(policyName string) error {
+	b.mu.Lock("DeleteResourcePolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourcePolicies[policyName]; !ok {
+		return fmt.Errorf("%w: resource policy %s not found", ErrResourcePolicyNotFound, policyName)
+	}
+
+	delete(b.resourcePolicies, policyName)
+
+	return nil
+}
+
+// AddResourcePolicyInternal seeds a resource policy directly for testing.
+func (b *InMemoryBackend) AddResourcePolicyInternal(policy ResourcePolicy) {
+	b.mu.Lock("AddResourcePolicyInternal")
+	defer b.mu.Unlock()
+
+	b.resourcePolicies[policy.PolicyName] = cloneResourcePolicy(&policy)
+}
+
+// --- Indexing rule operations ---
+
+// GetIndexingRules returns all indexing rules.
+func (b *InMemoryBackend) GetIndexingRules() []*IndexingRule {
+	b.mu.RLock("GetIndexingRules")
+	defer b.mu.RUnlock()
+
+	out := make([]*IndexingRule, len(b.indexingRules))
+	for i, r := range b.indexingRules {
+		cp := *r
+		out[i] = &cp
+	}
+
+	return out
+}
+
+// --- Trace retrieval operations ---
+
+// CancelTraceRetrieval marks a trace retrieval as cancelled.
+// If the token is not found the operation is a no-op (idempotent).
+func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) {
+	b.mu.Lock("CancelTraceRetrieval")
+	defer b.mu.Unlock()
+
+	delete(b.traceRetrievals, retrievalToken)
+}
+
+// GetRetrievedTracesGraph returns the status and services for a retrieval token.
+// If the token is not found a COMPLETE status is returned.
+func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace) {
+	b.mu.RLock("GetRetrievedTracesGraph")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.traceRetrievals[retrievalToken]; !ok {
+		return traceRetrievalStatusComplete, nil
+	}
+
+	return b.traceRetrievals[retrievalToken].Status, nil
+}
+
+// --- Sampling statistic operations ---
+
+// GetSamplingStatisticSummaries returns an empty list of sampling statistic summaries.
+// In a production implementation statistics would be accumulated per sampling rule.
+func (b *InMemoryBackend) GetSamplingStatisticSummaries() []SamplingStatisticSummary {
+	b.mu.RLock("GetSamplingStatisticSummaries")
+	defer b.mu.RUnlock()
+
+	return []SamplingStatisticSummary{}
+}
+
+// SamplingTargetResult holds the per-document results of GetSamplingTargets.
+type SamplingTargetResult struct {
+	RuleName      string
+	FixedRate     float64
+	ReservoirSize int32
+	Found         bool
+}
+
+// GetSamplingTargets returns target documents for the provided rule names.
+// Rules that do not exist are returned in the unprocessed list.
+func (b *InMemoryBackend) GetSamplingTargets(ruleNames []string) ([]SamplingTargetResult, []string) {
+	b.mu.RLock("GetSamplingTargets")
+	defer b.mu.RUnlock()
+
+	targets := make([]SamplingTargetResult, 0, len(ruleNames))
+	unprocessed := make([]string, 0)
+
+	for _, name := range ruleNames {
+		r, ok := b.samplingRules[name]
+		if !ok {
+			unprocessed = append(unprocessed, name)
+
+			continue
+		}
+
+		targets = append(targets, SamplingTargetResult{
+			RuleName:      r.RuleName,
+			FixedRate:     r.FixedRate,
+			ReservoirSize: r.ReservoirSize,
+			Found:         true,
+		})
+	}
+
+	return targets, unprocessed
 }

@@ -17,6 +17,16 @@ type StorageBackend interface {
 	Reset()
 	GetEncryptionConfig() *EncryptionConfig
 	PutEncryptionConfig(encType, keyID string) *EncryptionConfig
+	// New operations
+	CancelTraceRetrieval(retrievalToken string)
+	DeleteResourcePolicy(policyName string) error
+	GetIndexingRules() []*IndexingRule
+	GetInsight(insightID string) (*Insight, error)
+	GetInsightEvents(insightID string) ([]*InsightEvent, error)
+	GetInsightSummaries() []Insight
+	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace)
+	GetSamplingStatisticSummaries() []SamplingStatisticSummary
+	GetSamplingTargets(ruleNames []string) ([]SamplingTargetResult, []string)
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

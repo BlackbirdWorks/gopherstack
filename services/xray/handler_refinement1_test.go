@@ -45,7 +45,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := xray.NewInMemoryBackend()
 	h := xray.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 15)
+	assert.Len(t, h.GetSupportedOperations(), 25)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
