@@ -14,16 +14,21 @@ type StorageBackend interface {
 	DeleteSamplingRule(ruleName string) (*SamplingRule, error)
 	PutTraceSegments(segments []string) []string
 	GetTraceSummaries() []Trace
+	GetTrace(traceID string) *Trace
 	Reset()
 	GetEncryptionConfig() *EncryptionConfig
-	PutEncryptionConfig(encType, keyID string) *EncryptionConfig
+	PutEncryptionConfig(encType, keyID string) (*EncryptionConfig, error)
+	Snapshot() []byte
+	Restore(data []byte) error
 	// New operations
 	CancelTraceRetrieval(retrievalToken string)
 	DeleteResourcePolicy(policyName string) error
+	ListResourcePolicies() []ResourcePolicy
+	PutResourcePolicy(policyName, policyDocument string) *ResourcePolicy
 	GetIndexingRules() []*IndexingRule
 	GetInsight(insightID string) (*Insight, error)
 	GetInsightEvents(insightID string) ([]*InsightEvent, error)
-	GetInsightSummaries() []Insight
+	GetInsightSummaries(states []string) []Insight
 	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace)
 	GetSamplingStatisticSummaries() []SamplingStatisticSummary
 	GetSamplingTargets(ruleNames []string) ([]SamplingTargetResult, []string)

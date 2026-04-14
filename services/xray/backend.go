@@ -3,6 +3,7 @@ package xray
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -26,30 +27,41 @@ var (
 	ErrInsightNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrResourcePolicyNotFound is returned when a resource policy is not found.
 	ErrResourcePolicyNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
+	// ErrValidation is returned when a request fails field-level validation.
+	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 )
+
+// InsightsConfiguration holds insight notification/notification settings for a group.
+type InsightsConfiguration struct {
+	InsightsEnabled      bool `json:"InsightsEnabled"`
+	NotificationsEnabled bool `json:"NotificationsEnabled"`
+}
 
 // Group represents an X-Ray group used to filter trace data.
 type Group struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	GroupARN         string    `json:"groupARN"`
-	GroupName        string    `json:"groupName"`
-	FilterExpression string    `json:"filterExpression"`
+	CreatedAt             time.Time             `json:"createdAt"`
+	GroupARN              string                `json:"groupARN"`
+	GroupName             string                `json:"groupName"`
+	FilterExpression      string                `json:"filterExpression"`
+	InsightsConfiguration InsightsConfiguration `json:"insightsConfiguration"`
 }
 
 // SamplingRule represents an X-Ray sampling rule that controls the rate of data collection.
 type SamplingRule struct {
-	CreatedAt     time.Time `json:"createdAt"`
-	RuleARN       string    `json:"ruleARN"`
-	RuleName      string    `json:"ruleName"`
-	ResourceARN   string    `json:"resourceARN"`
-	ServiceName   string    `json:"serviceName"`
-	ServiceType   string    `json:"serviceType"`
-	Host          string    `json:"host"`
-	HTTPMethod    string    `json:"httpMethod"`
-	URLPath       string    `json:"urlPath"`
-	FixedRate     float64   `json:"fixedRate"`
-	Priority      int32     `json:"priority"`
-	ReservoirSize int32     `json:"reservoirSize"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	ModifiedAt    time.Time         `json:"modifiedAt"`
+	Attributes    map[string]string `json:"attributes,omitempty"`
+	RuleARN       string            `json:"ruleARN"`
+	RuleName      string            `json:"ruleName"`
+	ResourceARN   string            `json:"resourceARN"`
+	ServiceName   string            `json:"serviceName"`
+	ServiceType   string            `json:"serviceType"`
+	Host          string            `json:"host"`
+	HTTPMethod    string            `json:"httpMethod"`
+	URLPath       string            `json:"urlPath"`
+	FixedRate     float64           `json:"fixedRate"`
+	Priority      int32             `json:"priority"`
+	ReservoirSize int32             `json:"reservoirSize"`
 }
 
 // Trace represents a collected X-Ray trace with its constituent segments.
@@ -113,6 +125,10 @@ type SamplingStatisticSummary struct {
 }
 
 const (
+	// encTypeNone is the X-Ray encryption type for no encryption.
+	encTypeNone = "NONE"
+	// encTypeKMS is the X-Ray encryption type for KMS-managed encryption.
+	encTypeKMS = "KMS"
 	// traceRetrievalStatusComplete is the retrieval status returned for unknown tokens.
 	traceRetrievalStatusComplete = "COMPLETE"
 	// samplingTargetInterval is the recommended polling interval for sampling targets.
@@ -177,6 +193,11 @@ func cloneGroup(g *Group) *Group {
 
 func cloneRule(r *SamplingRule) *SamplingRule {
 	cp := *r
+
+	if len(r.Attributes) > 0 {
+		cp.Attributes = make(map[string]string, len(r.Attributes))
+		maps.Copy(cp.Attributes, r.Attributes)
+	}
 
 	return &cp
 }
@@ -270,7 +291,9 @@ func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, 
 	}
 
 	rule.RuleARN = samplingRuleARN(rule.RuleName)
-	rule.CreatedAt = time.Now()
+	now := time.Now()
+	rule.CreatedAt = now
+	rule.ModifiedAt = now
 	b.samplingRules[rule.RuleName] = &rule
 
 	return cloneRule(&rule), nil
@@ -338,6 +361,8 @@ func (b *InMemoryBackend) UpdateSamplingRule(ruleName string, updates SamplingRu
 	if updates.Priority > 0 {
 		r.Priority = updates.Priority
 	}
+
+	r.ModifiedAt = time.Now()
 
 	return cloneRule(r), nil
 }
@@ -460,7 +485,15 @@ func (b *InMemoryBackend) GetEncryptionConfig() *EncryptionConfig {
 
 // PutEncryptionConfig updates the X-Ray encryption configuration.
 // encType must be one of "NONE" or "KMS". keyID is only used when encType is "KMS".
-func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) *EncryptionConfig {
+func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) (*EncryptionConfig, error) {
+	if encType != encTypeNone && encType != encTypeKMS {
+		return nil, fmt.Errorf("%w: Type must be NONE or KMS", ErrValidation)
+	}
+
+	if encType == encTypeKMS && keyID == "" {
+		return nil, fmt.Errorf("%w: KeyId is required when Type is KMS", ErrValidation)
+	}
+
 	b.mu.Lock("PutEncryptionConfig")
 	defer b.mu.Unlock()
 
@@ -472,7 +505,7 @@ func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) *Encryption
 
 	cp := *b.encryptionConfig
 
-	return &cp
+	return &cp, nil
 }
 
 // --- Insight operations ---
@@ -489,6 +522,14 @@ func (b *InMemoryBackend) AddInsightInternal(insight Insight) {
 	defer b.mu.Unlock()
 
 	b.insights[insight.InsightID] = &insight
+}
+
+// AddInsightEventInternal seeds an event for an insight directly for testing.
+func (b *InMemoryBackend) AddInsightEventInternal(event InsightEvent) {
+	b.mu.Lock("AddInsightEventInternal")
+	defer b.mu.Unlock()
+
+	b.insightEvents[event.InsightID] = append(b.insightEvents[event.InsightID], &event)
 }
 
 // GetInsight returns the insight with the given ID.
@@ -524,13 +565,23 @@ func (b *InMemoryBackend) GetInsightEvents(insightID string) ([]*InsightEvent, e
 	return out, nil
 }
 
-// GetInsightSummaries returns all insights as summaries.
-func (b *InMemoryBackend) GetInsightSummaries() []Insight {
+// GetInsightSummaries returns all insights as summaries, optionally filtered by state.
+// If states is empty, all insights are returned.
+func (b *InMemoryBackend) GetInsightSummaries(states []string) []Insight {
 	b.mu.RLock("GetInsightSummaries")
 	defer b.mu.RUnlock()
 
+	stateSet := make(map[string]bool, len(states))
+	for _, s := range states {
+		stateSet[s] = true
+	}
+
 	out := make([]Insight, 0, len(b.insights))
 	for _, i := range b.insights {
+		if len(stateSet) > 0 && !stateSet[i.State] {
+			continue
+		}
+
 		out = append(out, *cloneInsight(i))
 	}
 
@@ -547,6 +598,38 @@ func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
 	cp := *p
 
 	return &cp
+}
+
+// PutResourcePolicy creates or updates a resource policy with the given name and document.
+func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) *ResourcePolicy {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	p := &ResourcePolicy{
+		PolicyName:       policyName,
+		PolicyDocument:   policyDocument,
+		PolicyRevisionID: uuid.NewString(),
+	}
+	b.resourcePolicies[policyName] = p
+
+	return cloneResourcePolicy(p)
+}
+
+// ListResourcePolicies returns all resource policies sorted by name.
+func (b *InMemoryBackend) ListResourcePolicies() []ResourcePolicy {
+	b.mu.RLock("ListResourcePolicies")
+	defer b.mu.RUnlock()
+
+	out := make([]ResourcePolicy, 0, len(b.resourcePolicies))
+	for _, p := range b.resourcePolicies {
+		out = append(out, *cloneResourcePolicy(p))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].PolicyName < out[j].PolicyName
+	})
+
+	return out
 }
 
 // DeleteResourcePolicy removes the resource policy with the given name.
@@ -589,6 +672,14 @@ func (b *InMemoryBackend) GetIndexingRules() []*IndexingRule {
 
 // --- Trace retrieval operations ---
 
+// AddTraceRetrievalInternal seeds a trace retrieval token directly for testing.
+func (b *InMemoryBackend) AddTraceRetrievalInternal(retrieval TraceRetrieval) {
+	b.mu.Lock("AddTraceRetrievalInternal")
+	defer b.mu.Unlock()
+
+	b.traceRetrievals[retrieval.RetrievalToken] = &retrieval
+}
+
 // CancelTraceRetrieval marks a trace retrieval as cancelled.
 // If the token is not found the operation is a no-op (idempotent).
 func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) {
@@ -627,7 +718,6 @@ type SamplingTargetResult struct {
 	RuleName      string
 	FixedRate     float64
 	ReservoirSize int32
-	Found         bool
 }
 
 // GetSamplingTargets returns target documents for the provided rule names.
@@ -651,7 +741,6 @@ func (b *InMemoryBackend) GetSamplingTargets(ruleNames []string) ([]SamplingTarg
 			RuleName:      r.RuleName,
 			FixedRate:     r.FixedRate,
 			ReservoirSize: r.ReservoirSize,
-			Found:         true,
 		})
 	}
 

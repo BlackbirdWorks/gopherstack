@@ -52,15 +52,15 @@ func TestHandler_DeleteResourcePolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*xray.Handler)
+		setup      func(*xray.InMemoryBackend)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "deletes existing policy",
-			setup: func(h *xray.Handler) {
-				h.Backend.AddResourcePolicyInternal(xray.ResourcePolicy{
+			setup: func(b *xray.InMemoryBackend) {
+				b.AddResourcePolicyInternal(xray.ResourcePolicy{
 					PolicyName:       "my-policy",
 					PolicyDocument:   `{"Version":"2012-10-17"}`,
 					PolicyRevisionID: "rev-1",
@@ -85,10 +85,10 @@ func TestHandler_DeleteResourcePolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(b)
 			}
 
 			rec := doXrayRequest(t, h, "/DeleteResourcePolicy", tt.body)
@@ -101,10 +101,9 @@ func TestHandler_GetIndexingRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		wantStatus    int
-		wantMinRules  int
-		wantNextToken bool
+		name         string
+		wantStatus   int
+		wantMinRules int
 	}{
 		{
 			name:         "returns default rules",
@@ -135,15 +134,15 @@ func TestHandler_GetInsight(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*xray.Handler)
+		setup      func(*xray.InMemoryBackend)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "gets existing insight",
-			setup: func(h *xray.Handler) {
-				h.Backend.AddInsightInternal(xray.Insight{
+			setup: func(b *xray.InMemoryBackend) {
+				b.AddInsightInternal(xray.Insight{
 					InsightID: "insight-123",
 					GroupName: "my-group",
 					State:     "ACTIVE",
@@ -169,10 +168,10 @@ func TestHandler_GetInsight(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(b)
 			}
 
 			rec := doXrayRequest(t, h, "/GetInsight", tt.body)
@@ -184,8 +183,8 @@ func TestHandler_GetInsight(t *testing.T) {
 func TestHandler_GetInsight_ResponseFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	h.Backend.AddInsightInternal(xray.Insight{
+	h, b := newTestHandlerWithBackend(t)
+	b.AddInsightInternal(xray.Insight{
 		InsightID: "insight-abc",
 		GroupName: "grp",
 		State:     "ACTIVE",
@@ -210,7 +209,7 @@ func TestHandler_GetInsightEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*xray.Handler)
+		setup      func(*xray.InMemoryBackend)
 		body       map[string]any
 		name       string
 		wantStatus int
@@ -218,8 +217,8 @@ func TestHandler_GetInsightEvents(t *testing.T) {
 	}{
 		{
 			name: "returns empty events for insight with no events",
-			setup: func(h *xray.Handler) {
-				h.Backend.AddInsightInternal(xray.Insight{
+			setup: func(b *xray.InMemoryBackend) {
+				b.AddInsightInternal(xray.Insight{
 					InsightID: "i-1",
 					State:     "ACTIVE",
 					StartTime: time.Now(),
@@ -245,10 +244,10 @@ func TestHandler_GetInsightEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(b)
 			}
 
 			rec := doXrayRequest(t, h, "/GetInsightEvents", tt.body)
@@ -270,12 +269,20 @@ func TestHandler_GetInsightImpactGraph(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.InMemoryBackend)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name: "returns impact graph for insight",
+			name: "returns impact graph for existing insight",
+			setup: func(b *xray.InMemoryBackend) {
+				b.AddInsightInternal(xray.Insight{
+					InsightID: "insight-xyz",
+					State:     "ACTIVE",
+					StartTime: time.Now(),
+				})
+			},
 			body: map[string]any{
 				"InsightId": "insight-xyz",
 				"StartTime": 1700000000.0,
@@ -288,13 +295,27 @@ func TestHandler_GetInsightImpactGraph(t *testing.T) {
 			body:       map[string]any{"StartTime": 1700000000.0, "EndTime": 1700001000.0},
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			name: "non-existent insight returns 400",
+			body: map[string]any{
+				"InsightId": "no-such-insight",
+				"StartTime": 1700000000.0,
+				"EndTime":   1700001000.0,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
+
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
 			rec := doXrayRequest(t, h, "/GetInsightImpactGraph", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -316,7 +337,7 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*xray.Handler)
+		setup      func(*xray.InMemoryBackend)
 		body       map[string]any
 		name       string
 		wantStatus int
@@ -330,13 +351,13 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 		},
 		{
 			name: "returns seeded insights",
-			setup: func(h *xray.Handler) {
-				h.Backend.AddInsightInternal(xray.Insight{
+			setup: func(b *xray.InMemoryBackend) {
+				b.AddInsightInternal(xray.Insight{
 					InsightID: "i-a",
 					State:     "ACTIVE",
 					StartTime: time.Now(),
 				})
-				h.Backend.AddInsightInternal(xray.Insight{
+				b.AddInsightInternal(xray.Insight{
 					InsightID: "i-b",
 					State:     "CLOSED",
 					StartTime: time.Now(),
@@ -352,10 +373,10 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(b)
 			}
 
 			rec := doXrayRequest(t, h, "/GetInsightSummaries", tt.body)
@@ -375,16 +396,16 @@ func TestHandler_GetRetrievedTracesGraph(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body        map[string]any
-		name        string
-		wantStatus2 string
-		wantStatus  int
+		body            map[string]any
+		name            string
+		wantRetrievalSt string
+		wantStatus      int
 	}{
 		{
-			name:        "returns COMPLETE for unknown token",
-			body:        map[string]any{"RetrievalToken": "unknown-token"},
-			wantStatus:  http.StatusOK,
-			wantStatus2: "COMPLETE",
+			name:            "returns COMPLETE for unknown token",
+			body:            map[string]any{"RetrievalToken": "unknown-token"},
+			wantStatus:      http.StatusOK,
+			wantRetrievalSt: "COMPLETE",
 		},
 		{
 			name:       "missing RetrievalToken returns 400",
@@ -405,7 +426,7 @@ func TestHandler_GetRetrievedTracesGraph(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-				assert.Equal(t, tt.wantStatus2, resp["RetrievalStatus"])
+				assert.Equal(t, tt.wantRetrievalSt, resp["RetrievalStatus"])
 
 				services, ok := resp["Services"].([]any)
 				require.True(t, ok)
@@ -450,7 +471,6 @@ func TestHandler_GetSamplingTargets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup           func(*xray.Handler)
 		body            map[string]any
 		name            string
 		wantStatus      int
@@ -459,11 +479,6 @@ func TestHandler_GetSamplingTargets(t *testing.T) {
 	}{
 		{
 			name: "returns target for existing rule",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateSamplingRule(
-					xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, ReservoirSize: 5},
-				)
-			},
 			body: map[string]any{
 				"SamplingStatisticsDocuments": []map[string]any{
 					{
@@ -509,11 +524,9 @@ func TestHandler_GetSamplingTargets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
+			h, b := newTestHandlerWithBackend(t)
+			// Pre-seed the rule used in the "existing rule" case.
+			b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, ReservoirSize: 5})
 
 			rec := doXrayRequest(t, h, "/GetSamplingTargets", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -535,11 +548,8 @@ func TestHandler_GetSamplingTargets(t *testing.T) {
 func TestHandler_GetSamplingTargets_TargetFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	_, err := h.Backend.CreateSamplingRule(
-		xray.SamplingRule{RuleName: "check-rule", FixedRate: 0.1, ReservoirSize: 10},
-	)
-	require.NoError(t, err)
+	h, b := newTestHandlerWithBackend(t)
+	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "check-rule", FixedRate: 0.1, ReservoirSize: 10})
 
 	rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
 		"SamplingStatisticsDocuments": []map[string]any{

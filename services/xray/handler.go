@@ -42,6 +42,8 @@ var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level rout
 	pathEncryptionConfig:             true,
 	"/CancelTraceRetrieval":          true,
 	"/DeleteResourcePolicy":          true,
+	"/ListResourcePolicies":          true,
+	"/PutResourcePolicy":             true,
 	"/GetIndexingRules":              true,
 	"/GetInsight":                    true,
 	"/GetInsightEvents":              true,
@@ -70,6 +72,8 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 	pathEncryptionConfig:             "GetEncryptionConfig", // default; overridden by method
 	"/CancelTraceRetrieval":          "CancelTraceRetrieval",
 	"/DeleteResourcePolicy":          "DeleteResourcePolicy",
+	"/ListResourcePolicies":          "ListResourcePolicies",
+	"/PutResourcePolicy":             "PutResourcePolicy",
 	"/GetIndexingRules":              "GetIndexingRules",
 	"/GetInsight":                    "GetInsight",
 	"/GetInsightEvents":              "GetInsightEvents",
@@ -82,19 +86,25 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
 	janitor *Janitor
 }
 
 // NewHandler creates a new X-Ray handler backed by backend.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // WithJanitor attaches a background janitor to the handler.
 // The optional taskTimeout variadic parameter sets TaskTimeout on the janitor.
+// If Backend is not an *InMemoryBackend the call is a no-op.
 func (h *Handler) WithJanitor(interval, ttl time.Duration, taskTimeout ...time.Duration) *Handler {
-	j := NewJanitor(h.Backend, interval, ttl)
+	concrete, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h
+	}
+
+	j := NewJanitor(concrete, interval, ttl)
 	if len(taskTimeout) > 0 {
 		j.TaskTimeout = taskTimeout[0]
 	}
@@ -138,7 +148,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetSamplingStatisticSummaries",
 		"GetSamplingTargets",
 		"GetTraceSummaries",
+		"ListResourcePolicies",
 		"PutEncryptionConfig",
+		"PutResourcePolicy",
 		"PutTelemetryRecords",
 		"PutTraceSegments",
 		"UpdateGroup",
@@ -279,6 +291,8 @@ var dispatchTable = map[string]xrayHandlerFn{ //nolint:gochecknoglobals // packa
 	pathEncryptionConfig:             (*Handler).handlePutEncryptionConfig,
 	"/CancelTraceRetrieval":          (*Handler).handleCancelTraceRetrieval,
 	"/DeleteResourcePolicy":          (*Handler).handleDeleteResourcePolicy,
+	"/ListResourcePolicies":          (*Handler).handleListResourcePolicies,
+	"/PutResourcePolicy":             (*Handler).handlePutResourcePolicy,
 	"/GetIndexingRules":              (*Handler).handleGetIndexingRules,
 	"/GetInsight":                    (*Handler).handleGetInsight,
 	"/GetInsightEvents":              (*Handler).handleGetInsightEvents,
@@ -320,6 +334,11 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 			"__type":  typeName,
 			"message": err.Error(),
 		})
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"__type":  "InvalidRequestException",
+			"message": err.Error(),
+		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownPath),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -336,10 +355,16 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 
 // --- Group views ---
 
+type insightsConfigView struct {
+	InsightsEnabled      bool `json:"InsightsEnabled"`
+	NotificationsEnabled bool `json:"NotificationsEnabled"`
+}
+
 type groupView struct {
-	GroupARN         string `json:"GroupARN"`
-	GroupName        string `json:"GroupName"`
-	FilterExpression string `json:"FilterExpression"`
+	GroupARN              string             `json:"GroupARN"`
+	GroupName             string             `json:"GroupName"`
+	FilterExpression      string             `json:"FilterExpression"`
+	InsightsConfiguration insightsConfigView `json:"InsightsConfiguration"`
 }
 
 func toGroupView(g *Group) groupView {
@@ -347,14 +372,19 @@ func toGroupView(g *Group) groupView {
 		GroupARN:         g.GroupARN,
 		GroupName:        g.GroupName,
 		FilterExpression: g.FilterExpression,
+		InsightsConfiguration: insightsConfigView{
+			InsightsEnabled:      g.InsightsConfiguration.InsightsEnabled,
+			NotificationsEnabled: g.InsightsConfiguration.NotificationsEnabled,
+		},
 	}
 }
 
 // --- Group operations ---
 
 type createGroupInput struct {
-	GroupName        string `json:"GroupName"`
-	FilterExpression string `json:"FilterExpression"`
+	GroupName             string             `json:"GroupName"`
+	FilterExpression      string             `json:"FilterExpression"`
+	InsightsConfiguration insightsConfigView `json:"InsightsConfiguration"`
 }
 
 func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, error) {
@@ -372,6 +402,11 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 	g, err := h.Backend.CreateGroup(in.GroupName, in.FilterExpression)
 	if err != nil {
 		return nil, err
+	}
+
+	g.InsightsConfiguration = InsightsConfiguration{
+		InsightsEnabled:      in.InsightsConfiguration.InsightsEnabled,
+		NotificationsEnabled: in.InsightsConfiguration.NotificationsEnabled,
 	}
 
 	return json.Marshal(map[string]any{
@@ -472,18 +507,19 @@ func (h *Handler) handleDeleteGroup(_ context.Context, body []byte) ([]byte, err
 // --- Sampling rule views ---
 
 type samplingRuleView struct {
-	RuleARN       string  `json:"RuleARN"`
-	RuleName      string  `json:"RuleName"`
-	ResourceARN   string  `json:"ResourceARN"`
-	ServiceName   string  `json:"ServiceName"`
-	ServiceType   string  `json:"ServiceType"`
-	Host          string  `json:"Host"`
-	HTTPMethod    string  `json:"HTTPMethod"`
-	URLPath       string  `json:"URLPath"`
-	FixedRate     float64 `json:"FixedRate"`
-	Priority      int32   `json:"Priority"`
-	ReservoirSize int32   `json:"ReservoirSize"`
-	Version       int     `json:"Version"`
+	Attributes    map[string]string `json:"Attributes,omitempty"`
+	RuleARN       string            `json:"RuleARN"`
+	RuleName      string            `json:"RuleName"`
+	ResourceARN   string            `json:"ResourceARN"`
+	ServiceName   string            `json:"ServiceName"`
+	ServiceType   string            `json:"ServiceType"`
+	Host          string            `json:"Host"`
+	HTTPMethod    string            `json:"HTTPMethod"`
+	URLPath       string            `json:"URLPath"`
+	FixedRate     float64           `json:"FixedRate"`
+	Priority      int32             `json:"Priority"`
+	ReservoirSize int32             `json:"ReservoirSize"`
+	Version       int               `json:"Version"`
 }
 
 type samplingRuleRecord struct {
@@ -505,33 +541,33 @@ func toSamplingRuleView(r *SamplingRule) samplingRuleView {
 		FixedRate:     r.FixedRate,
 		Priority:      r.Priority,
 		ReservoirSize: r.ReservoirSize,
+		Attributes:    r.Attributes,
 		Version:       1,
 	}
 }
 
 func toSamplingRuleRecord(r *SamplingRule) samplingRuleRecord {
-	epoch := float64(r.CreatedAt.Unix())
-
 	return samplingRuleRecord{
 		SamplingRule: toSamplingRuleView(r),
-		CreatedAt:    epoch,
-		ModifiedAt:   epoch,
+		CreatedAt:    float64(r.CreatedAt.Unix()),
+		ModifiedAt:   float64(r.ModifiedAt.Unix()),
 	}
 }
 
 // --- Sampling rule operations ---
 
 type samplingRuleInput struct {
-	RuleName      string  `json:"RuleName"`
-	ResourceARN   string  `json:"ResourceARN"`
-	ServiceName   string  `json:"ServiceName"`
-	ServiceType   string  `json:"ServiceType"`
-	Host          string  `json:"Host"`
-	HTTPMethod    string  `json:"HTTPMethod"`
-	URLPath       string  `json:"URLPath"`
-	FixedRate     float64 `json:"FixedRate"`
-	Priority      int32   `json:"Priority"`
-	ReservoirSize int32   `json:"ReservoirSize"`
+	Attributes    map[string]string `json:"Attributes,omitempty"`
+	RuleName      string            `json:"RuleName"`
+	ResourceARN   string            `json:"ResourceARN"`
+	ServiceName   string            `json:"ServiceName"`
+	ServiceType   string            `json:"ServiceType"`
+	Host          string            `json:"Host"`
+	HTTPMethod    string            `json:"HTTPMethod"`
+	URLPath       string            `json:"URLPath"`
+	FixedRate     float64           `json:"FixedRate"`
+	Priority      int32             `json:"Priority"`
+	ReservoirSize int32             `json:"ReservoirSize"`
 }
 
 type createSamplingRuleInput struct {
@@ -561,6 +597,7 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 		FixedRate:     in.SamplingRule.FixedRate,
 		Priority:      in.SamplingRule.Priority,
 		ReservoirSize: in.SamplingRule.ReservoirSize,
+		Attributes:    in.SamplingRule.Attributes,
 	}
 
 	r, err := h.Backend.CreateSamplingRule(rule)
@@ -722,6 +759,14 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 	summaries := make([]traceSummary, 0, len(traces))
 
 	for i := range traces {
+		// Apply optional time window filter when both bounds are provided.
+		if in.StartTime > 0 && in.EndTime > 0 {
+			ts := float64(traces[i].StartTime.Unix())
+			if ts < in.StartTime || ts > in.EndTime {
+				continue
+			}
+		}
+
 		summaries = append(summaries, traceSummary{
 			ID:       traces[i].TraceID,
 			Duration: 0,
@@ -806,10 +851,13 @@ func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]b
 	}
 
 	if in.Type == "" {
-		in.Type = "NONE"
+		in.Type = encTypeNone
 	}
 
-	cfg := h.Backend.PutEncryptionConfig(in.Type, in.KeyID)
+	cfg, err := h.Backend.PutEncryptionConfig(in.Type, in.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	return json.Marshal(map[string]any{
 		"EncryptionConfig": cfg,
@@ -1002,6 +1050,11 @@ func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: InsightId is required", errInvalidRequest)
 	}
 
+	// Validate the insight exists.
+	if _, err := h.Backend.GetInsight(in.InsightID); err != nil {
+		return nil, err
+	}
+
 	return json.Marshal(map[string]any{
 		"InsightId":             in.InsightID,
 		"Services":              []any{},
@@ -1033,7 +1086,7 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 		}
 	}
 
-	summaries := h.Backend.GetInsightSummaries()
+	summaries := h.Backend.GetInsightSummaries(in.States)
 	views := make([]insightView, 0, len(summaries))
 
 	for i := range summaries {
@@ -1169,5 +1222,66 @@ func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]by
 		"SamplingTargetDocuments": targetViews,
 		"UnprocessedStatistics":   unprocessedViews,
 		"LastRuleModification":    float64(time.Now().Unix()),
+	})
+}
+
+// --- ListResourcePolicies ---
+
+type resourcePolicyView struct {
+	PolicyName       string `json:"PolicyName"`
+	PolicyDocument   string `json:"PolicyDocument"`
+	PolicyRevisionID string `json:"PolicyRevisionId"`
+}
+
+func toResourcePolicyView(p *ResourcePolicy) resourcePolicyView {
+	return resourcePolicyView{
+		PolicyName:       p.PolicyName,
+		PolicyDocument:   p.PolicyDocument,
+		PolicyRevisionID: p.PolicyRevisionID,
+	}
+}
+
+func (h *Handler) handleListResourcePolicies(_ context.Context, _ []byte) ([]byte, error) {
+	policies := h.Backend.ListResourcePolicies()
+	views := make([]resourcePolicyView, 0, len(policies))
+
+	for i := range policies {
+		views = append(views, toResourcePolicyView(&policies[i]))
+	}
+
+	return json.Marshal(map[string]any{
+		"ResourcePolicies": views,
+		"NextToken":        "",
+	})
+}
+
+// --- PutResourcePolicy ---
+
+type putResourcePolicyInput struct {
+	PolicyName       string `json:"PolicyName"`
+	PolicyDocument   string `json:"PolicyDocument"`
+	PolicyRevisionID string `json:"PolicyRevisionId"`
+}
+
+func (h *Handler) handlePutResourcePolicy(_ context.Context, body []byte) ([]byte, error) {
+	var in putResourcePolicyInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.PolicyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", errInvalidRequest)
+	}
+
+	if in.PolicyDocument == "" {
+		return nil, fmt.Errorf("%w: PolicyDocument is required", errInvalidRequest)
+	}
+
+	p := h.Backend.PutResourcePolicy(in.PolicyName, in.PolicyDocument)
+
+	return json.Marshal(map[string]any{
+		"ResourcePolicy": toResourcePolicyView(p),
 	})
 }
