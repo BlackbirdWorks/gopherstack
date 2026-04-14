@@ -21,6 +21,14 @@ func newTestHandler(t *testing.T) *xray.Handler {
 	return xray.NewHandler(xray.NewInMemoryBackend())
 }
 
+func newTestHandlerWithBackend(t *testing.T) (*xray.Handler, *xray.InMemoryBackend) {
+	t.Helper()
+
+	b := xray.NewInMemoryBackend()
+
+	return xray.NewHandler(b), b
+}
+
 func doXrayRequest(t *testing.T, h *xray.Handler, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
