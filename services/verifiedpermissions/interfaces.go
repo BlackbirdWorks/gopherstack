@@ -2,6 +2,7 @@ package verifiedpermissions
 
 // StorageBackend is the interface for Verified Permissions storage operations.
 type StorageBackend interface {
+	AccountID() string
 	CreatePolicyStore(description string, tags map[string]string) (*PolicyStore, error)
 	GetPolicyStore(policyStoreID string) (*PolicyStore, error)
 	ListPolicyStores() []PolicyStore
@@ -21,6 +22,24 @@ type StorageBackend interface {
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
+	IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error)
+	IsAuthorizedWithToken(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error)
+	BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPolicyResult
+	BatchIsAuthorized(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
+	BatchIsAuthorizedWithToken(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
+	CreateIdentitySource(
+		policyStoreID, userPoolArn, openIDIssuer, principalEntityType string,
+		clientIDs []string,
+	) (*IdentitySource, error)
+	GetIdentitySource(policyStoreID, identitySourceID string) (*IdentitySource, error)
+	DeleteIdentitySource(policyStoreID, identitySourceID string) error
+	ListIdentitySources(policyStoreID string) ([]IdentitySource, error)
+	UpdateIdentitySource(
+		policyStoreID, identitySourceID, userPoolArn, openIDIssuer, principalEntityType string,
+		clientIDs []string,
+	) (*IdentitySource, error)
+	PutSchema(policyStoreID, schema string) error
+	GetSchema(policyStoreID string) (*PolicyStoreSchema, error)
 	Snapshot() []byte
 	Restore(data []byte) error
 }
