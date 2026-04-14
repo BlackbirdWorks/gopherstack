@@ -51,22 +51,31 @@ func (h *Handler) Name() string { return "Wafv2" }
 // GetSupportedOperations returns the list of supported WAFv2 operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateWebACL",
-		"GetWebACL",
-		"UpdateWebACL",
-		"DeleteWebACL",
-		"ListWebACLs",
-		"CreateIPSet",
-		"GetIPSet",
-		"UpdateIPSet",
-		"DeleteIPSet",
-		"ListIPSets",
-		"TagResource",
-		"ListTagsForResource",
-		"UntagResource",
 		"AssociateWebACL",
+		"CheckCapacity",
+		"CreateAPIKey",
+		"CreateIPSet",
+		"CreateRegexPatternSet",
+		"CreateRuleGroup",
+		"CreateWebACL",
+		"DeleteAPIKey",
+		"DeleteFirewallManagerRuleGroups",
+		"DeleteIPSet",
+		"DeleteLoggingConfiguration",
+		"DeletePermissionPolicy",
+		"DeleteRegexPatternSet",
+		"DeleteWebACL",
 		"DisassociateWebACL",
+		"GetIPSet",
+		"GetWebACL",
 		"GetWebACLForResource",
+		"ListIPSets",
+		"ListTagsForResource",
+		"ListWebACLs",
+		"TagResource",
+		"UntagResource",
+		"UpdateIPSet",
+		"UpdateWebACL",
 	}
 }
 
@@ -131,22 +140,35 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte) ([]byte, error) {
 	return map[string]func([]byte) ([]byte, error){
-		"CreateWebACL":         func(b []byte) ([]byte, error) { return h.handleCreateWebACL(ctx, b) },
-		"GetWebACL":            h.handleGetWebACL,
-		"UpdateWebACL":         func(b []byte) ([]byte, error) { return h.handleUpdateWebACL(ctx, b) },
-		"DeleteWebACL":         func(b []byte) ([]byte, error) { return h.handleDeleteWebACL(ctx, b) },
-		"ListWebACLs":          h.handleListWebACLs,
-		"CreateIPSet":          func(b []byte) ([]byte, error) { return h.handleCreateIPSet(ctx, b) },
-		"GetIPSet":             h.handleGetIPSet,
-		"UpdateIPSet":          func(b []byte) ([]byte, error) { return h.handleUpdateIPSet(ctx, b) },
-		"DeleteIPSet":          func(b []byte) ([]byte, error) { return h.handleDeleteIPSet(ctx, b) },
-		"ListIPSets":           h.handleListIPSets,
-		"TagResource":          h.handleTagResource,
-		"ListTagsForResource":  h.handleListTagsForResource,
-		"UntagResource":        h.handleUntagResource,
-		"AssociateWebACL":      h.handleAssociateWebACL,
-		"DisassociateWebACL":   h.handleDisassociateWebACL,
-		"GetWebACLForResource": h.handleGetWebACLForResource,
+		"CreateWebACL":          func(b []byte) ([]byte, error) { return h.handleCreateWebACL(ctx, b) },
+		"GetWebACL":             h.handleGetWebACL,
+		"UpdateWebACL":          func(b []byte) ([]byte, error) { return h.handleUpdateWebACL(ctx, b) },
+		"DeleteWebACL":          func(b []byte) ([]byte, error) { return h.handleDeleteWebACL(ctx, b) },
+		"ListWebACLs":           h.handleListWebACLs,
+		"CreateIPSet":           func(b []byte) ([]byte, error) { return h.handleCreateIPSet(ctx, b) },
+		"GetIPSet":              h.handleGetIPSet,
+		"UpdateIPSet":           func(b []byte) ([]byte, error) { return h.handleUpdateIPSet(ctx, b) },
+		"DeleteIPSet":           func(b []byte) ([]byte, error) { return h.handleDeleteIPSet(ctx, b) },
+		"ListIPSets":            h.handleListIPSets,
+		"TagResource":           h.handleTagResource,
+		"ListTagsForResource":   h.handleListTagsForResource,
+		"UntagResource":         h.handleUntagResource,
+		"AssociateWebACL":       h.handleAssociateWebACL,
+		"DisassociateWebACL":    h.handleDisassociateWebACL,
+		"GetWebACLForResource":  h.handleGetWebACLForResource,
+		"CheckCapacity":         h.handleCheckCapacity,
+		"CreateAPIKey":          func(b []byte) ([]byte, error) { return h.handleCreateAPIKey(ctx, b) },
+		"CreateRegexPatternSet": func(b []byte) ([]byte, error) { return h.handleCreateRegexPatternSet(ctx, b) },
+		"CreateRuleGroup":       func(b []byte) ([]byte, error) { return h.handleCreateRuleGroup(ctx, b) },
+		"DeleteAPIKey":          func(b []byte) ([]byte, error) { return h.handleDeleteAPIKey(ctx, b) },
+		"DeleteFirewallManagerRuleGroups": func(b []byte) ([]byte, error) {
+			return h.handleDeleteFirewallManagerRuleGroups(ctx, b)
+		},
+		"DeleteLoggingConfiguration": func(b []byte) ([]byte, error) {
+			return h.handleDeleteLoggingConfiguration(ctx, b)
+		},
+		"DeletePermissionPolicy": func(b []byte) ([]byte, error) { return h.handleDeletePermissionPolicy(ctx, b) },
+		"DeleteRegexPatternSet":  func(b []byte) ([]byte, error) { return h.handleDeleteRegexPatternSet(ctx, b) },
 	}
 }
 
@@ -838,4 +860,298 @@ func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
 			"Rules":            []any{},
 		},
 	})
+}
+
+// checkCapacityRequest is the request body for CheckCapacity.
+type checkCapacityRequest struct {
+	Scope string           `json:"Scope"`
+	Rules []map[string]any `json:"Rules"`
+}
+
+func (h *Handler) handleCheckCapacity(body []byte) ([]byte, error) {
+	var req checkCapacityRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	capacity, err := h.Backend.CheckCapacity(req.Scope, req.Rules)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"ConsumedCapacity": capacity,
+	})
+}
+
+// createAPIKeyRequest is the request body for CreateAPIKey.
+type createAPIKeyRequest struct {
+	Scope        string   `json:"Scope"`
+	TokenDomains []string `json:"TokenDomains"`
+}
+
+func (h *Handler) handleCreateAPIKey(ctx context.Context, body []byte) ([]byte, error) {
+	var req createAPIKeyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	a, err := h.Backend.CreateAPIKey(req.Scope, req.TokenDomains)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: created API key", "scope", a.Scope)
+
+	return json.Marshal(map[string]any{
+		"APIKey": a.APIKeyValue,
+	})
+}
+
+// deleteAPIKeyRequest is the request body for DeleteAPIKey.
+type deleteAPIKeyRequest struct {
+	Scope  string `json:"Scope"`
+	APIKey string `json:"APIKey"`
+}
+
+func (h *Handler) handleDeleteAPIKey(ctx context.Context, body []byte) ([]byte, error) {
+	var req deleteAPIKeyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	if req.APIKey == "" {
+		return nil, fmt.Errorf("%w: APIKey is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteAPIKey(req.Scope, req.APIKey); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: deleted API key", "scope", req.Scope)
+
+	return nil, nil
+}
+
+// createRegexPatternSetRequest is the request body for CreateRegexPatternSet.
+type createRegexPatternSetRequest struct {
+	Name                  string    `json:"Name"`
+	Scope                 string    `json:"Scope"`
+	Description           string    `json:"Description"`
+	RegularExpressionList []string  `json:"RegularExpressionList"`
+	Tags                  []tagItem `json:"Tags"`
+}
+
+func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
+	var req createRegexPatternSetRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	rps, err := h.Backend.CreateRegexPatternSet(
+		req.Name,
+		req.Scope,
+		req.Description,
+		req.RegularExpressionList,
+		tagsFromItems(req.Tags),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: created regex pattern set", "name", rps.Name, "id", rps.ID)
+
+	arnStr := h.Backend.RegexPatternSetARN(rps.Name, rps.ID, rps.Scope)
+
+	return json.Marshal(map[string]any{
+		"Summary": map[string]string{
+			"Id":        rps.ID,
+			"Name":      rps.Name,
+			"ARN":       arnStr,
+			"LockToken": rps.LockToken,
+		},
+	})
+}
+
+// deleteRegexPatternSetRequest is the request body for DeleteRegexPatternSet.
+type deleteRegexPatternSetRequest struct {
+	ID        string `json:"Id"`
+	Name      string `json:"Name"`
+	Scope     string `json:"Scope"`
+	LockToken string `json:"LockToken"`
+}
+
+func (h *Handler) handleDeleteRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
+	var req deleteRegexPatternSetRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteRegexPatternSet(req.ID); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: deleted regex pattern set", "id", req.ID)
+
+	return nil, nil
+}
+
+// createRuleGroupRequest is the request body for CreateRuleGroup.
+type createRuleGroupRequest struct {
+	Name             string           `json:"Name"`
+	Scope            string           `json:"Scope"`
+	Description      string           `json:"Description"`
+	VisibilityConfig json.RawMessage  `json:"VisibilityConfig"`
+	Rules            []map[string]any `json:"Rules"`
+	Tags             []tagItem        `json:"Tags"`
+	Capacity         int64            `json:"Capacity"`
+}
+
+func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
+	var req createRuleGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	rg, err := h.Backend.CreateRuleGroup(
+		req.Name,
+		req.Scope,
+		req.Description,
+		string(req.VisibilityConfig),
+		req.Capacity,
+		req.Rules,
+		tagsFromItems(req.Tags),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: created rule group", "name", rg.Name, "id", rg.ID)
+
+	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+
+	return json.Marshal(map[string]any{
+		"Summary": map[string]string{
+			"Id":        rg.ID,
+			"Name":      rg.Name,
+			"ARN":       arnStr,
+			"LockToken": rg.LockToken,
+		},
+	})
+}
+
+// deleteFirewallManagerRuleGroupsRequest is the request body for DeleteFirewallManagerRuleGroups.
+type deleteFirewallManagerRuleGroupsRequest struct {
+	WebACLArn       string `json:"WebACLArn"`
+	WebACLLockToken string `json:"WebACLLockToken"`
+}
+
+func (h *Handler) handleDeleteFirewallManagerRuleGroups(ctx context.Context, body []byte) ([]byte, error) {
+	var req deleteFirewallManagerRuleGroupsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.WebACLArn == "" {
+		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.DeleteFirewallManagerRuleGroups(req.WebACLArn)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: deleted firewall manager rule groups", "webACLArn", req.WebACLArn)
+
+	return json.Marshal(map[string]string{
+		"NextWebACLLockToken": w.LockToken,
+	})
+}
+
+// deleteLoggingConfigurationRequest is the request body for DeleteLoggingConfiguration.
+type deleteLoggingConfigurationRequest struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleDeleteLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
+	var req deleteLoggingConfigurationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteLoggingConfiguration(req.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: deleted logging configuration", "resourceArn", req.ResourceArn)
+
+	return nil, nil
+}
+
+// deletePermissionPolicyRequest is the request body for DeletePermissionPolicy.
+type deletePermissionPolicyRequest struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleDeletePermissionPolicy(ctx context.Context, body []byte) ([]byte, error) {
+	var req deletePermissionPolicyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeletePermissionPolicy(req.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: deleted permission policy", "resourceArn", req.ResourceArn)
+
+	return nil, nil
 }

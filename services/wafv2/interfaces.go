@@ -25,6 +25,28 @@ type StorageBackend interface {
 	AssociateWebACL(webACLARN, resourceARN string) error
 	DisassociateWebACL(resourceARN string) error
 	GetWebACLForResource(resourceARN string) (*WebACL, error)
+	CheckCapacity(scope string, rules []map[string]any) (int64, error)
+	CreateAPIKey(scope string, tokenDomains []string) (*APIKey, error)
+	CreateRegexPatternSet(
+		name, scope, description string,
+		regularExpressionList []string,
+		tags map[string]string,
+	) (*RegexPatternSet, error)
+	CreateRuleGroup(
+		name, scope, description, visibilityConfig string,
+		capacity int64,
+		rules []map[string]any,
+		tags map[string]string,
+	) (*RuleGroup, error)
+	DeleteAPIKey(scope, apiKey string) error
+	DeleteFirewallManagerRuleGroups(webACLARN string) (*WebACL, error)
+	DeleteLoggingConfiguration(resourceARN string) error
+	DeletePermissionPolicy(resourceARN string) error
+	DeleteRegexPatternSet(id string) error
+	RegexPatternSetARN(name, id, scope string) string
+	RuleGroupARN(name, id, scope string) string
+	PutLoggingConfiguration(resourceARN string) error
+	PutPermissionPolicy(resourceARN, policy string) error
 	Snapshot() []byte
 	Restore(data []byte) error
 }

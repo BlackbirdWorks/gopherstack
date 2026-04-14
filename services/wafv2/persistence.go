@@ -3,11 +3,16 @@ package wafv2
 import "encoding/json"
 
 type backendSnapshot struct {
-	WebACLs      map[string]*WebACL `json:"webACLs"`
-	IPSets       map[string]*IPSet  `json:"ipSets"`
-	Associations map[string]string  `json:"associations,omitempty"`
-	AccountID    string             `json:"accountID"`
-	Region       string             `json:"region"`
+	WebACLs            map[string]*WebACL          `json:"webACLs"`
+	IPSets             map[string]*IPSet           `json:"ipSets"`
+	RegexPatternSets   map[string]*RegexPatternSet `json:"regexPatternSets,omitempty"`
+	RuleGroups         map[string]*RuleGroup       `json:"ruleGroups,omitempty"`
+	APIKeys            map[string]*APIKey          `json:"apiKeys,omitempty"`
+	LoggingConfigs     map[string]bool             `json:"loggingConfigs,omitempty"`
+	PermissionPolicies map[string]string           `json:"permissionPolicies,omitempty"`
+	Associations       map[string]string           `json:"associations,omitempty"`
+	AccountID          string                      `json:"accountID"`
+	Region             string                      `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,11 +21,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		WebACLs:      b.webACLs,
-		IPSets:       b.ipSets,
-		Associations: b.associations,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		WebACLs:            b.webACLs,
+		IPSets:             b.ipSets,
+		RegexPatternSets:   b.regexPatternSets,
+		RuleGroups:         b.ruleGroups,
+		APIKeys:            b.apiKeys,
+		LoggingConfigs:     b.loggingConfigs,
+		PermissionPolicies: b.permissionPolicies,
+		Associations:       b.associations,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 
 	data, _ := json.Marshal(snap)
@@ -32,17 +42,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
-	var snap backendSnapshot
-
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
+// ensureNonNilMaps initialises any nil maps in the snapshot so that downstream
+// code can unconditionally assign them to the backend fields.
+func (snap *backendSnapshot) ensureNonNilMaps() {
 	if snap.WebACLs == nil {
 		snap.WebACLs = make(map[string]*WebACL)
 	}
@@ -51,20 +53,42 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.IPSets = make(map[string]*IPSet)
 	}
 
+	if snap.RegexPatternSets == nil {
+		snap.RegexPatternSets = make(map[string]*RegexPatternSet)
+	}
+
+	if snap.RuleGroups == nil {
+		snap.RuleGroups = make(map[string]*RuleGroup)
+	}
+
+	if snap.APIKeys == nil {
+		snap.APIKeys = make(map[string]*APIKey)
+	}
+
+	if snap.LoggingConfigs == nil {
+		snap.LoggingConfigs = make(map[string]bool)
+	}
+
+	if snap.PermissionPolicies == nil {
+		snap.PermissionPolicies = make(map[string]string)
+	}
+
 	if snap.Associations == nil {
 		snap.Associations = make(map[string]string)
 	}
+}
 
-	b.webACLs = snap.WebACLs
-	b.ipSets = snap.IPSets
-	b.associations = snap.Associations
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
+// rebuildIndexesLocked rebuilds all secondary index maps from the primary data
+// in the snapshot. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) rebuildIndexesLocked(snap *backendSnapshot) {
 	b.webACLByARN = make(map[string]string, len(snap.WebACLs))
 	b.ipSetByARN = make(map[string]string, len(snap.IPSets))
+	b.regexPatternSetByARN = make(map[string]string, len(snap.RegexPatternSets))
+	b.ruleGroupByARN = make(map[string]string, len(snap.RuleGroups))
 	b.webACLByNameScope = make(map[string]string, len(snap.WebACLs))
 	b.ipSetByNameScope = make(map[string]string, len(snap.IPSets))
+	b.regexPatternSetByScope = make(map[string]string, len(snap.RegexPatternSets))
+	b.ruleGroupByNameScope = make(map[string]string, len(snap.RuleGroups))
 
 	for _, w := range snap.WebACLs {
 		b.webACLByARN[b.WebACLARN(w.Name, w.ID, w.Scope)] = w.ID
@@ -75,6 +99,43 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.ipSetByARN[b.IPSetARN(s.Name, s.ID, s.Scope)] = s.ID
 		b.ipSetByNameScope[nameScope(s.Name, s.Scope)] = s.ID
 	}
+
+	for _, r := range snap.RegexPatternSets {
+		b.regexPatternSetByARN[b.RegexPatternSetARN(r.Name, r.ID, r.Scope)] = r.ID
+		b.regexPatternSetByScope[nameScope(r.Name, r.Scope)] = r.ID
+	}
+
+	for _, rg := range snap.RuleGroups {
+		b.ruleGroupByARN[b.RuleGroupARN(rg.Name, rg.ID, rg.Scope)] = rg.ID
+		b.ruleGroupByNameScope[nameScope(rg.Name, rg.Scope)] = rg.ID
+	}
+}
+
+// Restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	snap.ensureNonNilMaps()
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	b.webACLs = snap.WebACLs
+	b.ipSets = snap.IPSets
+	b.regexPatternSets = snap.RegexPatternSets
+	b.ruleGroups = snap.RuleGroups
+	b.apiKeys = snap.APIKeys
+	b.loggingConfigs = snap.LoggingConfigs
+	b.permissionPolicies = snap.PermissionPolicies
+	b.associations = snap.Associations
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	b.rebuildIndexesLocked(&snap)
 
 	return nil
 }
