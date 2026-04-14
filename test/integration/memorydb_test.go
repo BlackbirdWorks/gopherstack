@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	memorydbSDK "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	memorydbtypes "github.com/aws/aws-sdk-go-v2/service/memorydb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -175,12 +176,12 @@ func TestIntegration_MemoryDB_Tags(t *testing.T) {
 	tests := []struct {
 		name        string
 		clusterName string
-		tags        []memorydbSDK.Tag
+		tags        []memorydbtypes.Tag
 	}{
 		{
 			name:        "tag_cluster",
 			clusterName: "int-tag-cluster",
-			tags: []memorydbSDK.Tag{
+			tags: []memorydbtypes.Tag{
 				{Key: aws.String("Env"), Value: aws.String("test")},
 				{Key: aws.String("Team"), Value: aws.String("ops")},
 			},
