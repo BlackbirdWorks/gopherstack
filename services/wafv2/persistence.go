@@ -1,6 +1,9 @@
 package wafv2
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 type backendSnapshot struct {
 	WebACLs            map[string]*WebACL          `json:"webACLs"`
@@ -33,9 +36,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:             b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Default().Warn("wafv2: failed to serialize snapshot", "error", err)
 
-	if data == nil {
 		return nil
 	}
 

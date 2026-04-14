@@ -39,7 +39,17 @@ var (
 	ErrPermissionPolicyNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 )
 
-const wcuPerRule = int64(1)
+const (
+	// ScopeRegional is the REGIONAL WAFv2 scope.
+	ScopeRegional = "REGIONAL"
+	// ScopeCloudFront is the CLOUDFRONT WAFv2 scope.
+	ScopeCloudFront = "CLOUDFRONT"
+	// IPVersionIPv4 is the IPV4 address version.
+	IPVersionIPv4 = "IPV4"
+	// IPVersionIPv6 is the IPV6 address version.
+	IPVersionIPv6 = "IPV6"
+	wcuPerRule    = int64(1)
+)
 
 // WebACL represents an AWS WAFv2 Web ACL.
 type WebACL struct {
@@ -146,6 +156,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// validScope reports whether scope is a recognised WAFv2 scope.
+func validScope(scope string) bool {
+	return scope == ScopeRegional || scope == ScopeCloudFront
+}
 
 // WebACLARN builds an ARN for a WebACL.
 func (b *InMemoryBackend) WebACLARN(name, id, scope string) string {
@@ -279,6 +297,11 @@ func (b *InMemoryBackend) DeleteWebACL(id string) error {
 			delete(b.associations, resourceARN)
 		}
 	}
+
+	// Cascade: remove the WebACL's own logging config and permission policy.
+	webACLArnStr := b.WebACLARN(w.Name, w.ID, w.Scope)
+	delete(b.loggingConfigs, webACLArnStr)
+	delete(b.permissionPolicies, webACLArnStr)
 
 	return nil
 }
@@ -430,6 +453,28 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
+	if id, ok := b.regexPatternSetByARN[resourceARN]; ok {
+		r := b.regexPatternSets[id]
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+
+		maps.Copy(r.Tags, tags)
+
+		return nil
+	}
+
+	if id, ok := b.ruleGroupByARN[resourceARN]; ok {
+		rg := b.ruleGroups[id]
+		if rg.Tags == nil {
+			rg.Tags = make(map[string]string)
+		}
+
+		maps.Copy(rg.Tags, tags)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
 }
 
@@ -444,6 +489,14 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 	if id, ok := b.ipSetByARN[resourceARN]; ok {
 		return maps.Clone(b.ipSets[id].Tags), nil
+	}
+
+	if id, ok := b.regexPatternSetByARN[resourceARN]; ok {
+		return maps.Clone(b.regexPatternSets[id].Tags), nil
+	}
+
+	if id, ok := b.ruleGroupByARN[resourceARN]; ok {
+		return maps.Clone(b.ruleGroups[id].Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
@@ -467,6 +520,24 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		s := b.ipSets[id]
 		for _, k := range tagKeys {
 			delete(s.Tags, k)
+		}
+
+		return nil
+	}
+
+	if id, ok := b.regexPatternSetByARN[resourceARN]; ok {
+		r := b.regexPatternSets[id]
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	}
+
+	if id, ok := b.ruleGroupByARN[resourceARN]; ok {
+		rg := b.ruleGroups[id]
+		for _, k := range tagKeys {
+			delete(rg.Tags, k)
 		}
 
 		return nil
@@ -775,6 +846,215 @@ func (b *InMemoryBackend) DeletePermissionPolicy(resourceARN string) error {
 	delete(b.permissionPolicies, resourceARN)
 
 	return nil
+}
+
+// GetRegexPatternSet returns a RegexPatternSet by ID.
+func (b *InMemoryBackend) GetRegexPatternSet(id string) (*RegexPatternSet, error) {
+	b.mu.RLock("GetRegexPatternSet")
+	defer b.mu.RUnlock()
+
+	r, ok := b.regexPatternSets[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: regex pattern set %q not found", ErrRegexPatternSetNotFound, id)
+	}
+
+	return cloneRegexPatternSet(r), nil
+}
+
+// ListRegexPatternSets returns all RegexPatternSets sorted by name.
+func (b *InMemoryBackend) ListRegexPatternSets() []*RegexPatternSet {
+	b.mu.RLock("ListRegexPatternSets")
+	defer b.mu.RUnlock()
+
+	list := make([]*RegexPatternSet, 0, len(b.regexPatternSets))
+
+	for _, r := range b.regexPatternSets {
+		list = append(list, cloneRegexPatternSet(r))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// UpdateRegexPatternSet updates a RegexPatternSet by ID.
+func (b *InMemoryBackend) UpdateRegexPatternSet(
+	id, description string,
+	regularExpressionList []string,
+) (*RegexPatternSet, error) {
+	b.mu.Lock("UpdateRegexPatternSet")
+	defer b.mu.Unlock()
+
+	r, ok := b.regexPatternSets[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: regex pattern set %q not found", ErrRegexPatternSetNotFound, id)
+	}
+
+	if description != "" {
+		r.Description = description
+	}
+
+	if regularExpressionList != nil {
+		r.RegularExpressionList = cloneAddresses(regularExpressionList)
+	}
+
+	r.LockToken = uuid.NewString()
+
+	return cloneRegexPatternSet(r), nil
+}
+
+// GetRuleGroup returns a RuleGroup by ID.
+func (b *InMemoryBackend) GetRuleGroup(id string) (*RuleGroup, error) {
+	b.mu.RLock("GetRuleGroup")
+	defer b.mu.RUnlock()
+
+	rg, ok := b.ruleGroups[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: rule group %q not found", ErrRuleGroupNotFound, id)
+	}
+
+	return cloneRuleGroup(rg), nil
+}
+
+// ListRuleGroups returns all RuleGroups sorted by name.
+func (b *InMemoryBackend) ListRuleGroups() []*RuleGroup {
+	b.mu.RLock("ListRuleGroups")
+	defer b.mu.RUnlock()
+
+	list := make([]*RuleGroup, 0, len(b.ruleGroups))
+
+	for _, rg := range b.ruleGroups {
+		list = append(list, cloneRuleGroup(rg))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// UpdateRuleGroup updates a RuleGroup by ID.
+func (b *InMemoryBackend) UpdateRuleGroup(
+	id, description, visibilityConfig string,
+	rules []map[string]any,
+) (*RuleGroup, error) {
+	b.mu.Lock("UpdateRuleGroup")
+	defer b.mu.Unlock()
+
+	rg, ok := b.ruleGroups[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: rule group %q not found", ErrRuleGroupNotFound, id)
+	}
+
+	if description != "" {
+		rg.Description = description
+	}
+
+	if visibilityConfig != "" {
+		rg.VisibilityConfig = visibilityConfig
+	}
+
+	if rules != nil {
+		rg.Rules = cloneRules(rules)
+	}
+
+	rg.LockToken = uuid.NewString()
+
+	return cloneRuleGroup(rg), nil
+}
+
+// ListAPIKeys returns all API keys, optionally filtered by scope.
+func (b *InMemoryBackend) ListAPIKeys(scope string) []*APIKey {
+	b.mu.RLock("ListAPIKeys")
+	defer b.mu.RUnlock()
+
+	list := make([]*APIKey, 0, len(b.apiKeys))
+
+	for _, a := range b.apiKeys {
+		if scope == "" || a.Scope == scope {
+			list = append(list, &APIKey{
+				APIKeyValue:  a.APIKeyValue,
+				Scope:        a.Scope,
+				TokenDomains: cloneAddresses(a.TokenDomains),
+			})
+		}
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].APIKeyValue < list[j].APIKeyValue })
+
+	return list
+}
+
+// GetDecryptedAPIKey returns the API key identified by scope and key value.
+func (b *InMemoryBackend) GetDecryptedAPIKey(scope, apiKey string) (*APIKey, error) {
+	b.mu.RLock("GetDecryptedAPIKey")
+	defer b.mu.RUnlock()
+
+	a, ok := b.apiKeys[apiKeyMapKey(scope, apiKey)]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key not found", ErrAPIKeyNotFound)
+	}
+
+	return &APIKey{
+		APIKeyValue:  a.APIKeyValue,
+		Scope:        a.Scope,
+		TokenDomains: cloneAddresses(a.TokenDomains),
+	}, nil
+}
+
+// GetLoggingConfiguration returns whether a logging configuration exists for the given resource ARN.
+func (b *InMemoryBackend) GetLoggingConfiguration(resourceARN string) (bool, error) {
+	b.mu.RLock("GetLoggingConfiguration")
+	defer b.mu.RUnlock()
+
+	if !b.loggingConfigs[resourceARN] {
+		return false, fmt.Errorf(
+			"%w: no logging configuration found for resource %q",
+			ErrLoggingConfigNotFound,
+			resourceARN,
+		)
+	}
+
+	return true, nil
+}
+
+// GetPermissionPolicy returns the permission policy for the given resource ARN.
+func (b *InMemoryBackend) GetPermissionPolicy(resourceARN string) (string, error) {
+	b.mu.RLock("GetPermissionPolicy")
+	defer b.mu.RUnlock()
+
+	policy, ok := b.permissionPolicies[resourceARN]
+	if !ok {
+		return "", fmt.Errorf(
+			"%w: no permission policy found for resource %q",
+			ErrPermissionPolicyNotFound,
+			resourceARN,
+		)
+	}
+
+	return policy, nil
+}
+
+// ListResourcesForWebACL returns all resource ARNs associated with the given WebACL ARN.
+func (b *InMemoryBackend) ListResourcesForWebACL(webACLARN string) ([]string, error) {
+	b.mu.RLock("ListResourcesForWebACL")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.webACLByARN[webACLARN]; !ok {
+		return nil, fmt.Errorf("%w: web ACL with ARN %q not found", ErrWebACLNotFound, webACLARN)
+	}
+
+	webACLID := b.webACLByARN[webACLARN]
+	result := make([]string, 0)
+
+	for resourceARN, wID := range b.associations {
+		if wID == webACLID {
+			result = append(result, resourceARN)
+		}
+	}
+
+	sort.Strings(result)
+
+	return result, nil
 }
 
 func cloneRegexPatternSet(r *RegexPatternSet) *RegexPatternSet {
