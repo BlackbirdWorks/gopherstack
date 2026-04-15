@@ -62,6 +62,9 @@ type dynamoDBAdapter struct {
 	backend dynamodbpkg.StorageBackend
 }
 
+// Compile-time assertion: dynamoDBAdapter must implement asl.DynamoDBIntegration.
+var _ asl.DynamoDBIntegration = (*dynamoDBAdapter)(nil)
+
 // NewDynamoDBIntegration creates a new DynamoDB integration adapter.
 func NewDynamoDBIntegration(backend dynamodbpkg.StorageBackend) asl.DynamoDBIntegration {
 	return &dynamoDBAdapter{backend: backend}
@@ -77,6 +80,18 @@ func convertViaJSON(input, target any) error {
 	return json.Unmarshal(b, target)
 }
 
+// outputToAny converts a typed SDK output struct to an untyped map via JSON round-trip.
+// This is used by all DynamoDB adapter methods to return an `any` value that the
+// ASL executor can pass as the state's Result.
+func outputToAny(out any) (any, error) {
+	var result any
+	if err := convertViaJSON(out, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // SFNPutItem implements asl.DynamoDBIntegration.
 func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error) {
 	var req awsdynamodb.PutItemInput
@@ -84,12 +99,12 @@ func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error
 		return nil, err
 	}
 
-	_, err := a.backend.PutItem(ctx, &req)
+	out, err := a.backend.PutItem(ctx, &req)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return outputToAny(out)
 }
 
 // SFNGetItem implements asl.DynamoDBIntegration.
@@ -104,12 +119,7 @@ func (a *dynamoDBAdapter) SFNGetItem(ctx context.Context, input any) (any, error
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-
-	return result, nil
+	return outputToAny(out)
 }
 
 // SFNDeleteItem implements asl.DynamoDBIntegration.
@@ -119,12 +129,12 @@ func (a *dynamoDBAdapter) SFNDeleteItem(ctx context.Context, input any) (any, er
 		return nil, err
 	}
 
-	_, err := a.backend.DeleteItem(ctx, &req)
+	out, err := a.backend.DeleteItem(ctx, &req)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return outputToAny(out)
 }
 
 // SFNUpdateItem implements asl.DynamoDBIntegration.
@@ -139,10 +149,140 @@ func (a *dynamoDBAdapter) SFNUpdateItem(ctx context.Context, input any) (any, er
 		return nil, err
 	}
 
-	var result any
-	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
-		return nil, unmarshalErr
+	return outputToAny(out)
+}
+
+// SFNBatchExecuteStatement implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNBatchExecuteStatement(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.BatchExecuteStatementInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
 	}
 
-	return result, nil
+	out, err := a.backend.BatchExecuteStatement(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNBatchGetItem implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNBatchGetItem(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.BatchGetItemInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.BatchGetItem(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNBatchWriteItem implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNBatchWriteItem(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.BatchWriteItemInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.BatchWriteItem(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNCreateBackup implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNCreateBackup(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.CreateBackupInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.CreateBackup(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNCreateGlobalTable implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNCreateGlobalTable(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.CreateGlobalTableInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.CreateGlobalTable(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNCreateTable implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNCreateTable(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.CreateTableInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.CreateTable(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNDeleteBackup implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNDeleteBackup(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.DeleteBackupInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.DeleteBackup(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNDeleteResourcePolicy implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNDeleteResourcePolicy(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.DeleteResourcePolicyInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.DeleteResourcePolicy(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
+}
+
+// SFNDeleteTable implements asl.DynamoDBIntegration.
+func (a *dynamoDBAdapter) SFNDeleteTable(ctx context.Context, input any) (any, error) {
+	var req awsdynamodb.DeleteTableInput
+	if err := convertViaJSON(input, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.DeleteTable(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputToAny(out)
 }

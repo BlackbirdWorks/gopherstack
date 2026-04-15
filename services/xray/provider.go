@@ -1,6 +1,8 @@
 package xray
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -9,6 +11,9 @@ import (
 type ConfigProvider interface {
 	GetXRaySettings() Settings
 }
+
+// ErrNilAppContext is returned when Init is called with a nil AppContext.
+var ErrNilAppContext = errors.New("xray: nil app context")
 
 // Provider implements service.Provider for the X-Ray service.
 type Provider struct{}
@@ -20,6 +25,10 @@ func (p *Provider) Name() string { return "Xray" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	var settings Settings
 
 	if cp, ok := ctx.Config.(ConfigProvider); ok {

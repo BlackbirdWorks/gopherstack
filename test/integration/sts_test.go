@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	stsstypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -199,4 +200,97 @@ func TestIntegration_STS_GetCallerIdentity_AssumedRole(t *testing.T) {
 	assert.Truef(t, strings.HasPrefix(*ciOut.UserId, "AROA"),
 		"expected UserId to start with AROA, got: %s", *ciOut.UserId)
 	assert.Contains(t, *ciOut.UserId, sessionName)
+}
+
+func TestIntegration_STS_AssumeRoleWithSAML(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	roleARN := "arn:aws:iam::000000000000:role/saml-role-" + uuid.NewString()[:8]
+	principalARN := "arn:aws:iam::000000000000:saml-provider/MyIdP"
+	// Minimal base64-encoded SAML assertion for mock testing.
+	samlAssertion := "dGVzdC1zYW1sLWFzc2VydGlvbg=="
+
+	out, err := client.AssumeRoleWithSAML(ctx, &sts.AssumeRoleWithSAMLInput{
+		RoleArn:       aws.String(roleARN),
+		PrincipalArn:  aws.String(principalARN),
+		SAMLAssertion: aws.String(samlAssertion),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Credentials)
+	require.NotNil(t, out.AssumedRoleUser)
+
+	assert.NotEmpty(t, *out.Credentials.AccessKeyId)
+	assert.NotEmpty(t, *out.Credentials.SecretAccessKey)
+	assert.NotEmpty(t, *out.Credentials.SessionToken)
+	assert.NotNil(t, out.Credentials.Expiration)
+	assert.NotEmpty(t, out.Issuer)
+	assert.NotEmpty(t, out.NameQualifier)
+	assert.Contains(t, *out.AssumedRoleUser.Arn, "assumed-role")
+}
+
+func TestIntegration_STS_AssumeRoot(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	targetAccount := "000000000000"
+	taskPolicyARN := "arn:aws:iam::aws:policy/IAMAuditRootUserCredentials"
+
+	out, err := client.AssumeRoot(ctx, &sts.AssumeRootInput{
+		TargetPrincipal: aws.String(targetAccount),
+		TaskPolicyArn: &stsstypes.PolicyDescriptorType{
+			Arn: aws.String(taskPolicyARN),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Credentials)
+
+	assert.True(t, strings.HasPrefix(*out.Credentials.AccessKeyId, "ASIA"),
+		"expected access key to start with ASIA, got: %s", *out.Credentials.AccessKeyId)
+	assert.NotEmpty(t, *out.Credentials.SecretAccessKey)
+	assert.NotEmpty(t, *out.Credentials.SessionToken)
+	assert.NotNil(t, out.Credentials.Expiration)
+}
+
+func TestIntegration_STS_GetDelegatedAccessToken(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	out, err := client.GetDelegatedAccessToken(ctx, &sts.GetDelegatedAccessTokenInput{
+		TradeInToken: aws.String("test-trade-in-token-" + uuid.NewString()),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Credentials)
+
+	assert.True(t, strings.HasPrefix(*out.Credentials.AccessKeyId, "ASIA"),
+		"expected access key to start with ASIA, got: %s", *out.Credentials.AccessKeyId)
+	assert.NotEmpty(t, *out.Credentials.SecretAccessKey)
+	assert.NotEmpty(t, *out.Credentials.SessionToken)
+	assert.NotNil(t, out.Credentials.Expiration)
+}
+
+func TestIntegration_STS_GetWebIdentityToken(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	out, err := client.GetWebIdentityToken(ctx, &sts.GetWebIdentityTokenInput{
+		Audience:         []string{"https://example.com"},
+		SigningAlgorithm: aws.String("RS256"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	require.NotNil(t, out.WebIdentityToken)
+	assert.NotNil(t, out.Expiration)
+	// JWT has 3 dot-separated parts.
+	parts := strings.Split(*out.WebIdentityToken, ".")
+	assert.Len(t, parts, 3, "expected JWT with 3 parts")
 }

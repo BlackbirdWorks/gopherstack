@@ -18,25 +18,13 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := swf.NewInMemoryBackend()
 	h := swf.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &swfsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CountClosedWorkflowExecutions",
-		"CountOpenWorkflowExecutions",
-		"CountPendingActivityTasks",
-		"CountPendingDecisionTasks",
-		"DeleteActivityType",
-		"DeleteWorkflowType",
-		"DeprecateActivityType",
-		"DeprecateWorkflowType",
-		"DescribeActivityType",
-		"DescribeWorkflowType",
 		"GetWorkflowExecutionHistory",
-		"ListActivityTypes",
 		"ListClosedWorkflowExecutions",
 		"ListOpenWorkflowExecutions",
 		"ListTagsForResource",
 		"PollForActivityTask",
 		"PollForDecisionTask",
 		"RecordActivityTaskHeartbeat",
-		"RegisterActivityType",
 		"RequestCancelWorkflowExecution",
 		"RespondActivityTaskCanceled",
 		"RespondActivityTaskCompleted",
@@ -44,10 +32,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"RespondDecisionTaskCompleted",
 		"SignalWorkflowExecution",
 		"TagResource",
-		"TerminateWorkflowExecution",
-		"UndeprecateActivityType",
-		"UndeprecateDomain",
-		"UndeprecateWorkflowType",
 		"UntagResource",
 	})
 }

@@ -1,8 +1,13 @@
 package ssm
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// ErrNilAppContext is returned when Init is called with a nil AppContext.
+var ErrNilAppContext = errors.New("ssm: nil app context")
 
 // ConfigProvider is a private interface to extract SSM configuration
 // from the abstract AppContext Config.
@@ -22,6 +27,10 @@ func (p *Provider) Name() string {
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	if ctx == nil {
+		return nil, ErrNilAppContext
+	}
+
 	var settings Settings
 
 	if cp, ok := ctx.Config.(ConfigProvider); ok {

@@ -2,10 +2,38 @@ package textract
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 type backendSnapshot struct {
-	Jobs map[string]*DocumentJob `json:"jobs"`
+	Jobs            map[string]*DocumentJob    `json:"jobs"`
+	ExpenseJobs     map[string]*ExpenseJob     `json:"expenseJobs"`
+	LendingJobs     map[string]*LendingJob     `json:"lendingJobs"`
+	Adapters        map[string]*Adapter        `json:"adapters"`
+	AdapterVersions map[string]*AdapterVersion `json:"adapterVersions"`
+}
+
+// ensureNonNilMaps guarantees that all map fields in the snapshot are non-nil.
+func (s *backendSnapshot) ensureNonNilMaps() {
+	if s.Jobs == nil {
+		s.Jobs = make(map[string]*DocumentJob)
+	}
+
+	if s.ExpenseJobs == nil {
+		s.ExpenseJobs = make(map[string]*ExpenseJob)
+	}
+
+	if s.LendingJobs == nil {
+		s.LendingJobs = make(map[string]*LendingJob)
+	}
+
+	if s.Adapters == nil {
+		s.Adapters = make(map[string]*Adapter)
+	}
+
+	if s.AdapterVersions == nil {
+		s.AdapterVersions = make(map[string]*AdapterVersion)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,10 +47,38 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		jobsCopy[k] = cloneJob(v)
 	}
 
-	snap := backendSnapshot{Jobs: jobsCopy}
+	expenseJobsCopy := make(map[string]*ExpenseJob, len(b.expenseJobs))
+	for k, v := range b.expenseJobs {
+		expenseJobsCopy[k] = cloneExpenseJob(v)
+	}
+
+	lendingJobsCopy := make(map[string]*LendingJob, len(b.lendingJobs))
+	for k, v := range b.lendingJobs {
+		lendingJobsCopy[k] = cloneLendingJob(v)
+	}
+
+	adaptersCopy := make(map[string]*Adapter, len(b.adapters))
+	for k, v := range b.adapters {
+		adaptersCopy[k] = cloneAdapter(v)
+	}
+
+	adapterVersionsCopy := make(map[string]*AdapterVersion, len(b.adapterVersions))
+	for k, v := range b.adapterVersions {
+		adapterVersionsCopy[k] = cloneAdapterVersion(v)
+	}
+
+	snap := backendSnapshot{
+		Jobs:            jobsCopy,
+		ExpenseJobs:     expenseJobsCopy,
+		LendingJobs:     lendingJobsCopy,
+		Adapters:        adaptersCopy,
+		AdapterVersions: adapterVersionsCopy,
+	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Default().Warn("textract: failed to snapshot backend", "error", err)
+
 		return nil
 	}
 
@@ -38,14 +94,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.ensureNonNilMaps()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*DocumentJob)
-	}
-
 	b.jobs = snap.Jobs
+	b.expenseJobs = snap.ExpenseJobs
+	b.lendingJobs = snap.LendingJobs
+	b.adapters = snap.Adapters
+	b.adapterVersions = snap.AdapterVersions
 
 	return nil
 }

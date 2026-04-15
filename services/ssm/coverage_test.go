@@ -450,16 +450,15 @@ func TestSSMBackend_EncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSSMHandler_ValidationError covers the path where an unrecognized error hits the default branch.
+// TestSSMHandler_ValidationError covers the path where a ValidationException error is returned.
 func TestSSMHandler_ValidationError(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newTestHandler(t)
 
-	// ssm/amazon prefix triggers ErrValidationException, which falls to InternalServerError
-	// since ErrValidationException is not explicitly handled in handleError
+	// ssm/amazon prefix triggers ErrValidationException, which is now explicitly handled.
 	rec := doRequest(t, h, "PutParameter", `{"Name":"ssm/bad","Type":"String","Value":"v"}`)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))

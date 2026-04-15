@@ -21,15 +21,23 @@ import (
 )
 
 var (
-	ErrParameterNotFound      = errors.New("ParameterNotFound")
-	ErrParameterAlreadyExists = errors.New("ParameterAlreadyExists")
-	ErrInvalidKeyID           = errors.New("InvalidKeyId")
-	ErrCiphertextTooShort     = errors.New("ciphertext too short")
-	ErrValidationException    = errors.New("ValidationException")
-	ErrDocumentAlreadyExists  = errors.New("DocumentAlreadyExists")
-	ErrDocumentNotFound       = errors.New("DocumentNotFound")
-	ErrInvalidDocumentVersion = errors.New("InvalidDocumentVersion")
-	ErrCommandNotFound        = errors.New("CommandNotFound")
+	ErrParameterNotFound                  = errors.New("ParameterNotFound")
+	ErrParameterAlreadyExists             = errors.New("ParameterAlreadyExists")
+	ErrInvalidKeyID                       = errors.New("InvalidKeyId")
+	ErrCiphertextTooShort                 = errors.New("ciphertext too short")
+	ErrValidationException                = errors.New("ValidationException")
+	ErrDocumentAlreadyExists              = errors.New("DocumentAlreadyExists")
+	ErrDocumentNotFound                   = errors.New("DocumentNotFound")
+	ErrInvalidDocumentVersion             = errors.New("InvalidDocumentVersion")
+	ErrCommandNotFound                    = errors.New("CommandNotFound")
+	ErrActivationNotFound                 = errors.New("ActivationNotFound")
+	ErrAssociationNotFound                = errors.New("AssociationDoesNotExist")
+	ErrMaintenanceWindowNotFound          = errors.New("DoesNotExistException")
+	ErrMaintenanceWindowExecutionNotFound = errors.New("DoesNotExistException")
+	ErrOpsItemNotFound                    = errors.New("OpsItemNotFoundException")
+	ErrOpsMetadataNotFound                = errors.New("OpsMetadataNotFoundException")
+	ErrPatchBaselineNotFound              = errors.New("DoesNotExistException")
+	ErrOpsMetadataAlreadyExists           = errors.New("OpsMetadataAlreadyExistsException")
 )
 
 const (
@@ -45,6 +53,8 @@ const (
 	// maxDocumentVersionCap is the maximum number of versions retained per document.
 	// Matches the AWS-side limit and prevents unbounded growth via repeated UpdateDocument.
 	maxDocumentVersionCap = 1000
+	// resourceTypeParameter is the SSM resource type for parameters.
+	resourceTypeParameter = "Parameter"
 )
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
@@ -134,64 +144,51 @@ func decryptValue(ciphertext string) (string, error) {
 	return string(plaintext), nil
 }
 
-// StorageBackend defines the interface for an SSM Parameter Store backend.
-type StorageBackend interface {
-	PutParameter(input *PutParameterInput) (*PutParameterOutput, error)
-	GetParameter(input *GetParameterInput) (*GetParameterOutput, error)
-	GetParameters(input *GetParametersInput) (*GetParametersOutput, error)
-	DeleteParameter(input *DeleteParameterInput) (*DeleteParameterOutput, error)
-	DeleteParameters(input *DeleteParametersInput) (*DeleteParametersOutput, error)
-	GetParameterHistory(input *GetParameterHistoryInput) (*GetParameterHistoryOutput, error)
-	GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error)
-	DescribeParameters(input *DescribeParametersInput) (*DescribeParametersOutput, error)
-	AddTagsToResource(input *AddTagsToResourceInput) error
-	RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error
-	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
-	ListAll() []Parameter
-	// Document operations.
-	CreateDocument(input *CreateDocumentInput) (*CreateDocumentOutput, error)
-	GetDocument(input *GetDocumentInput) (*GetDocumentOutput, error)
-	DescribeDocument(input *DescribeDocumentInput) (*DescribeDocumentOutput, error)
-	ListDocuments(input *ListDocumentsInput) (*ListDocumentsOutput, error)
-	UpdateDocument(input *UpdateDocumentInput) (*UpdateDocumentOutput, error)
-	DeleteDocument(input *DeleteDocumentInput) (*DeleteDocumentOutput, error)
-	DescribeDocumentPermission(input *DescribeDocumentPermissionInput) (*DescribeDocumentPermissionOutput, error)
-	ModifyDocumentPermission(input *ModifyDocumentPermissionInput) (*ModifyDocumentPermissionOutput, error)
-	ListDocumentVersions(input *ListDocumentVersionsInput) (*ListDocumentVersionsOutput, error)
-	// Command operations.
-	SendCommand(input *SendCommandInput) (*SendCommandOutput, error)
-	ListCommands(input *ListCommandsInput) (*ListCommandsOutput, error)
-	GetCommandInvocation(input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error)
-	ListCommandInvocations(input *ListCommandInvocationsInput) (*ListCommandInvocationsOutput, error)
-}
-
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
-	parameters          map[string]Parameter
-	history             map[string][]ParameterHistory
-	tags                map[string]*tags.Tags
-	documents           map[string]Document
-	documentVersions    map[string][]DocumentVersion
-	documentPermissions map[string][]string
-	commands            map[string]Command
-	commandInvocations  map[string][]CommandInvocation
-	mu                  *lockmetrics.RWMutex
-	commandExpirySecs   float64
+	activations                map[string]Activation
+	maintenanceWindows         map[string]MaintenanceWindow
+	tags                       map[string]*tags.Tags
+	associations               map[string]Association
+	documentVersions           map[string][]DocumentVersion
+	documentPermissions        map[string][]string
+	commands                   map[string]Command
+	commandInvocations         map[string][]CommandInvocation
+	history                    map[string][]ParameterHistory
+	parameters                 map[string]Parameter
+	documents                  map[string]Document
+	opsItems                   map[string]OpsItem
+	opsItemRelatedItems        map[string][]OpsItemRelatedItem
+	opsMetadata                map[string]OpsMetadata
+	patchBaselines             map[string]PatchBaseline
+	mu                         *lockmetrics.RWMutex
+	miscResourceTags           map[string]map[string]string
+	resourceIDToOpsMetadataArn map[string]string
+	commandExpirySecs          float64
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		parameters:          make(map[string]Parameter),
-		history:             make(map[string][]ParameterHistory),
-		tags:                make(map[string]*tags.Tags),
-		documents:           make(map[string]Document),
-		documentVersions:    make(map[string][]DocumentVersion),
-		documentPermissions: make(map[string][]string),
-		commands:            make(map[string]Command),
-		commandInvocations:  make(map[string][]CommandInvocation),
-		commandExpirySecs:   defaultCommandExpirySecs,
-		mu:                  lockmetrics.New("ssm"),
+		parameters:                 make(map[string]Parameter),
+		history:                    make(map[string][]ParameterHistory),
+		tags:                       make(map[string]*tags.Tags),
+		documents:                  make(map[string]Document),
+		documentVersions:           make(map[string][]DocumentVersion),
+		documentPermissions:        make(map[string][]string),
+		commands:                   make(map[string]Command),
+		commandInvocations:         make(map[string][]CommandInvocation),
+		activations:                make(map[string]Activation),
+		associations:               make(map[string]Association),
+		maintenanceWindows:         make(map[string]MaintenanceWindow),
+		opsItems:                   make(map[string]OpsItem),
+		opsItemRelatedItems:        make(map[string][]OpsItemRelatedItem),
+		opsMetadata:                make(map[string]OpsMetadata),
+		patchBaselines:             make(map[string]PatchBaseline),
+		commandExpirySecs:          defaultCommandExpirySecs,
+		mu:                         lockmetrics.New("ssm"),
+		resourceIDToOpsMetadataArn: make(map[string]string),
+		miscResourceTags:           make(map[string]map[string]string),
 	}
 
 	b.registerDefaultDocuments()
@@ -622,55 +619,95 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	return false
 }
 
-// AddTagsToResource adds or updates tags for a parameter.
+// AddTagsToResource adds or updates tags for a resource.
 func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error {
+	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
+		b.mu.Lock("AddTagsToResource")
+		defer b.mu.Unlock()
+
+		name := input.ResourceID
+		if _, ok := b.parameters[name]; !ok {
+			return ErrParameterNotFound
+		}
+		if b.tags[name] == nil {
+			b.tags[name] = tags.New("ssm." + name + ".tags")
+		}
+		for _, t := range input.Tags {
+			b.tags[name].Set(t.Key, t.Value)
+		}
+
+		return nil
+	}
+
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 
-	name := input.ResourceID
-	if _, ok := b.parameters[name]; !ok {
-		return ErrParameterNotFound
-	}
-	if b.tags[name] == nil {
-		b.tags[name] = tags.New("ssm." + name + ".tags")
+	if b.miscResourceTags[input.ResourceID] == nil {
+		b.miscResourceTags[input.ResourceID] = make(map[string]string)
 	}
 	for _, t := range input.Tags {
-		b.tags[name].Set(t.Key, t.Value)
+		b.miscResourceTags[input.ResourceID][t.Key] = t.Value
 	}
 
 	return nil
 }
 
-// RemoveTagsFromResource removes tags from a parameter.
+// RemoveTagsFromResource removes tags from a resource.
 func (b *InMemoryBackend) RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error {
+	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
+		b.mu.Lock("RemoveTagsFromResource")
+		defer b.mu.Unlock()
+
+		name := input.ResourceID
+		if _, ok := b.parameters[name]; !ok {
+			return ErrParameterNotFound
+		}
+		if b.tags[name] != nil {
+			b.tags[name].DeleteKeys(input.TagKeys)
+		}
+
+		return nil
+	}
+
 	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
 
-	name := input.ResourceID
-	if _, ok := b.parameters[name]; !ok {
-		return ErrParameterNotFound
-	}
-	if b.tags[name] != nil {
-		b.tags[name].DeleteKeys(input.TagKeys)
+	if rt := b.miscResourceTags[input.ResourceID]; rt != nil {
+		for _, k := range input.TagKeys {
+			delete(rt, k)
+		}
 	}
 
 	return nil
 }
 
-// ListTagsForResource returns all tags for a parameter.
+// ListTagsForResource returns all tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
+	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
+		b.mu.RLock("ListTagsForResource")
+		defer b.mu.RUnlock()
+
+		name := input.ResourceID
+		if _, ok := b.parameters[name]; !ok {
+			return nil, ErrParameterNotFound
+		}
+		var tagList []Tag
+		if b.tags[name] != nil {
+			for k, v := range b.tags[name].Clone() {
+				tagList = append(tagList, Tag{Key: k, Value: v})
+			}
+		}
+		sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
+		return &ListTagsForResourceOutput{TagList: tagList}, nil
+	}
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	name := input.ResourceID
-	if _, ok := b.parameters[name]; !ok {
-		return nil, ErrParameterNotFound
-	}
 	var tagList []Tag
-	if b.tags[name] != nil {
-		for k, v := range b.tags[name].Clone() {
-			tagList = append(tagList, Tag{Key: k, Value: v})
-		}
+	for k, v := range b.miscResourceTags[input.ResourceID] {
+		tagList = append(tagList, Tag{Key: k, Value: v})
 	}
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
@@ -1061,7 +1098,7 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 		CommandID:         cmdID,
 		DocumentName:      input.DocumentName,
 		Parameters:        input.Parameters,
-		Status:            "Success",
+		Status:            commandStatusSuccess,
 		RequestedDateTime: now,
 		ExpiresAfter:      now + b.commandExpirySecs,
 		InstanceIDs:       input.InstanceIDs,
@@ -1077,8 +1114,8 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 			CommandID:         cmdID,
 			InstanceID:        instanceID,
 			DocumentName:      input.DocumentName,
-			Status:            "Success",
-			StatusDetails:     "Success",
+			Status:            commandStatusSuccess,
+			StatusDetails:     commandStatusSuccess,
 			RequestedDateTime: now,
 		}
 		invocations = append(invocations, inv)
@@ -1227,5 +1264,465 @@ func (b *InMemoryBackend) Reset() {
 	b.documentPermissions = make(map[string][]string)
 	b.commands = make(map[string]Command)
 	b.commandInvocations = make(map[string][]CommandInvocation)
+	b.activations = make(map[string]Activation)
+	b.associations = make(map[string]Association)
+	b.maintenanceWindows = make(map[string]MaintenanceWindow)
+	b.opsItems = make(map[string]OpsItem)
+	b.opsItemRelatedItems = make(map[string][]OpsItemRelatedItem)
+	b.opsMetadata = make(map[string]OpsMetadata)
+	b.patchBaselines = make(map[string]PatchBaseline)
+	b.resourceIDToOpsMetadataArn = make(map[string]string)
+	b.miscResourceTags = make(map[string]map[string]string)
 	b.registerDefaultDocuments()
 }
+
+const (
+	activationCodeChars        = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	activationCodeLen          = 20
+	windowIDPrefix             = "mw-"
+	activationIDPrefix         = "act-"
+	baselineIDPrefix           = "pb-"
+	opsItemIDPrefix            = "oi-"
+	opsMetadataArnTpl          = "arn:aws:ssm:%s:%s:opsmetadata/%s"
+	defaultAccountID           = "123456789012"
+	defaultRegion              = "us-east-1"
+	defaultOpsItemStatus       = "Open"
+	defaultActivationExpiryHrs = 24
+)
+
+const (
+	commandStatusCancelled = "Cancelled"
+	commandStatusSuccess   = "Success"
+	assocStatusSuccess     = "Success"
+	faultClient            = "Client"
+	opsItemStatusOpen      = "Open"
+)
+
+func generateCode(n int) string {
+	const (
+		byteRange = 256
+		bufMult   = 2
+		maxChar   = byte(byteRange - (byteRange % len(activationCodeChars)))
+	)
+	result := make([]byte, 0, n)
+	buf := make([]byte, n*bufMult)
+	for len(result) < n {
+		_, _ = rand.Read(buf)
+		for _, b := range buf {
+			if len(result) == n {
+				break
+			}
+			if b < maxChar {
+				result = append(result, activationCodeChars[int(b)%len(activationCodeChars)])
+			}
+		}
+	}
+
+	return string(result)
+}
+
+// CancelCommand cancels a running command (sets status to Cancelled).
+func (b *InMemoryBackend) CancelCommand(input *CancelCommandInput) (*CancelCommandOutput, error) {
+	b.mu.Lock("CancelCommand")
+	defer b.mu.Unlock()
+
+	cmd, exists := b.commands[input.CommandID]
+	if !exists {
+		return nil, ErrCommandNotFound
+	}
+
+	cmd.Status = commandStatusCancelled
+	b.commands[input.CommandID] = cmd
+
+	invs := b.commandInvocations[input.CommandID]
+	for i := range invs {
+		invs[i].Status = commandStatusCancelled
+		invs[i].StatusDetails = commandStatusCancelled
+	}
+	b.commandInvocations[input.CommandID] = invs
+
+	return &CancelCommandOutput{}, nil
+}
+
+// CancelMaintenanceWindowExecution cancels a maintenance window execution.
+func (b *InMemoryBackend) CancelMaintenanceWindowExecution(
+	input *CancelMaintenanceWindowExecutionInput,
+) (*CancelMaintenanceWindowExecutionOutput, error) {
+	return &CancelMaintenanceWindowExecutionOutput{
+		WindowExecutionID: input.WindowExecutionID,
+	}, nil
+}
+
+// CreateActivation creates a new activation for managed instances.
+func (b *InMemoryBackend) CreateActivation(input *CreateActivationInput) (*CreateActivationOutput, error) {
+	if input.IamRole == "" {
+		return nil, fmt.Errorf("%w: IamRole is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateActivation")
+	defer b.mu.Unlock()
+
+	activationID := activationIDPrefix + uuid.NewString()
+	code := generateCode(activationCodeLen)
+
+	limit := input.RegistrationLimit
+	if limit <= 0 {
+		limit = 1
+	}
+
+	now := UnixTimeFloat(time.Now())
+	expiry := input.ExpirationDate
+	if expiry == 0 {
+		expiry = UnixTimeFloat(time.Now().Add(defaultActivationExpiryHrs * time.Hour))
+	}
+
+	act := Activation{
+		ActivationID:        activationID,
+		ActivationCode:      code,
+		Description:         input.Description,
+		DefaultInstanceName: input.DefaultInstanceName,
+		IamRole:             input.IamRole,
+		RegistrationLimit:   limit,
+		RegistrationsCount:  0,
+		ExpirationDate:      expiry,
+		Expired:             false,
+		CreatedDate:         now,
+	}
+
+	b.activations[activationID] = act
+
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[activationID] == nil {
+			b.miscResourceTags[activationID] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			b.miscResourceTags[activationID][t.Key] = t.Value
+		}
+	}
+
+	return &CreateActivationOutput{
+		ActivationCode: code,
+		ActivationID:   activationID,
+	}, nil
+}
+
+// copyAssocParameters deep copies a parameters map for associations.
+func copyAssocParameters(src map[string][]string) map[string][]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string][]string, len(src))
+	for k, v := range src {
+		dst[k] = append([]string(nil), v...)
+	}
+
+	return dst
+}
+
+// copyAssocTargets deep copies a targets slice for associations.
+func copyAssocTargets(src []AssociationTarget) []AssociationTarget {
+	if src == nil {
+		return nil
+	}
+	dst := make([]AssociationTarget, len(src))
+	for i, t := range src {
+		dst[i] = AssociationTarget{
+			Key:    t.Key,
+			Values: append([]string(nil), t.Values...),
+		}
+	}
+
+	return dst
+}
+
+// CreateAssociation creates a new association between a document and targets.
+func (b *InMemoryBackend) CreateAssociation(input *CreateAssociationInput) (*CreateAssociationOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateAssociation")
+	defer b.mu.Unlock()
+
+	if _, exists := b.documents[input.Name]; !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	assocID := uuid.NewString()
+	now := UnixTimeFloat(time.Now())
+
+	assoc := Association{
+		AssociationID:             assocID,
+		AssociationName:           input.AssociationName,
+		DocumentVersion:           input.DocumentVersion,
+		InstanceID:                input.InstanceID,
+		Name:                      input.Name,
+		Parameters:                copyAssocParameters(input.Parameters),
+		Targets:                   copyAssocTargets(input.Targets),
+		Overview:                  &AssociationOverview{Status: assocStatusSuccess},
+		LastUpdateAssociationDate: now,
+	}
+
+	b.associations[assocID] = assoc
+
+	return &CreateAssociationOutput{AssociationDescription: assoc}, nil
+}
+
+// CreateAssociationBatch creates multiple associations in a batch.
+func (b *InMemoryBackend) CreateAssociationBatch(
+	input *CreateAssociationBatchInput,
+) (*CreateAssociationBatchOutput, error) {
+	b.mu.Lock("CreateAssociationBatch")
+	defer b.mu.Unlock()
+
+	output := &CreateAssociationBatchOutput{
+		Successful: make([]Association, 0),
+		Failed:     make([]FailedCreateAssociation, 0),
+	}
+
+	now := UnixTimeFloat(time.Now())
+
+	for _, entry := range input.Entries {
+		if _, exists := b.documents[entry.Name]; !exists {
+			output.Failed = append(output.Failed, FailedCreateAssociation{
+				Entry:   entry,
+				Message: ErrDocumentNotFound.Error(),
+				Fault:   faultClient,
+			})
+
+			continue
+		}
+
+		assocID := uuid.NewString()
+		assoc := Association{
+			AssociationID:             assocID,
+			AssociationName:           entry.AssociationName,
+			DocumentVersion:           entry.DocumentVersion,
+			InstanceID:                entry.InstanceID,
+			Name:                      entry.Name,
+			Parameters:                copyAssocParameters(entry.Parameters),
+			Targets:                   copyAssocTargets(entry.Targets),
+			Overview:                  &AssociationOverview{Status: assocStatusSuccess},
+			LastUpdateAssociationDate: now,
+		}
+
+		b.associations[assocID] = assoc
+		output.Successful = append(output.Successful, assoc)
+	}
+
+	return output, nil
+}
+
+// CreateMaintenanceWindow creates a new maintenance window.
+func (b *InMemoryBackend) CreateMaintenanceWindow(
+	input *CreateMaintenanceWindowInput,
+) (*CreateMaintenanceWindowOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	const (
+		minWindowDuration = int32(1)
+		maxWindowDuration = int32(24)
+	)
+	if input.Duration < minWindowDuration || input.Duration > maxWindowDuration {
+		return nil, fmt.Errorf("%w: Duration must be between 1 and 24 hours", ErrValidationException)
+	}
+	if input.Cutoff >= input.Duration {
+		return nil, fmt.Errorf("%w: Cutoff must be less than Duration", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateMaintenanceWindow")
+	defer b.mu.Unlock()
+
+	windowID := windowIDPrefix + uuid.NewString()
+	now := UnixTimeFloat(time.Now())
+
+	mw := MaintenanceWindow{
+		WindowID:                 windowID,
+		Name:                     input.Name,
+		Description:              input.Description,
+		Schedule:                 input.Schedule,
+		Duration:                 input.Duration,
+		Cutoff:                   input.Cutoff,
+		AllowUnassociatedTargets: input.AllowUnassociatedTargets,
+		Enabled:                  true,
+		CreatedDate:              now,
+		ModifiedDate:             now,
+	}
+
+	b.maintenanceWindows[windowID] = mw
+
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[windowID] == nil {
+			b.miscResourceTags[windowID] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			b.miscResourceTags[windowID][t.Key] = t.Value
+		}
+	}
+
+	return &CreateMaintenanceWindowOutput{WindowID: windowID}, nil
+}
+
+// CreateOpsItem creates a new OpsItem.
+func (b *InMemoryBackend) CreateOpsItem(input *CreateOpsItemInput) (*CreateOpsItemOutput, error) {
+	if input.Title == "" {
+		return nil, fmt.Errorf("%w: Title is required", ErrValidationException)
+	}
+
+	if input.Source == "" {
+		return nil, fmt.Errorf("%w: Source is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateOpsItem")
+	defer b.mu.Unlock()
+
+	opsItemID := opsItemIDPrefix + uuid.NewString()
+	opsItemArn := fmt.Sprintf("arn:aws:ssm:%s:%s:opsitem/%s", defaultRegion, defaultAccountID, opsItemID)
+	now := UnixTimeFloat(time.Now())
+
+	item := OpsItem{
+		OpsItemID:        opsItemID,
+		OpsItemArn:       opsItemArn,
+		OpsItemType:      input.OpsItemType,
+		Title:            input.Title,
+		Source:           input.Source,
+		Description:      input.Description,
+		Status:           opsItemStatusOpen,
+		Severity:         input.Severity,
+		Category:         input.Category,
+		OperationalData:  input.OperationalData,
+		CreatedTime:      now,
+		LastModifiedTime: now,
+	}
+
+	b.opsItems[opsItemID] = item
+
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[opsItemID] == nil {
+			b.miscResourceTags[opsItemID] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			b.miscResourceTags[opsItemID][t.Key] = t.Value
+		}
+	}
+
+	return &CreateOpsItemOutput{
+		OpsItemID:  opsItemID,
+		OpsItemArn: opsItemArn,
+	}, nil
+}
+
+// AssociateOpsItemRelatedItem associates a related item to an OpsItem.
+func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
+	input *AssociateOpsItemRelatedItemInput,
+) (*AssociateOpsItemRelatedItemOutput, error) {
+	b.mu.Lock("AssociateOpsItemRelatedItem")
+	defer b.mu.Unlock()
+
+	if _, exists := b.opsItems[input.OpsItemID]; !exists {
+		return nil, ErrOpsItemNotFound
+	}
+
+	assocID := uuid.NewString()
+	related := OpsItemRelatedItem{
+		AssociationID:   assocID,
+		AssociationType: input.AssociationType,
+		ResourceType:    input.ResourceType,
+		ResourceURI:     input.ResourceURI,
+	}
+
+	b.opsItemRelatedItems[input.OpsItemID] = append(b.opsItemRelatedItems[input.OpsItemID], related)
+
+	return &AssociateOpsItemRelatedItemOutput{AssociationID: assocID}, nil
+}
+
+// CreateOpsMetadata creates OpsMetadata for a resource.
+func (b *InMemoryBackend) CreateOpsMetadata(
+	input *CreateOpsMetadataInput,
+) (*CreateOpsMetadataOutput, error) {
+	if input.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateOpsMetadata")
+	defer b.mu.Unlock()
+
+	if _, exists := b.resourceIDToOpsMetadataArn[input.ResourceID]; exists {
+		return nil, fmt.Errorf(
+			"%w: OpsMetadata already exists for resource %s",
+			ErrOpsMetadataAlreadyExists,
+			input.ResourceID,
+		)
+	}
+
+	metaID := uuid.NewString()
+	arn := fmt.Sprintf(opsMetadataArnTpl, defaultRegion, defaultAccountID, metaID)
+	now := UnixTimeFloat(time.Now())
+
+	meta := OpsMetadata{
+		OpsMetadataArn:   arn,
+		ResourceID:       input.ResourceID,
+		Metadata:         input.Metadata,
+		CreationDate:     now,
+		LastModifiedDate: now,
+	}
+
+	b.opsMetadata[arn] = meta
+	b.resourceIDToOpsMetadataArn[input.ResourceID] = arn
+
+	return &CreateOpsMetadataOutput{OpsMetadataArn: arn}, nil
+}
+
+// CreatePatchBaseline creates a new patch baseline.
+func (b *InMemoryBackend) CreatePatchBaseline(
+	input *CreatePatchBaselineInput,
+) (*CreatePatchBaselineOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	const defaultPatchOS = "WINDOWS"
+	os := input.OperatingSystem
+	if os == "" {
+		os = defaultPatchOS
+	}
+
+	b.mu.Lock("CreatePatchBaseline")
+	defer b.mu.Unlock()
+
+	baselineID := baselineIDPrefix + uuid.NewString()
+	now := UnixTimeFloat(time.Now())
+
+	bl := PatchBaseline{
+		BaselineID:                     baselineID,
+		Name:                           input.Name,
+		Description:                    input.Description,
+		OperatingSystem:                os,
+		ApprovedPatches:                input.ApprovedPatches,
+		RejectedPatches:                input.RejectedPatches,
+		ApprovedPatchesComplianceLevel: input.ApprovedPatchesComplianceLevel,
+		CreatedDate:                    now,
+		ModifiedDate:                   now,
+	}
+
+	b.patchBaselines[baselineID] = bl
+
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[baselineID] == nil {
+			b.miscResourceTags[baselineID] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			b.miscResourceTags[baselineID][t.Key] = t.Value
+		}
+	}
+
+	return &CreatePatchBaselineOutput{BaselineID: baselineID}, nil
+}
+
+// AccountID returns the mocked AWS account ID used by this backend.
+func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
+
+// Region returns the mocked AWS region used by this backend.
+func (b *InMemoryBackend) Region() string { return defaultRegion }
