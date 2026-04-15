@@ -90,3 +90,31 @@ expect(screen.getByText('db.t3.medium')).toBeInTheDocument();
 }, { timeout: 3000 });
 });
 });
+
+// Additional tab tests (appended)
+
+it('shows 3 tab buttons', () => {
+mockSend.mockResolvedValue({ DBInstances: [] });
+render(RDSPage);
+const btns = screen.getAllByRole('button');
+const texts = btns.map(b => b.textContent?.trim());
+expect(texts.some(t => t?.includes('Instances'))).toBe(true);
+expect(texts.some(t => t?.includes('Snapshots'))).toBe(true);
+expect(texts.some(t => t?.includes('Aurora Clusters'))).toBe(true);
+});
+
+it('loads and displays snapshots', async () => {
+mockSend.mockResolvedValueOnce({ DBInstances: [] });
+mockSend.mockResolvedValueOnce({ DBSnapshots: [
+{ DBSnapshotIdentifier: 'snap-2024', DBInstanceIdentifier: 'my-db', Engine: 'postgres', Status: 'available', SnapshotType: 'manual', AllocatedStorage: 20 }
+]});
+render(RDSPage);
+await waitFor(() => screen.getByText('No RDS instances found'), { timeout: 3000 });
+const snapBtns = screen.getAllByText(/Snapshots/i);
+const tabBtn = snapBtns.find(el => el.closest('button'));
+if (tabBtn) await fireEvent.click(tabBtn.closest('button') ?? tabBtn);
+await waitFor(() => {
+expect(screen.getByText('snap-2024')).toBeInTheDocument();
+}, { timeout: 3000 });
+});
+

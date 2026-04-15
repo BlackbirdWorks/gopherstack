@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { getRDSClient } from '$lib/aws-client';
-import { DescribeDBInstancesCommand, DeleteDBInstanceCommand } from '@aws-sdk/client-rds';
+import { DescribeDBInstancesCommand, DeleteDBInstanceCommand, DescribeDBSnapshotsCommand, DescribeDBClustersCommand } from '@aws-sdk/client-rds';
 import { toast } from 'svelte-sonner';
 import {
 	Database,
@@ -16,17 +16,23 @@ import {
 	HardDrive,
 	MapPin,
 	ChevronDown,
-	ChevronUp
+	ChevronUp,
+	Camera,
+	Layers
 } from 'lucide-svelte';
 
 const rds = getRDSClient();
 
 let instances = $state<any[]>([]);
+let snapshots = $state<any[]>([]);
+let clusters = $state<any[]>([]);
 let loading = $state(true);
 let search = $state('');
+let snapshotSearch = $state('');
 let engineFilter = $state('all');
 let showCreateModal = $state(false);
 let expandedInstance = $state<string | null>(null);
+let activeTab = $state<'instances' | 'snapshots' | 'clusters'>('instances');
 
 onMount(async () => {
 	await loadInstances();
@@ -42,6 +48,43 @@ async function loadInstances() {
 	} finally {
 		loading = false;
 	}
+}
+
+async function loadSnapshots() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeDBSnapshotsCommand({ MaxRecords: 100 }));
+		snapshots = data.DBSnapshots || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load snapshots');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadClusters() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeDBClustersCommand({}));
+		clusters = data.DBClusters || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load clusters');
+	} finally {
+		loading = false;
+	}
+}
+
+async function selectTab(t: typeof activeTab) {
+	activeTab = t;
+	if (t === 'instances' && instances.length === 0) await loadInstances();
+	else if (t === 'snapshots') await loadSnapshots();
+	else if (t === 'clusters') await loadClusters();
+}
+
+async function refresh() {
+	if (activeTab === 'instances') { instances = []; await loadInstances(); }
+	else if (activeTab === 'snapshots') { snapshots = []; await loadSnapshots(); }
+	else { clusters = []; await loadClusters(); }
 }
 
 async function deleteInstance(id: string) {
@@ -83,6 +126,12 @@ let filtered = $derived(instances.filter((i: any) => {
 let availableCount = $derived(instances.filter((i: any) => i.DBInstanceStatus === 'available').length);
 let stoppedCount = $derived(instances.filter((i: any) => i.DBInstanceStatus === 'stopped').length);
 let multiAZCount = $derived(instances.filter((i: any) => i.MultiAZ).length);
+let filteredSnapshots = $derived(snapshots.filter(s =>
+	!snapshotSearch || s.DBSnapshotIdentifier?.toLowerCase().includes(snapshotSearch.toLowerCase())
+		|| s.DBInstanceIdentifier?.toLowerCase().includes(snapshotSearch.toLowerCase())
+));
+let automatedSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'automated').length);
+let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'manual').length);
 </script>
 
 <div class="space-y-6">
@@ -99,7 +148,7 @@ let multiAZCount = $derived(instances.filter((i: any) => i.MultiAZ).length);
 		</div>
 		<div class="flex gap-2">
 			<button
-				onclick={loadInstances}
+				onclick={refresh}
 				class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
 				title="Refresh"
 			>
@@ -157,6 +206,23 @@ let multiAZCount = $derived(instances.filter((i: any) => i.MultiAZ).length);
 		</div>
 	{/if}
 
+	<!-- Tabs -->
+	<div class="border-b border-slate-200 dark:border-slate-700">
+		<nav class="flex gap-1 -mb-px">
+			<button onclick={() => selectTab('instances')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'instances' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Database class="w-4 h-4" /> Instances {#if instances.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{instances.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('snapshots')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'snapshots' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Camera class="w-4 h-4" /> Snapshots {#if snapshots.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{snapshots.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('clusters')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'clusters' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Layers class="w-4 h-4" /> Aurora Clusters {#if clusters.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{clusters.length}</span>{/if}
+			</button>
+		</nav>
+	</div>
+
+	<!-- Instances Tab -->
+	{#if activeTab === 'instances'}
 	<!-- Search and filter bar -->
 	<div class="flex gap-3 flex-wrap">
 		<div class="relative flex-1 min-w-48">
@@ -328,6 +394,104 @@ let multiAZCount = $derived(instances.filter((i: any) => i.MultiAZ).length);
 				</div>
 			{/each}
 		</div>
+	{/if}
+
+	<!-- End Instances Tab -->
+	{/if}
+
+	<!-- Snapshots Tab -->
+	{#if activeTab === 'snapshots'}
+		<div>
+			<div class="flex items-center gap-3 mb-4">
+				<div class="relative flex-1">
+					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+					<input type="text" placeholder="Search snapshots..." bind:value={snapshotSearch}
+						class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm" />
+				</div>
+				<div class="flex gap-2 shrink-0 text-sm">
+					<span class="px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{manualSnapshotCount} manual</span>
+					<span class="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{automatedSnapshotCount} automated</span>
+				</div>
+			</div>
+			{#if loading}
+				<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+			{:else if filteredSnapshots.length === 0}
+				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+					<Camera class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+					<p class="text-slate-500 dark:text-slate-400">No snapshots found</p>
+				</div>
+			{:else}
+				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-slate-50 dark:bg-slate-700">
+							<tr>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Snapshot ID</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Instance</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Engine</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Size</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Created</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+							{#each filteredSnapshots as snap}
+								<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+									<td class="px-4 py-3 font-mono text-xs text-slate-900 dark:text-white">{snap.DBSnapshotIdentifier}</td>
+									<td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{snap.DBInstanceIdentifier || '—'}</td>
+									<td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{snap.Engine || '—'}</td>
+									<td class="px-4 py-3">
+										<span class="px-2 py-0.5 rounded-full text-xs {snap.Status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'}">{snap.Status || '—'}</span>
+									</td>
+									<td class="px-4 py-3 text-xs text-slate-500">{snap.SnapshotType || '—'}</td>
+									<td class="px-4 py-3 text-xs text-slate-500">{snap.AllocatedStorage ? snap.AllocatedStorage + ' GiB' : '—'}</td>
+									<td class="px-4 py-3 text-xs text-slate-500">{formatDate(snap.SnapshotCreateTime)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Clusters Tab -->
+	{#if activeTab === 'clusters'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if clusters.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<Layers class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No Aurora clusters found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Cluster ID</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Engine</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Members</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Endpoint</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each clusters as cluster}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{cluster.DBClusterIdentifier}</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{cluster.Engine} {cluster.EngineVersion || ''}</td>
+								<td class="px-4 py-3">
+									<span class="px-2 py-0.5 rounded-full text-xs {cluster.Status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-700'}">{cluster.Status || '—'}</span>
+								</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{cluster.DBClusterMembers?.length ?? 0}</td>
+								<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">{cluster.Endpoint || '—'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 	{/if}
 </div>
 
