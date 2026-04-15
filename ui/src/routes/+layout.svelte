@@ -4,11 +4,14 @@
 	import './layout.css';
 	import { page } from '$app/state';
 	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getCommonCategories } from '$lib/nav';
+	import { goto } from '$app/navigation';
 	import { initializeTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 
 	let { children } = $props();
 	let theme = $state<ThemeName>('light');
 	let themeDropdownOpen = $state(false);
+	let searchQuery = $state('');
+	let searchOpen = $state(false);
 	
 	let expandedSections = $state<Record<string, boolean>>(
 		Object.fromEntries(sidebarCategories.map((category) => [category.id, true]))
@@ -18,31 +21,35 @@
 	let sidebarMini = $state(false);
 
 	const visibleSidebarCategories = $derived.by(() => {
-		// Create a "Common Services" category with implemented common services
-		const commonServices = getCommonServices()
-			.filter((route) => implementedDashboardRouteIds.has(route.id));
+		// Filter to show only the 25 most common implemented services, organized by category
+		const commonServiceIds = getCommonServices().map(s => s.id);
 		
-		const result = [];
-		
-		// Add common services category first if there are any
-		if (commonServices.length > 0) {
-			result.push({
-				id: 'common-services',
-				label: 'Common Services',
-				routes: commonServices
-			});
-		}
-		
-		// Add other categories with only implemented services
-		const otherCategories = sidebarCategories
+		const filtered = sidebarCategories
 			.map((category) => ({
 				...category,
-				routes: category.routes.filter((route) => implementedDashboardRouteIds.has(route.id))
+				routes: category.routes.filter((route) => 
+					implementedDashboardRouteIds.has(route.id) && commonServiceIds.includes(route.id)
+				)
 			}))
 			.filter((category) => category.routes.length > 0);
 		
-		result.push(...otherCategories);
-		return result;
+		return filtered;
+	});
+
+	const searchResults = $derived.by(() => {
+		if (!searchQuery.trim()) return [];
+		const query = searchQuery.toLowerCase();
+		const results = [];
+		
+		for (const category of sidebarCategories) {
+			for (const route of category.routes) {
+				if ((route.label.toLowerCase().includes(query) || route.id.toLowerCase().includes(query)) &&
+					implementedDashboardRouteIds.has(route.id)) {
+					results.push({ ...route, categoryLabel: category.label });
+				}
+			}
+		}
+		return results;
 	});
 
 	const AWS_REGIONS = [
@@ -58,9 +65,27 @@
 		regionDropdownOpen = false;
 	}
 
+	function selectSearchResult(href: string) {
+		searchQuery = '';
+		searchOpen = false;
+		goto(href);
+	}
+
 	onMount(() => {
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
+		
+		// Close search on escape
+		const handleKeydown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') searchOpen = false;
+			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+				e.preventDefault();
+				searchOpen = true;
+				document.getElementById('global-search')?.focus();
+			}
+		};
+		document.addEventListener('keydown', handleKeydown);
+		return () => document.removeEventListener('keydown', handleKeydown);
 	});
 
 	function selectTheme(t: ThemeName): void {
@@ -132,11 +157,35 @@
                 <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                     <svg class="w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
-                <!-- Interactive search input is cosmetic in standard layout but matches original visual markup -->
-                <input type="text" id="global-search" class="w-full pl-10 pr-12 py-2 bg-slate-100/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 shadow-inner group-focus-within:bg-white dark:group-focus-within:bg-slate-800" placeholder="Search for services, resources, or documentation..." autocomplete="off">
+                <input 
+                	type="text" 
+                	id="global-search" 
+                	bind:value={searchQuery}
+                	onfocus={() => searchOpen = true}
+                	onblur={() => setTimeout(() => searchOpen = false, 150)}
+                	class="w-full pl-10 pr-12 py-2 bg-slate-100/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 shadow-inner group-focus-within:bg-white dark:group-focus-within:bg-slate-800" 
+                	placeholder="Search services..." 
+                	autocomplete="off">
                 <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                     <span class="text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600">⌘K</span>
                 </div>
+                
+                <!-- Search Results Dropdown -->
+                {#if searchOpen && searchResults.length > 0}
+                	<div class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-2xl z-50 max-h-96 overflow-y-auto">
+                		{#each searchResults as result}
+                			<button 
+                				onclick={() => selectSearchResult(result.href)}
+                				class="w-full text-left px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-slate-700 last:border-b-0">
+                				<img src={`/dashboard/static/icons/${result.icon}.svg`} alt={result.id} class="w-5 h-5 rounded flex-shrink-0" />
+                				<div class="flex-1 min-w-0">
+                					<p class="font-medium text-slate-900 dark:text-white truncate">{result.label}</p>
+                					<p class="text-xs text-slate-500 dark:text-slate-400">{result.categoryLabel}</p>
+                				</div>
+                			</button>
+                		{/each}
+                	</div>
+                {/if}
             </div>
 
 			<div class="flex items-center gap-1">

@@ -16,6 +16,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'acmpca',
 	'amplify',
 	'appconfig',
+	'chaos',
 	'codebuild',
 	'codepipeline',
 	'dynamodb',
