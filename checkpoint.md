@@ -23,7 +23,7 @@
 - **Status**: Complete and tested
 
 ### 3. Navigation Service Categorization ✅
-- **Location**: `ui/src/lib/nav.ts`
+- **Location**: `ui/src/lib/nav.ts`, `ui/src/routes/+layout.svelte`
 - **Changes**:
   - Added `common?: boolean` flag to DashboardRoute type
   - Marked 25 common AWS services with `common: true`:
@@ -38,11 +38,16 @@
     - **Frontend**: Amplify
     - **Hybrid**: WorkSpaces
     - **Resilience**: FIS
-  - Added `getCommonServices()` helper function for filtering
-- **Status**: Foundation complete; layout filtering not yet implemented
-- **Todo**: Use `common` flag in layout to:
-  - Show only common services in sidebar (max 25)
-  - Hide uncommon services behind search interface
+  - Added helper functions:
+    - `getCommonServices()` - Get all common services
+    - `getUncommonServices()` - Get all uncommon services
+    - `getCommonCategories()` - Get categories with only common routes
+    - `getUncommonCategories()` - Get categories with only uncommon routes
+  - **Layout Implementation**: Updated sidebar to show "Common Services" category first
+    - Common implemented services appear at top of sidebar
+    - Regular categories follow below
+    - Reduces sidebar clutter for new users
+- **Status**: Complete and integrated into layout
 
 ### 4. S3 Object Inspection & Versioning ✅
 - **Location**: `ui/src/routes/s3/+page.svelte`
@@ -63,8 +68,8 @@
 
 ## In Progress / Pending Tasks
 
-### 5. Add Missing Common AWS Services
-**What's Needed**: Create service pages for EC2, RDS, and ECS (and potentially others)  
+### 5. Add Missing Common AWS Services (EC2, RDS, ECS)
+**What's Needed**: Create service pages for EC2, RDS, and ECS  
 **Structure Needed**: For each service:
 ```
 /ui/src/routes/{service}/
