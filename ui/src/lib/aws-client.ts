@@ -4,6 +4,9 @@ import { CloudTrailClient } from "@aws-sdk/client-cloudtrail";
 import { ConfigServiceClient } from "@aws-sdk/client-config-service";
 import { BackupClient } from "@aws-sdk/client-backup";
 import { ElasticLoadBalancingV2Client } from "@aws-sdk/client-elastic-load-balancing-v2";
+import { TransferClient } from "@aws-sdk/client-transfer";
+import { ACMClient } from "@aws-sdk/client-acm";
+import { OrganizationsClient } from "@aws-sdk/client-organizations";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
@@ -223,4 +226,16 @@ export function getBackupClient(region?: string): BackupClient {
 
 export function getELBv2Client(region?: string): ElasticLoadBalancingV2Client {
   return new ElasticLoadBalancingV2Client(clientConfig(region));
+}
+
+export function getTransferClient(region?: string): TransferClient {
+  return new TransferClient(clientConfig(region));
+}
+
+export function getACMClient(region?: string): ACMClient {
+  return new ACMClient(clientConfig(region));
+}
+
+export function getOrganizationsClient(region?: string): OrganizationsClient {
+  return new OrganizationsClient(clientConfig(region));
 }

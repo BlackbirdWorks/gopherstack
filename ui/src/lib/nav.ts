@@ -18,6 +18,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'appconfig',
 	'athena',
 	'autoscaling',
+	'acm',
 	'backup',
 	'batch',
 	'chaos',
@@ -56,12 +57,14 @@ export const implementedDashboardRouteIds = new Set<string>([
 	's3',
 	'secretsmanager',
 	'serverlessrepo',
+	'organizations',
 	'ses',
 	'sfn',
 	'shield',
 	'sns',
 	'sqs',
 	'ssm',
+	'transfer',
 	'waf',
 	'wafv2',
 	'workspaces'
@@ -100,7 +103,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'verifiedpermissions', href: '/dashboard/verifiedpermissions', label: 'Verified Permissions', icon: 'verifiedpermissions' },
 			{ id: 'kms', href: '/dashboard/kms', label: 'KMS', icon: 'kms', common: true },
 			{ id: 'secretsmanager', href: '/dashboard/secretsmanager', label: 'Secrets Manager', icon: 'secretsmanager', common: true },
-			{ id: 'acm', href: '/dashboard/acm', label: 'ACM', icon: 'acm' },
+			{ id: 'acm', href: '/dashboard/acm', label: 'ACM', icon: 'acm', common: true },
 			{ id: 'acmpca', href: '/dashboard/acmpca', label: 'ACM PCA', icon: 'acmpca' },
 			{ id: 'wafv2', href: '/dashboard/wafv2', label: 'WAF v2', icon: 'wafv2', common: true },
 			{ id: 'guardduty', href: '/dashboard/guardduty', label: 'GuardDuty', icon: 'guardduty' },
@@ -259,7 +262,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'networkmanager', href: '/dashboard/networkmanager', label: 'Network Manager', icon: 'networkmanager' },
 			{ id: 'directconnect', href: '/dashboard/directconnect', label: 'Direct Connect', icon: 'directconnect' },
 			{ id: 'servicediscovery', href: '/dashboard/servicediscovery', label: 'Cloud Map', icon: 'servicediscovery' },
-			{ id: 'transfer', href: '/dashboard/transfer', label: 'Transfer Family', icon: 'transfer' }
+			{ id: 'transfer', href: '/dashboard/transfer', label: 'Transfer Family', icon: 'transfer', common: true }
 		]
 	},
 	{
@@ -273,7 +276,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'xray', href: '/dashboard/xray', label: 'X-Ray', icon: 'xray' },
 			{ id: 'cloudformation', href: '/dashboard/cloudformation', label: 'CloudFormation', icon: 'cloudformation', common: true },
 			{ id: 'config', href: '/dashboard/config', label: 'Config', icon: 'awsconfig', common: true },
-			{ id: 'organizations', href: '/dashboard/organizations', label: 'Organizations', icon: 'organizations' },
+			{ id: 'organizations', href: '/dashboard/organizations', label: 'Organizations', icon: 'organizations', common: true },
 			{ id: 'resourcegroups', href: '/dashboard/resourcegroups', label: 'Resource Groups', icon: 'resourcegroups' },
 			{ id: 'resourcegroupstaggingapi', href: '/dashboard/resourcegroupstaggingapi', label: 'Tagging API', icon: 'resourcegroupstaggingapi' },
 			{ id: 'resiliencehub', href: '/dashboard/resiliencehub', label: 'Resilience Hub', icon: 'resiliencehub' },
