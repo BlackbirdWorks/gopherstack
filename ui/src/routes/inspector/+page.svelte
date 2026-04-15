@@ -65,6 +65,11 @@
 
 	const criticalCount = $derived(findings.filter((f) => f.severity === 'CRITICAL').length);
 	const highCount = $derived(findings.filter((f) => f.severity === 'HIGH').length);
+	const mediumCount = $derived(findings.filter((f) => f.severity === 'MEDIUM').length);
+	const lowCount = $derived(findings.filter((f) => f.severity === 'LOW').length);
+	const activeCount = $derived(findings.filter((f) => f.fixAvailable === 'YES').length);
+	const ec2CoverageCount = $derived(coverage.filter(c => c.resourceType === 'AWS_EC2_INSTANCE').length);
+	const ecrCoverageCount = $derived(coverage.filter(c => c.resourceType === 'AWS_ECR_CONTAINER_IMAGE').length);
 
 	async function loadFindings() {
 		loading = true;
@@ -119,19 +124,65 @@
 	</div>
 
 	<!-- Summary Cards -->
+	<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-2xl font-bold text-red-600">{criticalCount}</p>
+			<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Critical</p>
+			{#if findings.length > 0}
+				<div class="mt-2 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+					<div class="h-full bg-red-500 rounded-full transition-all" style="width: {Math.round(criticalCount / findings.length * 100)}%"></div>
+				</div>
+			{/if}
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-2xl font-bold text-orange-500">{highCount}</p>
+			<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">High</p>
+			{#if findings.length > 0}
+				<div class="mt-2 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+					<div class="h-full bg-orange-500 rounded-full" style="width: {Math.round(highCount / findings.length * 100)}%"></div>
+				</div>
+			{/if}
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-2xl font-bold text-yellow-500">{mediumCount}</p>
+			<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Medium</p>
+			{#if findings.length > 0}
+				<div class="mt-2 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+					<div class="h-full bg-yellow-500 rounded-full" style="width: {Math.round(mediumCount / findings.length * 100)}%"></div>
+				</div>
+			{/if}
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-2xl font-bold text-blue-500">{lowCount}</p>
+			<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Low</p>
+			{#if findings.length > 0}
+				<div class="mt-2 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+					<div class="h-full bg-blue-500 rounded-full" style="width: {Math.round(lowCount / findings.length * 100)}%"></div>
+				</div>
+			{/if}
+		</div>
+	</div>
+
+	<!-- Severity breakdown bar -->
 	{#if findings.length > 0}
-		<div class="grid gap-4 sm:grid-cols-3">
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold text-red-600">{criticalCount}</div>
-				<div class="text-sm text-muted-foreground mt-1">Critical</div>
+		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+			<div class="flex items-center justify-between mb-2">
+				<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Severity Breakdown — {findings.length} total findings</p>
+				{#if activeCount > 0}
+					<span class="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full">{activeCount} with fix available</span>
+				{/if}
 			</div>
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold text-orange-500">{highCount}</div>
-				<div class="text-sm text-muted-foreground mt-1">High</div>
+			<div class="flex h-3 rounded-full overflow-hidden gap-0.5">
+				{#if criticalCount > 0}<div class="bg-red-500" style="flex: {criticalCount}" title="Critical: {criticalCount}"></div>{/if}
+				{#if highCount > 0}<div class="bg-orange-500" style="flex: {highCount}" title="High: {highCount}"></div>{/if}
+				{#if mediumCount > 0}<div class="bg-yellow-500" style="flex: {mediumCount}" title="Medium: {mediumCount}"></div>{/if}
+				{#if lowCount > 0}<div class="bg-blue-400" style="flex: {lowCount}" title="Low: {lowCount}"></div>{/if}
 			</div>
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold">{findings.length}</div>
-				<div class="text-sm text-muted-foreground mt-1">Total Findings</div>
+			<div class="flex gap-3 mt-2 text-xs text-slate-500 dark:text-slate-400">
+				{#if criticalCount > 0}<span class="flex items-center gap-1"><span class="w-2 h-2 bg-red-500 rounded-full inline-block"></span>Critical {criticalCount}</span>{/if}
+				{#if highCount > 0}<span class="flex items-center gap-1"><span class="w-2 h-2 bg-orange-500 rounded-full inline-block"></span>High {highCount}</span>{/if}
+				{#if mediumCount > 0}<span class="flex items-center gap-1"><span class="w-2 h-2 bg-yellow-500 rounded-full inline-block"></span>Medium {mediumCount}</span>{/if}
+				{#if lowCount > 0}<span class="flex items-center gap-1"><span class="w-2 h-2 bg-blue-400 rounded-full inline-block"></span>Low {lowCount}</span>{/if}
 			</div>
 		</div>
 	{/if}
