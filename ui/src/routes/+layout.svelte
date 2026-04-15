@@ -97,7 +97,7 @@
 	const themeLabels: Record<ThemeName, string> = {
 		light: 'Light',
 		dark: 'Dark',
-		github: 'GitHub',
+		github: 'GitHub Dark',
 		ocean: 'Ocean'
 	};
 

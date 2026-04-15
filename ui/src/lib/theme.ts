@@ -17,7 +17,7 @@ export function resolveTheme(savedTheme: string | null, prefersDark: boolean): T
 }
 
 export function isDarkTheme(theme: ThemeName): boolean {
-  return theme === "dark" || theme === "ocean";
+  return theme === "dark" || theme === "ocean" || theme === "github";
 }
 
 export function applyTheme(doc: Document, theme: ThemeName): void {

@@ -1,29 +1,62 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── Theme: GitHub ── */
-/* Light theme with GitHub-inspired neutral gray palette and blue accents */
+/* ── Theme: GitHub Dark ── */
+/* Matches github.com dark theme: canvas-default #0d1117, canvas-subtle #161b22 */
 :root:where(.theme-github) {
-  --color-bg: #ffffff;
-  --color-bg-secondary: #f6f8fa;
-  --color-bg-tertiary: #f0f2f5;
-  --color-text: #1f2328;
-  --color-text-secondary: #656d76;
-  --color-border: #d1d9e0;
-  --color-accent: #0969da;
-  --color-accent-hover: #0550ae;
-  --color-accent-subtle: #ddf4ff;
-  --color-sidebar-bg: #f6f8fa;
-  --color-sidebar-border: #d1d9e0;
-  --color-nav-bg: rgba(255, 255, 255, 0.95);
-  --color-nav-border: #d1d9e0;
-  --color-card-bg: #ffffff;
-  --color-hover: #f3f4f6;
+  --color-bg: #0d1117;
+  --color-bg-secondary: #161b22;
+  --color-bg-tertiary: #21262d;
+  --color-text: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-border: #30363d;
+  --color-accent: #58a6ff;
+  --color-accent-hover: #79c0ff;
+  --color-accent-subtle: rgba(56, 139, 253, 0.15);
+  --color-sidebar-bg: #161b22;
+  --color-sidebar-border: #30363d;
+  --color-nav-bg: rgba(13, 17, 23, 0.95);
+  --color-nav-border: #30363d;
+  --color-card-bg: #161b22;
+  --color-hover: #21262d;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-danger: #f85149;
 }
+
+.theme-github {
+  color-scheme: dark;
+}
+
+.theme-github body,
+.theme-github .bg-slate-50,
+.theme-github .bg-slate-100 { background-color: var(--color-bg); }
+.theme-github .bg-white { background-color: var(--color-bg-secondary); }
+.theme-github .bg-slate-800,
+.theme-github .dark\:bg-slate-800 { background-color: var(--color-bg-tertiary); }
+.theme-github .bg-slate-900,
+.theme-github .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-github .text-slate-900,
+.theme-github .dark\:text-white { color: var(--color-text); }
+.theme-github .text-slate-600,
+.theme-github .text-slate-500,
+.theme-github .dark\:text-slate-400 { color: var(--color-text-secondary); }
+.theme-github .border-slate-200,
+.theme-github .dark\:border-white\/5,
+.theme-github .dark\:border-slate-700 { border-color: var(--color-border); }
+.theme-github .text-indigo-600,
+.theme-github .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-github .text-indigo-700 { color: var(--color-accent-hover); }
+.theme-github .bg-indigo-50,
+.theme-github .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-github .hover\:bg-slate-100:hover { background-color: var(--color-hover); }
+.theme-github .hover\:bg-slate-700:hover,
+.theme-github .dark\:hover\:bg-slate-700:hover { background-color: var(--color-bg-tertiary); }
 
 .theme-github nav {
   background-color: var(--color-nav-bg);
   border-color: var(--color-nav-border);
+  backdrop-filter: blur(12px);
 }
 
 .theme-github #sidebar {
@@ -31,11 +64,16 @@
   border-color: var(--color-sidebar-border);
 }
 
-.theme-github .bg-slate-50 { background-color: var(--color-bg-secondary); }
-.theme-github .bg-white { background-color: var(--color-bg); }
-.theme-github .text-indigo-600 { color: var(--color-accent); }
-.theme-github .text-indigo-700 { color: var(--color-accent-hover); }
-.theme-github .bg-indigo-50 { background-color: var(--color-accent-subtle); }
+.theme-github input,
+.theme-github textarea,
+.theme-github select {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.theme-github .rounded-lg.border { border-color: var(--color-border); }
+.theme-github .shadow-sm { box-shadow: 0 1px 0 rgba(27,31,36,0.04); }
 
 /* ── Theme: Ocean ── */
 /* Deep blue dark theme with cyan/teal accents */

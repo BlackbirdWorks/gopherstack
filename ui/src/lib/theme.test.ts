@@ -57,8 +57,8 @@ describe("theme helpers", () => {
   it("isDarkTheme identifies dark themes", () => {
     expect(isDarkTheme("dark")).toBe(true);
     expect(isDarkTheme("ocean")).toBe(true);
+    expect(isDarkTheme("github")).toBe(true);
     expect(isDarkTheme("light")).toBe(false);
-    expect(isDarkTheme("github")).toBe(false);
   });
 
   it("resolves saved theme first", () => {
@@ -88,9 +88,11 @@ describe("theme helpers", () => {
     applyTheme(document, "light");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     expect(document.documentElement.classList.contains("theme-light")).toBe(true);
+  });
 
+  it("applies dark class for github theme", () => {
     applyTheme(document, "github");
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("theme-github")).toBe(true);
     expect(document.documentElement.classList.contains("theme-light")).toBe(false);
   });
@@ -113,6 +115,6 @@ describe("theme helpers", () => {
     expect(result).toBe("github");
     expect(storage.getItem(themeStorageKey)).toBe("github");
     expect(document.documentElement.classList.contains("theme-github")).toBe(true);
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 });
