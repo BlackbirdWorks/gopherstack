@@ -6,6 +6,7 @@
 	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getCommonCategories } from '$lib/nav';
 	import { goto } from '$app/navigation';
 	import { initializeTheme, setTheme, themes, type ThemeName } from '$lib/theme';
+	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
 
 	let { children } = $props();
 	let theme = $state<ThemeName>('light');
@@ -178,7 +179,7 @@
                 			<button 
                 				onclick={() => selectSearchResult(result.href)}
                 				class="w-full text-left px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-slate-700 last:border-b-0">
-                				<img src={`/dashboard/static/icons/${result.icon}.svg`} alt={result.id} class="w-5 h-5 rounded flex-shrink-0" />
+                				<ServiceIcon icon={result.icon} label={result.label} class="w-5 h-5 rounded flex-shrink-0" />
                 				<div class="flex-1 min-w-0">
                 					<p class="font-medium text-slate-900 dark:text-white truncate">{result.label}</p>
                 					<p class="text-xs text-slate-500 dark:text-slate-400">{result.categoryLabel}</p>
@@ -268,7 +269,7 @@
 								{#each category.routes as route}
 									<li>
 										<a href={route.href} class={`flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors ${isActive(page.url.pathname, route.href) ? 'bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''} ${sidebarMini ? 'justify-center px-0' : ''}`}>
-											<img src={`/dashboard/static/icons/${route.icon}.svg`} class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt={route.id} />
+											<ServiceIcon icon={route.icon} label={route.label} class="w-5 h-5 flex-shrink-0" />
 											{#if !sidebarMini}
 												<span class="sidebar-text truncate" title={route.label}>{route.label}</span>
 											{/if}
