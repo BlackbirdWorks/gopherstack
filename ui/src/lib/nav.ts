@@ -3,6 +3,7 @@ export type DashboardRoute = {
 	href: string;
 	label: string;
 	icon: string;
+	common?: boolean;
 };
 
 export type DashboardCategory = {
@@ -11,186 +12,268 @@ export type DashboardCategory = {
 	routes: DashboardRoute[];
 };
 
+export const implementedDashboardRouteIds = new Set<string>([
+	'acmpca',
+	'amplify',
+	'appconfig',
+	'codebuild',
+	'codepipeline',
+	'dynamodb',
+	'elasticache',
+	'fis',
+	'globalaccelerator',
+	'lambda',
+	'lightsail',
+	's3',
+	'serverlessrepo',
+	'sfn',
+	'shield',
+	'workspaces'
+]);
+
 export const sidebarCategories: DashboardCategory[] = [
 	{
 		id: 'core-services',
 		label: 'Core Services',
 		routes: [
-			{ id: 'dynamodb', href: '/dashboard2/dynamodb', label: 'DynamoDB', icon: 'dynamodb' },
-			{ id: 's3', href: '/dashboard2/s3', label: 'S3', icon: 's3' },
-			{ id: 'elasticache', href: '/dashboard2/elasticache', label: 'ElastiCache', icon: 'elasticache' }
+			{ id: 's3', href: '/dashboard/s3', label: 'S3', icon: 's3', common: true },
+			{ id: 'dynamodb', href: '/dashboard/dynamodb', label: 'DynamoDB', icon: 'dynamodb', common: true },
+			{ id: 'elasticache', href: '/dashboard/elasticache', label: 'ElastiCache', icon: 'elasticache', common: true }
 		]
 	},
 	{
-		id: 'standard-services',
-		label: 'Standard Services',
+		id: 'messaging-serverless',
+		label: 'Messaging & Serverless',
 		routes: [
-			{ id: 'ssm', href: '/dashboard2/ssm', label: 'SSM', icon: 'ssm' },
-			{ id: 'iam', href: '/dashboard2/iam', label: 'IAM', icon: 'iam' },
-			{ id: 'sts', href: '/dashboard2/sts', label: 'STS', icon: 'sts' }
-		]
-	},
-	{
-		id: 'message-services',
-		label: 'Message Services',
-		routes: [
-			{ id: 'sns', href: '/dashboard2/sns', label: 'SNS', icon: 'sns' },
-			{ id: 'sqs', href: '/dashboard2/sqs', label: 'SQS', icon: 'sqs' },
-			{ id: 'lambda', href: '/dashboard2/lambda', label: 'Lambda', icon: 'lambda' }
+			{ id: 'lambda', href: '/dashboard/lambda', label: 'Lambda', icon: 'lambda', common: true },
+			{ id: 'sns', href: '/dashboard/sns', label: 'SNS', icon: 'sns', common: true },
+			{ id: 'sqs', href: '/dashboard/sqs', label: 'SQS', icon: 'sqs', common: true },
+			{ id: 'eventbridge', href: '/dashboard/eventbridge', label: 'EventBridge', icon: 'eventbridge', common: true },
+			{ id: 'scheduler', href: '/dashboard/scheduler', label: 'Scheduler', icon: 'scheduler' },
+			{ id: 'pinpoint', href: '/dashboard/pinpoint', label: 'Pinpoint', icon: 'pinpoint' }
 		]
 	},
 	{
 		id: 'security-services',
-		label: 'Security Services',
+		label: 'Security, Identity & Compliance',
 		routes: [
-			{ id: 'kms', href: '/dashboard2/kms', label: 'KMS', icon: 'kms' },
-			{ id: 'secretsmanager', href: '/dashboard2/secretsmanager', label: 'Secrets Manager', icon: 'secretsmanager' },
-			{ id: 'acm', href: '/dashboard2/acm', label: 'ACM', icon: 'acm' },
-			{ id: 'acmpca', href: '/dashboard2/acmpca', label: 'ACM PCA', icon: 'acmpca' }
+			{ id: 'iam', href: '/dashboard/iam', label: 'IAM', icon: 'iam', common: true },
+			{ id: 'cognito', href: '/dashboard/cognito', label: 'Cognito', icon: 'cognito', common: true },
+			{ id: 'cognitoidentity', href: '/dashboard/cognitoidentity', label: 'Cognito Identity', icon: 'cognitoidentity' },
+			{ id: 'shield', href: '/dashboard/shield', label: 'Shield', icon: 'shield' },
+			{ id: 'verifiedpermissions', href: '/dashboard/verifiedpermissions', label: 'Verified Permissions', icon: 'verifiedpermissions' },
+			{ id: 'kms', href: '/dashboard/kms', label: 'KMS', icon: 'kms', common: true },
+			{ id: 'secretsmanager', href: '/dashboard/secretsmanager', label: 'Secrets Manager', icon: 'secretsmanager', common: true },
+			{ id: 'acm', href: '/dashboard/acm', label: 'ACM', icon: 'acm' },
+			{ id: 'acmpca', href: '/dashboard/acmpca', label: 'ACM PCA', icon: 'acmpca' },
+			{ id: 'wafv2', href: '/dashboard/wafv2', label: 'WAF v2', icon: 'wafv2' },
+			{ id: 'guardduty', href: '/dashboard/guardduty', label: 'GuardDuty', icon: 'guardduty' },
+			{ id: 'inspector', href: '/dashboard/inspector', label: 'Inspector', icon: 'inspector' },
+			{ id: 'securityhub', href: '/dashboard/securityhub', label: 'Security Hub', icon: 'securityhub' },
+			{ id: 'accessanalyzer', href: '/dashboard/accessanalyzer', label: 'Access Analyzer', icon: 'accessanalyzer' },
+			{ id: 'directoryservice', href: '/dashboard/directoryservice', label: 'Directory Service', icon: 'directoryservice' },
+			{ id: 'identitystore', href: '/dashboard/identitystore', label: 'Identity Store', icon: 'identitystore' },
+			{ id: 'ram', href: '/dashboard/ram', label: 'RAM', icon: 'ram' }
 		]
 	},
 	{
 		id: 'compute',
 		label: 'Compute & Containers',
 		routes: [
-			{ id: 'ec2', href: '/dashboard2/ec2', label: 'EC2', icon: 'ec2' },
-			{ id: 'ecr', href: '/dashboard2/ecr', label: 'ECR', icon: 'ecr' },
-			{ id: 'ecs', href: '/dashboard2/ecs', label: 'ECS', icon: 'ecs' },
-			{ id: 'eks', href: '/dashboard2/eks', label: 'EKS', icon: 'eks' },
-			{ id: 'elasticbeanstalk', href: '/dashboard2/elasticbeanstalk', label: 'Elastic Beanstalk', icon: 'elasticbeanstalk' }
+			{ id: 'batch', href: '/dashboard/batch', label: 'Batch', icon: 'batch' },
+			{ id: 'ec2', href: '/dashboard/ec2', label: 'EC2', icon: 'ec2', common: true },
+			{ id: 'ecr', href: '/dashboard/ecr', label: 'ECR', icon: 'ecr' },
+			{ id: 'ecs', href: '/dashboard/ecs', label: 'ECS', icon: 'ecs', common: true },
+			{ id: 'eks', href: '/dashboard/eks', label: 'EKS', icon: 'eks', common: true },
+			{ id: 'apprunner', href: '/dashboard/apprunner', label: 'App Runner', icon: 'apprunner' },
+			{ id: 'autoscaling', href: '/dashboard/autoscaling', label: 'Auto Scaling', icon: 'autoscaling', common: true },
+			{ id: 'lightsail', href: '/dashboard/lightsail', label: 'Lightsail', icon: 'lightsail' },
+			{ id: 'elasticbeanstalk', href: '/dashboard/elasticbeanstalk', label: 'Elastic Beanstalk', icon: 'elasticbeanstalk' }
 		]
 	},
 	{
 		id: 'database-analytics',
 		label: 'Databases & Analytics',
 		routes: [
-			{ id: 'elasticsearch', href: '/dashboard2/elasticsearch', label: 'Elasticsearch', icon: 'elasticsearch' },
-			{ id: 'opensearch', href: '/dashboard2/opensearch', label: 'OpenSearch', icon: 'opensearch' },
-			{ id: 'redshift', href: '/dashboard2/redshift', label: 'Redshift', icon: 'redshift' },
-			{ id: 'rds', href: '/dashboard2/rds', label: 'RDS', icon: 'rds' },
-			{ id: 'dms', href: '/dashboard2/dms', label: 'DMS', icon: 'dms' },
-			{ id: 'kinesis', href: '/dashboard2/kinesis', label: 'Kinesis', icon: 'kinesis' },
-			{ id: 'firehose', href: '/dashboard2/firehose', label: 'Firehose', icon: 'firehose' }
+			{ id: 'rds', href: '/dashboard/rds', label: 'RDS', icon: 'rds', common: true },
+			{ id: 'dynamodb', href: '/dashboard/dynamodb', label: 'DynamoDB', icon: 'dynamodb', common: true },
+			{ id: 'docdb', href: '/dashboard/docdb', label: 'DocumentDB', icon: 'docdb' },
+			{ id: 'neptune', href: '/dashboard/neptune', label: 'Neptune', icon: 'neptune' },
+			{ id: 'memorydb', href: '/dashboard/memorydb', label: 'MemoryDB', icon: 'memorydb' },
+			{ id: 'keyspaces', href: '/dashboard/keyspaces', label: 'Keyspaces', icon: 'keyspaces' },
+			{ id: 'timestream', href: '/dashboard/timestream', label: 'Timestream', icon: 'timestream' },
+			{ id: 's3tables', href: '/dashboard/s3tables', label: 'S3 Tables', icon: 's3tables' },
+			{ id: 'emr', href: '/dashboard/emr', label: 'EMR', icon: 'emr' },
+			{ id: 'qldb', href: '/dashboard/qldb', label: 'QLDB', icon: 'qldb' },
+			{ id: 'redshift', href: '/dashboard/redshift', label: 'Redshift', icon: 'redshift', common: true },
+			{ id: 'opensearch', href: '/dashboard/opensearch', label: 'OpenSearch', icon: 'opensearch' },
+			{ id: 'elasticsearch', href: '/dashboard/elasticsearch', label: 'Elasticsearch', icon: 'elasticsearch' },
+			{ id: 'kinesis', href: '/dashboard/kinesis', label: 'Kinesis', icon: 'kinesis' },
+			{ id: 'firehose', href: '/dashboard/firehose', label: 'Firehose', icon: 'firehose' },
+			{ id: 'msk', href: '/dashboard/msk', label: 'Managed Kafka', icon: 'kafka' },
+			{ id: 'kinesisvideo', href: '/dashboard/kinesisvideo', label: 'Kinesis Video', icon: 'kinesis' },
+			{ id: 'kinesisanalyticsv2', href: '/dashboard/kinesisanalyticsv2', label: 'Kinesis Analytics', icon: 'kinesis' },
+			{ id: 'dms', href: '/dashboard/dms', label: 'DMS', icon: 'dms' },
+			{ id: 'glue', href: '/dashboard/glue', label: 'Glue', icon: 'glue' },
+			{ id: 'athena', href: '/dashboard/athena', label: 'Athena', icon: 'athena' },
+			{ id: 'lakeformation', href: '/dashboard/lakeformation', label: 'Lake Formation', icon: 'lake' }
 		]
 	},
 	{
 		id: 'devtools',
 		label: 'Developer Tools',
 		routes: [
-			{ id: 'codecommit', href: '/dashboard2/codecommit', label: 'CodeCommit', icon: 'codecommit' },
-			{ id: 'codebuild', href: '/dashboard2/codebuild', label: 'CodeBuild', icon: 'codebuild' },
-			{ id: 'codedeploy', href: '/dashboard2/codedeploy', label: 'CodeDeploy', icon: 'codedeploy' },
-			{ id: 'codepipeline', href: '/dashboard2/codepipeline', label: 'CodePipeline', icon: 'codepipeline' },
-			{ id: 'codeartifact', href: '/dashboard2/codeartifact', label: 'CodeArtifact', icon: 'codeartifact' },
-			{ id: 'codeconnections', href: '/dashboard2/codeconnections', label: 'CodeConnections', icon: 'codeconnections' }
-		]
-	},
-	{
-		id: 'management',
-		label: 'Management & Governance',
-		routes: [
-			{ id: 'cloudwatch', href: '/dashboard2/cloudwatch', label: 'CloudWatch', icon: 'cloudwatch' },
-			{ id: 'cloudwatchlogs', href: '/dashboard2/cloudwatchlogs', label: 'CloudWatch Logs', icon: 'cloudwatchlogs' },
-			{ id: 'cloudformation', href: '/dashboard2/cloudformation', label: 'CloudFormation', icon: 'cloudformation' },
-			{ id: 'awsconfig', href: '/dashboard2/awsconfig', label: 'AWS Config', icon: 'awsconfig' },
-			{ id: 'resourcegroups', href: '/dashboard2/resourcegroups', label: 'Resource Groups', icon: 'resourcegroups' },
-			{ id: 'resourcegroupstaggingapi', href: '/dashboard2/resourcegroupstaggingapi', label: 'Tagging API', icon: 'resourcegroupstaggingapi' }
+			{ id: 'codecommit', href: '/dashboard/codecommit', label: 'CodeCommit', icon: 'codecommit' },
+			{ id: 'codebuild', href: '/dashboard/codebuild', label: 'CodeBuild', icon: 'codebuild' },
+			{ id: 'codedeploy', href: '/dashboard/codedeploy', label: 'CodeDeploy', icon: 'codedeploy', common: true },
+			{ id: 'codepipeline', href: '/dashboard/codepipeline', label: 'CodePipeline', icon: 'codepipeline', common: true },
+			{ id: 'codeartifact', href: '/dashboard/codeartifact', label: 'CodeArtifact', icon: 'codeartifact' },
+			{ id: 'codeconnections', href: '/dashboard/codeconnections', label: 'CodeConnections', icon: 'codeconnections' },
+			{ id: 'serverlessrepo', href: '/dashboard/serverlessrepo', label: 'Serverless Repo', icon: 'serverlessrepo' }
 		]
 	},
 	{
 		id: 'app-integration',
-		label: 'Application Integration',
+		label: 'Application Integration & Management',
 		routes: [
-			{ id: 'eventbridge', href: '/dashboard2/eventbridge', label: 'EventBridge', icon: 'eventbridge' },
-			{ id: 'apigateway', href: '/dashboard2/apigateway', label: 'API Gateway', icon: 'apigateway' },
-			{ id: 'apigatewayv2', href: '/dashboard2/apigatewayv2', label: 'API Gateway V2', icon: 'apigatewayv2' },
-			{ id: 'apigatewaymanagementapi', href: '/dashboard2/apigatewaymanagementapi', label: 'APIGW Management', icon: 'apigatewaymanagementapi' },
-			{ id: 'stepfunctions', href: '/dashboard2/stepfunctions', label: 'Step Functions', icon: 'stepfunctions' },
-			{ id: 'swf', href: '/dashboard2/swf', label: 'SWF', icon: 'swf' }
+			{ id: 'ssm', href: '/dashboard/ssm', label: 'SSM', icon: 'ssm' },
+			{ id: 'sts', href: '/dashboard/sts', label: 'STS', icon: 'sts' },
+			{ id: 'apigateway', href: '/dashboard/apigateway', label: 'API Gateway', icon: 'apigateway', common: true },
+			{ id: 'apigatewayv2', href: '/dashboard/apigatewayv2', label: 'API Gateway V2', icon: 'apigatewayv2', common: true },
+			{ id: 'apigatewaymanagementapi', href: '/dashboard/apigatewaymanagementapi', label: 'APIGW Management', icon: 'apigatewaymanagementapi' },
+			{ id: 'appfabric', href: '/dashboard/appfabric', label: 'AppFabric', icon: 'appfabric' },
+			{ id: 'mq', href: '/dashboard/mq', label: 'MQ', icon: 'mq' },
+			{ id: 'mwaa', href: '/dashboard/mwaa', label: 'MWAA', icon: 'mwaa' },
+			{ id: 'managedblockchain', href: '/dashboard/managedblockchain', label: 'Managed Blockchain', icon: 'blockchain' },
+			{ id: 'sfn', href: '/dashboard/sfn', label: 'Step Functions', icon: 'stepfunctions', common: true },
+			{ id: 'appconfig', href: '/dashboard/appconfig', label: 'AppConfig', icon: 'appconfig' },
+			{ id: 'swf', href: '/dashboard/swf', label: 'SWF', icon: 'swf' }
 		]
 	},
 	{
 		id: 'web-mobile',
 		label: 'Front-end Web & Mobile',
 		routes: [
-			{ id: 'amplify', href: '/dashboard2/amplify', label: 'Amplify', icon: 'amplify' },
-			{ id: 'appsync', href: '/dashboard2/appsync', label: 'AppSync', icon: 'appsync' }
+			{ id: 'amplify', href: '/dashboard/amplify', label: 'Amplify', icon: 'amplify', common: true },
+			{ id: 'appsync', href: '/dashboard/appsync', label: 'AppSync', icon: 'appsync' }
 		]
 	},
 	{
-		id: 'iot-ai',
-		label: 'IoT & AI',
+		id: 'intelligence-ml',
+		label: 'Intelligence & ML',
 		routes: [
-			{ id: 'iot', href: '/dashboard2/iot', label: 'IoT Core', icon: 'iot' },
-			{ id: 'iotdataplane', href: '/dashboard2/iotdataplane', label: 'IoT Data Plane', icon: 'iotdataplane' },
-			{ id: 'iotanalytics', href: '/dashboard2/iotanalytics', label: 'IoT Analytics', icon: 'iot' },
-			{ id: 'bedrockruntime', href: '/dashboard2/bedrockruntime', label: 'Bedrock Runtime', icon: 'bedrockruntime' }
+			{ id: 'sagemaker', href: '/dashboard/sagemaker', label: 'SageMaker', icon: 'sagemaker' },
+			{ id: 'bedrock', href: '/dashboard/bedrock', label: 'Bedrock', icon: 'bedrock' },
+			{ id: 'bedrockruntime', href: '/dashboard/bedrockruntime', label: 'Bedrock Runtime', icon: 'bedrockruntime' },
+			{ id: 'comprehend', href: '/dashboard/comprehend', label: 'Comprehend', icon: 'comprehend' },
+			{ id: 'rekognition', href: '/dashboard/rekognition', label: 'Rekognition', icon: 'rekognition' },
+			{ id: 'textract', href: '/dashboard/textract', label: 'Textract', icon: 'textract' },
+			{ id: 'transcribe', href: '/dashboard/transcribe', label: 'Transcribe', icon: 'transcribe' },
+			{ id: 'translate', href: '/dashboard/translate', label: 'Translate', icon: 'translate' },
+			{ id: 'polly', href: '/dashboard/polly', label: 'Polly', icon: 'polly' }
 		]
 	},
 	{
-		id: 'networking-security',
-		label: 'Networking & Security',
+		id: 'iot',
+		label: 'Internet of Things',
 		routes: [
-			{ id: 'route53', href: '/dashboard2/route53', label: 'Route 53', icon: 'route53' },
-			{ id: 'route53resolver', href: '/dashboard2/route53resolver', label: 'Route 53 Resolver', icon: 'route53resolver' },
-			{ id: 'cognitoidentity', href: '/dashboard2/cognitoidentity', label: 'Cognito Identity', icon: 'cognitoidentity' },
-			{ id: 'cognitoidp', href: '/dashboard2/cognitoidp', label: 'Cognito IDP', icon: 'cognitoidentity' }
+			{ id: 'iot', href: '/dashboard/iot', label: 'IoT Core', icon: 'iot' },
+			{ id: 'iotdataplane', href: '/dashboard/iotdataplane', label: 'IoT Data Plane', icon: 'iotdataplane' },
+			{ id: 'iotanalytics', href: '/dashboard/iotanalytics', label: 'IoT Analytics', icon: 'iot' }
+		]
+	},
+	{
+		id: 'media',
+		label: 'Media Services',
+		routes: [
+			{ id: 'mediaconvert', href: '/dashboard/mediaconvert', label: 'MediaConvert', icon: 'media' },
+			{ id: 'elastictranscoder', href: '/dashboard/elastictranscoder', label: 'Elastic Transcoder', icon: 'media' },
+			{ id: 'mediastore', href: '/dashboard/mediastore', label: 'MediaStore', icon: 'media' },
+			{ id: 'mediastoredata', href: '/dashboard/mediastoredata', label: 'MediaStore Data', icon: 'media' }
 		]
 	},
 	{
 		id: 'storage',
 		label: 'Storage',
 		routes: [
-			{ id: 's3control', href: '/dashboard2/s3control', label: 'S3 Control', icon: 's3control' }
+			{ id: 's3control', href: '/dashboard/s3control', label: 'S3 Control', icon: 's3control' },
+			{ id: 'efs', href: '/dashboard/efs', label: 'EFS', icon: 'efs' },
+			{ id: 'fsx', href: '/dashboard/fsx', label: 'FSx', icon: 'fsx' },
+			{ id: 'backup', href: '/dashboard/backup', label: 'AWS Backup', icon: 'backup' },
+			{ id: 'glacier', href: '/dashboard/glacier', label: 'Glacier', icon: 'glacier' }
 		]
 	},
 	{
 		id: 'business',
 		label: 'Business & Communication',
 		routes: [
-			{ id: 'ses', href: '/dashboard2/ses', label: 'SES', icon: 'ses' }
+			{ id: 'ses', href: '/dashboard/ses', label: 'SES', icon: 'ses' }
 		]
 	},
 	{
 		id: 'networking',
-		label: 'Networking',
+		label: 'Networking & Content Delivery',
 		routes: [
-			{ id: 'elb', href: '/dashboard2/elb', label: 'Elastic Load Balancing', icon: 'elb' },
-			{ id: 'elbv2', href: '/dashboard2/elbv2', label: 'Elastic Load Balancing v2', icon: 'elbv2' }
+			{ id: 'route53', href: '/dashboard/route53', label: 'Route 53', icon: 'route53' },
+			{ id: 'route53resolver', href: '/dashboard/route53resolver', label: 'Route 53 Resolver', icon: 'route53resolver' },
+			{ id: 'cloudfront', href: '/dashboard/cloudfront', label: 'CloudFront', icon: 'cloudfront' },
+			{ id: 'elb', href: '/dashboard/elb', label: 'ELB', icon: 'elb' },
+			{ id: 'elbv2', href: '/dashboard/elbv2', label: 'ELB v2', icon: 'elbv2' },
+			{ id: 'globalaccelerator', href: '/dashboard/globalaccelerator', label: 'Global Accelerator', icon: 'globalaccelerator' },
+			{ id: 'networkmanager', href: '/dashboard/networkmanager', label: 'Network Manager', icon: 'networkmanager' },
+			{ id: 'directconnect', href: '/dashboard/directconnect', label: 'Direct Connect', icon: 'directconnect' },
+			{ id: 'servicediscovery', href: '/dashboard/servicediscovery', label: 'Cloud Map', icon: 'servicediscovery' },
+			{ id: 'transfer', href: '/dashboard/transfer', label: 'Transfer Family', icon: 'transfer' }
 		]
 	},
 	{
-		id: 'monitoring',
-		label: 'Monitoring',
+		id: 'management-observability',
+		label: 'Management & Observability',
 		routes: [
-			{ id: 'glacier', href: '/dashboard2/glacier', label: 'Glacier', icon: 'glacier' },
-			{ id: 'identitystore', href: '/dashboard2/identitystore', label: 'Identity Store', icon: 'identitystore' },
-			{ id: 'kafka', href: '/dashboard2/kafka', label: 'Kafka (MSK)', icon: 'kafka' },
-			{ id: 'kinesisanalyticsv2', href: '/dashboard2/kinesisanalyticsv2', label: 'Kinesis Analytics v2', icon: 'kinesisanalyticsv2' },
-			{ id: 'lakeformation', href: '/dashboard2/lakeformation', label: 'Lake Formation', icon: 'lakeformation' },
-			{ id: 'managedblockchain', href: '/dashboard2/managedblockchain', label: 'Managed Blockchain', icon: 'managedblockchain' },
-			{ id: 'mediastore', href: '/dashboard2/mediastore', label: 'MediaStore', icon: 'mediastore' },
-			{ id: 'mediastoredata', href: '/dashboard2/mediastoredata', label: 'MediaStore Data', icon: 'mediastoredata' },
-			{ id: 'memorydb', href: '/dashboard2/memorydb', label: 'MemoryDB', icon: 'memorydb' },
-			{ id: 'mq', href: '/dashboard2/mq', label: 'MQ', icon: 'mq' },
-			{ id: 'neptune', href: '/dashboard2/neptune', label: 'Neptune', icon: 'neptune' },
-			{ id: 'mwaa', href: '/dashboard2/mwaa', label: 'MWAA', icon: 'mwaa' },
-			{ id: 'organizations', href: '/dashboard2/organizations', label: 'Organizations', icon: 'organizations' },
-			{ id: 'pinpoint', href: '/dashboard2/pinpoint', label: 'Pinpoint', icon: 'pinpoint' },
-			{ id: 'pipes', href: '/dashboard2/pipes', label: 'Pipes', icon: 'pipes' },
-			{ id: 'qldb', href: '/dashboard2/qldb', label: 'QLDB', icon: 'qldb' },
-			{ id: 'qldbsession', href: '/dashboard2/qldbsession', label: 'QLDB Session', icon: 'qldbsession' },
-			{ id: 'ram', href: '/dashboard2/ram', label: 'RAM', icon: 'ram' },
-			{ id: 'redshiftdata', href: '/dashboard2/redshiftdata', label: 'Redshift Data', icon: 'redshiftdata' },
-			{ id: 'sagemaker', href: '/dashboard2/sagemaker', label: 'SageMaker', icon: 'sagemaker' }
+			{ id: 'cloudwatch', href: '/dashboard/cloudwatch', label: 'CloudWatch', icon: 'cloudwatch', common: true },
+			{ id: 'cloudwatchlogs', href: '/dashboard/cloudwatchlogs', label: 'CloudWatch Logs', icon: 'cloudwatchlogs', common: true },
+			{ id: 'grafana', href: '/dashboard/grafana', label: 'Managed Grafana', icon: 'grafana' },
+			{ id: 'cloudtrail', href: '/dashboard/cloudtrail', label: 'CloudTrail', icon: 'cloudtrail' },
+			{ id: 'xray', href: '/dashboard/xray', label: 'X-Ray', icon: 'xray' },
+			{ id: 'cloudformation', href: '/dashboard/cloudformation', label: 'CloudFormation', icon: 'cloudformation', common: true },
+			{ id: 'config', href: '/dashboard/config', label: 'Config', icon: 'awsconfig' },
+			{ id: 'organizations', href: '/dashboard/organizations', label: 'Organizations', icon: 'organizations' },
+			{ id: 'resourcegroups', href: '/dashboard/resourcegroups', label: 'Resource Groups', icon: 'resourcegroups' },
+			{ id: 'resourcegroupstaggingapi', href: '/dashboard/resourcegroupstaggingapi', label: 'Tagging API', icon: 'resourcegroupstaggingapi' },
+			{ id: 'resiliencehub', href: '/dashboard/resiliencehub', label: 'Resilience Hub', icon: 'resiliencehub' },
+			{ id: 'cloudcontrol', href: '/dashboard/cloudcontrol', label: 'CloudControl', icon: 'control' },
+			{ id: 'support', href: '/dashboard/support', label: 'Support', icon: 'support' },
+			{ id: 'pipes', href: '/dashboard/pipes', label: 'Pipes', icon: 'pipes' }
+		]
+	},
+	{
+		id: 'hybrid-enduser',
+		label: 'Hybrid & End User Computing',
+		routes: [
+			{ id: 'outposts', href: '/dashboard/outposts', label: 'Outposts', icon: 'outposts' },
+			{ id: 'appstream', href: '/dashboard/appstream', label: 'AppStream 2.0', icon: 'appstream' },
+			{ id: 'workspaces', href: '/dashboard/workspaces', label: 'WorkSpaces', icon: 'workspaces', common: true },
+			{ id: 'mgn', href: '/dashboard/mgn', label: 'Application Migration', icon: 'mgn' }
 		]
 	},
 	{
 		id: 'settings-resilience',
 		label: 'Settings & Resilience',
 		routes: [
-			{ id: 'fis', href: '/dashboard2/fis', label: 'FIS', icon: 'fis' },
-			{ id: 'chaos', href: '/dashboard2/chaos', label: 'Chaos', icon: 'chaos' }
+			{ id: 'fis', href: '/dashboard/fis', label: 'FIS', icon: 'fis', common: true },
+			{ id: 'chaos', href: '/dashboard/chaos', label: 'Chaos', icon: 'chaos' }
 		]
 	}
 ];
+
+export function getCommonServices(): DashboardRoute[] {
+	const common: DashboardRoute[] = [];
+	for (const category of sidebarCategories) {
+		for (const route of category.routes) {
+			if (route.common) {
+				common.push(route);
+			}
+		}
+	}
+	return common;
+}

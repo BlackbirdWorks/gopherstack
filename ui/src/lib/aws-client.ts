@@ -1,41 +1,91 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { S3Client } from '@aws-sdk/client-s3';
-import { ElastiCacheClient } from '@aws-sdk/client-elasticache';
+import { ElastiCacheClient } from "@aws-sdk/client-elasticache";
+import { FisClient } from "@aws-sdk/client-fis";
+import { ACMPCAClient } from "@aws-sdk/client-acm-pca";
+import { AmplifyClient } from "@aws-sdk/client-amplify";
+import { AppConfigClient } from "@aws-sdk/client-appconfig";
+import { CodeBuildClient } from "@aws-sdk/client-codebuild";
+import { CodePipelineClient } from "@aws-sdk/client-codepipeline";
+import { GlobalAcceleratorClient } from "@aws-sdk/client-global-accelerator";
+import { LambdaClient } from "@aws-sdk/client-lambda";
+import { LightsailClient } from "@aws-sdk/client-lightsail";
+import { ServerlessApplicationRepositoryClient } from "@aws-sdk/client-serverlessapplicationrepository";
+import { ShieldClient } from "@aws-sdk/client-shield";
+import { SFNClient } from "@aws-sdk/client-sfn";
+import { WorkSpacesClient } from "@aws-sdk/client-workspaces";
 
-// When running in dev server, default to localhost:8000. In production (embedded), default to current origin.
-const isBrowser = typeof window !== 'undefined';
-const defaultEndpoint = isBrowser 
-  ? (window.location.port === '5173' || window.location.port !== '' && window.location.port !== '8000') 
-     ? 'http://localhost:8000' 
-     : window.location.origin 
-  : 'http://localhost:8000';
+const defaultRegion = "us-east-1";
 
-const credentialProvider = {
-	accessKeyId: 'test',
-	secretAccessKey: 'test'
-};
+function endpointURL(): string {
+  if (typeof window === "undefined" || !window.location) {
+    return "http://localhost:8000";
+  }
 
-export const getDynamoDBClient = (endpoint: string = defaultEndpoint) => {
-	return new DynamoDBClient({
-		endpoint,
-		region: 'us-east-1',
-		credentials: credentialProvider
-	});
-};
+  return window.location.origin;
+}
 
-export const getS3Client = (endpoint: string = defaultEndpoint) => {
-	return new S3Client({
-		endpoint,
-		region: 'us-east-1',
-		credentials: credentialProvider,
-		forcePathStyle: true
-	});
-};
+function clientConfig(region = defaultRegion) {
+  return {
+    endpoint: endpointURL(),
+    region,
+    credentials: {
+      accessKeyId: "test",
+      secretAccessKey: "test",
+    },
+  };
+}
 
-export const getElastiCacheClient = (endpoint: string = defaultEndpoint) => {
-	return new ElastiCacheClient({
-		endpoint,
-		region: 'us-east-1',
-		credentials: credentialProvider
-	});
-};
+export function getElastiCacheClient(region?: string): ElastiCacheClient {
+  return new ElastiCacheClient(clientConfig(region));
+}
+
+export function getLambdaClient(region?: string): LambdaClient {
+  return new LambdaClient(clientConfig(region));
+}
+
+export function getFISClient(region?: string): FisClient {
+  return new FisClient(clientConfig(region));
+}
+
+export function getShieldClient(region?: string): ShieldClient {
+  return new ShieldClient(clientConfig(region));
+}
+
+export function getCodeBuildClient(region?: string): CodeBuildClient {
+  return new CodeBuildClient(clientConfig(region));
+}
+
+export function getCodePipelineClient(region?: string): CodePipelineClient {
+  return new CodePipelineClient(clientConfig(region));
+}
+
+export function getLightsailClient(region?: string): LightsailClient {
+  return new LightsailClient(clientConfig(region));
+}
+
+export function getServerlessRepoClient(region?: string): ServerlessApplicationRepositoryClient {
+  return new ServerlessApplicationRepositoryClient(clientConfig(region));
+}
+
+export function getWorkSpacesClient(region?: string): WorkSpacesClient {
+  return new WorkSpacesClient(clientConfig(region));
+}
+
+export function getAmplifyClient(region?: string): AmplifyClient {
+  return new AmplifyClient(clientConfig(region));
+}
+
+export function getAppConfigClient(region?: string): AppConfigClient {
+  return new AppConfigClient(clientConfig(region));
+}
+
+export function getACMPCAClient(region?: string): ACMPCAClient {
+  return new ACMPCAClient(clientConfig(region));
+}
+
+export function getGlobalAcceleratorClient(region?: string): GlobalAcceleratorClient {
+  return new GlobalAcceleratorClient(clientConfig(region));
+}
+
+export function getSFNClient(region?: string): SFNClient {
+  return new SFNClient(clientConfig(region));
+}

@@ -1,6 +1,78 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ── Theme: GitHub ── */
+/* Light theme with GitHub-inspired neutral gray palette and blue accents */
+:root:where(.theme-github) {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-tertiary: #f0f2f5;
+  --color-text: #1f2328;
+  --color-text-secondary: #656d76;
+  --color-border: #d1d9e0;
+  --color-accent: #0969da;
+  --color-accent-hover: #0550ae;
+  --color-accent-subtle: #ddf4ff;
+  --color-sidebar-bg: #f6f8fa;
+  --color-sidebar-border: #d1d9e0;
+  --color-nav-bg: rgba(255, 255, 255, 0.95);
+  --color-nav-border: #d1d9e0;
+  --color-card-bg: #ffffff;
+  --color-hover: #f3f4f6;
+}
+
+.theme-github nav {
+  background-color: var(--color-nav-bg);
+  border-color: var(--color-nav-border);
+}
+
+.theme-github #sidebar {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
+}
+
+.theme-github .bg-slate-50 { background-color: var(--color-bg-secondary); }
+.theme-github .bg-white { background-color: var(--color-bg); }
+.theme-github .text-indigo-600 { color: var(--color-accent); }
+.theme-github .text-indigo-700 { color: var(--color-accent-hover); }
+.theme-github .bg-indigo-50 { background-color: var(--color-accent-subtle); }
+
+/* ── Theme: Ocean ── */
+/* Deep blue dark theme with cyan/teal accents */
+:root:where(.theme-ocean) {
+  --color-bg: #0b1120;
+  --color-bg-secondary: #0f1729;
+  --color-bg-tertiary: #131d33;
+  --color-text: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-border: #1e3a5f;
+  --color-accent: #06b6d4;
+  --color-accent-hover: #22d3ee;
+  --color-accent-subtle: rgba(6, 182, 212, 0.1);
+  --color-sidebar-bg: #0f1729;
+  --color-sidebar-border: #1e3a5f;
+  --color-nav-bg: rgba(15, 23, 41, 0.95);
+  --color-nav-border: #1e3a5f;
+  --color-card-bg: #131d33;
+  --color-hover: #1a2744;
+}
+
+.theme-ocean nav {
+  background-color: var(--color-nav-bg);
+  border-color: var(--color-nav-border);
+}
+
+.theme-ocean #sidebar {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
+}
+
+.theme-ocean .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-ocean .dark\:bg-slate-800 { background-color: var(--color-bg-tertiary); }
+.theme-ocean .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-ocean .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-ocean .dark\:border-white\/5 { border-color: var(--color-border); }
+
 /* Sidebar Mini Mode */
 .sidebar-mini #sidebar {
   width: 4.5rem;

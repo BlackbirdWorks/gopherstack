@@ -23,6 +23,8 @@
 	let newBucketName = $state('');
 	let enableVersioning = $state(false);
 	let creating = $state(false);
+	const bucketPageSize = 10;
+	let bucketPage = $state(1);
 
 	// Bucket detail state
 	let selectedBucket = $state<string | null>(null);
@@ -39,15 +41,34 @@
 		buckets.filter((b) => !searchQuery || (b.Name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false))
 	);
 
+	const totalBucketPages = $derived(Math.max(1, Math.ceil(filteredBuckets.length / bucketPageSize)));
+
+	const pagedBuckets = $derived(
+		filteredBuckets.slice((bucketPage - 1) * bucketPageSize, (bucketPage - 1) * bucketPageSize + bucketPageSize)
+	);
+
 	async function loadBuckets() {
 		loading = true;
 		try {
 			const res = await s3.send(new ListBucketsCommand({}));
 			buckets = res.Buckets ?? [];
+			bucketPage = 1;
 		} catch (err: unknown) {
 			toast.error(`Failed to list buckets: ${(err as Error).message}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	function nextBucketPage(): void {
+		if (bucketPage < totalBucketPages) {
+			bucketPage += 1;
+		}
+	}
+
+	function previousBucketPage(): void {
+		if (bucketPage > 1) {
+			bucketPage -= 1;
 		}
 	}
 
@@ -76,22 +97,24 @@
 		}
 	}
 
+	async function deleteAllObjectsInBucket(bucketName: string): Promise<void> {
+		const objs = await s3.send(new ListObjectsV2Command({ Bucket: bucketName }));
+		if (!objs.Contents) return;
+		for (const obj of objs.Contents) {
+			if (obj.Key) {
+				await s3.send(new DeleteObjectCommand({ Bucket: bucketName, Key: obj.Key }));
+			}
+		}
+	}
+
 	async function purgeAll() {
 		if (!confirm('Are you sure you want to delete ALL buckets? This cannot be undone.')) return;
 		try {
 			for (const bucket of buckets) {
-				if (bucket.Name) {
-					// Delete all objects first
-					const objs = await s3.send(new ListObjectsV2Command({ Bucket: bucket.Name }));
-					if (objs.Contents) {
-						for (const obj of objs.Contents) {
-							if (obj.Key) {
-								await s3.send(new DeleteObjectCommand({ Bucket: bucket.Name, Key: obj.Key }));
-							}
-						}
-					}
-					await s3.send(new DeleteBucketCommand({ Bucket: bucket.Name }));
-				}
+				if (!bucket.Name) continue;
+				// Delete all objects first
+				await deleteAllObjectsInBucket(bucket.Name);
+				await s3.send(new DeleteBucketCommand({ Bucket: bucket.Name }));
 			}
 			toast.success('All buckets purged');
 			await loadBuckets();
@@ -103,14 +126,7 @@
 	async function deleteBucket(name: string) {
 		if (!confirm(`Delete bucket "${name}"?`)) return;
 		try {
-			const objs = await s3.send(new ListObjectsV2Command({ Bucket: name }));
-			if (objs.Contents) {
-				for (const obj of objs.Contents) {
-					if (obj.Key) {
-						await s3.send(new DeleteObjectCommand({ Bucket: name, Key: obj.Key }));
-					}
-				}
-			}
+			await deleteAllObjectsInBucket(name);
 			await s3.send(new DeleteBucketCommand({ Bucket: name }));
 			toast.success(`Bucket "${name}" deleted`);
 			if (selectedBucket === name) {
@@ -219,6 +235,12 @@
 
 	onMount(() => {
 		loadBuckets();
+	});
+
+	$effect(() => {
+		if (bucketPage > totalBucketPages) {
+			bucketPage = totalBucketPages;
+		}
 	});
 </script>
 
@@ -392,7 +414,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-				{#each filteredBuckets as bucket}
+				{#each pagedBuckets as bucket}
 					<div class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 						<div class="flex justify-between items-start">
 							<button onclick={() => openBucket(bucket.Name ?? '')} class="flex-1 text-left">
@@ -404,15 +426,35 @@
 								</p>
 							</button>
 							<button
+								type="button"
 								onclick={() => deleteBucket(bucket.Name ?? '')}
-								class="text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+								class="text-xs text-slate-500 hover:text-red-500 dark:hover:text-red-400 p-1"
 								title="Delete bucket"
 							>
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+								Delete
 							</button>
 						</div>
 					</div>
 				{/each}
+			</div>
+			<div class="mt-4 flex items-center justify-end gap-2">
+				<button
+					type="button"
+					onclick={previousBucketPage}
+					disabled={bucketPage === 1}
+					class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200"
+				>
+					Previous
+				</button>
+				<span class="text-xs text-slate-500 dark:text-slate-400">Page {bucketPage} of {totalBucketPages}</span>
+				<button
+					type="button"
+					onclick={nextBucketPage}
+					disabled={bucketPage >= totalBucketPages}
+					class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200"
+				>
+					Next
+				</button>
 			</div>
 		{/if}
 	{/if}

@@ -294,6 +294,28 @@ jobs:
           path: e2e-coverage.out
           retention-days: 1
 
+  ui-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Run UI Tests
+        working-directory: ui
+        run: npx vitest run
+
   coverage:
     runs-on: ubuntu-latest
     needs: [unit, integration, e2e]

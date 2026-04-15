@@ -110,7 +110,7 @@ describe("jsonToAv", () => {
 	});
 
 	it("converts undefined", () => {
-		expect(jsonToAv(undefined)).toEqual({ NULL: true });
+		expect(jsonToAv()).toEqual({ NULL: true });
 	});
 
 	it("converts arrays", () => {
@@ -200,7 +200,7 @@ describe("getKeySchema", () => {
 	});
 
 	it("returns empty string for undefined", () => {
-		expect(getKeySchema(undefined)).toBe("");
+		expect(getKeySchema()).toBe("");
 	});
 
 	it("returns empty string when no KeySchema", () => {

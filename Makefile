@@ -23,7 +23,7 @@ ui-test: ui-install
 	npm --prefix ui run test:coverage
 
 ui-build: ui-install
-	rm -rf dashboard/static/dashboard2
+	rm -rf dashboard/static/spa
 	npm --prefix ui run build
 
 build-releaser:
@@ -137,27 +137,8 @@ total-coverage:
 clean:
 	rm -rf bin/
 
-FLOWBITE_VERSION=4.0.1
-HTMX_VERSION=2.0.8
-
 upgrade-static:
-	@echo "Checking for latest static asset versions..."
-	$(eval NEW_FLOWBITE_VERSION=$(shell curl -s https://registry.npmjs.org/flowbite/latest | jq -r .version))
-	$(eval NEW_HTMX_VERSION=$(shell curl -s https://registry.npmjs.org/htmx.org/latest | jq -r .version))
-	@if [ "$(FLOWBITE_VERSION)" != "$(NEW_FLOWBITE_VERSION)" ]; then \
-		echo "Upgrading Flowbite: $(FLOWBITE_VERSION) -> $(NEW_FLOWBITE_VERSION)"; \
-		sed -i '' "s/FLOWBITE_VERSION=$(FLOWBITE_VERSION)/FLOWBITE_VERSION=$(NEW_FLOWBITE_VERSION)/" Makefile; \
-	fi
-	@if [ "$(HTMX_VERSION)" != "$(NEW_HTMX_VERSION)" ]; then \
-		echo "Upgrading HTMX: $(HTMX_VERSION) -> $(NEW_HTMX_VERSION)"; \
-		sed -i '' "s/HTMX_VERSION=$(HTMX_VERSION)/HTMX_VERSION=$(NEW_HTMX_VERSION)/" Makefile; \
-	fi
-	@echo "Downloading static assets..."
-	@mkdir -p dashboard/static/vendor
-	curl -sSfL https://cdn.jsdelivr.net/npm/flowbite@$(NEW_FLOWBITE_VERSION)/dist/flowbite.min.css -o dashboard/static/vendor/flowbite.min.css
-	curl -sSfL https://cdn.jsdelivr.net/npm/flowbite@$(NEW_FLOWBITE_VERSION)/dist/flowbite.min.js -o dashboard/static/vendor/flowbite.min.js
-	curl -sSfL https://unpkg.com/htmx.org@$(NEW_HTMX_VERSION)/dist/htmx.min.js -o dashboard/static/vendor/htmx.min.js
-	curl -sSfL https://cdn.tailwindcss.com -o dashboard/static/vendor/tailwind.min.js
+	@echo "Static assets are managed by npm in the ui directory."
 
 upgrade: upgrade-static install-tofu
 	go get -u ./...

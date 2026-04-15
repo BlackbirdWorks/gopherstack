@@ -2,14 +2,10 @@ package dashboard
 
 import (
 	"embed"
-	"encoding/json"
-	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"path"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -146,61 +140,14 @@ import (
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
-const (
-	pathPartsCount = 2
-)
-
-// OperationsProvider defines an interface for retrieving supported operations.
-type OperationsProvider interface {
-	GetSupportedOperations() []string
-}
-
-// Settings holds configurable dashboard variables to render in the UI.
-type Settings struct {
-	DNSResolveIP        string
-	OpenSearchEngine    string
-	Region              string
-	LogLevel            string
-	Port                string
-	DNSListenAddr       string
-	AccountID           string
-	DataDir             string
-	ElasticsearchEngine string
-	ElastiCacheEngine   string
-	S3                  S3Settings
-	Lambda              LambdaSettings
-	DynamoDB            DynamoDBSettings
-	Batch               BatchSettings
-	EC2                 EC2Settings
-	CodeBuild           CodeBuildSettings
-	FIS                 FISSettings
-	Athena              AthenaSettings
-	EMR                 EMRSettings
-	SES                 SESSettings
-	SSM                 SSMSettings
-	XRay                XRaySettings
-	Backup              BackupSettings
-	PortRangeEnd        int
-	STS                 STSSettings
-	LatencyMs           int
-	PortRangeStart      int
-	JanitorTimeout      time.Duration
-	CloudWatchLogs      CloudWatchLogsSettings
-	InitScriptTimeout   time.Duration
-	AutoPurgeTTL        time.Duration
-	Kinesis             KinesisSettings
-	KMS                 KMSSettings
-	EnforceIAM          bool
-	Demo                bool
-	Persist             bool
-}
-
+// S3Settings holds dashboard-specific S3 configuration.
 type S3Settings struct {
 	DefaultRegion       string
 	JanitorInterval     time.Duration
 	CompressionMinBytes int
 }
 
+// LambdaSettings holds dashboard-specific Lambda configuration.
 type LambdaSettings struct {
 	DockerHost       string
 	ContainerRuntime string
@@ -209,6 +156,7 @@ type LambdaSettings struct {
 	MaxRuntimes      int
 }
 
+// DynamoDBSettings holds dashboard-specific DynamoDB configuration.
 type DynamoDBSettings struct {
 	DefaultRegion     string
 	JanitorInterval   time.Duration
@@ -216,72 +164,127 @@ type DynamoDBSettings struct {
 	EnforceThroughput bool
 }
 
+// EC2Settings holds dashboard-specific EC2 configuration.
 type EC2Settings struct {
 	JanitorInterval  time.Duration
 	TerminatedTTL    time.Duration
 	CancelledSpotTTL time.Duration
 }
 
+// BackupSettings holds dashboard-specific Backup configuration.
 type BackupSettings struct {
 	JanitorInterval time.Duration
 	JobTTL          time.Duration
 }
 
+// STSSettings holds dashboard-specific STS configuration.
 type STSSettings struct {
 	JanitorInterval time.Duration
 }
 
+// XRaySettings holds dashboard-specific X-Ray configuration.
 type XRaySettings struct {
 	JanitorInterval time.Duration
 	TraceTTL        time.Duration
 }
 
+// SSMSettings holds dashboard-specific SSM configuration.
 type SSMSettings struct {
 	JanitorInterval time.Duration
 	CommandTTL      time.Duration
 }
 
+// CodeBuildSettings holds dashboard-specific CodeBuild configuration.
 type CodeBuildSettings struct {
 	JanitorInterval time.Duration
 	BuildTTL        time.Duration
 }
 
+// CloudWatchLogsSettings holds dashboard-specific CloudWatch Logs configuration.
 type CloudWatchLogsSettings struct {
 	JanitorInterval time.Duration
 }
 
+// SESSettings holds dashboard-specific SES configuration.
 type SESSettings struct {
 	JanitorInterval time.Duration
 	EmailTTL        time.Duration
 }
 
+// BatchSettings holds dashboard-specific Batch configuration.
 type BatchSettings struct {
 	JanitorInterval   time.Duration
 	InactiveJobDefTTL time.Duration
 	CompletedJobTTL   time.Duration
 }
 
+// FISSettings holds dashboard-specific FIS configuration.
 type FISSettings struct {
 	JanitorInterval time.Duration
 	ExperimentTTL   time.Duration
 }
 
+// EMRSettings holds dashboard-specific EMR configuration.
 type EMRSettings struct {
 	JanitorInterval time.Duration
 	TerminatedTTL   time.Duration
 }
 
+// AthenaSettings holds dashboard-specific Athena configuration.
 type AthenaSettings struct {
 	JanitorInterval time.Duration
 	ExecutionTTL    time.Duration
 }
 
+// KinesisSettings holds dashboard-specific Kinesis configuration.
 type KinesisSettings struct {
 	JanitorInterval time.Duration
 }
 
+// KMSSettings holds dashboard-specific KMS configuration.
 type KMSSettings struct {
 	JanitorInterval time.Duration
+}
+
+// Settings holds the overall dashboard internal state/preferences.
+type Settings struct {
+	AccountID           string
+	Region              string
+	LatencyMs           int
+	EnforceIAM          bool
+	AutoPurgeTTL        time.Duration
+	JanitorTimeout      time.Duration
+	LogLevel            string
+	Port                string
+	DNSListenAddr       string
+	DNSResolveIP        string
+	OpenSearchEngine    string
+	ElasticsearchEngine string
+	ElastiCacheEngine   string
+	Persist             bool
+	Demo                bool
+	DataDir             string
+	PortRangeStart      int
+	PortRangeEnd        int
+	InitScriptTimeout   time.Duration
+
+	S3             S3Settings
+	Lambda         LambdaSettings
+	DynamoDB       DynamoDBSettings
+	EC2            EC2Settings
+	Backup         BackupSettings
+	STS            STSSettings
+	XRay           XRaySettings
+	SSM            SSMSettings
+	CodeBuild      CodeBuildSettings
+	CloudWatchLogs CloudWatchLogsSettings
+	SES            SESSettings
+	Batch          BatchSettings
+	FIS            FISSettings
+	EMR            EMRSettings
+	Athena         AthenaSettings
+	Kinesis        KinesisSettings
+	KMS            KMSSettings
 }
 
 // ConfigManager defines an interface for saving server configuration.
@@ -294,218 +297,22 @@ type ConfigManager interface {
 //go:embed all:static
 var staticFS embed.FS
 
-//go:embed templates/*
-var templateFS embed.FS
-
-// SnippetData holds the code snippets for a specific AWS resource interaction.
-type SnippetData struct {
-	ID     string
-	Title  string
-	Cli    string
-	Go     string
-	Python string
-}
-
-// PageData represents common page data.
-type PageData struct {
-	Snippet   *SnippetData
-	Title     string
-	ActiveTab string
-}
+//go:embed all:static/spa
+var spaFS embed.FS
 
 // DashboardHandler handles HTTP requests for the Dashboard web interface.
-// It automatically discovers and integrates services that implement DashboardProvider.
-// During transition, it also supports the old pattern of direct SDK client injection.
-//
-//nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	SNSOps            *snsbackend.Handler
-	KMSOps            *kmsbackend.Handler
-	SSM               *ssmsdk.Client
-	DDBOps            *ddbbackend.DynamoDBHandler
-	S3Ops             *s3backend.S3Handler
-	SSMOps            *ssmbackend.Handler
-	IAMOps            *iambackend.Handler
-	STSOps            *stsbackend.Handler
-	S3                *s3.Client
-	DynamoDB          *dynamodb.Client
-	SQSOps            *sqsbackend.Handler
-	SecretsManagerOps *secretsmanagerbackend.Handler
-	LambdaOps         *lambdabackend.Handler
-	EventBridgeOps    *ebbackend.Handler
-	APIGatewayOps     *apigwbackend.Handler
-	CloudWatchLogsOps *cwlogsbackend.Handler
-	StepFunctionsOps  *sfnbackend.Handler
-	CloudWatchOps     *cwbackend.Handler
-	CloudFormationOps *cfnbackend.Handler
-	KinesisOps        *kinesisbackend.Handler
-	ElastiCacheOps    *elasticachebackend.Handler
-	Route53Ops        *route53backend.Handler
-	SESOps            *sesbackend.Handler
-	SESv2Ops          *sesv2backend.Handler
-	EC2Ops            *ec2backend.Handler
-	ECROps            *ecrbackend.Handler
-	ECSOps            *ecsbackend.Handler
-	EFSOps            *efsbackend.Handler
-	IoTOps            *iotbackend.Handler
-	FISOps            *fisbackend.Handler
-	GlueOps           *gluebackend.Handler
-	// IdentityStoreOps provides access to the Identity Store backend.
-	IdentityStoreOps *identitystorebackend.Handler
-	OpenSearchOps    *opensearchbackend.Handler
-	ACMOps           *acmbackend.Handler
-	ACMPCAOps        *acmpcabackend.Handler
-	RedshiftOps      *redshiftbackend.Handler
-	RDSOps           *rdsbackend.Handler
-	// DocDBOps provides access to the DocDB backend.
-	DocDBOps                   *docdbbackend.Handler
-	AWSConfigOps               *awsconfigbackend.Handler
-	S3ControlOps               *s3controlbackend.Handler
-	ResourceGroupsOps          *resourcegroupsbackend.Handler
-	ResourceGroupsTaggingOps   *taggingbackend.Handler
-	SWFOps                     *swfbackend.Handler
-	FirehoseOps                *firehosebackend.Handler
-	SchedulerOps               *schedulerbackend.Handler
-	Route53ResolverOps         *route53resolverbackend.Handler
-	TranscribeOps              *transcribebackend.Handler
-	SupportOps                 *supportbackend.Handler
-	CognitoIdentityOps         *cognitoidentitybackend.Handler
-	AppSyncOps                 *appsyncbackend.Handler
-	CognitoIDPOps              *cognitoidpbackend.Handler
-	IoTDataPlaneOps            *iotdataplanebackend.Handler
-	APIGatewayManagementAPIOps *apigwmgmtbackend.Handler
-	APIGatewayV2Ops            *apigwv2backend.Handler
-	AppConfigDataOps           *appconfigdatabackend.Handler
-	AmplifyOps                 *amplifybackend.Handler
-	AthenaOps                  *athenabackend.Handler
-	AutoscalingOps             *autoscalingbackend.Handler
-	BackupOps                  *backupbackend.Handler
-	CloudTrailOps              *cloudtrailbackend.Handler
-	AppConfigOps               *appconfigbackend.Handler
-	ApplicationAutoscalingOps  *applicationautoscalingbackend.Handler
-	BatchOps                   *batchbackend.Handler
-	BedrockOps                 *bedrockbackend.Handler
-	BedrockRuntimeOps          *bedrockruntimebackend.Handler
-	CeOps                      *cebackend.Handler
-	CloudControlOps            *cloudcontrolbackend.Handler
-	CloudFrontOps              *cloudfrontbackend.Handler
-	CodeArtifactOps            *codeartifactbackend.Handler
-	CodeBuildOps               *codebuildbackend.Handler
-	CodeCommitOps              *codecommitbackend.Handler
-	// CodeConnectionsOps provides access to the CodeConnections backend.
-	CodeConnectionsOps *codeconnectionsbackend.Handler
-	// CodeDeployOps provides access to the CodeDeploy backend.
-	CodeDeployOps *codedeploybackend.Handler
-	// DMSOps provides access to the DMS backend.
-	DMSOps *dmsbackend.Handler
-	// CodePipelineOps provides access to the CodePipeline backend.
-	CodePipelineOps *codepipelinebackend.Handler
-	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
-	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
-	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
-	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
-	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
-	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
-	// ElasticsearchOps provides access to the Elasticsearch backend.
-	ElasticsearchOps *elasticsearchbackend.Handler
-	// EKSOps provides access to the EKS backend.
-	EKSOps *eksbackend.Handler
-	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
-	ElasticTranscoderOps *elastictranscoderbackend.Handler
-	// ELBOps provides access to the Classic ELB backend.
-	ELBOps *elbbackend.Handler
-	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
-	ELBv2Ops *elbv2backend.Handler
-	// EmrServerlessOps provides access to the EMR Serverless backend.
-	EmrServerlessOps *emrserverlessbackend.Handler
-	// EMROps provides access to the EMR backend.
-	EMROps *emrbackend.Handler
-	// GlacierOps provides access to the Glacier backend.
-	GlacierOps *glacierbackend.Handler
-	// IoTAnalyticsOps provides access to the IoT Analytics backend.
-	IoTAnalyticsOps *iotanalyticsbackend.Handler
-	// IoTWirelessOps provides access to the IoT Wireless backend.
-	IoTWirelessOps *iotwirelessbackend.Handler
-	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
-	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
-	// KafkaOps provides access to the MSK Kafka backend.
-	KafkaOps *kafkabackend.Handler
-	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
-	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
-	// LakeFormationOps provides access to the Lake Formation backend.
-	LakeFormationOps *lakeformationbackend.Handler
-	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
-	ManagedBlockchainOps *managedblockchainbackend.Handler
-	// MediaConvertOps provides access to the MediaConvert backend.
-	MediaConvertOps *mediaconvertbackend.Handler
-	// MQOps provides access to the Amazon MQ backend.
-	MQOps *mqbackend.Handler
-	// MediaStoreOps provides access to the MediaStore backend.
-	MediaStoreOps *mediastorebackend.Handler
-	// MediaStoreDataOps provides access to the MediaStore Data backend.
-	MediaStoreDataOps *mediastoredatabackend.Handler
-	// MemoryDBOps provides access to the MemoryDB backend.
-	MemoryDBOps *memorydbbackend.Handler
-	// OrganizationsOps provides access to the Organizations backend.
-	OrganizationsOps *organizationsbackend.Handler
-	// MWAAOps provides access to the MWAA backend.
-	MWAAOps *mwaabackend.Handler
-	// PinpointOps provides access to the Pinpoint backend.
-	PinpointOps *pinpointbackend.Handler
-	// NeptuneOps provides access to the Neptune backend.
-	NeptuneOps *neptunebackend.Handler
-	// PipesOps provides access to the EventBridge Pipes backend.
-	PipesOps *pipesbackend.Handler
-	// QLDBOps provides access to the QLDB backend.
-	QLDBOps *qldbbackend.Handler
-	// QLDBSessionOps provides access to the QLDB Session backend.
-	QLDBSessionOps *qldbsessionbackend.Handler
-	// RDSDataOps provides access to the RDS Data backend.
-	RDSDataOps *rdsdatabackend.Handler
-	// RAMOps provides access to the RAM backend.
-	RAMOps *rambackend.Handler
-	// RedshiftDataOps provides access to the Redshift Data backend.
-	RedshiftDataOps *redshiftdatabackend.Handler
-	// SageMakerOps provides access to the SageMaker backend.
-	SageMakerOps *sagemakerbackend.Handler
-	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
-	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
-	// ServiceDiscoveryOps provides access to the Service Discovery backend.
-	ServiceDiscoveryOps *servicediscoverybackend.Handler
-	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
-	ServerlessRepoOps *serverlessrepobackend.Handler
-	// ShieldOps provides access to the Shield backend.
-	ShieldOps *shieldbackend.Handler
-	// SsoAdminOps provides access to the SSO Admin backend.
-	SsoAdminOps *ssoadminbackend.Handler
-	// TextractOps provides access to the Textract backend.
-	TextractOps *textractbackend.Handler
-	// TimestreamWriteOps provides access to the Timestream Write backend.
-	TimestreamWriteOps *timestreamwritebackend.Handler
-	// TimestreamQueryOps provides access to the Timestream Query backend.
-	TimestreamQueryOps *timestreamquerybackend.Handler
-	// TransferOps provides access to the Transfer backend.
-	TransferOps *transferbackend.Handler
-	// VerifiedPermissionsOps provides access to the Verified Permissions backend.
-	VerifiedPermissionsOps *verifiedpermissionsbackend.Handler
-	// Wafv2Ops provides access to the WAFv2 backend.
-	Wafv2Ops *wafv2backend.Handler
-	// XrayOps provides access to the X-Ray backend.
-	XrayOps *xraybackend.Handler
-	// S3TablesOps provides access to the S3 Tables backend.
-	S3TablesOps   *s3tablesbackend.Handler
-	SubRouter     *echo.Echo
-	ddbProvider   *ddbbackend.DashboardProvider
-	s3Provider    *s3backend.DashboardProvider
 	FaultStore    *chaos.FaultStore
-	Logger        *slog.Logger
-	layout        *template.Template
-	GlobalConfig  *config.GlobalConfig
 	ConfigManager ConfigManager
+	GlobalConfig  *config.GlobalConfig
+	Logger        *slog.Logger
+	SubRouter     *echo.Echo
 	mu            sync.RWMutex
 }
 
-// Config holds all dependencies for the Dashboard handler.
+// Config is the configuration for the Dashboard service.
+// This struct is preserved with all its original fields for CLI and TestStack compatibility,
+// even though most fields are no longer used by the new SPA-based DashboardHandler.
 type Config struct {
 	DDBClient *dynamodb.Client
 	S3Client  *s3.Client
@@ -748,970 +555,115 @@ type Config struct {
 	ConfigManager ConfigManager
 }
 
-// parseDashboardTemplates loads and parses all HTML templates for the dashboard.
-func parseDashboardTemplates() *template.Template {
-	funcMap := template.FuncMap{
-		"safeID": func(s string) string {
-			s = strings.ReplaceAll(s, "/", "-")
-			s = strings.ReplaceAll(s, " ", "-")
-			s = strings.ReplaceAll(s, ".", "-")
-			s = strings.ReplaceAll(s, ":", "-")
-			s = strings.ReplaceAll(s, "%", "-")
-
-			return s
-		},
-		"unescapeHTML": func(s string) template.HTML {
-			return template.HTML(s) //nolint:gosec // G203: input is trusted template data, not user-controlled
-		},
-	}
-
-	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS, dashboardTemplatePatterns()...))
-}
-
-func dashboardTemplatePatterns() []string {
-	base := []string{ //nolint:prealloc // prealloc does not apply to literal slice initializations
-		"templates/layout.html",
-		"templates/components/*.html",
-		"templates/s3/*.html",
-		"templates/dynamodb/*.html",
-		"templates/ssm/*.html",
-		"templates/iam/*.html",
-		"templates/sts/*.html",
-		"templates/sns/*.html",
-		"templates/sqs/*.html",
-		"templates/kms/*.html",
-		"templates/secretsmanager/*.html",
-		"templates/lambda/*.html",
-		"templates/eventbridge/*.html",
-		"templates/apigateway/*.html",
-		"templates/apigatewayv2/*.html",
-		"templates/cloudwatchlogs/*.html",
-		"templates/stepfunctions/*.html",
-		"templates/cloudwatch/*.html",
-		"templates/cloudformation/*.html",
-		"templates/kinesis/*.html",
-		"templates/elasticache/*.html",
-		"templates/route53/*.html",
-		"templates/ses/*.html",
-		"templates/sesv2/*.html",
-		"templates/ec2/*.html",
-		"templates/ecr/*.html",
-		"templates/ecs/*.html",
-		"templates/iot/*.html",
-		"templates/fis/*.html",
-		"templates/elasticsearch/*.html",
-		"templates/opensearch/*.html",
-		"templates/acm/*.html",
-		"templates/acmpca/*.html",
-		"templates/redshift/*.html",
-		"templates/rds/*.html",
-		"templates/docdb/*.html",
-		"templates/awsconfig/*.html",
-		"templates/s3control/*.html",
-		"templates/resourcegroups/*.html",
-		"templates/resourcegroupstaggingapi/*.html",
-		"templates/swf/*.html",
-		"templates/firehose/*.html",
-		"templates/scheduler/*.html",
-		"templates/route53resolver/*.html",
-		"templates/transcribe/*.html",
-		"templates/support/*.html",
-		"templates/cognitoidentity/*.html",
-		"templates/appsync/*.html",
-		"templates/cognitoidp/*.html",
-		"templates/iotdataplane/*.html",
-		"templates/apigatewaymanagementapi/*.html",
-		"templates/appconfigdata/*.html",
-		"templates/amplify/*.html",
-		"templates/athena/*.html",
-		"templates/autoscaling/*.html",
-		"templates/appconfig/*.html",
-		"templates/backup/*.html",
-		"templates/cloudtrail/*.html",
-		"templates/applicationautoscaling/*.html",
-		"templates/batch/*.html",
-		"templates/bedrock/*.html",
-		"templates/bedrockruntime/*.html",
-		"templates/ce/*.html",
-		"templates/cloudcontrol/*.html",
-		"templates/cloudfront/*.html",
-		"templates/codeartifact/*.html",
-		"templates/codebuild/*.html",
-		"templates/codecommit/*.html",
-		"templates/dms/*.html",
-		"templates/codepipeline/*.html",
-		"templates/codestarconnections/*.html",
-		"templates/dynamodbstreams/*.html",
-		"templates/elasticbeanstalk/*.html",
-		"templates/elastictranscoder/*.html",
-		"templates/elb/*.html",
-		"templates/elbv2/*.html",
-		"templates/emrserverless/*.html",
-		"templates/emr/*.html",
-		"templates/glacier/*.html",
-		"templates/iotanalytics/*.html",
-		"templates/iotwireless/*.html",
-		"templates/kinesisanalytics/*.html",
-		"templates/glue/*.html",
-		"templates/kafka/*.html",
-		"templates/kinesisanalyticsv2/*.html",
-		"templates/managedblockchain/*.html",
-		"templates/mediaconvert/*.html",
-		"templates/mediastore/*.html",
-		"templates/mediastoredata/*.html",
-		"templates/memorydb/*.html",
-	}
-
-	return append(base, newestDashboardTemplatePatterns()...)
-}
-
-// newestDashboardTemplatePatterns returns template patterns for the most recently added services.
-// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
-func newestDashboardTemplatePatterns() []string {
-	return append([]string{
-		"templates/mwaa/*.html",
-		"templates/organizations/*.html",
-	}, latestDashboardTemplatePatterns()...)
-}
-
-// latestDashboardTemplatePatterns returns template glob patterns for additional services.
-// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
-func latestDashboardTemplatePatterns() []string {
-	return append([]string{
-		"templates/pinpoint/*.html",
-		"templates/neptune/*.html",
-	}, mostRecentDashboardTemplatePatterns()...)
-}
-
-func mostRecentDashboardTemplatePatterns() []string {
-	return []string{
-		"templates/pipes/*.html",
-		"templates/qldb/*.html",
-		"templates/qldbsession/*.html",
-		"templates/ram/*.html",
-		"templates/rdsdata/*.html",
-		"templates/redshiftdata/*.html",
-		"templates/sagemaker/*.html",
-		"templates/sagemakerrumtime/*.html",
-		"templates/servicediscovery/*.html",
-		"templates/ssoadmin/*.html",
-		"templates/timestreamquery/*.html",
-		"templates/chaos/*.html",
-		"templates/metrics.html",
-		"templates/textract/*.html",
-		"templates/transfer/*.html",
-		"templates/timestreamwrite/*.html",
-		"templates/verifiedpermissions/*.html",
-		"templates/wafv2/*.html",
-		"templates/xray/*.html",
-		"templates/s3tables/*.html",
-		"templates/doc.html",
-		"templates/settings.html",
-		"templates/apiconsole.html",
-	}
-}
-
-// NewHandler creates a new Dashboard handler.
+// NewHandler creates a new Dashboard web handler.
 func NewHandler(cfg Config) *DashboardHandler {
-	tmpl := parseDashboardTemplates()
-
-	h := newDashboardHandler(cfg, tmpl)
-
-	h.initHandlers(cfg.Logger)
-
-	return h
-}
-
-//nolint:funlen // function length grows with each new service; each addition is a single field assignment.
-func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
-	h := &DashboardHandler{
-		DynamoDB:                   cfg.DDBClient,
-		S3:                         cfg.S3Client,
-		SSM:                        cfg.SSMClient,
-		DDBOps:                     cfg.DDBOps,
-		S3Ops:                      cfg.S3Ops,
-		SSMOps:                     cfg.SSMOps,
-		IAMOps:                     cfg.IAMOps,
-		STSOps:                     cfg.STSOps,
-		SNSOps:                     cfg.SNSOps,
-		SQSOps:                     cfg.SQSOps,
-		KMSOps:                     cfg.KMSOps,
-		SecretsManagerOps:          cfg.SecretsManagerOps,
-		LambdaOps:                  cfg.LambdaOps,
-		EventBridgeOps:             cfg.EventBridgeOps,
-		APIGatewayOps:              cfg.APIGatewayOps,
-		CloudWatchLogsOps:          cfg.CloudWatchLogsOps,
-		StepFunctionsOps:           cfg.StepFunctionsOps,
-		CloudWatchOps:              cfg.CloudWatchOps,
-		CloudFormationOps:          cfg.CloudFormationOps,
-		KinesisOps:                 cfg.KinesisOps,
-		ElastiCacheOps:             cfg.ElastiCacheOps,
-		Route53Ops:                 cfg.Route53Ops,
-		SESOps:                     cfg.SESOps,
-		SESv2Ops:                   cfg.SESv2Ops,
-		EC2Ops:                     cfg.EC2Ops,
-		ECROps:                     cfg.ECROps,
-		ECSOps:                     cfg.ECSOps,
-		EFSOps:                     cfg.EFSOps,
-		IoTOps:                     cfg.IoTOps,
-		FISOps:                     cfg.FISOps,
-		IdentityStoreOps:           cfg.IdentityStoreOps,
-		OpenSearchOps:              cfg.OpenSearchOps,
-		ACMOps:                     cfg.ACMOps,
-		ACMPCAOps:                  cfg.ACMPCAOps,
-		RedshiftOps:                cfg.RedshiftOps,
-		RDSOps:                     cfg.RDSOps,
-		DocDBOps:                   cfg.DocDBOps,
-		AWSConfigOps:               cfg.AWSConfigOps,
-		S3ControlOps:               cfg.S3ControlOps,
-		ResourceGroupsOps:          cfg.ResourceGroupsOps,
-		ResourceGroupsTaggingOps:   cfg.ResourceGroupsTaggingOps,
-		SWFOps:                     cfg.SWFOps,
-		FirehoseOps:                cfg.FirehoseOps,
-		SchedulerOps:               cfg.SchedulerOps,
-		Route53ResolverOps:         cfg.Route53ResolverOps,
-		TranscribeOps:              cfg.TranscribeOps,
-		SupportOps:                 cfg.SupportOps,
-		CognitoIdentityOps:         cfg.CognitoIdentityOps,
-		AppSyncOps:                 cfg.AppSyncOps,
-		CognitoIDPOps:              cfg.CognitoIDPOps,
-		IoTDataPlaneOps:            cfg.IoTDataPlaneOps,
-		APIGatewayManagementAPIOps: cfg.APIGatewayManagementAPIOps,
-		APIGatewayV2Ops:            cfg.APIGatewayV2Ops,
-		AppConfigDataOps:           cfg.AppConfigDataOps,
-		AmplifyOps:                 cfg.AmplifyOps,
-		AthenaOps:                  cfg.AthenaOps,
-		AutoscalingOps:             cfg.AutoscalingOps,
-		BackupOps:                  cfg.BackupOps,
-		CloudTrailOps:              cfg.CloudTrailOps,
-		AppConfigOps:               cfg.AppConfigOps,
-		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
-		BatchOps:                   cfg.BatchOps,
-		BedrockOps:                 cfg.BedrockOps,
-		BedrockRuntimeOps:          cfg.BedrockRuntimeOps,
-		CeOps:                      cfg.CeOps,
-		CloudControlOps:            cfg.CloudControlOps,
-		CloudFrontOps:              cfg.CloudFrontOps,
-		CodeArtifactOps:            cfg.CodeArtifactOps,
-		CodeBuildOps:               cfg.CodeBuildOps,
-		CodeCommitOps:              cfg.CodeCommitOps,
-		CodePipelineOps:            cfg.CodePipelineOps,
-		CodeConnectionsOps:         cfg.CodeConnectionsOps,
-		CodeDeployOps:              cfg.CodeDeployOps,
-		DMSOps:                     cfg.DMSOps,
-		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
-		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
-		ElasticbeanstalkOps:        cfg.ElasticbeanstalkOps,
-		ElasticsearchOps:           cfg.ElasticsearchOps,
-		EKSOps:                     cfg.EKSOps,
-		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
-		ELBOps:                     cfg.ELBOps,
-		ELBv2Ops:                   cfg.ELBv2Ops,
-		EmrServerlessOps:           cfg.EmrServerlessOps,
-		EMROps:                     cfg.EMROps,
-		GlacierOps:                 cfg.GlacierOps,
-		IoTAnalyticsOps:            cfg.IoTAnalyticsOps,
-		IoTWirelessOps:             cfg.IoTWirelessOps,
-		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
-		GlueOps:                    cfg.GlueOps,
-		KafkaOps:                   cfg.KafkaOps,
-		KinesisAnalyticsV2Ops:      cfg.KinesisAnalyticsV2Ops,
-		LakeFormationOps:           cfg.LakeFormationOps,
-		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
-		MediaStoreOps:              cfg.MediaStoreOps,
-		MemoryDBOps:                cfg.MemoryDBOps,
-		OrganizationsOps:           cfg.OrganizationsOps,
-		GlobalConfig:               cfg.GlobalConfig,
-		ConfigManager:              cfg.ConfigManager,
-		Logger:                     cfg.Logger,
-		FaultStore:                 cfg.FaultStore,
-		layout:                     tmpl,
-		ddbProvider:                ddbbackend.NewDashboardProvider(),
-		s3Provider:                 s3backend.NewDashboardProvider(),
-		SubRouter:                  echo.New(),
-	}
-	h.applyNewestOps(cfg)
-
-	return h
-}
-
-// applyNewestOps sets the most recently added service handler fields on the DashboardHandler.
-// It is extracted from newDashboardHandler to satisfy the funlen limit.
-func (h *DashboardHandler) applyNewestOps(cfg Config) {
-	h.KafkaOps = cfg.KafkaOps
-	h.KinesisAnalyticsV2Ops = cfg.KinesisAnalyticsV2Ops
-	h.LakeFormationOps = cfg.LakeFormationOps
-	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
-	h.MediaConvertOps = cfg.MediaConvertOps
-	h.MQOps = cfg.MQOps
-	h.MediaStoreDataOps = cfg.MediaStoreDataOps
-	h.MWAAOps = cfg.MWAAOps
-	h.PinpointOps = cfg.PinpointOps
-	h.NeptuneOps = cfg.NeptuneOps
-	h.PipesOps = cfg.PipesOps
-	h.QLDBOps = cfg.QLDBOps
-	h.QLDBSessionOps = cfg.QLDBSessionOps
-	h.RDSDataOps = cfg.RDSDataOps
-	h.RAMOps = cfg.RAMOps
-	h.RedshiftDataOps = cfg.RedshiftDataOps
-	h.SageMakerOps = cfg.SageMakerOps
-	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
-	h.ServiceDiscoveryOps = cfg.ServiceDiscoveryOps
-	h.ServerlessRepoOps = cfg.ServerlessRepoOps
-	h.ShieldOps = cfg.ShieldOps
-	h.SsoAdminOps = cfg.SsoAdminOps
-	h.TextractOps = cfg.TextractOps
-	h.TimestreamWriteOps = cfg.TimestreamWriteOps
-	h.TimestreamQueryOps = cfg.TimestreamQueryOps
-	h.TransferOps = cfg.TransferOps
-	h.VerifiedPermissionsOps = cfg.VerifiedPermissionsOps
-	h.Wafv2Ops = cfg.Wafv2Ops
-	h.XrayOps = cfg.XrayOps
-	h.S3TablesOps = cfg.S3TablesOps
-}
-
-// initHandlers wires provider callbacks and sets up the subrouter.
-func (h *DashboardHandler) initHandlers(logger *slog.Logger) {
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
-
-	// Embed middleware: when ?embed=1 is present, set a response header flag
-	// so renderTemplate can skip the layout wrapper.
-	h.SubRouter.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			if c.Request().URL.Query().Get("embed") == "1" {
-				c.Response().Header().Set("X-Embed-Mode", "1")
-			}
-
-			return next(c)
-		}
-	})
-
-	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
-	h.s3Provider.Handlers.HandleS3 = h.handleS3
-	h.setupSubRouter()
-}
-
-func (h *DashboardHandler) serveDashboard2(c *echo.Context) error {
-	dashboard2FS, err := fs.Sub(staticFS, "static/dashboard2")
-	if err != nil {
-		return c.String(http.StatusNotFound, "dashboard2 build assets not found")
-	}
-
-	cleanPath := strings.TrimPrefix(c.Request().URL.Path, "/dashboard2")
-	if cleanPath == "" || cleanPath == "/" {
-		http.ServeFileFS(c.Response(), c.Request(), dashboard2FS, "index.html")
-
-		return nil
-	}
-
-	relPath := strings.TrimPrefix(path.Clean(cleanPath), "/")
-	file, openErr := dashboard2FS.Open(relPath)
-	if openErr == nil {
-		defer file.Close()
-		stat, statErr := file.Stat()
-		if statErr == nil && !stat.IsDir() {
-			http.ServeFileFS(c.Response(), c.Request(), dashboard2FS, relPath)
-
-			return nil
-		}
-	}
-
-	http.ServeFileFS(c.Response(), c.Request(), dashboard2FS, "index.html")
-
-	return nil
-}
-
-func (h *DashboardHandler) setupStaticAndRootRoutes() {
-	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
-		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
-			ServeHTTP(c.Response(), c.Request())
-
-		return nil
-	})
-	h.SubRouter.GET("/dashboard2", h.serveDashboard2)
-	h.SubRouter.GET("/dashboard2/*", h.serveDashboard2)
-	h.SubRouter.GET("/dashboard", h.dashboardIndex)
-	h.SubRouter.GET("/dashboard/", h.dashboardIndex)
-	h.SubRouter.GET("/dashboard/console", h.consoleIndex)
-	h.SubRouter.GET("/dashboard/api/console", h.consoleAPI)
-	h.SubRouter.GET("/dashboard/api/console/stream", h.consoleAPIStream)
-
-	// Register Connect-RPC server
-	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(NewConnectDashboardServer())
-	h.SubRouter.Any(connectPath+"*", echo.WrapHandler(connectHandler))
-}
-
-func (h *DashboardHandler) setupProviderRoutes() {
-	if h.ddbProvider != nil {
-		ddbGroup := h.SubRouter.Group("/dashboard/dynamodb")
-		h.ddbProvider.RegisterDashboardRoutes(ddbGroup, nil, "")
-	}
-	if h.s3Provider != nil {
-		s3Group := h.SubRouter.Group("/dashboard/s3")
-		h.s3Provider.RegisterDashboardRoutes(s3Group, nil, "")
+	return &DashboardHandler{
+		FaultStore:    cfg.FaultStore,
+		ConfigManager: cfg.ConfigManager,
+		GlobalConfig:  cfg.GlobalConfig,
+		Logger:        cfg.Logger,
 	}
 }
 
-func (h *DashboardHandler) setupSSMRoutes() {
-	h.SubRouter.GET("/dashboard/ssm", h.ssmIndex)
-	h.SubRouter.GET("/dashboard/ssm/history", h.ssmParameterHistory)
-	h.SubRouter.GET("/dashboard/ssm/modal/put", h.ssmPutModal)
-	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
-	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)
+// Name returns the service name.
+func (h *DashboardHandler) Name() string {
+	return "Dashboard"
 }
 
-func (h *DashboardHandler) setupIAMRoutes() {
-	h.SubRouter.GET("/dashboard/iam", h.iamIndex)
-	h.SubRouter.POST("/dashboard/iam/user", h.iamCreateUser)
-	h.SubRouter.DELETE("/dashboard/iam/user", h.iamDeleteUser)
-	h.SubRouter.POST("/dashboard/iam/role", h.iamCreateRole)
-	h.SubRouter.DELETE("/dashboard/iam/role", h.iamDeleteRole)
-	h.SubRouter.POST("/dashboard/iam/policy", h.iamCreatePolicy)
-	h.SubRouter.DELETE("/dashboard/iam/policy", h.iamDeletePolicy)
-	h.SubRouter.POST("/dashboard/iam/group", h.iamCreateGroup)
-	h.SubRouter.DELETE("/dashboard/iam/group", h.iamDeleteGroup)
-	h.SubRouter.GET("/dashboard/sts", h.stsIndex)
-}
-
-func (h *DashboardHandler) setupSNSRoutes() {
-	h.SubRouter.GET("/dashboard/sns", h.snsIndex)
-	h.SubRouter.POST("/dashboard/sns/create", h.snsCreateTopic)
-	h.SubRouter.DELETE("/dashboard/sns/delete", h.snsDeleteTopic)
-	h.SubRouter.GET("/dashboard/sns/topic", h.snsTopicDetail)
-	h.SubRouter.POST("/dashboard/sns/topic/subscribe", h.snsSubscribeToTopic)
-	h.SubRouter.DELETE("/dashboard/sns/topic/subscribe", h.snsUnsubscribeFromTopic)
-	h.SubRouter.POST("/dashboard/sns/topic/publish", h.snsPublishMessage)
-}
-
-func (h *DashboardHandler) setupSQSRoutes() {
-	h.SubRouter.GET("/dashboard/sqs", h.sqsIndex)
-	h.SubRouter.GET("/dashboard/sqs/create", h.sqsCreateQueueModal)
-	h.SubRouter.POST("/dashboard/sqs/create", h.sqsCreateQueue)
-	h.SubRouter.DELETE("/dashboard/sqs/delete", h.sqsDeleteQueue)
-	h.SubRouter.POST("/dashboard/sqs/purge", h.sqsPurgeQueue)
-	h.SubRouter.GET("/dashboard/sqs/queue", h.sqsQueueDetail)
-	h.SubRouter.POST("/dashboard/sqs/message", h.sqsSendMessage)
-	h.SubRouter.GET("/dashboard/sqs/messages", h.sqsReceiveMessages)
-}
-
-func (h *DashboardHandler) setupKMSRoutes() {
-	h.SubRouter.GET("/dashboard/kms", h.kmsIndex)
-	h.SubRouter.POST("/dashboard/kms/create", h.kmsCreateKey)
-	h.SubRouter.GET("/dashboard/kms/key", h.kmsKeyDetail)
-	h.SubRouter.POST("/dashboard/kms/encrypt", h.kmsEncrypt)
-	h.SubRouter.POST("/dashboard/kms/decrypt", h.kmsDecrypt)
-}
-
-func (h *DashboardHandler) setupSecretsManagerRoutes() {
-	h.SubRouter.GET("/dashboard/secretsmanager", h.secretsManagerIndex)
-	h.SubRouter.POST("/dashboard/secretsmanager/create", h.secretsManagerCreate)
-	h.SubRouter.POST("/dashboard/secretsmanager/update", h.secretsManagerUpdate)
-	h.SubRouter.DELETE("/dashboard/secretsmanager/delete", h.secretsManagerDelete)
-	h.SubRouter.GET("/dashboard/secretsmanager/secret", h.secretsManagerDetail)
-}
-
-func (h *DashboardHandler) setupLambdaRoutes() {
-	h.SubRouter.GET("/dashboard/lambda", h.lambdaIndex)
-	h.SubRouter.GET("/dashboard/lambda/function", h.lambdaFunctionDetail)
-	h.SubRouter.POST("/dashboard/lambda/invoke", h.lambdaInvoke)
-}
-
-func (h *DashboardHandler) setupEventBridgeRoutes() {
-	h.SubRouter.GET("/dashboard/eventbridge", h.eventBridgeIndex)
-	h.SubRouter.GET("/dashboard/eventbridge/rules", h.eventBridgeRules)
-	h.SubRouter.GET("/dashboard/eventbridge/events", h.eventBridgeEventLog)
-}
-
-func (h *DashboardHandler) setupAPIGatewayRoutes() {
-	h.SubRouter.GET("/dashboard/apigateway", h.apiGatewayIndex)
-	h.SubRouter.GET("/dashboard/apigateway/api", h.apiGatewayDetail)
-}
-
-func (h *DashboardHandler) setupCloudWatchLogsRoutes() {
-	h.SubRouter.GET("/dashboard/cloudwatchlogs", h.cloudWatchLogsIndex)
-	h.SubRouter.GET("/dashboard/cloudwatchlogs/group", h.cloudWatchLogsGroupDetail)
-	h.SubRouter.GET("/dashboard/cloudwatchlogs/stream", h.cloudWatchLogsStreamDetail)
-}
-
-func (h *DashboardHandler) setupStepFunctionsRoutes() {
-	h.SubRouter.GET("/dashboard/stepfunctions", h.stepFunctionsIndex)
-	h.SubRouter.GET("/dashboard/stepfunctions/statemachine", h.stepFunctionsStateMachineDetail)
-	h.SubRouter.GET("/dashboard/stepfunctions/execution", h.stepFunctionsExecutionDetail)
-}
-
-func (h *DashboardHandler) setupCloudWatchRoutes() {
-	h.SubRouter.GET("/dashboard/cloudwatch", h.cloudWatchIndex)
-}
-
-func (h *DashboardHandler) setupCloudFormationRoutes() {
-	h.SubRouter.GET("/dashboard/cloudformation", h.cloudFormationIndex)
-	h.SubRouter.GET("/dashboard/cloudformation/stack", h.cloudFormationStackDetail)
-}
-
-func (h *DashboardHandler) setupKinesisRoutes() {
-	h.SubRouter.GET("/dashboard/kinesis", h.kinesisIndex)
-	h.SubRouter.GET("/dashboard/kinesis/stream", h.kinesisStreamDetail)
-	h.SubRouter.POST("/dashboard/kinesis/create", h.kinesisCreateStream)
-	h.SubRouter.DELETE("/dashboard/kinesis/delete", h.kinesisDeleteStream)
-	h.SubRouter.POST("/dashboard/kinesis/record", h.kinesisPutRecord)
-}
-
-func (h *DashboardHandler) setupElastiCacheRoutes() {
-	h.SubRouter.GET("/dashboard/elasticache", h.elastiCacheIndex)
-	h.SubRouter.GET("/dashboard/elasticache/cluster", h.elastiCacheClusterDetail)
-	h.SubRouter.POST("/dashboard/elasticache/create", h.elastiCacheCreateCluster)
-	h.SubRouter.DELETE("/dashboard/elasticache/delete", h.elastiCacheDeleteCluster)
-}
-
-func (h *DashboardHandler) setupSESRoutes() {
-	h.SubRouter.GET("/dashboard/ses", h.sesIndex)
-	h.SubRouter.GET("/dashboard/ses/email", h.sesEmailDetail)
-	h.SubRouter.POST("/dashboard/ses/identity/verify", h.sesVerifyIdentity)
-	h.SubRouter.POST("/dashboard/ses/identity/delete", h.sesDeleteIdentity)
-}
-
-func (h *DashboardHandler) setupRoute53Routes() {
-	h.SubRouter.GET("/dashboard/route53", h.route53Index)
-	h.SubRouter.GET("/dashboard/route53/zone", h.route53ZoneDetail)
-	h.SubRouter.POST("/dashboard/route53/create", h.route53CreateZone)
-	h.SubRouter.DELETE("/dashboard/route53/delete", h.route53DeleteZone)
-	h.SubRouter.POST("/dashboard/route53/record", h.route53CreateRecord)
-	h.SubRouter.DELETE("/dashboard/route53/record", h.route53DeleteRecord)
-	h.SubRouter.GET("/dashboard/route53/healthchecks", h.route53HealthCheckIndex)
-	h.SubRouter.POST("/dashboard/route53/healthchecks/create", h.route53CreateHealthCheck)
-	h.SubRouter.DELETE("/dashboard/route53/healthchecks/delete", h.route53DeleteHealthCheck)
-}
-
-func (h *DashboardHandler) setupEC2Routes() {
-	h.SubRouter.GET("/dashboard/ec2", h.ec2Index)
-}
-
-func (h *DashboardHandler) setupECRRoutes() {
-	h.SubRouter.GET("/dashboard/ecr", h.ecrIndex)
-	h.SubRouter.POST("/dashboard/ecr/repository/create", h.ecrCreateRepository)
-	h.SubRouter.POST("/dashboard/ecr/repository/delete", h.ecrDeleteRepository)
-}
-
-func (h *DashboardHandler) setupECSRoutes() {
-	h.SubRouter.GET("/dashboard/ecs", h.ecsIndex)
-	h.SubRouter.POST("/dashboard/ecs/cluster/create", h.ecsCreateCluster)
-	h.SubRouter.POST("/dashboard/ecs/cluster/delete", h.ecsDeleteCluster)
-}
-
-func (h *DashboardHandler) setupIoTRoutes() {
-	h.SubRouter.GET("/dashboard/iot", h.iotIndex)
-	h.SubRouter.POST("/dashboard/iot/thing/create", h.iotCreateThing)
-	h.SubRouter.POST("/dashboard/iot/thing/delete", h.iotDeleteThing)
-}
-
-func (h *DashboardHandler) setupOpenSearchRoutes() {
-	h.SubRouter.GET("/dashboard/opensearch", h.opensearchIndex)
-	h.SubRouter.GET("/dashboard/opensearch/domain", h.opensearchDomainDetail)
-	h.SubRouter.POST("/dashboard/opensearch/create", h.opensearchCreateDomain)
-	h.SubRouter.POST("/dashboard/opensearch/delete", h.opensearchDeleteDomain)
-}
-
-func (h *DashboardHandler) setupElasticsearchRoutes() {
-	h.SubRouter.GET("/dashboard/elasticsearch", h.elasticsearchIndex)
-	h.SubRouter.POST("/dashboard/elasticsearch/create", h.elasticsearchCreateDomain)
-	h.SubRouter.POST("/dashboard/elasticsearch/delete", h.elasticsearchDeleteDomain)
-}
-
-func (h *DashboardHandler) setupACMRoutes() {
-	h.SubRouter.GET("/dashboard/acm", h.acmIndex)
-	h.SubRouter.POST("/dashboard/acm/request", h.acmRequestCertificate)
-	h.SubRouter.POST("/dashboard/acm/delete", h.acmDeleteCertificate)
-}
-
-func (h *DashboardHandler) setupACMPCARoutes() {
-	h.SubRouter.GET("/dashboard/acmpca", h.acmpcaIndex)
-	h.SubRouter.POST("/dashboard/acmpca/create", h.acmpcaCreateCA)
-	h.SubRouter.POST("/dashboard/acmpca/delete", h.acmpcaDeleteCA)
-}
-
-func (h *DashboardHandler) setupRedshiftRoutes() {
-	h.SubRouter.GET("/dashboard/redshift", h.redshiftIndex)
-	h.SubRouter.POST("/dashboard/redshift/create", h.redshiftCreateCluster)
-	h.SubRouter.POST("/dashboard/redshift/delete", h.redshiftDeleteCluster)
-}
-
-func (h *DashboardHandler) setupRDSRoutes() {
-	h.SubRouter.GET("/dashboard/rds", h.rdsIndex)
-	h.SubRouter.GET("/dashboard/rds/instance", h.rdsInstanceDetail)
-	h.SubRouter.POST("/dashboard/rds/create", h.rdsCreateInstance)
-	h.SubRouter.POST("/dashboard/rds/delete", h.rdsDeleteInstance)
-}
-
-func (h *DashboardHandler) setupDocDBRoutes() {
-	h.SubRouter.GET("/dashboard/docdb", h.docdbIndex)
-	h.SubRouter.POST("/dashboard/docdb/create", h.docdbCreateCluster)
-	h.SubRouter.POST("/dashboard/docdb/delete", h.docdbDeleteCluster)
-}
-
-func (h *DashboardHandler) setupAWSConfigRoutes() {
-	h.SubRouter.GET("/dashboard/awsconfig", h.awsconfigIndex)
-	h.SubRouter.POST("/dashboard/awsconfig/recorder", h.awsconfigPutRecorder)
-}
-
-func (h *DashboardHandler) setupS3ControlRoutes() {
-	h.SubRouter.GET("/dashboard/s3control", h.s3controlIndex)
-	h.SubRouter.POST("/dashboard/s3control/config", h.s3controlPutConfig)
-}
-
-func (h *DashboardHandler) setupResourceGroupsRoutes() {
-	h.SubRouter.GET("/dashboard/resourcegroups", h.resourcegroupsIndex)
-	h.SubRouter.POST("/dashboard/resourcegroups/create", h.resourcegroupsCreate)
-	h.SubRouter.POST("/dashboard/resourcegroups/delete", h.resourcegroupsDelete)
-}
-
-func (h *DashboardHandler) setupResourceGroupsTaggingRoutes() {
-	h.SubRouter.GET("/dashboard/resourcegroupstaggingapi", h.resourcegroupstaggingapiIndex)
-}
-
-func (h *DashboardHandler) setupSWFRoutes() {
-	h.SubRouter.GET("/dashboard/swf", h.swfIndex)
-	h.SubRouter.POST("/dashboard/swf/register", h.swfRegisterDomain)
-}
-
-func (h *DashboardHandler) setupSchedulerRoutes() {
-	h.SubRouter.GET("/dashboard/scheduler", h.schedulerIndex)
-	h.SubRouter.POST("/dashboard/scheduler/create", h.schedulerCreate)
-	h.SubRouter.POST("/dashboard/scheduler/delete", h.schedulerDelete)
-}
-
-func (h *DashboardHandler) setupRoute53ResolverRoutes() {
-	h.SubRouter.GET("/dashboard/route53resolver", h.route53resolverIndex)
-	h.SubRouter.POST("/dashboard/route53resolver/create", h.route53resolverCreateEndpoint)
-	h.SubRouter.POST("/dashboard/route53resolver/delete", h.route53resolverDeleteEndpoint)
-}
-
-func (h *DashboardHandler) setupFirehoseRoutes() {
-	h.SubRouter.GET("/dashboard/firehose", h.firehoseIndex)
-	h.SubRouter.POST("/dashboard/firehose/create", h.firehoseCreate)
-	h.SubRouter.POST("/dashboard/firehose/delete", h.firehoseDelete)
-}
-
-func (h *DashboardHandler) setupTranscribeRoutes() {
-	h.SubRouter.GET("/dashboard/transcribe", h.transcribeIndex)
-	h.SubRouter.POST("/dashboard/transcribe/start", h.transcribeStartJob)
-}
-
-func (h *DashboardHandler) setupSupportRoutes() {
-	h.SubRouter.GET("/dashboard/support", h.supportIndex)
-	h.SubRouter.POST("/dashboard/support/create", h.supportCreateCase)
-}
-
-func (h *DashboardHandler) setupCognitoIdentityRoutes() {
-	h.SubRouter.GET("/dashboard/cognitoidentity", h.cognitoIdentityIndex)
-}
-
-func (h *DashboardHandler) setupAmplifyRoutes() {
-	h.SubRouter.GET("/dashboard/amplify", h.amplifyIndex)
-}
-
-func (h *DashboardHandler) setupAthenaRoutes() {
-	h.SubRouter.GET("/dashboard/athena", h.athenaIndex)
-	h.SubRouter.GET("/dashboard/athena/workgroup", h.athenaDetail)
-}
-
-func (h *DashboardHandler) setupAutoscalingRoutes() {
-	h.SubRouter.GET("/dashboard/autoscaling", h.autoscalingIndex)
-}
-
-func (h *DashboardHandler) setupBackupRoutes() {
-	h.SubRouter.GET("/dashboard/backup", h.backupIndex)
-	h.SubRouter.POST("/dashboard/backup/vault/create", h.backupCreateVault)
-	h.SubRouter.POST("/dashboard/backup/vault/delete", h.backupDeleteVault)
-}
-
-func (h *DashboardHandler) setupCloudTrailRoutes() {
-	h.SubRouter.GET("/dashboard/cloudtrail", h.cloudtrailIndex)
-	h.SubRouter.POST("/dashboard/cloudtrail/trail/create", h.cloudtrailCreateTrail)
-	h.SubRouter.POST("/dashboard/cloudtrail/trail/delete", h.cloudtrailDeleteTrail)
-}
-
-func (h *DashboardHandler) setupCloudFrontRoutes() {
-	h.SubRouter.GET("/dashboard/cloudfront", h.cloudfrontIndex)
-	h.SubRouter.POST("/dashboard/cloudfront/distribution/create", h.cloudfrontCreateDistribution)
-	h.SubRouter.POST("/dashboard/cloudfront/distribution/delete", h.cloudfrontDeleteDistribution)
-}
-
-func (h *DashboardHandler) setupCodeArtifactRoutes() {
-	h.SubRouter.GET("/dashboard/codeartifact", h.codeartifactIndex)
-	h.SubRouter.POST("/dashboard/codeartifact/domain/create", h.codeartifactCreateDomain)
-	h.SubRouter.POST("/dashboard/codeartifact/domain/delete", h.codeartifactDeleteDomain)
-}
-
-func (h *DashboardHandler) setupAppConfigRoutes() {
-	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
-	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
-	h.SubRouter.POST("/dashboard/appconfig/application/delete", h.appConfigDeleteApplication)
-}
-
-func (h *DashboardHandler) setupApplicationAutoscalingRoutes() {
-	h.SubRouter.GET("/dashboard/applicationautoscaling", h.applicationautoscalingIndex)
-	h.SubRouter.POST("/dashboard/applicationautoscaling/create", h.applicationautoscalingCreate)
-	h.SubRouter.POST("/dashboard/applicationautoscaling/delete", h.applicationautoscalingDelete)
-}
-
-func (h *DashboardHandler) setupEFSRoutes() {
-	h.SubRouter.GET("/dashboard/efs", h.efsIndex)
-	h.SubRouter.POST("/dashboard/efs/filesystem/create", h.efsCreateFileSystem)
-	h.SubRouter.POST("/dashboard/efs/filesystem/delete", h.efsDeleteFileSystem)
-}
-
-func (h *DashboardHandler) setupELBRoutes() {
-	h.SubRouter.GET("/dashboard/elb", h.elbIndex)
-	h.SubRouter.POST("/dashboard/elb/loadbalancer/create", h.elbCreateLoadBalancer)
-	h.SubRouter.POST("/dashboard/elb/loadbalancer/delete", h.elbDeleteLoadBalancer)
-}
-
-func (h *DashboardHandler) setupELBv2Routes() {
-	h.SubRouter.GET("/dashboard/elbv2", h.elbv2Index)
-	h.SubRouter.POST("/dashboard/elbv2/loadbalancer/create", h.elbv2CreateLoadBalancer)
-	h.SubRouter.POST("/dashboard/elbv2/loadbalancer/delete", h.elbv2DeleteLoadBalancer)
-}
-
-func (h *DashboardHandler) setupAppSyncRoutes() {
-	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
-}
-
-func (h *DashboardHandler) setupIoTDataPlaneRoutes() {
-	h.SubRouter.GET("/dashboard/iotdataplane", h.iotDataPlaneIndex)
-}
-
-func (h *DashboardHandler) setupAPIGatewayManagementAPIRoutes() {
-	h.SubRouter.GET("/dashboard/apigatewaymanagementapi", h.apiGatewayManagementAPIIndex)
-	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/create", h.apiGatewayManagementAPICreateConnection)
-	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/delete", h.apiGatewayManagementAPIDeleteConnection)
-}
-
-func (h *DashboardHandler) setupAPIGatewayV2Routes() {
-	h.SubRouter.GET("/dashboard/apigatewayv2", h.apiGatewayV2Index)
-	h.SubRouter.GET("/dashboard/apigatewayv2/api", h.apiGatewayV2Detail)
-}
-
-func (h *DashboardHandler) setupAppConfigDataRoutes() {
-	h.SubRouter.GET("/dashboard/appconfigdata", h.appConfigDataIndex)
-	h.SubRouter.POST("/dashboard/appconfigdata/configuration/set", h.appConfigDataSetConfiguration)
-	h.SubRouter.POST("/dashboard/appconfigdata/configuration/delete", h.appConfigDataDeleteProfile)
-}
-
-func (h *DashboardHandler) setupCognitoIDPRoutes() {
-	h.SubRouter.GET("/dashboard/cognitoidp", h.cognitoIDPIndex)
-	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/create", h.cognitoIDPCreateUserPool)
-	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/delete", h.cognitoIDPDeleteUserPool)
-}
-
-func (h *DashboardHandler) setupSESv2Routes() {
-	h.SubRouter.GET("/dashboard/sesv2", h.sesv2Index)
-	h.SubRouter.POST("/dashboard/sesv2/identity/create", h.sesv2CreateIdentity)
-	h.SubRouter.POST("/dashboard/sesv2/identity/delete", h.sesv2DeleteIdentity)
-	h.SubRouter.POST("/dashboard/sesv2/configuration-set/create", h.sesv2CreateConfigSet)
-	h.SubRouter.POST("/dashboard/sesv2/configuration-set/delete", h.sesv2DeleteConfigSet)
-}
-
-func (h *DashboardHandler) setupMetaRoutes() {
-	dashboardGroup := h.SubRouter.Group("/dashboard")
-	RegisterMetricsHandlers(dashboardGroup, h)
-	h.SubRouter.GET("/dashboard/settings", h.settingsIndex)
-	h.SubRouter.POST("/dashboard/settings/update", h.settingsUpdate)
-	h.SubRouter.GET("/dashboard/api/regions", h.apiRegions)
-}
-
-func (h *DashboardHandler) setupSubRouter() {
-	h.setupStaticAndRootRoutes()
-	h.setupProviderRoutes()
-	h.setupSSMRoutes()
-	h.setupIAMRoutes()
-	h.setupSNSRoutes()
-	h.setupSQSRoutes()
-	h.setupKMSRoutes()
-	h.setupSecretsManagerRoutes()
-	h.setupLambdaRoutes()
-	h.setupEventBridgeRoutes()
-	h.setupAPIGatewayRoutes()
-	h.setupCloudWatchLogsRoutes()
-	h.setupStepFunctionsRoutes()
-	h.setupCloudWatchRoutes()
-	h.setupCloudFormationRoutes()
-	h.setupKinesisRoutes()
-	h.setupElastiCacheRoutes()
-	h.setupRoute53Routes()
-	h.setupSESRoutes()
-	h.setupSESv2Routes()
-	h.setupEC2Routes()
-	h.setupECRRoutes()
-	h.setupECSRoutes()
-	h.setupIoTRoutes()
-	h.setupFISRoutes()
-	h.setupElasticsearchRoutes()
-	h.setupOpenSearchRoutes()
-	h.setupACMRoutes()
-	h.setupACMPCARoutes()
-	h.setupRedshiftRoutes()
-	h.setupRDSRoutes()
-	h.setupDocDBRoutes()
-	h.setupAWSConfigRoutes()
-	h.setupS3ControlRoutes()
-	h.setupResourceGroupsRoutes()
-	h.setupResourceGroupsTaggingRoutes()
-	h.setupSWFRoutes()
-	h.setupFirehoseRoutes()
-	h.setupSchedulerRoutes()
-	h.setupRoute53ResolverRoutes()
-	h.setupTranscribeRoutes()
-	h.setupSupportRoutes()
-	h.setupExtendedServiceRoutes()
-	h.setupChaosRoutes()
-	h.setupMetaRoutes()
-}
-
-// setupExtendedServiceRoutes registers routes for services added after the initial set.
-func (h *DashboardHandler) setupExtendedServiceRoutes() {
-	h.setupCognitoIdentityRoutes()
-	h.setupAppSyncRoutes()
-	h.setupCognitoIDPRoutes()
-	h.setupIoTDataPlaneRoutes()
-	h.setupAPIGatewayManagementAPIRoutes()
-	h.setupAPIGatewayV2Routes()
-	h.setupRecentServiceRoutes()
-	h.setupAthenaRoutes()
-	h.setupBackupRoutes()
-	h.setupCloudTrailRoutes()
-	h.setupBedrockRuntimeRoutes()
-	h.setupCloudFrontRoutes()
-	h.setupCodeArtifactRoutes()
-	h.setupCodeConnectionsRoutes()
-	h.setupCodeCommitRoutes()
-	h.setupCodeDeployRoutes()
-	h.setupDMSRoutes()
-	h.setupCodeStarConnectionsRoutes()
-}
-
-// setupRecentServiceRoutes sets up dashboard routes for recently-added services.
-func (h *DashboardHandler) setupRecentServiceRoutes() {
-	h.setupAppConfigDataRoutes()
-	h.setupAmplifyRoutes()
-	h.setupAppConfigRoutes()
-	h.setupAutoscalingRoutes()
-	h.setupApplicationAutoscalingRoutes()
-	h.setupBatchRoutes()
-	h.setupBedrockRoutes()
-	h.setupCeRoutes()
-	h.setupCloudControlRoutes()
-	h.setupCodeBuildRoutes()
-	h.setupCodePipelineRoutes()
-	h.setupDynamoDBStreamsRoutes()
-	h.setupElasticbeanstalkRoutes()
-	h.setupEFSRoutes()
-	h.setupEKSRoutes()
-	h.setupElasticTranscoderRoutes()
-	h.setupELBRoutes()
-	h.setupELBv2Routes()
-	h.setupEmrServerlessRoutes()
-	h.setupEMRRoutes()
-	h.setupIdentityStoreRoutes()
-	h.setupNewestServiceRoutes()
-}
-
-// setupNewestServiceRoutes sets up dashboard routes for the newest services.
-func (h *DashboardHandler) setupNewestServiceRoutes() {
-	h.setupGlacierRoutes()
-	h.setupIoTAnalyticsRoutes()
-	h.setupIoTWirelessRoutes()
-	h.setupKinesisAnalyticsRoutes()
-	h.setupGlueRoutes()
-	h.setupKafkaRoutes()
-	h.setupKinesisAnalyticsV2Routes()
-	h.setupLakeFormationRoutes()
-	h.setupManagedBlockchainRoutes()
-	h.setupMediaConvertRoutes()
-	h.setupMQRoutes()
-	h.setupMediaStoreRoutes()
-	h.setupMediaStoreDataRoutes()
-	h.setupMemoryDBRoutes()
-	h.setupLatestServiceRoutes()
-}
-
-// setupLatestServiceRoutes registers routes for the most recently added services.
-func (h *DashboardHandler) setupLatestServiceRoutes() {
-	h.setupMWAARoutes()
-	h.setupOrganizationsRoutes()
-	h.setupPinpointRoutes()
-	h.setupNeptuneRoutes()
-	h.setupPipesRoutes()
-	h.setupQLDBRoutes()
-	h.setupQLDBSessionRoutes()
-	h.setupRDSDataRoutes()
-	h.setupRAMRoutes()
-	h.setupRedshiftDataRoutes()
-	h.setupSageMakerRoutes()
-	h.setupSageMakerRuntimeRoutes()
-	h.setupServiceDiscoveryRoutes()
-	h.setupServerlessRepoRoutes()
-	h.setupShieldRoutes()
-	h.setupSsoAdminRoutes()
-	h.setupTextractRoutes()
-	h.setupTimestreamWriteRoutes()
-	h.setupTimestreamQueryRoutes()
-	h.setupTransferRoutes()
-	h.setupVerifiedPermissionsRoutes()
-	h.setupWafv2Routes()
-	h.setupXrayRoutes()
-	h.setupS3TablesRoutes()
-}
-
-// Handler returns the HTTP handler for the dashboard.
+// Handler returns the Echo handler function for this service.
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		h.mu.RLock()
-		if h.SubRouter == nil {
-			h.mu.RUnlock()
+		sr := h.SubRouter
+		h.mu.RUnlock()
+
+		if sr == nil {
 			h.mu.Lock()
 			if h.SubRouter == nil {
 				h.SubRouter = echo.New()
 				h.setupSubRouter()
 			}
+			sr = h.SubRouter
 			h.mu.Unlock()
-			h.mu.RLock()
 		}
-		defer h.mu.RUnlock()
 
-		h.SubRouter.ServeHTTP(c.Response(), c.Request())
-
+		sr.ServeHTTP(c.Response(), c.Request())
 		return nil
 	}
 }
 
-// getGlobalConfig returns the shared GlobalConfig pointer, or a default if not set.
-func (h *DashboardHandler) getGlobalConfig() *config.GlobalConfig {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+// setupSubRouter registers all routes for the dashboard.
+func (h *DashboardHandler) setupSubRouter() {
+	// Static assets
+	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
+		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
+			ServeHTTP(c.Response(), c.Request())
+		return nil
+	})
 
-	if h.GlobalConfig != nil {
-		return h.GlobalConfig
+	// Connect-RPC server
+	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(NewConnectDashboardServer())
+	h.SubRouter.Any(connectPath+"*", echo.WrapHandler(connectHandler))
+
+	// SPA fallback
+	h.SubRouter.Any("/dashboard/*", h.spaFallbackHandler())
+	h.SubRouter.Any("/dashboard", func(c *echo.Context) error {
+		return c.Redirect(http.StatusMovedPermanently, "/dashboard/")
+	})
+}
+
+// spaFallbackHandler serves the Svelte SPA.
+func (h *DashboardHandler) spaFallbackHandler() echo.HandlerFunc {
+	spaSubFS, err := fs.Sub(spaFS, "static/spa")
+	if err != nil {
+		panic("could not create subdirectory fs for static/spa: " + err.Error())
 	}
 
-	// Fallback to a default configuration if not provided (e.g., in unit tests).
-	return config.NewGlobalConfig(
-		config.DefaultAccountID,
-		config.DefaultRegion,
-		0,
-		0,
-		false,
-		0,
-	)
+	return func(c *echo.Context) error {
+		reqPath := c.Request().URL.Path
+
+		// Let Connect-RPC and static routes pass through if they reached here
+		if strings.HasPrefix(reqPath, "/dashboard/static/") || strings.HasPrefix(reqPath, "/dashboard/api/") {
+			return echo.ErrNotFound
+		}
+
+		// Try to serve a matching SPA asset first
+		if served := trySPAAsset(c, spaSubFS, reqPath); served {
+			return nil
+		}
+
+		// Fallback to index.html for client-side routing
+		http.ServeFileFS(c.Response(), c.Request(), spaSubFS, "index.html")
+		return nil
+	}
 }
 
-// Name returns the service identifier.
-const dashboardName = "Dashboard"
+// trySPAAsset attempts to serve a matching SPA static asset
+func trySPAAsset(c *echo.Context, spaFS fs.FS, reqPath string) bool {
+	cleanPath := strings.TrimPrefix(reqPath, "/dashboard")
+	if cleanPath == "" || cleanPath == "/" {
+		return false
+	}
 
-func (h *DashboardHandler) Name() string {
-	return dashboardName
+	relPath := strings.TrimPrefix(path.Clean(cleanPath), "/")
+
+	file, openErr := spaFS.Open(relPath)
+	if openErr != nil {
+		return false
+	}
+
+	stat, statErr := file.Stat()
+	_ = file.Close()
+
+	if statErr != nil || stat.IsDir() {
+		return false
+	}
+
+	http.ServeFileFS(c.Response(), c.Request(), spaFS, relPath)
+	return true
 }
 
-// RouteMatcher returns a matcher for dashboard requests (by path prefix).
+// RouteMatcher returns a function that determines if the request should be routed to this service.
 func (h *DashboardHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		reqPath := c.Request().URL.Path
@@ -1722,624 +674,28 @@ func (h *DashboardHandler) RouteMatcher() service.Matcher {
 			return method == http.MethodPost
 		}
 
-		// Dashboard UI uses GET, POST, PUT and DELETE (for purge operations).
-		if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut &&
-			method != http.MethodDelete {
-			return false
-		}
-
-		return reqPath == "/dashboard" || strings.HasPrefix(reqPath, "/dashboard/") ||
-			reqPath == "/dashboard2" || strings.HasPrefix(reqPath, "/dashboard2/")
+		// Only match /dashboard and /dashboard2.
+		// Important: Keep it non-greedy to avoid intercepting /_gopherstack/health.
+		return strings.HasPrefix(reqPath, "/dashboard") || strings.HasPrefix(reqPath, "/dashboard2")
 	}
 }
 
-// MatchPriority returns the priority for the Dashboard matcher.
-// Path-based matchers have medium priority (50).
+// MatchPriority returns the priority for this service's matcher.
 func (h *DashboardHandler) MatchPriority() int {
 	return service.PriorityPathUI
 }
 
-// dashboardPathPrefixes maps URL path prefixes to operation names.
-var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table for ExtractOperation
-	prefix string
-	name   string
-}{
-	{"/dynamodb", "DynamoDB"},
-	{"/s3", "S3"},
-	{"/ssm", "SSM"},
-	{"/iam", "IAM"},
-	{"/sts", "STS"},
-	{"/sns", "SNS"},
-	{"/sqs", "SQS"},
-	{"/kms", "KMS"},
-	{"/secretsmanager", "SecretsManager"},
-	{"/lambda", "Lambda"},
-	{"/eventbridge", "EventBridge"},
-	{"/apigatewaymanagementapi", "APIGatewayManagementAPI"},
-	{"/apigatewayv2", "APIGatewayV2"},
-	{"/appconfigdata", "AppConfigData"},
-	{"/apigateway", "APIGateway"},
-	{"/cloudwatchlogs", "CloudWatchLogs"},
-	{"/stepfunctions", "StepFunctions"},
-	{"/cloudwatch", "CloudWatch"},
-	{"/cloudformation", "CloudFormation"},
-	{"/kinesis", "Kinesis"},
-	{"/elasticache", "ElastiCache"},
-	{"/route53", "Route53"},
-	{"/sesv2", "SESv2"},
-	{"/ses", "SES"},
-	{"/ec2", "EC2"},
-	{"/ecr", "ECR"},
-	{"/ecs", "ECS"},
-	{"/iot", "IoT"},
-	{"/fis", "FIS"},
-	{"/elasticsearch", "Elasticsearch"},
-	{"/opensearch", "OpenSearch"},
-	{"/acmpca", "ACMPCA"},
-	{"/acm", "ACM"},
-	{"/redshift", "Redshift"},
-	{"/rds", "RDS"},
-	{"/docdb", "DocDB"},
-	{"/awsconfig", "AWSConfig"},
-	{"/s3control", "S3Control"},
-	{"/resourcegroupstaggingapi", "ResourceGroupsTaggingAPI"},
-	{"/resourcegroups", "ResourceGroups"},
-	{"/swf", "SWF"},
-	{"/firehose", "Firehose"},
-	{"/scheduler", "Scheduler"},
-	{"/route53resolver", "Route53Resolver"},
-	{"/transcribe", "Transcribe"},
-	{"/support", "Support"},
-	{"/cognitoidentity", "CognitoIdentity"},
-	{"/appsync", "AppSync"},
-	{"/cognitoidp", "CognitoIDP"},
-	{"/iotdataplane", "IoTDataPlane"},
-	{"/amplify", "Amplify"},
-	{"/applicationautoscaling", "ApplicationAutoscaling"},
-	{"/batch", "Batch"},
-	{"/bedrock", "Bedrock"},
-	{"/bedrockruntime", "BedrockRuntime"},
-	{"/ce", "Ce"},
-	{"/cloudcontrol", "CloudControl"},
-	{"/athena", "Athena"},
-	{"/autoscaling", "Autoscaling"},
-	{"/appconfig", "AppConfig"},
-	{"/backup", "Backup"},
-	{"/cloudtrail", "CloudTrail"},
-	{"/cloudfront", "CloudFront"},
-	{"/codeartifact", "CodeArtifact"},
-	{"/codebuild", "CodeBuild"},
-	{"/codecommit", "CodeCommit"},
-	{"/codepipeline", "CodePipeline"},
-	{"/codedeploy", "CodeDeploy"},
-	{"/dms", "DMS"},
-	{"/codestarconnections", "CodeStarConnections"},
-	{"/dynamodbstreams", "DynamoDBStreams"},
-	{"/elasticbeanstalk", "Elasticbeanstalk"},
-	{"/efs", "EFS"},
-	{"/elastictranscoder", "ElasticTranscoder"},
-	{"/elb", "ELB"},
-	{"/emrserverless", "EmrServerless"},
-	{"/emr", "EMR"},
-	{"/glue", "Glue"},
-	{"/iotanalytics", "IoTAnalytics"},
-	{"/mediaconvert", "MediaConvert"},
-	{"/mediastore", "MediaStore"},
-	{"/mediastoredata", "MediaStoreData"},
-	{"/neptune", "Neptune"},
-	{"/pipes", "Pipes"},
-	{"/qldb", "QLDB"},
-	{"/rdsdata", "RDSData"},
-	{"/sagemakerrumtime", "SageMakerRuntime"},
-	{"/servicediscovery", "ServiceDiscovery"},
-	{"/textract", "Textract"},
-	{"/timestreamwrite", "TimestreamWrite"},
-	{"/timestreamquery", "TimestreamQuery"},
-	{"/transfer", "Transfer"},
-	{"/verifiedpermissions", "VerifiedPermissions"},
-	{"/wafv2", "Wafv2"},
-	{"/xray", "Xray"},
-	{"/s3tables", "S3Tables"},
-	{"/chaos", "Chaos"},
-	{"/metrics", "Metrics"},
-	{"/docs", "Docs"},
-}
-
-// ExtractOperation returns the dashboard operation based on path.
+// ExtractOperation extracts the operation name from the request.
 func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
-	path := c.Request().URL.Path
-	path, _ = strings.CutPrefix(path, "/dashboard")
-
-	for _, p := range dashboardPathPrefixes {
-		if strings.HasPrefix(path, p.prefix) {
-			return p.name
-		}
-	}
-
-	return "Dashboard"
-}
-
-// ExtractResource returns empty string for dashboard (not resource-specific).
-func (h *DashboardHandler) ExtractResource(_ *echo.Context) string {
 	return ""
 }
 
-// GetSupportedOperations returns an empty list (dashboard is not a primary service).
+// ExtractResource extracts the resource identifier from the request.
+func (h *DashboardHandler) ExtractResource(c *echo.Context) string {
+	return ""
+}
+
+// GetSupportedOperations returns a list of operations supported by the dashboard (none).
 func (h *DashboardHandler) GetSupportedOperations() []string {
-	return []string{}
-}
-
-// renderTemplate renders a page template by cloning the layout and parsing the specific page.
-func (h *DashboardHandler) renderTemplate(w http.ResponseWriter, pageFile string, data any) {
-	// If the X-Embed-Mode header was set by the embed middleware, render content only.
-	embedOnly := w.Header().Get("X-Embed-Mode") == "1"
-	h.doRenderTemplate(w, pageFile, data, embedOnly)
-}
-
-func (h *DashboardHandler) doRenderTemplate(w http.ResponseWriter, pageFile string, data any, embedOnly bool) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	// Clone the layout (which includes components)
-	tmpl, err := h.layout.Clone()
-	if err != nil {
-		h.Logger.Error("Failed to clone layout template", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	// Parse the specific page template
-	// pageFile should be relative to FS root, e.g., "templates/dynamodb/dynamodb_index.html"
-	_, err = tmpl.ParseFS(templateFS, "templates/"+pageFile)
-	if err != nil {
-		h.Logger.Error("Failed to parse page template", "page", pageFile, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	// In embed mode, render only the content block (no layout wrapper).
-	templateName := "layout.html"
-	if embedOnly {
-		templateName = "content"
-	}
-
-	if err = tmpl.ExecuteTemplate(w, templateName, data); err != nil {
-		h.Logger.Error("Failed to execute template", "page", pageFile, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
-}
-
-// renderFragment renders a shared component/fragment.
-func (h *DashboardHandler) renderFragment(w http.ResponseWriter, name string, data any) {
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	}
-
-	// Must clone even for fragments to avoid marking h.layout as executed
-	tmpl, err := h.layout.Clone()
-	if err != nil {
-		h.Logger.Error("Failed to clone layout for fragment", "fragment", name, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	if err = tmpl.ExecuteTemplate(w, name, data); err != nil {
-		h.Logger.Error("Failed to render fragment", "fragment", name, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
-}
-
-// renderTableDetailFragment renders a fragment from the DynamoDB table detail template.
-func (h *DashboardHandler) renderTableDetailFragment(w http.ResponseWriter, fragmentName string, data any) {
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	}
-
-	tmpl, err := h.layout.Clone()
-	if err != nil {
-		h.Logger.Error("Failed to clone layout for page fragment", "fragment", fragmentName, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	_, err = tmpl.ParseFS(templateFS, "templates/dynamodb/table_detail.html")
-	if err != nil {
-		h.Logger.Error(
-			"Failed to parse page template for fragment",
-			"page",
-			"dynamodb/table_detail.html",
-			"fragment",
-			fragmentName,
-			"error",
-			err,
-		)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	if err = tmpl.ExecuteTemplate(w, fragmentName, data); err != nil {
-		h.Logger.Error("Failed to render page fragment",
-			"page", "dynamodb/table_detail.html", "fragment", fragmentName, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
-}
-
-// handleDynamoDB routes DynamoDB UI requests.
-func (h *DashboardHandler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path string) {
-	switch {
-	case path == "" || path == "/":
-		h.dynamoDBIndex(w, r)
-	case path == "/tables":
-		h.dynamoDBTableList(w, r)
-	case path == "/create":
-		h.dynamoDBCreateTable(w, r)
-	case path == "/search":
-		h.dynamoDBSearch(w, r)
-	case path == "/purge":
-		h.dynamoDBPurge(w, r)
-	case strings.HasPrefix(path, "/table/"):
-		tablePath := strings.TrimPrefix(path, "/table/")
-		parts := strings.SplitN(tablePath, "/", pathPartsCount)
-		tableName := parts[0]
-
-		if len(parts) == 1 {
-			h.handleDynamoDBTableRoot(w, r, tableName)
-
-			return
-		}
-
-		h.handleDynamoDBTableAction(w, r, tableName, parts[1])
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func (h *DashboardHandler) handleDynamoDBTableRoot(
-	w http.ResponseWriter,
-	r *http.Request,
-	tableName string,
-) {
-	if r.Method == http.MethodDelete {
-		h.dynamoDBDeleteTable(w, r, tableName)
-
-		return
-	}
-	h.dynamoDBTableDetail(w, r, tableName)
-}
-
-func (h *DashboardHandler) handleDynamoDBTableAction(
-	w http.ResponseWriter,
-	r *http.Request,
-	tableName, action string,
-) {
-	switch action {
-	case "query":
-		h.dynamoDBQuery(w, r, tableName)
-	case "scan":
-		h.dynamoDBScan(w, r, tableName)
-	case "partiql":
-		h.dynamoDBPartiQL(w, r, tableName)
-	case "item":
-		h.handleDynamoDBItem(w, r, tableName)
-	case "export":
-		h.dynamoDBExportTable(w, r, tableName)
-	case "import":
-		h.dynamoDBImportTable(w, r, tableName)
-	case "ttl":
-		h.dynamoDBUpdateTTL(w, r, tableName)
-	case "streams":
-		h.dynamoDBUpdateStreams(w, r, tableName)
-	case "stream-events":
-		h.dynamoDBStreamEvents(w, r, tableName)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func (h *DashboardHandler) handleDynamoDBItem(w http.ResponseWriter, r *http.Request, tableName string) {
-	switch r.Method {
-	case http.MethodDelete:
-		h.dynamoDBDeleteItem(w, r, tableName)
-	case http.MethodPost:
-		h.dynamoDBCreateItem(w, r, tableName)
-	case http.MethodGet:
-		h.dynamoDBItemDetail(w, r, tableName)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-// handleS3 routes S3 UI requests.
-func (h *DashboardHandler) handleS3(w http.ResponseWriter, r *http.Request, path string) {
-	switch {
-	case path == "" || path == "/":
-		h.s3Index(w, r)
-	case path == "/buckets":
-		h.s3BucketList(w, r)
-	case path == "/create":
-		h.s3CreateBucket(w, r)
-	case path == "/purge":
-		h.s3Purge(w, r)
-	case strings.HasPrefix(path, "/bucket/"):
-		h.handleS3Bucket(w, r, strings.TrimPrefix(path, "/bucket/"))
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-// handleS3Bucket routes specific bucket operations.
-func (h *DashboardHandler) handleS3Bucket(w http.ResponseWriter, r *http.Request, bucketPath string) {
-	parts := strings.SplitN(bucketPath, "/", pathPartsCount)
-	bucketName := parts[0]
-
-	if len(parts) == 1 {
-		if r.Method == http.MethodDelete {
-			h.s3DeleteBucket(w, r, bucketName)
-		} else {
-			h.s3BucketDetail(w, r, bucketName)
-		}
-
-		return
-	}
-
-	action := parts[1]
-	switch {
-	case action == "tree":
-		h.s3FileTree(w, r, bucketName)
-	case action == "upload":
-		h.s3Upload(w, r, bucketName)
-	case action == "versioning":
-		h.s3Versioning(w, r, bucketName)
-	case strings.HasPrefix(action, "file/"):
-		h.handleS3File(w, r, bucketName, strings.TrimPrefix(action, "file/"))
-	case strings.HasPrefix(action, "download/"):
-		h.handleS3File(w, r, bucketName, action)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-// handleS3File handles file-specific operations.
-func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, bucketName, action string) {
-	if key, cut := strings.CutPrefix(action, "download/"); cut {
-		h.s3Download(w, r, bucketName, key)
-
-		return
-	}
-
-	key := action
-	// Check for specific sub-actions on files
-	switch {
-	case strings.HasSuffix(key, "/preview"):
-		h.s3Preview(w, r, bucketName, strings.TrimSuffix(key, "/preview"))
-	case strings.HasSuffix(key, "/metadata"):
-		h.s3UpdateMetadata(w, r, bucketName, strings.TrimSuffix(key, "/metadata"))
-	case strings.HasSuffix(key, "/export"):
-		h.s3ExportJSON(w, r, bucketName, strings.TrimSuffix(key, "/export"))
-	case strings.HasSuffix(key, "/tag"):
-		if r.Method == http.MethodDelete {
-			h.s3DeleteTag(w, r, bucketName, strings.TrimSuffix(key, "/tag"))
-		} else {
-			h.s3UpdateTag(w, r, bucketName, strings.TrimSuffix(key, "/tag"))
-		}
-	default:
-		if r.Method == http.MethodDelete {
-			h.s3DeleteFile(w, r, bucketName, key)
-		} else {
-			h.s3FileDetail(w, r, bucketName, key)
-		}
-	}
-}
-
-// SettingsPageData holds the data rendered by the settings page template.
-type SettingsPageData struct {
-	docPageData
-
-	BuildVersion string
-	Config       Settings
-}
-
-// settingsIndex renders the read-only settings/config page.
-func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
-	var cfg Settings
-	if h.ConfigManager != nil {
-		cfg = h.ConfigManager.GetSettings()
-	} else {
-		gcfg := h.getGlobalConfig()
-		cfg = Settings{
-			AccountID:      gcfg.GetAccountID(),
-			Region:         gcfg.GetRegion(),
-			LatencyMs:      gcfg.GetLatencyMs(),
-			EnforceIAM:     gcfg.IsIAMEnforced(),
-			AutoPurgeTTL:   gcfg.GetAutoPurgeTTL(),
-			JanitorTimeout: gcfg.GetJanitorTimeout(),
-		}
-	}
-
-	data := SettingsPageData{
-		docPageData:  h.getDocPageData(),
-		BuildVersion: version.Get(),
-		Config:       cfg,
-	}
-	data.PageData = PageData{Title: "Settings", ActiveTab: "settings"}
-
-	h.renderTemplate(c.Response(), "settings.html", data)
-
 	return nil
-}
-
-// parseDurationField parses a duration from a form value, returning d if the field is empty or invalid.
-func parseDurationField(r *http.Request, key string, d time.Duration) time.Duration {
-	v := r.FormValue(key)
-	if v == "" {
-		return d
-	}
-
-	parsed, err := time.ParseDuration(v)
-	if err != nil {
-		return d
-	}
-
-	return parsed
-}
-
-// applyServiceSettingsFromForm fills service-specific settings in cfg from r's form values only if present.
-func applyServiceSettingsFromForm(r *http.Request, cfg *Settings) {
-	updateIfPresent(r, "s3-DefaultRegion", &cfg.S3.DefaultRegion)
-	if size, ok := getIntField(r, "s3-CompressionMinBytes"); ok {
-		cfg.S3.CompressionMinBytes = size
-	}
-	updateIfPresent(r, "lambda-DockerHost", &cfg.Lambda.DockerHost)
-	updateIfPresent(r, "lambda-ContainerRuntime", &cfg.Lambda.ContainerRuntime)
-	if size, ok := getIntField(r, "lambda-PoolSize"); ok {
-		cfg.Lambda.PoolSize = size
-	}
-	cfg.Lambda.IdleTimeout = parseDurationField(r, "lambda-IdleTimeout", cfg.Lambda.IdleTimeout)
-	if maxRuntimes, ok := getIntField(r, "lambda-MaxRuntimes"); ok {
-		cfg.Lambda.MaxRuntimes = maxRuntimes
-	}
-	updateIfPresent(r, "dynamodb-DefaultRegion", &cfg.DynamoDB.DefaultRegion)
-	if val, ok := getBoolField(r, "dynamodb-EnforceThroughput"); ok {
-		cfg.DynamoDB.EnforceThroughput = val
-	}
-	cfg.DynamoDB.CreateDelay = parseDurationField(r, "dynamodb-CreateDelay", cfg.DynamoDB.CreateDelay)
-	cfg.EC2.TerminatedTTL = parseDurationField(r, "ec2-TerminatedTTL", cfg.EC2.TerminatedTTL)
-	cfg.SSM.CommandTTL = parseDurationField(r, "ssm-CommandTTL", cfg.SSM.CommandTTL)
-	cfg.SES.EmailTTL = parseDurationField(r, "ses-EmailTTL", cfg.SES.EmailTTL)
-	cfg.Backup.JobTTL = parseDurationField(r, "backup-JobTTL", cfg.Backup.JobTTL)
-	cfg.XRay.TraceTTL = parseDurationField(r, "xray-TraceTTL", cfg.XRay.TraceTTL)
-	cfg.EMR.TerminatedTTL = parseDurationField(r, "emr-TerminatedTTL", cfg.EMR.TerminatedTTL)
-	cfg.Athena.ExecutionTTL = parseDurationField(r, "athena-ExecutionTTL", cfg.Athena.ExecutionTTL)
-	cfg.FIS.ExperimentTTL = parseDurationField(r, "fis-ExperimentTTL", cfg.FIS.ExperimentTTL)
-}
-
-// updateIfPresent updates s to the value of key in r if it exists.
-func updateIfPresent(r *http.Request, key string, s *string) {
-	if r.Form.Has(key) {
-		*s = r.FormValue(key)
-	}
-}
-
-// getBoolField returns the boolean value of key in r if it exists.
-func getBoolField(r *http.Request, key string) (bool, bool) {
-	if r.Form.Has(key) {
-		return r.FormValue(key) == constStrTrue, true
-	}
-
-	return false, false
-}
-
-// getIntField returns the integer value of key in r if it exists and is a valid integer.
-func getIntField(r *http.Request, key string) (int, bool) {
-	if r.Form.Has(key) {
-		if i, err := strconv.Atoi(r.FormValue(key)); err == nil {
-			return i, true
-		}
-	}
-
-	return 0, false
-}
-
-// settingsUpdate handles POST /dashboard/settings/update.
-func (h *DashboardHandler) settingsUpdate(c *echo.Context) error {
-	r := c.Request()
-
-	if err := r.ParseForm(); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid form data"})
-	}
-
-	if h.ConfigManager == nil {
-		return c.JSON(http.StatusNotImplemented, map[string]string{"message": "Settings persistence is not configured"})
-	}
-
-	cfg := h.ConfigManager.GetSettings()
-
-	updateIfPresent(r, "accountID", &cfg.AccountID)
-	updateIfPresent(r, "region", &cfg.Region)
-	if latencyMs, ok := getIntField(r, "latencyMs"); ok {
-		cfg.LatencyMs = latencyMs
-	}
-	cfg.JanitorTimeout = parseDurationField(r, "janitorTimeout", cfg.JanitorTimeout)
-	cfg.AutoPurgeTTL = parseDurationField(r, "autoPurgeTTL", cfg.AutoPurgeTTL)
-	if val, ok := getBoolField(r, "enforceIAM"); ok {
-		cfg.EnforceIAM = val
-	}
-	// Sensitive fields (Persist, Demo, LogLevel, Port, DataDir) are removed from the dashboard update
-	// to prevent Path Traversal and other insecure configuration overrides.
-	// Users should use Environment Variables or CLI flags for these.
-
-	updateIfPresent(r, "dnsListenAddr", &cfg.DNSListenAddr)
-	updateIfPresent(r, "dnsResolveIP", &cfg.DNSResolveIP)
-	updateIfPresent(r, "openSearchEngine", &cfg.OpenSearchEngine)
-	updateIfPresent(r, "elasticsearchEngine", &cfg.ElasticsearchEngine)
-	updateIfPresent(r, "elastiCacheEngine", &cfg.ElastiCacheEngine)
-
-	if start, ok := getIntField(r, "portRangeStart"); ok {
-		cfg.PortRangeStart = start
-	}
-	if end, ok := getIntField(r, "portRangeEnd"); ok {
-		cfg.PortRangeEnd = end
-	}
-
-	cfg.InitScriptTimeout = parseDurationField(r, "initScriptTimeout", cfg.InitScriptTimeout)
-
-	applyServiceSettingsFromForm(r, &cfg)
-
-	h.ConfigManager.UpdateSettings(cfg)
-
-	if err := h.ConfigManager.SaveConfig(); err != nil {
-		h.Logger.Error("failed to save config", "error", err)
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"message": "Failed to persist config: " + err.Error(),
-		})
-	}
-
-	return c.JSON(http.StatusOK, map[string]string{"message": "Settings updated and persisted successfully"})
-}
-
-// regionsResponse is the JSON shape returned by apiRegions.
-type regionsResponse struct {
-	Default string   `json:"default"`
-	Regions []string `json:"regions"`
-}
-
-// apiRegions returns a JSON list of all regions that have S3 buckets or DynamoDB tables.
-func (h *DashboardHandler) apiRegions(c *echo.Context) error {
-	seen := make(map[string]struct{})
-
-	if h.S3Ops != nil {
-		for _, r := range h.S3Ops.Regions() {
-			seen[r] = struct{}{}
-		}
-	}
-
-	if h.DDBOps != nil {
-		for _, r := range h.DDBOps.Regions() {
-			seen[r] = struct{}{}
-		}
-	}
-
-	defaultRegion := h.getGlobalConfig().GetRegion()
-	seen[defaultRegion] = struct{}{}
-
-	regions := make([]string, 0, len(seen))
-	for r := range seen {
-		regions = append(regions, r)
-	}
-
-	sort.Strings(regions)
-
-	resp := regionsResponse{
-		Regions: regions,
-		Default: defaultRegion,
-	}
-
-	c.Response().Header().Set("Content-Type", "application/json")
-
-	return json.NewEncoder(c.Response()).Encode(resp)
 }

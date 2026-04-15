@@ -1,34 +1,43 @@
-export type ThemeMode = "light" | "dark";
+export type ThemeName = "light" | "dark" | "github" | "ocean";
 
-export const themeStorageKey = "gopherstack-dashboard2-theme";
+export const themeStorageKey = "gopherstack-theme";
 
-export function resolveTheme(savedTheme: string | null, prefersDark: boolean): ThemeMode {
-  if (savedTheme === "dark" || savedTheme === "light") {
+export const themes: readonly ThemeName[] = ["light", "dark", "github", "ocean"] as const;
+
+export function isValidTheme(value: string | null): value is ThemeName {
+  return value === "light" || value === "dark" || value === "github" || value === "ocean";
+}
+
+export function resolveTheme(savedTheme: string | null, prefersDark: boolean): ThemeName {
+  if (isValidTheme(savedTheme)) {
     return savedTheme;
   }
 
   return prefersDark ? "dark" : "light";
 }
 
-export function applyTheme(doc: Document, theme: ThemeMode): void {
-  doc.documentElement.classList.toggle("dark", theme === "dark");
+export function isDarkTheme(theme: ThemeName): boolean {
+  return theme === "dark" || theme === "ocean";
 }
 
-export function initializeTheme(doc: Document, storage: Storage, prefersDark: boolean): ThemeMode {
+export function applyTheme(doc: Document, theme: ThemeName): void {
+  doc.documentElement.classList.toggle("dark", isDarkTheme(theme));
+
+  for (const t of themes) {
+    doc.documentElement.classList.toggle(`theme-${t}`, t === theme);
+  }
+}
+
+export function initializeTheme(doc: Document, storage: Storage, prefersDark: boolean): ThemeName {
   const theme = resolveTheme(storage.getItem(themeStorageKey), prefersDark);
   applyTheme(doc, theme);
 
   return theme;
 }
 
-export function toggleTheme(current: ThemeMode): ThemeMode {
-  return current === "dark" ? "light" : "dark";
-}
+export function setTheme(doc: Document, storage: Storage, theme: ThemeName): ThemeName {
+  storage.setItem(themeStorageKey, theme);
+  applyTheme(doc, theme);
 
-export function toggleStoredTheme(doc: Document, storage: Storage, current: ThemeMode): ThemeMode {
-  const next = toggleTheme(current);
-  storage.setItem(themeStorageKey, next);
-  applyTheme(doc, next);
-
-  return next;
+  return theme;
 }

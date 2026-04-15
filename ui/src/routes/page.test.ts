@@ -6,7 +6,6 @@ describe('Home Page', () => {
 	it('renders overview', () => {
 		render(HomePage);
 		
-		expect(screen.getByText('Dashboard 2 Migration Workspace')).toBeInTheDocument();
-		expect(screen.getByText('Overview')).toBeInTheDocument();
+		expect(screen.getAllByText('GOPHER', { exact: false }).length).toBeGreaterThan(0);
 	});
 });

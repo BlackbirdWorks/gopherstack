@@ -16,7 +16,8 @@
 		type TableDescription,
 		type KeySchemaElement,
 		type ScalarAttributeType,
-		type AttributeValue
+		type AttributeValue,
+		type StreamSpecification
 	} from '@aws-sdk/client-dynamodb';
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
@@ -106,7 +107,9 @@
 				try {
 					const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
 					if (desc.Table) details.set(name, desc.Table);
-				} catch { /* skip */ }
+				} catch {
+                                    // skip
+                                }
 			}
 			tableDetails = details;
 		} catch (err: unknown) {
@@ -177,7 +180,9 @@
 				const ttl = await ddb.send(new DescribeTimeToLiveCommand({ TableName: name }));
 				ttlEnabled = ttl.TimeToLiveDescription?.TimeToLiveStatus === 'ENABLED';
 				ttlAttribute = ttl.TimeToLiveDescription?.AttributeName ?? '';
-			} catch { /* ignore */ }
+			} catch {
+                    // ignore
+                }
 			streamsEnabled = desc.Table?.StreamSpecification?.StreamEnabled ?? false;
 			streamsViewType = desc.Table?.StreamSpecification?.StreamViewType ?? 'NEW_AND_OLD_IMAGES';
 			streamARN = desc.Table?.LatestStreamArn ?? '';
@@ -203,7 +208,7 @@
 				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {})
 			};
 			const res = await ddb.send(new QueryCommand(input));
-			queryResults = (res.Items ?? []).map(itemToJson);
+			queryResults = (res.Items ?? []).map((item) => itemToJson(item));
 			queryCount = res.Count ?? 0;
 		} catch (err: unknown) {
 			toast.error(`Query failed: ${(err as Error).message}`);
@@ -224,7 +229,7 @@
 				...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {})
 			};
 			const res = await ddb.send(new ScanCommand(input));
-			scanResults = (res.Items ?? []).map(itemToJson);
+			scanResults = (res.Items ?? []).map((item) => itemToJson(item));
 			scanCount = res.Count ?? 0;
 		} catch (err: unknown) {
 			toast.error(`Scan failed: ${(err as Error).message}`);
@@ -239,7 +244,7 @@
 		partiqlLoading = true;
 		try {
 			const res = await ddb.send(new ExecuteStatementCommand({ Statement: partiqlStatement }));
-			partiqlResults = (res.Items ?? []).map(itemToJson);
+			partiqlResults = (res.Items ?? []).map((item) => itemToJson(item));
 			partiqlCount = res.Items?.length ?? 0;
 		} catch (err: unknown) {
 			toast.error(`PartiQL failed: ${(err as Error).message}`);
@@ -255,7 +260,9 @@
 		try {
 			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-events`);
 			if (res.ok) streamEventsHtml = await res.text();
-		} catch { /* ignore */ }
+		} catch {
+                    // ignore
+                }
 		streamEventsLoading = false;
 	}
 
@@ -342,7 +349,7 @@
 		try {
 			const spec: Record<string, unknown> = { StreamEnabled: streamsEnabled };
 			if (streamsEnabled) spec['StreamViewType'] = streamsViewType;
-			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec as any }));
+			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec as StreamSpecification }));
 			toast.success(`Streams ${streamsEnabled ? 'enabled' : 'disabled'}`);
 			const desc = await ddb.send(new DescribeTableCommand({ TableName: selectedTable }));
 			selectedTableDesc = desc.Table ?? null;

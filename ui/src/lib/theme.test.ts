@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyTheme,
   initializeTheme,
+  isDarkTheme,
+  isValidTheme,
   resolveTheme,
+  setTheme,
   themeStorageKey,
-  toggleStoredTheme,
-  toggleTheme,
+  themes,
 } from "./theme";
 
 function newMemoryStorage(): Storage {
@@ -35,9 +37,35 @@ function newMemoryStorage(): Storage {
 }
 
 describe("theme helpers", () => {
+  it("themes list contains all four themes", () => {
+    expect(themes).toEqual(["light", "dark", "github", "ocean"]);
+  });
+
+  it("isValidTheme accepts valid themes", () => {
+    expect(isValidTheme("light")).toBe(true);
+    expect(isValidTheme("dark")).toBe(true);
+    expect(isValidTheme("github")).toBe(true);
+    expect(isValidTheme("ocean")).toBe(true);
+  });
+
+  it("isValidTheme rejects invalid values", () => {
+    expect(isValidTheme(null)).toBe(false);
+    expect(isValidTheme("")).toBe(false);
+    expect(isValidTheme("blue")).toBe(false);
+  });
+
+  it("isDarkTheme identifies dark themes", () => {
+    expect(isDarkTheme("dark")).toBe(true);
+    expect(isDarkTheme("ocean")).toBe(true);
+    expect(isDarkTheme("light")).toBe(false);
+    expect(isDarkTheme("github")).toBe(false);
+  });
+
   it("resolves saved theme first", () => {
     expect(resolveTheme("dark", false)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
+    expect(resolveTheme("github", false)).toBe("github");
+    expect(resolveTheme("ocean", true)).toBe("ocean");
   });
 
   it("resolves from prefers dark when no saved value", () => {
@@ -45,32 +73,46 @@ describe("theme helpers", () => {
     expect(resolveTheme("", false)).toBe("light");
   });
 
-  it("applies dark class based on mode", () => {
+  it("applies dark class for dark themes", () => {
     applyTheme(document, "dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-dark")).toBe(true);
 
+    applyTheme(document, "ocean");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-ocean")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-dark")).toBe(false);
+  });
+
+  it("removes dark class for light themes", () => {
     applyTheme(document, "light");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("theme-light")).toBe(true);
+
+    applyTheme(document, "github");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("theme-github")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-light")).toBe(false);
   });
 
   it("initializes theme and applies class", () => {
     const storage = newMemoryStorage();
-    storage.setItem(themeStorageKey, "dark");
+    storage.setItem(themeStorageKey, "ocean");
 
     const initialized = initializeTheme(document, storage, false);
 
-    expect(initialized).toBe("dark");
+    expect(initialized).toBe("ocean");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-ocean")).toBe(true);
   });
 
-  it("toggles both transient and persisted theme", () => {
-    expect(toggleTheme("light")).toBe("dark");
-    expect(toggleTheme("dark")).toBe("light");
-
+  it("setTheme persists and applies theme", () => {
     const storage = newMemoryStorage();
 
-    const next = toggleStoredTheme(document, storage, "light");
-    expect(next).toBe("dark");
-    expect(storage.getItem(themeStorageKey)).toBe("dark");
+    const result = setTheme(document, storage, "github");
+    expect(result).toBe("github");
+    expect(storage.getItem(themeStorageKey)).toBe("github");
+    expect(document.documentElement.classList.contains("theme-github")).toBe(true);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
 });

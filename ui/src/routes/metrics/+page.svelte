@@ -12,16 +12,22 @@
 	const allServices = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager', 'ECR', 'AppSync'];
 	let enabledServices = $state<Set<string>>(new Set(allServices));
 	let showFilterDropdown = $state(false);
-	let sparklineBars = $state<number[]>(new Array(20).fill(0));
+	let sparklineBars = $state<number[]>(Array.from({ length: 20 }, () => 0));
+
+	function rankOperation(n: string): number {
+		if (n.startsWith('DynamoDB::')) return 1;
+		if (n.startsWith('S3::')) return 2;
+		if (n.startsWith('SSM::')) return 3;
+		return 4;
+	}
 
 	const filteredOperations = $derived(
 		(metrics?.operations ?? []).filter((op) => {
 			const svc = op.operation.split('::')[0];
 			return enabledServices.has(svc);
-		}).sort((a, b) => {
-			const rank = (n: string) => n.startsWith('DynamoDB::') ? 1 : n.startsWith('S3::') ? 2 : n.startsWith('SSM::') ? 3 : 4;
-			const diff = rank(a.operation) - rank(b.operation);
-			return diff !== 0 ? diff : Number(b.count) - Number(a.count);
+		}).toSorted((a, b) => {
+			const diff = rankOperation(a.operation) - rankOperation(b.operation);
+			return diff === 0 ? Number(b.count) - Number(a.count) : diff;
 		})
 	);
 

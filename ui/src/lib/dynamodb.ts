@@ -10,7 +10,7 @@ export function avToJson(av: AttributeValue): unknown {
 	if (av.N !== undefined) return Number(av.N);
 	if (av.BOOL !== undefined) return av.BOOL;
 	if (av.NULL) return null;
-	if (av.L) return av.L.map(avToJson);
+	if (av.L) return av.L.map((item) => avToJson(item));
 	if (av.M) {
 		const obj: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(av.M)) obj[k] = avToJson(v);
@@ -38,7 +38,7 @@ export function jsonToAv(val: unknown): AttributeValue {
 	if (typeof val === "number") return { N: String(val) };
 	if (typeof val === "boolean") return { BOOL: val };
 	if (val === null || val === undefined) return { NULL: true };
-	if (Array.isArray(val)) return { L: val.map(jsonToAv) };
+	if (Array.isArray(val)) return { L: val.map((item) => jsonToAv(item)) };
 	if (typeof val === "object") {
 		const m: Record<string, AttributeValue> = {};
 		for (const [k, v] of Object.entries(val as Record<string, unknown>))

@@ -5,69 +5,90 @@ import SettingsPage from './+page.svelte';
 vi.mock('svelte-sonner', () => ({
 	toast: {
 		success: vi.fn(),
-		error: vi.fn()
+		error: vi.fn(),
+		info: vi.fn(),
+		warning: vi.fn()
 	}
 }));
 
 const mockLocalStorage = (() => {
 	let store: Record<string, string> = {};
+
 	return {
-		getItem(key: string) { return store[key] || null; },
-		setItem(key: string, value: string) { store[key] = value.toString(); },
-		clear() { store = {}; }
+		getItem(key: string) {
+			return store[key] ?? null;
+		},
+		setItem(key: string, value: string) {
+			store[key] = String(value);
+		},
+		removeItem(key: string) {
+			delete store[key];
+		},
+		clear() {
+			store = {};
+		}
 	};
 })();
+
 Object.defineProperty(window, 'localStorage', { value: mockLocalStorage });
 
 describe('Settings Page', () => {
 	beforeEach(() => {
-		window.localStorage.clear();
 		vi.clearAllMocks();
+		window.localStorage.clear();
 	});
 
-	it('renders settings page elements correctly', () => {
+	it('renders global settings form by default', () => {
 		render(SettingsPage);
-		expect(screen.getByText('Dashboard Settings')).toBeInTheDocument();
+
+		expect(screen.getByText('Settings')).toBeInTheDocument();
+		expect(screen.getByText('Global Settings')).toBeInTheDocument();
+		expect(screen.getByLabelText('Account ID')).toBeInTheDocument();
+		expect(screen.getByLabelText('Default Region')).toBeInTheDocument();
+		expect(screen.getByLabelText('IAM Execution')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Save Settings' })).toBeDisabled();
+	});
+
+	it('switches to service settings tab and shows service controls', async () => {
+		render(SettingsPage);
+
+		const serviceTab = screen.getByRole('button', { name: 'Service Settings' });
+		await fireEvent.click(serviceTab);
+
+		expect(screen.getByText('Dashboard Service Settings')).toBeInTheDocument();
 		expect(screen.getByLabelText('Auto-refresh Service Tables')).toBeInTheDocument();
 		expect(screen.getByLabelText('Refresh Interval (seconds)')).toBeInTheDocument();
 		expect(screen.getByLabelText('Max Console Entries Limit')).toBeInTheDocument();
-		expect(screen.getByText('Save Settings')).toBeInTheDocument();
 	});
 
-	it('updates settings state via form interaction and saves to local storage', async () => {
+	it('updates and persists settings on save', async () => {
 		render(SettingsPage);
-		
-		const autoRefreshCheckbox = screen.getByLabelText('Auto-refresh Service Tables') as HTMLInputElement;
-		const refreshInput = screen.getByLabelText('Refresh Interval (seconds)') as HTMLInputElement;
-		const entriesInput = screen.getByLabelText('Max Console Entries Limit') as HTMLInputElement;
-		const saveButton = screen.getByText('Save Settings');
 
-		expect(autoRefreshCheckbox.checked).toBe(true);
+		const accountID = screen.getByLabelText('Account ID') as HTMLInputElement;
+		await fireEvent.input(accountID, { target: { value: '111122223333' } });
 
-		// Click auto refresh
-		await fireEvent.click(autoRefreshCheckbox);
-		
-		// Change intervals
-		await fireEvent.input(refreshInput, { target: { value: '10' } });
-		await fireEvent.input(entriesInput, { target: { value: '200' } });
-
-		expect(autoRefreshCheckbox.checked).toBe(false);
-		expect(refreshInput.value).toBe('10');
-		expect(entriesInput.value).toBe('200');
-
-		// Save the form
+		const saveButton = screen.getByRole('button', { name: 'Save Settings' });
+		expect(saveButton).toBeEnabled();
 		await fireEvent.click(saveButton);
 
-		// Assert localStorage is called
-		const savedData = window.localStorage.getItem('gopherstack_settings');
-		expect(savedData).toBeTruthy();
-		const parsed = JSON.parse(savedData!);
-		expect(parsed.autoRefresh).toBe(false);
-		expect(parsed.refreshInterval).toBe(10);
-		expect(parsed.maxConsoleEntries).toBe(200);
+		const raw = window.localStorage.getItem('gopherstack_settings');
+		expect(raw).toBeTruthy();
+		const parsed = JSON.parse(raw!);
+		expect(parsed.accountID).toBe('111122223333');
 
-		// Assert toast
 		const { toast } = await import('svelte-sonner');
-		expect(toast.success).toHaveBeenCalledWith('Settings saved successfully');
+		expect(toast.success).toHaveBeenCalledWith('Settings updated successfully');
+	});
+
+	it('resets to defaults when reset is clicked', async () => {
+		render(SettingsPage);
+
+		const region = screen.getByLabelText('Default Region') as HTMLInputElement;
+		await fireEvent.input(region, { target: { value: 'eu-west-1' } });
+
+		const resetButton = screen.getByRole('button', { name: 'Reset Defaults' });
+		await fireEvent.click(resetButton);
+
+		expect((screen.getByLabelText('Default Region') as HTMLInputElement).value).toBe('us-east-1');
 	});
 });

@@ -9,11 +9,11 @@ const config = {
   kit: {
     adapter: adapter({
       fallback: "index.html",
-      pages: "../dashboard/static/dashboard2",
-      assets: "../dashboard/static/dashboard2",
+      pages: "../dashboard/static/spa",
+      assets: "../dashboard/static/spa",
     }),
     paths: {
-      base: "/dashboard2",
+      base: "/dashboard",
     },
   },
 };
