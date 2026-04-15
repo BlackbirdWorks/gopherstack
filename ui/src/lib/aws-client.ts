@@ -7,6 +7,8 @@ import { ElasticLoadBalancingV2Client } from "@aws-sdk/client-elastic-load-balan
 import { TransferClient } from "@aws-sdk/client-transfer";
 import { ACMClient } from "@aws-sdk/client-acm";
 import { OrganizationsClient } from "@aws-sdk/client-organizations";
+import { AppSyncClient } from "@aws-sdk/client-appsync";
+import { CognitoIdentityClient } from "@aws-sdk/client-cognito-identity";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
@@ -238,4 +240,12 @@ export function getACMClient(region?: string): ACMClient {
 
 export function getOrganizationsClient(region?: string): OrganizationsClient {
   return new OrganizationsClient(clientConfig(region));
+}
+
+export function getAppSyncClient(region?: string): AppSyncClient {
+  return new AppSyncClient(clientConfig(region));
+}
+
+export function getCognitoIdentityClient(region?: string): CognitoIdentityClient {
+  return new CognitoIdentityClient(clientConfig(region));
 }

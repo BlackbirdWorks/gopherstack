@@ -19,6 +19,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'athena',
 	'autoscaling',
 	'acm',
+	'appsync',
 	'backup',
 	'batch',
 	'chaos',
@@ -29,6 +30,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'cloudwatchlogs',
 	'codebuild',
 	'cognito',
+	'cognitoidentity',
 	'codepipeline',
 	'codedeploy',
 	'config',
@@ -98,7 +100,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		routes: [
 			{ id: 'iam', href: '/dashboard/iam', label: 'IAM', icon: 'iam', common: true },
 			{ id: 'cognito', href: '/dashboard/cognito', label: 'Cognito', icon: 'cognito', common: true },
-			{ id: 'cognitoidentity', href: '/dashboard/cognitoidentity', label: 'Cognito Identity', icon: 'cognitoidentity' },
+			{ id: 'cognitoidentity', href: '/dashboard/cognitoidentity', label: 'Cognito Identity', icon: 'cognitoidentity', common: true },
 			{ id: 'shield', href: '/dashboard/shield', label: 'Shield', icon: 'shield' },
 			{ id: 'verifiedpermissions', href: '/dashboard/verifiedpermissions', label: 'Verified Permissions', icon: 'verifiedpermissions' },
 			{ id: 'kms', href: '/dashboard/kms', label: 'KMS', icon: 'kms', common: true },
@@ -194,7 +196,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		label: 'Front-end Web & Mobile',
 		routes: [
 			{ id: 'amplify', href: '/dashboard/amplify', label: 'Amplify', icon: 'amplify', common: true },
-			{ id: 'appsync', href: '/dashboard/appsync', label: 'AppSync', icon: 'appsync' }
+			{ id: 'appsync', href: '/dashboard/appsync', label: 'AppSync', icon: 'appsync', common: true }
 		]
 	},
 	{
