@@ -127,6 +127,20 @@
 		</div>
 	</div>
 
+	<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+		{#each [
+			{ label: 'Total Functions', value: functions.length, color: 'text-orange-500' },
+			{ label: 'Node.js', value: functions.filter(f => (f.Runtime ?? '').includes('nodejs')).length, color: 'text-green-500' },
+			{ label: 'Python', value: functions.filter(f => (f.Runtime ?? '').includes('python')).length, color: 'text-blue-500' },
+			{ label: 'With Layers', value: functions.filter(f => (f.Layers?.length ?? 0) > 0).length, color: 'text-purple-500' }
+		] as s}
+			<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-xl p-4">
+				<p class="text-2xl font-bold {s.color}">{s.value}</p>
+				<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{s.label}</p>
+			</div>
+		{/each}
+	</div>
+
 	<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 		<!-- Main List -->
 		<div class="lg:col-span-8 space-y-4">
