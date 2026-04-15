@@ -118,42 +118,61 @@
 <div class="space-y-6">
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-3">
-			<Activity class="h-8 w-8 text-indigo-600" />
+			<div class="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+				<Activity class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+			</div>
 			<div>
-				<h1 class="text-2xl font-bold">AWS X-Ray</h1>
-				<p class="text-sm text-muted-foreground">Distributed tracing for application analysis</p>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">AWS X-Ray</h1>
+				<p class="text-slate-600 dark:text-slate-300">Distributed tracing for application analysis</p>
 			</div>
 		</div>
 		<button
 			onclick={() => onTabChange(activeTab)}
-			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+			class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
 		>
 			<RefreshCw class="h-4 w-4" />
-			Refresh
 		</button>
 	</div>
 
-	<!-- Summary Cards -->
-	{#if totalTraces > 0}
-		<div class="grid gap-4 sm:grid-cols-4">
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold">{totalTraces}</div>
-				<div class="text-sm text-muted-foreground">Total Traces</div>
+	<!-- Summary Cards (always shown) -->
+	<div class="grid gap-4 sm:grid-cols-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+				<Layers class="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
 			</div>
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold text-red-600">{faultTraces}</div>
-				<div class="text-sm text-muted-foreground">Faults</div>
-			</div>
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold text-orange-500">{errorTraces}</div>
-				<div class="text-sm text-muted-foreground">Errors</div>
-			</div>
-			<div class="rounded-lg border p-4 text-center">
-				<div class="text-2xl font-bold text-blue-600">{avgDuration}s</div>
-				<div class="text-sm text-muted-foreground">Avg Duration</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{totalTraces}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Total Traces</p>
 			</div>
 		</div>
-	{/if}
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+				<AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-red-600 dark:text-red-400">{faultTraces}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Faults</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+				<Filter class="w-5 h-5 text-orange-500 dark:text-orange-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-orange-500 dark:text-orange-400">{errorTraces}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Errors</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+				<Clock class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{avgDuration}s</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Avg Duration</p>
+			</div>
+		</div>
+	</div>
 
 	<!-- Tabs -->
 	<div class="flex border-b">

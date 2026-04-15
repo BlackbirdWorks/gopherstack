@@ -24,6 +24,21 @@ describe('X-Ray Page', () => {
 		expect(screen.getByText('AWS X-Ray')).toBeInTheDocument();
 	});
 
+	it('shows subtitle', () => {
+		mockSend.mockResolvedValueOnce({ TraceSummaries: [] });
+		render(XRayPage);
+		expect(screen.getByText('Distributed tracing for application analysis')).toBeInTheDocument();
+	});
+
+	it('shows stat cards always', () => {
+		mockSend.mockResolvedValueOnce({ TraceSummaries: [] });
+		render(XRayPage);
+		expect(screen.getByText('Total Traces')).toBeInTheDocument();
+		expect(screen.getByText('Faults')).toBeInTheDocument();
+		expect(screen.getByText('Errors')).toBeInTheDocument();
+		expect(screen.getByText('Avg Duration')).toBeInTheDocument();
+	});
+
 	it('shows tabs', () => {
 		mockSend.mockResolvedValueOnce({ TraceSummaries: [] });
 		render(XRayPage);
@@ -71,3 +86,4 @@ describe('X-Ray Page', () => {
 		});
 	});
 });
+

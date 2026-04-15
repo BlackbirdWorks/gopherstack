@@ -30,6 +30,14 @@ describe('Cognito Identity Page', () => {
 		expect(screen.getByText('Create Pool')).toBeInTheDocument();
 	});
 
+	it('renders 4 stat cards', () => {
+		mockSend.mockResolvedValueOnce({ IdentityPools: [] });
+		render(CognitoIdentityPage);
+		expect(screen.getByText('Identity Pools')).toBeInTheDocument();
+		expect(screen.getByText('Filtered Results')).toBeInTheDocument();
+		expect(screen.getByText('Selected')).toBeInTheDocument();
+	});
+
 	it('displays identity pools', async () => {
 		mockSend.mockResolvedValueOnce({
 			IdentityPools: [
@@ -61,4 +69,29 @@ describe('Cognito Identity Page', () => {
 			expect(screen.getByText('No identity pools found')).toBeInTheDocument();
 		});
 	});
+
+	it('filters identity pools by search', async () => {
+		mockSend.mockResolvedValueOnce({
+			IdentityPools: [
+				{ IdentityPoolId: 'us-east-1:abc-123', IdentityPoolName: 'prod-app-pool' },
+				{ IdentityPoolId: 'us-east-1:def-456', IdentityPoolName: 'dev-app-pool' }
+			]
+		});
+		render(CognitoIdentityPage);
+		await waitFor(() => {
+			expect(screen.getByText('prod-app-pool')).toBeInTheDocument();
+		});
+		const search = screen.getByPlaceholderText('Search identity pools...');
+		await fireEvent.input(search, { target: { value: 'dev' } });
+		await waitFor(() => {
+			expect(screen.queryByText('prod-app-pool')).not.toBeInTheDocument();
+		});
+	});
+
+	it('shows subtitle', () => {
+		mockSend.mockResolvedValueOnce({ IdentityPools: [] });
+		render(CognitoIdentityPage);
+		expect(screen.getByText('Federated identity pools for AWS service access')).toBeInTheDocument();
+	});
 });
+

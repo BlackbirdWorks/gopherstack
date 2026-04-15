@@ -128,39 +128,83 @@
 <div class="space-y-6">
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-3">
-			<Users class="h-8 w-8 text-pink-600" />
+			<div class="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg">
+				<Users class="h-6 w-6 text-pink-600 dark:text-pink-400" />
+			</div>
 			<div>
-				<h1 class="text-2xl font-bold">Cognito Identity</h1>
-				<p class="text-sm text-muted-foreground">Federated identity pools for AWS service access</p>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">Cognito Identity</h1>
+				<p class="text-slate-600 dark:text-slate-300">Federated identity pools for AWS service access</p>
 			</div>
 		</div>
-		<button
-			onclick={loadPools}
-			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
-		>
-			<RefreshCw class="h-4 w-4" />
-			Refresh
-		</button>
+		<div class="flex gap-2">
+			<button
+				onclick={loadPools}
+				class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
+				title="Refresh"
+			>
+				<RefreshCw class="h-4 w-4" />
+			</button>
+			<button
+				onclick={() => (showCreateModal = true)}
+				class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+			>
+				<Plus class="h-4 w-4" />
+				Create Pool
+			</button>
+		</div>
 	</div>
 
-	<!-- Filter + Create -->
+	<!-- Stats cards -->
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg">
+				<Users class="w-5 h-5 text-pink-600 dark:text-pink-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{identityPools.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Identity Pools</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+				<CheckCircle class="w-5 h-5 text-green-600 dark:text-green-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{identityPools.filter(p => selectedPool?.IdentityPoolId === p.IdentityPoolId ? selectedPool.AllowUnauthenticatedIdentities : false).length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Unauth Enabled</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+				<KeyRound class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{filteredPools.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Filtered Results</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+				<Eye class="w-5 h-5 text-purple-600 dark:text-purple-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{selectedPool ? 1 : 0}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Selected</p>
+			</div>
+		</div>
+	</div>
+
+	<!-- Filter -->
 	<div class="flex items-center gap-3">
 		<div class="relative flex-1">
-			<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+			<Search class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
 			<input
 				type="text"
 				placeholder="Search identity pools..."
 				bind:value={searchQuery}
-				class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-4 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
 			/>
 		</div>
-		<button
-			onclick={() => (showCreateModal = true)}
-			class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
-		>
-			<Plus class="h-4 w-4" />
-			Create Pool
-		</button>
 	</div>
 
 	{#if loading}
