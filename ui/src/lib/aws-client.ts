@@ -9,6 +9,9 @@ import { ACMClient } from "@aws-sdk/client-acm";
 import { OrganizationsClient } from "@aws-sdk/client-organizations";
 import { AppSyncClient } from "@aws-sdk/client-appsync";
 import { CognitoIdentityClient } from "@aws-sdk/client-cognito-identity";
+import { GuardDutyClient } from "@aws-sdk/client-guardduty";
+import { KafkaClient } from "@aws-sdk/client-kafka";
+import { APIGatewayClient } from "@aws-sdk/client-api-gateway";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
@@ -248,4 +251,16 @@ export function getAppSyncClient(region?: string): AppSyncClient {
 
 export function getCognitoIdentityClient(region?: string): CognitoIdentityClient {
   return new CognitoIdentityClient(clientConfig(region));
+}
+
+export function getGuardDutyClient(region?: string): GuardDutyClient {
+  return new GuardDutyClient(clientConfig(region));
+}
+
+export function getMSKClient(region?: string): KafkaClient {
+  return new KafkaClient(clientConfig(region));
+}
+
+export function getAPIGatewayClient(region?: string): APIGatewayClient {
+  return new APIGatewayClient(clientConfig(region));
 }
