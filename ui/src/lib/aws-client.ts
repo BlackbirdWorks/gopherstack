@@ -1,3 +1,6 @@
+import { EC2Client } from "@aws-sdk/client-ec2";
+import { ECSClient } from "@aws-sdk/client-ecs";
+import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { AthenaClient } from "@aws-sdk/client-athena";
 import { SESClient } from "@aws-sdk/client-ses";
 import { CloudTrailClient } from "@aws-sdk/client-cloudtrail";
@@ -298,4 +301,16 @@ export function getInspectorClient(region?: string): Inspector2Client {
 
 export function getXRayClient(region?: string): XRayClient {
   return new XRayClient(clientConfig(region));
+}
+
+export function getEC2Client(region?: string): EC2Client {
+  return new EC2Client(clientConfig(region));
+}
+
+export function getECSClient(region?: string): ECSClient {
+  return new ECSClient(clientConfig(region));
+}
+
+export function getCognitoIDPClient(region?: string): CognitoIdentityProviderClient {
+  return new CognitoIdentityProviderClient(clientConfig(region));
 }
