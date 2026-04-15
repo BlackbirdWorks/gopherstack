@@ -181,6 +181,46 @@
 		</div>
 	</div>
 
+	<!-- Stat Cards -->
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+				<Flame class="w-5 h-5 text-red-600 dark:text-red-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-gray-900 dark:text-white">{streamNames.length}</p>
+				<p class="text-sm text-gray-500 dark:text-gray-400">Delivery Streams</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+				<Database class="w-5 h-5 text-green-600 dark:text-green-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-gray-900 dark:text-white">{selectedStream ? 1 : 0}</p>
+				<p class="text-sm text-gray-500 dark:text-gray-400">Selected Stream</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+				<Archive class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-gray-900 dark:text-white">{selectedStream?.Destinations?.length ?? 0}</p>
+				<p class="text-sm text-gray-500 dark:text-gray-400">Destinations</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+				<Send class="w-5 h-5 text-orange-600 dark:text-orange-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-gray-900 dark:text-white">{selectedStream?.DeliveryStreamStatus ?? '—'}</p>
+				<p class="text-sm text-gray-500 dark:text-gray-400">Status</p>
+			</div>
+		</div>
+	</div>
+
 	{#if selectedStream}
 		<!-- Stream Detail -->
 		<div class="flex items-center gap-2 text-sm">

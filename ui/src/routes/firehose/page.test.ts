@@ -90,4 +90,13 @@ describe('Firehose Page', () => {
 			expect(screen.getByText('Put Record')).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
+
+	it('shows stat cards', () => {
+		mockSend.mockResolvedValue({ DeliveryStreamNames: [] });
+		render(FirehosePage);
+		expect(screen.getByText('Delivery Streams')).toBeInTheDocument();
+		expect(screen.getByText('Selected Stream')).toBeInTheDocument();
+		expect(screen.getByText('Destinations')).toBeInTheDocument();
+		expect(screen.getByText('Status')).toBeInTheDocument();
+	});
 });
