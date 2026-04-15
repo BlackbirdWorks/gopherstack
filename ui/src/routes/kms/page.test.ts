@@ -72,11 +72,37 @@ await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled(), { timeout
 });
 
 it('shows key usage type', async () => {
-mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
-mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
-render(KMSPage);
-await waitFor(() => {
-expect(screen.getByText('ENCRYPT_DECRYPT')).toBeInTheDocument();
-}, { timeout: 3000 });
+	mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+	mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+	render(KMSPage);
+	await waitFor(() => {
+		expect(screen.getByText('ENCRYPT_DECRYPT')).toBeInTheDocument();
+	}, { timeout: 3000 });
+});
+
+it('shows Aliases tab and loads aliases', async () => {
+	// Initial load: ListKeys returns empty
+	mockSend.mockResolvedValueOnce({ Keys: [] });
+	// ListAliases called when Aliases tab clicked
+	mockSend.mockResolvedValueOnce({ Aliases: [
+		{ AliasName: 'alias/my-app-key', TargetKeyId: 'aaaa-bbbb-cccc' },
+		{ AliasName: 'alias/aws/s3', TargetKeyId: 'aws-managed-key' }
+	] });
+	render(KMSPage);
+	await waitFor(() => screen.getByText('No KMS keys found'), { timeout: 3000 });
+	await fireEvent.click(screen.getByText('Aliases'));
+	await waitFor(() => {
+		expect(screen.getByText('alias/my-app-key')).toBeInTheDocument();
+		expect(screen.getByText('alias/aws/s3')).toBeInTheDocument();
+	}, { timeout: 3000 });
+});
+
+it('shows Keys and Aliases tab buttons', () => {
+	mockSend.mockResolvedValue({ Keys: [] });
+	render(KMSPage);
+	const buttons = screen.getAllByRole('button');
+	const btnTexts = buttons.map(b => b.textContent?.trim());
+	expect(btnTexts.some(t => t?.includes('Keys'))).toBe(true);
+	expect(btnTexts.some(t => t?.includes('Aliases'))).toBe(true);
 });
 });

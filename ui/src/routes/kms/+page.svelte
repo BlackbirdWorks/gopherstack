@@ -1,18 +1,21 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { getKMSClient } from '$lib/aws-client';
-import { ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand } from '@aws-sdk/client-kms';
+import { ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand, ListAliasesCommand } from '@aws-sdk/client-kms';
 import { toast } from 'svelte-sonner';
-import { Key, Plus, RefreshCw, Search, Lock, Unlock, Shield, Activity } from 'lucide-svelte';
+import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag } from 'lucide-svelte';
 
 const kms = getKMSClient();
 
 let keys = $state<any[]>([]);
+let aliases = $state<any[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
 let usageFilter = $state('all');
 let selectedKey = $state<any | null>(null);
+let activeTab = $state<'keys' | 'aliases'>('keys');
+let aliasSearch = $state('');
 
 onMount(async () => { await loadKeys(); });
 
@@ -37,6 +40,34 @@ async function loadKeys() {
 	} finally {
 		loading = false;
 	}
+}
+
+async function loadAliases() {
+	try {
+		loading = true;
+		const data = await kms.send(new ListAliasesCommand({ Limit: 100 }));
+		aliases = data.Aliases || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
+	} finally {
+		loading = false;
+	}
+}
+
+async function selectTab(t: typeof activeTab) {
+	activeTab = t;
+	if (t === 'keys' && keys.length === 0) await loadKeys();
+	else if (t === 'aliases') await loadAliases();
+}
+
+async function refresh() {
+	if (activeTab === 'keys') { keys = []; await loadKeys(); }
+	else { aliases = []; await loadAliases(); }
+}
+
+async function copyId(id: string) {
+	await navigator.clipboard.writeText(id);
+	toast.success('Copied to clipboard');
 }
 
 async function disableKey(keyId: string) {
@@ -89,6 +120,13 @@ let filtered = $derived(keys.filter(k => {
 	const matchUsage = usageFilter === 'all' || k.KeyUsage === usageFilter;
 	return matchSearch && matchState && matchUsage;
 }));
+
+let filteredAliases = $derived(aliases.filter(a =>
+	!aliasSearch || (a.AliasName || '').toLowerCase().includes(aliasSearch.toLowerCase())
+));
+
+let awsAliasCount = $derived(aliases.filter(a => (a.AliasName || '').startsWith('alias/aws/')).length);
+let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').startsWith('alias/aws/')).length);
 </script>
 
 <div class="space-y-6">
@@ -104,11 +142,10 @@ let filtered = $derived(keys.filter(k => {
 			</div>
 		</div>
 		<div class="flex gap-2">
-			<button onclick={loadKeys} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
+			<button onclick={refresh} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700" title="Refresh">
 				<RefreshCw class="w-4 h-4" />
 			</button>
-			<button onclick={() => toast.info('Create key via AWS console')} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2">
-				<Plus class="w-4 h-4" />
+			<button onclick={() => toast.info('Create key via AWS console')} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
 				Create Key
 			</button>
 		</div>
@@ -124,13 +161,27 @@ let filtered = $derived(keys.filter(k => {
 			{ label: 'Symmetric', count: symmetricCount, color: 'text-amber-500' }
 		] as stat}
 			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-				<p class="text-2xl font-bold text-slate-900 dark:text-white {stat.color}">{stat.count}</p>
+				<p class="text-2xl font-bold {stat.color}">{stat.count}</p>
 				<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{stat.label}</p>
 			</div>
 		{/each}
 	</div>
 	{/if}
 
+	<!-- Tabs -->
+	<div class="border-b border-slate-200 dark:border-slate-700">
+		<nav class="flex gap-1 -mb-px">
+			<button onclick={() => selectTab('keys')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'keys' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Key class="w-4 h-4" /> Keys {#if keys.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{keys.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('aliases')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'aliases' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Tag class="w-4 h-4" /> Aliases {#if aliases.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{aliases.length}</span>{/if}
+			</button>
+		</nav>
+	</div>
+
+	<!-- Keys Tab -->
+	{#if activeTab === 'keys'}
 	<!-- Filters -->
 	<div class="flex flex-wrap gap-3">
 		<div class="relative flex-1 min-w-48">
@@ -269,5 +320,67 @@ let filtered = $derived(keys.filter(k => {
 			</div>
 		{/if}
 	</div>
+
+	<!-- End Keys Tab -->
+	{/if}
+
+	<!-- Aliases Tab -->
+	{#if activeTab === 'aliases'}
+		<div>
+			<div class="flex items-center gap-3 mb-4">
+				<div class="relative flex-1">
+					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+					<input type="text" placeholder="Search aliases..." bind:value={aliasSearch}
+						class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm" />
+				</div>
+				<div class="flex gap-2 shrink-0 text-sm">
+					<span class="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{customerAliasCount} customer</span>
+					<span class="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{awsAliasCount} AWS</span>
+				</div>
+			</div>
+			{#if loading}
+				<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div></div>
+			{:else if filteredAliases.length === 0}
+				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+					<Tag class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+					<p class="text-slate-500 dark:text-slate-400">No aliases found</p>
+				</div>
+			{:else}
+				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-slate-50 dark:bg-slate-700">
+							<tr>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Alias Name</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target Key ID</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Copy</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+							{#each filteredAliases as alias}
+								{@const isAws = (alias.AliasName || '').startsWith('alias/aws/')}
+								<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+									<td class="px-4 py-3 font-mono text-xs text-slate-900 dark:text-white">{alias.AliasName}</td>
+									<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{alias.TargetKeyId || '—'}</td>
+									<td class="px-4 py-3">
+										<span class="px-2 py-0.5 text-xs rounded-full {isAws ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'}">
+											{isAws ? 'AWS Managed' : 'Customer'}
+										</span>
+									</td>
+									<td class="px-4 py-3">
+										{#if alias.TargetKeyId}
+											<button onclick={() => copyId(alias.TargetKeyId)} class="p-1 text-slate-400 hover:text-slate-600" title="Copy Key ID">
+												<Copy class="w-3.5 h-3.5" />
+											</button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>
 
