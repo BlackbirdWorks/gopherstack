@@ -1,0 +1,291 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { getSecurityHubClient } from '$lib/aws-client';
+	import {
+		GetFindingsCommand,
+		GetInsightsCommand,
+		DescribeHubCommand,
+		ListStandardsControlAssociationsCommand,
+		GetSeverityCommand,
+		type AwsSecurityFinding,
+		type Insight
+	} from '@aws-sdk/client-securityhub';
+	import { toast } from 'svelte-sonner';
+	import {
+		Shield,
+		Search,
+		RefreshCw,
+		AlertTriangle,
+		CheckCircle,
+		XCircle,
+		BarChart2,
+		Filter
+	} from 'lucide-svelte';
+
+	const hub = getSecurityHubClient();
+
+	let loading = $state(false);
+	let activeTab = $state<'findings' | 'insights'>('findings');
+	let searchQuery = $state('');
+
+	let findings = $state<AwsSecurityFinding[]>([]);
+	let insights = $state<Insight[]>([]);
+	let hubEnabled = $state<boolean | null>(null);
+	let severityFilter = $state<'all' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+	let statusFilter = $state<'all' | 'NEW' | 'NOTIFIED' | 'RESOLVED' | 'SUPPRESSED'>('all');
+
+	const filteredFindings = $derived(
+		findings.filter((f) => {
+			const text =
+				(f.Title ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(f.Types?.[0] ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(f.ProductName ?? '').toLowerCase().includes(searchQuery.toLowerCase());
+			const sev =
+				severityFilter === 'all' ||
+				(f.Severity?.Label ?? 'INFORMATIONAL') === severityFilter;
+			const status = statusFilter === 'all' || (f.Workflow?.Status ?? 'NEW') === statusFilter;
+			return text && sev && status;
+		})
+	);
+
+	function severityBadge(label?: string) {
+		if (label === 'CRITICAL') return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900';
+		if (label === 'HIGH') return 'text-orange-700 bg-orange-100 dark:text-orange-300 dark:bg-orange-900';
+		if (label === 'MEDIUM') return 'text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900';
+		if (label === 'LOW') return 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900';
+		return 'text-muted-foreground bg-muted';
+	}
+
+	function complianceBadge(status?: string) {
+		if (status === 'PASSED') return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900';
+		if (status === 'FAILED') return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900';
+		if (status === 'WARNING') return 'text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900';
+		return 'text-muted-foreground bg-muted';
+	}
+
+	async function checkHubStatus() {
+		try {
+			await hub.send(new DescribeHubCommand({}));
+			hubEnabled = true;
+		} catch (e) {
+			hubEnabled = false;
+		}
+	}
+
+	async function loadFindings() {
+		loading = true;
+		try {
+			const res = await hub.send(
+				new GetFindingsCommand({
+					MaxResults: 50,
+					SortCriteria: [{ Field: 'LastObservedAt', SortOrder: 'desc' }]
+				})
+			);
+			findings = res.Findings ?? [];
+		} catch (e) {
+			toast.error(`Failed to load findings: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadInsights() {
+		loading = true;
+		try {
+			const res = await hub.send(new GetInsightsCommand({ MaxResults: 50 }));
+			insights = res.Insights ?? [];
+		} catch (e) {
+			toast.error(`Failed to load insights: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	// Compute severity counts for summary cards
+	const criticalCount = $derived(findings.filter((f) => f.Severity?.Label === 'CRITICAL').length);
+	const highCount = $derived(findings.filter((f) => f.Severity?.Label === 'HIGH').length);
+	const mediumCount = $derived(findings.filter((f) => f.Severity?.Label === 'MEDIUM').length);
+	const resolvedCount = $derived(findings.filter((f) => f.Workflow?.Status === 'RESOLVED').length);
+
+	async function onTabChange(tab: typeof activeTab) {
+		activeTab = tab;
+		searchQuery = '';
+		if (tab === 'findings') await loadFindings();
+		else await loadInsights();
+	}
+
+	onMount(async () => {
+		await checkHubStatus();
+		if (hubEnabled) await loadFindings();
+	});
+</script>
+
+<div class="space-y-6">
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-3">
+			<Shield class="h-8 w-8 text-blue-600" />
+			<div>
+				<h1 class="text-2xl font-bold">Security Hub</h1>
+				<p class="text-sm text-muted-foreground">Centralized security posture management</p>
+			</div>
+		</div>
+		<button
+			onclick={() => onTabChange(activeTab)}
+			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+		>
+			<RefreshCw class="h-4 w-4" />
+			Refresh
+		</button>
+	</div>
+
+	{#if hubEnabled === false}
+		<div class="rounded-lg border border-yellow-200 bg-yellow-50 p-6 text-center dark:border-yellow-800 dark:bg-yellow-950">
+			<AlertTriangle class="h-10 w-10 mx-auto mb-3 text-yellow-500" />
+			<p class="font-medium">Security Hub is not enabled</p>
+			<p class="text-sm text-muted-foreground mt-1">Enable Security Hub to centralize security findings</p>
+		</div>
+	{:else if findings.length > 0}
+		<!-- Summary Cards -->
+		<div class="grid gap-4 sm:grid-cols-4">
+			<div class="rounded-lg border p-4 text-center">
+				<div class="text-2xl font-bold text-red-600">{criticalCount}</div>
+				<div class="text-sm text-muted-foreground mt-1">Critical</div>
+			</div>
+			<div class="rounded-lg border p-4 text-center">
+				<div class="text-2xl font-bold text-orange-500">{highCount}</div>
+				<div class="text-sm text-muted-foreground mt-1">High</div>
+			</div>
+			<div class="rounded-lg border p-4 text-center">
+				<div class="text-2xl font-bold text-yellow-500">{mediumCount}</div>
+				<div class="text-sm text-muted-foreground mt-1">Medium</div>
+			</div>
+			<div class="rounded-lg border p-4 text-center">
+				<div class="text-2xl font-bold text-green-600">{resolvedCount}</div>
+				<div class="text-sm text-muted-foreground mt-1">Resolved</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Tabs -->
+	<div class="flex border-b">
+		{#each [{ id: 'findings', label: 'Findings' }, { id: 'insights', label: 'Insights' }] as tab}
+			<button
+				onclick={() => onTabChange(tab.id as typeof activeTab)}
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+			>
+				{tab.label}
+				{#if tab.id === 'findings' && findings.length > 0}
+					<span class="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">{findings.length}</span>
+				{/if}
+			</button>
+		{/each}
+	</div>
+
+	<!-- Findings Tab -->
+	{#if activeTab === 'findings'}
+		<div class="flex flex-wrap gap-3">
+			<div class="relative flex-1 min-w-[180px]">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search findings..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<select
+				bind:value={severityFilter}
+				class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+			>
+				<option value="all">All Severities</option>
+				<option value="CRITICAL">Critical</option>
+				<option value="HIGH">High</option>
+				<option value="MEDIUM">Medium</option>
+				<option value="LOW">Low</option>
+			</select>
+			<select
+				bind:value={statusFilter}
+				class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+			>
+				<option value="all">All Statuses</option>
+				<option value="NEW">New</option>
+				<option value="NOTIFIED">Notified</option>
+				<option value="RESOLVED">Resolved</option>
+				<option value="SUPPRESSED">Suppressed</option>
+			</select>
+		</div>
+
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredFindings.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<CheckCircle class="h-12 w-12 mb-3 opacity-30 text-green-500" />
+				<p>No findings found</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Severity</th>
+							<th class="px-4 py-3 text-left font-medium">Title</th>
+							<th class="px-4 py-3 text-left font-medium">Product</th>
+							<th class="px-4 py-3 text-left font-medium">Compliance</th>
+							<th class="px-4 py-3 text-left font-medium">Status</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredFindings as finding}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium {severityBadge(finding.Severity?.Label)}">
+										{finding.Severity?.Label ?? '—'}
+									</span>
+								</td>
+								<td class="px-4 py-3 font-medium max-w-[250px] truncate">{finding.Title ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground">{finding.ProductName ?? '—'}</td>
+								<td class="px-4 py-3">
+									{#if finding.Compliance?.Status}
+										<span class="rounded-full px-2 py-0.5 text-xs font-medium {complianceBadge(finding.Compliance.Status)}">
+											{finding.Compliance.Status}
+										</span>
+									{:else}
+										<span class="text-muted-foreground">—</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">
+									{finding.Workflow?.Status ?? 'NEW'}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Insights Tab -->
+	{#if activeTab === 'insights'}
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if insights.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<BarChart2 class="h-12 w-12 mb-3 opacity-30" />
+				<p>No insights found</p>
+			</div>
+		{:else}
+			<div class="space-y-3">
+				{#each insights as insight}
+					<div class="rounded-lg border p-4">
+						<div class="font-medium">{insight.Name}</div>
+						<div class="text-xs text-muted-foreground mt-1 font-mono">{insight.InsightArn}</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+</div>

@@ -15,6 +15,8 @@ import { APIGatewayClient } from "@aws-sdk/client-api-gateway";
 import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { SchedulerClient } from "@aws-sdk/client-scheduler";
 import { AppRunnerClient } from "@aws-sdk/client-apprunner";
+import { IoTClient } from "@aws-sdk/client-iot";
+import { SecurityHubClient } from "@aws-sdk/client-securityhub";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
@@ -278,4 +280,12 @@ export function getSchedulerClient(region?: string): SchedulerClient {
 
 export function getAppRunnerClient(region?: string): AppRunnerClient {
   return new AppRunnerClient(clientConfig(region));
+}
+
+export function getIoTClient(region?: string): IoTClient {
+  return new IoTClient(clientConfig(region));
+}
+
+export function getSecurityHubClient(region?: string): SecurityHubClient {
+  return new SecurityHubClient(clientConfig(region));
 }

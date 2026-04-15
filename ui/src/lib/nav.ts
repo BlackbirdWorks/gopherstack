@@ -52,6 +52,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'glue',
 	'guardduty',
 	'iam',
+	'iot',
 	'kinesis',
 	'kms',
 	'lambda',
@@ -64,6 +65,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	's3',
 	'scheduler',
 	'secretsmanager',
+	'securityhub',
 	'serverlessrepo',
 	'organizations',
 	'ses',
@@ -116,7 +118,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'wafv2', href: '/dashboard/wafv2', label: 'WAF v2', icon: 'wafv2', common: true },
 			{ id: 'guardduty', href: '/dashboard/guardduty', label: 'GuardDuty', icon: 'guardduty', common: true },
 			{ id: 'inspector', href: '/dashboard/inspector', label: 'Inspector', icon: 'inspector' },
-			{ id: 'securityhub', href: '/dashboard/securityhub', label: 'Security Hub', icon: 'securityhub' },
+			{ id: 'securityhub', href: '/dashboard/securityhub', label: 'Security Hub', icon: 'securityhub', common: true },
 			{ id: 'accessanalyzer', href: '/dashboard/accessanalyzer', label: 'Access Analyzer', icon: 'accessanalyzer' },
 			{ id: 'directoryservice', href: '/dashboard/directoryservice', label: 'Directory Service', icon: 'directoryservice' },
 			{ id: 'identitystore', href: '/dashboard/identitystore', label: 'Identity Store', icon: 'identitystore' },
@@ -224,7 +226,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		id: 'iot',
 		label: 'Internet of Things',
 		routes: [
-			{ id: 'iot', href: '/dashboard/iot', label: 'IoT Core', icon: 'iot' },
+			{ id: 'iot', href: '/dashboard/iot', label: 'IoT Core', icon: 'iot', common: true },
 			{ id: 'iotdataplane', href: '/dashboard/iotdataplane', label: 'IoT Data Plane', icon: 'iotdataplane' },
 			{ id: 'iotanalytics', href: '/dashboard/iotanalytics', label: 'IoT Analytics', icon: 'iot' }
 		]
