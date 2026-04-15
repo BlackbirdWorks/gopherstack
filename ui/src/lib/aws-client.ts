@@ -1,4 +1,9 @@
+import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
+import { BatchClient } from "@aws-sdk/client-batch";
+import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
+import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import { ElastiCacheClient } from "@aws-sdk/client-elasticache";
+import { FirehoseClient } from "@aws-sdk/client-firehose";
 import { SNSClient } from "@aws-sdk/client-sns";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { EventBridgeClient } from "@aws-sdk/client-eventbridge";
@@ -128,4 +133,24 @@ export function getEKSClient(region?: string): EKSClient {
 
 export function getECRClient(region?: string): ECRClient {
   return new ECRClient(clientConfig(region));
+}
+
+export function getAutoScalingClient(region?: string): AutoScalingClient {
+  return new AutoScalingClient(clientConfig(region));
+}
+
+export function getBatchClient(region?: string): BatchClient {
+  return new BatchClient(clientConfig(region));
+}
+
+export function getCloudFormationClient(region?: string): CloudFormationClient {
+  return new CloudFormationClient(clientConfig(region));
+}
+
+export function getCloudWatchLogsClient(region?: string): CloudWatchLogsClient {
+  return new CloudWatchLogsClient(clientConfig(region));
+}
+
+export function getFirehoseClient(region?: string): FirehoseClient {
+  return new FirehoseClient(clientConfig(region));
 }
