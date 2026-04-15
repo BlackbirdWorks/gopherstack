@@ -1,4 +1,12 @@
 import { ElastiCacheClient } from "@aws-sdk/client-elasticache";
+import { SNSClient } from "@aws-sdk/client-sns";
+import { SQSClient } from "@aws-sdk/client-sqs";
+import { EventBridgeClient } from "@aws-sdk/client-eventbridge";
+import { SSMClient } from "@aws-sdk/client-ssm";
+import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
+import { KinesisClient } from "@aws-sdk/client-kinesis";
+import { EKSClient } from "@aws-sdk/client-eks";
+import { ECRClient } from "@aws-sdk/client-ecr";
 import { FisClient } from "@aws-sdk/client-fis";
 import { ACMPCAClient } from "@aws-sdk/client-acm-pca";
 import { AmplifyClient } from "@aws-sdk/client-amplify";
@@ -88,4 +96,36 @@ export function getGlobalAcceleratorClient(region?: string): GlobalAcceleratorCl
 
 export function getSFNClient(region?: string): SFNClient {
   return new SFNClient(clientConfig(region));
+}
+
+export function getSNSClient(region?: string): SNSClient {
+  return new SNSClient(clientConfig(region));
+}
+
+export function getSQSClient(region?: string): SQSClient {
+  return new SQSClient(clientConfig(region));
+}
+
+export function getEventBridgeClient(region?: string): EventBridgeClient {
+  return new EventBridgeClient(clientConfig(region));
+}
+
+export function getSSMClient(region?: string): SSMClient {
+  return new SSMClient(clientConfig(region));
+}
+
+export function getCloudWatchClient(region?: string): CloudWatchClient {
+  return new CloudWatchClient(clientConfig(region));
+}
+
+export function getKinesisClient(region?: string): KinesisClient {
+  return new KinesisClient(clientConfig(region));
+}
+
+export function getEKSClient(region?: string): EKSClient {
+  return new EKSClient(clientConfig(region));
+}
+
+export function getECRClient(region?: string): ECRClient {
+  return new ECRClient(clientConfig(region));
 }
