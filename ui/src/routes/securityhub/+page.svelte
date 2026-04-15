@@ -105,7 +105,20 @@
 	const criticalCount = $derived(findings.filter((f) => f.Severity?.Label === 'CRITICAL').length);
 	const highCount = $derived(findings.filter((f) => f.Severity?.Label === 'HIGH').length);
 	const mediumCount = $derived(findings.filter((f) => f.Severity?.Label === 'MEDIUM').length);
+	const lowCount = $derived(findings.filter((f) => f.Severity?.Label === 'LOW').length);
 	const resolvedCount = $derived(findings.filter((f) => f.Workflow?.Status === 'RESOLVED').length);
+	const newCount = $derived(findings.filter((f) => f.Workflow?.Status === 'NEW').length);
+	const suppressedCount = $derived(findings.filter((f) => f.Workflow?.Status === 'SUPPRESSED').length);
+
+	// Group findings by product name
+	const productGroups = $derived(() => {
+		const groups: Record<string, number> = {};
+		for (const f of findings) {
+			const prod = f.ProductName ?? 'Unknown';
+			groups[prod] = (groups[prod] ?? 0) + 1;
+		}
+		return Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 5);
+	});
 
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
@@ -144,26 +157,52 @@
 			<p class="font-medium">Security Hub is not enabled</p>
 			<p class="text-sm text-muted-foreground mt-1">Enable Security Hub to centralize security findings</p>
 		</div>
-	{:else if findings.length > 0}
-		<!-- Summary Cards -->
-		<div class="grid gap-4 sm:grid-cols-4">
-			<div class="rounded-lg border p-4 text-center">
+	{:else}
+		<!-- Summary Cards - always visible -->
+		<div class="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center">
 				<div class="text-2xl font-bold text-red-600">{criticalCount}</div>
-				<div class="text-sm text-muted-foreground mt-1">Critical</div>
+				<div class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Critical</div>
 			</div>
-			<div class="rounded-lg border p-4 text-center">
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center">
 				<div class="text-2xl font-bold text-orange-500">{highCount}</div>
-				<div class="text-sm text-muted-foreground mt-1">High</div>
+				<div class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">High</div>
 			</div>
-			<div class="rounded-lg border p-4 text-center">
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center">
 				<div class="text-2xl font-bold text-yellow-500">{mediumCount}</div>
-				<div class="text-sm text-muted-foreground mt-1">Medium</div>
+				<div class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Medium</div>
 			</div>
-			<div class="rounded-lg border p-4 text-center">
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center">
+				<div class="text-2xl font-bold text-blue-500">{lowCount}</div>
+				<div class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Low</div>
+			</div>
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center">
 				<div class="text-2xl font-bold text-green-600">{resolvedCount}</div>
-				<div class="text-sm text-muted-foreground mt-1">Resolved</div>
+				<div class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">Resolved</div>
+			</div>
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center">
+				<div class="text-2xl font-bold text-slate-600 dark:text-slate-300">{newCount}</div>
+				<div class="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide">New</div>
 			</div>
 		</div>
+
+		<!-- Top products bar -->
+		{#if productGroups().length > 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+				<p class="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Top Sources ({findings.length} total findings)</p>
+				<div class="space-y-2">
+					{#each productGroups() as [prod, count]}
+						<div class="flex items-center gap-3">
+							<div class="w-32 text-xs text-slate-600 dark:text-slate-400 truncate">{prod}</div>
+							<div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+								<div class="h-full bg-blue-500 rounded-full" style="width: {Math.round(count / findings.length * 100)}%"></div>
+							</div>
+							<div class="text-xs text-slate-500 w-8 text-right">{count}</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	{/if}
 
 	<!-- Tabs -->
