@@ -193,8 +193,47 @@
 		<input type="text" bind:value={searchQuery} placeholder="Search streams..." class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 	</div>
 
+	<!-- Stat cards -->
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+				<Waves class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{streams.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Total Streams</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+				<Send class="w-5 h-5 text-green-600 dark:text-green-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{streamDetail?.OpenShardCount ?? (selectedStream ? '…' : '—')}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Open Shards</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+				<Download class="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{records.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Records Fetched</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+				<RefreshCw class="w-5 h-5 text-purple-600 dark:text-purple-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{streamDetail?.StreamStatus ?? (selectedStream ? '…' : '—')}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Selected Status</p>
+			</div>
+		</div>
+	</div>
+
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-		<!-- Stream List -->
 		<div class="lg:col-span-1 space-y-2">
 			{#if loading}
 				<div class="text-center py-12">

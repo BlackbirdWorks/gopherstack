@@ -92,4 +92,13 @@ describe('Kinesis Page', () => {
 			expect(vi.mocked(toast.error)).toHaveBeenCalled();
 		}, { timeout: 3000 });
 	});
+
+	it('shows 4 stat cards', () => {
+		mockSend.mockResolvedValue({ StreamNames: [] });
+		render(KinesisPage);
+		expect(screen.getByText('Total Streams')).toBeInTheDocument();
+		expect(screen.getByText('Open Shards')).toBeInTheDocument();
+		expect(screen.getByText('Records Fetched')).toBeInTheDocument();
+		expect(screen.getByText('Selected Status')).toBeInTheDocument();
+	});
 });
