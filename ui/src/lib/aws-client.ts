@@ -314,3 +314,24 @@ export function getECSClient(region?: string): ECSClient {
 export function getCognitoIDPClient(region?: string): CognitoIdentityProviderClient {
   return new CognitoIdentityProviderClient(clientConfig(region));
 }
+
+import { IAMClient } from "@aws-sdk/client-iam";
+import { KMSClient } from "@aws-sdk/client-kms";
+import { RDSClient } from "@aws-sdk/client-rds";
+import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+
+export function getIAMClient(region?: string): IAMClient {
+  return new IAMClient(clientConfig(region));
+}
+
+export function getKMSClient(region?: string): KMSClient {
+  return new KMSClient(clientConfig(region));
+}
+
+export function getRDSClient(region?: string): RDSClient {
+  return new RDSClient(clientConfig(region));
+}
+
+export function getSecretsManagerClient(region?: string): SecretsManagerClient {
+  return new SecretsManagerClient(clientConfig(region));
+}
