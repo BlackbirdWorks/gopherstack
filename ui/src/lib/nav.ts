@@ -52,6 +52,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'glue',
 	'guardduty',
 	'iam',
+	'inspector',
 	'iot',
 	'kinesis',
 	'kms',
@@ -77,7 +78,8 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'transfer',
 	'waf',
 	'wafv2',
-	'workspaces'
+	'workspaces',
+	'xray'
 ]);
 
 export const sidebarCategories: DashboardCategory[] = [
@@ -117,7 +119,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'acmpca', href: '/dashboard/acmpca', label: 'ACM PCA', icon: 'acmpca' },
 			{ id: 'wafv2', href: '/dashboard/wafv2', label: 'WAF v2', icon: 'wafv2', common: true },
 			{ id: 'guardduty', href: '/dashboard/guardduty', label: 'GuardDuty', icon: 'guardduty', common: true },
-			{ id: 'inspector', href: '/dashboard/inspector', label: 'Inspector', icon: 'inspector' },
+			{ id: 'inspector', href: '/dashboard/inspector', label: 'Inspector', icon: 'inspector', common: true },
 			{ id: 'securityhub', href: '/dashboard/securityhub', label: 'Security Hub', icon: 'securityhub', common: true },
 			{ id: 'accessanalyzer', href: '/dashboard/accessanalyzer', label: 'Access Analyzer', icon: 'accessanalyzer' },
 			{ id: 'directoryservice', href: '/dashboard/directoryservice', label: 'Directory Service', icon: 'directoryservice' },
@@ -283,7 +285,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'cloudwatchlogs', href: '/dashboard/cloudwatchlogs', label: 'CloudWatch Logs', icon: 'cloudwatchlogs', common: true },
 			{ id: 'grafana', href: '/dashboard/grafana', label: 'Managed Grafana', icon: 'grafana' },
 			{ id: 'cloudtrail', href: '/dashboard/cloudtrail', label: 'CloudTrail', icon: 'cloudtrail', common: true },
-			{ id: 'xray', href: '/dashboard/xray', label: 'X-Ray', icon: 'xray' },
+			{ id: 'xray', href: '/dashboard/xray', label: 'X-Ray', icon: 'xray', common: true },
 			{ id: 'cloudformation', href: '/dashboard/cloudformation', label: 'CloudFormation', icon: 'cloudformation', common: true },
 			{ id: 'config', href: '/dashboard/config', label: 'Config', icon: 'awsconfig', common: true },
 			{ id: 'organizations', href: '/dashboard/organizations', label: 'Organizations', icon: 'organizations', common: true },

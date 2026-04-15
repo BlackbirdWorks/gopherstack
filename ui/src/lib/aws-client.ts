@@ -17,6 +17,8 @@ import { SchedulerClient } from "@aws-sdk/client-scheduler";
 import { AppRunnerClient } from "@aws-sdk/client-apprunner";
 import { IoTClient } from "@aws-sdk/client-iot";
 import { SecurityHubClient } from "@aws-sdk/client-securityhub";
+import { Inspector2Client } from "@aws-sdk/client-inspector2";
+import { XRayClient } from "@aws-sdk/client-xray";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
@@ -288,4 +290,12 @@ export function getIoTClient(region?: string): IoTClient {
 
 export function getSecurityHubClient(region?: string): SecurityHubClient {
   return new SecurityHubClient(clientConfig(region));
+}
+
+export function getInspectorClient(region?: string): Inspector2Client {
+  return new Inspector2Client(clientConfig(region));
+}
+
+export function getXRayClient(region?: string): XRayClient {
+  return new XRayClient(clientConfig(region));
 }
