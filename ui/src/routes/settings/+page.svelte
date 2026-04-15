@@ -42,6 +42,9 @@
 		localStorage: false,
 		sessionStorage: false
 	});
+	let resetServices = $state<string[]>([]);
+	let selectedResetService = $state('all');
+	let resettingService = $state(false);
 
 	function mergeSettings(raw: unknown): SettingsState {
 		if (!raw || typeof raw !== 'object') {
@@ -67,13 +70,28 @@
 		const raw = window.localStorage.getItem(storageKey);
 		if (!raw) {
 			settings = { ...defaults };
-			return;
+		} else {
+			try {
+				settings = mergeSettings(JSON.parse(raw));
+			} catch {
+				settings = { ...defaults };
+			}
 		}
 
 		try {
-			settings = mergeSettings(JSON.parse(raw));
+			fetch('/_gopherstack/health')
+				.then((res) => (res.ok ? res.json() : null))
+				.then((data) => {
+					if (!data || !Array.isArray(data.services)) return;
+					resetServices = data.services
+						.map((service: unknown) => String(service))
+						.sort((a, b) => a.localeCompare(b));
+				})
+				.catch(() => {
+					resetServices = [];
+				});
 		} catch {
-			settings = { ...defaults };
+			resetServices = [];
 		}
 	});
 
@@ -109,6 +127,25 @@
 		purgeTypes.sessionStorage = false;
 
 		toast.success('Data purged successfully');
+	}
+
+	async function resetServiceData(): Promise<void> {
+		resettingService = true;
+		try {
+			const suffix = selectedResetService === 'all'
+				? ''
+				: `?service=${encodeURIComponent(selectedResetService)}`;
+			const res = await fetch(`/_gopherstack/reset${suffix}`, { method: 'POST' });
+			if (!res.ok) {
+				throw new Error(`reset failed with status ${res.status}`);
+			}
+			const body = await res.json();
+			toast.success(body.message || 'Service reset complete');
+		} catch (err) {
+			toast.error(`Failed to reset service: ${(err as Error).message}`);
+		} finally {
+			resettingService = false;
+		}
 	}
 </script>
 
@@ -313,6 +350,22 @@
 						<label for="purge-session" class="text-sm font-medium cursor-pointer">Session Storage</label>
 						<p class="text-xs text-slate-600 dark:text-slate-400">Clear temporary session data. This is cleared when you close the browser anyway.</p>
 					</div>
+				</div>
+			</div>
+
+			<div class="space-y-3 border-t border-slate-200 dark:border-slate-700 pt-6">
+				<h3 class="text-sm font-semibold">Reset Service State</h3>
+				<p class="text-xs text-slate-600 dark:text-slate-400">Reset all resources for a single service using the backend reset endpoint.</p>
+				<div class="flex items-center gap-3">
+					<select bind:value={selectedResetService} class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm">
+						<option value="all">All services</option>
+						{#each resetServices as service}
+							<option value={service}>{service}</option>
+						{/each}
+					</select>
+					<button type="button" onclick={resetServiceData} disabled={resettingService} class="px-4 py-2 rounded-lg text-sm font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+						{resettingService ? 'Resetting...' : 'Reset Selected Service'}
+					</button>
 				</div>
 			</div>
 

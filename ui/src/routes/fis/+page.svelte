@@ -132,8 +132,8 @@
 				<ZapOff class="w-8 h-8 text-rose-600 animate-pulse" />
 			</div>
 			<div>
-				<h1 class="text-3xl font-bold bg-gradient-to-r from-rose-600 to-amber-600 dark:from-rose-400 dark:to-amber-400 bg-clip-text text-transparent italic tracking-tight">Chaos Engineering</h1>
-				<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Managed Amazon FIS (Fault Injection Simulator) orchestration, distributed chaos experiments, and resilience telemetry.</p>
+				<h1 class="text-3xl font-bold bg-gradient-to-r from-rose-600 to-amber-600 dark:from-rose-400 dark:to-amber-400 bg-clip-text text-transparent italic tracking-tight">FIS</h1>
+				<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Managed AWS Fault Injection Service (FIS) experiments and orchestration telemetry.</p>
 			</div>
 		</div>
 		<div class="flex items-center gap-3">

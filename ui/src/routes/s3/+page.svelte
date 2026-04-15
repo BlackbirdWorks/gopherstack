@@ -10,6 +10,8 @@
 		DeleteObjectCommand,
 		PutObjectCommand,
 		HeadObjectCommand,
+		GetObjectCommand,
+		CopyObjectCommand,
 		GetBucketVersioningCommand,
 		ListObjectVersionsCommand,
 		type Bucket,
@@ -45,6 +47,10 @@
 	let showObjectModal = $state(false);
 	let selectedObject = $state<_Object | null>(null);
 	let objectMetadata = $state<Record<string, unknown> | null>(null);
+	let objectUserMetadata = $state<Record<string, string>>({});
+	let objectVersions = $state<ObjectVersion[]>([]);
+	let propertyKey = $state('');
+	let propertyValue = $state('');
 	let loadingMetadata = $state(false);
 
 	// Versioning state
@@ -255,9 +261,12 @@
 		loadingMetadata = true;
 		showObjectModal = true;
 		try {
-			const res = await s3.send(
-				new HeadObjectCommand({ Bucket: selectedBucket!, Key: obj.Key! })
-			);
+			const [res, versionsRes] = await Promise.all([
+				s3.send(new HeadObjectCommand({ Bucket: selectedBucket!, Key: obj.Key! })),
+				s3.send(new ListObjectVersionsCommand({ Bucket: selectedBucket!, Prefix: obj.Key! }))
+			]);
+			objectUserMetadata = res.Metadata ?? {};
+			objectVersions = (versionsRes.Versions ?? []).filter((version) => version.Key === obj.Key);
 			objectMetadata = {
 				'Content Type': res.ContentType,
 				'Content Length': formatSize(res.ContentLength),
@@ -265,13 +274,81 @@
 				'ETag': res.ETag,
 				'Storage Class': res.StorageClass,
 				'Version ID': res.VersionId || '(no versioning)',
-				'Metadata Keys': Object.keys(res.Metadata || {})
+				'Metadata Keys': Object.keys(objectUserMetadata)
 			};
 		} catch (err: unknown) {
 			toast.error(`Failed to inspect object: ${(err as Error).message}`);
 			objectMetadata = null;
+			objectUserMetadata = {};
+			objectVersions = [];
 		} finally {
 			loadingMetadata = false;
+		}
+	}
+
+	async function downloadObjectVersion(versionId?: string) {
+		if (!selectedBucket || !selectedObject?.Key) return;
+		try {
+			const res = await s3.send(
+				new GetObjectCommand({
+					Bucket: selectedBucket,
+					Key: selectedObject.Key,
+					VersionId: versionId
+				})
+			);
+			const bytes = res.Body && 'transformToByteArray' in res.Body
+				? await res.Body.transformToByteArray()
+				: new TextEncoder().encode(res.Body && 'transformToString' in res.Body ? await res.Body.transformToString() : '');
+			const blob = new Blob([bytes], { type: res.ContentType || 'application/octet-stream' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = selectedObject.Key.split('/').pop() || selectedObject.Key;
+			a.click();
+			URL.revokeObjectURL(url);
+			toast.success(`Downloaded "${selectedObject.Key}"`);
+		} catch (err: unknown) {
+			toast.error(`Failed to download object: ${(err as Error).message}`);
+		}
+	}
+
+	async function deleteObjectVersion(versionId?: string) {
+		if (!selectedBucket || !selectedObject?.Key) return;
+		if (!confirm(`Delete "${selectedObject.Key}"${versionId ? ` version ${versionId}` : ''}?`)) return;
+		try {
+			await s3.send(
+				new DeleteObjectCommand({
+					Bucket: selectedBucket,
+					Key: selectedObject.Key,
+					VersionId: versionId
+				})
+			);
+			toast.success(`Deleted "${selectedObject.Key}"`);
+			await loadObjects(selectedBucket, currentPrefix);
+			await inspectObject(selectedObject);
+		} catch (err: unknown) {
+			toast.error(`Failed to delete object: ${(err as Error).message}`);
+		}
+	}
+
+	async function updateObjectProperty() {
+		if (!selectedBucket || !selectedObject?.Key || !propertyKey.trim()) return;
+		try {
+			await s3.send(
+				new CopyObjectCommand({
+					Bucket: selectedBucket,
+					Key: selectedObject.Key,
+					CopySource: `${selectedBucket}/${selectedObject.Key}`,
+					MetadataDirective: 'REPLACE',
+					Metadata: { ...objectUserMetadata, [propertyKey.trim()]: propertyValue }
+				})
+			);
+			propertyKey = '';
+			propertyValue = '';
+			toast.success(`Updated properties for "${selectedObject.Key}"`);
+			await inspectObject(selectedObject);
+		} catch (err: unknown) {
+			toast.error(`Failed to update properties: ${(err as Error).message}`);
 		}
 	}
 
@@ -427,7 +504,13 @@
 							<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
 								<td class="px-6 py-4 font-medium text-slate-900 dark:text-white flex items-center gap-2">
 									<svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-									{(obj.Key ?? '').replace(currentPrefix, '')}
+									<button
+										type="button"
+										onclick={() => inspectObject(obj)}
+										class="hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-left"
+									>
+										{(obj.Key ?? '').replace(currentPrefix, '')}
+									</button>
 								</td>
 								<td class="px-6 py-4 text-right">{formatSize(obj.Size)}</td>
 								<td class="px-6 py-4 text-right">{formatDate(obj.LastModified)}</td>
@@ -678,6 +761,39 @@
 									{/each}
 								</div>
 							{/if}
+
+							<div class="pt-4 border-t border-slate-200 dark:border-slate-600">
+								<h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Object Versions</h4>
+								{#if objectVersions.length === 0}
+									<p class="text-sm text-slate-600 dark:text-slate-400">No versions available for this object.</p>
+								{:else}
+									<div class="space-y-2 max-h-48 overflow-y-auto">
+										{#each objectVersions as version}
+											<div class="p-3 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600 text-xs">
+												<p class="font-mono text-slate-900 dark:text-white truncate">{version.VersionId || '(current)'}</p>
+												<p class="text-slate-600 dark:text-slate-400 mt-1">{formatDate(version.LastModified)}</p>
+												<div class="mt-2 flex gap-3">
+													<button type="button" onclick={() => downloadObjectVersion(version.VersionId)} class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium">Download</button>
+													<button type="button" onclick={() => deleteObjectVersion(version.VersionId)} class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 font-medium">Delete</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<div class="pt-4 border-t border-slate-200 dark:border-slate-600">
+								<h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Change Properties</h4>
+								<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+									<input type="text" bind:value={propertyKey} placeholder="Property key" class="border border-slate-300 rounded-lg p-2 text-sm dark:bg-slate-800 dark:border-slate-600" />
+									<input type="text" bind:value={propertyValue} placeholder="Property value" class="border border-slate-300 rounded-lg p-2 text-sm dark:bg-slate-800 dark:border-slate-600" />
+								</div>
+								<div class="mt-3 flex gap-2">
+									<button type="button" onclick={() => downloadObjectVersion()} class="py-2 px-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Download Latest</button>
+									<button type="button" onclick={() => deleteObjectVersion()} class="py-2 px-3 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">Delete Object</button>
+									<button type="button" onclick={updateObjectProperty} class="py-2 px-3 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700">Save Properties</button>
+								</div>
+							</div>
 						</div>
 						<div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600 mt-6">
 							<button type="button" onclick={() => { showObjectModal = false; }}

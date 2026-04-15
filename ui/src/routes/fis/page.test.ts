@@ -27,7 +27,7 @@ describe('FIS Page', () => {
 
 		render(FISPage);
 
-		expect(screen.getByText('Chaos Engineering')).toBeInTheDocument();
+		expect(screen.getByText('FIS')).toBeInTheDocument();
 		expect(screen.getByText('Ignite Chaos')).toBeInTheDocument();
 	});
 

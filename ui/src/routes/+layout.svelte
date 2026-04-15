@@ -125,6 +125,7 @@
 		const pathname = page.url.pathname;
 		if (tab === 'metrics' && pathname.startsWith('/dashboard/metrics')) return true;
 		if (tab === 'console' && pathname.startsWith('/dashboard/console')) return true;
+		if (tab === 'chaos' && pathname.startsWith('/dashboard/chaos')) return true;
 		if (tab === 'fis' && pathname.startsWith('/dashboard/fis')) return true;
 		if (tab === 'settings' && pathname.startsWith('/dashboard/settings')) return true;
 		return false;
@@ -214,8 +215,11 @@
 				<a href="/dashboard/console" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('console') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="Live API Console">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
 				</a>
-				<a href="/dashboard/fis" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('fis') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="Chaos Engineering">
+				<a href="/dashboard/chaos" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('chaos') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="Chaos Engineering">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+				</a>
+				<a href="/dashboard/fis" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('fis') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="FIS">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7m14-4l-7 7-7-7" /></svg>
 				</a>
 				<a href="/dashboard/settings" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('settings') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="Settings">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
