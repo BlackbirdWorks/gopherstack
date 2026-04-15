@@ -1,9 +1,13 @@
+import { AthenaClient } from "@aws-sdk/client-athena";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import { ElastiCacheClient } from "@aws-sdk/client-elasticache";
 import { FirehoseClient } from "@aws-sdk/client-firehose";
+import { GlueClient } from "@aws-sdk/client-glue";
+import { OpenSearchClient } from "@aws-sdk/client-opensearch";
+import { RedshiftClient } from "@aws-sdk/client-redshift";
 import { SNSClient } from "@aws-sdk/client-sns";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { EventBridgeClient } from "@aws-sdk/client-eventbridge";
@@ -153,4 +157,20 @@ export function getCloudWatchLogsClient(region?: string): CloudWatchLogsClient {
 
 export function getFirehoseClient(region?: string): FirehoseClient {
   return new FirehoseClient(clientConfig(region));
+}
+
+export function getGlueClient(region?: string): GlueClient {
+  return new GlueClient(clientConfig(region));
+}
+
+export function getOpenSearchClient(region?: string): OpenSearchClient {
+  return new OpenSearchClient(clientConfig(region));
+}
+
+export function getRedshiftClient(region?: string): RedshiftClient {
+  return new RedshiftClient(clientConfig(region));
+}
+
+export function getAthenaClient(region?: string): AthenaClient {
+  return new AthenaClient(clientConfig(region));
 }
