@@ -9,8 +9,12 @@
 		PutBucketVersioningCommand,
 		DeleteObjectCommand,
 		PutObjectCommand,
+		HeadObjectCommand,
+		GetBucketVersioningCommand,
+		ListObjectVersionsCommand,
 		type Bucket,
-		type _Object
+		type _Object,
+		type ObjectVersion
 	} from '@aws-sdk/client-s3';
 	import { toast } from 'svelte-sonner';
 
@@ -36,6 +40,18 @@
 	let uploadKey = $state('');
 	let uploadFile = $state<File | null>(null);
 	let uploading = $state(false);
+
+	// Object inspection state
+	let showObjectModal = $state(false);
+	let selectedObject = $state<_Object | null>(null);
+	let objectMetadata = $state<Record<string, unknown> | null>(null);
+	let loadingMetadata = $state(false);
+
+	// Versioning state
+	let bucketVersioning = $state<string>('');
+	let loadingVersioning = $state(false);
+	let showVersioningModal = $state(false);
+	let bucketVersions = $state<ObjectVersion[]>([]);
 
 	const filteredBuckets = $derived(
 		buckets.filter((b) => !searchQuery || (b.Name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false))
@@ -142,6 +158,7 @@
 		selectedBucket = name;
 		currentPrefix = '';
 		await loadObjects(name, '');
+		await loadBucketVersioning(name);
 	}
 
 	async function loadObjects(bucket: string, prefix: string) {
@@ -233,6 +250,73 @@
 		return `${size.toFixed(1)} ${units[i]}`;
 	}
 
+	async function inspectObject(obj: _Object) {
+		selectedObject = obj;
+		loadingMetadata = true;
+		showObjectModal = true;
+		try {
+			const res = await s3.send(
+				new HeadObjectCommand({ Bucket: selectedBucket!, Key: obj.Key! })
+			);
+			objectMetadata = {
+				'Content Type': res.ContentType,
+				'Content Length': formatSize(res.ContentLength),
+				'Last Modified': formatDate(res.LastModified),
+				'ETag': res.ETag,
+				'Storage Class': res.StorageClass,
+				'Version ID': res.VersionId || '(no versioning)',
+				'Metadata Keys': Object.keys(res.Metadata || {})
+			};
+		} catch (err: unknown) {
+			toast.error(`Failed to inspect object: ${(err as Error).message}`);
+			objectMetadata = null;
+		} finally {
+			loadingMetadata = false;
+		}
+	}
+
+	async function loadBucketVersioning(bucket: string) {
+		loadingVersioning = true;
+		try {
+			const res = await s3.send(new GetBucketVersioningCommand({ Bucket: bucket }));
+			bucketVersioning = res.Status || 'Disabled';
+		} catch (err: unknown) {
+			toast.error(`Failed to check versioning: ${(err as Error).message}`);
+			bucketVersioning = 'Unknown';
+		} finally {
+			loadingVersioning = false;
+		}
+	}
+
+	async function toggleBucketVersioning() {
+		if (!selectedBucket) return;
+		const newStatus = bucketVersioning === 'Enabled' ? 'Suspended' : 'Enabled';
+		try {
+			await s3.send(
+				new PutBucketVersioningCommand({
+					Bucket: selectedBucket,
+					VersioningConfiguration: { Status: newStatus as 'Enabled' | 'Suspended' }
+				})
+			);
+			bucketVersioning = newStatus;
+			toast.success(`Versioning ${newStatus.toLowerCase()} for "${selectedBucket}"`);
+		} catch (err: unknown) {
+			toast.error(`Failed to update versioning: ${(err as Error).message}`);
+		}
+	}
+
+	async function loadBucketVersionsList() {
+		if (!selectedBucket) return;
+		try {
+			const res = await s3.send(
+				new ListObjectVersionsCommand({ Bucket: selectedBucket })
+			);
+			bucketVersions = res.Versions || [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load versions: ${(err as Error).message}`);
+		}
+	}
+
 	onMount(() => {
 		loadBuckets();
 	});
@@ -282,12 +366,18 @@
 
 		<div class="flex justify-between items-center">
 			<h1 class="text-3xl font-bold text-slate-900 dark:text-white">{selectedBucket}</h1>
-			<div class="flex gap-2">
+			<div class="flex gap-2 flex-wrap">
 				<button
 					onclick={goBack}
 					class="text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 focus:ring-4 focus:ring-slate-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700 dark:focus:ring-slate-700"
 				>
 					Back
+				</button>
+				<button
+					onclick={() => { showVersioningModal = true; loadBucketVersionsList(); }}
+					class={`font-medium rounded-lg text-sm px-5 py-2.5 transition-colors ${bucketVersioning === 'Enabled' ? 'text-white bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800' : 'text-white bg-slate-500 hover:bg-slate-600 dark:bg-slate-700 dark:hover:bg-slate-800'}`}
+				>
+					{loadingVersioning ? 'Loading...' : `Versioning: ${bucketVersioning}`}
 				</button>
 				<button
 					onclick={() => { showUploadModal = true; }}
@@ -341,7 +431,13 @@
 								</td>
 								<td class="px-6 py-4 text-right">{formatSize(obj.Size)}</td>
 								<td class="px-6 py-4 text-right">{formatDate(obj.LastModified)}</td>
-								<td class="px-6 py-4 text-right">
+								<td class="px-6 py-4 text-right space-x-2">
+									<button
+										onclick={() => inspectObject(obj)}
+										class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium"
+									>
+										Inspect
+									</button>
 									<button
 										onclick={() => deleteObject(obj.Key ?? '')}
 										class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs font-medium"
@@ -535,6 +631,121 @@
 							</button>
 						</div>
 					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Object Inspection Modal -->
+{#if showObjectModal && selectedObject}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showObjectModal = false; }} role="dialog" aria-modal="true">
+		<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
+			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
+					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Object Details</h3>
+					<button onclick={() => { showObjectModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+						<svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
+					</button>
+				</div>
+				<div class="p-4 md:p-5">
+					{#if loadingMetadata}
+						<div class="flex items-center justify-center p-8">
+							<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none">
+								<path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" />
+								<path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" />
+							</svg>
+						</div>
+					{:else}
+						<div class="space-y-4">
+							<div>
+								<h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-1">Object Key</h4>
+								<p class="text-sm text-slate-600 dark:text-slate-400 break-all font-mono">{selectedObject.Key}</p>
+							</div>
+							{#if objectMetadata}
+								<div class="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-600">
+									{#each Object.entries(objectMetadata) as [key, value]}
+										<div>
+											<h5 class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">{key}</h5>
+											<p class="text-sm text-slate-900 dark:text-slate-100 break-all">
+												{#if Array.isArray(value)}
+													{value.join(', ') || '(none)'}
+												{:else}
+													{value || '(empty)'}
+												{/if}
+											</p>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+						<div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600 mt-6">
+							<button type="button" onclick={() => { showObjectModal = false; }}
+								class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 focus:ring-4 focus:ring-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700 dark:focus:ring-slate-700">
+								Close
+							</button>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Versioning Modal -->
+{#if showVersioningModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showVersioningModal = false; }} role="dialog" aria-modal="true">
+		<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
+			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
+					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Versioning Management</h3>
+					<button onclick={() => { showVersioningModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+						<svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
+					</button>
+				</div>
+				<div class="p-4 md:p-5 space-y-4">
+					<div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600">
+						<div class="flex items-center justify-between mb-4">
+							<div>
+								<h4 class="font-semibold text-slate-900 dark:text-white">Current Status</h4>
+								<p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Versioning is {bucketVersioning === 'Enabled' ? 'enabled' : 'disabled'} for this bucket</p>
+							</div>
+							<button onclick={toggleBucketVersioning}
+								class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketVersioning === 'Enabled' ? 'text-white bg-green-600 hover:bg-green-700' : 'text-white bg-slate-500 hover:bg-slate-600'}`}>
+								{bucketVersioning === 'Enabled' ? 'Disable' : 'Enable'} Versioning
+							</button>
+						</div>
+					</div>
+
+					<div>
+						<h4 class="font-semibold text-slate-900 dark:text-white mb-2">Version History</h4>
+						{#if bucketVersions.length === 0}
+							<p class="text-sm text-slate-600 dark:text-slate-400">No versions found. Enable versioning and upload files to track versions.</p>
+						{:else}
+							<div class="space-y-2 max-h-96 overflow-y-auto">
+								{#each bucketVersions.slice(0, 20) as version}
+									<div class="p-3 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600 text-sm">
+										<p class="font-mono text-slate-900 dark:text-white truncate">{version.Key}</p>
+										<div class="text-xs text-slate-600 dark:text-slate-400 mt-1 space-y-0.5">
+											<p>Version ID: {version.VersionId || '(current)'}</p>
+											<p>Modified: {version.LastModified ? formatDate(version.LastModified) : '(unknown)'}</p>
+											<p>Size: {formatSize(version.Size)}</p>
+										</div>
+									</div>
+								{/each}
+								{#if bucketVersions.length > 20}
+									<p class="text-xs text-slate-500 text-center py-2">Showing 20 of {bucketVersions.length} versions</p>
+								{/if}
+							</div>
+						{/if}
+					</div>
+
+					<div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600">
+						<button type="button" onclick={() => { showVersioningModal = false; }}
+							class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 focus:ring-4 focus:ring-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700 dark:focus:ring-slate-700">
+							Close
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>
