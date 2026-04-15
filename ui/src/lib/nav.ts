@@ -20,9 +20,11 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'autoscaling',
 	'acm',
 	'apigateway',
+	'apprunner',
 	'appsync',
 	'backup',
 	'batch',
+	'bedrock',
 	'chaos',
 	'cloudformation',
 	'cloudfront',
@@ -60,6 +62,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'redshift',
 	'route53',
 	's3',
+	'scheduler',
 	'secretsmanager',
 	'serverlessrepo',
 	'organizations',
@@ -93,7 +96,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'sns', href: '/dashboard/sns', label: 'SNS', icon: 'sns', common: true },
 			{ id: 'sqs', href: '/dashboard/sqs', label: 'SQS', icon: 'sqs', common: true },
 			{ id: 'eventbridge', href: '/dashboard/eventbridge', label: 'EventBridge', icon: 'eventbridge', common: true },
-			{ id: 'scheduler', href: '/dashboard/scheduler', label: 'Scheduler', icon: 'scheduler' },
+			{ id: 'scheduler', href: '/dashboard/scheduler', label: 'Scheduler', icon: 'scheduler', common: true },
 			{ id: 'pinpoint', href: '/dashboard/pinpoint', label: 'Pinpoint', icon: 'pinpoint' }
 		]
 	},
@@ -129,7 +132,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'ecr', href: '/dashboard/ecr', label: 'ECR', icon: 'ecr', common: true },
 			{ id: 'ecs', href: '/dashboard/ecs', label: 'ECS', icon: 'ecs', common: true },
 			{ id: 'eks', href: '/dashboard/eks', label: 'EKS', icon: 'eks', common: true },
-			{ id: 'apprunner', href: '/dashboard/apprunner', label: 'App Runner', icon: 'apprunner' },
+			{ id: 'apprunner', href: '/dashboard/apprunner', label: 'App Runner', icon: 'apprunner', common: true },
 			{ id: 'autoscaling', href: '/dashboard/autoscaling', label: 'Auto Scaling', icon: 'autoscaling', common: true },
 			{ id: 'lightsail', href: '/dashboard/lightsail', label: 'Lightsail', icon: 'lightsail' },
 			{ id: 'elasticbeanstalk', href: '/dashboard/elasticbeanstalk', label: 'Elastic Beanstalk', icon: 'elasticbeanstalk' }
@@ -207,7 +210,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		label: 'Intelligence & ML',
 		routes: [
 			{ id: 'sagemaker', href: '/dashboard/sagemaker', label: 'SageMaker', icon: 'sagemaker' },
-			{ id: 'bedrock', href: '/dashboard/bedrock', label: 'Bedrock', icon: 'bedrock' },
+			{ id: 'bedrock', href: '/dashboard/bedrock', label: 'Bedrock', icon: 'bedrock', common: true },
 			{ id: 'bedrockruntime', href: '/dashboard/bedrockruntime', label: 'Bedrock Runtime', icon: 'bedrockruntime' },
 			{ id: 'comprehend', href: '/dashboard/comprehend', label: 'Comprehend', icon: 'comprehend' },
 			{ id: 'rekognition', href: '/dashboard/rekognition', label: 'Rekognition', icon: 'rekognition' },
