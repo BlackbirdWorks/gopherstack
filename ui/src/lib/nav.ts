@@ -21,6 +21,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'batch',
 	'chaos',
 	'cloudformation',
+	'cloudfront',
 	'cloudwatch',
 	'cloudwatchlogs',
 	'codebuild',
@@ -57,6 +58,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'sqs',
 	'ssm',
 	'waf',
+	'wafv2',
 	'workspaces'
 ]);
 
@@ -95,7 +97,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'secretsmanager', href: '/dashboard/secretsmanager', label: 'Secrets Manager', icon: 'secretsmanager', common: true },
 			{ id: 'acm', href: '/dashboard/acm', label: 'ACM', icon: 'acm' },
 			{ id: 'acmpca', href: '/dashboard/acmpca', label: 'ACM PCA', icon: 'acmpca' },
-			{ id: 'wafv2', href: '/dashboard/wafv2', label: 'WAF v2', icon: 'wafv2' },
+			{ id: 'wafv2', href: '/dashboard/wafv2', label: 'WAF v2', icon: 'wafv2', common: true },
 			{ id: 'guardduty', href: '/dashboard/guardduty', label: 'GuardDuty', icon: 'guardduty' },
 			{ id: 'inspector', href: '/dashboard/inspector', label: 'Inspector', icon: 'inspector' },
 			{ id: 'securityhub', href: '/dashboard/securityhub', label: 'Security Hub', icon: 'securityhub' },
@@ -245,7 +247,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		routes: [
 			{ id: 'route53', href: '/dashboard/route53', label: 'Route 53', icon: 'route53', common: true },
 			{ id: 'route53resolver', href: '/dashboard/route53resolver', label: 'Route 53 Resolver', icon: 'route53resolver' },
-			{ id: 'cloudfront', href: '/dashboard/cloudfront', label: 'CloudFront', icon: 'cloudfront' },
+			{ id: 'cloudfront', href: '/dashboard/cloudfront', label: 'CloudFront', icon: 'cloudfront', common: true },
 			{ id: 'elb', href: '/dashboard/elb', label: 'ELB', icon: 'elb' },
 			{ id: 'elbv2', href: '/dashboard/elbv2', label: 'ELB v2', icon: 'elbv2' },
 			{ id: 'globalaccelerator', href: '/dashboard/globalaccelerator', label: 'Global Accelerator', icon: 'globalaccelerator' },
