@@ -1,4 +1,9 @@
 import { AthenaClient } from "@aws-sdk/client-athena";
+import { SESClient } from "@aws-sdk/client-ses";
+import { CloudTrailClient } from "@aws-sdk/client-cloudtrail";
+import { ConfigServiceClient } from "@aws-sdk/client-config-service";
+import { BackupClient } from "@aws-sdk/client-backup";
+import { ElasticLoadBalancingV2Client } from "@aws-sdk/client-elastic-load-balancing-v2";
 import { AutoScalingClient } from "@aws-sdk/client-auto-scaling";
 import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
@@ -198,4 +203,24 @@ export function getWAFV2Client(region?: string): WAFV2Client {
 
 export function getCloudFrontClient(region?: string): CloudFrontClient {
   return new CloudFrontClient(clientConfig(region));
+}
+
+export function getSESClient(region?: string): SESClient {
+  return new SESClient(clientConfig(region));
+}
+
+export function getCloudTrailClient(region?: string): CloudTrailClient {
+  return new CloudTrailClient(clientConfig(region));
+}
+
+export function getConfigClient(region?: string): ConfigServiceClient {
+  return new ConfigServiceClient(clientConfig(region));
+}
+
+export function getBackupClient(region?: string): BackupClient {
+  return new BackupClient(clientConfig(region));
+}
+
+export function getELBv2Client(region?: string): ElasticLoadBalancingV2Client {
+  return new ElasticLoadBalancingV2Client(clientConfig(region));
 }
