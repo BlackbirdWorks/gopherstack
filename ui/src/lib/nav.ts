@@ -79,7 +79,11 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'waf',
 	'wafv2',
 	'workspaces',
-	'xray'
+	'xray',
+	'neptune',
+	'mq',
+	'mwaa',
+	'mediaconvert'
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.
@@ -150,7 +154,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		routes: [
 			{ id: 'rds', href: '/dashboard/rds', label: 'RDS', icon: 'rds', common: true },
 			{ id: 'docdb', href: '/dashboard/docdb', label: 'DocumentDB', icon: 'docdb' },
-			{ id: 'neptune', href: '/dashboard/neptune', label: 'Neptune', icon: 'neptune' },
+			{ id: 'neptune', href: '/dashboard/neptune', label: 'Neptune', icon: 'neptune', common: true },
 			{ id: 'memorydb', href: '/dashboard/memorydb', label: 'MemoryDB', icon: 'memorydb' },
 			{ id: 'keyspaces', href: '/dashboard/keyspaces', label: 'Keyspaces', icon: 'keyspaces' },
 			{ id: 'timestream', href: '/dashboard/timestream', label: 'Timestream', icon: 'timestream' },
@@ -194,8 +198,8 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'apigatewayv2', href: '/dashboard/apigatewayv2', label: 'API Gateway V2', icon: 'apigatewayv2' },
 			{ id: 'apigatewaymanagementapi', href: '/dashboard/apigatewaymanagementapi', label: 'APIGW Management', icon: 'apigatewaymanagementapi' },
 			{ id: 'appfabric', href: '/dashboard/appfabric', label: 'AppFabric', icon: 'appfabric' },
-			{ id: 'mq', href: '/dashboard/mq', label: 'MQ', icon: 'mq' },
-			{ id: 'mwaa', href: '/dashboard/mwaa', label: 'MWAA', icon: 'mwaa' },
+			{ id: 'mq', href: '/dashboard/mq', label: 'MQ', icon: 'mq', common: true },
+			{ id: 'mwaa', href: '/dashboard/mwaa', label: 'MWAA', icon: 'mwaa', common: true },
 			{ id: 'managedblockchain', href: '/dashboard/managedblockchain', label: 'Managed Blockchain', icon: 'blockchain' },
 			{ id: 'sfn', href: '/dashboard/sfn', label: 'Step Functions', icon: 'stepfunctions', common: true },
 			{ id: 'appconfig', href: '/dashboard/appconfig', label: 'AppConfig', icon: 'appconfig' },
@@ -238,7 +242,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		id: 'media',
 		label: 'Media Services',
 		routes: [
-			{ id: 'mediaconvert', href: '/dashboard/mediaconvert', label: 'MediaConvert', icon: 'media' },
+			{ id: 'mediaconvert', href: '/dashboard/mediaconvert', label: 'MediaConvert', icon: 'media', common: true },
 			{ id: 'elastictranscoder', href: '/dashboard/elastictranscoder', label: 'Elastic Transcoder', icon: 'media' },
 			{ id: 'mediastore', href: '/dashboard/mediastore', label: 'MediaStore', icon: 'media' },
 			{ id: 'mediastoredata', href: '/dashboard/mediastoredata', label: 'MediaStore Data', icon: 'media' }

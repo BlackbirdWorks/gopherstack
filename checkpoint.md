@@ -1,3 +1,23 @@
+# Neptune / MQ / MWAA / MediaConvert UI Pages - Session Summary
+
+## Completed ✅
+- `ui/src/routes/neptune/+page.svelte` - Clusters/Instances/Snapshots tabs, create cluster modal, detail panel
+- `ui/src/routes/mq/+page.svelte` - Brokers/Configurations tabs, broker detail panel
+- `ui/src/routes/mwaa/+page.svelte` - Environments tab, detail panel with webserver URL
+- `ui/src/routes/mediaconvert/+page.svelte` - Jobs/Queues/Templates tabs, detail panels
+- All 4 test files created (45 tests total, all passing)
+- `ui/src/lib/aws-client.ts` - Added 4 client getters
+- `ui/src/lib/nav.ts` - Added 4 routes to `implementedDashboardRouteIds` with `common: true`
+- Local commit: `8438dbf` (1 ahead of origin/ui-tweaks-3)
+
+## Blocker: Cannot Push
+- Token lacks git push write access (403 "Resource not accessible by integration")
+
+## What Remains
+- Nothing: all 4 pages + tests are complete
+
+---
+
 # ECS + RDS UI Enhancement - Session Update
 
 ## Current Session: Enhance ECS and RDS Pages

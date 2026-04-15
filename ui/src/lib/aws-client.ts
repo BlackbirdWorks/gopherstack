@@ -319,6 +319,10 @@ import { IAMClient } from "@aws-sdk/client-iam";
 import { KMSClient } from "@aws-sdk/client-kms";
 import { RDSClient } from "@aws-sdk/client-rds";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+import { NeptuneClient } from "@aws-sdk/client-neptune";
+import { MqClient } from "@aws-sdk/client-mq";
+import { MWAAClient } from "@aws-sdk/client-mwaa";
+import { MediaConvertClient } from "@aws-sdk/client-mediaconvert";
 
 export function getIAMClient(region?: string): IAMClient {
   return new IAMClient(clientConfig(region));
@@ -334,4 +338,20 @@ export function getRDSClient(region?: string): RDSClient {
 
 export function getSecretsManagerClient(region?: string): SecretsManagerClient {
   return new SecretsManagerClient(clientConfig(region));
+}
+
+export function getNeptuneClient(region?: string): NeptuneClient {
+  return new NeptuneClient(clientConfig(region));
+}
+
+export function getMQClient(region?: string): MqClient {
+  return new MqClient(clientConfig(region));
+}
+
+export function getMWAAClient(region?: string): MWAAClient {
+  return new MWAAClient(clientConfig(region));
+}
+
+export function getMediaConvertClient(region?: string): MediaConvertClient {
+  return new MediaConvertClient(clientConfig(region));
 }
