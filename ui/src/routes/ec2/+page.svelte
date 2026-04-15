@@ -2,14 +2,16 @@
 import { onMount } from 'svelte';
 import { getEC2Client } from '$lib/aws-client';
 import {
-DescribeInstancesCommand,
-StartInstancesCommand,
-StopInstancesCommand,
-TerminateInstancesCommand,
-RebootInstancesCommand
+	DescribeInstancesCommand,
+	StartInstancesCommand,
+	StopInstancesCommand,
+	TerminateInstancesCommand,
+	RebootInstancesCommand,
+	DescribeSecurityGroupsCommand,
+	DescribeKeyPairsCommand
 } from '@aws-sdk/client-ec2';
 import { toast } from 'svelte-sonner';
-import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw } from 'lucide-svelte';
+import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key } from 'lucide-svelte';
 
 const ec2 = getEC2Client();
 
@@ -22,23 +24,65 @@ let selectedInstance = $state<any | null>(null);
 let newInstanceType = $state('t3.micro');
 let newInstanceAmi = $state('ami-0c55b159cbfafe1f0');
 let newInstanceName = $state('');
+let activeTab = $state<'instances' | 'secgroups' | 'keypairs'>('instances');
+let securityGroups = $state<any[]>([]);
+let keyPairs = $state<any[]>([]);
+let sgSearch = $state('');
+let kpSearch = $state('');
 
 const instanceTypes = ['t3.micro', 't3.small', 't3.medium', 't3.large', 'm5.large', 'c5.large', 'r5.large'];
 
 onMount(async () => {
-await loadInstances();
+	await loadInstances();
 });
 
 async function loadInstances() {
-try {
-loading = true;
-const data = await ec2.send(new DescribeInstancesCommand({}));
-instances = data.Reservations?.flatMap((r: any) => r.Instances || []) || [];
-} catch (e) {
-toast.error(e instanceof Error ? e.message : 'Failed to load instances');
-} finally {
-loading = false;
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeInstancesCommand({}));
+		instances = data.Reservations?.flatMap((r: any) => r.Instances || []) || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load instances');
+	} finally {
+		loading = false;
+	}
 }
+
+async function loadSecurityGroups() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeSecurityGroupsCommand({}));
+		securityGroups = data.SecurityGroups || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load security groups');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadKeyPairs() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeKeyPairsCommand({}));
+		keyPairs = data.KeyPairs || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load key pairs');
+	} finally {
+		loading = false;
+	}
+}
+
+async function selectTab(t: typeof activeTab) {
+	activeTab = t;
+	if (t === 'instances' && instances.length === 0) await loadInstances();
+	else if (t === 'secgroups' && securityGroups.length === 0) await loadSecurityGroups();
+	else if (t === 'keypairs' && keyPairs.length === 0) await loadKeyPairs();
+}
+
+async function refresh() {
+	if (activeTab === 'instances') { instances = []; await loadInstances(); }
+	else if (activeTab === 'secgroups') { securityGroups = []; await loadSecurityGroups(); }
+	else { keyPairs = []; await loadKeyPairs(); }
 }
 
 function getName(instance: any): string {
@@ -97,85 +141,113 @@ toast.error(e instanceof Error ? e.message : 'Failed to terminate');
 }
 
 let filtered = $derived(instances.filter(i => {
-const name = getName(i).toLowerCase();
-const id = (i.InstanceId || '').toLowerCase();
-const matchSearch = !search || name.includes(search.toLowerCase()) || id.includes(search.toLowerCase());
-const matchState = stateFilter === 'all' || i.State?.Name === stateFilter;
-return matchSearch && matchState;
+	const name = getName(i).toLowerCase();
+	const id = (i.InstanceId || '').toLowerCase();
+	const matchSearch = !search || name.includes(search.toLowerCase()) || id.includes(search.toLowerCase());
+	const matchState = stateFilter === 'all' || i.State?.Name === stateFilter;
+	return matchSearch && matchState;
 }));
 
 let runningCount = $derived(instances.filter(i => i.State?.Name === 'running').length);
 let stoppedCount = $derived(instances.filter(i => i.State?.Name === 'stopped').length);
+let filteredSGs = $derived(securityGroups.filter(sg =>
+	!sgSearch || sg.GroupName?.toLowerCase().includes(sgSearch.toLowerCase()) || sg.GroupId?.toLowerCase().includes(sgSearch.toLowerCase())
+));
+let filteredKPs = $derived(keyPairs.filter(kp =>
+	!kpSearch || kp.KeyName?.toLowerCase().includes(kpSearch.toLowerCase())
+));
 </script>
 
 <div class="space-y-6">
-<div class="flex items-center justify-between">
-<div class="flex items-center gap-3">
-<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-<Cpu class="w-6 h-6 text-orange-600 dark:text-orange-400" />
-</div>
-<div>
-<h1 class="text-3xl font-bold text-slate-900 dark:text-white">EC2 Instances</h1>
-<p class="text-slate-600 dark:text-slate-300">Elastic Compute Cloud</p>
-</div>
-</div>
-<div class="flex gap-2">
-<button onclick={loadInstances} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300">
-<RefreshCw class="w-4 h-4" />
-</button>
-<button onclick={() => showLaunchModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
-<Plus class="w-4 h-4" />
-Launch Instance
-</button>
-</div>
-</div>
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-3">
+			<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+				<Cpu class="w-6 h-6 text-orange-600 dark:text-orange-400" />
+			</div>
+			<div>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">EC2 Instances</h1>
+				<p class="text-slate-600 dark:text-slate-300">Elastic Compute Cloud</p>
+			</div>
+		</div>
+		<div class="flex gap-2">
+			<button onclick={refresh} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300" title="Refresh">
+				<RefreshCw class="w-4 h-4" />
+			</button>
+			<button onclick={() => showLaunchModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+				<Plus class="w-4 h-4" />
+				Launch Instance
+			</button>
+		</div>
+	</div>
 
-{#if !loading && instances.length > 0}
-<div class="grid grid-cols-3 gap-4">
-<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 text-center">
-<p class="text-2xl font-bold text-slate-900 dark:text-white">{instances.length} instances total</p>
-<p class="text-sm text-slate-600 dark:text-slate-400">Total</p>
-</div>
-<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 text-center">
-<p class="text-2xl font-bold text-green-600">{runningCount}</p>
-<p class="text-sm text-slate-600 dark:text-slate-400">Running</p>
-</div>
-<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 text-center">
-<p class="text-2xl font-bold text-slate-500">{stoppedCount}</p>
-<p class="text-sm text-slate-600 dark:text-slate-400">Stopped</p>
-</div>
-</div>
-{/if}
+	<!-- Stats -->
+	{#if !loading}
+		<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+				<p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Total</p>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{instances.length}</p>
+			</div>
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+				<p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Running</p>
+				<p class="text-2xl font-bold text-green-600">{runningCount}</p>
+			</div>
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+				<p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Stopped</p>
+				<p class="text-2xl font-bold text-slate-500">{stoppedCount}</p>
+			</div>
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+				<p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Security Groups</p>
+				<p class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{securityGroups.length}</p>
+			</div>
+		</div>
+	{/if}
 
-<div class="flex gap-3 flex-wrap">
-<div class="relative flex-1 min-w-48">
-<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-<input
-type="text"
-placeholder="Search instances..."
-bind:value={search}
-class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-/>
-</div>
-<select bind:value={stateFilter} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-<option value="all">All States</option>
-<option value="running">Running</option>
-<option value="stopped">Stopped</option>
-<option value="pending">Pending</option>
-<option value="terminated">Terminated</option>
-</select>
-</div>
+	<!-- Tabs -->
+	<div class="border-b border-slate-200 dark:border-slate-700">
+		<nav class="flex gap-1 -mb-px">
+			<button onclick={() => selectTab('instances')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'instances' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Cpu class="w-4 h-4" /> Instances {#if instances.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{instances.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('secgroups')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'secgroups' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Shield class="w-4 h-4" /> Security Groups
+			</button>
+			<button onclick={() => selectTab('keypairs')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'keypairs' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Key class="w-4 h-4" /> Key Pairs
+			</button>
+		</nav>
+	</div>
 
-{#if loading}
-<div class="text-center py-12 text-slate-500 dark:text-slate-400">
-<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-3"></div>
-<p>Loading instances...</p>
-</div>
-{:else if filtered.length === 0}
-<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
-<Cpu class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4 opacity-50" />
-<p class="text-slate-600 dark:text-slate-300 mb-4">No EC2 instances found</p>
-<button onclick={() => showLaunchModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Launch Instance</button>
+	<!-- Instances Tab -->
+	{#if activeTab === 'instances'}
+	<div class="flex gap-3 flex-wrap">
+		<div class="relative flex-1 min-w-48">
+			<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+			<input
+				type="text"
+				placeholder="Search instances..."
+				bind:value={search}
+				class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+			/>
+		</div>
+		<select bind:value={stateFilter} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+			<option value="all">All States</option>
+			<option value="running">Running</option>
+			<option value="stopped">Stopped</option>
+			<option value="pending">Pending</option>
+			<option value="terminated">Terminated</option>
+		</select>
+	</div>
+
+	{#if loading}
+		<div class="text-center py-12 text-slate-500 dark:text-slate-400">
+			<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-3"></div>
+			<p>Loading instances...</p>
+		</div>
+	{:else if filtered.length === 0}
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+			<Cpu class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4 opacity-50" />
+			<p class="text-slate-600 dark:text-slate-300 mb-4">No EC2 instances found</p>
+			<button onclick={() => showLaunchModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Launch Instance</button>
 </div>
 {:else}
 <div class="grid gap-4">
@@ -233,6 +305,96 @@ Details
 </div>
 {/each}
 </div>
+{/if}
+
+<!-- End Instances Tab -->
+{/if}
+
+<!-- Security Groups Tab -->
+{#if activeTab === 'secgroups'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search security groups..." bind:value={sgSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredSGs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Shield class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No security groups found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Group ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Rules</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredSGs as sg}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3">
+<p class="font-medium text-slate-900 dark:text-white">{sg.GroupName}</p>
+{#if sg.Description}<p class="text-xs text-slate-500 dark:text-slate-400">{sg.Description}</p>{/if}
+</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">{sg.GroupId}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{sg.VpcId || '—'}</td>
+<td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+<span class="text-green-600 dark:text-green-400">{sg.IpPermissions?.length ?? 0} in</span>
+·
+<span class="text-red-600 dark:text-red-400">{sg.IpPermissionsEgress?.length ?? 0} out</span>
+</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- Key Pairs Tab -->
+{#if activeTab === 'keypairs'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search key pairs..." bind:value={kpSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredKPs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Key class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No key pairs found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Key Name</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Key ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Fingerprint</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Created</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredKPs as kp}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{kp.KeyName}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{kp.KeyPairId || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">{kp.KeyFingerprint || '—'}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{kp.CreateTime ? new Date(kp.CreateTime).toLocaleDateString() : '—'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
 {/if}
 </div>
 

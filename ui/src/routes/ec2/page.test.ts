@@ -162,7 +162,40 @@ describe('EC2 Page', () => {
 		});
 		render(EC2Page);
 		await waitFor(() => {
-			expect(screen.getByText(/2 instances/i)).toBeInTheDocument();
+			expect(screen.getByText(/2/)).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('shows Security Groups and Key Pairs tabs', () => {
+		mockSend.mockResolvedValue({ Reservations: [] });
+		render(EC2Page);
+		expect(screen.getByText('Security Groups')).toBeInTheDocument();
+		expect(screen.getByText('Key Pairs')).toBeInTheDocument();
+	});
+
+	it('loads security groups when tab clicked', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [] });
+		mockSend.mockResolvedValueOnce({ SecurityGroups: [{ GroupName: 'default', GroupId: 'sg-123', VpcId: 'vpc-abc', Description: 'Default SG', IpPermissions: [], IpPermissionsEgress: [] }] });
+		render(EC2Page);
+		await waitFor(() => screen.getByText('No EC2 instances found'), { timeout: 3000 });
+		const sgButtons = screen.getAllByText(/Security Groups/i);
+		const tabBtn = sgButtons.find(el => el.tagName === 'BUTTON' || el.closest('button'));
+		if (tabBtn) await fireEvent.click(tabBtn.closest('button') ?? tabBtn);
+		await waitFor(() => {
+			expect(screen.getByText('default')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('loads key pairs when tab clicked', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [] });
+		mockSend.mockResolvedValueOnce({ KeyPairs: [{ KeyName: 'my-keypair', KeyPairId: 'key-123', KeyFingerprint: 'abc123' }] });
+		render(EC2Page);
+		await waitFor(() => screen.getByText('No EC2 instances found'), { timeout: 3000 });
+		const kpButtons = screen.getAllByText(/Key Pairs/i);
+		const tabBtn = kpButtons.find(el => el.tagName === 'BUTTON' || el.closest('button'));
+		if (tabBtn) await fireEvent.click(tabBtn.closest('button') ?? tabBtn);
+		await waitFor(() => {
+			expect(screen.getByText('my-keypair')).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 });
