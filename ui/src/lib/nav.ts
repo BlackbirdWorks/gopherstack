@@ -277,3 +277,33 @@ export function getCommonServices(): DashboardRoute[] {
 	}
 	return common;
 }
+
+export function getUncommonServices(): DashboardRoute[] {
+	const uncommon: DashboardRoute[] = [];
+	for (const category of sidebarCategories) {
+		for (const route of category.routes) {
+			if (!route.common) {
+				uncommon.push(route);
+			}
+		}
+	}
+	return uncommon;
+}
+
+export function getCommonCategories(): DashboardCategory[] {
+	return sidebarCategories
+		.map((cat) => ({
+			...cat,
+			routes: cat.routes.filter((r) => r.common)
+		}))
+		.filter((cat) => cat.routes.length > 0);
+}
+
+export function getUncommonCategories(): DashboardCategory[] {
+	return sidebarCategories
+		.map((cat) => ({
+			...cat,
+			routes: cat.routes.filter((r) => !r.common)
+		}))
+		.filter((cat) => cat.routes.length > 0);
+}

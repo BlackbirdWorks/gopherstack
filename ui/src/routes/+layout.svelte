@@ -3,7 +3,7 @@
 	import { Toaster } from 'svelte-sonner';
 	import './layout.css';
 	import { page } from '$app/state';
-	import { sidebarCategories, implementedDashboardRouteIds } from '$lib/nav';
+	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getCommonCategories } from '$lib/nav';
 	import { initializeTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 
 	let { children } = $props();
@@ -17,14 +17,33 @@
 	let sidebarOpen = $state(false);
 	let sidebarMini = $state(false);
 
-	const visibleSidebarCategories = $derived(
-		sidebarCategories
+	const visibleSidebarCategories = $derived.by(() => {
+		// Create a "Common Services" category with implemented common services
+		const commonServices = getCommonServices()
+			.filter((route) => implementedDashboardRouteIds.has(route.id));
+		
+		const result = [];
+		
+		// Add common services category first if there are any
+		if (commonServices.length > 0) {
+			result.push({
+				id: 'common-services',
+				label: 'Common Services',
+				routes: commonServices
+			});
+		}
+		
+		// Add other categories with only implemented services
+		const otherCategories = sidebarCategories
 			.map((category) => ({
 				...category,
 				routes: category.routes.filter((route) => implementedDashboardRouteIds.has(route.id))
 			}))
-			.filter((category) => category.routes.length > 0)
-	);
+			.filter((category) => category.routes.length > 0);
+		
+		result.push(...otherCategories);
+		return result;
+	});
 
 	const AWS_REGIONS = [
 		'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
