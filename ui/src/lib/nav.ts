@@ -26,12 +26,14 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'codebuild',
 	'cognito',
 	'codepipeline',
+	'codedeploy',
 	'dynamodb',
 	'ec2',
 	'ecr',
 	'ecs',
 	'eks',
 	'elasticache',
+	'emr',
 	'eventbridge',
 	'firehose',
 	'fis',
@@ -45,6 +47,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'opensearch',
 	'rds',
 	'redshift',
+	'route53',
 	's3',
 	'secretsmanager',
 	'serverlessrepo',
@@ -53,6 +56,7 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'sns',
 	'sqs',
 	'ssm',
+	'waf',
 	'workspaces'
 ]);
 
@@ -128,7 +132,7 @@ export const sidebarCategories: DashboardCategory[] = [
 			{ id: 'keyspaces', href: '/dashboard/keyspaces', label: 'Keyspaces', icon: 'keyspaces' },
 			{ id: 'timestream', href: '/dashboard/timestream', label: 'Timestream', icon: 'timestream' },
 			{ id: 's3tables', href: '/dashboard/s3tables', label: 'S3 Tables', icon: 's3tables' },
-			{ id: 'emr', href: '/dashboard/emr', label: 'EMR', icon: 'emr' },
+			{ id: 'emr', href: '/dashboard/emr', label: 'EMR', icon: 'emr', common: true },
 			{ id: 'qldb', href: '/dashboard/qldb', label: 'QLDB', icon: 'qldb' },
 			{ id: 'redshift', href: '/dashboard/redshift', label: 'Redshift', icon: 'redshift', common: true },
 			{ id: 'opensearch', href: '/dashboard/opensearch', label: 'OpenSearch', icon: 'opensearch', common: true },
@@ -239,7 +243,7 @@ export const sidebarCategories: DashboardCategory[] = [
 		id: 'networking',
 		label: 'Networking & Content Delivery',
 		routes: [
-			{ id: 'route53', href: '/dashboard/route53', label: 'Route 53', icon: 'route53' },
+			{ id: 'route53', href: '/dashboard/route53', label: 'Route 53', icon: 'route53', common: true },
 			{ id: 'route53resolver', href: '/dashboard/route53resolver', label: 'Route 53 Resolver', icon: 'route53resolver' },
 			{ id: 'cloudfront', href: '/dashboard/cloudfront', label: 'CloudFront', icon: 'cloudfront' },
 			{ id: 'elb', href: '/dashboard/elb', label: 'ELB', icon: 'elb' },

@@ -27,6 +27,10 @@ import { LambdaClient } from "@aws-sdk/client-lambda";
 import { LightsailClient } from "@aws-sdk/client-lightsail";
 import { ServerlessApplicationRepositoryClient } from "@aws-sdk/client-serverlessapplicationrepository";
 import { ShieldClient } from "@aws-sdk/client-shield";
+import { CodeDeployClient } from "@aws-sdk/client-codedeploy";
+import { EMRClient } from "@aws-sdk/client-emr";
+import { Route53Client } from "@aws-sdk/client-route-53";
+import { WAFV2Client } from "@aws-sdk/client-wafv2";
 import { SFNClient } from "@aws-sdk/client-sfn";
 import { WorkSpacesClient } from "@aws-sdk/client-workspaces";
 
@@ -173,4 +177,20 @@ export function getRedshiftClient(region?: string): RedshiftClient {
 
 export function getAthenaClient(region?: string): AthenaClient {
   return new AthenaClient(clientConfig(region));
+}
+
+export function getCodeDeployClient(region?: string): CodeDeployClient {
+  return new CodeDeployClient(clientConfig(region));
+}
+
+export function getEMRClient(region?: string): EMRClient {
+  return new EMRClient(clientConfig(region));
+}
+
+export function getRoute53Client(region?: string): Route53Client {
+  return new Route53Client(clientConfig(region));
+}
+
+export function getWAFV2Client(region?: string): WAFV2Client {
+  return new WAFV2Client(clientConfig(region));
 }
