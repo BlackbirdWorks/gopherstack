@@ -263,9 +263,12 @@
 				</div>
 			{:else}
 				{#each filteredTopics as topic}
-					<button
+					<div
+						role="button"
+						tabindex="0"
 						onclick={() => selectTopic(topic)}
-						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors {selectedTopic?.TopicArn === topic.TopicArn ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
+						onkeypress={(e) => { if (e.key === 'Enter') selectTopic(topic); }}
+						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors cursor-pointer {selectedTopic?.TopicArn === topic.TopicArn ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
 					>
 						<div class="flex items-center justify-between">
 							<div class="min-w-0 flex-1">
@@ -286,7 +289,7 @@
 								</button>
 							</div>
 						</div>
-					</button>
+					</div>
 				{/each}
 			{/if}
 		</div>

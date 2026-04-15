@@ -241,9 +241,12 @@
 				</div>
 			{:else}
 				{#each filteredQueues as q}
-					<button
+					<div
+						role="button"
+						tabindex="0"
 						onclick={() => selectQueue(q)}
-						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors {selectedQueue?.url === q.url ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
+						onkeypress={(e) => { if (e.key === 'Enter') selectQueue(q); }}
+						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors cursor-pointer {selectedQueue?.url === q.url ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
 					>
 						<div class="flex items-center justify-between">
 							<div class="min-w-0 flex-1">
@@ -261,7 +264,7 @@
 								</button>
 							</div>
 						</div>
-					</button>
+					</div>
 				{/each}
 			{/if}
 		</div>
