@@ -1,3 +1,30 @@
+# ECS + RDS UI Enhancement - Session Update
+
+## Current Session: Enhance ECS and RDS Pages
+
+### Completed ✅
+- Enhanced `ui/src/routes/ecs/+page.svelte`:
+  - Stats cards: cluster count, selected-cluster services, total services across all clusters
+  - Improved cluster list with region/account from ARN, service count badge
+  - Active status badge on each service card
+  - `servicesByCluster` tracking for cross-cluster totals
+- Enhanced `ui/src/routes/rds/+page.svelte`:
+  - Stats cards: total, available, stopped, Multi-AZ counts
+  - Instance count summary line
+  - Multi-AZ, backup retention, availability zone, creation date tags per instance
+  - Expandable detail section per instance (VPC, storage type, encryption, IAM auth)
+  - Search also matches on engine name
+  - Context-aware empty state messaging
+- All 16 tests (7 ECS + 9 RDS) pass
+- Local commit: `bfc3ade20cf643dbad5a29e0fed42abd938ae224`
+
+### Blocker: Cannot Push
+- Token (`GITHUB_COPILOT_API_TOKEN` = `agbishop` user token) lacks git push write access
+- `agbishop` is not a member of `BlackbirdWorks` org
+- All API write endpoints return 403 "Resource not accessible by integration"
+
+---
+
 # Dashboard Improvements - Final Summary
 
 ## Major Deliverables Completed ✅
