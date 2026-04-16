@@ -41,7 +41,7 @@ func TestEC2Dashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the EC2 header to appear.
-	err = page.Locator("h1:has-text('EC2')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

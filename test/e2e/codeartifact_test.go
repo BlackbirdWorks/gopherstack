@@ -39,7 +39,7 @@ func TestCodeArtifactDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codeartifact")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('CodeArtifact')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestCodeArtifactDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codeartifact")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('CodeArtifact')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

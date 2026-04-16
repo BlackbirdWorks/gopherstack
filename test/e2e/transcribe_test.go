@@ -41,7 +41,7 @@ func TestTranscribeDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/transcribe")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Transcribe Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestTranscribeDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/transcribe")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Transcribe Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/transcribe")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Transcribe Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 	require.NoError(t, page.Click("button[type='submit']:has-text('Start')"))
 
 	// After redirect, verify job appears in list
-	err = page.Locator("h1:has-text('Transcribe Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

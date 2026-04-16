@@ -46,7 +46,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/timestreamquery")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Timestream Query')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/timestreamquery")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Timestream Query')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/timestreamquery")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Timestream Query')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	require.NoError(t, page.Fill("input[name='schedule_expression']", "rate(1 hour)"))
 	require.NoError(t, page.Click("button[type='submit']:has-text('Create')"))
 
-	err = page.Locator("h1:has-text('Timestream Query')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

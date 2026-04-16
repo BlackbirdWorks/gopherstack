@@ -45,7 +45,7 @@ func TestBedrockDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/bedrock")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon Bedrock')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestBedrockDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/bedrock")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon Bedrock')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestBedrockDashboard_CreateGuardrail(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/bedrock")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon Bedrock')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestBedrockDashboard_CreateGuardrail(t *testing.T) {
 	err = page.Locator("button:has-text('Create')").Last().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon Bedrock')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

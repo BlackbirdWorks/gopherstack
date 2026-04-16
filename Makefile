@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-fmt ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
+.PHONY: build ui-install ui-lint ui-fmt ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -110,6 +110,8 @@ integration-test:
 
 terraform-test: install-tofu
 	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 10m ./test/terraform/...
+
+e2e: ui-build e2e-test
 
 e2e-test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...

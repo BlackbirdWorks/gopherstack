@@ -412,6 +412,19 @@ import { NetworkManagerClient } from "@aws-sdk/client-networkmanager";
 import { OutpostsClient } from "@aws-sdk/client-outposts";
 import { MgnClient } from "@aws-sdk/client-mgn";
 import { DirectConnectClient } from "@aws-sdk/client-direct-connect";
+import { QLDBClient } from "@aws-sdk/client-qldb";
+import { QLDBSessionClient } from "@aws-sdk/client-qldb-session";
+import { MediaStoreClient } from "@aws-sdk/client-mediastore";
+import { MediaStoreDataClient } from "@aws-sdk/client-mediastore-data";
+import { ApiGatewayManagementApiClient } from "@aws-sdk/client-apigatewaymanagementapi";
+import { CodeConnectionsClient } from "@aws-sdk/client-codeconnections";
+import { IdentitystoreClient } from "@aws-sdk/client-identitystore";
+import { IoTAnalyticsClient } from "@aws-sdk/client-iotanalytics";
+import { IoTDataPlaneClient } from "@aws-sdk/client-iot-data-plane";
+import { ElasticLoadBalancingClient } from "@aws-sdk/client-elastic-load-balancing";
+import { ResourceGroupsClient } from "@aws-sdk/client-resource-groups";
+import { ResourceGroupsTaggingAPIClient } from "@aws-sdk/client-resource-groups-tagging-api";
+import { SWFClient } from "@aws-sdk/client-swf";
 
 export function getSageMakerClient(region?: string): SageMakerClient {
   return new SageMakerClient(clientConfig(region));
@@ -548,6 +561,58 @@ export function getMGNClient(region?: string): MgnClient {
 
 export function getDirectConnectClient(region?: string): DirectConnectClient {
   return new DirectConnectClient(clientConfig(region));
+}
+
+export function getQLDBClient(region?: string): QLDBClient {
+  return new QLDBClient(clientConfig(region));
+}
+
+export function getQLDBSessionClient(region?: string): QLDBSessionClient {
+  return new QLDBSessionClient(clientConfig(region));
+}
+
+export function getMediaStoreClient(region?: string): MediaStoreClient {
+  return new MediaStoreClient(clientConfig(region));
+}
+
+export function getMediaStoreDataClient(region?: string): MediaStoreDataClient {
+  return new MediaStoreDataClient(clientConfig(region));
+}
+
+export function getAPIGatewayManagementAPIClient(region?: string): ApiGatewayManagementApiClient {
+  return new ApiGatewayManagementApiClient(clientConfig(region));
+}
+
+export function getCodeConnectionsClient(region?: string): CodeConnectionsClient {
+  return new CodeConnectionsClient(clientConfig(region));
+}
+
+export function getIdentityStoreClient(region?: string): IdentitystoreClient {
+  return new IdentitystoreClient(clientConfig(region));
+}
+
+export function getIoTAnalyticsClient(region?: string): IoTAnalyticsClient {
+  return new IoTAnalyticsClient(clientConfig(region));
+}
+
+export function getIoTDataPlaneClient(region?: string): IoTDataPlaneClient {
+  return new IoTDataPlaneClient(clientConfig(region));
+}
+
+export function getELBClient(region?: string): ElasticLoadBalancingClient {
+  return new ElasticLoadBalancingClient(clientConfig(region));
+}
+
+export function getResourceGroupsClient(region?: string): ResourceGroupsClient {
+  return new ResourceGroupsClient(clientConfig(region));
+}
+
+export function getResourceGroupsTaggingAPIClient(region?: string): ResourceGroupsTaggingAPIClient {
+  return new ResourceGroupsTaggingAPIClient(clientConfig(region));
+}
+
+export function getSWFClient(region?: string): SWFClient {
+  return new SWFClient(clientConfig(region));
 }
 
 

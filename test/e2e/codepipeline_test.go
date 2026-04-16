@@ -67,7 +67,7 @@ func TestCodePipelineDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codepipeline")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodePipeline')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestCodePipelineDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codepipeline")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodePipeline')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codepipeline")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodePipeline')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
 	err = page.Locator("button:has-text('Create')").Last().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodePipeline')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

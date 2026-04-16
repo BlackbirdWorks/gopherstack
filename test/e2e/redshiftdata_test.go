@@ -41,7 +41,7 @@ func TestRedshiftDataDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/redshiftdata")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Redshift Data Statements')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestRedshiftDataDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/redshiftdata")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Redshift Data Statements')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

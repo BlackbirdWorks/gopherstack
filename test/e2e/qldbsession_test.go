@@ -16,8 +16,7 @@ import (
 func TestQLDBSessionDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.QLDBSessionHandler.Backend.StartSession("e2e-test-ledger")
-	require.NoError(t, err)
+	var err error
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -39,8 +38,17 @@ func TestQLDBSessionDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/qldbsession")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('QLDB Session')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, page.Fill("input[placeholder='Ledger name']", "e2e-test-ledger"))
+	require.NoError(t, page.Click("button:has-text('Start Session')"))
+
+	err = page.Locator("text=e2e-test-ledger").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
@@ -73,7 +81,7 @@ func TestQLDBSessionDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/qldbsession")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('QLDB Session')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

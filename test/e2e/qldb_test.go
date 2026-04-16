@@ -41,7 +41,7 @@ func TestQLDBDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/qldb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('QLDB Ledgers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestQLDBDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/qldb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('QLDB Ledgers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

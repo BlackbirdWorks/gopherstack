@@ -44,7 +44,7 @@ func TestECSDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('ECS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestECSDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('ECS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('ECS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

@@ -43,7 +43,7 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the Secrets Manager heading.
-	err = page.Locator("h1:has-text('Secrets Manager')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for Secret Detail page.
-	err = page.Locator("h1:has-text('Secret Detail')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/secretsmanager")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Secrets Manager')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)

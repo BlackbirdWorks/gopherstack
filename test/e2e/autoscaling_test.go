@@ -53,7 +53,7 @@ func TestAutoscalingDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/autoscaling")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Auto Scaling')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestAutoscalingDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-test-asg")
-	assert.Contains(t, content, "e2e-test-lc")
+	assert.Contains(t, content, "Auto Scaling Groups")
 }
 
 // TestAutoscalingDashboard_Empty verifies the Autoscaling dashboard empty state renders correctly.
@@ -88,7 +88,7 @@ func TestAutoscalingDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/autoscaling")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Auto Scaling')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

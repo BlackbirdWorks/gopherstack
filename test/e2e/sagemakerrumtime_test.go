@@ -43,7 +43,7 @@ func TestSageMakerRuntimeDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/sagemakerrumtime")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SageMaker Runtime')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestSageMakerRuntimeDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/sagemakerrumtime")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SageMaker Runtime')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

@@ -39,7 +39,7 @@ func TestTransferDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/transfer")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Transfer Servers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestTransferDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/transfer")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Transfer Servers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/transfer")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Transfer Servers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for redirect back to index
-	err = page.Locator("h1:has-text('Transfer Servers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

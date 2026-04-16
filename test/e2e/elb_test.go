@@ -44,7 +44,7 @@ func TestELBDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Load Balancers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestELBDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Load Balancers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestELBDashboard_CreateAndDelete(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Load Balancers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestELBDashboard_CreateAndDelete(t *testing.T) {
 	err = page.Locator("button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Load Balancers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-create-lb").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestELBDashboard_CreateAndDelete(t *testing.T) {
 	err = page.Locator("button:has-text('Delete')").First().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Load Balancers')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=No load balancers").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

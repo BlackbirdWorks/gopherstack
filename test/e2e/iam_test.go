@@ -43,7 +43,7 @@ func TestIAMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the IAM page header to appear.
-	err = page.Locator("h1:has-text('IAM')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

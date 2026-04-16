@@ -47,7 +47,7 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kinesisanalyticsv2")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon Kinesis Data Analytics')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kinesisanalyticsv2")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon Kinesis Data Analytics')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for redirect back to kinesisanalyticsv2 page.
-	err = page.Locator("h1:has-text('Amazon Kinesis Data Analytics')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

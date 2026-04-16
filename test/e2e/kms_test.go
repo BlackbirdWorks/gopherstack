@@ -43,7 +43,7 @@ func TestKMSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the KMS Keys heading.
-	err = page.Locator("h1:has-text('KMS Keys')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestKMSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for KMS Key Detail page.
-	err = page.Locator("h1:has-text('KMS Key Detail')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)

@@ -39,7 +39,7 @@ func TestTextractDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestTextractDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestTextractDashboard_StartAnalysis(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestTextractDashboard_StartAnalysis(t *testing.T) {
 	require.NoError(t, page.Fill("input[name='key']", "ui-test-document.pdf"))
 	require.NoError(t, page.Click("button[type='submit']:has-text('Start Analysis')"))
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

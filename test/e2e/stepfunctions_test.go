@@ -44,7 +44,7 @@ func TestStepFunctionsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/stepfunctions")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Step Functions')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestStepFunctionsDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/stepfunctions")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Step Functions')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

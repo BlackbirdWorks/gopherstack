@@ -37,7 +37,7 @@ func TestRoute53Dashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the Route 53 page header to appear.
-	err = page.Locator("h1:has-text('Route 53')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

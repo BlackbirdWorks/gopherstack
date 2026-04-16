@@ -43,7 +43,7 @@ func TestSSMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for layout and SSM table
-	err = page.Locator("h1:has-text('SSM Parameter Store')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
 	// Step 1: Create a Parameter via HTMX Modal

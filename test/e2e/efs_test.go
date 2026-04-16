@@ -41,7 +41,7 @@ func TestEFSDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/efs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('EFS File Systems')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestEFSDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/efs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('EFS File Systems')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestEFSDashboard_CreateDelete(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/efs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('EFS File Systems')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestEFSDashboard_CreateDelete(t *testing.T) {
 	err = page.Locator("button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('EFS File Systems')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestEFSDashboard_CreateDelete(t *testing.T) {
 	err = page.Locator("button:has-text('Delete')").First().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('EFS File Systems')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

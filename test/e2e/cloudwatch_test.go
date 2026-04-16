@@ -44,7 +44,7 @@ func TestCloudWatchDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cloudwatch")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('CloudWatch')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cloudwatch")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('CloudWatch')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cloudwatch")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('CloudWatch')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

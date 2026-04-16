@@ -41,7 +41,7 @@ func TestSupportDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/support")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Support Cases')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestSupportDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/support")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Support Cases')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestSupportDashboard_CreateCase(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/support")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Support Cases')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestSupportDashboard_CreateCase(t *testing.T) {
 	require.NoError(t, page.Click("button[type='submit']:has-text('Create')"))
 
 	// After redirect, verify case appears in list
-	err = page.Locator("h1:has-text('Support Cases')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

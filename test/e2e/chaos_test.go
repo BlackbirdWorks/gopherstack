@@ -38,7 +38,7 @@ func TestChaosDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/chaos")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Chaos Engineering')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestChaosDashboard_WithExistingFault(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/chaos")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Chaos Engineering')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestChaosDashboard_AddFault(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/chaos")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Chaos Engineering')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestChaosDashboard_NoError(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/chaos")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Chaos Engineering')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

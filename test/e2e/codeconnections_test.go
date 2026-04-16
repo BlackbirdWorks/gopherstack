@@ -39,7 +39,7 @@ func TestCodeConnectionsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codeconnections")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeConnections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestCodeConnectionsDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codeconnections")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeConnections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

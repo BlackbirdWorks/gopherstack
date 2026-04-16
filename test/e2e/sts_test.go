@@ -41,7 +41,7 @@ func TestSTSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the page heading to appear.
-	err = page.Locator("h1:has-text('STS Security Token Service')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)

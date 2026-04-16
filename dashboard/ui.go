@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"embed"
 	"io/fs"
 	"log/slog"
@@ -306,6 +307,7 @@ type DashboardHandler struct {
 	GlobalConfig  *config.GlobalConfig
 	Logger        *slog.Logger
 	SubRouter     *echo.Echo
+	config        Config
 	mu            sync.RWMutex
 }
 
@@ -561,6 +563,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ConfigManager: cfg.ConfigManager,
 		GlobalConfig:  cfg.GlobalConfig,
 		Logger:        cfg.Logger,
+		config:        cfg,
 	}
 }
 
@@ -605,6 +608,130 @@ func (h *DashboardHandler) setupSubRouter() {
 	// Connect-RPC server
 	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(NewConnectDashboardServer())
 	h.SubRouter.Any(connectPath+"*", echo.WrapHandler(connectHandler))
+
+	h.SubRouter.GET("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
+		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+			return c.JSON(http.StatusOK, map[string]any{"connections": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"connections": h.config.CodeStarConnectionsOps.Backend.ListConnections("", ""),
+		})
+	})
+
+	h.SubRouter.POST("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
+		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "codestar connections backend unavailable"})
+		}
+
+		var req struct {
+			ConnectionName string `json:"connectionName"`
+			ProviderType   string `json:"providerType"`
+			HostArn        string `json:"hostArn"`
+		}
+		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		conn, err := h.config.CodeStarConnectionsOps.Backend.CreateConnection(req.ConnectionName, req.ProviderType, req.HostArn, nil)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(http.StatusCreated, conn)
+	})
+
+	h.SubRouter.GET("/dashboard/api/codestarconnections/hosts", func(c *echo.Context) error {
+		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+			return c.JSON(http.StatusOK, map[string]any{"hosts": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"hosts": h.config.CodeStarConnectionsOps.Backend.ListHosts(),
+		})
+	})
+
+	h.SubRouter.POST("/dashboard/api/codestarconnections/hosts", func(c *echo.Context) error {
+		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "codestar connections backend unavailable"})
+		}
+
+		var req struct {
+			Name             string `json:"name"`
+			ProviderType     string `json:"providerType"`
+			ProviderEndpoint string `json:"providerEndpoint"`
+		}
+		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		host, err := h.config.CodeStarConnectionsOps.Backend.CreateHost(req.Name, req.ProviderType, req.ProviderEndpoint, nil)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(http.StatusCreated, host)
+	})
+
+	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools", func(c *echo.Context) error {
+		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+			return c.JSON(http.StatusOK, map[string]any{"userPools": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"userPools": h.config.CognitoIDPOps.Backend.ListUserPools(),
+		})
+	})
+
+	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools", func(c *echo.Context) error {
+		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "cognito idp backend unavailable"})
+		}
+
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		pool, err := h.config.CognitoIDPOps.Backend.CreateUserPool(req.Name)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(http.StatusCreated, pool)
+	})
+
+	h.SubRouter.DELETE("/dashboard/api/cognitoidp/user-pools/:id", func(c *echo.Context) error {
+		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "cognito idp backend unavailable"})
+		}
+
+		if err := h.config.CognitoIDPOps.Backend.DeleteUserPool(c.Param("id")); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
+		if h.config.MediaStoreDataOps == nil || h.config.MediaStoreDataOps.Backend == nil {
+			return c.JSON(http.StatusOK, map[string]any{"objects": []string{}})
+		}
+
+		items := h.config.MediaStoreDataOps.Backend.ListAllObjects()
+		objectPaths := make([]string, 0, len(items))
+		for _, item := range items {
+			if item == nil || item.Name == "" {
+				continue
+			}
+
+			objectPaths = append(objectPaths, strings.TrimPrefix(item.Name, "/"))
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"objects": objectPaths})
+	})
 
 	// SPA fallback
 	h.SubRouter.Any("/dashboard/*", h.spaFallbackHandler())

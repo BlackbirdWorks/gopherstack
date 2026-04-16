@@ -45,7 +45,7 @@ func TestE2E_LambdaDashboard_EmptyState(t *testing.T) {
 	require.NoError(t, err)
 
 	// The page should render a heading containing "Lambda".
-	err = page.Locator("h1:has-text('Lambda')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})

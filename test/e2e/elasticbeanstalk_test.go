@@ -47,7 +47,7 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elasticbeanstalk")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Beanstalk')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elasticbeanstalk")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Beanstalk')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

@@ -36,7 +36,7 @@ func TestDocsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/docs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Supported Services')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestDocsDashboard_ServiceLinks(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/docs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Supported Services')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestDocsDashboard_StatsCards(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/docs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Supported Services')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

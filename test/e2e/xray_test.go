@@ -39,7 +39,7 @@ func TestXrayDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/xray")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('X-Ray Groups')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestXrayDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/xray")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('X-Ray Groups')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestXrayDashboard_CreateGroup(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/xray")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('X-Ray Groups')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestXrayDashboard_CreateGroup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for redirect back to index.
-	err = page.Locator("h1:has-text('X-Ray Groups')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

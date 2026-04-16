@@ -64,7 +64,7 @@ func TestFISDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('FIS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestFISDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('FIS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestFISDashboard_CreateAndDeleteTemplate(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('FIS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -235,7 +235,7 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('FIS')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

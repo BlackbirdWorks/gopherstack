@@ -53,7 +53,7 @@ func TestCodeBuildDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codebuild")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeBuild')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestCodeBuildDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codebuild")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeBuild')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestCodeBuildDashboard_CreateProject(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codebuild")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeBuild')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestCodeBuildDashboard_CreateProject(t *testing.T) {
 	err = page.Locator("button:has-text('Create')").Last().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeBuild')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

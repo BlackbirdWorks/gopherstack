@@ -137,8 +137,9 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 	err = page.Locator("button:has-text('Delete')").First().Click()
 	require.NoError(t, err)
 
-	err = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State: playwright.LoadStateNetworkidle,
+	err = page.Locator("text=ui-test-channel").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
+		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 

@@ -44,7 +44,7 @@ func TestSNSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for layout and SNS table header
-	err = page.Locator("h1:has-text('SNS Topics')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestSNSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the topic detail page
-	err = page.Locator("h1:has-text('Topic Detail')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestSNSDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/sns")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SNS Topics')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

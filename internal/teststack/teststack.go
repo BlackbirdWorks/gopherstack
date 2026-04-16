@@ -1043,7 +1043,10 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 	fs := chaos.NewFaultStore()
 
 	cfg := dashboard.Config{
-		FaultStore: fs,
+		FaultStore:            fs,
+		MediaStoreDataOps:     h.mediastoredata,
+		CodeStarConnectionsOps: h.codeStarConn,
+		CognitoIDPOps:        h.cognitoIDP,
 	}
 
 	return cfg, fs

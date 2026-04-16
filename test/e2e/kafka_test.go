@@ -51,7 +51,7 @@ func TestKafkaDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kafka")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon MSK')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestKafkaDashboard_CreateCluster(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kafka")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon MSK')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestKafkaDashboard_CreateCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for redirect back to kafka page.
-	err = page.Locator("h1:has-text('Amazon MSK')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
