@@ -63,3 +63,67 @@ func (b *InMemoryBackend) TraceExistsForTest(traceID string) bool {
 
 	return ok
 }
+
+// GroupCount returns the number of groups stored in the backend.
+func (b *InMemoryBackend) GroupCount() int {
+	b.mu.RLock("GroupCount")
+	defer b.mu.RUnlock()
+
+	return len(b.groups)
+}
+
+// SamplingRuleCount returns the number of sampling rules stored in the backend.
+func (b *InMemoryBackend) SamplingRuleCount() int {
+	b.mu.RLock("SamplingRuleCount")
+	defer b.mu.RUnlock()
+
+	return len(b.samplingRules)
+}
+
+// TraceCount returns the number of traces stored in the backend.
+func (b *InMemoryBackend) TraceCount() int {
+	b.mu.RLock("TraceCount")
+	defer b.mu.RUnlock()
+
+	return len(b.traces)
+}
+
+// InsightCount returns the number of insights stored in the backend.
+func (b *InMemoryBackend) InsightCount() int {
+	b.mu.RLock("InsightCount")
+	defer b.mu.RUnlock()
+
+	return len(b.insights)
+}
+
+// ResourcePolicyCount returns the number of resource policies stored in the backend.
+func (b *InMemoryBackend) ResourcePolicyCount() int {
+	b.mu.RLock("ResourcePolicyCount")
+	defer b.mu.RUnlock()
+
+	return len(b.resourcePolicies)
+}
+
+// HandlerOpsLen returns the number of operations in GetSupportedOperations.
+func (h *Handler) HandlerOpsLen() int {
+	return len(h.GetSupportedOperations())
+}
+
+// AddSamplingRuleInternal seeds a sampling rule directly for testing without going through validation.
+func (b *InMemoryBackend) AddSamplingRuleInternal(rule SamplingRule) {
+	b.mu.Lock("AddSamplingRuleInternal")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	rule.RuleARN = samplingRuleARN(rule.RuleName)
+
+	if rule.CreatedAt.IsZero() {
+		rule.CreatedAt = now
+	}
+
+	if rule.ModifiedAt.IsZero() {
+		rule.ModifiedAt = now
+	}
+
+	b.samplingRules[rule.RuleName] = &rule
+}

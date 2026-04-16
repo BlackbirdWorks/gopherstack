@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -27,20 +28,53 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Timestream Write operations.
 type Handler struct {
-	Backend      *InMemoryBackend
+	Backend      StorageBackend
+	ops          map[string]service.JSONOpFunc
 	supportedOps map[string]bool
 }
 
 // NewHandler creates a new Timestream Write handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend}
-	ops := h.GetSupportedOperations()
-	h.supportedOps = make(map[string]bool, len(ops))
-	for _, op := range ops {
+	h.ops = h.buildOps()
+	supported := h.GetSupportedOperations()
+	h.supportedOps = make(map[string]bool, len(supported))
+
+	for _, op := range supported {
 		h.supportedOps[op] = true
 	}
 
 	return h
+}
+
+// Reset clears the backend state and rebuilds the dispatch table.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
+
+// buildOps constructs the static dispatch table for JSON operations.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateBatchLoadTask":   service.WrapOp(h.handleCreateBatchLoadTask),
+		"CreateDatabase":        service.WrapOp(h.handleCreateDatabase),
+		"CreateTable":           service.WrapOp(h.handleCreateTable),
+		"DeleteDatabase":        service.WrapOp(h.handleDeleteDatabase),
+		"DeleteTable":           service.WrapOp(h.handleDeleteTable),
+		"DescribeBatchLoadTask": service.WrapOp(h.handleDescribeBatchLoadTask),
+		"DescribeDatabase":      service.WrapOp(h.handleDescribeDatabase),
+		"DescribeEndpoints":     service.WrapOp(h.handleDescribeEndpoints),
+		"DescribeTable":         service.WrapOp(h.handleDescribeTable),
+		"ListBatchLoadTasks":    service.WrapOp(h.handleListBatchLoadTasks),
+		"ListDatabases":         service.WrapOp(h.handleListDatabases),
+		"ListTables":            service.WrapOp(h.handleListTables),
+		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
+		"ResumeBatchLoadTask":   service.WrapOp(h.handleResumeBatchLoadTask),
+		"TagResource":           service.WrapOp(h.handleTagResource),
+		"UntagResource":         service.WrapOp(h.handleUntagResource),
+		"UpdateDatabase":        service.WrapOp(h.handleUpdateDatabase),
+		"UpdateTable":           service.WrapOp(h.handleUpdateTable),
+		"WriteRecords":          service.WrapOp(h.handleWriteRecords),
+	}
 }
 
 // Name returns the service name.
@@ -49,16 +83,20 @@ func (h *Handler) Name() string { return "TimestreamWrite" }
 // GetSupportedOperations returns the list of supported Timestream Write operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CreateBatchLoadTask",
 		"CreateDatabase",
 		"CreateTable",
 		"DeleteDatabase",
 		"DeleteTable",
+		"DescribeBatchLoadTask",
 		"DescribeDatabase",
 		"DescribeEndpoints",
 		"DescribeTable",
+		"ListBatchLoadTasks",
 		"ListDatabases",
 		"ListTables",
 		"ListTagsForResource",
+		"ResumeBatchLoadTask",
 		"TagResource",
 		"UntagResource",
 		"UpdateDatabase",
@@ -123,28 +161,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateDatabase":      service.WrapOp(h.handleCreateDatabase),
-		"DescribeDatabase":    service.WrapOp(h.handleDescribeDatabase),
-		"ListDatabases":       service.WrapOp(h.handleListDatabases),
-		"DeleteDatabase":      service.WrapOp(h.handleDeleteDatabase),
-		"UpdateDatabase":      service.WrapOp(h.handleUpdateDatabase),
-		"CreateTable":         service.WrapOp(h.handleCreateTable),
-		"DescribeTable":       service.WrapOp(h.handleDescribeTable),
-		"ListTables":          service.WrapOp(h.handleListTables),
-		"DeleteTable":         service.WrapOp(h.handleDeleteTable),
-		"UpdateTable":         service.WrapOp(h.handleUpdateTable),
-		"WriteRecords":        service.WrapOp(h.handleWriteRecords),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"UntagResource":       service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-		"DescribeEndpoints":   service.WrapOp(h.handleDescribeEndpoints),
-	}
-}
-
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -172,8 +190,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			"__type":  "ConflictException",
 			"message": err.Error(),
 		})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter) ||
+		errors.Is(err, errInvalidRequest) ||
+		errors.Is(err, errUnknownAction) ||
+		errors.As(err, &syntaxErr) ||
+		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
@@ -188,8 +209,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // --- input/output types ---
 
-type databaseNameInput struct {
-	DatabaseName string `json:"DatabaseName"`
+type createDatabaseInput struct {
+	DatabaseName string     `json:"DatabaseName"`
+	Tags         []tagInput `json:"Tags"`
 }
 
 type databaseOutput struct {
@@ -197,12 +219,12 @@ type databaseOutput struct {
 }
 
 type databaseView struct {
-	Arn             string `json:"Arn"`
-	CreationTime    string `json:"CreationTime"`
-	DatabaseName    string `json:"DatabaseName"`
-	KmsKeyID        string `json:"KmsKeyId,omitempty"`
-	LastUpdatedTime string `json:"LastUpdatedTime"`
-	TableCount      int    `json:"TableCount"`
+	Arn             string  `json:"Arn"`
+	DatabaseName    string  `json:"DatabaseName"`
+	KmsKeyID        string  `json:"KmsKeyId,omitempty"`
+	CreationTime    float64 `json:"CreationTime"`
+	LastUpdatedTime float64 `json:"LastUpdatedTime"`
+	TableCount      int     `json:"TableCount"`
 }
 
 type listDatabasesInput struct {
@@ -214,9 +236,30 @@ type listDatabasesOutput struct {
 	Databases []databaseView `json:"Databases"`
 }
 
+type databaseNameInput struct {
+	DatabaseName string `json:"DatabaseName"`
+}
+
 type updateDatabaseInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	KmsKeyID     string `json:"KmsKeyId"`
+}
+
+type createTableInput struct {
+	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
+	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
+	DatabaseName                 string                        `json:"DatabaseName"`
+	TableName                    string                        `json:"TableName"`
+	Tags                         []tagInput                    `json:"Tags"`
+}
+
+type retentionPropertiesInput struct {
+	MemoryStoreRetentionPeriodInHours  int64 `json:"MemoryStoreRetentionPeriodInHours"`
+	MagneticStoreRetentionPeriodInDays int64 `json:"MagneticStoreRetentionPeriodInDays"`
+}
+
+type magneticStoreWritePropsInput struct {
+	EnableMagneticStoreWrites bool `json:"EnableMagneticStoreWrites"`
 }
 
 type tableInput struct {
@@ -224,17 +267,26 @@ type tableInput struct {
 	TableName    string `json:"TableName"`
 }
 
+type updateTableInput struct {
+	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
+	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
+	DatabaseName                 string                        `json:"DatabaseName"`
+	TableName                    string                        `json:"TableName"`
+}
+
 type tableOutput struct {
 	Table tableView `json:"Table"`
 }
 
 type tableView struct {
-	Arn             string `json:"Arn"`
-	CreationTime    string `json:"CreationTime"`
-	DatabaseName    string `json:"DatabaseName"`
-	LastUpdatedTime string `json:"LastUpdatedTime"`
-	TableName       string `json:"TableName"`
-	TableStatus     string `json:"TableStatus"`
+	RetentionProperties          *retentionPropertiesInput     `json:"RetentionProperties,omitempty"`
+	MagneticStoreWriteProperties *magneticStoreWritePropsInput `json:"MagneticStoreWriteProperties,omitempty"`
+	Arn                          string                        `json:"Arn"`
+	DatabaseName                 string                        `json:"DatabaseName"`
+	TableName                    string                        `json:"TableName"`
+	TableStatus                  string                        `json:"TableStatus"`
+	CreationTime                 float64                       `json:"CreationTime"`
+	LastUpdatedTime              float64                       `json:"LastUpdatedTime"`
 }
 
 type listTablesInput struct {
@@ -270,8 +322,9 @@ type dimensionInput struct {
 
 type writeRecordsOutput struct {
 	RecordsIngested struct {
-		Total    int `json:"Total"`
-		MemStore int `json:"MemStore"`
+		Total         int32 `json:"Total"`
+		MemoryStore   int32 `json:"MemoryStore"`
+		MagneticStore int32 `json:"MagneticStore"`
 	} `json:"RecordsIngested"`
 }
 
@@ -316,34 +369,51 @@ type emptyOutput struct{}
 func toDatabaseView(db *Database) databaseView {
 	return databaseView{
 		Arn:             db.ARN,
-		CreationTime:    db.CreationTime.Format("2006-01-02T15:04:05Z"),
+		CreationTime:    float64(db.CreationTime.Unix()),
 		DatabaseName:    db.DatabaseName,
 		KmsKeyID:        db.KmsKeyID,
-		LastUpdatedTime: db.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+		LastUpdatedTime: float64(db.LastUpdatedTime.Unix()),
 		TableCount:      db.TableCount,
 	}
 }
 
 func toTableView(tbl *Table) tableView {
-	return tableView{
+	v := tableView{
 		Arn:             tbl.ARN,
-		CreationTime:    tbl.CreationTime.Format("2006-01-02T15:04:05Z"),
+		CreationTime:    float64(tbl.CreationTime.Unix()),
 		DatabaseName:    tbl.DatabaseName,
-		LastUpdatedTime: tbl.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+		LastUpdatedTime: float64(tbl.LastUpdatedTime.Unix()),
 		TableName:       tbl.TableName,
 		TableStatus:     tbl.TableStatus,
 	}
+
+	if tbl.RetentionProperties != nil {
+		v.RetentionProperties = &retentionPropertiesInput{
+			MemoryStoreRetentionPeriodInHours:  tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours,
+			MagneticStoreRetentionPeriodInDays: tbl.RetentionProperties.MagneticStoreRetentionPeriodInDays,
+		}
+	}
+
+	if tbl.MagneticStoreWriteProperties != nil {
+		v.MagneticStoreWriteProperties = &magneticStoreWritePropsInput{
+			EnableMagneticStoreWrites: tbl.MagneticStoreWriteProperties.EnableMagneticStoreWrites,
+		}
+	}
+
+	return v
 }
 
 func (h *Handler) handleCreateDatabase(
 	_ context.Context,
-	in *databaseNameInput,
+	in *createDatabaseInput,
 ) (*databaseOutput, error) {
 	if in.DatabaseName == "" {
 		return nil, fmt.Errorf("%w: DatabaseName is required", errInvalidRequest)
 	}
 
-	db, err := h.Backend.CreateDatabase(in.DatabaseName)
+	tags := tagsFromInput(in.Tags)
+
+	db, err := h.Backend.CreateDatabase(in.DatabaseName, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -414,13 +484,34 @@ func (h *Handler) handleUpdateDatabase(
 
 func (h *Handler) handleCreateTable(
 	_ context.Context,
-	in *tableInput,
+	in *createTableInput,
 ) (*tableOutput, error) {
 	if in.DatabaseName == "" || in.TableName == "" {
 		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", errInvalidRequest)
 	}
 
-	tbl, err := h.Backend.CreateTable(in.DatabaseName, in.TableName)
+	tags := tagsFromInput(in.Tags)
+
+	var inp *CreateTableInput
+
+	if in.RetentionProperties != nil || in.MagneticStoreWriteProperties != nil {
+		inp = &CreateTableInput{}
+
+		if in.RetentionProperties != nil {
+			inp.RetentionProperties = &RetentionProperties{
+				MemoryStoreRetentionPeriodInHours:  in.RetentionProperties.MemoryStoreRetentionPeriodInHours,
+				MagneticStoreRetentionPeriodInDays: in.RetentionProperties.MagneticStoreRetentionPeriodInDays,
+			}
+		}
+
+		if in.MagneticStoreWriteProperties != nil {
+			inp.MagneticStoreWriteProperties = &MagneticStoreWriteProperties{
+				EnableMagneticStoreWrites: in.MagneticStoreWriteProperties.EnableMagneticStoreWrites,
+			}
+		}
+	}
+
+	tbl, err := h.Backend.CreateTable(in.DatabaseName, in.TableName, tags, inp)
 	if err != nil {
 		return nil, err
 	}
@@ -482,13 +573,32 @@ func (h *Handler) handleDeleteTable(
 
 func (h *Handler) handleUpdateTable(
 	_ context.Context,
-	in *tableInput,
+	in *updateTableInput,
 ) (*tableOutput, error) {
 	if in.DatabaseName == "" || in.TableName == "" {
 		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", errInvalidRequest)
 	}
 
-	tbl, err := h.Backend.UpdateTable(in.DatabaseName, in.TableName)
+	var inp *UpdateTableInput
+
+	if in.RetentionProperties != nil || in.MagneticStoreWriteProperties != nil {
+		inp = &UpdateTableInput{}
+
+		if in.RetentionProperties != nil {
+			inp.RetentionProperties = &RetentionProperties{
+				MemoryStoreRetentionPeriodInHours:  in.RetentionProperties.MemoryStoreRetentionPeriodInHours,
+				MagneticStoreRetentionPeriodInDays: in.RetentionProperties.MagneticStoreRetentionPeriodInDays,
+			}
+		}
+
+		if in.MagneticStoreWriteProperties != nil {
+			inp.MagneticStoreWriteProperties = &MagneticStoreWriteProperties{
+				EnableMagneticStoreWrites: in.MagneticStoreWriteProperties.EnableMagneticStoreWrites,
+			}
+		}
+	}
+
+	tbl, err := h.Backend.UpdateTable(in.DatabaseName, in.TableName, inp)
 	if err != nil {
 		return nil, err
 	}
@@ -523,13 +633,14 @@ func (h *Handler) handleWriteRecords(
 		})
 	}
 
-	if err := h.Backend.WriteRecords(in.DatabaseName, in.TableName, records); err != nil {
+	result, err := h.Backend.WriteRecords(in.DatabaseName, in.TableName, records)
+	if err != nil {
 		return nil, err
 	}
 
 	out := &writeRecordsOutput{}
-	out.RecordsIngested.Total = len(records)
-	out.RecordsIngested.MemStore = len(records)
+	out.RecordsIngested.Total = result.Total
+	out.RecordsIngested.MemoryStore = result.MemoryStore
 
 	return out, nil
 }
@@ -584,6 +695,8 @@ func (h *Handler) handleListTagsForResource(
 		tags = append(tags, tagInput{Key: k, Value: v})
 	}
 
+	sort.Slice(tags, func(i, j int) bool { return tags[i].Key < tags[j].Key })
+
 	return &listTagsOutput{Tags: tags}, nil
 }
 
@@ -596,4 +709,253 @@ func (h *Handler) handleDescribeEndpoints(
 			{Address: "localhost", CachePeriodInMinutes: endpointCachePeriodMinutes},
 		},
 	}, nil
+}
+
+// --- batch load task types ---
+
+type dataSourceS3ConfigInput struct {
+	BucketName      string `json:"BucketName"`
+	ObjectKeyPrefix string `json:"ObjectKeyPrefix,omitempty"`
+	DataFormat      string `json:"DataFormat,omitempty"`
+}
+
+type dataSourceConfigInput struct {
+	DataSourceS3Configuration *dataSourceS3ConfigInput `json:"DataSourceS3Configuration,omitempty"`
+	DataFormat                string                   `json:"DataFormat,omitempty"`
+}
+
+type reportConfigInput struct {
+	ReportS3Configuration *dataSourceS3ConfigInput `json:"ReportS3Configuration,omitempty"`
+}
+
+type createBatchLoadTaskInput struct {
+	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
+	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
+	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
+	TargetTableName         string                 `json:"TargetTableName"`
+	ClientToken             string                 `json:"ClientToken"`
+}
+
+type createBatchLoadTaskOutput struct {
+	TaskID string `json:"TaskId"`
+}
+
+type batchLoadTaskIDInput struct {
+	TaskID string `json:"TaskId"`
+}
+
+type batchLoadTaskDescriptionView struct {
+	ResumableUntil          *float64               `json:"ResumableUntil,omitempty"`
+	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
+	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
+	TaskID                  string                 `json:"TaskId"`
+	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
+	TargetTableName         string                 `json:"TargetTableName"`
+	TaskStatus              string                 `json:"TaskStatus"`
+	ErrorMessage            string                 `json:"ErrorMessage,omitempty"`
+	CreationTime            float64                `json:"CreationTime"`
+	LastUpdatedTime         float64                `json:"LastUpdatedTime"`
+	RecordVersion           int64                  `json:"RecordVersion,omitempty"`
+}
+
+type describeBatchLoadTaskOutput struct {
+	BatchLoadTaskDescription batchLoadTaskDescriptionView `json:"BatchLoadTaskDescription"`
+}
+
+type listBatchLoadTasksInput struct {
+	NextToken  string `json:"NextToken"`
+	TaskStatus string `json:"TaskStatus"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type batchLoadTaskSummaryView struct {
+	ResumableUntil  *float64 `json:"ResumableUntil,omitempty"`
+	TaskID          string   `json:"TaskId"`
+	DatabaseName    string   `json:"DatabaseName"`
+	TableName       string   `json:"TableName"`
+	TaskStatus      string   `json:"TaskStatus"`
+	CreationTime    float64  `json:"CreationTime"`
+	LastUpdatedTime float64  `json:"LastUpdatedTime"`
+}
+
+type listBatchLoadTasksOutput struct {
+	BatchLoadTasks []batchLoadTaskSummaryView `json:"BatchLoadTasks"`
+}
+
+func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptionView {
+	v := batchLoadTaskDescriptionView{
+		TaskID:             task.TaskID,
+		TargetDatabaseName: task.TargetDatabaseName,
+		TargetTableName:    task.TargetTableName,
+		TaskStatus:         task.TaskStatus,
+		CreationTime:       float64(task.CreationTime.Unix()),
+		LastUpdatedTime:    float64(task.LastUpdatedTime.Unix()),
+		ErrorMessage:       task.ErrorMessage,
+		RecordVersion:      task.RecordVersion,
+	}
+
+	if task.ResumableUntil != nil {
+		ts := float64(task.ResumableUntil.Unix())
+		v.ResumableUntil = &ts
+	}
+
+	if task.DataSourceConfiguration != nil {
+		cfg := &dataSourceConfigInput{
+			DataFormat: task.DataSourceConfiguration.DataFormat,
+		}
+
+		if task.DataSourceConfiguration.DataSourceS3Configuration != nil {
+			s3 := task.DataSourceConfiguration.DataSourceS3Configuration
+			cfg.DataSourceS3Configuration = &dataSourceS3ConfigInput{
+				BucketName:      s3.BucketName,
+				ObjectKeyPrefix: s3.ObjectKeyPrefix,
+				DataFormat:      s3.DataFormat,
+			}
+		}
+
+		v.DataSourceConfiguration = cfg
+	}
+
+	if task.ReportConfiguration != nil {
+		rpt := &reportConfigInput{}
+
+		if task.ReportConfiguration.ReportS3Configuration != nil {
+			s3 := task.ReportConfiguration.ReportS3Configuration
+			rpt.ReportS3Configuration = &dataSourceS3ConfigInput{
+				BucketName:      s3.BucketName,
+				ObjectKeyPrefix: s3.ObjectKeyPrefix,
+			}
+		}
+
+		v.ReportConfiguration = rpt
+	}
+
+	return v
+}
+
+func toBatchLoadTaskSummaryView(task *BatchLoadTask) batchLoadTaskSummaryView {
+	v := batchLoadTaskSummaryView{
+		TaskID:          task.TaskID,
+		DatabaseName:    task.TargetDatabaseName,
+		TableName:       task.TargetTableName,
+		TaskStatus:      task.TaskStatus,
+		CreationTime:    float64(task.CreationTime.Unix()),
+		LastUpdatedTime: float64(task.LastUpdatedTime.Unix()),
+	}
+
+	if task.ResumableUntil != nil {
+		ts := float64(task.ResumableUntil.Unix())
+		v.ResumableUntil = &ts
+	}
+
+	return v
+}
+
+// tagsFromInput converts a slice of tagInput to a map[string]string.
+func tagsFromInput(tags []tagInput) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	result := make(map[string]string, len(tags))
+
+	for _, t := range tags {
+		result[t.Key] = t.Value
+	}
+
+	return result
+}
+
+func (h *Handler) handleCreateBatchLoadTask(
+	_ context.Context,
+	in *createBatchLoadTaskInput,
+) (*createBatchLoadTaskOutput, error) {
+	if in.TargetDatabaseName == "" || in.TargetTableName == "" {
+		return nil, fmt.Errorf("%w: TargetDatabaseName and TargetTableName are required", errInvalidRequest)
+	}
+
+	var dataSourceCfg *DataSourceConfiguration
+
+	if in.DataSourceConfiguration != nil {
+		dataSourceCfg = &DataSourceConfiguration{
+			DataFormat: in.DataSourceConfiguration.DataFormat,
+		}
+
+		if in.DataSourceConfiguration.DataSourceS3Configuration != nil {
+			s3 := in.DataSourceConfiguration.DataSourceS3Configuration
+			dataSourceCfg.DataSourceS3Configuration = &DataSourceS3Configuration{
+				BucketName:      s3.BucketName,
+				ObjectKeyPrefix: s3.ObjectKeyPrefix,
+				DataFormat:      s3.DataFormat,
+			}
+		}
+	}
+
+	var reportCfg *ReportConfiguration
+
+	if in.ReportConfiguration != nil {
+		reportCfg = &ReportConfiguration{}
+
+		if in.ReportConfiguration.ReportS3Configuration != nil {
+			s3 := in.ReportConfiguration.ReportS3Configuration
+			reportCfg.ReportS3Configuration = &DataSourceS3Configuration{
+				BucketName:      s3.BucketName,
+				ObjectKeyPrefix: s3.ObjectKeyPrefix,
+			}
+		}
+	}
+
+	task, err := h.Backend.CreateBatchLoadTask(in.TargetDatabaseName, in.TargetTableName, dataSourceCfg, reportCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createBatchLoadTaskOutput{TaskID: task.TaskID}, nil
+}
+
+func (h *Handler) handleDescribeBatchLoadTask(
+	_ context.Context,
+	in *batchLoadTaskIDInput,
+) (*describeBatchLoadTaskOutput, error) {
+	if in.TaskID == "" {
+		return nil, fmt.Errorf("%w: TaskId is required", errInvalidRequest)
+	}
+
+	task, err := h.Backend.DescribeBatchLoadTask(in.TaskID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeBatchLoadTaskOutput{
+		BatchLoadTaskDescription: toBatchLoadTaskDescriptionView(task),
+	}, nil
+}
+
+func (h *Handler) handleListBatchLoadTasks(
+	_ context.Context,
+	in *listBatchLoadTasksInput,
+) (*listBatchLoadTasksOutput, error) {
+	tasks := h.Backend.ListBatchLoadTasks(in.TaskStatus)
+	views := make([]batchLoadTaskSummaryView, 0, len(tasks))
+
+	for i := range tasks {
+		views = append(views, toBatchLoadTaskSummaryView(&tasks[i]))
+	}
+
+	return &listBatchLoadTasksOutput{BatchLoadTasks: views}, nil
+}
+
+func (h *Handler) handleResumeBatchLoadTask(
+	_ context.Context,
+	in *batchLoadTaskIDInput,
+) (*emptyOutput, error) {
+	if in.TaskID == "" {
+		return nil, fmt.Errorf("%w: TaskId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.ResumeBatchLoadTask(in.TaskID); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
 }

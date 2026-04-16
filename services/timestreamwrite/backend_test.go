@@ -35,7 +35,7 @@ func TestInMemoryBackend_CreateDatabase(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			db, err := b.CreateDatabase(tt.dbName)
+			db, err := b.CreateDatabase(tt.dbName, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -57,10 +57,10 @@ func TestInMemoryBackend_CreateDatabase_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateDatabase("dup-db")
+	_, err := b.CreateDatabase("dup-db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateDatabase("dup-db")
+	_, err = b.CreateDatabase("dup-db", nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, awserr.ErrConflict)
 }
@@ -96,7 +96,7 @@ func TestInMemoryBackend_DescribeDatabase(t *testing.T) {
 
 			b := newBackend()
 			if tt.create {
-				_, err := b.CreateDatabase(tt.dbName)
+				_, err := b.CreateDatabase(tt.dbName, nil)
 				require.NoError(t, err)
 			}
 
@@ -143,7 +143,7 @@ func TestInMemoryBackend_ListDatabases(t *testing.T) {
 
 			b := newBackend()
 			for _, name := range tt.creates {
-				_, err := b.CreateDatabase(name)
+				_, err := b.CreateDatabase(name, nil)
 				require.NoError(t, err)
 			}
 
@@ -184,7 +184,7 @@ func TestInMemoryBackend_DeleteDatabase(t *testing.T) {
 
 			b := newBackend()
 			if tt.create {
-				_, err := b.CreateDatabase(tt.dbName)
+				_, err := b.CreateDatabase(tt.dbName, nil)
 				require.NoError(t, err)
 			}
 
@@ -240,7 +240,7 @@ func TestInMemoryBackend_UpdateDatabase(t *testing.T) {
 
 			b := newBackend()
 			if tt.create {
-				_, err := b.CreateDatabase(tt.dbName)
+				_, err := b.CreateDatabase(tt.dbName, nil)
 				require.NoError(t, err)
 			}
 
@@ -295,11 +295,11 @@ func TestInMemoryBackend_CreateTable(t *testing.T) {
 
 			b := newBackend()
 			if tt.createDB {
-				_, err := b.CreateDatabase(tt.dbName)
+				_, err := b.CreateDatabase(tt.dbName, nil)
 				require.NoError(t, err)
 			}
 
-			tbl, err := b.CreateTable(tt.dbName, tt.tblName)
+			tbl, err := b.CreateTable(tt.dbName, tt.tblName, nil, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -322,13 +322,13 @@ func TestInMemoryBackend_CreateTable_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateDatabase("db")
+	_, err := b.CreateDatabase("db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "dup-table")
+	_, err = b.CreateTable("db", "dup-table", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "dup-table")
+	_, err = b.CreateTable("db", "dup-table", nil, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, awserr.ErrConflict)
 }
@@ -378,12 +378,12 @@ func TestInMemoryBackend_DescribeTable(t *testing.T) {
 
 			b := newBackend()
 			if tt.createDB {
-				_, err := b.CreateDatabase(tt.dbName)
+				_, err := b.CreateDatabase(tt.dbName, nil)
 				require.NoError(t, err)
 			}
 
 			if tt.createTbl {
-				_, err := b.CreateTable(tt.dbName, tt.tblName)
+				_, err := b.CreateTable(tt.dbName, tt.tblName, nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -432,11 +432,11 @@ func TestInMemoryBackend_ListTables(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateDatabase("db")
+			_, err := b.CreateDatabase("db", nil)
 			require.NoError(t, err)
 
 			for _, name := range tt.tables {
-				_, err = b.CreateTable("db", name)
+				_, err = b.CreateTable("db", name, nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -493,11 +493,11 @@ func TestInMemoryBackend_DeleteTable(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateDatabase("db")
+			_, err := b.CreateDatabase("db", nil)
 			require.NoError(t, err)
 
 			if tt.createTbl {
-				_, err = b.CreateTable("db", tt.tblName)
+				_, err = b.CreateTable("db", tt.tblName, nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -550,15 +550,15 @@ func TestInMemoryBackend_UpdateTable(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateDatabase("db")
+			_, err := b.CreateDatabase("db", nil)
 			require.NoError(t, err)
 
 			if tt.createTbl {
-				_, err = b.CreateTable("db", tt.tblName)
+				_, err = b.CreateTable("db", tt.tblName, nil, nil)
 				require.NoError(t, err)
 			}
 
-			tbl, err := b.UpdateTable("db", tt.tblName)
+			tbl, err := b.UpdateTable("db", tt.tblName, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -627,16 +627,16 @@ func TestInMemoryBackend_WriteRecords(t *testing.T) {
 
 			b := newBackend()
 			if tt.createDB {
-				_, err := b.CreateDatabase(tt.dbName)
+				_, err := b.CreateDatabase(tt.dbName, nil)
 				require.NoError(t, err)
 			}
 
 			if tt.createTbl {
-				_, err := b.CreateTable(tt.dbName, tt.tblName)
+				_, err := b.CreateTable(tt.dbName, tt.tblName, nil, nil)
 				require.NoError(t, err)
 			}
 
-			err := b.WriteRecords(tt.dbName, tt.tblName, tt.records)
+			_, err := b.WriteRecords(tt.dbName, tt.tblName, tt.records)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -656,9 +656,12 @@ func TestInMemoryBackend_Tags(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
+	_, err := b.CreateDatabase("my-db", nil)
+	require.NoError(t, err)
+
 	arn := "arn:aws:timestream:us-east-1:000000000000:database/my-db"
 
-	err := b.TagResource(arn, map[string]string{"env": "test", "team": "infra"})
+	err = b.TagResource(arn, map[string]string{"env": "test", "team": "infra"})
 	require.NoError(t, err)
 
 	tags := b.ListTagsForResource(arn)
@@ -678,13 +681,13 @@ func TestInMemoryBackend_TableCount(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateDatabase("db")
+	_, err := b.CreateDatabase("db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "t1")
+	_, err = b.CreateTable("db", "t1", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "t2")
+	_, err = b.CreateTable("db", "t2", nil, nil)
 	require.NoError(t, err)
 
 	db, err := b.DescribeDatabase("db")
@@ -704,13 +707,13 @@ func TestInMemoryBackend_DeleteDatabase_CleansUpTags(t *testing.T) {
 
 	b := newBackend()
 
-	_, err := b.CreateDatabase("cleanup-db")
+	_, err := b.CreateDatabase("cleanup-db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("cleanup-db", "t1")
+	_, err = b.CreateTable("cleanup-db", "t1", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("cleanup-db", "t2")
+	_, err = b.CreateTable("cleanup-db", "t2", nil, nil)
 	require.NoError(t, err)
 
 	dbARN := "arn:aws:timestream:us-east-1:000000000000:database/cleanup-db"
@@ -739,10 +742,10 @@ func TestInMemoryBackend_DeleteTable_CleansUpTags(t *testing.T) {
 
 	b := newBackend()
 
-	_, err := b.CreateDatabase("db")
+	_, err := b.CreateDatabase("db", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "tbl")
+	_, err = b.CreateTable("db", "tbl", nil, nil)
 	require.NoError(t, err)
 
 	tblARN := "arn:aws:timestream:us-east-1:000000000000:database/db/table/tbl"

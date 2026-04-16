@@ -1587,3 +1587,582 @@ func TestBackend_TagResource_IPSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
 }
+
+func TestHandler_CheckCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantMinCap int
+	}{
+		{
+			name:       "no_rules",
+			body:       map[string]any{"Scope": "REGIONAL", "Rules": []any{}},
+			wantStatus: http.StatusOK,
+			wantMinCap: 0,
+		},
+		{
+			name: "two_rules",
+			body: map[string]any{
+				"Scope": "REGIONAL",
+				"Rules": []any{
+					map[string]any{"Name": "rule1"},
+					map[string]any{"Name": "rule2"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantMinCap: 2,
+		},
+		{
+			name:       "missing_scope",
+			body:       map[string]any{"Rules": []any{}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, "CheckCapacity", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				consumed, ok := result["ConsumedCapacity"].(float64)
+				require.True(t, ok)
+				assert.GreaterOrEqual(t, int(consumed), tt.wantMinCap)
+			}
+		})
+	}
+}
+
+func TestHandler_CreateAndDeleteAPIKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createBody map[string]any
+		deleteBody func(apiKey string) map[string]any
+		name       string
+		wantCreate int
+		wantDelete int
+	}{
+		{
+			name:       "success",
+			createBody: map[string]any{"Scope": "REGIONAL", "TokenDomains": []string{"example.com"}},
+			deleteBody: func(apiKey string) map[string]any {
+				return map[string]any{"Scope": "REGIONAL", "APIKey": apiKey}
+			},
+			wantCreate: http.StatusOK,
+			wantDelete: http.StatusOK,
+		},
+		{
+			name:       "create_missing_scope",
+			createBody: map[string]any{"TokenDomains": []string{"example.com"}},
+			deleteBody: func(_ string) map[string]any { return nil },
+			wantCreate: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_missing_scope",
+			createBody: map[string]any{"Scope": "REGIONAL"},
+			deleteBody: func(_ string) map[string]any {
+				return map[string]any{"APIKey": "somekey"}
+			},
+			wantCreate: http.StatusOK,
+			wantDelete: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_missing_key",
+			createBody: map[string]any{"Scope": "REGIONAL"},
+			deleteBody: func(_ string) map[string]any {
+				return map[string]any{"Scope": "REGIONAL"}
+			},
+			wantCreate: http.StatusOK,
+			wantDelete: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_not_found",
+			createBody: map[string]any{"Scope": "REGIONAL"},
+			deleteBody: func(_ string) map[string]any {
+				return map[string]any{"Scope": "REGIONAL", "APIKey": "nonexistent-key"}
+			},
+			wantCreate: http.StatusOK,
+			wantDelete: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createRec := doWafv2Request(t, h, "CreateAPIKey", tt.createBody)
+			assert.Equal(t, tt.wantCreate, createRec.Code)
+
+			if tt.wantCreate != http.StatusOK || tt.deleteBody == nil {
+				return
+			}
+
+			var createResult map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResult))
+			apiKey, _ := createResult["APIKey"].(string)
+
+			deleteRec := doWafv2Request(t, h, "DeleteAPIKey", tt.deleteBody(apiKey))
+			assert.Equal(t, tt.wantDelete, deleteRec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateRegexPatternSet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantID     bool
+	}{
+		{
+			name: "valid",
+			body: map[string]any{
+				"Name":                  "my-regex",
+				"Scope":                 "REGIONAL",
+				"RegularExpressionList": []string{"^foo.*", "bar$"},
+			},
+			wantStatus: http.StatusOK,
+			wantID:     true,
+		},
+		{
+			name:       "missing_name",
+			body:       map[string]any{"Scope": "REGIONAL"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_scope",
+			body:       map[string]any{"Name": "my-regex"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate",
+			body: map[string]any{
+				"Name":  "dup-regex",
+				"Scope": "REGIONAL",
+			},
+			wantStatus: http.StatusOK,
+			wantID:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "duplicate" {
+				_, _ = h.Backend.CreateRegexPatternSet("dup-regex", "REGIONAL", "", nil, nil)
+			}
+
+			rec := doWafv2Request(t, h, "CreateRegexPatternSet", tt.body)
+
+			if tt.name == "duplicate" {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantID {
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				summary, ok := result["Summary"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, summary["Id"])
+				assert.NotEmpty(t, summary["ARN"])
+				assert.NotEmpty(t, summary["LockToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteRegexPatternSet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		body       func(id string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "existing",
+			setup: func(h *wafv2.Handler) string {
+				rps, _ := h.Backend.CreateRegexPatternSet("my-regex", "REGIONAL", "", nil, nil)
+
+				return rps.ID
+			},
+			body: func(id string) map[string]any {
+				return map[string]any{"Id": id, "Name": "my-regex", "Scope": "REGIONAL", "LockToken": "tok"}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "nonexistent"
+			},
+			body: func(id string) map[string]any {
+				return map[string]any{"Id": id, "Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_id",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{"Name": "x", "Scope": "REGIONAL", "LockToken": "tok"}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := tt.setup(h)
+			rec := doWafv2Request(t, h, "DeleteRegexPatternSet", tt.body(id))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateRuleGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantID     bool
+	}{
+		{
+			name: "valid",
+			body: map[string]any{
+				"Name":     "my-rulegroup",
+				"Scope":    "REGIONAL",
+				"Capacity": 100,
+			},
+			wantStatus: http.StatusOK,
+			wantID:     true,
+		},
+		{
+			name:       "missing_name",
+			body:       map[string]any{"Scope": "REGIONAL", "Capacity": 10},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_scope",
+			body:       map[string]any{"Name": "my-rulegroup", "Capacity": 10},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, "CreateRuleGroup", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantID {
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				summary, ok := result["Summary"].(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, summary["Id"])
+				assert.NotEmpty(t, summary["ARN"])
+				assert.NotEmpty(t, summary["LockToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_CreateRuleGroup_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doWafv2Request(t, h, "CreateRuleGroup", map[string]any{
+		"Name":     "dup-group",
+		"Scope":    "REGIONAL",
+		"Capacity": 10,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doWafv2Request(t, h, "CreateRuleGroup", map[string]any{
+		"Name":     "dup-group",
+		"Scope":    "REGIONAL",
+		"Capacity": 10,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result))
+	assert.Equal(t, "WAFDuplicateItemException", result["__type"])
+}
+
+func TestHandler_DeleteFirewallManagerRuleGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		body       func(arnStr string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) string {
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+
+				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+			},
+			body: func(arnStr string) map[string]any {
+				return map[string]any{"WebACLArn": arnStr, "WebACLLockToken": "tok"}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{"WebACLLockToken": "tok"}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid"
+			},
+			body: func(arnStr string) map[string]any {
+				return map[string]any{"WebACLArn": arnStr, "WebACLLockToken": "tok"}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			arnStr := tt.setup(h)
+			rec := doWafv2Request(t, h, "DeleteFirewallManagerRuleGroups", tt.body(arnStr))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var result map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				assert.NotEmpty(t, result["NextWebACLLockToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteLoggingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		body       func(arnStr string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) string {
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
+				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				require.NoError(t, h.Backend.PutLoggingConfiguration(arnStr))
+
+				return arnStr
+			},
+			body: func(arnStr string) map[string]any {
+				return map[string]any{"ResourceArn": arnStr}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/nonexistent/badid"
+			},
+			body: func(arnStr string) map[string]any {
+				return map[string]any{"ResourceArn": arnStr}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			arnStr := tt.setup(h)
+			rec := doWafv2Request(t, h, "DeleteLoggingConfiguration", tt.body(arnStr))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeletePermissionPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*wafv2.Handler) string
+		body       func(arnStr string) map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *wafv2.Handler) string {
+				rg, _ := h.Backend.CreateRuleGroup("my-rg", "REGIONAL", "", "", 10, nil, nil)
+				arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+				require.NoError(t, h.Backend.PutPermissionPolicy(arnStr, `{"Version":"2012-10-17"}`))
+
+				return arnStr
+			},
+			body: func(arnStr string) map[string]any {
+				return map[string]any{"ResourceArn": arnStr}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			setup: func(_ *wafv2.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			setup: func(_ *wafv2.Handler) string {
+				return "arn:aws:wafv2:us-east-1:000000000000:regional/rulegroup/nonexistent/badid"
+			},
+			body: func(arnStr string) map[string]any {
+				return map[string]any{"ResourceArn": arnStr}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			arnStr := tt.setup(h)
+			rec := doWafv2Request(t, h, "DeletePermissionPolicy", tt.body(arnStr))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestBackend_RegexPatternSetARN(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+	tests := []struct {
+		name     string
+		wantPart string
+		scope    string
+	}{
+		{name: "regional_scope", scope: "REGIONAL", wantPart: "regional"},
+		{name: "cloudfront_scope", scope: "CLOUDFRONT", wantPart: "global"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			arnStr := b.RegexPatternSetARN("my-regex", "myid", tt.scope)
+			assert.Contains(t, arnStr, tt.wantPart)
+			assert.Contains(t, arnStr, "regexpatternset")
+		})
+	}
+}
+
+func TestBackend_RuleGroupARN(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+	tests := []struct {
+		name     string
+		wantPart string
+		scope    string
+	}{
+		{name: "regional_scope", scope: "REGIONAL", wantPart: "regional"},
+		{name: "cloudfront_scope", scope: "CLOUDFRONT", wantPart: "global"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			arnStr := b.RuleGroupARN("my-rg", "myid", tt.scope)
+			assert.Contains(t, arnStr, tt.wantPart)
+			assert.Contains(t, arnStr, "rulegroup")
+		})
+	}
+}
+
+func TestBackend_Snapshot_WithNewResources(t *testing.T) {
+	t.Parallel()
+
+	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := b.CreateRegexPatternSet("my-regex", "REGIONAL", "", []string{"^foo"}, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateRuleGroup("my-rg", "REGIONAL", "", "", 10, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAPIKey("REGIONAL", []string{"example.com"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	// Verify regex pattern sets are restored (via delete which requires lookup).
+	rps2, err := b.CreateRegexPatternSet("another-regex", "REGIONAL", "", nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, b.DeleteRegexPatternSet(rps2.ID))
+}

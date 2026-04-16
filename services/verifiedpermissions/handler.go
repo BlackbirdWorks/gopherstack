@@ -26,12 +26,21 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Verified Permissions operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler creates a new Verified Permissions handler.
-func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Reset clears all Verified Permissions state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -40,21 +49,36 @@ func (h *Handler) Name() string { return "VerifiedPermissions" }
 // GetSupportedOperations returns the list of supported Verified Permissions operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreatePolicyStore",
-		"GetPolicyStore",
-		"ListPolicyStores",
-		"UpdatePolicyStore",
-		"DeletePolicyStore",
+		"BatchGetPolicy",
+		"BatchIsAuthorized",
+		"BatchIsAuthorizedWithToken",
+		"CreateIdentitySource",
 		"CreatePolicy",
-		"GetPolicy",
-		"ListPolicies",
-		"UpdatePolicy",
-		"DeletePolicy",
+		"CreatePolicyStore",
 		"CreatePolicyTemplate",
-		"GetPolicyTemplate",
-		"ListPolicyTemplates",
-		"UpdatePolicyTemplate",
+		"DeleteIdentitySource",
+		"DeletePolicy",
+		"DeletePolicyStore",
 		"DeletePolicyTemplate",
+		"GetIdentitySource",
+		"GetPolicy",
+		"GetPolicyStore",
+		"GetPolicyTemplate",
+		"GetSchema",
+		"IsAuthorized",
+		"IsAuthorizedWithToken",
+		"ListIdentitySources",
+		"ListPolicies",
+		"ListPolicyStores",
+		"ListPolicyTemplates",
+		"ListTagsForResource",
+		"PutSchema",
+		"TagResource",
+		"UntagResource",
+		"UpdateIdentitySource",
+		"UpdatePolicy",
+		"UpdatePolicyStore",
+		"UpdatePolicyTemplate",
 	}
 }
 
@@ -127,31 +151,43 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreatePolicyStore":    service.WrapOp(h.handleCreatePolicyStore),
-		"GetPolicyStore":       service.WrapOp(h.handleGetPolicyStore),
-		"ListPolicyStores":     service.WrapOp(h.handleListPolicyStores),
-		"UpdatePolicyStore":    service.WrapOp(h.handleUpdatePolicyStore),
-		"DeletePolicyStore":    service.WrapOp(h.handleDeletePolicyStore),
-		"CreatePolicy":         service.WrapOp(h.handleCreatePolicy),
-		"GetPolicy":            service.WrapOp(h.handleGetPolicy),
-		"ListPolicies":         service.WrapOp(h.handleListPolicies),
-		"UpdatePolicy":         service.WrapOp(h.handleUpdatePolicy),
-		"DeletePolicy":         service.WrapOp(h.handleDeletePolicy),
-		"CreatePolicyTemplate": service.WrapOp(h.handleCreatePolicyTemplate),
-		"GetPolicyTemplate":    service.WrapOp(h.handleGetPolicyTemplate),
-		"ListPolicyTemplates":  service.WrapOp(h.handleListPolicyTemplates),
-		"UpdatePolicyTemplate": service.WrapOp(h.handleUpdatePolicyTemplate),
-		"DeletePolicyTemplate": service.WrapOp(h.handleDeletePolicyTemplate),
-		"TagResource":          service.WrapOp(h.handleTagResource),
-		"UntagResource":        service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource":  service.WrapOp(h.handleListTagsForResource),
+		"BatchGetPolicy":             service.WrapOp(h.handleBatchGetPolicy),
+		"BatchIsAuthorized":          service.WrapOp(h.handleBatchIsAuthorized),
+		"BatchIsAuthorizedWithToken": service.WrapOp(h.handleBatchIsAuthorizedWithToken),
+		"CreateIdentitySource":       service.WrapOp(h.handleCreateIdentitySource),
+		"CreatePolicyStore":          service.WrapOp(h.handleCreatePolicyStore),
+		"CreatePolicy":               service.WrapOp(h.handleCreatePolicy),
+		"CreatePolicyTemplate":       service.WrapOp(h.handleCreatePolicyTemplate),
+		"DeleteIdentitySource":       service.WrapOp(h.handleDeleteIdentitySource),
+		"DeletePolicyStore":          service.WrapOp(h.handleDeletePolicyStore),
+		"DeletePolicy":               service.WrapOp(h.handleDeletePolicy),
+		"DeletePolicyTemplate":       service.WrapOp(h.handleDeletePolicyTemplate),
+		"GetIdentitySource":          service.WrapOp(h.handleGetIdentitySource),
+		"GetPolicyStore":             service.WrapOp(h.handleGetPolicyStore),
+		"GetPolicy":                  service.WrapOp(h.handleGetPolicy),
+		"GetPolicyTemplate":          service.WrapOp(h.handleGetPolicyTemplate),
+		"GetSchema":                  service.WrapOp(h.handleGetSchema),
+		"IsAuthorized":               service.WrapOp(h.handleIsAuthorized),
+		"IsAuthorizedWithToken":      service.WrapOp(h.handleIsAuthorizedWithToken),
+		"ListIdentitySources":        service.WrapOp(h.handleListIdentitySources),
+		"ListPolicyStores":           service.WrapOp(h.handleListPolicyStores),
+		"ListPolicies":               service.WrapOp(h.handleListPolicies),
+		"ListPolicyTemplates":        service.WrapOp(h.handleListPolicyTemplates),
+		"ListTagsForResource":        service.WrapOp(h.handleListTagsForResource),
+		"PutSchema":                  service.WrapOp(h.handlePutSchema),
+		"TagResource":                service.WrapOp(h.handleTagResource),
+		"UntagResource":              service.WrapOp(h.handleUntagResource),
+		"UpdateIdentitySource":       service.WrapOp(h.handleUpdateIdentitySource),
+		"UpdatePolicyStore":          service.WrapOp(h.handleUpdatePolicyStore),
+		"UpdatePolicy":               service.WrapOp(h.handleUpdatePolicy),
+		"UpdatePolicyTemplate":       service.WrapOp(h.handleUpdatePolicyTemplate),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
+	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -179,8 +215,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			"__type":  "ResourceConflictException",
 			"message": err.Error(),
 		})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
+		errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
@@ -219,8 +255,8 @@ func (h *Handler) handleCreatePolicyStore(
 	return &createPolicyStoreOutput{
 		PolicyStoreID:   ps.PolicyStoreID,
 		Arn:             ps.Arn,
-		CreatedDate:     ps.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -258,8 +294,8 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		PolicyStoreID:   ps.PolicyStoreID,
 		Arn:             ps.Arn,
 		Description:     ps.Description,
-		CreatedDate:     ps.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -277,8 +313,8 @@ func (h *Handler) handleListPolicyStores(_ context.Context, _ *struct{}) (*listP
 			PolicyStoreID:   ps.PolicyStoreID,
 			Arn:             ps.Arn,
 			Description:     ps.Description,
-			CreatedDate:     ps.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -312,7 +348,7 @@ func (h *Handler) handleUpdatePolicyStore(
 	return &updatePolicyStoreOutput{
 		PolicyStoreID:   ps.PolicyStoreID,
 		Arn:             ps.Arn,
-		LastUpdatedDate: ps.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -394,8 +430,8 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -438,8 +474,8 @@ func (h *Handler) handleGetPolicy(_ context.Context, in *policyInput) (*getPolic
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -469,8 +505,8 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 			PolicyStoreID:   p.PolicyStoreID,
 			PolicyID:        p.PolicyID,
 			PolicyType:      p.PolicyType,
-			CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -509,8 +545,8 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 		PolicyStoreID:   p.PolicyStoreID,
 		PolicyID:        p.PolicyID,
 		PolicyType:      p.PolicyType,
-		CreatedDate:     p.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate: p.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:     p.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: p.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -565,8 +601,8 @@ func (h *Handler) handleCreatePolicyTemplate(
 	return &policyTemplateIDsOutput{
 		PolicyStoreID:    pt.PolicyStoreID,
 		PolicyTemplateID: pt.PolicyTemplateID,
-		CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -615,8 +651,8 @@ func (h *Handler) handleGetPolicyTemplate(
 		PolicyTemplateID: pt.PolicyTemplateID,
 		Description:      pt.Description,
 		Statement:        pt.Statement,
-		CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -650,8 +686,8 @@ func (h *Handler) handleListPolicyTemplates(
 			PolicyTemplateID: pt.PolicyTemplateID,
 			Description:      pt.Description,
 			Statement:        pt.Statement,
-			CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+			CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -689,8 +725,8 @@ func (h *Handler) handleUpdatePolicyTemplate(
 	return &policyTemplateIDsOutput{
 		PolicyStoreID:    pt.PolicyStoreID,
 		PolicyTemplateID: pt.PolicyTemplateID,
-		CreatedDate:      pt.CreatedDate.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastUpdatedDate:  pt.LastUpdated.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -766,4 +802,588 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	return &listTagsForResourceOutput{Tags: tags}, nil
+}
+
+// --- BatchGetPolicy ---
+
+type batchGetPolicyRequest struct {
+	Requests []struct {
+		PolicyStoreID string `json:"policyStoreId"`
+		PolicyID      string `json:"policyId"`
+	} `json:"requests"`
+}
+
+type batchGetPolicyHandlerOutput struct {
+	Results []batchGetPolicyOutputItem `json:"results"`
+	Errors  []batchGetPolicyErrorItem  `json:"errors"`
+}
+
+func (h *Handler) handleBatchGetPolicy(
+	_ context.Context,
+	in *batchGetPolicyRequest,
+) (*batchGetPolicyHandlerOutput, error) {
+	items := make([]BatchGetPolicyItem, 0, len(in.Requests))
+
+	for _, r := range in.Requests {
+		if r.PolicyStoreID == "" || r.PolicyID == "" {
+			return nil, fmt.Errorf("%w: each request requires policyStoreId and policyId", errInvalidRequest)
+		}
+
+		items = append(items, BatchGetPolicyItem{
+			PolicyStoreID: r.PolicyStoreID,
+			PolicyID:      r.PolicyID,
+		})
+	}
+
+	result := h.Backend.BatchGetPolicy(items)
+
+	return &batchGetPolicyHandlerOutput{
+		Results: result.Results,
+		Errors:  result.Errors,
+	}, nil
+}
+
+// --- BatchIsAuthorized ---
+
+type entityIdentifierJSON struct {
+	EntityType string `json:"entityType"`
+	EntityID   string `json:"entityId"`
+}
+
+type actionIdentifierJSON struct {
+	ActionType string `json:"actionType"`
+	ActionID   string `json:"actionId"`
+}
+
+type batchIsAuthorizedRequestItem struct {
+	Principal *entityIdentifierJSON `json:"principal,omitempty"`
+	Action    *actionIdentifierJSON `json:"action,omitempty"`
+	Resource  *entityIdentifierJSON `json:"resource,omitempty"`
+}
+
+type batchIsAuthorizedInput struct {
+	PolicyStoreID string                         `json:"policyStoreId"`
+	Requests      []batchIsAuthorizedRequestItem `json:"requests"`
+}
+
+type batchIsAuthorizedDecision struct {
+	Request             AuthorizationRequest `json:"request"`
+	Decision            string               `json:"decision"`
+	DeterminingPolicies []string             `json:"determiningPolicies"`
+	Errors              []string             `json:"errors"`
+}
+
+type batchIsAuthorizedOutput struct {
+	Results []batchIsAuthorizedDecision `json:"results"`
+}
+
+func toBatchDecisions(decisions []AuthDecision) []batchIsAuthorizedDecision {
+	out := make([]batchIsAuthorizedDecision, 0, len(decisions))
+
+	for _, d := range decisions {
+		out = append(out, batchIsAuthorizedDecision(d))
+	}
+
+	return out
+}
+
+func (h *Handler) handleBatchIsAuthorized(
+	_ context.Context,
+	in *batchIsAuthorizedInput,
+) (*batchIsAuthorizedOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	requests := make([]AuthorizationRequest, 0, len(in.Requests))
+
+	for _, r := range in.Requests {
+		req := AuthorizationRequest{}
+
+		if r.Principal != nil {
+			req.PrincipalEntityType = r.Principal.EntityType
+			req.PrincipalEntityID = r.Principal.EntityID
+		}
+
+		if r.Action != nil {
+			req.ActionType = r.Action.ActionType
+			req.ActionID = r.Action.ActionID
+		}
+
+		if r.Resource != nil {
+			req.ResourceEntityType = r.Resource.EntityType
+			req.ResourceEntityID = r.Resource.EntityID
+		}
+
+		requests = append(requests, req)
+	}
+
+	decisions, err := h.Backend.BatchIsAuthorized(in.PolicyStoreID, requests)
+	if err != nil {
+		return nil, err
+	}
+
+	return &batchIsAuthorizedOutput{Results: toBatchDecisions(decisions)}, nil
+}
+
+// --- BatchIsAuthorizedWithToken ---
+
+type batchIsAuthorizedWithTokenRequestItem struct {
+	Action   *actionIdentifierJSON `json:"action,omitempty"`
+	Resource *entityIdentifierJSON `json:"resource,omitempty"`
+}
+
+type batchIsAuthorizedWithTokenInput struct {
+	PolicyStoreID string                                  `json:"policyStoreId"`
+	AccessToken   string                                  `json:"accessToken,omitempty"`
+	IdentityToken string                                  `json:"identityToken,omitempty"`
+	Requests      []batchIsAuthorizedWithTokenRequestItem `json:"requests"`
+}
+
+func (h *Handler) handleBatchIsAuthorizedWithToken(
+	_ context.Context,
+	in *batchIsAuthorizedWithTokenInput,
+) (*batchIsAuthorizedOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.AccessToken == "" && in.IdentityToken == "" {
+		return nil, fmt.Errorf("%w: accessToken or identityToken is required", errInvalidRequest)
+	}
+
+	requests := make([]AuthorizationRequest, 0, len(in.Requests))
+
+	for _, r := range in.Requests {
+		req := AuthorizationRequest{}
+
+		if r.Action != nil {
+			req.ActionType = r.Action.ActionType
+			req.ActionID = r.Action.ActionID
+		}
+
+		if r.Resource != nil {
+			req.ResourceEntityType = r.Resource.EntityType
+			req.ResourceEntityID = r.Resource.EntityID
+		}
+
+		requests = append(requests, req)
+	}
+
+	decisions, err := h.Backend.BatchIsAuthorizedWithToken(in.PolicyStoreID, requests)
+	if err != nil {
+		return nil, err
+	}
+
+	return &batchIsAuthorizedOutput{Results: toBatchDecisions(decisions)}, nil
+}
+
+// --- IdentitySource operations ---
+
+type cognitoUserPoolConfigJSON struct {
+	UserPoolArn string   `json:"userPoolArn"`
+	ClientIDs   []string `json:"clientIds,omitempty"`
+}
+
+type openIDConnectConfigJSON struct {
+	Issuer string `json:"issuer"`
+}
+
+type identitySourceConfigJSON struct {
+	CognitoUserPool *cognitoUserPoolConfigJSON `json:"cognitoUserPoolConfiguration,omitempty"`
+	OpenIDConnect   *openIDConnectConfigJSON   `json:"openIdConnectConfiguration,omitempty"`
+}
+
+type createIdentitySourceInput struct {
+	PolicyStoreID       string                   `json:"policyStoreId"`
+	PrincipalEntityType string                   `json:"principalEntityType"`
+	Configuration       identitySourceConfigJSON `json:"configuration"`
+	ClientToken         string                   `json:"clientToken,omitempty"`
+}
+
+type identitySourceOutput struct {
+	IdentitySourceID    string `json:"identitySourceId"`
+	PolicyStoreID       string `json:"policyStoreId"`
+	PrincipalEntityType string `json:"principalEntityType"`
+	CreatedDate         string `json:"createdDate"`
+	LastUpdatedDate     string `json:"lastUpdatedDate"`
+}
+
+func identitySourceToOutput(is *IdentitySource) *identitySourceOutput {
+	return &identitySourceOutput{
+		IdentitySourceID:    is.IdentitySourceID,
+		PolicyStoreID:       is.PolicyStoreID,
+		PrincipalEntityType: is.PrincipalEntityType,
+		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
+	}
+}
+
+func (h *Handler) handleCreateIdentitySource(
+	_ context.Context,
+	in *createIdentitySourceInput,
+) (*identitySourceOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.Configuration.CognitoUserPool == nil && in.Configuration.OpenIDConnect == nil {
+		return nil, fmt.Errorf(
+			"%w: configuration must contain cognitoUserPoolConfiguration or openIdConnectConfiguration",
+			errInvalidRequest,
+		)
+	}
+
+	var userPoolArn, openIDIssuer string
+
+	var clientIDs []string
+
+	if in.Configuration.CognitoUserPool != nil {
+		if in.Configuration.CognitoUserPool.UserPoolArn == "" {
+			return nil, fmt.Errorf("%w: cognitoUserPoolConfiguration.userPoolArn is required", errInvalidRequest)
+		}
+
+		userPoolArn = in.Configuration.CognitoUserPool.UserPoolArn
+		clientIDs = in.Configuration.CognitoUserPool.ClientIDs
+	} else {
+		if in.Configuration.OpenIDConnect.Issuer == "" {
+			return nil, fmt.Errorf("%w: openIdConnectConfiguration.issuer is required", errInvalidRequest)
+		}
+
+		openIDIssuer = in.Configuration.OpenIDConnect.Issuer
+	}
+
+	is, err := h.Backend.CreateIdentitySource(
+		in.PolicyStoreID,
+		userPoolArn,
+		openIDIssuer,
+		in.PrincipalEntityType,
+		clientIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return identitySourceToOutput(is), nil
+}
+
+type identitySourceIDInput struct {
+	PolicyStoreID    string `json:"policyStoreId"`
+	IdentitySourceID string `json:"identitySourceId"`
+}
+
+func (h *Handler) handleGetIdentitySource(
+	_ context.Context,
+	in *identitySourceIDInput,
+) (*identitySourceOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.IdentitySourceID == "" {
+		return nil, fmt.Errorf("%w: identitySourceId is required", errInvalidRequest)
+	}
+
+	is, err := h.Backend.GetIdentitySource(in.PolicyStoreID, in.IdentitySourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return identitySourceToOutput(is), nil
+}
+
+func (h *Handler) handleDeleteIdentitySource(_ context.Context, in *identitySourceIDInput) (*struct{}, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.IdentitySourceID == "" {
+		return nil, fmt.Errorf("%w: identitySourceId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteIdentitySource(in.PolicyStoreID, in.IdentitySourceID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type listIdentitySourcesInput struct {
+	PolicyStoreID string `json:"policyStoreId"`
+}
+
+type listIdentitySourcesOutput struct {
+	IdentitySources []identitySourceOutput `json:"identitySources"`
+}
+
+func (h *Handler) handleListIdentitySources(
+	_ context.Context,
+	in *listIdentitySourcesInput,
+) (*listIdentitySourcesOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	sources, err := h.Backend.ListIdentitySources(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]identitySourceOutput, 0, len(sources))
+
+	for i := range sources {
+		items = append(items, *identitySourceToOutput(&sources[i]))
+	}
+
+	return &listIdentitySourcesOutput{IdentitySources: items}, nil
+}
+
+// --- Schema operations ---
+
+type putSchemaDefinitionJSON struct {
+	CedarJSON string `json:"cedarJson"`
+}
+
+type putSchemaInput struct {
+	PolicyStoreID string                  `json:"policyStoreId"`
+	Definition    putSchemaDefinitionJSON `json:"definition"`
+}
+
+type putSchemaOutput struct {
+	PolicyStoreID   string   `json:"policyStoreId"`
+	CreatedDate     string   `json:"createdDate"`
+	LastUpdatedDate string   `json:"lastUpdatedDate"`
+	Namespaces      []string `json:"namespaces"`
+}
+
+func (h *Handler) handlePutSchema(_ context.Context, in *putSchemaInput) (*putSchemaOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.Definition.CedarJSON == "" {
+		return nil, fmt.Errorf("%w: definition.cedarJson is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.PutSchema(in.PolicyStoreID, in.Definition.CedarJSON); err != nil {
+		return nil, err
+	}
+
+	s, err := h.Backend.GetSchema(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putSchemaOutput{
+		PolicyStoreID:   in.PolicyStoreID,
+		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
+		Namespaces:      []string{},
+	}, nil
+}
+
+type getSchemaInput struct {
+	PolicyStoreID string `json:"policyStoreId"`
+}
+
+type getSchemaOutput struct {
+	PolicyStoreID   string `json:"policyStoreId"`
+	Schema          string `json:"schema"`
+	CreatedDate     string `json:"createdDate"`
+	LastUpdatedDate string `json:"lastUpdatedDate"`
+}
+
+func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSchemaOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	s, err := h.Backend.GetSchema(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSchemaOutput{
+		PolicyStoreID:   in.PolicyStoreID,
+		Schema:          s.Schema,
+		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
+	}, nil
+}
+
+// --- IsAuthorized ---
+
+type isAuthorizedInput struct {
+	Principal     *entityIdentifierJSON `json:"principal,omitempty"`
+	Action        *actionIdentifierJSON `json:"action,omitempty"`
+	Resource      *entityIdentifierJSON `json:"resource,omitempty"`
+	PolicyStoreID string                `json:"policyStoreId"`
+}
+
+type isAuthorizedOutput struct {
+	Decision            string   `json:"decision"`
+	DeterminingPolicies []string `json:"determiningPolicies"`
+	Errors              []string `json:"errors"`
+}
+
+func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (*isAuthorizedOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	req := AuthorizationRequest{}
+
+	if in.Principal != nil {
+		req.PrincipalEntityType = in.Principal.EntityType
+		req.PrincipalEntityID = in.Principal.EntityID
+	}
+
+	if in.Action != nil {
+		req.ActionType = in.Action.ActionType
+		req.ActionID = in.Action.ActionID
+	}
+
+	if in.Resource != nil {
+		req.ResourceEntityType = in.Resource.EntityType
+		req.ResourceEntityID = in.Resource.EntityID
+	}
+
+	decision, err := h.Backend.IsAuthorized(in.PolicyStoreID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &isAuthorizedOutput{
+		Decision:            decision.Decision,
+		DeterminingPolicies: decision.DeterminingPolicies,
+		Errors:              decision.Errors,
+	}, nil
+}
+
+// --- IsAuthorizedWithToken ---
+
+type isAuthorizedWithTokenInput struct {
+	Action        *actionIdentifierJSON `json:"action,omitempty"`
+	Resource      *entityIdentifierJSON `json:"resource,omitempty"`
+	PolicyStoreID string                `json:"policyStoreId"`
+	AccessToken   string                `json:"accessToken,omitempty"`
+	IdentityToken string                `json:"identityToken,omitempty"`
+}
+
+func (h *Handler) handleIsAuthorizedWithToken(
+	_ context.Context,
+	in *isAuthorizedWithTokenInput,
+) (*isAuthorizedOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.AccessToken == "" && in.IdentityToken == "" {
+		return nil, fmt.Errorf("%w: accessToken or identityToken is required", errInvalidRequest)
+	}
+
+	req := AuthorizationRequest{}
+
+	if in.Action != nil {
+		req.ActionType = in.Action.ActionType
+		req.ActionID = in.Action.ActionID
+	}
+
+	if in.Resource != nil {
+		req.ResourceEntityType = in.Resource.EntityType
+		req.ResourceEntityID = in.Resource.EntityID
+	}
+
+	decision, err := h.Backend.IsAuthorizedWithToken(in.PolicyStoreID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &isAuthorizedOutput{
+		Decision:            decision.Decision,
+		DeterminingPolicies: decision.DeterminingPolicies,
+		Errors:              decision.Errors,
+	}, nil
+}
+
+// --- UpdateIdentitySource ---
+
+type updateIdentitySourceInput struct {
+	UpdateConfiguration identitySourceConfigJSON `json:"updateConfiguration"`
+	PolicyStoreID       string                   `json:"policyStoreId"`
+	IdentitySourceID    string                   `json:"identitySourceId"`
+	PrincipalEntityType string                   `json:"principalEntityType,omitempty"`
+}
+
+type updateIdentitySourceOutput struct {
+	IdentitySourceID    string `json:"identitySourceId"`
+	PolicyStoreID       string `json:"policyStoreId"`
+	PrincipalEntityType string `json:"principalEntityType"`
+	CreatedDate         string `json:"createdDate"`
+	LastUpdatedDate     string `json:"lastUpdatedDate"`
+}
+
+func (h *Handler) handleUpdateIdentitySource(
+	_ context.Context,
+	in *updateIdentitySourceInput,
+) (*updateIdentitySourceOutput, error) {
+	if in.PolicyStoreID == "" {
+		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
+	}
+
+	if in.IdentitySourceID == "" {
+		return nil, fmt.Errorf("%w: identitySourceId is required", errInvalidRequest)
+	}
+
+	if in.UpdateConfiguration.CognitoUserPool == nil && in.UpdateConfiguration.OpenIDConnect == nil {
+		return nil, fmt.Errorf(
+			"%w: updateConfiguration must contain cognitoUserPoolConfiguration or openIdConnectConfiguration",
+			errInvalidRequest,
+		)
+	}
+
+	var userPoolArn, openIDIssuer string
+
+	var clientIDs []string
+
+	if in.UpdateConfiguration.CognitoUserPool != nil {
+		if in.UpdateConfiguration.CognitoUserPool.UserPoolArn == "" {
+			return nil, fmt.Errorf(
+				"%w: updateConfiguration.cognitoUserPoolConfiguration.userPoolArn is required",
+				errInvalidRequest,
+			)
+		}
+
+		userPoolArn = in.UpdateConfiguration.CognitoUserPool.UserPoolArn
+		clientIDs = in.UpdateConfiguration.CognitoUserPool.ClientIDs
+	} else {
+		if in.UpdateConfiguration.OpenIDConnect.Issuer == "" {
+			return nil, fmt.Errorf(
+				"%w: updateConfiguration.openIdConnectConfiguration.issuer is required",
+				errInvalidRequest,
+			)
+		}
+
+		openIDIssuer = in.UpdateConfiguration.OpenIDConnect.Issuer
+	}
+
+	is, err := h.Backend.UpdateIdentitySource(
+		in.PolicyStoreID,
+		in.IdentitySourceID,
+		userPoolArn,
+		openIDIssuer,
+		in.PrincipalEntityType,
+		clientIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateIdentitySourceOutput{
+		IdentitySourceID:    is.IdentitySourceID,
+		PolicyStoreID:       is.PolicyStoreID,
+		PrincipalEntityType: is.PrincipalEntityType,
+		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
+	}, nil
 }

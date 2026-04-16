@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	mediaconvertsdk "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
+	mediaconverttypes "github.com/aws/aws-sdk-go-v2/service/mediaconvert/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -363,10 +364,10 @@ func TestIntegration_MediaConvert_PutGetDeletePolicy(t *testing.T) {
 
 			// Put policy.
 			_, err = client.PutPolicy(ctx, &mediaconvertsdk.PutPolicyInput{
-				Policy: &mediaconvertsdk.Policy{
-					HttpInputs:  mediaconvertsdk.InputPolicy("ALLOWED"),
-					HttpsInputs: mediaconvertsdk.InputPolicy("ALLOWED"),
-					S3Inputs:    mediaconvertsdk.InputPolicy("ALLOWED"),
+				Policy: &mediaconverttypes.Policy{
+					HttpInputs:  mediaconverttypes.InputPolicyAllowed,
+					HttpsInputs: mediaconverttypes.InputPolicyAllowed,
+					S3Inputs:    mediaconverttypes.InputPolicyAllowed,
 				},
 			})
 			require.NoError(t, err, "PutPolicy should succeed")

@@ -37,6 +37,7 @@ func createMediaStoreDataClient(t *testing.T) *mediastoredatasdk.Client {
 // TestIntegration_MediaStoreData_ObjectLifecycle tests the full object CRUD lifecycle.
 func TestIntegration_MediaStoreData_ObjectLifecycle(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
 		name        string

@@ -27,19 +27,52 @@ var (
 		"ConflictException: server is already in the requested state",
 		awserr.ErrConflict,
 	)
+	// ErrAccessNotFound is returned when a Transfer access is not found.
+	ErrAccessNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrAgreementNotFound is returned when a Transfer agreement is not found.
+	ErrAgreementNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrConnectorNotFound is returned when a Transfer connector is not found.
+	ErrConnectorNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrProfileNotFound is returned when a Transfer profile is not found.
+	ErrProfileNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrWebAppNotFound is returned when a Transfer web app is not found.
+	ErrWebAppNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrWorkflowNotFound is returned when a Transfer workflow is not found.
+	ErrWorkflowNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrCertificateNotFound is returned when a Transfer certificate is not found.
+	ErrCertificateNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrValidation is returned when a required parameter is missing or invalid.
+	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+)
+
+// Server state constants.
+const (
+	serverStatusOnline  = "ONLINE"
+	serverStatusOffline = "OFFLINE"
+)
+
+// Profile type constants.
+const (
+	profileTypeLocal   = "LOCAL"
+	profileTypePartner = "PARTNER"
+)
+
+// Agreement status constants.
+const (
+	agreementStatusActive = "ACTIVE"
 )
 
 // Server represents an AWS Transfer Family server.
 type Server struct {
-	CreatedAt time.Time
-	Tags      map[string]string
-	ServerID  string
-	State     string
-	Endpoint  string
-	Domain    string
-	Region    string
-	AccountID string
-	Protocols []string
+	CreatedAt time.Time         `json:"created_at"`
+	Tags      map[string]string `json:"tags"`
+	ServerID  string            `json:"server_id"`
+	State     string            `json:"state"`
+	Endpoint  string            `json:"endpoint"`
+	Domain    string            `json:"domain"`
+	Region    string            `json:"region"`
+	AccountID string            `json:"account_id"`
+	Protocols []string          `json:"protocols"`
 }
 
 // serverARN builds the ARN for a Transfer server.
@@ -61,14 +94,14 @@ func cloneServer(s *Server) *Server {
 
 // User represents a user on an AWS Transfer Family server.
 type User struct {
-	CreatedAt time.Time
-	Tags      map[string]string
-	UserName  string
-	ServerID  string
-	HomeDir   string
-	Role      string
-	AccountID string
-	Region    string
+	CreatedAt time.Time         `json:"created_at"`
+	Tags      map[string]string `json:"tags"`
+	UserName  string            `json:"user_name"`
+	ServerID  string            `json:"server_id"`
+	HomeDir   string            `json:"home_dir"`
+	Role      string            `json:"role"`
+	AccountID string            `json:"account_id"`
+	Region    string            `json:"region"`
 }
 
 // userARN builds the ARN for a Transfer user.
@@ -85,23 +118,169 @@ func cloneUser(u *User) *User {
 	return &cp
 }
 
+// Access represents an AWS Transfer access policy entry for a server.
+type Access struct {
+	CreatedAt  time.Time         `json:"created_at"`
+	Tags       map[string]string `json:"tags"`
+	ExternalID string            `json:"external_id"`
+	ServerID   string            `json:"server_id"`
+	Role       string            `json:"role"`
+	HomeDir    string            `json:"home_dir"`
+	AccountID  string            `json:"account_id"`
+	Region     string            `json:"region"`
+}
+
+// cloneAccess returns a deep copy of an Access.
+func cloneAccess(a *Access) *Access {
+	cp := *a
+	cp.Tags = make(map[string]string, len(a.Tags))
+	maps.Copy(cp.Tags, a.Tags)
+
+	return &cp
+}
+
+// Agreement represents an AWS Transfer AS2 agreement.
+type Agreement struct {
+	CreatedAt        time.Time         `json:"created_at"`
+	Tags             map[string]string `json:"tags"`
+	AgreementID      string            `json:"agreement_id"`
+	ServerID         string            `json:"server_id"`
+	Description      string            `json:"description"`
+	LocalProfileID   string            `json:"local_profile_id"`
+	PartnerProfileID string            `json:"partner_profile_id"`
+	BaseDirectory    string            `json:"base_directory"`
+	AccessRole       string            `json:"access_role"`
+	AccountID        string            `json:"account_id"`
+	Region           string            `json:"region"`
+	Status           string            `json:"status"`
+}
+
+// cloneAgreement returns a deep copy of an Agreement.
+func cloneAgreement(a *Agreement) *Agreement {
+	cp := *a
+	cp.Tags = make(map[string]string, len(a.Tags))
+	maps.Copy(cp.Tags, a.Tags)
+
+	return &cp
+}
+
+// Connector represents an AWS Transfer connector used to initiate file transfers.
+type Connector struct {
+	CreatedAt   time.Time         `json:"created_at"`
+	Tags        map[string]string `json:"tags"`
+	ConnectorID string            `json:"connector_id"`
+	URL         string            `json:"url"`
+	AccessRole  string            `json:"access_role"`
+	AccountID   string            `json:"account_id"`
+	Region      string            `json:"region"`
+}
+
+// cloneConnector returns a deep copy of a Connector.
+func cloneConnector(c *Connector) *Connector {
+	cp := *c
+	cp.Tags = make(map[string]string, len(c.Tags))
+	maps.Copy(cp.Tags, c.Tags)
+
+	return &cp
+}
+
+// Profile represents an AWS Transfer AS2 profile.
+type Profile struct {
+	CreatedAt   time.Time         `json:"created_at"`
+	Tags        map[string]string `json:"tags"`
+	ProfileID   string            `json:"profile_id"`
+	ProfileType string            `json:"profile_type"`
+	As2ID       string            `json:"as2_id"`
+	AccountID   string            `json:"account_id"`
+	Region      string            `json:"region"`
+}
+
+// cloneProfile returns a deep copy of a Profile.
+func cloneProfile(p *Profile) *Profile {
+	cp := *p
+	cp.Tags = make(map[string]string, len(p.Tags))
+	maps.Copy(cp.Tags, p.Tags)
+
+	return &cp
+}
+
+// WebApp represents an AWS Transfer web application.
+type WebApp struct {
+	CreatedAt time.Time         `json:"created_at"`
+	Tags      map[string]string `json:"tags"`
+	WebAppID  string            `json:"web_app_id"`
+	AccountID string            `json:"account_id"`
+	Region    string            `json:"region"`
+}
+
+// cloneWebApp returns a deep copy of a WebApp.
+func cloneWebApp(w *WebApp) *WebApp {
+	cp := *w
+	cp.Tags = make(map[string]string, len(w.Tags))
+	maps.Copy(cp.Tags, w.Tags)
+
+	return &cp
+}
+
+// Workflow represents an AWS Transfer workflow for file processing.
+type Workflow struct {
+	CreatedAt   time.Time         `json:"created_at"`
+	Tags        map[string]string `json:"tags"`
+	WorkflowID  string            `json:"workflow_id"`
+	Description string            `json:"description"`
+	AccountID   string            `json:"account_id"`
+	Region      string            `json:"region"`
+}
+
+// cloneWorkflow returns a deep copy of a Workflow.
+func cloneWorkflow(w *Workflow) *Workflow {
+	cp := *w
+	cp.Tags = make(map[string]string, len(w.Tags))
+	maps.Copy(cp.Tags, w.Tags)
+
+	return &cp
+}
+
+// Certificate represents an imported AWS Transfer certificate.
+type Certificate struct {
+	CreatedAt     time.Time         `json:"created_at"`
+	Tags          map[string]string `json:"tags"`
+	CertificateID string            `json:"certificate_id"`
+	AccountID     string            `json:"account_id"`
+	Region        string            `json:"region"`
+}
+
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
-	servers   map[string]*Server
-	users     map[string]map[string]*User // serverID -> userName -> User
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	servers      map[string]*Server
+	users        map[string]map[string]*User      // serverID -> userName -> User
+	accesses     map[string]map[string]*Access    // serverID -> externalID -> Access
+	agreements   map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
+	connectors   map[string]*Connector
+	profiles     map[string]*Profile
+	webApps      map[string]*WebApp
+	workflows    map[string]*Workflow
+	certificates map[string]*Certificate
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		servers:   make(map[string]*Server),
-		users:     make(map[string]map[string]*User),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("transfer"),
+		servers:      make(map[string]*Server),
+		users:        make(map[string]map[string]*User),
+		accesses:     make(map[string]map[string]*Access),
+		agreements:   make(map[string]map[string]*Agreement),
+		connectors:   make(map[string]*Connector),
+		profiles:     make(map[string]*Profile),
+		webApps:      make(map[string]*WebApp),
+		workflows:    make(map[string]*Workflow),
+		certificates: make(map[string]*Certificate),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("transfer"),
 	}
 }
 
@@ -130,7 +309,7 @@ func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]strin
 
 	s := &Server{
 		ServerID:  serverID,
-		State:     "ONLINE",
+		State:     serverStatusOnline,
 		Endpoint:  fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
 		Protocols: protocols,
 		Domain:    "S3",
@@ -175,7 +354,7 @@ func (b *InMemoryBackend) ListServers() []Server {
 	return out
 }
 
-// DeleteServer removes a server and its users by ID.
+// DeleteServer removes a server and all of its associated resources (users, accesses, agreements).
 func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	b.mu.Lock("DeleteServer")
 	defer b.mu.Unlock()
@@ -186,12 +365,13 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 
 	delete(b.servers, serverID)
 	delete(b.users, serverID)
+	delete(b.accesses, serverID)
+	delete(b.agreements, serverID)
 
 	return nil
 }
 
 // StartServer transitions a server to ONLINE state.
-// The operation is idempotent: calling it on an already ONLINE server succeeds.
 func (b *InMemoryBackend) StartServer(serverID string) error {
 	b.mu.Lock("StartServer")
 	defer b.mu.Unlock()
@@ -201,13 +381,12 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	s.State = "ONLINE"
+	s.State = serverStatusOnline
 
 	return nil
 }
 
 // StopServer transitions a server to OFFLINE state.
-// The operation is idempotent: calling it on an already OFFLINE server succeeds.
 func (b *InMemoryBackend) StopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()
@@ -217,7 +396,7 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	s.State = "OFFLINE"
+	s.State = serverStatusOffline
 
 	return nil
 }
@@ -355,12 +534,367 @@ func (b *InMemoryBackend) UpdateUser(serverID, userName, homeDir, role string) (
 	return cloneUser(u), nil
 }
 
-// serverARNForServer builds the ARN for the given server.
-func (b *InMemoryBackend) serverARNForServer(s *Server) string {
-	return serverARN(s.AccountID, s.Region, s.ServerID)
+// AccountID returns the AWS account ID for this backend.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// Region returns the AWS region for this backend.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// Reset clears all stored resources, returning the backend to a clean state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.servers = make(map[string]*Server)
+	b.users = make(map[string]map[string]*User)
+	b.accesses = make(map[string]map[string]*Access)
+	b.agreements = make(map[string]map[string]*Agreement)
+	b.connectors = make(map[string]*Connector)
+	b.profiles = make(map[string]*Profile)
+	b.webApps = make(map[string]*WebApp)
+	b.workflows = make(map[string]*Workflow)
+	b.certificates = make(map[string]*Certificate)
 }
 
-// userARNForUser builds the ARN for the given user.
-func (b *InMemoryBackend) userARNForUser(u *User) string {
-	return userARN(u.AccountID, u.Region, u.ServerID, u.UserName)
+// CreateAccess creates an access policy entry on an existing server.
+func (b *InMemoryBackend) CreateAccess(
+	serverID, externalID, role, homeDir string,
+	tags map[string]string,
+) (*Access, error) {
+	b.mu.Lock("CreateAccess")
+	defer b.mu.Unlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	if _, ok := b.accesses[serverID]; !ok {
+		b.accesses[serverID] = make(map[string]*Access)
+	}
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	a := &Access{
+		ExternalID: externalID,
+		ServerID:   serverID,
+		Role:       role,
+		HomeDir:    homeDir,
+		CreatedAt:  time.Now(),
+		Tags:       merged,
+		AccountID:  b.accountID,
+		Region:     b.region,
+	}
+	b.accesses[serverID][externalID] = a
+
+	return cloneAccess(a), nil
+}
+
+// DeleteAccess removes an access entry from a server.
+func (b *InMemoryBackend) DeleteAccess(serverID, externalID string) error {
+	b.mu.Lock("DeleteAccess")
+	defer b.mu.Unlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	serverAccesses, ok := b.accesses[serverID]
+	if !ok {
+		return fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+	}
+
+	if _, exists := serverAccesses[externalID]; !exists {
+		return fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+	}
+
+	delete(serverAccesses, externalID)
+
+	return nil
+}
+
+// CreateAgreement creates an AS2 agreement on an existing server.
+func (b *InMemoryBackend) CreateAgreement(
+	serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole string,
+	tags map[string]string,
+) (*Agreement, error) {
+	b.mu.Lock("CreateAgreement")
+	defer b.mu.Unlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	if _, ok := b.agreements[serverID]; !ok {
+		b.agreements[serverID] = make(map[string]*Agreement)
+	}
+
+	agreementID := "a-" + uuid.NewString()[:20]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	ag := &Agreement{
+		AgreementID:      agreementID,
+		ServerID:         serverID,
+		Description:      description,
+		LocalProfileID:   localProfileID,
+		PartnerProfileID: partnerProfileID,
+		BaseDirectory:    baseDirectory,
+		AccessRole:       accessRole,
+		Status:           agreementStatusActive,
+		CreatedAt:        time.Now(),
+		Tags:             merged,
+		AccountID:        b.accountID,
+		Region:           b.region,
+	}
+	b.agreements[serverID][agreementID] = ag
+
+	return cloneAgreement(ag), nil
+}
+
+// DeleteAgreement removes an AS2 agreement from a server.
+func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
+	b.mu.Lock("DeleteAgreement")
+	defer b.mu.Unlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	serverAgreements, ok := b.agreements[serverID]
+	if !ok {
+		return fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+	}
+
+	if _, exists := serverAgreements[agreementID]; !exists {
+		return fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+	}
+
+	delete(serverAgreements, agreementID)
+
+	return nil
+}
+
+// CreateConnector creates a Transfer connector. URL is required.
+func (b *InMemoryBackend) CreateConnector(url, accessRole string, tags map[string]string) (*Connector, error) {
+	if url == "" {
+		return nil, fmt.Errorf("%w: Url is required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateConnector")
+	defer b.mu.Unlock()
+
+	connectorID := "c-" + uuid.NewString()[:20]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	c := &Connector{
+		ConnectorID: connectorID,
+		URL:         url,
+		AccessRole:  accessRole,
+		CreatedAt:   time.Now(),
+		Tags:        merged,
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+	b.connectors[connectorID] = c
+
+	return cloneConnector(c), nil
+}
+
+// DeleteConnector removes a connector by ID.
+func (b *InMemoryBackend) DeleteConnector(connectorID string) error {
+	b.mu.Lock("DeleteConnector")
+	defer b.mu.Unlock()
+
+	if _, ok := b.connectors[connectorID]; !ok {
+		return fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, connectorID)
+	}
+
+	delete(b.connectors, connectorID)
+
+	return nil
+}
+
+// CreateProfile creates an AS2 profile. ProfileType must be LOCAL or PARTNER.
+func (b *InMemoryBackend) CreateProfile(profileType, as2ID string, tags map[string]string) (*Profile, error) {
+	switch profileType {
+	case profileTypeLocal, profileTypePartner:
+		// valid
+	default:
+		return nil, fmt.Errorf("%w: ProfileType must be LOCAL or PARTNER, got %q", ErrValidation, profileType)
+	}
+
+	b.mu.Lock("CreateProfile")
+	defer b.mu.Unlock()
+
+	profileID := "p-" + uuid.NewString()[:20]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	p := &Profile{
+		ProfileID:   profileID,
+		ProfileType: profileType,
+		As2ID:       as2ID,
+		CreatedAt:   time.Now(),
+		Tags:        merged,
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+	b.profiles[profileID] = p
+
+	return cloneProfile(p), nil
+}
+
+// CreateWebApp creates a Transfer web application.
+func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) {
+	b.mu.Lock("CreateWebApp")
+	defer b.mu.Unlock()
+
+	webAppID := "webapp-" + uuid.NewString()[:20]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	w := &WebApp{
+		WebAppID:  webAppID,
+		CreatedAt: time.Now(),
+		Tags:      merged,
+		AccountID: b.accountID,
+		Region:    b.region,
+	}
+	b.webApps[webAppID] = w
+
+	return cloneWebApp(w), nil
+}
+
+// CreateWorkflow creates a Transfer workflow.
+func (b *InMemoryBackend) CreateWorkflow(description string, tags map[string]string) (*Workflow, error) {
+	b.mu.Lock("CreateWorkflow")
+	defer b.mu.Unlock()
+
+	workflowID := "w-" + uuid.NewString()[:20]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	wf := &Workflow{
+		WorkflowID:  workflowID,
+		Description: description,
+		CreatedAt:   time.Now(),
+		Tags:        merged,
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+	b.workflows[workflowID] = wf
+
+	return cloneWorkflow(wf), nil
+}
+
+// DeleteCertificate removes a certificate by ID.
+func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
+	b.mu.Lock("DeleteCertificate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.certificates[certificateID]; !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertificateNotFound, certificateID)
+	}
+
+	delete(b.certificates, certificateID)
+
+	return nil
+}
+
+// AddCertificateInternal seeds a certificate for testing purposes.
+func (b *InMemoryBackend) AddCertificateInternal(certID string) {
+	b.mu.Lock("AddCertificateInternal")
+	defer b.mu.Unlock()
+
+	b.certificates[certID] = &Certificate{
+		CertificateID: certID,
+		CreatedAt:     time.Now(),
+		Tags:          make(map[string]string),
+		AccountID:     b.accountID,
+		Region:        b.region,
+	}
+}
+
+// AddServerInternal seeds a server for testing purposes.
+func (b *InMemoryBackend) AddServerInternal(serverID string) {
+	b.mu.Lock("AddServerInternal")
+	defer b.mu.Unlock()
+
+	b.servers[serverID] = &Server{
+		ServerID:  serverID,
+		State:     serverStatusOnline,
+		Protocols: []string{"SFTP"},
+		Domain:    "S3",
+		Endpoint:  fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
+		CreatedAt: time.Now(),
+		Tags:      make(map[string]string),
+		AccountID: b.accountID,
+		Region:    b.region,
+	}
+	b.users[serverID] = make(map[string]*User)
+}
+
+// AddConnectorInternal seeds a connector for testing purposes.
+func (b *InMemoryBackend) AddConnectorInternal(connectorID, url string) {
+	b.mu.Lock("AddConnectorInternal")
+	defer b.mu.Unlock()
+
+	b.connectors[connectorID] = &Connector{
+		ConnectorID: connectorID,
+		URL:         url,
+		CreatedAt:   time.Now(),
+		Tags:        make(map[string]string),
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+}
+
+// AddProfileInternal seeds a profile for testing purposes.
+func (b *InMemoryBackend) AddProfileInternal(profileID, profileType string) {
+	b.mu.Lock("AddProfileInternal")
+	defer b.mu.Unlock()
+
+	b.profiles[profileID] = &Profile{
+		ProfileID:   profileID,
+		ProfileType: profileType,
+		CreatedAt:   time.Now(),
+		Tags:        make(map[string]string),
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+}
+
+// AddWebAppInternal seeds a web app for testing purposes.
+func (b *InMemoryBackend) AddWebAppInternal(webAppID string) {
+	b.mu.Lock("AddWebAppInternal")
+	defer b.mu.Unlock()
+
+	b.webApps[webAppID] = &WebApp{
+		WebAppID:  webAppID,
+		CreatedAt: time.Now(),
+		Tags:      make(map[string]string),
+		AccountID: b.accountID,
+		Region:    b.region,
+	}
+}
+
+// AddWorkflowInternal seeds a workflow for testing purposes.
+func (b *InMemoryBackend) AddWorkflowInternal(workflowID string) {
+	b.mu.Lock("AddWorkflowInternal")
+	defer b.mu.Unlock()
+
+	b.workflows[workflowID] = &Workflow{
+		WorkflowID: workflowID,
+		CreatedAt:  time.Now(),
+		Tags:       make(map[string]string),
+		AccountID:  b.accountID,
+		Region:     b.region,
+	}
 }

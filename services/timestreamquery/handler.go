@@ -25,6 +25,18 @@ const (
 	queryProgressPercentage     = 100.0
 )
 
+// writeServiceTagOps returns the set of tag operations shared between the
+// Timestream Write and Query services.  The Write service provides a unified
+// tag store for all Timestream resource types, so the Query RouteMatcher must
+// not claim these operations.
+func writeServiceTagOps() map[string]bool {
+	return map[string]bool{
+		"TagResource":         true,
+		"UntagResource":       true,
+		"ListTagsForResource": true,
+	}
+}
+
 // ErrUnknownOperation is returned when an unrecognized operation is requested.
 var ErrUnknownOperation = errors.New("unknown operation")
 
@@ -90,7 +102,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a matcher that identifies Timestream Query requests.
 // It only matches operations explicitly supported by this handler to avoid
 // intercepting operations belonging to other Timestream services (e.g. TimestreamWrite)
-// that share the same X-Amz-Target prefix.
+// that share the same X-Amz-Target prefix.  Tag operations (TagResource,
+// UntagResource, ListTagsForResource) are intentionally excluded: they are
+// routed to the TimestreamWrite handler which provides a single unified tag
+// store for all Timestream resource types.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
@@ -99,6 +114,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		operation := strings.TrimPrefix(target, timestreamQueryTargetPrefix)
+
+		// Defer shared tag operations to the TimestreamWrite handler so that
+		// database/table ARNs and scheduled-query ARNs all share the same tag
+		// store under a single endpoint.
+		if writeServiceTagOps()[operation] {
+			return false
+		}
 
 		return h.supportedOps[operation]
 	}

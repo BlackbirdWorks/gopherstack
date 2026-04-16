@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := timestreamwrite.NewInMemoryBackend()
 	h := timestreamwrite.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &timestreamwritesdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateBatchLoadTask",
-		"DescribeBatchLoadTask",
-		"ListBatchLoadTasks",
-		"ResumeBatchLoadTask",
-	})
+	sdkcheck.CheckCompleteness(t, &timestreamwritesdk.Client{}, h.GetSupportedOperations(), []string{})
 }
