@@ -60,7 +60,7 @@
 
 	async function deleteFault(index: number) {
 		try {
-			const response = await fetch('/_gopherstack/chaos/faults', {
+			const response = await fetch('/_gopherstack/chaos/faults/by-index', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ index })

@@ -184,7 +184,19 @@ func (s *FaultStore) DeleteRules(rules []FaultRule) {
 	s.rules = kept
 }
 
-// rulesContainMatch reports whether any rule in candidates matches target.
+// DeleteRuleByIndex removes the fault rule at the given index.
+// If the index is out of range, the call is a no-op.
+func (s *FaultStore) DeleteRuleByIndex(index int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if index < 0 || index >= len(s.rules) {
+		return
+	}
+
+	s.rules = append(s.rules[:index], s.rules[index+1:]...)
+}
+
 func rulesContainMatch(candidates []FaultRule, target FaultRule) bool {
 	for _, c := range candidates {
 		if c.Service == target.Service &&

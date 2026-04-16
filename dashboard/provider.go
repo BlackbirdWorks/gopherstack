@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -25,7 +25,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	// to ensure it satisfies what we need.
 	cfg, ok := ctx.Config.(ConfigManager)
 	if !ok {
-		return nil, fmt.Errorf("app context config does not implement ConfigManager")
+		return nil, errors.New("app context config does not implement ConfigManager")
 	}
 
 	// We also need access to the fault store for the chaos dashboard.

@@ -248,43 +248,42 @@ type KMSSettings struct {
 
 // Settings holds the overall dashboard internal state/preferences.
 type Settings struct {
-	AccountID           string
-	Region              string
-	LatencyMs           int
-	EnforceIAM          bool
-	AutoPurgeTTL        time.Duration
-	JanitorTimeout      time.Duration
 	LogLevel            string
 	Port                string
-	DNSListenAddr       string
-	DNSResolveIP        string
-	OpenSearchEngine    string
-	ElasticsearchEngine string
 	ElastiCacheEngine   string
+	AccountID           string
+	ElasticsearchEngine string
+	DNSListenAddr       string
+	Region              string
+	OpenSearchEngine    string
+	DataDir             string
+	DNSResolveIP        string
+	S3                  S3Settings
+	Lambda              LambdaSettings
+	DynamoDB            DynamoDBSettings
+	EC2                 EC2Settings
+	Batch               BatchSettings
+	CodeBuild           CodeBuildSettings
+	FIS                 FISSettings
+	Athena              AthenaSettings
+	EMR                 EMRSettings
+	SES                 SESSettings
+	SSM                 SSMSettings
+	XRay                XRaySettings
+	Backup              BackupSettings
+	PortRangeEnd        int
+	STS                 STSSettings
+	JanitorTimeout      time.Duration
+	AutoPurgeTTL        time.Duration
+	KMS                 KMSSettings
+	CloudWatchLogs      CloudWatchLogsSettings
+	Kinesis             KinesisSettings
+	LatencyMs           int
+	PortRangeStart      int
+	InitScriptTimeout   time.Duration
 	Persist             bool
 	Demo                bool
-	DataDir             string
-	PortRangeStart      int
-	PortRangeEnd        int
-	InitScriptTimeout   time.Duration
-
-	S3             S3Settings
-	Lambda         LambdaSettings
-	DynamoDB       DynamoDBSettings
-	EC2            EC2Settings
-	Backup         BackupSettings
-	STS            STSSettings
-	XRay           XRaySettings
-	SSM            SSMSettings
-	CodeBuild      CodeBuildSettings
-	CloudWatchLogs CloudWatchLogsSettings
-	SES            SESSettings
-	Batch          BatchSettings
-	FIS            FISSettings
-	EMR            EMRSettings
-	Athena         AthenaSettings
-	Kinesis        KinesisSettings
-	KMS            KMSSettings
+	EnforceIAM          bool
 }
 
 // ConfigManager defines an interface for saving server configuration.
@@ -588,6 +587,7 @@ func (h *DashboardHandler) Handler() echo.HandlerFunc {
 		}
 
 		sr.ServeHTTP(c.Response(), c.Request())
+
 		return nil
 	}
 }
@@ -598,6 +598,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
 			ServeHTTP(c.Response(), c.Request())
+
 		return nil
 	})
 
@@ -634,11 +635,12 @@ func (h *DashboardHandler) spaFallbackHandler() echo.HandlerFunc {
 
 		// Fallback to index.html for client-side routing
 		http.ServeFileFS(c.Response(), c.Request(), spaSubFS, "index.html")
+
 		return nil
 	}
 }
 
-// trySPAAsset attempts to serve a matching SPA static asset
+// trySPAAsset attempts to serve a matching SPA static asset.
 func trySPAAsset(c *echo.Context, spaFS fs.FS, reqPath string) bool {
 	cleanPath := strings.TrimPrefix(reqPath, "/dashboard")
 	if cleanPath == "" || cleanPath == "/" {
@@ -660,6 +662,7 @@ func trySPAAsset(c *echo.Context, spaFS fs.FS, reqPath string) bool {
 	}
 
 	http.ServeFileFS(c.Response(), c.Request(), spaFS, relPath)
+
 	return true
 }
 
