@@ -87,7 +87,30 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'memorydb',
 	'dms',
 	'docdb',
-	'efs'
+	'efs',
+	'sagemaker',
+	'codecommit',
+	'codeartifact',
+	'ram',
+	'verifiedpermissions',
+	'emrserverless',
+	'textract',
+	'transcribe',
+	'translate',
+	'rekognition',
+	'comprehend',
+	'elasticbeanstalk',
+	'servicediscovery',
+	's3tables',
+	'timestream',
+	'pinpoint',
+	'sts',
+	'fsx',
+	'glacier',
+	'networkmanager',
+	'outposts',
+	'directconnect',
+	'resiliencehub'
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.
