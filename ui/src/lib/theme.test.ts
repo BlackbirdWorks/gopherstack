@@ -37,14 +37,15 @@ function newMemoryStorage(): Storage {
 }
 
 describe("theme helpers", () => {
-  it("themes list contains all four themes", () => {
-    expect(themes).toEqual(["light", "dark", "github", "ocean"]);
+  it("themes list contains all five themes", () => {
+    expect(themes).toEqual(["light", "dark", "github", "github-light", "ocean"]);
   });
 
   it("isValidTheme accepts valid themes", () => {
     expect(isValidTheme("light")).toBe(true);
     expect(isValidTheme("dark")).toBe(true);
     expect(isValidTheme("github")).toBe(true);
+    expect(isValidTheme("github-light")).toBe(true);
     expect(isValidTheme("ocean")).toBe(true);
   });
 
@@ -59,12 +60,14 @@ describe("theme helpers", () => {
     expect(isDarkTheme("ocean")).toBe(true);
     expect(isDarkTheme("github")).toBe(true);
     expect(isDarkTheme("light")).toBe(false);
+    expect(isDarkTheme("github-light")).toBe(false);
   });
 
   it("resolves saved theme first", () => {
     expect(resolveTheme("dark", false)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
     expect(resolveTheme("github", false)).toBe("github");
+    expect(resolveTheme("github-light", false)).toBe("github-light");
     expect(resolveTheme("ocean", true)).toBe("ocean");
   });
 
@@ -95,6 +98,13 @@ describe("theme helpers", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("theme-github")).toBe(true);
     expect(document.documentElement.classList.contains("theme-light")).toBe(false);
+  });
+
+  it("does not apply dark class for github-light theme", () => {
+    applyTheme(document, "github-light");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("theme-github-light")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-github")).toBe(false);
   });
 
   it("initializes theme and applies class", () => {

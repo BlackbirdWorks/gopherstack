@@ -28,6 +28,80 @@
   color-scheme: dark;
 }
 
+/* ── Theme: GitHub Light ── */
+/* Matches github.com light theme: canvas-default #ffffff, canvas-subtle #f6f8fa */
+:root:where(.theme-github-light) {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-tertiary: #eaeef2;
+  --color-text: #1f2328;
+  --color-text-secondary: #636c76;
+  --color-border: #d0d7de;
+  --color-accent: #0969da;
+  --color-accent-hover: #0550ae;
+  --color-accent-subtle: rgba(9, 105, 218, 0.08);
+  --color-sidebar-bg: #f6f8fa;
+  --color-sidebar-border: #d0d7de;
+  --color-nav-bg: rgba(255, 255, 255, 0.95);
+  --color-nav-border: #d0d7de;
+  --color-card-bg: #ffffff;
+  --color-hover: #eaeef2;
+  --color-success: #1a7f37;
+  --color-warning: #9a6700;
+  --color-danger: #d1242f;
+}
+
+.theme-github-light {
+  color-scheme: light;
+}
+
+.theme-github-light body,
+.theme-github-light .bg-slate-50,
+.theme-github-light .bg-slate-100 { background-color: var(--color-bg-secondary); }
+.theme-github-light .bg-white { background-color: var(--color-bg); }
+.theme-github-light .bg-slate-800,
+.theme-github-light .dark\:bg-slate-800 { background-color: var(--color-bg-tertiary); }
+.theme-github-light .bg-slate-900,
+.theme-github-light .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-github-light .text-slate-900,
+.theme-github-light .dark\:text-white { color: var(--color-text); }
+.theme-github-light .text-slate-600,
+.theme-github-light .text-slate-500,
+.theme-github-light .dark\:text-slate-400 { color: var(--color-text-secondary); }
+.theme-github-light .border-slate-200,
+.theme-github-light .dark\:border-white\/5,
+.theme-github-light .dark\:border-slate-700 { border-color: var(--color-border); }
+.theme-github-light .text-indigo-600,
+.theme-github-light .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-github-light .text-indigo-700 { color: var(--color-accent-hover); }
+.theme-github-light .bg-indigo-50,
+.theme-github-light .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-github-light .hover\:bg-slate-100:hover { background-color: var(--color-hover); }
+.theme-github-light .hover\:bg-slate-700:hover,
+.theme-github-light .dark\:hover\:bg-slate-700:hover { background-color: var(--color-bg-tertiary); }
+
+.theme-github-light nav {
+  background-color: var(--color-nav-bg);
+  border-color: var(--color-nav-border);
+  backdrop-filter: blur(12px);
+}
+
+.theme-github-light #sidebar {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
+}
+
+.theme-github-light input,
+.theme-github-light textarea,
+.theme-github-light select {
+  background-color: var(--color-bg);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.theme-github-light .rounded-lg.border { border-color: var(--color-border); }
+.theme-github-light .shadow-sm { box-shadow: 0 1px 0 rgba(31,35,40,0.04); }
+
 .theme-github body,
 .theme-github .bg-slate-50,
 .theme-github .bg-slate-100 { background-color: var(--color-bg); }
