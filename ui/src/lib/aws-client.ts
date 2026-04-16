@@ -376,3 +376,174 @@ export function getDocDBClient(region?: string): DocDBClient {
 export function getEFSClient(region?: string): EFSClient {
   return new EFSClient(clientConfig(region));
 }
+
+import { SageMakerClient } from "@aws-sdk/client-sagemaker";
+import { CodeCommitClient } from "@aws-sdk/client-codecommit";
+import { CodeArtifactClient } from "@aws-sdk/client-codeartifact";
+import { RAMClient } from "@aws-sdk/client-ram";
+import { VerifiedPermissionsClient } from "@aws-sdk/client-verifiedpermissions";
+import { EMRServerlessClient } from "@aws-sdk/client-emr-serverless";
+import { TextractClient } from "@aws-sdk/client-textract";
+import { TranscribeClient } from "@aws-sdk/client-transcribe";
+import { TranslateClient } from "@aws-sdk/client-translate";
+import { RekognitionClient } from "@aws-sdk/client-rekognition";
+import { ComprehendClient } from "@aws-sdk/client-comprehend";
+import { S3TablesClient } from "@aws-sdk/client-s3tables";
+import { TimestreamQueryClient } from "@aws-sdk/client-timestream-query";
+import { TimestreamWriteClient } from "@aws-sdk/client-timestream-write";
+import { ElasticBeanstalkClient } from "@aws-sdk/client-elastic-beanstalk";
+import { ServiceDiscoveryClient } from "@aws-sdk/client-servicediscovery";
+import { PinpointClient } from "@aws-sdk/client-pinpoint";
+import { SupportClient } from "@aws-sdk/client-support";
+import { AppStreamClient } from "@aws-sdk/client-appstream";
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
+import { CloudControlClient } from "@aws-sdk/client-cloudcontrol";
+import { ElasticTranscoderClient } from "@aws-sdk/client-elastic-transcoder";
+import { GrafanaClient } from "@aws-sdk/client-grafana";
+import { ResiliencehubClient } from "@aws-sdk/client-resiliencehub";
+import { Route53ResolverClient } from "@aws-sdk/client-route53resolver";
+import { S3ControlClient } from "@aws-sdk/client-s3-control";
+import { FSxClient } from "@aws-sdk/client-fsx";
+import { GlacierClient } from "@aws-sdk/client-glacier";
+import { PollyClient } from "@aws-sdk/client-polly";
+import { STSClient } from "@aws-sdk/client-sts";
+import { NetworkManagerClient } from "@aws-sdk/client-networkmanager";
+import { OutpostsClient } from "@aws-sdk/client-outposts";
+import { MGNClient } from "@aws-sdk/client-mgn";
+import { DirectConnectClient } from "@aws-sdk/client-direct-connect";
+
+export function getSageMakerClient(region?: string): SageMakerClient {
+  return new SageMakerClient(clientConfig(region));
+}
+
+export function getCodeCommitClient(region?: string): CodeCommitClient {
+  return new CodeCommitClient(clientConfig(region));
+}
+
+export function getCodeArtifactClient(region?: string): CodeArtifactClient {
+  return new CodeArtifactClient(clientConfig(region));
+}
+
+export function getRAMClient(region?: string): RAMClient {
+  return new RAMClient(clientConfig(region));
+}
+
+export function getVerifiedPermissionsClient(region?: string): VerifiedPermissionsClient {
+  return new VerifiedPermissionsClient(clientConfig(region));
+}
+
+export function getEMRServerlessClient(region?: string): EMRServerlessClient {
+  return new EMRServerlessClient(clientConfig(region));
+}
+
+export function getTextractClient(region?: string): TextractClient {
+  return new TextractClient(clientConfig(region));
+}
+
+export function getTranscribeClient(region?: string): TranscribeClient {
+  return new TranscribeClient(clientConfig(region));
+}
+
+export function getTranslateClient(region?: string): TranslateClient {
+  return new TranslateClient(clientConfig(region));
+}
+
+export function getRekognitionClient(region?: string): RekognitionClient {
+  return new RekognitionClient(clientConfig(region));
+}
+
+export function getComprehendClient(region?: string): ComprehendClient {
+  return new ComprehendClient(clientConfig(region));
+}
+
+export function getS3TablesClient(region?: string): S3TablesClient {
+  return new S3TablesClient(clientConfig(region));
+}
+
+export function getTimestreamQueryClient(region?: string): TimestreamQueryClient {
+  return new TimestreamQueryClient(clientConfig(region));
+}
+
+export function getTimestreamWriteClient(region?: string): TimestreamWriteClient {
+  return new TimestreamWriteClient(clientConfig(region));
+}
+
+export function getElasticBeanstalkClient(region?: string): ElasticBeanstalkClient {
+  return new ElasticBeanstalkClient(clientConfig(region));
+}
+
+export function getServiceDiscoveryClient(region?: string): ServiceDiscoveryClient {
+  return new ServiceDiscoveryClient(clientConfig(region));
+}
+
+export function getPinpointClient(region?: string): PinpointClient {
+  return new PinpointClient(clientConfig(region));
+}
+
+export function getSupportClient(region?: string): SupportClient {
+  return new SupportClient(clientConfig(region));
+}
+
+export function getAppStreamClient(region?: string): AppStreamClient {
+  return new AppStreamClient(clientConfig(region));
+}
+
+export function getBedrockRuntimeClient(region?: string): BedrockRuntimeClient {
+  return new BedrockRuntimeClient(clientConfig(region));
+}
+
+export function getCloudControlClient(region?: string): CloudControlClient {
+  return new CloudControlClient(clientConfig(region));
+}
+
+export function getElasticTranscoderClient(region?: string): ElasticTranscoderClient {
+  return new ElasticTranscoderClient(clientConfig(region));
+}
+
+export function getGrafanaClient(region?: string): GrafanaClient {
+  return new GrafanaClient(clientConfig(region));
+}
+
+export function getResiliencehubClient(region?: string): ResiliencehubClient {
+  return new ResiliencehubClient(clientConfig(region));
+}
+
+export function getRoute53ResolverClient(region?: string): Route53ResolverClient {
+  return new Route53ResolverClient(clientConfig(region));
+}
+
+export function getS3ControlClient(region?: string): S3ControlClient {
+  return new S3ControlClient(clientConfig(region));
+}
+
+export function getFSxClient(region?: string): FSxClient {
+  return new FSxClient(clientConfig(region));
+}
+
+export function getGlacierClient(region?: string): GlacierClient {
+  return new GlacierClient(clientConfig(region));
+}
+
+export function getPollyClient(region?: string): PollyClient {
+  return new PollyClient(clientConfig(region));
+}
+
+export function getSTSClient(region?: string): STSClient {
+  return new STSClient(clientConfig(region));
+}
+
+export function getNetworkManagerClient(region?: string): NetworkManagerClient {
+  return new NetworkManagerClient(clientConfig(region));
+}
+
+export function getOutpostsClient(region?: string): OutpostsClient {
+  return new OutpostsClient(clientConfig(region));
+}
+
+export function getMGNClient(region?: string): MGNClient {
+  return new MGNClient(clientConfig(region));
+}
+
+export function getDirectConnectClient(region?: string): DirectConnectClient {
+  return new DirectConnectClient(clientConfig(region));
+}
