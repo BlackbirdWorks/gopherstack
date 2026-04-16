@@ -83,7 +83,11 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'neptune',
 	'mq',
 	'mwaa',
-	'mediaconvert'
+	'mediaconvert',
+	'memorydb',
+	'dms',
+	'docdb',
+	'efs'
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.

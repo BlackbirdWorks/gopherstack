@@ -355,3 +355,24 @@ export function getMWAAClient(region?: string): MWAAClient {
 export function getMediaConvertClient(region?: string): MediaConvertClient {
   return new MediaConvertClient(clientConfig(region));
 }
+
+import { MemoryDBClient } from "@aws-sdk/client-memorydb";
+import { DatabaseMigrationServiceClient } from "@aws-sdk/client-database-migration-service";
+import { DocDBClient } from "@aws-sdk/client-docdb";
+import { EFSClient } from "@aws-sdk/client-efs";
+
+export function getMemoryDBClient(region?: string): MemoryDBClient {
+  return new MemoryDBClient(clientConfig(region));
+}
+
+export function getDMSClient(region?: string): DatabaseMigrationServiceClient {
+  return new DatabaseMigrationServiceClient(clientConfig(region));
+}
+
+export function getDocDBClient(region?: string): DocDBClient {
+  return new DocDBClient(clientConfig(region));
+}
+
+export function getEFSClient(region?: string): EFSClient {
+  return new EFSClient(clientConfig(region));
+}
