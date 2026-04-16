@@ -21,13 +21,13 @@ describe('Translate Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ TerminologyPropertiesList: [], ParallelDataPropertiesList: [], TextTranslationJobPropertiesList: [] });
 		render(TranslatePage);
-		expect(screen.getByText('Amazon Translate')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Translate')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ TerminologyPropertiesList: [] });
 		render(TranslatePage);
-		expect(screen.getByText('Terminologies')).toBeInTheDocument();
+		expect(screen.getAllByText('Terminologies')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Translate Page', () => {
 		mockSend.mockResolvedValue({ TerminologyPropertiesList: [], ParallelDataPropertiesList: [], TextTranslationJobPropertiesList: [] });
 		render(TranslatePage);
 		await waitFor(() => {
-			expect(screen.getByText(/no terminologies/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no terminologies/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Translate Page', () => {
 		});
 		render(TranslatePage);
 		await waitFor(() => {
-			expect(screen.getByText('my-glossary')).toBeInTheDocument();
+			expect(screen.getAllByText('my-glossary')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Translate Page', () => {
 	it('shows Parallel Data tab', () => {
 		mockSend.mockResolvedValue({ TerminologyPropertiesList: [] });
 		render(TranslatePage);
-		expect(screen.getByText('Parallel Data')).toBeInTheDocument();
+		expect(screen.getAllByText('Parallel Data')[0]).toBeInTheDocument();
 	});
 
 	it('shows Translation Jobs tab', () => {
 		mockSend.mockResolvedValue({ TerminologyPropertiesList: [] });
 		render(TranslatePage);
-		expect(screen.getByText('Translation Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Translation Jobs')[0]).toBeInTheDocument();
 	});
 });

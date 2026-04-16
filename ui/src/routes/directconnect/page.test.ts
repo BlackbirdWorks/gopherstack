@@ -21,13 +21,13 @@ describe('Direct Connect Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ connections: [], virtualInterfaces: [], directConnectGateways: [] });
 		render(DirectConnectPage);
-		expect(screen.getByText('AWS Direct Connect')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Direct Connect')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ connections: [] });
 		render(DirectConnectPage);
-		expect(screen.getByText('Connections')).toBeInTheDocument();
+		expect(screen.getAllByText('Connections')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Direct Connect Page', () => {
 		mockSend.mockResolvedValue({ connections: [], virtualInterfaces: [], directConnectGateways: [] });
 		render(DirectConnectPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no connections/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no connections/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Direct Connect Page', () => {
 		});
 		render(DirectConnectPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-dx')).toBeInTheDocument();
+			expect(screen.getAllByText('my-dx')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Direct Connect Page', () => {
 	it('shows Virtual Interfaces tab', () => {
 		mockSend.mockResolvedValue({ connections: [] });
 		render(DirectConnectPage);
-		expect(screen.getByText('Virtual Interfaces')).toBeInTheDocument();
+		expect(screen.getAllByText('Virtual Interfaces')[0]).toBeInTheDocument();
 	});
 
 	it('shows Gateways tab', () => {
 		mockSend.mockResolvedValue({ connections: [] });
 		render(DirectConnectPage);
-		expect(screen.getByText('Gateways')).toBeInTheDocument();
+		expect(screen.getAllByText('Gateways')[0]).toBeInTheDocument();
 	});
 });

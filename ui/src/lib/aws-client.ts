@@ -1,4 +1,5 @@
 import { EC2Client } from "@aws-sdk/client-ec2";
+import { LakeFormationClient } from "@aws-sdk/client-lakeformation";
 import { ECSClient } from "@aws-sdk/client-ecs";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { AthenaClient } from "@aws-sdk/client-athena";
@@ -547,4 +548,9 @@ export function getMGNClient(region?: string): MgnClient {
 
 export function getDirectConnectClient(region?: string): DirectConnectClient {
   return new DirectConnectClient(clientConfig(region));
+}
+
+
+export function getLakeFormationClient(region?: string): LakeFormationClient {
+  return new LakeFormationClient(clientConfig(region));
 }

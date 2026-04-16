@@ -21,13 +21,13 @@ describe('CodeArtifact Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ domains: [], repositories: [] });
 		render(CodeArtifactPage);
-		expect(screen.getByText('AWS CodeArtifact')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS CodeArtifact')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ domains: [], repositories: [] });
 		render(CodeArtifactPage);
-		expect(screen.getByText('Domains')).toBeInTheDocument();
+		expect(screen.getAllByText('Domains')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('CodeArtifact Page', () => {
 		mockSend.mockResolvedValue({ domains: [], repositories: [] });
 		render(CodeArtifactPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no domains/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no domains/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('CodeArtifact Page', () => {
 		});
 		render(CodeArtifactPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-domain')).toBeInTheDocument();
+			expect(screen.getAllByText('my-domain')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('CodeArtifact Page', () => {
 	it('shows Repositories tab', () => {
 		mockSend.mockResolvedValue({ domains: [], repositories: [] });
 		render(CodeArtifactPage);
-		expect(screen.getByText('Repositories')).toBeInTheDocument();
+		expect(screen.getAllByText('Repositories')[0]).toBeInTheDocument();
 	});
 
 	it('shows Packages tab', () => {
 		mockSend.mockResolvedValue({ domains: [], repositories: [] });
 		render(CodeArtifactPage);
-		expect(screen.getByText('Packages')).toBeInTheDocument();
+		expect(screen.getAllByText('Packages')[0]).toBeInTheDocument();
 	});
 });

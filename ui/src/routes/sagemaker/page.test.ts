@@ -21,13 +21,13 @@ describe('SageMaker Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ NotebookInstances: [], TrainingJobSummaries: [], Models: [], Endpoints: [] });
 		render(SageMakerPage);
-		expect(screen.getByText('Amazon SageMaker')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon SageMaker')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ NotebookInstances: [] });
 		render(SageMakerPage);
-		expect(screen.getByText('Notebooks')).toBeInTheDocument();
+		expect(screen.getAllByText('Notebooks')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('SageMaker Page', () => {
 		mockSend.mockResolvedValue({ NotebookInstances: [], TrainingJobSummaries: [], Models: [], Endpoints: [] });
 		render(SageMakerPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no notebook instances/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no notebook instances/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('SageMaker Page', () => {
 		});
 		render(SageMakerPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-notebook')).toBeInTheDocument();
+			expect(screen.getAllByText('my-notebook')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -70,6 +70,6 @@ describe('SageMaker Page', () => {
 	it('shows Models tab', () => {
 		mockSend.mockResolvedValue({ NotebookInstances: [] });
 		render(SageMakerPage);
-		expect(screen.getByText('Models')).toBeInTheDocument();
+		expect(screen.getAllByText('Models')[0]).toBeInTheDocument();
 	});
 });

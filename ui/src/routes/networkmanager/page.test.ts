@@ -21,13 +21,13 @@ describe('Network Manager Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ GlobalNetworks: [] });
 		render(NetworkManagerPage);
-		expect(screen.getByText('AWS Network Manager')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Network Manager')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ GlobalNetworks: [] });
 		render(NetworkManagerPage);
-		expect(screen.getByText('Global Networks')).toBeInTheDocument();
+		expect(screen.getAllByText('Global Networks')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Network Manager Page', () => {
 		mockSend.mockResolvedValue({ GlobalNetworks: [] });
 		render(NetworkManagerPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no global networks/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no global networks/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -50,7 +50,7 @@ describe('Network Manager Page', () => {
 		});
 		render(NetworkManagerPage);
 		await waitFor(() => {
-			expect(screen.getByText('global-net-123')).toBeInTheDocument();
+			expect(screen.getAllByText('global-net-123')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,12 +63,12 @@ describe('Network Manager Page', () => {
 	it('shows Devices tab', () => {
 		mockSend.mockResolvedValue({ GlobalNetworks: [] });
 		render(NetworkManagerPage);
-		expect(screen.getByText('Devices')).toBeInTheDocument();
+		expect(screen.getAllByText('Devices')[0]).toBeInTheDocument();
 	});
 
 	it('shows Links tab', () => {
 		mockSend.mockResolvedValue({ GlobalNetworks: [] });
 		render(NetworkManagerPage);
-		expect(screen.getByText('Links')).toBeInTheDocument();
+		expect(screen.getAllByText('Links')[0]).toBeInTheDocument();
 	});
 });

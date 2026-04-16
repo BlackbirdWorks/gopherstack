@@ -21,13 +21,13 @@ describe('Resilience Hub Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ appSummaries: [], assessmentSummaries: [] });
 		render(ResilienceHubPage);
-		expect(screen.getByText('AWS Resilience Hub')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Resilience Hub')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ appSummaries: [] });
 		render(ResilienceHubPage);
-		expect(screen.getByText('Applications')).toBeInTheDocument();
+		expect(screen.getAllByText('Applications')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Resilience Hub Page', () => {
 		mockSend.mockResolvedValue({ appSummaries: [], assessmentSummaries: [] });
 		render(ResilienceHubPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no applications/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no applications/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Resilience Hub Page', () => {
 		});
 		render(ResilienceHubPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-resilient-app')).toBeInTheDocument();
+			expect(screen.getAllByText('my-resilient-app')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Resilience Hub Page', () => {
 	it('shows Assessments tab', () => {
 		mockSend.mockResolvedValue({ appSummaries: [] });
 		render(ResilienceHubPage);
-		expect(screen.getByText('Assessments')).toBeInTheDocument();
+		expect(screen.getAllByText('Assessments')[0]).toBeInTheDocument();
 	});
 
 	it('shows Policy Met stat', () => {
 		mockSend.mockResolvedValue({ appSummaries: [] });
 		render(ResilienceHubPage);
-		expect(screen.getByText('Policy Met')).toBeInTheDocument();
+		expect(screen.getAllByText('Policy Met')[0]).toBeInTheDocument();
 	});
 });

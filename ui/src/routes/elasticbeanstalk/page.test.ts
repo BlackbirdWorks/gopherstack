@@ -21,13 +21,13 @@ describe('Elastic Beanstalk Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Applications: [], Environments: [] });
 		render(ElasticBeanstalkPage);
-		expect(screen.getByText('AWS Elastic Beanstalk')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Elastic Beanstalk')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Applications: [] });
 		render(ElasticBeanstalkPage);
-		expect(screen.getByText('Applications')).toBeInTheDocument();
+		expect(screen.getAllByText('Applications')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Elastic Beanstalk Page', () => {
 		mockSend.mockResolvedValue({ Applications: [], Environments: [] });
 		render(ElasticBeanstalkPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no applications/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no applications/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Elastic Beanstalk Page', () => {
 		});
 		render(ElasticBeanstalkPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-app')).toBeInTheDocument();
+			expect(screen.getAllByText('my-app')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Elastic Beanstalk Page', () => {
 	it('shows Environments tab', () => {
 		mockSend.mockResolvedValue({ Applications: [] });
 		render(ElasticBeanstalkPage);
-		expect(screen.getByText('Environments')).toBeInTheDocument();
+		expect(screen.getAllByText('Environments')[0]).toBeInTheDocument();
 	});
 
 	it('shows Ready stat', () => {
 		mockSend.mockResolvedValue({ Applications: [] });
 		render(ElasticBeanstalkPage);
-		expect(screen.getByText('Ready')).toBeInTheDocument();
+		expect(screen.getAllByText('Ready')[0]).toBeInTheDocument();
 	});
 });

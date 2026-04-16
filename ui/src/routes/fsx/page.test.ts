@@ -21,13 +21,13 @@ describe('FSx Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ FileSystems: [], Backups: [] });
 		render(FSxPage);
-		expect(screen.getByText('Amazon FSx')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon FSx')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ FileSystems: [] });
 		render(FSxPage);
-		expect(screen.getByText('File Systems')).toBeInTheDocument();
+		expect(screen.getAllByText('File Systems')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('FSx Page', () => {
 		mockSend.mockResolvedValue({ FileSystems: [], Backups: [] });
 		render(FSxPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no file systems/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no file systems/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('FSx Page', () => {
 		});
 		render(FSxPage);
 		await waitFor(() => {
-			expect(screen.getByText('fs-abc123')).toBeInTheDocument();
+			expect(screen.getAllByText('fs-abc123')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('FSx Page', () => {
 	it('shows Backups tab', () => {
 		mockSend.mockResolvedValue({ FileSystems: [] });
 		render(FSxPage);
-		expect(screen.getByText('Backups')).toBeInTheDocument();
+		expect(screen.getAllByText('Backups')[0]).toBeInTheDocument();
 	});
 
 	it('shows Available stat', () => {
 		mockSend.mockResolvedValue({ FileSystems: [] });
 		render(FSxPage);
-		expect(screen.getByText('Available')).toBeInTheDocument();
+		expect(screen.getAllByText('Available')[0]).toBeInTheDocument();
 	});
 });

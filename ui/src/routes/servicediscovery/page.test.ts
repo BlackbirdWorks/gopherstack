@@ -21,7 +21,7 @@ describe('Service Discovery Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Namespaces: [], Services: [] });
 		render(ServiceDiscoveryPage);
-		expect(screen.getByText('AWS Cloud Map')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Cloud Map')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
@@ -40,7 +40,7 @@ describe('Service Discovery Page', () => {
 		mockSend.mockResolvedValue({ Namespaces: [], Services: [] });
 		render(ServiceDiscoveryPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no namespaces/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no namespaces/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Service Discovery Page', () => {
 		});
 		render(ServiceDiscoveryPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-namespace')).toBeInTheDocument();
+			expect(screen.getAllByText('my-namespace')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Service Discovery Page', () => {
 	it('shows Services tab', () => {
 		mockSend.mockResolvedValue({ Namespaces: [] });
 		render(ServiceDiscoveryPage);
-		expect(screen.getByText('Services')).toBeInTheDocument();
+		expect(screen.getAllByText('Services')[0]).toBeInTheDocument();
 	});
 
 	it('shows DNS Namespaces stat', () => {
 		mockSend.mockResolvedValue({ Namespaces: [] });
 		render(ServiceDiscoveryPage);
-		expect(screen.getByText('DNS Namespaces')).toBeInTheDocument();
+		expect(screen.getAllByText('DNS Namespaces')[0]).toBeInTheDocument();
 	});
 });

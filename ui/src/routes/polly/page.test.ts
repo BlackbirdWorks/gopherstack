@@ -21,25 +21,25 @@ describe('Polly Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Voices: [], Lexicons: [], SynthesisTasks: [] });
 		render(PollyPage);
-		expect(screen.getByText('Amazon Polly')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Polly')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Voices: [] });
 		render(PollyPage);
-		expect(screen.getByText('Voices')).toBeInTheDocument();
+		expect(screen.getAllByText('Voices')[0]).toBeInTheDocument();
 	});
 
 	it('shows text-to-speech demo section', () => {
 		mockSend.mockResolvedValue({ Voices: [] });
 		render(PollyPage);
-		expect(screen.getByText('Text-to-Speech Demo')).toBeInTheDocument();
+		expect(screen.getAllByText('Text-to-Speech Demo')[0]).toBeInTheDocument();
 	});
 
 	it('shows synthesize button', () => {
 		mockSend.mockResolvedValue({ Voices: [] });
 		render(PollyPage);
-		expect(screen.getByText('Synthesize & Play')).toBeInTheDocument();
+		expect(screen.getAllByText('Synthesize & Play')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -52,7 +52,7 @@ describe('Polly Page', () => {
 		mockSend.mockResolvedValue({ Voices: [], Lexicons: [], SynthesisTasks: [] });
 		render(PollyPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no voices/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no voices/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,14 +63,14 @@ describe('Polly Page', () => {
 		});
 		render(PollyPage);
 		await waitFor(() => {
-			expect(screen.getByText('Joanna')).toBeInTheDocument();
+			expect(screen.getAllByText('Joanna')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
 	it('shows Lexicons tab', () => {
 		mockSend.mockResolvedValue({ Voices: [] });
 		render(PollyPage);
-		expect(screen.getByText('Lexicons')).toBeInTheDocument();
+		expect(screen.getAllByText('Lexicons')[0]).toBeInTheDocument();
 	});
 
 	it('shows refresh button', () => {

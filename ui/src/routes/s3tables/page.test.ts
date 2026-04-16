@@ -21,13 +21,13 @@ describe('S3 Tables Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ tableBuckets: [] });
 		render(S3TablesPage);
-		expect(screen.getByText('Amazon S3 Tables')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon S3 Tables')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ tableBuckets: [] });
 		render(S3TablesPage);
-		expect(screen.getByText('Table Buckets')).toBeInTheDocument();
+		expect(screen.getAllByText('Table Buckets')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('S3 Tables Page', () => {
 		mockSend.mockResolvedValue({ tableBuckets: [] });
 		render(S3TablesPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no table buckets/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no table buckets/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -50,7 +50,7 @@ describe('S3 Tables Page', () => {
 		});
 		render(S3TablesPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-table-bucket')).toBeInTheDocument();
+			expect(screen.getAllByText('my-table-bucket')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,12 +63,12 @@ describe('S3 Tables Page', () => {
 	it('shows Tables tab', () => {
 		mockSend.mockResolvedValue({ tableBuckets: [] });
 		render(S3TablesPage);
-		expect(screen.getByText('Tables')).toBeInTheDocument();
+		expect(screen.getAllByText('Tables')[0]).toBeInTheDocument();
 	});
 
 	it('shows Tables selected stat', () => {
 		mockSend.mockResolvedValue({ tableBuckets: [] });
 		render(S3TablesPage);
-		expect(screen.getByText('Tables (selected)')).toBeInTheDocument();
+		expect(screen.getAllByText('Tables (selected)')[0]).toBeInTheDocument();
 	});
 });

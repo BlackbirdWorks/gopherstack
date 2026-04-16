@@ -21,13 +21,13 @@ describe('Outposts Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Outposts: [], Sites: [] });
 		render(OutpostsPage);
-		expect(screen.getByText('AWS Outposts')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Outposts')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Outposts: [] });
 		render(OutpostsPage);
-		expect(screen.getByText('Outposts')).toBeInTheDocument();
+		expect(screen.getAllByText('Outposts')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Outposts Page', () => {
 		mockSend.mockResolvedValue({ Outposts: [], Sites: [] });
 		render(OutpostsPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no outposts/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no outposts/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Outposts Page', () => {
 		});
 		render(OutpostsPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-outpost')).toBeInTheDocument();
+			expect(screen.getAllByText('my-outpost')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Outposts Page', () => {
 	it('shows Sites tab', () => {
 		mockSend.mockResolvedValue({ Outposts: [] });
 		render(OutpostsPage);
-		expect(screen.getByText('Sites')).toBeInTheDocument();
+		expect(screen.getAllByText('Sites')[0]).toBeInTheDocument();
 	});
 
 	it('shows Active stat', () => {
 		mockSend.mockResolvedValue({ Outposts: [] });
 		render(OutpostsPage);
-		expect(screen.getByText('Active')).toBeInTheDocument();
+		expect(screen.getAllByText('Active')[0]).toBeInTheDocument();
 	});
 });

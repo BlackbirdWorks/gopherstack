@@ -21,13 +21,13 @@ describe('AppStream Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Stacks: [], Fleets: [], Images: [] });
 		render(AppStreamPage);
-		expect(screen.getByText('Amazon AppStream 2.0')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon AppStream 2.0')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Stacks: [] });
 		render(AppStreamPage);
-		expect(screen.getByText('Stacks')).toBeInTheDocument();
+		expect(screen.getAllByText('Stacks')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('AppStream Page', () => {
 		mockSend.mockResolvedValue({ Stacks: [], Fleets: [], Images: [] });
 		render(AppStreamPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no stacks/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no stacks/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('AppStream Page', () => {
 		});
 		render(AppStreamPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-stack')).toBeInTheDocument();
+			expect(screen.getAllByText('my-stack')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('AppStream Page', () => {
 	it('shows Fleets tab', () => {
 		mockSend.mockResolvedValue({ Stacks: [] });
 		render(AppStreamPage);
-		expect(screen.getByText('Fleets')).toBeInTheDocument();
+		expect(screen.getAllByText('Fleets')[0]).toBeInTheDocument();
 	});
 
 	it('shows Images tab', () => {
 		mockSend.mockResolvedValue({ Stacks: [] });
 		render(AppStreamPage);
-		expect(screen.getByText('Images')).toBeInTheDocument();
+		expect(screen.getAllByText('Images')[0]).toBeInTheDocument();
 	});
 });

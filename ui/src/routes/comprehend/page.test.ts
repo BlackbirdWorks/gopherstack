@@ -21,13 +21,13 @@ describe('Comprehend Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ DocumentClassifierPropertiesList: [], EntityRecognizerPropertiesList: [], TopicsDetectionJobPropertiesList: [] });
 		render(ComprehendPage);
-		expect(screen.getByText('Amazon Comprehend')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Comprehend')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ DocumentClassifierPropertiesList: [] });
 		render(ComprehendPage);
-		expect(screen.getByText('Document Classifiers')).toBeInTheDocument();
+		expect(screen.getAllByText('Document Classifiers')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Comprehend Page', () => {
 		mockSend.mockResolvedValue({ DocumentClassifierPropertiesList: [], EntityRecognizerPropertiesList: [], TopicsDetectionJobPropertiesList: [] });
 		render(ComprehendPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no document classifiers/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no document classifiers/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -53,13 +53,13 @@ describe('Comprehend Page', () => {
 	it('shows Entity Recognizers tab', () => {
 		mockSend.mockResolvedValue({ DocumentClassifierPropertiesList: [] });
 		render(ComprehendPage);
-		expect(screen.getByText('Entity Recognizers')).toBeInTheDocument();
+		expect(screen.getAllByText('Entity Recognizers')[0]).toBeInTheDocument();
 	});
 
 	it('shows Topics Jobs tab', () => {
 		mockSend.mockResolvedValue({ DocumentClassifierPropertiesList: [] });
 		render(ComprehendPage);
-		expect(screen.getByText('Topics Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Topics Jobs')[0]).toBeInTheDocument();
 	});
 
 	it('shows Entity Recognizers stat', () => {

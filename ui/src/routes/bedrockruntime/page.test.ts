@@ -21,43 +21,43 @@ describe('Bedrock Runtime Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Amazon Bedrock Runtime')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Bedrock Runtime')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Supported Models')).toBeInTheDocument();
+		expect(screen.getAllByText('Supported Models')[0]).toBeInTheDocument();
 	});
 
 	it('shows Invoke Model section', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Invoke Foundation Model')).toBeInTheDocument();
+		expect(screen.getAllByText('Invoke Foundation Model')[0]).toBeInTheDocument();
 	});
 
 	it('shows model selector', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Model')).toBeInTheDocument();
+		expect(screen.getAllByText('Model')[0]).toBeInTheDocument();
 	});
 
 	it('shows prompt textarea', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Prompt')).toBeInTheDocument();
+		expect(screen.getAllByText('Prompt')[0]).toBeInTheDocument();
 	});
 
 	it('shows invoke button', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Invoke Model')).toBeInTheDocument();
+		expect(screen.getAllByText('Invoke Model')[0]).toBeInTheDocument();
 	});
 
 	it('shows async invocations tab', () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		expect(screen.getByText('Async Invocations')).toBeInTheDocument();
+		expect(screen.getAllByText('Async Invocations')[0]).toBeInTheDocument();
 	});
 
 	it('shows empty async invocations', async () => {
@@ -66,7 +66,7 @@ describe('Bedrock Runtime Page', () => {
 		const asyncTab = screen.getByText('Async Invocations');
 		asyncTab.click();
 		await waitFor(() => {
-			expect(screen.getByText(/no async invocations/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no async invocations/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 

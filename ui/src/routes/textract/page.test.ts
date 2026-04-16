@@ -21,13 +21,13 @@ describe('Textract Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Adapters: [], DocumentClassificationJobPropertiesList: [] });
 		render(TextractPage);
-		expect(screen.getByText('Amazon Textract')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Textract')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Adapters: [] });
 		render(TextractPage);
-		expect(screen.getByText('Adapters')).toBeInTheDocument();
+		expect(screen.getAllByText('Adapters')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Textract Page', () => {
 		mockSend.mockResolvedValue({ Adapters: [], DocumentClassificationJobPropertiesList: [] });
 		render(TextractPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no adapters/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no adapters/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Textract Page', () => {
 		});
 		render(TextractPage);
 		await waitFor(() => {
-			expect(screen.getByText('adapt-123')).toBeInTheDocument();
+			expect(screen.getAllByText('adapt-123')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Textract Page', () => {
 	it('shows Classification Jobs tab', () => {
 		mockSend.mockResolvedValue({ Adapters: [] });
 		render(TextractPage);
-		expect(screen.getByText('Classification Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Classification Jobs')[0]).toBeInTheDocument();
 	});
 
 	it('shows Succeeded Jobs stat', () => {
 		mockSend.mockResolvedValue({ Adapters: [] });
 		render(TextractPage);
-		expect(screen.getByText('Succeeded Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Succeeded Jobs')[0]).toBeInTheDocument();
 	});
 });

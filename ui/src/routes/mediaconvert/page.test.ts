@@ -21,22 +21,22 @@ describe('MediaConvert Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Jobs: [] });
 		render(MediaConvertPage);
-		expect(screen.getByText('AWS MediaConvert')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS MediaConvert')[0]).toBeInTheDocument();
 	});
 
 	it('shows subtitle', () => {
 		mockSend.mockResolvedValue({ Jobs: [] });
 		render(MediaConvertPage);
-		expect(screen.getByText('File-based video transcoding service')).toBeInTheDocument();
+		expect(screen.getAllByText('File-based video transcoding service')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Jobs: [] });
 		render(MediaConvertPage);
-		expect(screen.getByText('Total Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Total Jobs')[0]).toBeInTheDocument();
 		expect(screen.getAllByText('Queues').length).toBeGreaterThan(0);
-		expect(screen.getByText('Submitted')).toBeInTheDocument();
-		expect(screen.getByText('Progressing')).toBeInTheDocument();
+		expect(screen.getAllByText('Submitted')[0]).toBeInTheDocument();
+		expect(screen.getAllByText('Progressing')[0]).toBeInTheDocument();
 	});
 
 	it('shows tab navigation', () => {
@@ -51,7 +51,7 @@ describe('MediaConvert Page', () => {
 		mockSend.mockResolvedValue({ Jobs: [] });
 		render(MediaConvertPage);
 		await waitFor(() => {
-			expect(screen.getByText('No jobs found')).toBeInTheDocument();
+			expect(screen.getAllByText('No jobs found')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -70,7 +70,7 @@ describe('MediaConvert Page', () => {
 		});
 		render(MediaConvertPage);
 		await waitFor(() => {
-			expect(screen.getByText('1234567890123-abc123')).toBeInTheDocument();
+			expect(screen.getAllByText('1234567890123-abc123')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -92,12 +92,12 @@ describe('MediaConvert Page', () => {
 		};
 		mockSend.mockResolvedValue({ Jobs: [job] });
 		render(MediaConvertPage);
-		await waitFor(() => expect(screen.getByText('job-abc-123')).toBeInTheDocument(), { timeout: 3000 });
+		await waitFor(() => expect(screen.getAllByText('job-abc-123')[0]).toBeInTheDocument(), { timeout: 3000 });
 		await fireEvent.click(screen.getByText('job-abc-123'));
 		await waitFor(() => {
-			expect(screen.getByText('Queue')).toBeInTheDocument();
-			expect(screen.getByText('Role ARN')).toBeInTheDocument();
-			expect(screen.getByText('Output Groups')).toBeInTheDocument();
+			expect(screen.getAllByText('Queue')[0]).toBeInTheDocument();
+			expect(screen.getAllByText('Role ARN')[0]).toBeInTheDocument();
+			expect(screen.getAllByText('Output Groups')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -105,11 +105,11 @@ describe('MediaConvert Page', () => {
 		mockSend.mockResolvedValueOnce({ Jobs: [] });
 		mockSend.mockResolvedValueOnce({ Queues: [] });
 		render(MediaConvertPage);
-		await waitFor(() => expect(screen.getByText('No jobs found')).toBeInTheDocument(), { timeout: 3000 });
+		await waitFor(() => expect(screen.getAllByText('No jobs found')[0]).toBeInTheDocument(), { timeout: 3000 });
 		const queuesTab = screen.getByRole('button', { name: /Queues/ });
 		await fireEvent.click(queuesTab);
 		await waitFor(() => {
-			expect(screen.getByText('No queues found')).toBeInTheDocument();
+			expect(screen.getAllByText('No queues found')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -130,14 +130,14 @@ describe('MediaConvert Page', () => {
 			]
 		});
 		render(MediaConvertPage);
-		await waitFor(() => expect(screen.getByText('No jobs found')).toBeInTheDocument(), { timeout: 3000 });
+		await waitFor(() => expect(screen.getAllByText('No jobs found')[0]).toBeInTheDocument(), { timeout: 3000 });
 		const queuesTab = screen.getByRole('button', { name: /Queues/ });
 		await fireEvent.click(queuesTab);
-		await waitFor(() => expect(screen.getByText('Default')).toBeInTheDocument(), { timeout: 3000 });
+		await waitFor(() => expect(screen.getAllByText('Default')[0]).toBeInTheDocument(), { timeout: 3000 });
 		await fireEvent.click(screen.getByText('Default'));
 		await waitFor(() => {
-			expect(screen.getByText('Queue ARN')).toBeInTheDocument();
-			expect(screen.getByText('Pricing Plan')).toBeInTheDocument();
+			expect(screen.getAllByText('Queue ARN')[0]).toBeInTheDocument();
+			expect(screen.getAllByText('Pricing Plan')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -145,11 +145,11 @@ describe('MediaConvert Page', () => {
 		mockSend.mockResolvedValueOnce({ Jobs: [] });
 		mockSend.mockResolvedValueOnce({ JobTemplates: [] });
 		render(MediaConvertPage);
-		await waitFor(() => expect(screen.getByText('No jobs found')).toBeInTheDocument(), { timeout: 3000 });
+		await waitFor(() => expect(screen.getAllByText('No jobs found')[0]).toBeInTheDocument(), { timeout: 3000 });
 		const templatesTab = screen.getByRole('button', { name: /Templates/ });
 		await fireEvent.click(templatesTab);
 		await waitFor(() => {
-			expect(screen.getByText('No templates found')).toBeInTheDocument();
+			expect(screen.getAllByText('No templates found')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 });

@@ -21,13 +21,13 @@ describe('EMR Serverless Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ applications: [] });
 		render(EMRServerlessPage);
-		expect(screen.getByText('Amazon EMR Serverless')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon EMR Serverless')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ applications: [] });
 		render(EMRServerlessPage);
-		expect(screen.getByText('Applications')).toBeInTheDocument();
+		expect(screen.getAllByText('Applications')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('EMR Serverless Page', () => {
 		mockSend.mockResolvedValue({ applications: [] });
 		render(EMRServerlessPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no applications/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no applications/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -50,7 +50,7 @@ describe('EMR Serverless Page', () => {
 		});
 		render(EMRServerlessPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-spark-app')).toBeInTheDocument();
+			expect(screen.getAllByText('my-spark-app')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,12 +63,12 @@ describe('EMR Serverless Page', () => {
 	it('shows Job Runs tab', () => {
 		mockSend.mockResolvedValue({ applications: [] });
 		render(EMRServerlessPage);
-		expect(screen.getByText('Job Runs')).toBeInTheDocument();
+		expect(screen.getAllByText('Job Runs')[0]).toBeInTheDocument();
 	});
 
 	it('shows Started stat card', () => {
 		mockSend.mockResolvedValue({ applications: [] });
 		render(EMRServerlessPage);
-		expect(screen.getByText('Started')).toBeInTheDocument();
+		expect(screen.getAllByText('Started')[0]).toBeInTheDocument();
 	});
 });

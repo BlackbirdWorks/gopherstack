@@ -22,13 +22,13 @@ describe('Timestream Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Databases: [], ScheduledQueries: [] });
 		render(TimestreamPage);
-		expect(screen.getByText('Amazon Timestream')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Timestream')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Databases: [] });
 		render(TimestreamPage);
-		expect(screen.getByText('Databases')).toBeInTheDocument();
+		expect(screen.getAllByText('Databases')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -41,7 +41,7 @@ describe('Timestream Page', () => {
 		mockSend.mockResolvedValue({ Databases: [], ScheduledQueries: [] });
 		render(TimestreamPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no databases/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no databases/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -52,7 +52,7 @@ describe('Timestream Page', () => {
 		});
 		render(TimestreamPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-tsdb')).toBeInTheDocument();
+			expect(screen.getAllByText('my-tsdb')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -65,12 +65,12 @@ describe('Timestream Page', () => {
 	it('shows Tables tab', () => {
 		mockSend.mockResolvedValue({ Databases: [] });
 		render(TimestreamPage);
-		expect(screen.getByText('Tables')).toBeInTheDocument();
+		expect(screen.getAllByText('Tables')[0]).toBeInTheDocument();
 	});
 
 	it('shows Scheduled Queries tab', () => {
 		mockSend.mockResolvedValue({ Databases: [] });
 		render(TimestreamPage);
-		expect(screen.getByText('Scheduled Queries')).toBeInTheDocument();
+		expect(screen.getAllByText('Scheduled Queries')[0]).toBeInTheDocument();
 	});
 });

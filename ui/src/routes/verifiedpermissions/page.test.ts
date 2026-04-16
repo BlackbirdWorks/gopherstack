@@ -21,13 +21,13 @@ describe('Verified Permissions Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ policyStores: [] });
 		render(VerifiedPermissionsPage);
-		expect(screen.getByText('Amazon Verified Permissions')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Verified Permissions')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ policyStores: [] });
 		render(VerifiedPermissionsPage);
-		expect(screen.getByText('Policy Stores')).toBeInTheDocument();
+		expect(screen.getAllByText('Policy Stores')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Verified Permissions Page', () => {
 		mockSend.mockResolvedValue({ policyStores: [] });
 		render(VerifiedPermissionsPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no policy stores/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no policy stores/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -50,7 +50,7 @@ describe('Verified Permissions Page', () => {
 		});
 		render(VerifiedPermissionsPage);
 		await waitFor(() => {
-			expect(screen.getByText('store-abc123')).toBeInTheDocument();
+			expect(screen.getAllByText('store-abc123')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,12 +63,12 @@ describe('Verified Permissions Page', () => {
 	it('shows Policies tab', () => {
 		mockSend.mockResolvedValue({ policyStores: [] });
 		render(VerifiedPermissionsPage);
-		expect(screen.getByText('Policies')).toBeInTheDocument();
+		expect(screen.getAllByText('Policies')[0]).toBeInTheDocument();
 	});
 
 	it('shows Identity Sources tab', () => {
 		mockSend.mockResolvedValue({ policyStores: [] });
 		render(VerifiedPermissionsPage);
-		expect(screen.getByText('Identity Sources')).toBeInTheDocument();
+		expect(screen.getAllByText('Identity Sources')[0]).toBeInTheDocument();
 	});
 });

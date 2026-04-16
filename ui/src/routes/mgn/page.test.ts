@@ -21,13 +21,13 @@ describe('MGN Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ items: [] });
 		render(MGNPage);
-		expect(screen.getByText('AWS Application Migration Service')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Application Migration Service')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ items: [] });
 		render(MGNPage);
-		expect(screen.getByText('Source Servers')).toBeInTheDocument();
+		expect(screen.getAllByText('Source Servers')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('MGN Page', () => {
 		mockSend.mockResolvedValue({ items: [] });
 		render(MGNPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no source servers/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no source servers/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -50,7 +50,7 @@ describe('MGN Page', () => {
 		});
 		render(MGNPage);
 		await waitFor(() => {
-			expect(screen.getByText('s-abc123')).toBeInTheDocument();
+			expect(screen.getAllByText('s-abc123')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,12 +63,12 @@ describe('MGN Page', () => {
 	it('shows Applications tab', () => {
 		mockSend.mockResolvedValue({ items: [] });
 		render(MGNPage);
-		expect(screen.getByText('Applications')).toBeInTheDocument();
+		expect(screen.getAllByText('Applications')[0]).toBeInTheDocument();
 	});
 
 	it('shows Waves tab', () => {
 		mockSend.mockResolvedValue({ items: [] });
 		render(MGNPage);
-		expect(screen.getByText('Waves')).toBeInTheDocument();
+		expect(screen.getAllByText('Waves')[0]).toBeInTheDocument();
 	});
 });

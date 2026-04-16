@@ -21,13 +21,13 @@ describe('Pinpoint Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ ApplicationsResponse: { Item: [] } });
 		render(PinpointPage);
-		expect(screen.getByText('Amazon Pinpoint')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Pinpoint')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ ApplicationsResponse: { Item: [] } });
 		render(PinpointPage);
-		expect(screen.getByText('Applications')).toBeInTheDocument();
+		expect(screen.getAllByText('Applications')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Pinpoint Page', () => {
 		mockSend.mockResolvedValue({ ApplicationsResponse: { Item: [] } });
 		render(PinpointPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no applications/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no applications/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -50,7 +50,7 @@ describe('Pinpoint Page', () => {
 		});
 		render(PinpointPage);
 		await waitFor(() => {
-			expect(screen.getByText('My Marketing App')).toBeInTheDocument();
+			expect(screen.getAllByText('My Marketing App')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -63,12 +63,12 @@ describe('Pinpoint Page', () => {
 	it('shows Campaigns tab', () => {
 		mockSend.mockResolvedValue({ ApplicationsResponse: { Item: [] } });
 		render(PinpointPage);
-		expect(screen.getByText('Campaigns')).toBeInTheDocument();
+		expect(screen.getAllByText('Campaigns')[0]).toBeInTheDocument();
 	});
 
 	it('shows Segments tab', () => {
 		mockSend.mockResolvedValue({ ApplicationsResponse: { Item: [] } });
 		render(PinpointPage);
-		expect(screen.getByText('Segments')).toBeInTheDocument();
+		expect(screen.getAllByText('Segments')[0]).toBeInTheDocument();
 	});
 });

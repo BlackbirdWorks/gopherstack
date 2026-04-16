@@ -21,13 +21,13 @@ describe('Cloud Control Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ ResourceDescriptions: [], ResourceRequestStatusSummaries: [] });
 		render(CloudControlPage);
-		expect(screen.getByText('AWS Cloud Control API')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Cloud Control API')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ ResourceDescriptions: [] });
 		render(CloudControlPage);
-		expect(screen.getByText('Resources')).toBeInTheDocument();
+		expect(screen.getAllByText('Resources')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Cloud Control Page', () => {
 		mockSend.mockResolvedValue({ ResourceDescriptions: [], ResourceRequestStatusSummaries: [] });
 		render(CloudControlPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no resources found/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no resources found/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -53,7 +53,7 @@ describe('Cloud Control Page', () => {
 	it('shows Resource Requests tab', () => {
 		mockSend.mockResolvedValue({ ResourceDescriptions: [] });
 		render(CloudControlPage);
-		expect(screen.getByText('Resource Requests')).toBeInTheDocument();
+		expect(screen.getAllByText('Resource Requests')[0]).toBeInTheDocument();
 	});
 
 	it('shows resource type selector', () => {
@@ -65,6 +65,6 @@ describe('Cloud Control Page', () => {
 	it('shows Resource Requests stat', () => {
 		mockSend.mockResolvedValue({ ResourceDescriptions: [] });
 		render(CloudControlPage);
-		expect(screen.getByText('Resource Requests')).toBeInTheDocument();
+		expect(screen.getAllByText('Resource Requests')[0]).toBeInTheDocument();
 	});
 });

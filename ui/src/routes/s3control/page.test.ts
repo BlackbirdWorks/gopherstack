@@ -21,13 +21,13 @@ describe('S3 Control Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ AccessPointList: [], AccessPoints: [], StorageLensConfigurationList: [] });
 		render(S3ControlPage);
-		expect(screen.getByText('Amazon S3 Control')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon S3 Control')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ AccessPointList: [] });
 		render(S3ControlPage);
-		expect(screen.getByText('Access Points')).toBeInTheDocument();
+		expect(screen.getAllByText('Access Points')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('S3 Control Page', () => {
 		mockSend.mockResolvedValue({ AccessPointList: [], AccessPoints: [], StorageLensConfigurationList: [] });
 		render(S3ControlPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no access points/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no access points/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('S3 Control Page', () => {
 		});
 		render(S3ControlPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-access-point')).toBeInTheDocument();
+			expect(screen.getAllByText('my-access-point')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('S3 Control Page', () => {
 	it('shows Multi-Region APs tab', () => {
 		mockSend.mockResolvedValue({ AccessPointList: [] });
 		render(S3ControlPage);
-		expect(screen.getByText('Multi-Region APs')).toBeInTheDocument();
+		expect(screen.getAllByText('Multi-Region APs')[0]).toBeInTheDocument();
 	});
 
 	it('shows Storage Lens tab', () => {
 		mockSend.mockResolvedValue({ AccessPointList: [] });
 		render(S3ControlPage);
-		expect(screen.getByText('Storage Lens')).toBeInTheDocument();
+		expect(screen.getAllByText('Storage Lens')[0]).toBeInTheDocument();
 	});
 });

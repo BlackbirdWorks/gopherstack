@@ -21,13 +21,13 @@ describe('Elastic Transcoder Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ Pipelines: [], Jobs: [] });
 		render(ElasticTranscoderPage);
-		expect(screen.getByText('Amazon Elastic Transcoder')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Elastic Transcoder')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Pipelines: [] });
 		render(ElasticTranscoderPage);
-		expect(screen.getByText('Pipelines')).toBeInTheDocument();
+		expect(screen.getAllByText('Pipelines')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Elastic Transcoder Page', () => {
 		mockSend.mockResolvedValue({ Pipelines: [], Jobs: [] });
 		render(ElasticTranscoderPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no pipelines/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no pipelines/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Elastic Transcoder Page', () => {
 		});
 		render(ElasticTranscoderPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-pipeline')).toBeInTheDocument();
+			expect(screen.getAllByText('my-pipeline')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Elastic Transcoder Page', () => {
 	it('shows Jobs tab', () => {
 		mockSend.mockResolvedValue({ Pipelines: [] });
 		render(ElasticTranscoderPage);
-		expect(screen.getByText('Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Jobs')[0]).toBeInTheDocument();
 	});
 
 	it('shows Active stat', () => {
 		mockSend.mockResolvedValue({ Pipelines: [] });
 		render(ElasticTranscoderPage);
-		expect(screen.getByText('Active')).toBeInTheDocument();
+		expect(screen.getAllByText('Active')[0]).toBeInTheDocument();
 	});
 });

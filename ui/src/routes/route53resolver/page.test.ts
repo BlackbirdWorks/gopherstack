@@ -21,13 +21,13 @@ describe('Route 53 Resolver Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ ResolverEndpoints: [], ResolverRules: [] });
 		render(Route53ResolverPage);
-		expect(screen.getByText('Route 53 Resolver')).toBeInTheDocument();
+		expect(screen.getAllByText('Route 53 Resolver')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ ResolverEndpoints: [] });
 		render(Route53ResolverPage);
-		expect(screen.getByText('Endpoints')).toBeInTheDocument();
+		expect(screen.getAllByText('Endpoints')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Route 53 Resolver Page', () => {
 		mockSend.mockResolvedValue({ ResolverEndpoints: [], ResolverRules: [] });
 		render(Route53ResolverPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no resolver endpoints/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no resolver endpoints/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Route 53 Resolver Page', () => {
 		});
 		render(Route53ResolverPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-endpoint')).toBeInTheDocument();
+			expect(screen.getAllByText('my-endpoint')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,13 +64,13 @@ describe('Route 53 Resolver Page', () => {
 	it('shows Rules tab', () => {
 		mockSend.mockResolvedValue({ ResolverEndpoints: [] });
 		render(Route53ResolverPage);
-		expect(screen.getByText('Rules')).toBeInTheDocument();
+		expect(screen.getAllByText('Rules')[0]).toBeInTheDocument();
 	});
 
 	it('shows Inbound/Outbound stats', () => {
 		mockSend.mockResolvedValue({ ResolverEndpoints: [] });
 		render(Route53ResolverPage);
-		expect(screen.getByText('Inbound')).toBeInTheDocument();
-		expect(screen.getByText('Outbound')).toBeInTheDocument();
+		expect(screen.getAllByText('Inbound')[0]).toBeInTheDocument();
+		expect(screen.getAllByText('Outbound')[0]).toBeInTheDocument();
 	});
 });

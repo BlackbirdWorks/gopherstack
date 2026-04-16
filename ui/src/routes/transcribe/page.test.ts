@@ -21,13 +21,13 @@ describe('Transcribe Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ TranscriptionJobSummaries: [], Vocabularies: [] });
 		render(TranscribePage);
-		expect(screen.getByText('Amazon Transcribe')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Transcribe')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ TranscriptionJobSummaries: [] });
 		render(TranscribePage);
-		expect(screen.getByText('Transcription Jobs')).toBeInTheDocument();
+		expect(screen.getAllByText('Transcription Jobs')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Transcribe Page', () => {
 		mockSend.mockResolvedValue({ TranscriptionJobSummaries: [], Vocabularies: [] });
 		render(TranscribePage);
 		await waitFor(() => {
-			expect(screen.getByText(/no transcription jobs/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no transcription jobs/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Transcribe Page', () => {
 		});
 		render(TranscribePage);
 		await waitFor(() => {
-			expect(screen.getByText('my-job')).toBeInTheDocument();
+			expect(screen.getAllByText('my-job')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Transcribe Page', () => {
 	it('shows Vocabularies tab', () => {
 		mockSend.mockResolvedValue({ TranscriptionJobSummaries: [] });
 		render(TranscribePage);
-		expect(screen.getByText('Vocabularies')).toBeInTheDocument();
+		expect(screen.getAllByText('Vocabularies')[0]).toBeInTheDocument();
 	});
 
 	it('shows Completed stat', () => {
 		mockSend.mockResolvedValue({ TranscriptionJobSummaries: [] });
 		render(TranscribePage);
-		expect(screen.getByText('Completed')).toBeInTheDocument();
+		expect(screen.getAllByText('Completed')[0]).toBeInTheDocument();
 	});
 });

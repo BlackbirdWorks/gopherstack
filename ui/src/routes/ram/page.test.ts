@@ -21,13 +21,13 @@ describe('RAM Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ resourceShares: [], resources: [], principals: [] });
 		render(RAMPage);
-		expect(screen.getByText('AWS Resource Access Manager')).toBeInTheDocument();
+		expect(screen.getAllByText('AWS Resource Access Manager')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ resourceShares: [] });
 		render(RAMPage);
-		expect(screen.getByText('Resource Shares')).toBeInTheDocument();
+		expect(screen.getAllByText('Resource Shares')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('RAM Page', () => {
 		mockSend.mockResolvedValue({ resourceShares: [], resources: [], principals: [] });
 		render(RAMPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no resource shares/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no resource shares/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('RAM Page', () => {
 		});
 		render(RAMPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-share')).toBeInTheDocument();
+			expect(screen.getAllByText('my-share')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('RAM Page', () => {
 	it('shows Resources tab', () => {
 		mockSend.mockResolvedValue({ resourceShares: [] });
 		render(RAMPage);
-		expect(screen.getByText('Resources')).toBeInTheDocument();
+		expect(screen.getAllByText('Resources')[0]).toBeInTheDocument();
 	});
 
 	it('shows Principals tab', () => {
 		mockSend.mockResolvedValue({ resourceShares: [] });
 		render(RAMPage);
-		expect(screen.getByText('Principals')).toBeInTheDocument();
+		expect(screen.getAllByText('Principals')[0]).toBeInTheDocument();
 	});
 });

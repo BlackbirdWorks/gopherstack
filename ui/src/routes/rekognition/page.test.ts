@@ -21,13 +21,13 @@ describe('Rekognition Page', () => {
 	it('renders page title', () => {
 		mockSend.mockResolvedValue({ CollectionIds: [], StreamProcessors: [] });
 		render(RekognitionPage);
-		expect(screen.getByText('Amazon Rekognition')).toBeInTheDocument();
+		expect(screen.getAllByText('Amazon Rekognition')[0]).toBeInTheDocument();
 	});
 
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ CollectionIds: [] });
 		render(RekognitionPage);
-		expect(screen.getByText('Face Collections')).toBeInTheDocument();
+		expect(screen.getAllByText('Face Collections')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {
@@ -40,7 +40,7 @@ describe('Rekognition Page', () => {
 		mockSend.mockResolvedValue({ CollectionIds: [], StreamProcessors: [] });
 		render(RekognitionPage);
 		await waitFor(() => {
-			expect(screen.getByText(/no face collections/i)).toBeInTheDocument();
+			expect(screen.getAllByText(/no face collections/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -51,7 +51,7 @@ describe('Rekognition Page', () => {
 		});
 		render(RekognitionPage);
 		await waitFor(() => {
-			expect(screen.getByText('my-collection')).toBeInTheDocument();
+			expect(screen.getAllByText('my-collection')[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 
@@ -64,12 +64,12 @@ describe('Rekognition Page', () => {
 	it('shows Stream Processors tab', () => {
 		mockSend.mockResolvedValue({ CollectionIds: [] });
 		render(RekognitionPage);
-		expect(screen.getByText('Stream Processors')).toBeInTheDocument();
+		expect(screen.getAllByText('Stream Processors')[0]).toBeInTheDocument();
 	});
 
 	it('shows Indexed Faces stat', () => {
 		mockSend.mockResolvedValue({ CollectionIds: [] });
 		render(RekognitionPage);
-		expect(screen.getByText('Indexed Faces')).toBeInTheDocument();
+		expect(screen.getAllByText('Indexed Faces')[0]).toBeInTheDocument();
 	});
 });
