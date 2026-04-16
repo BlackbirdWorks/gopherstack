@@ -66,7 +66,7 @@
 				<p class="text-sm text-gray-500 dark:text-gray-400">Scalable, elastic, cloud-native NFS file system</p>
 			</div>
 		</div>
-		<button onclick={loadData} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
+		<button onclick={loadData} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 			<RefreshCw class="w-4 h-4" /> Refresh
 		</button>
 	</div>

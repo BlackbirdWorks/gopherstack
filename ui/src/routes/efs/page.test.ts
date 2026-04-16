@@ -27,7 +27,7 @@ describe('EFS Page', () => {
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ FileSystems: [] });
 		render(EFSPage);
-		expect(screen.getByText('File Systems')).toBeInTheDocument();
+		expect(screen.getAllByText('File Systems').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows search input', () => {
@@ -63,12 +63,12 @@ describe('EFS Page', () => {
 	it('shows File Systems tab', () => {
 		mockSend.mockResolvedValue({ FileSystems: [] });
 		render(EFSPage);
-		expect(screen.getByText('File Systems')).toBeInTheDocument();
+		expect(screen.getAllByText('File Systems').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows Mount Targets tab', () => {
 		mockSend.mockResolvedValue({ FileSystems: [] });
 		render(EFSPage);
-		expect(screen.getByText('Mount Targets')).toBeInTheDocument();
+		expect(screen.getAllByText('Mount Targets').length).toBeGreaterThanOrEqual(1);
 	});
 });

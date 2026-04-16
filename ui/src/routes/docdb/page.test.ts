@@ -27,7 +27,7 @@ describe('DocumentDB Page', () => {
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ DBClusters: [] });
 		render(DocDBPage);
-		expect(screen.getByText('Clusters')).toBeInTheDocument();
+		expect(screen.getAllByText('Clusters').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows search input', () => {
@@ -63,12 +63,12 @@ describe('DocumentDB Page', () => {
 	it('shows Clusters tab', () => {
 		mockSend.mockResolvedValue({ DBClusters: [] });
 		render(DocDBPage);
-		expect(screen.getByText('Clusters')).toBeInTheDocument();
+		expect(screen.getAllByText('Clusters').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows Instances tab', () => {
 		mockSend.mockResolvedValue({ DBClusters: [] });
 		render(DocDBPage);
-		expect(screen.getByText('Instances')).toBeInTheDocument();
+		expect(screen.getAllByText('Instances').length).toBeGreaterThanOrEqual(1);
 	});
 });

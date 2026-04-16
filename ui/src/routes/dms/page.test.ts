@@ -27,7 +27,7 @@ describe('DMS Page', () => {
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ ReplicationInstances: [] });
 		render(DMSPage);
-		expect(screen.getByText('Replication Instances')).toBeInTheDocument();
+		expect(screen.getAllByText('Replication Instances').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows search input', () => {
@@ -63,12 +63,12 @@ describe('DMS Page', () => {
 	it('shows Replication Instances tab', () => {
 		mockSend.mockResolvedValue({ ReplicationInstances: [] });
 		render(DMSPage);
-		expect(screen.getByText('Replication Instances')).toBeInTheDocument();
+		expect(screen.getAllByText('Replication Instances').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows Tasks tab', () => {
 		mockSend.mockResolvedValue({ ReplicationInstances: [] });
 		render(DMSPage);
-		expect(screen.getByText('Tasks')).toBeInTheDocument();
+		expect(screen.getAllByText('Tasks').length).toBeGreaterThanOrEqual(1);
 	});
 });

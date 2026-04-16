@@ -63,12 +63,12 @@ describe('MemoryDB Page', () => {
 	it('shows Clusters tab', () => {
 		mockSend.mockResolvedValue({ Clusters: [] });
 		render(MemoryDBPage);
-		expect(screen.getByText('Clusters')).toBeInTheDocument();
+		expect(screen.getAllByText('Clusters').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('shows Snapshots tab', () => {
 		mockSend.mockResolvedValue({ Clusters: [] });
 		render(MemoryDBPage);
-		expect(screen.getByText('Snapshots')).toBeInTheDocument();
+		expect(screen.getAllByText('Snapshots').length).toBeGreaterThanOrEqual(1);
 	});
 });
