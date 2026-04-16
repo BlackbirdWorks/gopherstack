@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getResilienceHubClient } from '$lib/aws-client';
+	import { getResiliencehubClient } from '$lib/aws-client';
 	import {
 		ListAppsCommand,
 		ListAppAssessmentsCommand,
@@ -10,7 +10,7 @@
 	import { toast } from 'svelte-sonner';
 	import { ShieldCheck, RefreshCw, Search, BarChart3, Activity, CheckCircle } from 'lucide-svelte';
 
-	const rh = getResilienceHubClient();
+	const rh = getResiliencehubClient();
 
 	let loading = $state(false);
 	let activeTab = $state<'apps' | 'assessments'>('apps');

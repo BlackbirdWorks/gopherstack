@@ -110,7 +110,17 @@ export const implementedDashboardRouteIds = new Set<string>([
 	'networkmanager',
 	'outposts',
 	'directconnect',
-	'resiliencehub'
+	'resiliencehub',
+	'appstream',
+	'bedrockruntime',
+	'cloudcontrol',
+	'elastictranscoder',
+	'grafana',
+	'mgn',
+	'polly',
+	'route53resolver',
+	's3control',
+	'support'
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.

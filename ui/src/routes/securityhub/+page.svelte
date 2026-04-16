@@ -6,7 +6,6 @@
 		GetInsightsCommand,
 		DescribeHubCommand,
 		ListStandardsControlAssociationsCommand,
-		GetSeverityCommand,
 		type AwsSecurityFinding,
 		type Insight
 	} from '@aws-sdk/client-securityhub';

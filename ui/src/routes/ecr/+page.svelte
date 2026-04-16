@@ -6,7 +6,7 @@
 		CreateRepositoryCommand,
 		DeleteRepositoryCommand,
 		DescribeImagesCommand,
-		DeleteImageCommand,
+		BatchDeleteImageCommand,
 		GetRepositoryPolicyCommand,
 		PutLifecyclePolicyCommand,
 		type Repository,
@@ -136,9 +136,9 @@
 		const digest = img.imageDigest ?? '';
 		deletingImages = [...deletingImages, digest];
 		try {
-			await ecr.send(new DeleteImageCommand({
+			await ecr.send(new BatchDeleteImageCommand({
 				repositoryName: selectedRepo.repositoryName,
-				imageId: { imageDigest: img.imageDigest }
+				imageIds: [{ imageDigest: img.imageDigest }]
 			}));
 			toast.success('Image deleted');
 			await loadImages(selectedRepo.repositoryName ?? '');

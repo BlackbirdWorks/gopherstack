@@ -27,7 +27,7 @@ describe('Service Discovery Page', () => {
 	it('shows stat cards', () => {
 		mockSend.mockResolvedValue({ Namespaces: [] });
 		render(ServiceDiscoveryPage);
-		expect(screen.getByText('Namespaces')).toBeInTheDocument();
+		expect(screen.getAllByText('Namespaces')[0]).toBeInTheDocument();
 	});
 
 	it('shows search input', () => {

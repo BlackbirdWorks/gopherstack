@@ -7,7 +7,7 @@
 		GetJobsCommand,
 		GetJobRunsCommand,
 		StartJobRunCommand,
-		StopJobRunCommand,
+		BatchStopJobRunCommand,
 		GetCrawlersCommand,
 		StartCrawlerCommand,
 		StopCrawlerCommand,
@@ -142,7 +142,7 @@
 
 	async function stopJobRun(jobName: string, runId: string) {
 		try {
-			await glue.send(new StopJobRunCommand({ JobName: jobName, JobRunId: runId }));
+			await glue.send(new BatchStopJobRunCommand({ JobName: jobName, JobRunIds: [runId] }));
 			toast.success('Job run stopping');
 			if (selectedJob?.Name === jobName) await selectJob(selectedJob);
 		} catch (e) {

@@ -379,7 +379,7 @@ export function getEFSClient(region?: string): EFSClient {
 
 import { SageMakerClient } from "@aws-sdk/client-sagemaker";
 import { CodeCommitClient } from "@aws-sdk/client-codecommit";
-import { CodeArtifactClient } from "@aws-sdk/client-codeartifact";
+import { CodeartifactClient } from "@aws-sdk/client-codeartifact";
 import { RAMClient } from "@aws-sdk/client-ram";
 import { VerifiedPermissionsClient } from "@aws-sdk/client-verifiedpermissions";
 import { EMRServerlessClient } from "@aws-sdk/client-emr-serverless";
@@ -404,12 +404,12 @@ import { ResiliencehubClient } from "@aws-sdk/client-resiliencehub";
 import { Route53ResolverClient } from "@aws-sdk/client-route53resolver";
 import { S3ControlClient } from "@aws-sdk/client-s3-control";
 import { FSxClient } from "@aws-sdk/client-fsx";
-import { GlacierClient } from "@aws-sdk/client-glacier";
+// Glacier removed - @aws-sdk/client-glacier not installed; use S3 for archival
 import { PollyClient } from "@aws-sdk/client-polly";
 import { STSClient } from "@aws-sdk/client-sts";
 import { NetworkManagerClient } from "@aws-sdk/client-networkmanager";
 import { OutpostsClient } from "@aws-sdk/client-outposts";
-import { MGNClient } from "@aws-sdk/client-mgn";
+import { MgnClient } from "@aws-sdk/client-mgn";
 import { DirectConnectClient } from "@aws-sdk/client-direct-connect";
 
 export function getSageMakerClient(region?: string): SageMakerClient {
@@ -420,8 +420,8 @@ export function getCodeCommitClient(region?: string): CodeCommitClient {
   return new CodeCommitClient(clientConfig(region));
 }
 
-export function getCodeArtifactClient(region?: string): CodeArtifactClient {
-  return new CodeArtifactClient(clientConfig(region));
+export function getCodeArtifactClient(region?: string): CodeartifactClient {
+  return new CodeartifactClient(clientConfig(region));
 }
 
 export function getRAMClient(region?: string): RAMClient {
@@ -520,9 +520,10 @@ export function getFSxClient(region?: string): FSxClient {
   return new FSxClient(clientConfig(region));
 }
 
-export function getGlacierClient(region?: string): GlacierClient {
-  return new GlacierClient(clientConfig(region));
-}
+// Glacier removed - @aws-sdk/client-glacier not installed; use S3 for archival
+// export function getGlacierClient(region?: string): GlacierClient {
+//   return new GlacierClient(clientConfig(region));
+// }
 
 export function getPollyClient(region?: string): PollyClient {
   return new PollyClient(clientConfig(region));
@@ -540,8 +541,8 @@ export function getOutpostsClient(region?: string): OutpostsClient {
   return new OutpostsClient(clientConfig(region));
 }
 
-export function getMGNClient(region?: string): MGNClient {
-  return new MGNClient(clientConfig(region));
+export function getMGNClient(region?: string): MgnClient {
+  return new MgnClient(clientConfig(region));
 }
 
 export function getDirectConnectClient(region?: string): DirectConnectClient {

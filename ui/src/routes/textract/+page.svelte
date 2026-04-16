@@ -3,9 +3,9 @@
 	import { getTextractClient } from '$lib/aws-client';
 	import {
 		ListAdaptersCommand,
-		ListDocumentClassificationJobsCommand,
+		ListAdapterVersionsCommand,
 		type AdapterOverview,
-		type DocumentClassificationJobProperties
+		type AdapterVersionOverview
 	} from '@aws-sdk/client-textract';
 	import { toast } from 'svelte-sonner';
 	import { ScanLine, RefreshCw, Search, FileText, Layers, Activity } from 'lucide-svelte';
@@ -13,23 +13,29 @@
 	const tx = getTextractClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'adapters' | 'jobs'>('adapters');
+	let activeTab = $state<'adapters' | 'versions'>('adapters');
 	let searchQuery = $state('');
 	let adapters = $state<AdapterOverview[]>([]);
-	let jobs = $state<DocumentClassificationJobProperties[]>([]);
+	let versions = $state<AdapterVersionOverview[]>([]);
+	let selectedAdapterId = $state<string | null>(null);
 
 	const filteredAdapters = $derived(adapters.filter((a) => (a.AdapterId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
-	const filteredJobs = $derived(jobs.filter((j) => (j.JobId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
+	const filteredVersions = $derived(versions.filter((v) => (v.AdapterId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 
 	async function loadData() {
 		loading = true;
 		try {
-			const [adaptersResp, jobsResp] = await Promise.all([
-				tx.send(new ListAdaptersCommand({})),
-				tx.send(new ListDocumentClassificationJobsCommand({}))
-			]);
+			const adaptersResp = await tx.send(new ListAdaptersCommand({}));
 			adapters = adaptersResp.Adapters ?? [];
-			jobs = jobsResp.DocumentClassificationJobPropertiesList ?? [];
+			if (adapters.length > 0 && selectedAdapterId === null) {
+				selectedAdapterId = adapters[0].AdapterId ?? null;
+			}
+			if (selectedAdapterId) {
+				const versionsResp = await tx.send(new ListAdapterVersionsCommand({ AdapterId: selectedAdapterId }));
+				versions = versionsResp.AdapterVersions ?? [];
+			} else {
+				versions = [];
+			}
 		} catch (e) {
 			toast.error('Failed to load Textract data: ' + String(e));
 		} finally {
@@ -61,18 +67,18 @@
 		</div>
 		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
 			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg"><Activity class="w-5 h-5 text-green-600 dark:text-green-400" /></div>
-			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{jobs.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Classification Jobs</p></div>
+			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{versions.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Adapter Versions</p></div>
 		</div>
 		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
 			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg"><FileText class="w-5 h-5 text-purple-600 dark:text-purple-400" /></div>
-			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{jobs.filter((j) => j.JobStatus === 'SUCCEEDED').length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Succeeded Jobs</p></div>
+			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{versions.filter((v) => v.Status === 'ACTIVE').length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Active Versions</p></div>
 		</div>
 	</div>
 
 	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
 		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between">
 			<div class="flex gap-2">
-				{#each [['adapters', 'Adapters'], ['jobs', 'Classification Jobs']] as [tab, label]}
+				{#each [['adapters', 'Adapters'], ['versions', 'Adapter Versions']] as [tab, label]}
 					<button onclick={() => { activeTab = tab as typeof activeTab; searchQuery = ''; }}
 						class="px-4 py-2 rounded-lg text-sm font-medium {activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
 						{label}
@@ -103,18 +109,18 @@
 						{/each}
 					</div>
 				{/if}
-			{:else if activeTab === 'jobs'}
-				{#if filteredJobs.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No classification jobs found</div>
+			{:else if activeTab === 'versions'}
+				{#if filteredVersions.length === 0}
+					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No adapter versions found</div>
 				{:else}
 					<div class="space-y-2">
-						{#each filteredJobs as job}
+						{#each filteredVersions as ver}
 							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
 								<div class="flex items-center gap-3">
 									<Activity class="w-5 h-5 text-green-500" />
-									<p class="font-medium text-gray-900 dark:text-white">{job.JobId}</p>
+									<p class="font-medium text-gray-900 dark:text-white">{ver.AdapterVersion}</p>
 								</div>
-								<span class="text-xs px-2 py-1 rounded-full {job.JobStatus === 'SUCCEEDED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{job.JobStatus}</span>
+								<span class="text-xs px-2 py-1 rounded-full {ver.Status === 'ACTIVE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{ver.Status}</span>
 							</div>
 						{/each}
 					</div>

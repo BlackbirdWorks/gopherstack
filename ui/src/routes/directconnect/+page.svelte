@@ -4,7 +4,7 @@
 	import {
 		DescribeConnectionsCommand,
 		DescribeVirtualInterfacesCommand,
-		DescribeGatewaysCommand,
+		DescribeDirectConnectGatewaysCommand,
 		type Connection,
 		type VirtualInterface,
 		type DirectConnectGateway
@@ -33,7 +33,7 @@
 			const [connResp, vifResp, gwResp] = await Promise.all([
 				dc.send(new DescribeConnectionsCommand({})),
 				dc.send(new DescribeVirtualInterfacesCommand({})),
-				dc.send(new DescribeGatewaysCommand({}))
+				dc.send(new DescribeDirectConnectGatewaysCommand({}))
 			]);
 			connections = connResp.connections ?? [];
 			vifs = vifResp.virtualInterfaces ?? [];

@@ -5,7 +5,7 @@ import ResilienceHubPage from './+page.svelte';
 const mockSend = vi.fn();
 
 vi.mock('$lib/aws-client', () => ({
-	getResilienceHubClient: () => ({ send: mockSend })
+	getResiliencehubClient: () => ({ send: mockSend })
 }));
 
 vi.mock('svelte-sonner', () => ({
