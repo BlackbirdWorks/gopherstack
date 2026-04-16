@@ -93,6 +93,13 @@
 		tableNames.filter((t) => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase()))
 	);
 
+	// Pagination state
+	const tablePageSize = 10;
+	let tablePage = $state(0);
+	const pagedTables = $derived(filteredTables.slice(tablePage * tablePageSize, (tablePage + 1) * tablePageSize));
+	const totalTablePages = $derived(Math.ceil(filteredTables.length / tablePageSize));
+
+
 	const currentKeySchema = $derived(resolveKeySchema(selectedTableDesc, queryIndexName || undefined));
 	const tableKeySchema = $derived(resolveKeySchema(selectedTableDesc));
 
@@ -338,7 +345,7 @@
 				TableName: selectedTable,
 				TimeToLiveSpecification: { Enabled: ttlEnabled, AttributeName: ttlAttribute.trim() }
 			}));
-			toast.success(`TTL ${ttlEnabled ? 'enabled' : 'disabled'}`);
+			toast.success(`TTL ${ttlEnabled ? 'enabled successfully' : 'disabled successfully'}`);
 		} catch (err: unknown) {
 			toast.error(`TTL update failed: ${(err as Error).message}`);
 		}
@@ -350,7 +357,7 @@
 			const spec: Record<string, unknown> = { StreamEnabled: streamsEnabled };
 			if (streamsEnabled) spec['StreamViewType'] = streamsViewType;
 			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec as StreamSpecification }));
-			toast.success(`Streams ${streamsEnabled ? 'enabled' : 'disabled'}`);
+			toast.success(`Streams ${streamsEnabled ? 'enabled successfully' : 'disabled successfully'}`);
 			const desc = await ddb.send(new DescribeTableCommand({ TableName: selectedTable }));
 			selectedTableDesc = desc.Table ?? null;
 			streamARN = desc.Table?.LatestStreamArn ?? '';
@@ -499,7 +506,7 @@
 					<form onsubmit={(e) => { e.preventDefault(); updateTTL(); }} class="flex items-end gap-4 flex-wrap">
 						<div class="flex-1 min-w-[200px]">
 							<label for="ttl-attr" class="block mb-2 text-xs font-medium text-slate-900 dark:text-white">TTL Attribute Name</label>
-							<input type="text" id="ttl-attr" bind:value={ttlAttribute} placeholder="e.g. expires" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
+							<input type="text" id="ttl-attr" name="attributeName" bind:value={ttlAttribute} placeholder="e.g. expires" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
 						</div>
 						<div class="flex items-center h-10">
 							<input id="ttl-enabled" type="checkbox" bind:checked={ttlEnabled} class="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600" />
@@ -513,7 +520,7 @@
 					<form onsubmit={(e) => { e.preventDefault(); updateStreams(); }} class="flex items-end gap-4 flex-wrap">
 						<div class="flex-1 min-w-[200px]">
 							<label for="streams-vt" class="block mb-2 text-xs font-medium text-slate-900 dark:text-white">View Type</label>
-							<select id="streams-vt" bind:value={streamsViewType} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+							<select id="streams-vt" name="viewType" bind:value={streamsViewType} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
 								<option value="NEW_AND_OLD_IMAGES">NEW_AND_OLD_IMAGES</option>
 								<option value="NEW_IMAGE">NEW_IMAGE</option>
 								<option value="OLD_IMAGE">OLD_IMAGE</option>
@@ -738,7 +745,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-				{#each filteredTables as tableName}
+				{#each pagedTables as tableName}
 					{@const desc = tableDetails.get(tableName)}
 					<div class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 						<div class="flex justify-between items-start">
@@ -757,6 +764,15 @@
 					</div>
 				{/each}
 			</div>
+			{#if totalTablePages > 1}
+				<div class="flex items-center justify-between mt-4">
+					<span class="text-sm text-slate-500 dark:text-slate-400">Page {tablePage + 1} of {totalTablePages} ({filteredTables.length} tables)</span>
+					<div class="flex gap-2">
+						<button onclick={() => { tablePage = Math.max(0, tablePage - 1); }} disabled={tablePage === 0} class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Prev</button>
+						<button onclick={() => { tablePage = Math.min(totalTablePages - 1, tablePage + 1); }} disabled={tablePage >= totalTablePages - 1} class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Next</button>
+					</div>
+				</div>
+			{/if}
 		{/if}
 	{/if}
 </div>

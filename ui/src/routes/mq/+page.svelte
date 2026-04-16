@@ -3,6 +3,7 @@
 	import { getMQClient } from '$lib/aws-client';
 	import {
 		ListBrokersCommand,
+		CreateBrokerCommand,
 		DescribeBrokerCommand,
 		ListConfigurationsCommand,
 		type BrokerSummary,
@@ -20,7 +21,8 @@
 		Clock,
 		XCircle,
 		ChevronRight,
-		Tag
+		Tag,
+		Plus
 	} from 'lucide-svelte';
 
 	const mq = getMQClient();
@@ -32,6 +34,13 @@
 	let configurations = $state<Configuration[]>([]);
 	let selectedBroker = $state<DescribeBrokerResponse | null>(null);
 	let loadingDetail = $state(false);
+	let showCreateBrokerModal = $state(false);
+	let creating = $state(false);
+	let newBrokerName = $state('');
+	let newBrokerEngine = $state<'ACTIVEMQ' | 'RABBITMQ'>('ACTIVEMQ');
+	let newBrokerVersion = $state('5.15.14');
+	let newBrokerDeployment = $state('SINGLE_INSTANCE');
+	let newBrokerInstance = $state('mq.m5.large');
 
 	const filteredBrokers = $derived(
 		brokers.filter(
@@ -117,6 +126,30 @@
 		else { configurations = []; await loadConfigurations(); }
 	}
 
+	async function createBroker() {
+		if (!newBrokerName.trim()) return;
+		creating = true;
+		try {
+			await mq.send(new CreateBrokerCommand({
+				BrokerName: newBrokerName.trim(),
+				DeploymentMode: newBrokerDeployment,
+				EngineType: newBrokerEngine,
+				EngineVersion: newBrokerVersion,
+				HostInstanceType: newBrokerInstance,
+				PubliclyAccessible: false,
+				AutoMinorVersionUpgrade: true,
+			}));
+			toast.success(`Broker "${newBrokerName.trim()}" created`);
+			showCreateBrokerModal = false;
+			newBrokerName = '';
+			await loadBrokers();
+		} catch (err: unknown) {
+			toast.error(`Failed to create broker: ${(err as Error).message}`);
+		} finally {
+			creating = false;
+		}
+	}
+
 	onMount(() => {
 		loadBrokers();
 	});
@@ -135,6 +168,13 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
+			<button
+				onclick={() => { showCreateBrokerModal = true; }}
+				class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors"
+			>
+				<Plus class="w-4 h-4" />
+				Create Broker
+			</button>
 			<button
 				onclick={() => refresh()}
 				class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -337,3 +377,45 @@
 		</div>
 	</div>
 </div>
+
+
+{#if showCreateBrokerModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showCreateBrokerModal = false; }} role="dialog" aria-modal="true">
+<div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create Broker</h3>
+<button onclick={() => { showCreateBrokerModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+</div>
+<div class="p-4">
+<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createBroker(); }}>
+<div>
+<label for="broker-name" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Broker Name</label>
+<input type="text" id="broker-name" bind:value={newBrokerName} placeholder="my-broker" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div>
+<label for="broker-engine" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Engine Type</label>
+<select id="broker-engine" bind:value={newBrokerEngine} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white">
+<option value="ACTIVEMQ">ActiveMQ</option>
+<option value="RABBITMQ">RabbitMQ</option>
+</select>
+</div>
+<div>
+<label for="broker-deployment" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Deployment Mode</label>
+<select id="broker-deployment" bind:value={newBrokerDeployment} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white">
+<option value="SINGLE_INSTANCE">Single Instance</option>
+<option value="ACTIVE_STANDBY_MULTI_AZ">Active/Standby Multi-AZ</option>
+</select>
+</div>
+<div class="flex gap-3 justify-end pt-2">
+<button type="button" onclick={() => { showCreateBrokerModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button type="submit" disabled={creating} class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+{creating ? 'Creating...' : 'Create Broker'}
+</button>
+</div>
+</form>
+</div>
+</div>
+</div>
+</div>
+{/if}

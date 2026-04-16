@@ -28,7 +28,7 @@
 	const mediaConvert = getMediaConvertClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'jobs' | 'queues' | 'templates'>('jobs');
+	let activeTab = $state<'jobs' | 'queues' | 'templates'>('queues');
 	let searchQuery = $state('');
 	let jobs = $state<Job[]>([]);
 	let queues = $state<Queue[]>([]);
@@ -126,7 +126,7 @@
 	}
 
 	onMount(() => {
-		loadJobs();
+		loadQueues();
 	});
 </script>
 

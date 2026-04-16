@@ -493,7 +493,7 @@
 							<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer" onclick={() => navigatePrefix(prefix)}>
 								<td class="px-6 py-4 font-medium text-slate-900 dark:text-white flex items-center gap-2">
 									<svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
-									{prefix.replace(currentPrefix, '').replace(/\/$/, '')}
+									{prefix.replace(currentPrefix, '')}
 								</td>
 								<td class="px-6 py-4 text-right">—</td>
 								<td class="px-6 py-4 text-right">—</td>
