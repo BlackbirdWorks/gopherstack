@@ -621,7 +621,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 	h.SubRouter.POST("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
 		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "codestar connections backend unavailable"})
+			return c.JSON(
+				http.StatusServiceUnavailable,
+				map[string]string{"error": "codestar connections backend unavailable"},
+			)
 		}
 
 		var req struct {
@@ -633,7 +636,12 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 
-		conn, err := h.config.CodeStarConnectionsOps.Backend.CreateConnection(req.ConnectionName, req.ProviderType, req.HostArn, nil)
+		conn, err := h.config.CodeStarConnectionsOps.Backend.CreateConnection(
+			req.ConnectionName,
+			req.ProviderType,
+			req.HostArn,
+			nil,
+		)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -653,7 +661,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 	h.SubRouter.POST("/dashboard/api/codestarconnections/hosts", func(c *echo.Context) error {
 		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "codestar connections backend unavailable"})
+			return c.JSON(
+				http.StatusServiceUnavailable,
+				map[string]string{"error": "codestar connections backend unavailable"},
+			)
 		}
 
 		var req struct {
@@ -665,7 +676,12 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 
-		host, err := h.config.CodeStarConnectionsOps.Backend.CreateHost(req.Name, req.ProviderType, req.ProviderEndpoint, nil)
+		host, err := h.config.CodeStarConnectionsOps.Backend.CreateHost(
+			req.Name,
+			req.ProviderType,
+			req.ProviderEndpoint,
+			nil,
+		)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -747,7 +763,9 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		var sb strings.Builder
 		sb.WriteString("<table class='w-full text-xs font-mono'>")
-		sb.WriteString("<thead><tr class='border-b'><th class='text-left pb-1'>Event</th><th class='text-left pb-1'>ID</th></tr></thead>")
+		sb.WriteString(
+			"<thead><tr class='border-b'><th class='text-left pb-1'>Event</th><th class='text-left pb-1'>ID</th></tr></thead>",
+		)
 		sb.WriteString("<tbody>")
 		for _, e := range events {
 			sb.WriteString("<tr class='border-b hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors'>")
@@ -756,6 +774,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			sb.WriteString("</tr>")
 		}
 		sb.WriteString("</tbody></table>")
+
 		return c.HTML(http.StatusOK, sb.String())
 	})
 
@@ -842,12 +861,12 @@ func (h *DashboardHandler) MatchPriority() int {
 }
 
 // ExtractOperation extracts the operation name from the request.
-func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
+func (h *DashboardHandler) ExtractOperation(_ *echo.Context) string {
 	return ""
 }
 
 // ExtractResource extracts the resource identifier from the request.
-func (h *DashboardHandler) ExtractResource(c *echo.Context) string {
+func (h *DashboardHandler) ExtractResource(_ *echo.Context) string {
 	return ""
 }
 

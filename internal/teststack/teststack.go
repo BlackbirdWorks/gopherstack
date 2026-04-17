@@ -1039,7 +1039,7 @@ func newCFNHandler(
 }
 
 // newDashboardConfig builds the dashboard.Config for the test stack.
-func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
+func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
 
 	cfg := dashboard.Config{

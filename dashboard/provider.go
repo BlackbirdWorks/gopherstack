@@ -36,10 +36,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	// Try to extract fault store from known config types if they exist.
 	// This is a safety measure to ensure we don't break different stack types.
-	if c, ok := ctx.Config.(interface{ GetFaultStore() *chaos.FaultStore }); ok {
+	if c, hasFaultStore := ctx.Config.(interface{ GetFaultStore() *chaos.FaultStore }); hasFaultStore {
 		faultStore = c.GetFaultStore()
 	}
-	if c, ok := ctx.Config.(interface{ GetGlobalConfig() *config.GlobalConfig }); ok {
+	if c, hasGlobalConfig := ctx.Config.(interface{ GetGlobalConfig() *config.GlobalConfig }); hasGlobalConfig {
 		globalCfg = c.GetGlobalConfig()
 	}
 
