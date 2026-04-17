@@ -23,8 +23,10 @@ ui-test: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run test:coverage
 
 ui-build: ui-install
-	rm -rf dashboard/static/spa
+	mkdir -p dashboard/static/spa
+	find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run build
+	touch dashboard/static/spa/.keep
 
 build-releaser:
 	go build \
