@@ -124,7 +124,7 @@ func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("td:has-text('e2e-test-cluster')").First().WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-test-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)

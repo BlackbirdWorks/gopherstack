@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { sidebarCategories, type DashboardCategory } from "./nav";
+import {
+  getCommonCategories,
+  getCommonServices,
+  getUncommonCategories,
+  getUncommonServices,
+  sidebarCategories,
+  type DashboardCategory,
+} from "./nav";
 
 describe("sidebarCategories", () => {
   it("contains all expected category ids", () => {
@@ -54,5 +61,39 @@ describe("sidebarCategories", () => {
       expect(category.label).toBeTruthy();
       expect(category.routes.length).toBeGreaterThan(0);
     }
+  });
+
+  it("getCommonServices returns only common routes", () => {
+    const commonServices = getCommonServices();
+
+    expect(commonServices.length).toBeGreaterThan(0);
+    expect(commonServices.every((route) => route.common === true)).toBe(true);
+    expect(commonServices.some((route) => route.id === "s3")).toBe(true);
+  });
+
+  it("getUncommonServices returns only non-common routes", () => {
+    const uncommonServices = getUncommonServices();
+    const totalRoutes = sidebarCategories.flatMap((category) => category.routes);
+    const commonServices = getCommonServices();
+
+    expect(uncommonServices.length).toBeGreaterThan(0);
+    expect(uncommonServices.every((route) => !route.common)).toBe(true);
+    expect(uncommonServices.length + commonServices.length).toBe(totalRoutes.length);
+  });
+
+  it("getCommonCategories returns only categories with common routes", () => {
+    const commonCategories = getCommonCategories();
+
+    expect(commonCategories.length).toBeGreaterThan(0);
+    expect(commonCategories.every((category) => category.routes.length > 0)).toBe(true);
+    expect(commonCategories.every((category) => category.routes.every((route) => route.common === true))).toBe(true);
+  });
+
+  it("getUncommonCategories returns only categories with non-common routes", () => {
+    const uncommonCategories = getUncommonCategories();
+
+    expect(uncommonCategories.length).toBeGreaterThan(0);
+    expect(uncommonCategories.every((category) => category.routes.length > 0)).toBe(true);
+    expect(uncommonCategories.every((category) => category.routes.every((route) => !route.common))).toBe(true);
   });
 });

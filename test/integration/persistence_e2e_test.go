@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"context"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -62,7 +60,7 @@ func startPersistenceContainer(t *testing.T, dataDir string) (testcontainers.Con
 	mappedPort, err := container.MappedPort(ctx, "8000")
 	require.NoError(t, err)
 
-	ep := fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	ep := "http://localhost:" + mappedPort.Port()
 
 	return container, ep
 }
@@ -126,7 +124,7 @@ func TestPersistence_E2E_ContainerRestart(t *testing.T) {
 		_ = os.RemoveAll(dataDir)
 	})
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// --- Phase 1: start container, create resources ---
 	container1, ep1 := startPersistenceContainer(t, dataDir)

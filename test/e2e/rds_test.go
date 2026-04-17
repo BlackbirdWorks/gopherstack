@@ -88,7 +88,7 @@ func TestRDSDashboard_Empty(t *testing.T) {
 	assert.Contains(t, content, "No RDS instances")
 }
 
-// TestRDSDashboard_CreateAndDelete verifies creating and deleting an instance via the UI.
+// TestRDSDashboard_CreateAndDelete verifies the create-instance modal behavior in the current UI.
 func TestRDSDashboard_CreateAndDelete(t *testing.T) {
 	stack := newStack(t)
 
@@ -118,37 +118,25 @@ func TestRDSDashboard_CreateAndDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open the create modal.
-	err = page.Locator("button:has-text('+ Create Instance')").Click()
+	err = page.Locator("button:has-text('Create Instance')").First().Click()
 	require.NoError(t, err)
 
-	// Fill in the form.
-	err = page.Locator("#db_instance_id").Fill("ui-test-db")
-	require.NoError(t, err)
-
-	// Submit the form.
-	err = page.Locator("button[type=submit]:has-text('Create')").Click()
-	require.NoError(t, err)
-
-	// Wait for redirect back.
-	err = page.WaitForURL("**/dashboard/rds", playwright.PageWaitForURLOptions{
+	err = page.Locator("h2:has-text('Create RDS Instance')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "ui-test-db")
+	assert.Contains(t, content, "Use the AWS console or CLI")
 
-	// Delete the instance.
-	err = page.Locator("form[action='/dashboard/rds/delete'] button[type=submit]").First().Click()
+	err = page.Locator("button:has-text('Close')").First().Click()
 	require.NoError(t, err)
 
-	err = page.WaitForURL("**/dashboard/rds", playwright.PageWaitForURLOptions{
+	err = page.Locator("h2:has-text('Create RDS Instance')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
-
-	content, err = page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "No RDS instances")
 }

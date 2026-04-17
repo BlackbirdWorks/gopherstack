@@ -2,7 +2,6 @@ package dynamodbstreams_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +25,7 @@ func newTestBackend(t *testing.T) (*ddbbackend.InMemoryDB, string) {
 	t.Helper()
 
 	db := ddbbackend.NewInMemoryDB()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const tableName = "StreamsTestTable"
 

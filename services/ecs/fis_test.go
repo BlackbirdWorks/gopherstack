@@ -1,7 +1,6 @@
 package ecs_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -106,7 +105,7 @@ func TestECS_ExecuteFISAction_StopTask(t *testing.T) {
 				targets = tt.targets
 			}
 
-			err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 				ActionID: "aws:ecs:stop-task",
 				Targets:  targets,
 			})
@@ -135,7 +134,7 @@ func TestECS_ExecuteFISAction_Unknown(t *testing.T) {
 
 	h := newFISECSHandler()
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:ecs:unknown-action",
 		Targets:  []string{"some-task"},
 	})

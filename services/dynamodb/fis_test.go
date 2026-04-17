@@ -76,7 +76,7 @@ func TestDynamoDB_ExecuteFISAction_PauseReplication(t *testing.T) {
 			db := dynamodb.NewInMemoryDB()
 			h := dynamodb.NewHandler(db)
 
-			err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 				ActionID: "aws:dynamodb:global-table-pause-replication",
 				Targets:  tt.targets,
 				Duration: tt.duration,
@@ -110,7 +110,7 @@ func TestDynamoDB_ExecuteFISAction_Unknown(t *testing.T) {
 
 	h := newFISDynamoDBHandler()
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:dynamodb:unknown-action",
 		Targets:  []string{"some-table"},
 	})
@@ -126,7 +126,7 @@ func TestDynamoDB_ExecuteFISAction_PauseReplication_CtxCancel(t *testing.T) {
 
 	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/CancelTable"
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	// Activate indefinite pause (dur==0).
 	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
@@ -171,7 +171,7 @@ func TestDynamoDB_IsReplicationPaused_ByNameSuffix(t *testing.T) {
 	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/SuffixTable"
 	const tableName = "SuffixTable"
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:dynamodb:global-table-pause-replication",
 		Targets:  []string{tableARN},
 		Duration: 0,
@@ -182,7 +182,7 @@ func TestDynamoDB_IsReplicationPaused_ByNameSuffix(t *testing.T) {
 	assert.True(t, db.IsReplicationPaused(tableARN), "should be paused by ARN")
 
 	// Reactivate to check by table name (suffix lookup).
-	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:dynamodb:global-table-pause-replication",
 		Targets:  []string{tableARN},
 		Duration: 0,
@@ -206,7 +206,7 @@ func TestDynamoDB_ExecuteFISAction_NonInMemoryBackend(t *testing.T) {
 	// ExecuteFISAction with a non-InMemoryDB backend should return nil gracefully.
 	h := dynamodb.NewHandler(nil)
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:dynamodb:global-table-pause-replication",
 		Targets:  []string{"some-table"},
 	})
@@ -219,7 +219,7 @@ func TestDynamoDB_ScheduleReplicationPauseCleanup_MissingEntry_Continue(t *testi
 
 	db := dynamodb.NewInMemoryDB()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // already cancelled so cleanup fires synchronously
 
 	// Call cleanup with a table that was never added to the map.

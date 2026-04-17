@@ -206,7 +206,7 @@ func TestHandleJSON(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			result, err := service.HandleJSON(context.Background(), []byte(tc.body), tc.fn)
+			result, err := service.HandleJSON(t.Context(), []byte(tc.body), tc.fn)
 			if tc.wantErr {
 				require.Error(t, err)
 
@@ -230,7 +230,7 @@ func TestWrapOp(t *testing.T) {
 
 	op := service.WrapOp(greetFn)
 
-	result, err := op(context.Background(), []byte(`{"name":"there"}`))
+	result, err := op(t.Context(), []byte(`{"name":"there"}`))
 	require.NoError(t, err)
 
 	out, ok := result.(*handleJSONTestOutput)

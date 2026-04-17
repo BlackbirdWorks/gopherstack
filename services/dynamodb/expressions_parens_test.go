@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -68,7 +67,7 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 				},
 			}
 			sdkCreate := models.ToSDKCreateTableInput(&ct)
-			_, err := db.CreateTable(context.Background(), sdkCreate)
+			_, err := db.CreateTable(t.Context(), sdkCreate)
 			require.NoError(t, err)
 
 			// Put items
@@ -91,7 +90,7 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&put)
-				_, putErr := db.PutItem(context.Background(), sdkPut)
+				_, putErr := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, putErr)
 			}
 
@@ -103,7 +102,7 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			}
 
 			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
-			result, err := db.Query(context.Background(), sdkQuery)
+			result, err := db.Query(t.Context(), sdkQuery)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 

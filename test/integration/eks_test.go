@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"slices"
 	"testing"
 
@@ -20,7 +19,7 @@ func TestIntegration_EKS_ClusterLifecycle(t *testing.T) {
 	client := createEKSClient(t)
 	ctx := t.Context()
 
-	clusterName := fmt.Sprintf("test-cluster-%s", uuid.NewString()[:8])
+	clusterName := "test-cluster-" + uuid.NewString()[:8]
 
 	// CreateCluster
 	createOut, err := client.CreateCluster(ctx, &eks.CreateClusterInput{
@@ -81,8 +80,8 @@ func TestIntegration_EKS_NodegroupLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("ng-cluster-%s", suffix)
-	ngName := fmt.Sprintf("test-ng-%s", suffix)
+	clusterName := "ng-cluster-" + suffix
+	ngName := "test-ng-" + suffix
 
 	// Create cluster first
 	_, err := client.CreateCluster(ctx, &eks.CreateClusterInput{

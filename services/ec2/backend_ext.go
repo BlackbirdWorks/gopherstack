@@ -447,7 +447,7 @@ func (b *InMemoryBackend) ImportKeyPair(name string) (*KeyPair, error) {
 
 	kp := &KeyPair{
 		Name:        name,
-		Fingerprint: fmt.Sprintf("aa:bb:cc:dd:%s", uuid.New().String()[:stubFingerprintUUIDLen]),
+		Fingerprint: "aa:bb:cc:dd:" + uuid.New().String()[:stubFingerprintUUIDLen],
 	}
 	b.keyPairs[name] = kp
 

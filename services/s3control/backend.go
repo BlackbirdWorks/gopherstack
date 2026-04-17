@@ -417,7 +417,7 @@ func (b *InMemoryBackend) CreateBucket(accountID, bucketName string) *OutpostsBu
 		AccountID: accountID,
 		Name:      bucketName,
 		BucketArn: arn,
-		Location:  fmt.Sprintf("/%s", bucketName),
+		Location:  "/" + bucketName,
 	}
 	b.outpostsBuckets[accountID+":"+bucketName] = bkt
 

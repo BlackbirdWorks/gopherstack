@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +18,7 @@ func TestIntegration_EFS_FileSystemLifecycle(t *testing.T) {
 	client := createEFSClient(t)
 	ctx := t.Context()
 
-	creationToken := fmt.Sprintf("token-%s", uuid.NewString()[:8])
+	creationToken := "token-" + uuid.NewString()[:8]
 
 	// CreateFileSystem
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -85,7 +84,7 @@ func TestIntegration_EFS_MountTargetLifecycle(t *testing.T) {
 	client := createEFSClient(t)
 	ctx := t.Context()
 
-	creationToken := fmt.Sprintf("mt-token-%s", uuid.NewString()[:8])
+	creationToken := "mt-token-" + uuid.NewString()[:8]
 
 	// Create a file system to attach mount target to
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{

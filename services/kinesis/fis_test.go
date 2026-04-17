@@ -104,7 +104,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 				ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
 				Targets:  tt.targets,
 				Duration: tt.duration,
@@ -152,7 +152,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_ZeroPercentage(t *testing.
 	require.NoError(t, err)
 
 	// Activate fault with 0% — no requests should ever be throttled.
-	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID:   "aws:kinesis:stream-provisioned-throughput-exception",
 		Targets:    []string{streamName},
 		Parameters: map[string]string{"percentage": "0"},
@@ -202,7 +202,7 @@ func TestKinesis_ExecuteFISAction_Unknown(t *testing.T) {
 
 	h := newFISKinesisHandler()
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:kinesis:unknown-action",
 		Targets:  []string{"some-stream"},
 	})
@@ -223,7 +223,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	// Activate indefinite fault (dur==0).
 	err = h.ExecuteFISAction(ctx, service.FISActionExecution{
@@ -269,7 +269,7 @@ func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Activate with 0% percentage — no requests should be throttled.
-	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
 		Targets:  []string{streamName},
 		Parameters: map[string]string{
@@ -304,7 +304,7 @@ func TestKinesis_ThroughputFault_PartialPercentage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Activate with 50% percentage.
-	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err = h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
 		Targets:  []string{streamName},
 		Parameters: map[string]string{
@@ -341,7 +341,7 @@ func TestKinesis_ExecuteFISAction_NonInMemoryBackend(t *testing.T) {
 	// A handler with a nil backend should gracefully skip FIS actions.
 	h := kinesis.NewHandler(nil)
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
 		Targets:  []string{"some-stream"},
 	})
@@ -387,7 +387,7 @@ func TestKinesis_ScheduleThroughputFaultCleanup_MissingEntry_Continue(t *testing
 
 	backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // already cancelled so cleanup fires synchronously
 
 	// Call cleanup with a stream that was never added to the map.

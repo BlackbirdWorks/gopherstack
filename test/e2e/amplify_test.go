@@ -51,9 +51,12 @@ func TestAmplifyDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the app to appear in the list.
+	err = page.Locator("text=e2e-test-app").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-app")
 }
 
 // TestAmplifyDashboard_Empty verifies the Amplify dashboard empty state renders correctly.

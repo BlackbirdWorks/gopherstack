@@ -47,6 +47,7 @@ func (h *Handler) Name() string { return "ECS" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateCluster",
+		"ListClusters",
 		"DescribeClusters",
 		"DeleteCluster",
 		"RegisterTaskDefinition",
@@ -177,6 +178,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateCluster":            service.WrapOp(h.handleCreateCluster),
+		"ListClusters":             service.WrapOp(h.handleListClusters),
 		"DescribeClusters":         service.WrapOp(h.handleDescribeClusters),
 		"DeleteCluster":            service.WrapOp(h.handleDeleteCluster),
 		"RegisterTaskDefinition":   service.WrapOp(h.handleRegisterTaskDefinition),
@@ -316,6 +318,34 @@ func (h *Handler) handleCreateCluster(_ context.Context, in *createClusterInput)
 	}
 
 	return &createClusterOutput{Cluster: toClusterView(*cluster)}, nil
+}
+
+type listClustersInput struct {
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
+}
+
+type listClustersOutput struct {
+	NextToken   string   `json:"nextToken,omitempty"`
+	ClusterArns []string `json:"clusterArns"`
+}
+
+func (h *Handler) handleListClusters(_ context.Context, in *listClustersInput) (*listClustersOutput, error) {
+	clusters, err := h.Backend.ListClusters()
+	if err != nil {
+		return nil, err
+	}
+
+	arns := make([]string, 0, len(clusters))
+	for _, c := range clusters {
+		arns = append(arns, c.ClusterArn)
+	}
+
+	sort.Strings(arns)
+
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listClustersOutput{ClusterArns: arns, NextToken: nextToken}, nil
 }
 
 type describeClustersInput struct {

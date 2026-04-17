@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -124,7 +123,7 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 
 			t.Cleanup(func() {
 				// Use a fresh context for cleanup as t.Context() might be cancelled
-				_, dErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+				_, dErr := client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 					TableName: aws.String(tableName),
 				})
 				assert.NoError(t, dErr)

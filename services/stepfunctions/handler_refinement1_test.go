@@ -1,7 +1,6 @@
 package stepfunctions_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -29,7 +28,7 @@ func TestRefinement1_ProviderInit(t *testing.T) {
 	t.Parallel()
 
 	p := &stepfunctions.Provider{}
-	reg, err := p.Init(&service.AppContext{JanitorCtx: context.Background()})
+	reg, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
 	require.NoError(t, err)
 	assert.NotNil(t, reg)
 }
@@ -162,7 +161,7 @@ func TestRefinement1_ValidateStateMachineDefinition(t *testing.T) {
 			body, err := json.Marshal(map[string]string{"definition": tt.def})
 			require.NoError(t, err)
 
-			rec := sfnPost(context.Background(), t, h, e, "ValidateStateMachineDefinition", string(body))
+			rec := sfnPost(t.Context(), t, h, e, "ValidateStateMachineDefinition", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -177,7 +176,7 @@ func TestRefinement1_ListStateMachineVersions(t *testing.T) {
 	t.Parallel()
 
 	h, e := newSFNHandler(t)
-	rec := sfnPost(context.Background(), t, h, e, "ListStateMachineVersions", `{}`)
+	rec := sfnPost(t.Context(), t, h, e, "ListStateMachineVersions", `{}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -276,7 +275,7 @@ func TestRefinement1_HandlersErrorResponse(t *testing.T) {
 	t.Parallel()
 
 	h, e := newSFNHandler(t)
-	rec := sfnPost(context.Background(), t, h, e, "NonExistentOperation", `{}`)
+	rec := sfnPost(t.Context(), t, h, e, "NonExistentOperation", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

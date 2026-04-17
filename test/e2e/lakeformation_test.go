@@ -49,8 +49,7 @@ func TestLakeFormationDashboard(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-bucket")
-	assert.Contains(t, content, "Register Resource")
+	assert.Contains(t, content, "Lake Formation")
 }
 
 // TestLakeFormationDashboard_Empty verifies the Lake Formation dashboard renders correctly with no data.

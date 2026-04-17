@@ -1,9 +1,9 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { getKMSClient } from '$lib/aws-client';
-import { ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand, ListAliasesCommand } from '@aws-sdk/client-kms';
+import { ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand, ListAliasesCommand, CreateKeyCommand, EncryptCommand, DecryptCommand } from '@aws-sdk/client-kms';
 import { toast } from 'svelte-sonner';
-import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag } from 'lucide-svelte';
+import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, Send } from 'lucide-svelte';
 
 const kms = getKMSClient();
 
@@ -16,6 +16,17 @@ let usageFilter = $state('all');
 let selectedKey = $state<any | null>(null);
 let activeTab = $state<'keys' | 'aliases'>('keys');
 let aliasSearch = $state('');
+let showCreateModal = $state(false);
+let creatingKey = $state(false);
+let newKeyDescription = $state('');
+
+let showCryptoModal = $state(false);
+let cryptoKeyId = $state('');
+let plaintext = $state('');
+let ciphertext = $state('');
+let decryptedText = $state('');
+let encrypting = $state(false);
+let decrypting = $state(false);
 
 onMount(async () => { await loadKeys(); });
 
@@ -90,6 +101,59 @@ async function enableKey(keyId: string) {
 	}
 }
 
+async function createKey() {
+	try {
+		creatingKey = true;
+		await kms.send(new CreateKeyCommand({ Description: newKeyDescription }));
+		toast.success('Key created');
+		showCreateModal = false;
+		newKeyDescription = '';
+		await loadKeys();
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to create key');
+	} finally {
+		creatingKey = false;
+	}
+}
+
+async function encrypt() {
+	if (!plaintext) return;
+	try {
+		encrypting = true;
+		const res = await kms.send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
+		if (res.CiphertextBlob) {
+			ciphertext = btoa(String.fromCharCode(...res.CiphertextBlob));
+		}
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Encryption failed');
+	} finally {
+		encrypting = false;
+	}
+}
+
+async function decrypt() {
+	if (!ciphertext) return;
+	try {
+		decrypting = true;
+		const res = await kms.send(new DecryptCommand({ CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0)) }));
+		if (res.Plaintext) {
+			decryptedText = new TextDecoder().decode(res.Plaintext);
+		}
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Decryption failed');
+	} finally {
+		decrypting = false;
+	}
+}
+
+function openCrypto(keyId: string) {
+	cryptoKeyId = keyId;
+	plaintext = '';
+	ciphertext = '';
+	decryptedText = '';
+	showCryptoModal = true;
+}
+
 function getStateColor(state: string) {
 	if (state === 'Enabled') return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
 	if (state === 'Disabled') return 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400';
@@ -145,8 +209,8 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 			<button onclick={refresh} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700" title="Refresh">
 				<RefreshCw class="w-4 h-4" />
 			</button>
-			<button onclick={() => toast.info('Create key via AWS console')} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
-				Create Key
+			<button id="create-key-btn" onclick={() => showCreateModal = true} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2">
+				<Plus class="w-4 h-4" /> Create Key
 			</button>
 		</div>
 	</div>
@@ -267,6 +331,13 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 										<Unlock class="w-3 h-3" /> Enable
 									</button>
 								{/if}
+								<button
+									id="crypto-btn-{key.KeyId}"
+									onclick={(e) => { e.stopPropagation(); openCrypto(key.KeyId); }}
+									class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"
+								>
+									<Lock class="w-3 h-3" /> Crypto
+								</button>
 							</div>
 						</div>
 					{/each}
@@ -383,4 +454,72 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 		</div>
 	{/if}
 </div>
+
+<!-- Create Modal -->
+{#if showCreateModal}
+	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create KMS Key</h2>
+			<form onsubmit={(e) => { e.preventDefault(); createKey(); }} class="space-y-4">
+				<div>
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+					<input id="new-key-description" name="description" type="text" bind:value={newKeyDescription} placeholder="e.g. Test Key" class="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
+				</div>
+				<div class="flex justify-end gap-3">
+					<button type="button" onclick={() => showCreateModal = false} class="px-4 py-2 text-slate-500">Cancel</button>
+					<button type="submit" disabled={creatingKey} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+						{creatingKey ? 'Creating...' : 'Create'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Crypto Modal -->
+{#if showCryptoModal}
+	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Encrypt / Decrypt</h2>
+			<div class="space-y-6">
+				<!-- Encrypt -->
+				<div class="space-y-2">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Plaintext</label>
+					<div class="flex gap-2">
+						<input id="plaintext-input" name="plaintext" type="text" bind:value={plaintext} class="flex-1 px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
+						<button id="encrypt-submit" onclick={encrypt} disabled={encrypting} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+							<Lock class="w-4 h-4" /> Encrypt
+						</button>
+					</div>
+					{#if ciphertext}
+						<div class="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg">
+							<p class="text-xs text-slate-400 mb-1 leading-none uppercase tracking-wider font-semibold">Ciphertext (Base64)</p>
+							<p id="encrypt-result" class="text-xs font-mono break-all text-slate-700 dark:text-slate-300">{ciphertext}</p>
+						</div>
+					{/if}
+				</div>
+
+				<!-- Decrypt -->
+				<div class="space-y-2">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ciphertext (Base64)</label>
+					<div class="flex gap-2">
+						<input id="ciphertext-input" name="ciphertext" type="text" bind:value={ciphertext} class="flex-1 px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
+						<button id="decrypt-submit" onclick={decrypt} disabled={decrypting} class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+							<Unlock class="w-4 h-4" /> Decrypt
+						</button>
+					</div>
+					{#if decryptedText}
+						<div class="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg">
+							<p class="text-xs text-slate-400 mb-1 leading-none uppercase tracking-wider font-semibold">Decrypted Text</p>
+							<p id="decrypt-result" class="text-sm font-medium text-slate-900 dark:text-white">{decryptedText}</p>
+						</div>
+					{/if}
+				</div>
+			</div>
+			<div class="flex justify-end mt-6">
+				<button onclick={() => showCryptoModal = false} class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg">Close</button>
+			</div>
+		</div>
+	</div>
+{/if}
 

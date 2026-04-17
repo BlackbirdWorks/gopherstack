@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -49,48 +48,47 @@ func TestKMSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 1: Open the Create Key form.
-	err = page.Click("button:has-text('Create Key')")
+	err = page.Locator("#create-key-btn").Click()
 	require.NoError(t, err)
 
 	// Fill the optional description.
-	require.NoError(t, page.Fill("input[name='description']", "e2e-test-key"))
+	err = page.Locator("#new-key-description").Fill("e2e-test-key")
+	require.NoError(t, err)
 
 	// Submit.
-	err = page.Click("button[type='submit']:has-text('Create')")
+	err = page.Locator("button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
 	// Wait for the new key row to appear.
-	time.Sleep(500 * time.Millisecond)
-
-	keyRow := page.Locator("td:has-text('e2e-test-key')").First()
+	keyRow := page.Locator("text=e2e-test-key").First()
 	err = keyRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(60000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	// Step 2: Click the key link to open the detail page.
-	keyLink := page.Locator("a[href*='/dashboard/kms/key?id=']").First()
-	err = keyLink.Click()
+	// Step 2: Open the Crypto modal.
+	err = page.Locator("button:has-text('Crypto')").First().Click()
 	require.NoError(t, err)
 
-	// Wait for KMS Key Detail page.
-	err = page.Locator("h1").First().WaitFor(
-		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
-	)
+	// Wait for Crypto modal.
+	err = page.Locator("role=dialog").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
 
 	// Step 3: Encrypt some plaintext.
-	require.NoError(t, page.Fill("input[name='plaintext']", "hello-kms"))
+	err = page.Locator("#plaintext-input").Fill("hello-kms")
+	require.NoError(t, err)
 
-	err = page.Locator("form[hx-post*='/dashboard/kms/encrypt'] button[type='submit']").Click()
+	err = page.Locator("#encrypt-submit").Click()
 	require.NoError(t, err)
 
 	// Wait for the encrypt result to appear.
 	encryptResult := page.Locator("#encrypt-result")
 	err = encryptResult.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(60000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
@@ -99,15 +97,17 @@ func TestKMSDashboard(t *testing.T) {
 	assert.NotEmpty(t, ciphertext, "encrypt result should contain ciphertext")
 
 	// Step 4: Decrypt the ciphertext.
-	require.NoError(t, page.Fill("input[name='ciphertext']", ciphertext))
+	// (Note: in the UI, encrypt sets the ciphertext input already, but we'll re-fill it to be sure)
+	err = page.Locator("#ciphertext-input").Fill(ciphertext)
+	require.NoError(t, err)
 
-	err = page.Locator("form[hx-post='/dashboard/kms/decrypt'] button[type='submit']").Click()
+	err = page.Locator("#decrypt-submit").Click()
 	require.NoError(t, err)
 
 	decryptResult := page.Locator("#decrypt-result")
 	err = decryptResult.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(60000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 

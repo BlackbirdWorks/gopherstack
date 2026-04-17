@@ -117,7 +117,7 @@ func TestRDS_ExecuteFISAction_RebootInstances(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 				ActionID: "aws:rds:reboot-db-instances",
 				Targets:  tt.targets,
 			})
@@ -164,7 +164,7 @@ func TestRDS_ExecuteFISAction_FailoverDBCluster(t *testing.T) {
 
 			h := newFISRDSHandler()
 
-			err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+			err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 				ActionID: "aws:rds:failover-db-cluster",
 				Targets:  tt.targets,
 				Duration: tt.duration,
@@ -193,7 +193,7 @@ func TestRDS_ExecuteFISAction_Unknown(t *testing.T) {
 
 	h := newFISRDSHandler()
 
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
 		ActionID: "aws:rds:unknown-action",
 		Targets:  []string{"some-target"},
 	})
@@ -229,7 +229,7 @@ func TestRDS_ExecuteFISAction_FailoverDBCluster_CtxCancel(t *testing.T) {
 
 	h := newFISRDSHandler()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	const clusterTarget = "arn:aws:rds:us-east-1:000000000000:cluster/cancel-cluster"
 
@@ -287,7 +287,7 @@ func TestRDS_ScheduleFailoverFaultCleanup_MissingEntry_Continue(t *testing.T) {
 
 	h := newFISRDSHandler()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // already cancelled so cleanup fires synchronously
 
 	// Call cleanup with a cluster ID that was never added to the map.

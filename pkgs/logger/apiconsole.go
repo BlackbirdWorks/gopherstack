@@ -114,7 +114,7 @@ var GlobalRingBuffer = NewRequestRingBuffer(defaultBufferSize)
 // APIConsoleMiddleware captures incoming API requests and stores them in the ring buffer.
 // It should be injected after standard loggers but before request processing.
 //
-//nolint:gocognit // inherent complexity: captures headers, body, response status across middlewares
+//nolint:gocognit // middleware performs explicit filtering, capture, and enrichment in one path.
 func APIConsoleMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {

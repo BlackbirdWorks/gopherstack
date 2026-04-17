@@ -13,7 +13,6 @@ package bench_test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -181,7 +180,7 @@ func setupDynamoDB(b *testing.B) *dynamodb.InMemoryDB {
 			"WriteCapacityUnits": int64(5),
 		},
 	})
-	_, err := db.CreateTable(context.Background(), sdkInput)
+	_, err := db.CreateTable(b.Context(), sdkInput)
 	require.NoError(b, err)
 
 	return db
@@ -200,7 +199,7 @@ func BenchmarkDynamoDB_PutItem(b *testing.B) {
 		}
 		sdkInput, err := models.ToSDKPutItemInput(&input)
 		require.NoError(b, err)
-		_, err = db.PutItem(context.Background(), sdkInput)
+		_, err = db.PutItem(b.Context(), sdkInput)
 		require.NoError(b, err)
 	}
 }
@@ -214,7 +213,7 @@ func BenchmarkDynamoDB_GetItem(b *testing.B) {
 			Item:      map[string]any{"id": map[string]any{"S": strconv.Itoa(i)}},
 		}
 		sdkInput, _ := models.ToSDKPutItemInput(&input)
-		_, _ = db.PutItem(context.Background(), sdkInput)
+		_, _ = db.PutItem(b.Context(), sdkInput)
 	}
 
 	b.ResetTimer()
@@ -227,7 +226,7 @@ func BenchmarkDynamoDB_GetItem(b *testing.B) {
 		}
 		sdkInput, err := models.ToSDKGetItemInput(&input)
 		require.NoError(b, err)
-		_, err = db.GetItem(context.Background(), sdkInput)
+		_, err = db.GetItem(b.Context(), sdkInput)
 		require.NoError(b, err)
 	}
 }

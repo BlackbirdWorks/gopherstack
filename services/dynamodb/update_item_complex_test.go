@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -40,7 +39,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -74,7 +73,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -106,7 +105,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -141,7 +140,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -173,7 +172,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 
 			updateInput := mustUnmarshal[models.UpdateItemInput](t, tc.input)
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
-			_, err := db.UpdateItem(context.Background(), sdkUpdate)
+			_, err := db.UpdateItem(t.Context(), sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)
 

@@ -117,65 +117,135 @@ func (h *Handler) RouteMatcher() service.Matcher {
 func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation returns the operation name from the request.
-//
-//nolint:cyclop,gocognit,gocyclo,funlen // dispatch function enumerates all operations
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
 
+	for _, fn := range []func(string, string) (string, bool){
+		extractGuardrailOperation,
+		extractFoundationModelOperation,
+		extractPMTOperation,
+		extractTagOperation,
+		extractEvaluationJobOperation,
+		extractARPOperation,
+		extractCustomModelOperation,
+	} {
+		if op, ok := fn(path, method); ok {
+			return op
+		}
+	}
+
+	return "Unknown"
+}
+
+func extractGuardrailOperation(path, method string) (string, bool) {
 	switch {
 	case path == guardrailsPrefix && method == http.MethodPost:
-		return "CreateGuardrail"
+		return "CreateGuardrail", true
 	case path == guardrailsPrefix && method == http.MethodGet:
-		return "ListGuardrails"
+		return "ListGuardrails", true
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodGet:
-		return "GetGuardrail"
+		return "GetGuardrail", true
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPut:
-		return "UpdateGuardrail"
+		return "UpdateGuardrail", true
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteGuardrail"
+		return "DeleteGuardrail", true
 	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
-		return "CreateGuardrailVersion"
-	case path == foundationModelsPrefix && method == http.MethodGet:
-		return "ListFoundationModels"
-	case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
-		return "GetFoundationModel"
-	case path == provisionedModelThroughput && method == http.MethodPost:
-		return "CreateProvisionedModelThroughput"
-	case path == provisionedModelThroughputs && method == http.MethodGet:
-		return "ListProvisionedModelThroughputs"
-	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
-		return "GetProvisionedModelThroughput"
-	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
-		return "UpdateProvisionedModelThroughput"
-	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
-		return "DeleteProvisionedModelThroughput"
-	case path == listTagsForResourcePath:
-		return "ListTagsForResource"
-	case path == tagResourcePath:
-		return "TagResource"
-	case path == untagResourcePath:
-		return "UntagResource"
-	case path == evaluationJobsBatchDelete && method == http.MethodPost:
-		return "BatchDeleteEvaluationJob"
-	case path == evaluationJobsPrefix && method == http.MethodPost:
-		return "CreateEvaluationJob"
-	case path == automatedReasoningPrefix && method == http.MethodPost:
-		return "CreateAutomatedReasoningPolicy"
-	case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
-		return "CancelAutomatedReasoningPolicyBuildWorkflow"
-	case isARPTestCasesPath(path) && method == http.MethodPost:
-		return "CreateAutomatedReasoningPolicyTestCase"
-	case isARPVersionsPath(path) && method == http.MethodPost:
-		return "CreateAutomatedReasoningPolicyVersion"
-	case path == customModelsCreate && method == http.MethodPost:
-		return "CreateCustomModel"
-	case path == customModelDeploymentsPath && method == http.MethodPost:
-		return "CreateCustomModelDeployment"
-	case path == foundationModelAgreement && method == http.MethodPost:
-		return "CreateFoundationModelAgreement"
+		return "CreateGuardrailVersion", true
 	default:
-		return "Unknown"
+		return "", false
+	}
+}
+
+func extractFoundationModelOperation(path, method string) (string, bool) {
+	switch {
+	case path == foundationModelsPrefix && method == http.MethodGet:
+		return "ListFoundationModels", true
+	case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
+		return "GetFoundationModel", true
+	default:
+		return "", false
+	}
+}
+
+func extractPMTOperation(path, method string) (string, bool) {
+	switch {
+	case path == provisionedModelThroughput && method == http.MethodPost:
+		return "CreateProvisionedModelThroughput", true
+	case path == provisionedModelThroughputs && method == http.MethodGet:
+		return "ListProvisionedModelThroughputs", true
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
+		return "GetProvisionedModelThroughput", true
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
+		return "UpdateProvisionedModelThroughput", true
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
+		return "DeleteProvisionedModelThroughput", true
+	default:
+		return "", false
+	}
+}
+
+func extractTagOperation(path, method string) (string, bool) {
+	if method != http.MethodPost {
+		return "", false
+	}
+
+	switch path {
+	case listTagsForResourcePath:
+		return "ListTagsForResource", true
+	case tagResourcePath:
+		return "TagResource", true
+	case untagResourcePath:
+		return "UntagResource", true
+	default:
+		return "", false
+	}
+}
+
+func extractEvaluationJobOperation(path, method string) (string, bool) {
+	switch {
+	case path == evaluationJobsBatchDelete && method == http.MethodPost:
+		return "BatchDeleteEvaluationJob", true
+	case path == evaluationJobsPrefix && method == http.MethodPost:
+		return "CreateEvaluationJob", true
+	default:
+		return "", false
+	}
+}
+
+func extractARPOperation(path, method string) (string, bool) {
+	if method != http.MethodPost {
+		return "", false
+	}
+
+	switch {
+	case path == automatedReasoningPrefix:
+		return "CreateAutomatedReasoningPolicy", true
+	case isARPBuildWorkflowCancelPath(path):
+		return "CancelAutomatedReasoningPolicyBuildWorkflow", true
+	case isARPTestCasesPath(path):
+		return "CreateAutomatedReasoningPolicyTestCase", true
+	case isARPVersionsPath(path):
+		return "CreateAutomatedReasoningPolicyVersion", true
+	default:
+		return "", false
+	}
+}
+
+func extractCustomModelOperation(path, method string) (string, bool) {
+	if method != http.MethodPost {
+		return "", false
+	}
+
+	switch path {
+	case customModelsCreate:
+		return "CreateCustomModel", true
+	case customModelDeploymentsPath:
+		return "CreateCustomModelDeployment", true
+	case foundationModelAgreement:
+		return "CreateFoundationModelAgreement", true
+	default:
+		return "", false
 	}
 }
 
@@ -233,8 +303,6 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for Bedrock requests.
-//
-//nolint:gocognit,gocyclo,cyclop // dispatch function enumerates all operations
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
@@ -253,87 +321,146 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			}
 		}
 
-		switch {
-		case path == guardrailsPrefix && method == http.MethodPost:
-			return h.handleCreateGuardrail(c, body)
-		case path == guardrailsPrefix && method == http.MethodGet:
-			return h.handleListGuardrails(c)
-		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodGet:
-			return h.handleGetGuardrail(
-				c,
-				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
-			)
-		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPut:
-			return h.handleUpdateGuardrail(
-				c,
-				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
-				body,
-			)
-		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodDelete:
-			return h.handleDeleteGuardrail(
-				c,
-				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
-			)
-		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
-			return h.handleCreateGuardrailVersion(
-				c,
-				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
-				body,
-			)
-		case path == foundationModelsPrefix && method == http.MethodGet:
-			return h.handleListFoundationModels(c)
-		case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
-			return h.handleGetFoundationModel(
-				c,
-				decodePath(strings.TrimPrefix(path, foundationModelsPrefix+"/")),
-			)
-		case path == provisionedModelThroughput && method == http.MethodPost:
-			return h.handleCreateProvisionedModelThroughput(c, body)
-		case path == provisionedModelThroughputs && method == http.MethodGet:
-			return h.handleListProvisionedModelThroughputs(c)
-		case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
-			return h.handleGetProvisionedModelThroughput(
-				c,
-				decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")),
-			)
-		case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
-			return h.handleUpdateProvisionedModelThroughput(
-				c,
-				decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")),
-				body,
-			)
-		case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
-			return h.handleDeleteProvisionedModelThroughput(
-				c,
-				decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")),
-			)
-		case path == listTagsForResourcePath && method == http.MethodPost:
-			return h.handleListTagsForResource(c, body)
-		case path == tagResourcePath && method == http.MethodPost:
-			return h.handleTagResource(c, body)
-		case path == untagResourcePath && method == http.MethodPost:
-			return h.handleUntagResource(c, body)
-		case path == evaluationJobsBatchDelete && method == http.MethodPost:
-			return h.handleBatchDeleteEvaluationJob(c, body)
-		case path == evaluationJobsPrefix && method == http.MethodPost:
-			return h.handleCreateEvaluationJob(c, body)
-		case path == automatedReasoningPrefix && method == http.MethodPost:
-			return h.handleCreateAutomatedReasoningPolicy(c, body)
-		case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
-			return h.handleCancelAutomatedReasoningPolicyBuildWorkflow(c, path)
-		case isARPTestCasesPath(path) && method == http.MethodPost:
-			return h.handleCreateAutomatedReasoningPolicyTestCase(c, path)
-		case isARPVersionsPath(path) && method == http.MethodPost:
-			return h.handleCreateAutomatedReasoningPolicyVersion(c, path, body)
-		case path == customModelsCreate && method == http.MethodPost:
-			return h.handleCreateCustomModel(c, body)
-		case path == customModelDeploymentsPath && method == http.MethodPost:
-			return h.handleCreateCustomModelDeployment(c, body)
-		case path == foundationModelAgreement && method == http.MethodPost:
-			return h.handleCreateFoundationModelAgreement(c, body)
-		default:
-			return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
+		if ok, err := h.routeGuardrail(c, path, method, body); ok {
+			return err
 		}
+		if ok, err := h.routeFoundationModel(c, path, method); ok {
+			return err
+		}
+		if ok, err := h.routePMT(c, path, method, body); ok {
+			return err
+		}
+		if ok, err := h.routeTag(c, path, method, body); ok {
+			return err
+		}
+		if ok, err := h.routeEvaluationJob(c, path, method, body); ok {
+			return err
+		}
+		if ok, err := h.routeARP(c, path, method, body); ok {
+			return err
+		}
+		if ok, err := h.routeCustomModel(c, path, method, body); ok {
+			return err
+		}
+
+		return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
+	}
+}
+
+func (h *Handler) routeGuardrail(c *echo.Context, path, method string, body []byte) (bool, error) {
+	id := decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/"))
+
+	switch {
+	case path == guardrailsPrefix && method == http.MethodPost:
+		return true, h.handleCreateGuardrail(c, body)
+	case path == guardrailsPrefix && method == http.MethodGet:
+		return true, h.handleListGuardrails(c)
+	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodGet:
+		return true, h.handleGetGuardrail(c, id)
+	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPut:
+		return true, h.handleUpdateGuardrail(c, id, body)
+	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodDelete:
+		return true, h.handleDeleteGuardrail(c, id)
+	case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPost:
+		return true, h.handleCreateGuardrailVersion(c, id, body)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeFoundationModel(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case path == foundationModelsPrefix && method == http.MethodGet:
+		return true, h.handleListFoundationModels(c)
+	case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
+		id := decodePath(strings.TrimPrefix(path, foundationModelsPrefix+"/"))
+
+		return true, h.handleGetFoundationModel(c, id)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routePMT(c *echo.Context, path, method string, body []byte) (bool, error) {
+	id := decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/"))
+
+	switch {
+	case path == provisionedModelThroughput && method == http.MethodPost:
+		return true, h.handleCreateProvisionedModelThroughput(c, body)
+	case path == provisionedModelThroughputs && method == http.MethodGet:
+		return true, h.handleListProvisionedModelThroughputs(c)
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
+		return true, h.handleGetProvisionedModelThroughput(c, id)
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
+		return true, h.handleUpdateProvisionedModelThroughput(c, id, body)
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
+		return true, h.handleDeleteProvisionedModelThroughput(c, id)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeTag(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if method != http.MethodPost {
+		return false, nil
+	}
+
+	switch path {
+	case listTagsForResourcePath:
+		return true, h.handleListTagsForResource(c, body)
+	case tagResourcePath:
+		return true, h.handleTagResource(c, body)
+	case untagResourcePath:
+		return true, h.handleUntagResource(c, body)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeEvaluationJob(c *echo.Context, path, method string, body []byte) (bool, error) {
+	switch {
+	case path == evaluationJobsBatchDelete && method == http.MethodPost:
+		return true, h.handleBatchDeleteEvaluationJob(c, body)
+	case path == evaluationJobsPrefix && method == http.MethodPost:
+		return true, h.handleCreateEvaluationJob(c, body)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeARP(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if method != http.MethodPost {
+		return false, nil
+	}
+
+	switch {
+	case path == automatedReasoningPrefix:
+		return true, h.handleCreateAutomatedReasoningPolicy(c, body)
+	case isARPBuildWorkflowCancelPath(path):
+		return true, h.handleCancelAutomatedReasoningPolicyBuildWorkflow(c, path)
+	case isARPTestCasesPath(path):
+		return true, h.handleCreateAutomatedReasoningPolicyTestCase(c, path)
+	case isARPVersionsPath(path):
+		return true, h.handleCreateAutomatedReasoningPolicyVersion(c, path, body)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeCustomModel(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if method != http.MethodPost {
+		return false, nil
+	}
+
+	switch path {
+	case customModelsCreate:
+		return true, h.handleCreateCustomModel(c, body)
+	case customModelDeploymentsPath:
+		return true, h.handleCreateCustomModelDeployment(c, body)
+	case foundationModelAgreement:
+		return true, h.handleCreateFoundationModelAgreement(c, body)
+	default:
+		return false, nil
 	}
 }
 

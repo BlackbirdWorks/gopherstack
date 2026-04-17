@@ -63,10 +63,10 @@ describe('Bedrock Runtime Page', () => {
 	it('shows empty async invocations', async () => {
 		mockSend.mockResolvedValue({ asyncInvokeSummaries: [] });
 		render(BedrockRuntimePage);
-		const asyncTab = screen.getByText('Async Invocations');
+		const asyncTab = screen.getByRole('button', { name: 'Async Invocations' });
 		asyncTab.click();
 		await waitFor(() => {
-			expect(screen.getAllByText(/no async invocations/i)[0]).toBeInTheDocument();
+			expect(screen.getAllByText(/no async invocations found/i)[0]).toBeInTheDocument();
 		}, { timeout: 3000 });
 	});
 

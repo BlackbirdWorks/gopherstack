@@ -369,7 +369,7 @@ func TestTerraformImport_Lambda(t *testing.T) {
 				// The role has no attached managed or inline policies (only a trust
 				// policy), so DeleteRole succeeds without any prior detach step.
 				t.Cleanup(func() {
-					_, delErr := iamClient.DeleteRole(context.Background(), &iamsvc.DeleteRoleInput{
+					_, delErr := iamClient.DeleteRole(t.Context(), &iamsvc.DeleteRoleInput{
 						RoleName: aws.String(roleName),
 					})
 					if delErr != nil {
@@ -395,6 +395,7 @@ func TestTerraformImport_Lambda(t *testing.T) {
 					FunctionName: aws.String(funcName),
 					Role:         aws.String(roleARN),
 					Handler:      aws.String("index.handler"),
+					PackageType:  lambdatypes.PackageTypeZip,
 					Runtime:      lambdatypes.RuntimePython312,
 					Code: &lambdatypes.FunctionCode{
 						ZipFile: buf.Bytes(),
@@ -452,6 +453,7 @@ func TestTerraformImport_IAM(t *testing.T) {
 				_, err := client.CreateRole(ctx, &iamsvc.CreateRoleInput{
 					RoleName:                 aws.String(roleName),
 					AssumeRolePolicyDocument: aws.String(assumePolicy),
+					MaxSessionDuration:       aws.Int32(3600),
 				})
 				require.NoError(t, err, "CreateRole should succeed")
 
@@ -568,13 +570,14 @@ func TestTerraformImport_RDS(t *testing.T) {
 				identifier := "tf-import-rds-" + uuid.NewString()[:8]
 				client := createRDSClient(t)
 				_, err := client.CreateDBInstance(ctx, &rdssvc.CreateDBInstanceInput{
-					DBInstanceIdentifier: aws.String(identifier),
-					Engine:               aws.String("postgres"),
-					DBInstanceClass:      aws.String("db.t3.micro"),
-					MasterUsername:       aws.String("admin"),
-					MasterUserPassword:   aws.String("password123"),
-					DBName:               aws.String("testdb"),
-					AllocatedStorage:     aws.Int32(20),
+					DBInstanceIdentifier:    aws.String(identifier),
+					Engine:                  aws.String("postgres"),
+					DBInstanceClass:         aws.String("db.t3.micro"),
+					MasterUsername:          aws.String("admin"),
+					MasterUserPassword:      aws.String("password123"),
+					DBName:                  aws.String("testdb"),
+					AllocatedStorage:        aws.Int32(20),
+					AutoMinorVersionUpgrade: aws.Bool(true),
 				})
 				require.NoError(t, err, "CreateDBInstance should succeed")
 
@@ -623,6 +626,7 @@ func TestTerraformImport_Route53(t *testing.T) {
 					CallerReference: aws.String(uuid.NewString()),
 					HostedZoneConfig: &r53types.HostedZoneConfig{
 						PrivateZone: false,
+						Comment:     aws.String("Managed by Terraform"),
 					},
 				})
 				require.NoError(t, err, "CreateHostedZone should succeed")
@@ -680,7 +684,7 @@ func TestTerraformImport_Route53(t *testing.T) {
 				// This cleanup is registered BEFORE the tofu-destroy cleanup in
 				// runImportTest, so it runs AFTER tofu destroy (LIFO order).
 				t.Cleanup(func() {
-					_, delErr := client.DeleteHostedZone(context.Background(), &route53svc.DeleteHostedZoneInput{
+					_, delErr := client.DeleteHostedZone(t.Context(), &route53svc.DeleteHostedZoneInput{
 						Id: aws.String(rawZoneID),
 					})
 					if delErr != nil {

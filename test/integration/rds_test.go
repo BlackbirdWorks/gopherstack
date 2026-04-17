@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,7 +17,7 @@ func TestSDK_RDS_FullLifecycle(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	id := "sdk-pg-" + uuid.NewString()[:8]
@@ -103,7 +102,7 @@ func TestSDK_RDS_MySQL(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	id := "sdk-mysql-" + uuid.NewString()[:8]
@@ -134,7 +133,7 @@ func TestSDK_RDS_DBCluster_Aurora(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	clusterID := "sdk-aurora-" + uuid.NewString()[:8]
@@ -257,7 +256,7 @@ func TestSDK_RDS_DBClusterEndpoints(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	clusterID := "sdk-ep-cluster-" + uuid.NewString()[:8]
@@ -309,7 +308,7 @@ func TestSDK_RDS_ExportTasks(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	taskID := "sdk-export-" + uuid.NewString()[:8]
@@ -340,7 +339,7 @@ func TestSDK_RDS_ValidDBInstanceModifications(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	id := "sdk-valid-mod-" + uuid.NewString()[:8]
@@ -379,7 +378,7 @@ func TestSDK_RDS_SubnetGroup(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := createRDSClient(t)
 
 	name := "sdk-sg-" + uuid.NewString()[:8]

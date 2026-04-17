@@ -80,7 +80,7 @@ func TestCodeStarConnectionsDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "AWS CodeConnections")
+	assert.Contains(t, content, "AWS CodeStar Connections")
 }
 
 // TestCodeStarConnectionsDashboard_CreateConnection verifies creating a connection via the dashboard.

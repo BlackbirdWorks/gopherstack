@@ -2357,7 +2357,7 @@ func (b *InMemoryBackend) CreateBlueGreenDeployment(
 	b.mu.Lock("CreateBlueGreenDeployment")
 	defer b.mu.Unlock()
 
-	id := fmt.Sprintf("bgd-%s", name)
+	id := "bgd-" + name
 
 	if _, exists := b.blueGreenDeployments[id]; exists {
 		return nil, fmt.Errorf(
@@ -2535,7 +2535,7 @@ func (b *InMemoryBackend) AddBlueGreenDeploymentInternal(name, source string) *B
 	b.mu.Lock("AddBlueGreenDeploymentInternal")
 	defer b.mu.Unlock()
 
-	id := fmt.Sprintf("bgd-%s", name)
+	id := "bgd-" + name
 	d := &BlueGreenDeployment{
 		BlueGreenDeploymentIdentifier: id,
 		BlueGreenDeploymentName:       name,

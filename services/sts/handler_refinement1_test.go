@@ -1,7 +1,6 @@
 package sts_test
 
 import (
-	"context"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -35,7 +34,7 @@ func TestRefinement1_ProviderInit(t *testing.T) {
 	t.Parallel()
 
 	p := &sts.Provider{}
-	reg, err := p.Init(&service.AppContext{JanitorCtx: context.Background()})
+	reg, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
 	require.NoError(t, err)
 	assert.NotNil(t, reg)
 }

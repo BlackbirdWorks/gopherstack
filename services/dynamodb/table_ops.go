@@ -106,7 +106,7 @@ func (db *InMemoryDB) CreateTable(
 		stopTableTimers(newTable)
 		newTable.mu.Close()
 
-		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", tableName))
+		return nil, NewResourceInUseException("table already exists: " + tableName)
 	}
 
 	db.Tables[region][tableName] = newTable
@@ -223,7 +223,7 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 	for name := range defs {
 		if _, ok := referenced[name]; !ok {
 			return NewValidationException(
-				fmt.Sprintf("Parameter AttributeDefinitions contains unused attribute: %s", name),
+				"Parameter AttributeDefinitions contains unused attribute: " + name,
 			)
 		}
 	}
@@ -297,12 +297,12 @@ func (db *InMemoryDB) DeleteTable(
 
 	regionTables, regionExists := db.Tables[region]
 	if !regionExists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
+		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
 	table, tableExists := regionTables[tableName]
 	if !tableExists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
+		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
 	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
@@ -459,13 +459,13 @@ func (db *InMemoryDB) DescribeTable(
 	if !exists {
 		db.mu.RUnlock()
 
-		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
+		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 	table, exists := regionTables[tableName]
 	db.mu.RUnlock()
 
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
+		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
 	tableDesc := buildTableDescription(input.TableName, table)

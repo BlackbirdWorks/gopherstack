@@ -126,7 +126,7 @@ func (db *InMemoryDB) DescribeStream(
 
 	if found == nil {
 		return nil, NewResourceNotFoundException(
-			fmt.Sprintf("stream not found: %s", streamARN),
+			"stream not found: " + streamARN,
 		)
 	}
 
@@ -180,7 +180,7 @@ func (db *InMemoryDB) GetShardIterator(
 
 	if found == nil {
 		return nil, NewResourceNotFoundException(
-			fmt.Sprintf("stream not found: %s", streamARN),
+			"stream not found: " + streamARN,
 		)
 	}
 

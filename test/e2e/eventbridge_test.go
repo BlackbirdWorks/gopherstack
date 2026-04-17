@@ -90,7 +90,7 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("div").Filter(playwright.LocatorFilterOptions{HasText: "rules-bus"}).First().Locator("button:has-text('View Rules')").Click()
+	err = page.Locator("#view-rules-rules-bus").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=test-rule").WaitFor(playwright.LocatorWaitForOptions{

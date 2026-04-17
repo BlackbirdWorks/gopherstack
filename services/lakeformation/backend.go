@@ -257,7 +257,7 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 
 	if _, ok := b.resources[resourceArn]; ok {
 		return awserr.New(
-			fmt.Sprintf("resource already registered: %s", resourceArn),
+			"resource already registered: "+resourceArn,
 			awserr.ErrAlreadyExists,
 		)
 	}
@@ -283,7 +283,7 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 
 	if _, ok := b.resources[resourceArn]; !ok {
 		return awserr.New(
-			fmt.Sprintf("resource not found: %s", resourceArn),
+			"resource not found: "+resourceArn,
 			awserr.ErrNotFound,
 		)
 	}
@@ -314,7 +314,7 @@ func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, e
 	info, ok := b.resources[resourceArn]
 	if !ok {
 		return nil, awserr.New(
-			fmt.Sprintf("resource not found: %s", resourceArn),
+			"resource not found: "+resourceArn,
 			awserr.ErrNotFound,
 		)
 	}
@@ -434,7 +434,7 @@ func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []stri
 
 	if _, ok := b.lfTags[k]; ok {
 		return awserr.New(
-			fmt.Sprintf("LF tag already exists: %s", tagKey),
+			"LF tag already exists: "+tagKey,
 			awserr.ErrAlreadyExists,
 		)
 	}
@@ -464,7 +464,7 @@ func (b *InMemoryBackend) DeleteLFTag(catalogID, tagKey string) error {
 
 	if _, ok := b.lfTags[k]; !ok {
 		return awserr.New(
-			fmt.Sprintf("LF tag not found: %s", tagKey),
+			"LF tag not found: "+tagKey,
 			awserr.ErrNotFound,
 		)
 	}
@@ -488,7 +488,7 @@ func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
 	tag, ok := b.lfTags[k]
 	if !ok {
 		return nil, awserr.New(
-			fmt.Sprintf("LF tag not found: %s", tagKey),
+			"LF tag not found: "+tagKey,
 			awserr.ErrNotFound,
 		)
 	}
@@ -511,7 +511,7 @@ func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, 
 	tag, ok := b.lfTags[k]
 	if !ok {
 		return awserr.New(
-			fmt.Sprintf("LF tag not found: %s", tagKey),
+			"LF tag not found: "+tagKey,
 			awserr.ErrNotFound,
 		)
 	}
@@ -798,7 +798,7 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 				LFTag: &pair,
 				Error: &errorDetail{
 					ErrorCode:    "EntityNotFoundException",
-					ErrorMessage: fmt.Sprintf("LF tag not found: %s", pair.TagKey),
+					ErrorMessage: "LF tag not found: " + pair.TagKey,
 				},
 			})
 
@@ -911,7 +911,7 @@ func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
 
 	if _, ok := b.dataCellsFilters[k]; ok {
 		return awserr.New(
-			fmt.Sprintf("data cells filter already exists: %s", filter.Name),
+			"data cells filter already exists: "+filter.Name,
 			awserr.ErrAlreadyExists,
 		)
 	}
@@ -938,7 +938,7 @@ func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID str
 
 	if _, ok := b.lfTagExpressions[k]; ok {
 		return awserr.New(
-			fmt.Sprintf("LF-tag expression already exists: %s", name),
+			"LF-tag expression already exists: "+name,
 			awserr.ErrAlreadyExists,
 		)
 	}
@@ -1014,7 +1014,7 @@ func (b *InMemoryBackend) DeleteDataCellsFilter(tableCatalogID, databaseName, ta
 
 	if _, ok := b.dataCellsFilters[k]; !ok {
 		return awserr.New(
-			fmt.Sprintf("data cells filter not found: %s", name),
+			"data cells filter not found: "+name,
 			awserr.ErrNotFound,
 		)
 	}
@@ -1033,7 +1033,7 @@ func (b *InMemoryBackend) DeleteLFTagExpression(name, catalogID string) error {
 
 	if _, ok := b.lfTagExpressions[k]; !ok {
 		return awserr.New(
-			fmt.Sprintf("LF-tag expression not found: %s", name),
+			"LF-tag expression not found: "+name,
 			awserr.ErrNotFound,
 		)
 	}
@@ -1188,7 +1188,7 @@ func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string) error {
 	info, ok := b.resources[resourceArn]
 	if !ok {
 		return awserr.New(
-			fmt.Sprintf("resource not found: %s", resourceArn),
+			"resource not found: "+resourceArn,
 			awserr.ErrNotFound,
 		)
 	}
@@ -1224,7 +1224,7 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 	status, ok := b.transactions[transactionID]
 	if !ok {
 		return nil, awserr.New(
-			fmt.Sprintf("transaction not found: %s", transactionID),
+			"transaction not found: "+transactionID,
 			awserr.ErrNotFound,
 		)
 	}
@@ -1281,7 +1281,7 @@ func (b *InMemoryBackend) RemoveLFTagsFromResource(
 				LFTag: &pair,
 				Error: &errorDetail{
 					ErrorCode:    "EntityNotFoundException",
-					ErrorMessage: fmt.Sprintf("LF tag not attached to resource: %s", pair.TagKey),
+					ErrorMessage: "LF tag not attached to resource: " + pair.TagKey,
 				},
 			})
 

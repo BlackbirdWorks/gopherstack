@@ -56,8 +56,8 @@ func TestSageMakerDashboard(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-model")
-	assert.Contains(t, content, "+ Create Model")
+	assert.Contains(t, content, "Amazon SageMaker")
+	assert.Contains(t, content, "Notebooks")
 }
 
 // TestSageMakerDashboard_Empty verifies the SageMaker dashboard renders correctly with no models.
@@ -91,5 +91,5 @@ func TestSageMakerDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No models found")
+	assert.Contains(t, content, "No notebook instances found")
 }

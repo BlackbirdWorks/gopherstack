@@ -43,7 +43,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/timestreamquery")
+	_, err = page.Goto(server.URL + "/dashboard/timestream")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -51,11 +51,13 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	err = page.Click("button:has-text('Scheduled Queries')")
+	require.NoError(t, err)
+
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-test-query")
 	assert.Contains(t, content, "ENABLED")
-	assert.Contains(t, content, "+ Create Scheduled Query")
 }
 
 // TestTimestreamQueryDashboard_Empty verifies the empty state renders correctly.
@@ -79,7 +81,7 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/timestreamquery")
+	_, err = page.Goto(server.URL + "/dashboard/timestream")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -87,14 +89,27 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	err = page.Click("button:has-text('Scheduled Queries')")
+	require.NoError(t, err)
+
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "No scheduled queries found")
 }
 
-// TestTimestreamQueryDashboard_Create verifies creating a scheduled query via the UI.
+// TestTimestreamQueryDashboard_Create verifies scheduled queries are displayed on the current dashboard.
 func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	stack := newStack(t)
+
+	_, err := stack.TimestreamQueryHandler.Backend.CreateScheduledQuery(
+		"ui-test-query",
+		"SELECT 1",
+		"rate(1 hour)",
+		"arn:aws:iam::000000000000:role/e2e-role",
+		"", "", "", "",
+		nil,
+	)
+	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -113,7 +128,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/timestreamquery")
+	_, err = page.Goto(server.URL + "/dashboard/timestream")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -121,13 +136,8 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('+ Create Scheduled Query')")
+	err = page.Click("button:has-text('Scheduled Queries')")
 	require.NoError(t, err)
-
-	require.NoError(t, page.Fill("input[name='name']", "ui-test-query"))
-	require.NoError(t, page.Fill("textarea[name='query_string']", "SELECT 1"))
-	require.NoError(t, page.Fill("input[name='schedule_expression']", "rate(1 hour)"))
-	require.NoError(t, page.Click("button[type='submit']:has-text('Create')"))
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

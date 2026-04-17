@@ -1033,10 +1033,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 				var created map[string]any
 				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
 				poolID := created["IdentityPoolId"].(string)
-				arn = fmt.Sprintf(
-					"arn:aws:cognito-identity:us-east-1:000000000000:identitypool/%s",
-					poolID,
-				)
+				arn = "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 			}
 
 			rec := doCognitoIdentityRequest(t, h, "ListTagsForResource", map[string]any{
@@ -1069,7 +1066,7 @@ func TestHandler_TagResource_UntagResource(t *testing.T) {
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
 	poolID := created["IdentityPoolId"].(string)
-	arn := fmt.Sprintf("arn:aws:cognito-identity:us-east-1:000000000000:identitypool/%s", poolID)
+	arn := "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 
 	// TagResource.
 	tagRec := doCognitoIdentityRequest(t, h, "TagResource", map[string]any{
@@ -1648,7 +1645,7 @@ func TestRefinement1_DeleteIdentityPool_CleansTagsAndPrincipalTags(t *testing.T)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
 	poolID := created["IdentityPoolId"].(string)
-	arn := fmt.Sprintf("arn:aws:cognito-identity:us-east-1:000000000000:identitypool/%s", poolID)
+	arn := "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 
 	// Add principal tag mapping.
 	setRec := doCognitoIdentityRequest(t, h, "SetPrincipalTagAttributeMap", map[string]any{
@@ -1854,7 +1851,7 @@ func TestRefinement1_ListTagsForResource_EmptyTags(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
 
 	poolID := created["IdentityPoolId"].(string)
-	arn := fmt.Sprintf("arn:aws:cognito-identity:us-east-1:000000000000:identitypool/%s", poolID)
+	arn := "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 
 	rec := doCognitoIdentityRequest(t, h, "ListTagsForResource", map[string]any{
 		"ResourceArn": arn,

@@ -2,7 +2,6 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,7 +25,7 @@ func newStreamEnabledHandler(t *testing.T) (*dynamodb.DynamoDBHandler, string) {
 	t.Helper()
 
 	db := dynamodb.NewInMemoryDB()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const tableName = "StreamHandlerTable"
 
@@ -194,7 +193,7 @@ func TestHandler_HandlerUtilities(t *testing.T) {
 		db := dynamodb.NewInMemoryDB()
 		h := dynamodb.NewHandler(db)
 
-		err := h.StartWorker(context.Background())
+		err := h.StartWorker(t.Context())
 		require.NoError(t, err)
 	})
 

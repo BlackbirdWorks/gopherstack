@@ -161,7 +161,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	endpoint = "http://localhost:" + mappedPort.Port()
 	logger.Info("Gopherstack running", "endpoint", endpoint)
 
 	// Verify the reset endpoint works and start all tests with clean state.
@@ -177,7 +177,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		logger.Warn("failed to get MQTT mapped port; IoT tests will be skipped", "error", err)
 	} else {
-		mqttEndpoint = fmt.Sprintf("tcp://localhost:%s", mqttPort.Port())
+		mqttEndpoint = "tcp://localhost:" + mqttPort.Port()
 		logger.Info("MQTT broker running", "endpoint", mqttEndpoint)
 	}
 
@@ -818,7 +818,7 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 			return
 		}
 
-		ctx := context.Background()
+		ctx := t.Context()
 		t.Logf("\n========== CONTAINER LOGS FOR FAILED TEST: %s ==========\n", t.Name())
 
 		logs, err := sharedContainer.Logs(ctx)

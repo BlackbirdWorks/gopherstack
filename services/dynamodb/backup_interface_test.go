@@ -2,7 +2,6 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -343,7 +342,7 @@ func TestCreateDeleteBackup_RoundTrip(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 	createTableHelper(t, db, "RoundTrip", "pk")
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create backup.
 	createOut, err := db.CreateBackup(ctx, &sdk.CreateBackupInput{

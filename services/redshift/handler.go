@@ -176,7 +176,7 @@ func (h *Handler) dispatch(c *echo.Context, action string, vals url.Values) erro
 	fn, ok := h.ops[action]
 	if !ok {
 		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
-			fmt.Sprintf("%s is not a valid Redshift action", action))
+			action+" is not a valid Redshift action")
 	}
 
 	resp, opErr := fn(vals)

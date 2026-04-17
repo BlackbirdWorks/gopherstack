@@ -7,6 +7,7 @@ type Backend interface {
 	// Clusters
 
 	CreateCluster(input CreateClusterInput) (*Cluster, error)
+	ListClusters() ([]Cluster, error)
 	DescribeClusters(clusterNames []string) ([]Cluster, error)
 	DeleteCluster(clusterName string) (*Cluster, error)
 

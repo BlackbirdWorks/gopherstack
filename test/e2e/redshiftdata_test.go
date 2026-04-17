@@ -41,5 +41,6 @@ func TestRedshiftDataDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
 // TestRedshiftDataDashboard_Empty is no longer applicable (route removed).
 // Kept as placeholder for backward compatibility with test runner.

@@ -294,6 +294,47 @@ type ConfigManager interface {
 	SaveConfig() error
 }
 
+// AWSSDKProvider defines an interface for providing access to AWS service handlers and clients.
+// This is used by the dashboard provider to discover and link service backends.
+type AWSSDKProvider interface {
+	GetDynamoDBHandler() service.Registerable
+	GetS3Handler() service.Registerable
+	GetSSMHandler() service.Registerable
+	GetIAMHandler() service.Registerable
+	GetSTSHandler() service.Registerable
+	GetSNSHandler() service.Registerable
+	GetSQSHandler() service.Registerable
+	GetKMSHandler() service.Registerable
+	GetSecretsManagerHandler() service.Registerable
+	GetLambdaHandler() service.Registerable
+	GetEventBridgeHandler() service.Registerable
+	GetAPIGatewayHandler() service.Registerable
+	GetCloudWatchLogsHandler() service.Registerable
+	GetStepFunctionsHandler() service.Registerable
+	GetCloudWatchHandler() service.Registerable
+	GetCloudFormationHandler() service.Registerable
+	GetKinesisHandler() service.Registerable
+	GetElastiCacheHandler() service.Registerable
+	GetRoute53Handler() service.Registerable
+	GetSESHandler() service.Registerable
+	GetSESv2Handler() service.Registerable
+	GetEC2Handler() service.Registerable
+	GetECRHandler() service.Registerable
+	GetECSHandler() service.Registerable
+	GetEFSHandler() service.Registerable
+	GetEKSHandler() service.Registerable
+	GetIoTHandler() service.Registerable
+	GetAPIGatewayManagementAPIHandler() service.Registerable
+	GetAppConfigDataHandler() service.Registerable
+	GetAmplifyHandler() service.Registerable
+	GetAPIGatewayV2Handler() service.Registerable
+	GetAppConfigHandler() service.Registerable
+	GetAthenaHandler() service.Registerable
+	GetAutoscalingHandler() service.Registerable
+	GetBackupHandler() service.Registerable
+	GetCloudTrailHandler() service.Registerable
+}
+
 //go:embed all:static
 var staticFS embed.FS
 
@@ -301,6 +342,8 @@ var staticFS embed.FS
 var spaFS embed.FS
 
 // DashboardHandler handles HTTP requests for the Dashboard web interface.
+//
+//nolint:revive // keep exported name stable for existing consumers.
 type DashboardHandler struct {
 	FaultStore    *chaos.FaultStore
 	ConfigManager ConfigManager
@@ -596,6 +639,8 @@ func (h *DashboardHandler) Handler() echo.HandlerFunc {
 }
 
 // setupSubRouter registers all routes for the dashboard.
+//
+//nolint:gocognit,gocyclo,cyclop,dupl,funlen // centralized route wiring keeps setup behavior explicit.
 func (h *DashboardHandler) setupSubRouter() {
 	// Static assets
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
@@ -604,6 +649,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return nil
 	})
+
+	// Legacy REST endpoints for test compatibility (Terraform)
+	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/create", h.apiGatewayManagementAPICreateConnection)
+	h.SubRouter.POST("/dashboard/appconfigdata/configuration/set", h.appConfigDataSetConfiguration)
 
 	// Connect-RPC server
 	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(NewConnectDashboardServer())
@@ -873,4 +922,67 @@ func (h *DashboardHandler) ExtractResource(_ *echo.Context) string {
 // GetSupportedOperations returns a list of operations supported by the dashboard (none).
 func (h *DashboardHandler) GetSupportedOperations() []string {
 	return nil
+}
+
+// apiGatewayManagementAPICreateConnection handles POST /dashboard/apigatewaymanagementapi/connection/create.
+// This is a legacy endpoint used by terraform tests to seed data.
+func (h *DashboardHandler) apiGatewayManagementAPICreateConnection(c *echo.Context) error {
+	if h.config.APIGatewayManagementAPIOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	connectionID := c.Request().FormValue("connectionId")
+	sourceIP := c.Request().FormValue("sourceIp")
+	userAgent := c.Request().FormValue("userAgent")
+
+	if connectionID == "" {
+		return c.String(http.StatusBadRequest, "connectionId is required")
+	}
+
+	if sourceIP == "" {
+		sourceIP = "127.0.0.1"
+	}
+
+	if userAgent == "" {
+		userAgent = "test-client/1.0"
+	}
+
+	if _, err := h.config.APIGatewayManagementAPIOps.Backend.CreateConnection(
+		connectionID,
+		sourceIP,
+		userAgent,
+	); err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/apigatewaymanagementapi")
+}
+
+// appConfigDataSetConfiguration handles POST /dashboard/appconfigdata/configuration/set.
+// This is a legacy endpoint used by terraform tests to seed data.
+func (h *DashboardHandler) appConfigDataSetConfiguration(c *echo.Context) error {
+	if h.config.AppConfigDataOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	app := c.Request().FormValue("applicationIdentifier")
+	env := c.Request().FormValue("environmentIdentifier")
+	profile := c.Request().FormValue("configurationProfileIdentifier")
+	content := c.Request().FormValue("content")
+	contentType := c.Request().FormValue("contentType")
+
+	if app == "" || env == "" || profile == "" {
+		return c.String(
+			http.StatusBadRequest,
+			"applicationIdentifier, environmentIdentifier, and configurationProfileIdentifier are required",
+		)
+	}
+
+	if contentType == "" {
+		contentType = "application/json"
+	}
+
+	h.config.AppConfigDataOps.Backend.SetConfiguration(app, env, profile, content, contentType)
+
+	return c.Redirect(http.StatusFound, "/dashboard/appconfigdata")
 }

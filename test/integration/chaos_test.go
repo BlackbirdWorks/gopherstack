@@ -3,7 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -79,7 +78,7 @@ func startChaosContainer(t *testing.T) string {
 	mappedPort, err := container.MappedPort(ctx, "8000")
 	require.NoError(t, err)
 
-	return fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	return "http://localhost:" + mappedPort.Port()
 }
 
 // newDynamoDBClientAt returns a DynamoDB client pointed at the given endpoint.

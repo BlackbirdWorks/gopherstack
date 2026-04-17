@@ -788,13 +788,13 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	var unmarshalTypeError *json.UnmarshalTypeError
 	if errors.As(reqErr, &syntaxErr) || errors.As(reqErr, &unmarshalTypeError) {
 		return http.StatusBadRequest, NewValidationException(
-			fmt.Sprintf("JSON Error: %s", reqErr.Error()),
+			"JSON Error: " + reqErr.Error(),
 		)
 	}
 
 	errStr := reqErr.Error()
 	if strings.Contains(errStr, "json:") || strings.Contains(errStr, "unmarshal") {
-		return http.StatusBadRequest, NewValidationException(fmt.Sprintf("JSON Error: %s", errStr))
+		return http.StatusBadRequest, NewValidationException("JSON Error: " + errStr)
 	}
 
 	return http.StatusInternalServerError, &Error{

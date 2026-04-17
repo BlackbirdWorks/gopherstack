@@ -405,7 +405,7 @@ import { ResiliencehubClient } from "@aws-sdk/client-resiliencehub";
 import { Route53ResolverClient } from "@aws-sdk/client-route53resolver";
 import { S3ControlClient } from "@aws-sdk/client-s3-control";
 import { FSxClient } from "@aws-sdk/client-fsx";
-// Glacier removed - @aws-sdk/client-glacier not installed; use S3 for archival
+import { GlacierClient } from "@aws-sdk/client-glacier";
 import { PollyClient } from "@aws-sdk/client-polly";
 import { STSClient } from "@aws-sdk/client-sts";
 import { NetworkManagerClient } from "@aws-sdk/client-networkmanager";
@@ -534,10 +534,9 @@ export function getFSxClient(region?: string): FSxClient {
   return new FSxClient(clientConfig(region));
 }
 
-// Glacier removed - @aws-sdk/client-glacier not installed; use S3 for archival
-// export function getGlacierClient(region?: string): GlacierClient {
-//   return new GlacierClient(clientConfig(region));
-// }
+export function getGlacierClient(region?: string): GlacierClient {
+  return new GlacierClient(clientConfig(region));
+}
 
 export function getPollyClient(region?: string): PollyClient {
   return new PollyClient(clientConfig(region));

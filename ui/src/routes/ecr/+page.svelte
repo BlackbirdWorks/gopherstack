@@ -180,7 +180,7 @@
 			<button onclick={() => loadRepositories()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
-			<button onclick={() => { showCreateModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+			<button id="create-repo-btn" onclick={() => { showCreateModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />Create Repository
 			</button>
 		</div>
@@ -223,7 +223,7 @@
 								{#if repo.imageTagMutability === 'IMMUTABLE'}
 									<span class="px-1.5 py-0.5 text-xs rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">Immutable</span>
 								{/if}
-								<button onclick={(e) => { e.stopPropagation(); deleteRepository(repo.repositoryName ?? ''); }} class="p-1 text-slate-400 hover:text-red-500">
+								<button id="delete-repo-{repo.repositoryName}" onclick={(e) => { e.stopPropagation(); deleteRepository(repo.repositoryName ?? ''); }} class="p-1 text-slate-400 hover:text-red-500">
 									<Trash2 class="w-4 h-4" />
 								</button>
 							</div>
@@ -324,13 +324,13 @@
 
 <!-- Create Repository Modal -->
 {#if showCreateModal}
-	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Repository</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createRepository(); }} class="space-y-4">
 				<div>
 					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Repository Name</label>
-					<input type="text" bind:value={newRepoName} placeholder="e.g. my-service/api" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<input id="new-repo-name" type="text" bind:value={newRepoName} placeholder="e.g. my-service/api" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Image Tag Mutability</label>
@@ -352,7 +352,7 @@
 				</label>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => { showCreateModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
-					<button type="submit" disabled={creating} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+					<button id="confirm-create-repo-btn" type="submit" disabled={creating} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
 						{creating ? 'Creating...' : 'Create Repository'}
 					</button>
 				</div>

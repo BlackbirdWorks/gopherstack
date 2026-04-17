@@ -260,7 +260,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		action := vals.Get("Action")
 		fn, ok := h.dispatchTable()[action]
 		if !ok {
-			return c.String(http.StatusBadRequest, fmt.Sprintf("unknown action: %s", action))
+			return c.String(http.StatusBadRequest, "unknown action: "+action)
 		}
 
 		return fn(c, vals)

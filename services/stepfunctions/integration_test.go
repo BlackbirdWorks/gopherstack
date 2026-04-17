@@ -52,7 +52,7 @@ func TestNewSQSIntegration_SFNSendMessage(t *testing.T) {
 			t.Parallel()
 			adapter := stepfunctions.NewSQSIntegration(sqsBackend)
 			msgID, md5, callErr := adapter.SFNSendMessage(
-				context.Background(), tt.queueURL, tt.messageBody, "", "", 0,
+				t.Context(), tt.queueURL, tt.messageBody, "", "", 0,
 			)
 			if tt.wantErr {
 				require.Error(t, callErr)
@@ -98,7 +98,7 @@ func TestNewSNSIntegration_SFNPublish(t *testing.T) {
 			t.Parallel()
 			adapter := stepfunctions.NewSNSIntegration(snsBackend)
 			msgID, callErr := adapter.SFNPublish(
-				context.Background(), tt.topicARN, tt.message, "",
+				t.Context(), tt.topicARN, tt.message, "",
 			)
 			if tt.wantErr {
 				require.Error(t, callErr)
@@ -114,7 +114,7 @@ func TestNewSNSIntegration_SFNPublish(t *testing.T) {
 func TestNewDynamoDBIntegration(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	ddbBackend := dynamodb.NewInMemoryDB()
 	const tableName = "sfn-test-table"
 
@@ -261,7 +261,7 @@ func (m *mockLambdaForBackend) InvokeFunction(
 func TestNewDynamoDBIntegration_NewOps(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	ddbBackend := dynamodb.NewInMemoryDB()
 	const tableName = "sfn-newops-table"
 	const deleteableTable = "sfn-deleteable-table"

@@ -31,7 +31,8 @@
 		const objectKeyParam = String((page.params as any).objectKey || '');
 		
 		bucket = bucketParam;
-		objectKey = decodeURIComponent(objectKeyParam);
+		// SvelteKit decodes the rest param automatically for [...objectKey]
+		objectKey = objectKeyParam;
 		
 		await loadObjectMetadata();
 		await loadObjectVersions();

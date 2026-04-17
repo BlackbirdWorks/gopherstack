@@ -33,7 +33,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListDaemons",
 		"ListAccountSettings",
 		"ListAttributes",
-		"ListClusters",
 		"ListServiceDeployments",
 		"ListServicesByNamespace",
 		"ListTagsForResource",

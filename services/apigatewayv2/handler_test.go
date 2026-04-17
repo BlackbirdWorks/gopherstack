@@ -170,7 +170,7 @@ func TestHandler_GetAPI(t *testing.T) {
 				apiID = tt.setup(h)
 			}
 
-			rr := doRequest(t, h, http.MethodGet, fmt.Sprintf("/v2/apis/%s", apiID), nil)
+			rr := doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID, nil)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -260,7 +260,7 @@ func TestHandler_DeleteAPI(t *testing.T) {
 				apiID = tt.setup(h)
 			}
 
-			rr := doRequest(t, h, http.MethodDelete, fmt.Sprintf("/v2/apis/%s", apiID), nil)
+			rr := doRequest(t, h, http.MethodDelete, "/v2/apis/"+apiID, nil)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
 	}
@@ -302,7 +302,7 @@ func TestHandler_UpdateAPI(t *testing.T) {
 				apiID = "nonexistent"
 			}
 
-			rr := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/v2/apis/%s", apiID), tt.update)
+			rr := doRequest(t, h, http.MethodPatch, "/v2/apis/"+apiID, tt.update)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 
 			if tt.wantName != "" {
@@ -4358,7 +4358,7 @@ func TestHandler_UpdateDomainName(t *testing.T) {
 			domainName := tt.setup(h)
 
 			rr := doRequest(t, h, http.MethodPatch,
-				fmt.Sprintf("/v2/domainnames/%s", domainName), tt.body)
+				"/v2/domainnames/"+domainName, tt.body)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
@@ -4578,7 +4578,7 @@ func TestHandler_UpdatePortal(t *testing.T) {
 			h := newTestHandler()
 			portalID := tt.setup(h)
 
-			rr := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/v2/portals/%s", portalID), tt.body)
+			rr := doRequest(t, h, http.MethodPatch, "/v2/portals/"+portalID, tt.body)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
@@ -4616,7 +4616,7 @@ func TestHandler_DeletePortal(t *testing.T) {
 			h := newTestHandler()
 			portalID := tt.setup(h)
 
-			rr := doRequest(t, h, http.MethodDelete, fmt.Sprintf("/v2/portals/%s", portalID), nil)
+			rr := doRequest(t, h, http.MethodDelete, "/v2/portals/"+portalID, nil)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
@@ -4657,7 +4657,7 @@ func TestHandler_UpdatePortalProduct(t *testing.T) {
 			h := newTestHandler()
 			ppID := tt.setup(h)
 
-			rr := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/v2/portalproducts/%s", ppID), tt.body)
+			rr := doRequest(t, h, http.MethodPatch, "/v2/portalproducts/"+ppID, tt.body)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
@@ -4695,7 +4695,7 @@ func TestHandler_DeletePortalProduct(t *testing.T) {
 			h := newTestHandler()
 			ppID := tt.setup(h)
 
-			rr := doRequest(t, h, http.MethodDelete, fmt.Sprintf("/v2/portalproducts/%s", ppID), nil)
+			rr := doRequest(t, h, http.MethodDelete, "/v2/portalproducts/"+ppID, nil)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -552,7 +551,7 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 		return c.JSON(http.StatusBadRequest, amplifyError(err.Error()))
 	}
 
-	return c.JSON(http.StatusInternalServerError, amplifyError(fmt.Sprintf("internal error: %s", err.Error())))
+	return c.JSON(http.StatusInternalServerError, amplifyError("internal error: "+err.Error()))
 }
 
 // appView is the JSON representation of an App with timestamps as Unix epoch

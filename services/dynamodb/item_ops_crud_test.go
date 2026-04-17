@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -79,7 +78,7 @@ func TestDeleteItem_SwapWithLast(t *testing.T) {
 					Item:      item,
 				}
 				sdkInput, _ := models.ToSDKPutItemInput(&input)
-				_, err := db.PutItem(context.Background(), sdkInput)
+				_, err := db.PutItem(t.Context(), sdkInput)
 				require.NoError(t, err)
 				_ = sdkItem
 			}
@@ -134,7 +133,7 @@ func TestMissingSK_KeyOperations(t *testing.T) {
 			},
 		}
 		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-		_, err := db.PutItem(context.Background(), sdkPut)
+		_, err := db.PutItem(t.Context(), sdkPut)
 		require.NoError(t, err)
 
 		return db
@@ -148,7 +147,7 @@ func TestMissingSK_KeyOperations(t *testing.T) {
 			Key:       map[string]any{"pk": map[string]any{"S": "p1"}},
 		}
 		sdkGet, _ := models.ToSDKGetItemInput(&getInput)
-		_, err := db.GetItem(context.Background(), sdkGet)
+		_, err := db.GetItem(t.Context(), sdkGet)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Missing key element: sk")
 	})
@@ -161,7 +160,7 @@ func TestMissingSK_KeyOperations(t *testing.T) {
 			Key:       map[string]any{"pk": map[string]any{"S": "p1"}},
 		}
 		sdkDel, _ := models.ToSDKDeleteItemInput(&delInput)
-		_, err := db.DeleteItem(context.Background(), sdkDel)
+		_, err := db.DeleteItem(t.Context(), sdkDel)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Missing key element: sk")
 	})
@@ -178,7 +177,7 @@ func TestMissingSK_KeyOperations(t *testing.T) {
 			},
 		}
 		sdkUpd, _ := models.ToSDKUpdateItemInput(&updateInput)
-		_, err := db.UpdateItem(context.Background(), sdkUpd)
+		_, err := db.UpdateItem(t.Context(), sdkUpd)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Missing key element: sk")
 	})
@@ -194,7 +193,7 @@ func TestMissingSK_KeyOperations(t *testing.T) {
 			},
 		}
 		sdkGet, _ := models.ToSDKGetItemInput(&getInput)
-		resp, err := db.GetItem(context.Background(), sdkGet)
+		resp, err := db.GetItem(t.Context(), sdkGet)
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.Item)
 	})

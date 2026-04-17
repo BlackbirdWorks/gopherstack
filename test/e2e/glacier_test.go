@@ -44,10 +44,12 @@ func TestGlacierDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the vault to appear in the list.
+	err = page.Locator("text=e2e-test-vault").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-vault")
-	assert.Contains(t, content, "Create Vault")
 }
 
 // TestGlacierDashboard_Empty verifies the Glacier dashboard renders correctly with no data.

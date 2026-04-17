@@ -2,7 +2,6 @@ package iotanalytics
 
 import (
 	"cmp"
-	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -109,22 +108,22 @@ func (b *InMemoryBackend) Reset() {
 
 // channelARN returns the ARN for an IoT Analytics channel.
 func channelARN(name string) string {
-	return fmt.Sprintf("arn:aws:iotanalytics:us-east-1:000000000000:channel/%s", name)
+	return "arn:aws:iotanalytics:us-east-1:000000000000:channel/" + name
 }
 
 // datastoreARN returns the ARN for an IoT Analytics datastore.
 func datastoreARN(name string) string {
-	return fmt.Sprintf("arn:aws:iotanalytics:us-east-1:000000000000:datastore/%s", name)
+	return "arn:aws:iotanalytics:us-east-1:000000000000:datastore/" + name
 }
 
 // datasetARN returns the ARN for an IoT Analytics dataset.
 func datasetARN(name string) string {
-	return fmt.Sprintf("arn:aws:iotanalytics:us-east-1:000000000000:dataset/%s", name)
+	return "arn:aws:iotanalytics:us-east-1:000000000000:dataset/" + name
 }
 
 // pipelineARN returns the ARN for an IoT Analytics pipeline.
 func pipelineARN(name string) string {
-	return fmt.Sprintf("arn:aws:iotanalytics:us-east-1:000000000000:pipeline/%s", name)
+	return "arn:aws:iotanalytics:us-east-1:000000000000:pipeline/" + name
 }
 
 // sortedKeys returns the keys of map m in sorted order.

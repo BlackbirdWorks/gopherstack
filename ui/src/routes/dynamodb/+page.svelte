@@ -718,8 +718,8 @@
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Manage your DynamoDB tables.</p>
 			</div>
 			<div class="flex gap-2">
-				<button onclick={purgeAll} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-800">Purge All</button>
-				<button onclick={() => { showCreateModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">+ Create Table</button>
+				<button id="purge-all-btn" onclick={purgeAll} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-900">Purge All</button>
+				<button id="create-table-btn" onclick={() => { showCreateModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">+ Create Table</button>
 			</div>
 		</div>
 		<div class="flex flex-col md:flex-row justify-between items-end gap-4">
@@ -747,7 +747,7 @@
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 				{#each pagedTables as tableName}
 					{@const desc = tableDetails.get(tableName)}
-					<div class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
+					<div id="table-{tableName}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 						<div class="flex justify-between items-start">
 							<button onclick={() => openTable(tableName)} class="flex-1 text-left">
 								<h3 class="text-base font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{tableName}</h3>
@@ -813,7 +813,7 @@
 						</div>
 						<div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600">
 							<button type="button" onclick={() => { showCreateModal = false; }} class="text-slate-500 bg-white hover:bg-slate-100 border border-slate-200 text-sm font-medium px-5 py-2.5 rounded-lg dark:bg-slate-700 dark:text-slate-300 dark:border-slate-500 dark:hover:text-white dark:hover:bg-slate-600">Cancel</button>
-							<button type="submit" disabled={creating} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 disabled:opacity-50">{creating ? 'Creating...' : 'Create'}</button>
+							<button id="confirm-create-table-btn" type="submit" disabled={creating} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 disabled:opacity-50">{creating ? 'Creating...' : 'Create'}</button>
 						</div>
 					</form>
 				</div>

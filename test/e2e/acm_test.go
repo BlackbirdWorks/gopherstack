@@ -44,9 +44,12 @@ func TestACMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the certificate to appear in the table.
+	err = page.Locator("text=e2e-test.example.com").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test.example.com")
 }
 
 // TestACMDashboard_Empty verifies the empty state renders correctly.

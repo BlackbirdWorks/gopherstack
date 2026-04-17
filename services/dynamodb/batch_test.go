@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -145,7 +144,7 @@ func TestBatchWriteItem(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKBatchWriteItemInput(&tt.input)
-			_, err := db.BatchWriteItem(context.Background(), sdkInput)
+			_, err := db.BatchWriteItem(t.Context(), sdkInput)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -312,7 +311,7 @@ func TestBatchWriteItem_ValidationErrors(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKBatchWriteItemInput(&tt.input)
-			_, err := db.BatchWriteItem(context.Background(), sdkInput)
+			_, err := db.BatchWriteItem(t.Context(), sdkInput)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContain)
@@ -369,7 +368,7 @@ func TestBatchWriteItem_UnprocessedItems(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sdkInput)
 
-	out, err := db.BatchWriteItem(context.Background(), sdkInput)
+	out, err := db.BatchWriteItem(t.Context(), sdkInput)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 

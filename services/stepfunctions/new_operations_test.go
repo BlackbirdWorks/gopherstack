@@ -401,7 +401,7 @@ func TestActivity_GetActivityTaskAndSendSuccess(t *testing.T) {
 			errCh := make(chan error, 1)
 
 			go func() {
-				out, invokeErr := b.InvokeActivity(context.Background(), a.ActivityArn, tt.input)
+				out, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, tt.input)
 				if invokeErr != nil {
 					errCh <- invokeErr
 
@@ -410,7 +410,7 @@ func TestActivity_GetActivityTaskAndSendSuccess(t *testing.T) {
 				resultCh <- out
 			}()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 
 			task, err := b.GetActivityTask(ctx, a.ActivityArn, "worker-1")
@@ -463,11 +463,11 @@ func TestActivity_GetActivityTaskAndSendFailure(t *testing.T) {
 			invokeErrCh := make(chan error, 1)
 
 			go func() {
-				_, invokeErr := b.InvokeActivity(context.Background(), a.ActivityArn, `{}`)
+				_, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, `{}`)
 				invokeErrCh <- invokeErr
 			}()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 
 			task, err := b.GetActivityTask(ctx, a.ActivityArn, "worker-1")
@@ -512,7 +512,7 @@ func TestActivity_GetActivityTask_Timeout(t *testing.T) {
 			a, err := b.CreateActivity("timeout-act-" + tt.name)
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 			defer cancel()
 
 			task, err := b.GetActivityTask(ctx, a.ActivityArn, "worker-1")

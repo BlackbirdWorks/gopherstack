@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -370,7 +369,7 @@ func TestIntegration_IoT_Rule_ForwardsToSQS(t *testing.T) {
 	queueURL := *createOut.QueueUrl
 
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(context.Background(), &sqs.DeleteQueueInput{QueueUrl: &queueURL})
+		_, _ = sqsClient.DeleteQueue(t.Context(), &sqs.DeleteQueueInput{QueueUrl: &queueURL})
 	})
 
 	// Create an IoT rule that forwards matching messages to the SQS queue.

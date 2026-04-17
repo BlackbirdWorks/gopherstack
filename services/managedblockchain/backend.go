@@ -140,22 +140,22 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // networkARN builds the ARN for a Managed Blockchain network.
 func networkARN(region, accountID, networkID string) string {
-	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("networks/%s", networkID))
+	return arn.Build("managedblockchain", region, accountID, "networks/"+networkID)
 }
 
 // memberARN builds the ARN for a Managed Blockchain member.
 func memberARN(region, accountID, memberID string) string {
-	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("members/%s", memberID))
+	return arn.Build("managedblockchain", region, accountID, "members/"+memberID)
 }
 
 // nodeARN builds the ARN for a Managed Blockchain node.
 func nodeARN(region, accountID, nodeID string) string {
-	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("nodes/%s", nodeID))
+	return arn.Build("managedblockchain", region, accountID, "nodes/"+nodeID)
 }
 
 // accessorARN builds the ARN for a Managed Blockchain accessor.
 func accessorARN(region, accountID, accessorID string) string {
-	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("accessors/%s", accessorID))
+	return arn.Build("managedblockchain", region, accountID, "accessors/"+accessorID)
 }
 
 // proposalARN builds the ARN for a Managed Blockchain proposal.
@@ -166,7 +166,7 @@ func proposalARN(region, accountID, networkID, proposalID string) string {
 
 // invitationARN builds the ARN for a Managed Blockchain invitation.
 func invitationARN(region, accountID, invitationID string) string {
-	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("invitations/%s", invitationID))
+	return arn.Build("managedblockchain", region, accountID, "invitations/"+invitationID)
 }
 
 // CreateNetwork creates a new Managed Blockchain network and its first member.

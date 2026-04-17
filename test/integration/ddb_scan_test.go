@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -34,7 +33,7 @@ func createScanTable(t *testing.T, client *dynamodb.Client, tableName string) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})

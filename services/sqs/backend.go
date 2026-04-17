@@ -1480,8 +1480,10 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 
 	taskHandle := uuid.New().String()
 
-	//nolint:gosec // cancel is stored in moveTaskState and called from CancelMessageMoveTask or Reset
-	ctx, cancel := context.WithCancel(context.Background())
+	//nolint:gosec // cancel is stored in task state and called by stop/cancel paths.
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
 
 	state := &moveTaskState{
 		cancel:     cancel,

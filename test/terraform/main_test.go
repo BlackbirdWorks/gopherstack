@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -165,7 +166,22 @@ func TestMain(m *testing.M) {
 	// (e.g. from CI or `go build`), otherwise fall back to the full
 	// multi-stage Dockerfile that compiles from source.
 	dockerfile := "Dockerfile"
-	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
+	binPath := "../../bin/gopherstack"
+
+	// If we are on Mac, we MUST build a Linux binary for the container.
+	if runtime.GOOS == "darwin" {
+		logger.Info("running on Darwin, building Linux binary for container tests...")
+		// Use relative path but run from the directory containing go.mod to ensure embed works.
+		cmd := exec.Command("go", "build", "-trimpath", "-o", "bin/gopherstack", ".")
+		cmd.Dir = "../../"
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOTOOLCHAIN=local")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			logger.Error("failed to build linux binary", "error", err, "output", string(out))
+			os.Exit(1)
+		}
+	}
+
+	if _, err := os.Stat(binPath); err == nil {
 		dockerfile = "Dockerfile.test"
 		logger.Info("using pre-built binary via Dockerfile.test")
 	} else {
@@ -207,7 +223,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	endpoint = "http://localhost:" + mappedPort.Port()
 	logger.Info("Gopherstack running", "endpoint", endpoint)
 
 	// Pre-download the tofu binary once in single-threaded setup so that no
@@ -915,7 +931,7 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 			return
 		}
 
-		ctx := context.Background()
+		ctx := t.Context()
 		t.Logf("\n========== CONTAINER LOGS FOR FAILED TEST: %s ==========\n", t.Name())
 
 		logs, err := sharedContainer.Logs(ctx)

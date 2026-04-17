@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -38,7 +37,7 @@ func TestIntegration_DDB_ValidationAndLimits(t *testing.T) {
 
 		t.Cleanup(func() {
 			client.DeleteTable(
-				context.Background(),
+				t.Context(),
 				&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
 			)
 		})

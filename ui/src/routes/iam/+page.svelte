@@ -179,6 +179,7 @@ function getPath(i: any) { return i.Path || '/'; }
 		<div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg flex-wrap">
 			{#each (['users', 'roles', 'groups', 'policies'] as Tab[]) as t}
 				<button
+					id="{t}-tab"
 					onclick={() => selectTab(t)}
 					class="px-3 py-2 rounded-md text-sm font-medium transition-colors {tab === t
 						? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow'
@@ -213,7 +214,7 @@ function getPath(i: any) { return i.Path || '/'; }
 		{:else if filteredPolicies.length === 0}
 			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
 				<FileText class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4 opacity-50" />
-				<p class="text-slate-500 dark:text-slate-400 font-medium">No policies found</p>
+				<p id="empty-state-text" class="text-slate-500 dark:text-slate-400 font-medium">No policies found</p>
 			</div>
 		{:else}
 			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -254,7 +255,7 @@ function getPath(i: any) { return i.Path || '/'; }
 			{:else if filteredItems.length === 0}
 				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
 					<Users class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4 opacity-50" />
-					<p class="text-slate-500 dark:text-slate-400 font-medium">No {tab} found</p>
+					<p id="empty-state-text" class="text-slate-500 dark:text-slate-400 font-medium">No {tab} found</p>
 					{#if search}<p class="text-xs text-slate-400 mt-1">Try clearing the search filter</p>{/if}
 				</div>
 			{:else}

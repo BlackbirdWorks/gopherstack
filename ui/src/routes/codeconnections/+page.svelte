@@ -27,7 +27,7 @@
 
 <div class="space-y-6 p-6">
 	<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-		<h1 class="text-3xl font-bold text-slate-900 dark:text-white">AWS CodeConnections</h1>
+		<h1 id="codeconnections-title" class="text-3xl font-bold text-slate-900 dark:text-white">AWS CodeConnections</h1>
 		<p class="mt-2 text-sm text-slate-600 dark:text-slate-300">External source control connections</p>
 	</div>
 	<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">

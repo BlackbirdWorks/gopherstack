@@ -73,7 +73,7 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "streams-dashboard-e2e")
-	assert.Contains(t, content, "arn:aws:dynamodb")
+	assert.Contains(t, content, "NEW_AND_OLD_IMAGES")
 }
 
 // TestDynamoDBStreamsDashboard_Empty verifies the DynamoDB dashboard empty state when no tables exist.

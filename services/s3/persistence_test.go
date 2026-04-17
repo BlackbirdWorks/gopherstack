@@ -1,7 +1,6 @@
 package s3_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *s3.InMemoryBackend) string {
-				_, err := b.CreateBucket(context.Background(), &sdk_s3.CreateBucketInput{
+				_, err := b.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
 					Bucket: aws.String("test-bucket"),
 				})
 				if err != nil {
@@ -34,7 +33,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *s3.InMemoryBackend, id string) {
 				t.Helper()
 
-				out, err := b.ListBuckets(context.Background(), &sdk_s3.ListBucketsInput{})
+				out, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
 				require.NoError(t, err)
 				require.Len(t, out.Buckets, 1)
 				assert.Equal(t, id, *out.Buckets[0].Name)
@@ -46,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *s3.InMemoryBackend, _ string) {
 				t.Helper()
 
-				out, err := b.ListBuckets(context.Background(), &sdk_s3.ListBucketsInput{})
+				out, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
 				require.NoError(t, err)
 				assert.Empty(t, out.Buckets)
 			},
@@ -56,13 +55,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			// without making the bucket accessible via getBucket operations.
 			name: "pending_delete_bucket_not_visible_after_restore",
 			setup: func(b *s3.InMemoryBackend) string {
-				_, err := b.CreateBucket(context.Background(), &sdk_s3.CreateBucketInput{
+				_, err := b.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
 					Bucket: aws.String("will-be-deleted"),
 				})
 				if err != nil {
 					return ""
 				}
-				_, _ = b.DeleteBucket(context.Background(), &sdk_s3.DeleteBucketInput{
+				_, _ = b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{
 					Bucket: aws.String("will-be-deleted"),
 				})
 
@@ -72,13 +71,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				// The pending bucket must be invisible to GetObject / HeadBucket.
-				_, err := b.HeadBucket(context.Background(), &sdk_s3.HeadBucketInput{
+				_, err := b.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{
 					Bucket: aws.String("will-be-deleted"),
 				})
 				require.ErrorIs(t, err, s3.ErrNoSuchBucket)
 
 				// ListBuckets must also exclude pending-delete buckets.
-				out, listErr := b.ListBuckets(context.Background(), &sdk_s3.ListBucketsInput{})
+				out, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
 				require.NoError(t, listErr)
 				assert.Empty(t, out.Buckets)
 			},

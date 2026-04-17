@@ -296,7 +296,7 @@ func (b *InMemoryBackend) provisionResources(
 
 	ordered := topoSortResources(tmpl.Resources)
 
-	var created []string
+	created := make([]string, 0, len(ordered))
 
 	for _, logicalID := range ordered {
 		res := tmpl.Resources[logicalID]

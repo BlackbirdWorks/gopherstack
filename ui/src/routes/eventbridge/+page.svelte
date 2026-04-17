@@ -236,6 +236,7 @@
 						</div>
 						<div class="flex items-center gap-2">
 							<button
+								id="view-rules-{bus.Name}"
 								onclick={() => selectBus(bus)}
 								class="px-3 py-1.5 text-sm bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-200 dark:hover:bg-indigo-900/50"
 							>View Rules</button>

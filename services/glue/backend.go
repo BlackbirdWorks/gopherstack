@@ -1025,7 +1025,7 @@ func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []Err
 		if _, ok := b.connections[name]; !ok {
 			errs = append(errs, ErrorDetail{
 				ErrorCode:    "EntityNotFoundException",
-				ErrorMessage: fmt.Sprintf("connection not found: %s", name),
+				ErrorMessage: "connection not found: " + name,
 			})
 
 			continue
@@ -1120,7 +1120,7 @@ func (b *InMemoryBackend) BatchGetDataQualityResult(resultIDs []string) ([]*Data
 		if !ok {
 			errs = append(errs, ErrorDetail{
 				ErrorCode:    "EntityNotFoundException",
-				ErrorMessage: fmt.Sprintf("data quality result not found: %s", id),
+				ErrorMessage: "data quality result not found: " + id,
 			})
 
 			continue

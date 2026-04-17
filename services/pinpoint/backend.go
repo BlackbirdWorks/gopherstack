@@ -144,7 +144,7 @@ func (b *InMemoryBackend) CreateApp(region, accountID, name string, tags map[str
 	defer b.mu.Unlock()
 
 	appID := uuid.NewString()
-	appARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s", appID))
+	appARN := arn.Build("mobiletargeting", region, accountID, "apps/"+appID)
 
 	app := &App{
 		ID:           appID,

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -46,7 +45,7 @@ func TestIntegration_CodePipeline_PipelineLifecycle(t *testing.T) {
 	client := createCodePipelineClient(t)
 	ctx := t.Context()
 
-	pipelineName := fmt.Sprintf("test-pipeline-%s", uuid.NewString()[:8])
+	pipelineName := "test-pipeline-" + uuid.NewString()[:8]
 
 	// CreatePipeline
 	createOut, err := client.CreatePipeline(ctx, &codepipeline.CreatePipelineInput{

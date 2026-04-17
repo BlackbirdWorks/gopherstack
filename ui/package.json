@@ -73,6 +73,7 @@
     "@aws-sdk/client-firehose": "3.911.0",
     "@aws-sdk/client-fis": "3.911.0",
     "@aws-sdk/client-fsx": "3.911.0",
+    "@aws-sdk/client-glacier": "3.911.0",
     "@aws-sdk/client-global-accelerator": "3.911.0",
     "@aws-sdk/client-glue": "3.911.0",
     "@aws-sdk/client-grafana": "3.911.0",

@@ -236,7 +236,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		switch {
 		case errors.Is(opErr, errUnknownSESAction):
 			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidAction",
-				fmt.Sprintf("%s is not a valid SES action", action))
+				action+" is not a valid SES action")
 		case opErr != nil:
 			return h.handleOpError(c, reqID, action, opErr)
 		}
@@ -792,7 +792,7 @@ func marshalXML(v any) ([]byte, error) {
 
 // newRequestID generates a unique request ID for SES responses.
 func newRequestID() string {
-	return fmt.Sprintf("gopherstack-%s", uuid.New().String())
+	return "gopherstack-" + uuid.New().String()
 }
 
 // ---- XML response types ----

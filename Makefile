@@ -11,20 +11,20 @@ build: ui-build
 		-o bin/$(BINARY_NAME) .
 
 ui-install:
-	npm --prefix ui ci
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui ci
 
 ui-lint: ui-install
-	npm --prefix ui run lint
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint
 
 ui-fmt: ui-install
-	npm --prefix ui run fmt:check
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt:check
 
 ui-test: ui-install
-	npm --prefix ui run test:coverage
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run test:coverage
 
 ui-build: ui-install
 	rm -rf dashboard/static/spa
-	npm --prefix ui run build
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run build
 
 build-releaser:
 	go build \
@@ -93,7 +93,7 @@ install-tofu:
 	fi
 
 lint: install-deps
-	golangci-lint run ./...
+	golangci-lint run --timeout 10m ./...
 	go tool govulncheck ./...
 
 lint-fix: install-deps

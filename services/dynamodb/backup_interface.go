@@ -138,7 +138,7 @@ func (db *InMemoryDB) DescribeBackup(
 	db.mu.RUnlock()
 
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", backupArn))
+		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
 
 	return &sdkdynamodb.DescribeBackupOutput{
@@ -166,7 +166,7 @@ func (db *InMemoryDB) DeleteBackup(
 
 	backup, exists := db.Backups[backupArn]
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", backupArn))
+		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
 
 	backupCopy := *backup

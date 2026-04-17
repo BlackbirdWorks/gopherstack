@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,7 +42,7 @@ func TestIntegration_DDB_Streams_FullFlow(t *testing.T) {
 
 	// Clean up table after test
 	defer func() {
-		_, _ = ddbClient.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		_, _ = ddbClient.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	}()

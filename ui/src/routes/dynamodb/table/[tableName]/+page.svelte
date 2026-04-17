@@ -10,6 +10,7 @@
 		UpdateTableCommand,
 		UpdateTimeToLiveCommand
 	} from '@aws-sdk/client-dynamodb';
+	import { toast } from 'svelte-sonner';
 
 	const dynamodb = newDynamoDBClient();
 
@@ -39,7 +40,6 @@
 		}
 
 		loading = true;
-		statusMessage = '';
 
 		try {
 			const [ttl, desc] = await Promise.all([
@@ -79,9 +79,13 @@
 				})
 			);
 
-			statusMessage = ttlEnabled ? 'TTL enabled successfully' : 'TTL disabled successfully';
+			if (ttlEnabled) {
+				toast.success('TTL enabled successfully');
+			} else {
+				toast.success('TTL disabled successfully');
+			}
 		} catch (err) {
-			statusMessage = err instanceof Error ? err.message : 'failed to update ttl';
+			toast.error(err instanceof Error ? err.message : 'failed to update ttl');
 		}
 
 		await loadState();
@@ -114,9 +118,13 @@
 				);
 			}
 
-			statusMessage = streamsEnabled ? 'Streams enabled successfully' : 'Streams disabled successfully';
+			if (streamsEnabled) {
+				toast.success('Streams enabled successfully');
+			} else {
+				toast.success('Streams disabled successfully');
+			}
 		} catch (err) {
-			statusMessage = err instanceof Error ? err.message : 'failed to update streams';
+			toast.error(err instanceof Error ? err.message : 'failed to update streams');
 		}
 
 		await loadState();
@@ -160,11 +168,11 @@
 	</div>
 
 	<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-		<div class="rounded border p-3">
+		<div id="ttl-status-card" class="rounded border p-3">
 			<div class="text-sm font-semibold">TTL Status</div>
 			<span class="inline-block rounded bg-slate-100 px-2 py-1 text-xs font-semibold">{ttlEnabled ? 'ENABLED' : 'DISABLED'}</span>
 		</div>
-		<div class="rounded border p-3">
+		<div id="streams-status-card" class="rounded border p-3">
 			<div class="text-sm font-semibold">Streams</div>
 			<span class="inline-block rounded bg-slate-100 px-2 py-1 text-xs font-semibold">{streamsEnabled ? 'ENABLED' : 'DISABLED'}</span>
 		</div>

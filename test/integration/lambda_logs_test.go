@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -74,7 +73,7 @@ func (a *inProcessCWLogsAdapter) PutLogLines(groupName, streamName string, messa
 func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pa, err := portalloc.New(lambdaLogsPortStart, lambdaLogsPortEnd)
 	require.NoError(t, err)
@@ -132,7 +131,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	t.Logf("Invocation succeeded, response: %s", result)
 
 	// Verify that pushInvocationLog created the log group in CloudWatch Logs.
-	groupName := fmt.Sprintf("/aws/lambda/%s", "log-test-fn")
+	groupName := "/aws/lambda/" + "log-test-fn"
 
 	groups, _, err := cwlogsBackend.DescribeLogGroups(groupName, "", 10)
 	require.NoError(t, err)
@@ -229,7 +228,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 
 	// Update alias.
 	updateReq, err := http.NewRequestWithContext(
-		context.Background(),
+		t.Context(),
 		http.MethodPut,
 		fmt.Sprintf("%s/2015-03-31/functions/%s/aliases/prod", server.URL, fnName),
 		strings.NewReader(`{"Description":"updated"}`),
@@ -244,7 +243,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 
 	// Delete alias.
 	deleteReq, err := http.NewRequestWithContext(
-		context.Background(),
+		t.Context(),
 		http.MethodDelete,
 		fmt.Sprintf("%s/2015-03-31/functions/%s/aliases/prod", server.URL, fnName),
 		nil,

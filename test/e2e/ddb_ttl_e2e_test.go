@@ -54,7 +54,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Verify initial TTL status (DISABLED)
-	ttlCard := page.Locator("div.grid > div:has-text('TTL Status')")
+	ttlCard := page.Locator("#ttl-status-card")
 	require.NoError(t, ttlCard.WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 	require.NoError(t, ttlCard.Locator("span:has-text('DISABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
@@ -65,7 +65,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 
 	// 5. Verify success toast and UI update
 	require.NoError(t, page.Locator("text=TTL enabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
-	ttlCard = page.Locator("div:has-text('TTL Status')")
+	ttlCard = page.Locator("#ttl-status-card")
 	require.NoError(t, ttlCard.Locator("span:has-text('ENABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 6. Verify TTL status via SDK
@@ -82,7 +82,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 
 	// 8. Verify success toast and UI update
 	require.NoError(t, page.Locator("text=TTL disabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
-	ttlCard = page.Locator("div:has-text('TTL Status')")
+	ttlCard = page.Locator("#ttl-status-card")
 	require.NoError(t, ttlCard.Locator("span:has-text('DISABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 9. Verify TTL status via SDK again

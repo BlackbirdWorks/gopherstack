@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"strconv"
 	"testing"
 	"time"
@@ -39,7 +38,7 @@ func TestIntegration_DDB_TTL_Eviction(t *testing.T) {
 
 	// Clean up table after test
 	defer func() {
-		_, _ = client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	}()
@@ -134,7 +133,7 @@ func TestIntegration_DDB_TTL_StreamRecords(t *testing.T) {
 	require.NoError(t, err)
 
 	defer func() {
-		_, _ = ddbClient.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		_, _ = ddbClient.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	}()

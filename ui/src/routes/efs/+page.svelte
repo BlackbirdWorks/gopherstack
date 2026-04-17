@@ -161,6 +161,8 @@
 						<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 							<tr>
 								<th class="px-4 py-3 text-left">ID</th>
+								<th class="px-4 py-3 text-left">Name</th>
+								<th class="px-4 py-3 text-left">Token</th>
 								<th class="px-4 py-3 text-left">State</th>
 								<th class="px-4 py-3 text-left">Performance Mode</th>
 								<th class="px-4 py-3 text-left">Throughput Mode</th>
@@ -172,6 +174,8 @@
 									<td class="px-4 py-3">
 										<button onclick={() => { selectedFS = fs; }} class="text-teal-600 dark:text-teal-400 hover:underline font-medium">{fs.FileSystemId ?? '-'}</button>
 									</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.Name ?? '-'}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.CreationToken ?? '-'}</td>
 									<td class="px-4 py-3">
 										<span class={`px-2 py-0.5 rounded text-xs font-medium ${fs.LifeCycleState === 'available' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{fs.LifeCycleState ?? '-'}</span>
 									</td>

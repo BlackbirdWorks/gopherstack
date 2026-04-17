@@ -530,12 +530,7 @@ func (p *sqlParser) parseComparison() (sqlExpr, error) {
 }
 
 func isComparisonOp(t sqlTokenType) bool {
-	switch t {
-	case tokEq, tokNeq, tokLt, tokLte, tokGt, tokGte:
-		return true
-	default:
-		return false
-	}
+	return t == tokEq || t == tokNeq || t == tokLt || t == tokLte || t == tokGt || t == tokGte
 }
 
 func (p *sqlParser) parseComparisonOp(left sqlExpr, tok sqlToken) (sqlExpr, error) {
@@ -1268,7 +1263,7 @@ func likeMatch(pattern, s string) bool {
 // evalQuery applies a parsed sqlQuery to a set of rows.
 // Each row is a map of column name → string value.
 func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, error) {
-	var result []map[string]string
+	result := make([]map[string]string, 0, len(rows))
 
 	for _, rawRow := range rows {
 		row := &stringRow{data: rawRow}
@@ -1321,7 +1316,7 @@ func projectStringRow(q *sqlQuery, row sqlRow, rawRow map[string]string) (map[st
 
 // evalQueryJSON applies a parsed sqlQuery to JSON rows (map[string]any).
 func evalQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error) {
-	var result []map[string]any
+	result := make([]map[string]any, 0, len(rows))
 
 	for _, rawRow := range rows {
 		row := &jsonRow{data: rawRow}

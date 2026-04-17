@@ -1043,10 +1043,37 @@ func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.Faul
 	fs := chaos.NewFaultStore()
 
 	cfg := dashboard.Config{
-		FaultStore:             fs,
-		MediaStoreDataOps:      h.mediastoredata,
-		CodeStarConnectionsOps: h.codeStarConn,
-		CognitoIDPOps:          h.cognitoIDP,
+		FaultStore:                 fs,
+		DDBOps:                     h.ddb,
+		S3Ops:                      h.s3,
+		SSMOps:                     h.ssm,
+		IAMOps:                     h.iam,
+		STSOps:                     h.sts,
+		SNSOps:                     h.sns,
+		SQSOps:                     h.sqs,
+		KMSOps:                     h.kms,
+		SecretsManagerOps:          h.sm,
+		LambdaOps:                  h.lambda,
+		EventBridgeOps:             h.eb,
+		APIGatewayOps:              h.apigw,
+		CloudWatchLogsOps:          h.cwlogs,
+		StepFunctionsOps:           h.sfn,
+		CloudWatchOps:              h.cw,
+		CloudFormationOps:          h.cfn,
+		KinesisOps:                 h.kinesis,
+		ElastiCacheOps:             h.elasticache,
+		Route53Ops:                 h.route53,
+		SESOps:                     h.ses,
+		SESv2Ops:                   h.sesv2,
+		EC2Ops:                     h.ec2,
+		ECROps:                     h.ecr,
+		ECSOps:                     h.ecs,
+		IoTOps:                     h.iot,
+		APIGatewayManagementAPIOps: h.apiGatewayMgmt,
+		AppConfigDataOps:           h.appConfigData,
+		MediaStoreDataOps:          h.mediastoredata,
+		CodeStarConnectionsOps:     h.codeStarConn,
+		CognitoIDPOps:              h.cognitoIDP,
 	}
 
 	return cfg, fs
@@ -1055,6 +1082,8 @@ func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.Faul
 // New creates a fully wired integration stack for testing.
 // It sets up all in-memory backends, handlers, the service registry with router,
 // AWS SDK clients (routed back through Echo via InMemClient), and the dashboard.
+//
+//nolint:funlen // integration stack wiring is intentionally explicit and exhaustive for tests.
 func New(t *testing.T) *Stack {
 	t.Helper()
 

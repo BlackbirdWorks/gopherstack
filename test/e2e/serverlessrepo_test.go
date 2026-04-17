@@ -57,7 +57,7 @@ func TestServerlessRepoDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-test-app")
-	assert.Contains(t, content, "+ Create Application")
+	assert.Contains(t, content, "Publish App")
 }
 
 // TestServerlessRepoDashboard_Empty verifies the Serverless Application Repository dashboard renders correctly with no applications.
@@ -91,5 +91,5 @@ func TestServerlessRepoDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No applications found")
+	assert.Contains(t, content, "No serverless applications found")
 }

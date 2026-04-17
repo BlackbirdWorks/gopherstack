@@ -148,7 +148,7 @@ func TestIntegration_DDB_BatchOperations(t *testing.T) {
 
 				t.Cleanup(func() {
 					_, deleteErr := client.DeleteTable(
-						context.Background(),
+						t.Context(),
 						&dynamodb.DeleteTableInput{
 							TableName: aws.String(tbl),
 						},

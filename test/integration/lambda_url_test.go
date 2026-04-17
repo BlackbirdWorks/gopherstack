@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,7 +33,7 @@ const (
 func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pa, err := portalloc.New(urlTestPortStart, urlTestPortEnd)
 	require.NoError(t, err)

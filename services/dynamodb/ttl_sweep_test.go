@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"strconv"
 	"testing"
 	"time"
@@ -86,7 +85,7 @@ func TestJanitor_TTLSweep(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			db := dynamodb.NewInMemoryDB()
-			ctx := context.Background()
+			ctx := t.Context()
 
 			// Create table
 			tableName := "Table_" + tt.name
@@ -187,7 +186,7 @@ func TestJanitor_TTLSweep_StreamRecords(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 			db := dynamodb.NewInMemoryDB()
 			tableName := "TTLStreamTable_" + tt.name
 

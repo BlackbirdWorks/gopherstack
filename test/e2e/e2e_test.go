@@ -101,7 +101,7 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Open create modal
-	err = page.Click("button:has-text('Create Table')")
+	err = page.Click("#create-table-btn")
 	require.NoError(t, err)
 
 	modal := page.Locator("[role='dialog']")
@@ -116,10 +116,10 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 	require.NoError(t, page.Fill("#partitionKey", "pk"))
 
 	// Submit
-	require.NoError(t, page.Click("[role='dialog'] button:has-text('Create')"))
+	require.NoError(t, page.Click("#confirm-create-table-btn"))
 
 	// Verify table appears in list
-	tableCard := page.Locator("text=TestTable")
+	tableCard := page.Locator("#table-TestTable")
 	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -159,7 +159,7 @@ func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Wait for table card and click it to open detail
-	tableCard := page.Locator("text=Movies")
+	tableCard := page.Locator("#table-Movies")
 	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -185,7 +185,7 @@ func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return to table list after deletion
-	createBtn := page.Locator("button:has-text('Create Table')")
+	createBtn := page.Locator("#create-table-btn")
 	require.Eventually(t, func() bool {
 		visible, _ := createBtn.IsVisible()
 
@@ -224,7 +224,7 @@ func TestE2E_S3_CreateBucket(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Open create modal
-	err = page.Click("button:has-text('Create Bucket')")
+	err = page.Click("#create-bucket-btn")
 	require.NoError(t, err)
 
 	modal := page.Locator("[role='dialog']")
@@ -235,10 +235,10 @@ func TestE2E_S3_CreateBucket(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, page.Fill("#bucketName", "test-bucket"))
-	require.NoError(t, page.Click("[role='dialog'] button:has-text('Create')"))
+	require.NoError(t, page.Click("#confirm-create-bucket-btn"))
 
 	// Verify bucket appears
-	bucketCard := page.Locator("text=test-bucket")
+	bucketCard := page.Locator("#bucket-test-bucket")
 	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -278,7 +278,7 @@ func TestE2E_S3_DeleteBucket(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Wait for bucket to appear
-	bucketCard := page.Locator("text=trash-bucket")
+	bucketCard := page.Locator("#bucket-trash-bucket")
 	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -330,7 +330,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Open bucket detail
-	bucketCard := page.Locator("text=upload-bucket")
+	bucketCard := page.Locator("#bucket-upload-bucket")
 	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -340,7 +340,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for detail view
-	uploadBtn := page.Locator("button:has-text('Upload File')")
+	uploadBtn := page.Locator("#upload-file-btn")
 	err = uploadBtn.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -408,7 +408,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Open the table detail
-	tableCard := page.Locator("text=Items")
+	tableCard := page.Locator("#table-Items")
 	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -501,12 +501,12 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Open the bucket
-	err = page.Locator("text=nav-bucket").First().WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("#bucket-nav-bucket").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err)
-	err = page.Locator("text=nav-bucket").First().Click()
+	err = page.Locator("#bucket-nav-bucket").First().Click()
 	require.NoError(t, err)
 
 	// Verify file browser shows root contents
@@ -582,8 +582,8 @@ func TestE2E_DynamoDB_Search(t *testing.T) {
 
 	// Verify only Beta is visible
 	require.Eventually(t, func() bool {
-		visible, _ := page.Locator("text=Beta").First().IsVisible()
-		alphaVisible, _ := page.Locator("text=Alpha").First().IsVisible()
+		visible, _ := page.Locator("#table-Beta").First().IsVisible()
+		alphaVisible, _ := page.Locator("#table-Alpha").First().IsVisible()
 
 		return visible && !alphaVisible
 	}, 3*time.Second, 200*time.Millisecond, "Search should filter to Beta only")
@@ -626,8 +626,8 @@ func TestE2E_S3_Search(t *testing.T) {
 	require.NoError(t, page.Fill("#bucket-search", "beta"))
 
 	require.Eventually(t, func() bool {
-		visible, _ := page.Locator("text=bucket-beta").First().IsVisible()
-		alphaVisible, _ := page.Locator("text=bucket-alpha").First().IsVisible()
+		visible, _ := page.Locator("#bucket-bucket-beta").First().IsVisible()
+		alphaVisible, _ := page.Locator("#bucket-bucket-alpha").First().IsVisible()
 
 		return visible && !alphaVisible
 	}, 3*time.Second, 200*time.Millisecond, "Search should filter to beta only")
@@ -653,30 +653,35 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/metrics")
+	_, err = page.Goto(server.URL + "/dashboard")
 	require.NoError(t, err)
 	waitForSPA(t, page)
+
+	// Click metrics link using ID
+	err = page.Locator("#nav-metrics").Click()
+	require.NoError(t, err)
 
 	// Verify header
 	header := page.Locator("h1:has-text('Performance Metrics')")
 	err = header.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	// Verify runtime metrics labels (Connect-RPC streaming populates these)
+	// We might need to wait longer for the stream to start
 	goroutinesLabel := page.Locator("text=Goroutines")
 	err = goroutinesLabel.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(10000),
+		Timeout: playwright.Float(20000),
 	})
 	require.NoError(t, err)
 
 	heapLabel := page.Locator("text=Heap Memory")
 	err = heapLabel.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 }
@@ -701,15 +706,19 @@ func TestE2E_Console(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/console")
+	_, err = page.Goto(server.URL + "/dashboard")
 	require.NoError(t, err)
 	waitForSPA(t, page)
+
+	// Click console link using ID
+	err = page.Locator("#nav-console").Click()
+	require.NoError(t, err)
 
 	// Verify console header
 	header := page.Locator("h1:has-text('Live API Console')")
 	err = header.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
@@ -717,7 +726,7 @@ func TestE2E_Console(t *testing.T) {
 	autoToggle := page.Locator("[role='switch']")
 	err = autoToggle.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
@@ -725,7 +734,7 @@ func TestE2E_Console(t *testing.T) {
 	clearBtn := page.Locator("button:has-text('Clear')")
 	require.NoError(t, clearBtn.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	}))
 }
 func TestE2E_DynamoDB_Pagination(t *testing.T) {
@@ -875,7 +884,7 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 		_ = dialog.Accept()
 	})
 
-	err = page.Click("button:has-text('Purge All')")
+	err = page.Click("#purge-all-btn")
 	require.NoError(t, err)
 
 	// Wait for tables to disappear
@@ -928,7 +937,7 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 		_ = dialog.Accept()
 	})
 
-	err = page.Click("button:has-text('Purge All')")
+	err = page.Click("#purge-all-btn")
 	require.NoError(t, err)
 
 	// Wait for buckets to be removed
@@ -974,10 +983,10 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	assert.False(t, hasDark.(bool), "Should start with light theme")
 
 	// Open theme dropdown
-	themeBtn := page.Locator("button[title^='Theme:']")
+	themeBtn := page.Locator("#theme-selector")
 	err = themeBtn.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 	err = themeBtn.Click()
@@ -1076,31 +1085,24 @@ func TestE2E_SidebarNavigation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Click DynamoDB in sidebar
-	ddbLink := sidebar.Locator("a:has-text('DynamoDB')")
-	err = ddbLink.WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
-	})
-	require.NoError(t, err)
-	err = ddbLink.Click()
+	// Click DynamoDB in sidebar using its ID
+	err = page.Click("#nav-dynamodb")
 	require.NoError(t, err)
 
 	// Should navigate to DynamoDB page
 	err = page.Locator("text=Create Table").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	// Navigate to S3 via sidebar
-	s3Link := sidebar.Locator("a:has-text('S3'):not(:has-text('Control'))")
-	err = s3Link.Click()
+	// Navigate to S3 via sidebar using its ID
+	err = page.Click("#nav-s3")
 	require.NoError(t, err)
 
 	err = page.Locator("text=Create Bucket").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 }

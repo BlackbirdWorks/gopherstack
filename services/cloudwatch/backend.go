@@ -575,7 +575,7 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 	newState := b.evalCompositeRule(alarm.AlarmRule)
 	alarm.StateValue = newState
 	if alarm.StateReason == "" {
-		alarm.StateReason = fmt.Sprintf("Rule evaluated to %s", newState)
+		alarm.StateReason = "Rule evaluated to " + newState
 	}
 
 	cp := *alarm
@@ -1062,7 +1062,7 @@ func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition
 		}
 
 		oldState := ca.StateValue
-		reason := fmt.Sprintf("Rule evaluated to %s", newState)
+		reason := "Rule evaluated to " + newState
 		ca.StateValue = newState
 		ca.StateReason = reason
 		summary := fmt.Sprintf("Composite alarm %q changed from %s to %s", ca.AlarmName, oldState, newState)

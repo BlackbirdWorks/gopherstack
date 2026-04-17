@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -75,7 +74,7 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 					{AttributeName: "pk", AttributeType: "S"},
 				},
 			}
-			_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+			_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)
 
 			// Create initial item
@@ -88,7 +87,7 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 				},
 			}
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-			_, err = db.PutItem(context.Background(), sdkPut)
+			_, err = db.PutItem(t.Context(), sdkPut)
 			require.NoError(t, err)
 
 			// Update only attr1
@@ -103,7 +102,7 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 			}
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-			res, err := db.UpdateItem(context.Background(), sdkUpdate)
+			res, err := db.UpdateItem(t.Context(), sdkUpdate)
 			require.NoError(t, err)
 
 			if tt.expectAttrs {
@@ -200,7 +199,7 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 					{AttributeName: "pk", AttributeType: "S"},
 				},
 			}
-			_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+			_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)
 
 			// Update a NEW item (doesn't exist yet)
@@ -216,7 +215,7 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 			}
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-			res, err := db.UpdateItem(context.Background(), sdkUpdate)
+			res, err := db.UpdateItem(t.Context(), sdkUpdate)
 			require.NoError(t, err)
 
 			if tt.expectAttrs {

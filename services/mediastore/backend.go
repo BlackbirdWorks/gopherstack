@@ -92,7 +92,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // containerARN builds the ARN for a MediaStore container.
 func containerARN(region, accountID, name string) string {
-	return arn.Build("mediastore", region, accountID, fmt.Sprintf("container/%s", name))
+	return arn.Build("mediastore", region, accountID, "container/"+name)
 }
 
 // containerEndpoint returns the data plane endpoint for a container.

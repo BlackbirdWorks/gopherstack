@@ -19,7 +19,7 @@ describe('Textract Page', () => {
 	});
 
 	it('renders page title', () => {
-		mockSend.mockResolvedValue({ Adapters: [], DocumentClassificationJobPropertiesList: [] });
+		mockSend.mockResolvedValue({ Adapters: [], AdapterVersions: [] });
 		render(TextractPage);
 		expect(screen.getAllByText('Amazon Textract')[0]).toBeInTheDocument();
 	});
@@ -37,7 +37,7 @@ describe('Textract Page', () => {
 	});
 
 	it('shows empty state when no adapters', async () => {
-		mockSend.mockResolvedValue({ Adapters: [], DocumentClassificationJobPropertiesList: [] });
+		mockSend.mockResolvedValue({ Adapters: [], AdapterVersions: [] });
 		render(TextractPage);
 		await waitFor(() => {
 			expect(screen.getAllByText(/no adapters/i)[0]).toBeInTheDocument();
@@ -47,7 +47,7 @@ describe('Textract Page', () => {
 	it('displays loaded adapters', async () => {
 		mockSend.mockResolvedValue({
 			Adapters: [{ AdapterId: 'adapt-123', AdapterName: 'my-adapter' }],
-			DocumentClassificationJobPropertiesList: []
+			AdapterVersions: []
 		});
 		render(TextractPage);
 		await waitFor(() => {
@@ -61,15 +61,15 @@ describe('Textract Page', () => {
 		expect(screen.getByTitle('Refresh')).toBeInTheDocument();
 	});
 
-	it('shows Classification Jobs tab', () => {
+	it('shows Adapter Versions tab', () => {
 		mockSend.mockResolvedValue({ Adapters: [] });
 		render(TextractPage);
-		expect(screen.getAllByText('Classification Jobs')[0]).toBeInTheDocument();
+		expect(screen.getAllByText('Adapter Versions')[0]).toBeInTheDocument();
 	});
 
-	it('shows Succeeded Jobs stat', () => {
+	it('shows Active Versions stat', () => {
 		mockSend.mockResolvedValue({ Adapters: [] });
 		render(TextractPage);
-		expect(screen.getAllByText('Succeeded Jobs')[0]).toBeInTheDocument();
+		expect(screen.getAllByText('Active Versions')[0]).toBeInTheDocument();
 	});
 });

@@ -245,7 +245,7 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 	for _, k := range schema {
 		val, ok := item[k.AttributeName]
 		if !ok {
-			return NewValidationException(fmt.Sprintf("Missing key element: %s", k.AttributeName))
+			return NewValidationException("Missing key element: " + k.AttributeName)
 		}
 
 		if err := validateKeyAttribute(k, val); err != nil {

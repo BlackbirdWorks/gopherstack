@@ -2,7 +2,6 @@ package fis
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -74,7 +73,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.SafetyLever != nil {
 		b.safetyLever = snap.SafetyLever
 	} else {
-		safetyLeverARN := arn.Build("fis", b.region, b.accountID, fmt.Sprintf("safety-lever/%s", b.accountID))
+		safetyLeverARN := arn.Build("fis", b.region, b.accountID, "safety-lever/"+b.accountID)
 		b.safetyLever = &SafetyLever{
 			ID:    b.accountID,
 			Arn:   safetyLeverARN,

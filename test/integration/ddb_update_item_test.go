@@ -137,7 +137,7 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, dErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+				_, dErr := client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 					TableName: aws.String(tableName),
 				})
 				assert.NoError(t, dErr)

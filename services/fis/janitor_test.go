@@ -109,7 +109,7 @@ func TestFISHandler_Shutdown_CancelsRunningExperiments(t *testing.T) {
 	handler := fis.NewHandler(backend)
 
 	// Inject an experiment with a real cancel func so we can observe cancellation.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancelled := make(chan struct{})
 
 	go func() {
@@ -125,7 +125,7 @@ func TestFISHandler_Shutdown_CancelsRunningExperiments(t *testing.T) {
 	backend.InjectExperiment(exp)
 	backend.InjectCancel("EXP-shutdown-test", cancel)
 
-	handler.Shutdown(context.Background())
+	handler.Shutdown(t.Context())
 
 	select {
 	case <-cancelled:

@@ -81,7 +81,7 @@ func TestTransferDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No Transfer servers found")
+	assert.Contains(t, content, "No Transfer Family servers found")
 }
 
 // TestTransferDashboard_CreateServer verifies the create server form works.
@@ -114,17 +114,17 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open create server modal
-	err = page.Locator("button:has-text('+ Create Server')").Click()
-	require.NoError(t, err)
-
-	// Select SFTP protocol
-	_, err = page.Locator("#protocol").SelectOption(playwright.SelectOptionValues{
-		Values: playwright.StringSlice("SFTP"),
-	})
+	err = page.Locator("button:has-text('Create Server')").Click()
 	require.NoError(t, err)
 
 	// Submit the form
 	err = page.Locator("button:has-text('Create Server')").Last().Click()
+	require.NoError(t, err)
+
+	err = page.Locator("h2:has-text('Create Transfer Server')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
 
 	// Wait for redirect back to index
@@ -135,5 +135,5 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "ONLINE")
+	assert.Contains(t, content, "Transfer Family")
 }

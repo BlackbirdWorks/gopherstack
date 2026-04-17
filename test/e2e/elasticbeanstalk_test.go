@@ -52,10 +52,21 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the app and env to appear.
+	err = page.Locator("text=e2e-app").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-app")
-	assert.Contains(t, content, "e2e-env")
+
+	err = page.Locator("button:has-text('Environments')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=e2e-env").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 }
 
 // TestElasticbeanstalkDashboard_Empty verifies the Elastic Beanstalk dashboard empty state renders correctly.

@@ -46,9 +46,12 @@ func TestEFSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the fs to appear in the table.
+	err = page.Locator("text=e2e-test-token").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-token")
 }
 
 // TestEFSDashboard_Empty verifies the EFS dashboard empty state renders correctly.
@@ -84,6 +87,5 @@ func TestEFSDashboard_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "No file systems found")
 }
-
 
 // Note: Create/Delete UI flow for EFS is not currently implemented in the Svelte UI.

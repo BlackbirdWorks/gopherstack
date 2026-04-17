@@ -38,76 +38,71 @@ func TestSSMDashboard(t *testing.T) {
 		}
 	}()
 
-	// Navigate to the Dashboard SSM page
 	_, err = page.Goto(server.URL + "/dashboard/ssm")
 	require.NoError(t, err)
 
-	// Wait for layout and SSM table
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
-	// Step 1: Create a Parameter via HTMX Modal
-	err = page.Click("button:has-text('Create parameter')")
+	// Step 1: Create a parameter via modal.
+	err = page.Click("button:has-text('Create Parameter')")
 	require.NoError(t, err)
 
-	modal := page.Locator("#modal-container")
-
-	// Fill the PutParameter form (Playwright waits for visibility natively)
-	require.NoError(t, page.Fill("#name", "test-database-password"))
-
-	_, err = page.SelectOption("#type", playwright.SelectOptionValues{
-		Values: &[]string{"SecureString"},
-	})
+	err = page.Locator("h2:has-text('Create Parameter')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("#value", "super_secret_e2e_pass"))
-	require.NoError(t, page.Fill("#description", "E2E Test Password"))
+	require.NoError(t, page.Fill("input[placeholder='e.g. /myapp/database/password']", "test-database-password"))
+	_, err = page.SelectOption("select", playwright.SelectOptionValues{Values: &[]string{"SecureString"}})
+	require.NoError(t, err)
+	require.NoError(t, page.Fill("textarea[placeholder='Parameter value...']", "super_secret_e2e_pass"))
+	require.NoError(t, page.Fill("input[placeholder='Parameter description...']", "E2E Test Password"))
 
-	// Submit
-	err = modal.Locator("button[type='submit']").Click()
+	err = page.Click("button[type='submit']:has-text('Create')")
 	require.NoError(t, err)
 
-	// HTMX redir adds latency
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify the new parameter appears
-	paramRow := page.Locator("td:has-text('test-database-password')").First()
+	paramRow := page.Locator("button:has-text('test-database-password')").First()
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	// Step 2: Edit the Parameter
+	// Step 2: Select and edit the parameter.
+	err = paramRow.Click()
+	require.NoError(t, err)
+
 	err = page.Click("button:has-text('Edit')")
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("#value", "new_super_secret"))
+	err = page.Locator("h2:has-text('Edit Parameter')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
+	require.NoError(t, err)
 
-	err = modal.Locator("button[type='submit']").Click()
+	require.NoError(t, page.Fill("textarea[placeholder='Parameter value...']", "new_super_secret"))
+
+	err = page.Click("button[type='submit']:has-text('Update')")
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)
 
-	// Wait for parameter list back
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	// Step 3: Delete the Parameter via custom UI confirm dialog
-	err = page.Click("button:has-text('Delete')")
-	require.NoError(t, err)
+	// Step 3: Delete the selected parameter.
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
 
-	// Click the custom "Confirm" button in the modal
-	err = page.Click("#global_confirm_proceed")
+	err = page.Click("button:has-text('Delete')")
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify the empty state text is rendered
-	err = page.Locator("td:has-text('No parameters found')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=No parameters found").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})

@@ -41,6 +41,7 @@ func TestECRDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -76,6 +77,7 @@ func TestECRDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -118,15 +120,15 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open create modal
-	err = page.Locator("button:has-text('Create Repository')").First().Click()
+	err = page.Locator("#create-repo-btn").First().Click()
 	require.NoError(t, err)
 
 	// Fill in repository name
-	err = page.Locator("[role='dialog'] input").Fill("e2e-test-repo")
+	err = page.Locator("#new-repo-name").Fill("e2e-test-repo")
 	require.NoError(t, err)
 
 	// Submit form
-	err = page.Locator("[role='dialog'] button:has-text('Create Repository')").Click()
+	err = page.Locator("#confirm-create-repo-btn").Click()
 	require.NoError(t, err)
 
 	// Wait for the repository card to appear.
@@ -144,8 +146,8 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 		_ = dialog.Accept()
 	})
 
-	// Click the trash icon button in the repository card
-	err = page.Locator("button:has(svg)").First().Click()
+	// Click the trash icon button for the specific repository
+	err = page.Locator("#delete-repo-e2e-test-repo").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=e2e-test-repo").First().WaitFor(playwright.LocatorWaitForOptions{

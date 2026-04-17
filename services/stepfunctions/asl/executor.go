@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -317,7 +316,7 @@ func (e *Executor) executePass(state *State, input any) (string, any, error) {
 
 // executeWait handles Wait state.
 //
-//nolint:gocognit,cyclop // inherently complex due to multiple wait modes
+//nolint:cyclop,gocognit // inherently complex due to multiple wait modes
 func (e *Executor) executeWait(ctx context.Context, state *State, input any) (string, any, error) {
 	var waitDuration time.Duration
 
@@ -1141,7 +1140,7 @@ func matchVariableCondition(rule *ChoiceRule, varVal, input any) bool {
 
 // matchStringCondition checks string comparison conditions.
 //
-//nolint:gocognit,gocyclo,cyclop,funlen // many string comparison operators
+//nolint:gocyclo,cyclop,gocognit,funlen // many string comparison operators
 func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	if rule.StringEquals != nil {
 		s, ok := varVal.(string)
@@ -1238,7 +1237,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 
 // matchNumericCondition checks numeric comparison conditions.
 //
-//nolint:gocognit,gocyclo,cyclop,funlen // many numeric comparison operators
+//nolint:gocyclo,cyclop,gocognit,funlen // many numeric comparison operators
 func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	if rule.NumericEquals != nil {
 		n, ok := toFloat(varVal)
@@ -1464,14 +1463,31 @@ func toFloat(v any) (float64, bool) {
 		return 0, false
 	}
 
-	rv := reflect.ValueOf(v)
-	switch rv.Kind() {
-	case reflect.Float32, reflect.Float64:
-		return rv.Float(), true
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return float64(rv.Int()), true
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return float64(rv.Uint()), true
+	switch n := v.(type) {
+	case float32:
+		return float64(n), true
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int8:
+		return float64(n), true
+	case int16:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint8:
+		return float64(n), true
+	case uint16:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
 	default:
 		return 0, false
 	}
@@ -1567,7 +1583,7 @@ func applyParametersTemplate(template json.RawMessage, input any) (any, error) {
 
 // evalTemplate recursively evaluates a template structure against the input context.
 //
-//nolint:gocognit // inherently complex due to multiple template types
+//nolint:gocognit // recursive template evaluation handles explicit type branches.
 func evalTemplate(tmpl, input any) (any, error) {
 	switch v := tmpl.(type) {
 	case map[string]any:

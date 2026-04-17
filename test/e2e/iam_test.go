@@ -35,42 +35,63 @@ func TestIAMDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iam")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("text=No users found").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Roles')")
+	content, err := page.TextContent("#empty-state-text")
+	require.NoError(t, err)
+	assert.Contains(t, content, "No users found")
+
+	err = page.Click("#roles-tab")
 	require.NoError(t, err)
 
-	err = page.Locator("text=No roles found").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Groups')")
+	content, err = page.TextContent("#empty-state-text")
+	require.NoError(t, err)
+	assert.Contains(t, content, "No roles found")
+
+	err = page.Click("#groups-tab")
 	require.NoError(t, err)
 
-	err = page.Locator("text=No groups found").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Policies')")
+	content, err = page.TextContent("#empty-state-text")
+	require.NoError(t, err)
+	assert.Contains(t, content, "No groups found")
+
+	err = page.Click("#policies-tab")
 	require.NoError(t, err)
 
-	err = page.Locator("text=No policies found").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	content, err = page.TextContent("#empty-state-text")
 	require.NoError(t, err)
-	assert.Contains(t, content, "IAM")
+	assert.Contains(t, content, "No policies found")
+
+	pageContent, err := page.Content()
+	require.NoError(t, err)
+	assert.Contains(t, pageContent, "IAM")
 }

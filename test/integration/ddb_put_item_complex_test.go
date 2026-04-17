@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -38,7 +37,7 @@ func TestIntegration_DDB_PutItem_Complex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
@@ -126,7 +125,7 @@ func TestIntegration_DDB_PutItem_CompositeComplex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})

@@ -154,8 +154,9 @@ func TestDocsDashboard_NavDocsLink(t *testing.T) {
 	waitForSPA(t, page)
 
 	// The top nav should have a Docs link.
-	docsLink := page.Locator("a[href='/dashboard/docs']")
-	count, err := docsLink.Count()
-	require.NoError(t, err)
-	assert.Greater(t, count, 0, "expected a Docs link in the top navigation")
+	docsLink := page.Locator("#nav-docs").First()
+	require.NoError(t, docsLink.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	}))
 }

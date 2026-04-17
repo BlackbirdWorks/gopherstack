@@ -475,7 +475,7 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
-	linkArn := arn.Build("codestar-connections", b.region, b.accountID, fmt.Sprintf("repository-link/%s", id))
+	linkArn := arn.Build("codestar-connections", b.region, b.accountID, "repository-link/"+id)
 
 	providerType := ""
 	if conn, ok := b.connections[connectionArn]; ok {

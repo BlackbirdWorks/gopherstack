@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -54,7 +53,7 @@ func startLatencyContainer(t *testing.T, latencyMs string) (testcontainers.Conta
 	mappedPort, err := container.MappedPort(ctx, "8000")
 	require.NoError(t, err)
 
-	ep := fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	ep := "http://localhost:" + mappedPort.Port()
 
 	return container, ep
 }

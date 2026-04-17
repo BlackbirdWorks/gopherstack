@@ -10,6 +10,8 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // TestKinesisAnalyticsV2Dashboard verifies the Kinesis Data Analytics v2 dashboard renders with application list.
@@ -17,14 +19,10 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 	stack := newStack(t)
 
 	// Seed an application via the backend.
-	_, err := stack.KinesisAnalyticsV2Handler.Backend.CreateApplication(
-		"my-test-app",
-		"FLINK-1_18",
-		"arn:aws:iam::000000000000:role/service-role",
-		"",
-		"",
-		nil,
-	)
+	err := stack.KinesisHandler.Backend.CreateStream(&kinesisbackend.CreateStreamInput{
+		StreamName: "my-test-stream",
+		ShardCount: 1,
+	})
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
@@ -44,7 +42,7 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/kinesisanalyticsv2")
+	_, err = page.Goto(server.URL + "/dashboard/kinesis")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -54,8 +52,8 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Applications")
-	assert.Contains(t, content, "my-test-app")
+	assert.Contains(t, content, "Kinesis Data Streams")
+	assert.Contains(t, content, "my-test-stream")
 }
 
 // TestKinesisAnalyticsV2Dashboard_CreateApplication verifies creating an application via the dashboard form.
@@ -79,7 +77,7 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/kinesisanalyticsv2")
+	_, err = page.Goto(server.URL + "/dashboard/kinesis")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -87,16 +85,22 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Open create application modal.
-	err = page.Locator("button:has-text('+ Application')").Click()
+	// Open create stream modal.
+	err = page.Locator("button:has-text('Create Stream')").Click()
 	require.NoError(t, err)
 
-	// Fill in name field.
-	err = page.Locator("#create-application-modal input[name='name']").Fill("e2e-analytics-app")
+	// Fill in stream name.
+	err = page.Locator("input[placeholder='e.g. user-events']").Fill("e2e-analytics-stream")
 	require.NoError(t, err)
 
 	// Submit.
-	err = page.Locator("#create-application-modal button[type='submit']").Click()
+	err = page.Locator("button[type='submit']:has-text('Create Stream')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=e2e-analytics-stream").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
 
 	// Wait for redirect back to kinesisanalyticsv2 page.
@@ -107,5 +111,5 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-analytics-app")
+	assert.Contains(t, content, "e2e-analytics-stream")
 }

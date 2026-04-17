@@ -41,7 +41,7 @@ func TestStepFunctionsDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/stepfunctions")
+	_, err = page.Goto(server.URL + "/dashboard/sfn")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -75,7 +75,7 @@ func TestStepFunctionsDashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/stepfunctions")
+	_, err = page.Goto(server.URL + "/dashboard/sfn")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{

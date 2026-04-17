@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { newS3Client } from '$lib/aws/client';
 	import {
 		ListBucketsCommand,
@@ -9,9 +10,6 @@
 		PutBucketVersioningCommand,
 		DeleteObjectCommand,
 		PutObjectCommand,
-		HeadObjectCommand,
-		GetObjectCommand,
-		CopyObjectCommand,
 		GetBucketVersioningCommand,
 		ListObjectVersionsCommand,
 		type Bucket,
@@ -43,15 +41,6 @@
 	let uploadFile = $state<File | null>(null);
 	let uploading = $state(false);
 
-	// Object inspection state
-	let showObjectModal = $state(false);
-	let selectedObject = $state<_Object | null>(null);
-	let objectMetadata = $state<Record<string, unknown> | null>(null);
-	let objectUserMetadata = $state<Record<string, string>>({});
-	let objectVersions = $state<ObjectVersion[]>([]);
-	let propertyKey = $state('');
-	let propertyValue = $state('');
-	let loadingMetadata = $state(false);
 
 	// Versioning state
 	let bucketVersioning = $state<string>('');
@@ -256,100 +245,9 @@
 		return `${size.toFixed(1)} ${units[i]}`;
 	}
 
-	async function inspectObject(obj: _Object) {
-		selectedObject = obj;
-		loadingMetadata = true;
-		showObjectModal = true;
-		try {
-			const [res, versionsRes] = await Promise.all([
-				s3.send(new HeadObjectCommand({ Bucket: selectedBucket!, Key: obj.Key! })),
-				s3.send(new ListObjectVersionsCommand({ Bucket: selectedBucket!, Prefix: obj.Key! }))
-			]);
-			objectUserMetadata = res.Metadata ?? {};
-			objectVersions = (versionsRes.Versions ?? []).filter((version) => version.Key === obj.Key);
-			objectMetadata = {
-				'Content Type': res.ContentType,
-				'Content Length': formatSize(res.ContentLength),
-				'Last Modified': formatDate(res.LastModified),
-				'ETag': res.ETag,
-				'Storage Class': res.StorageClass,
-				'Version ID': res.VersionId || '(no versioning)',
-				'Metadata Keys': Object.keys(objectUserMetadata)
-			};
-		} catch (err: unknown) {
-			toast.error(`Failed to inspect object: ${(err as Error).message}`);
-			objectMetadata = null;
-			objectUserMetadata = {};
-			objectVersions = [];
-		} finally {
-			loadingMetadata = false;
-		}
-	}
-
-	async function downloadObjectVersion(versionId?: string) {
-		if (!selectedBucket || !selectedObject?.Key) return;
-		try {
-			const res = await s3.send(
-				new GetObjectCommand({
-					Bucket: selectedBucket,
-					Key: selectedObject.Key,
-					VersionId: versionId
-				})
-			);
-			const bytes = res.Body && 'transformToByteArray' in res.Body
-				? await res.Body.transformToByteArray()
-				: new TextEncoder().encode(res.Body && 'transformToString' in res.Body ? await res.Body.transformToString() : '');
-			const blob = new Blob([bytes], { type: res.ContentType || 'application/octet-stream' });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = selectedObject.Key.split('/').pop() || selectedObject.Key;
-			a.click();
-			URL.revokeObjectURL(url);
-			toast.success(`Downloaded "${selectedObject.Key}"`);
-		} catch (err: unknown) {
-			toast.error(`Failed to download object: ${(err as Error).message}`);
-		}
-	}
-
-	async function deleteObjectVersion(versionId?: string) {
-		if (!selectedBucket || !selectedObject?.Key) return;
-		if (!confirm(`Delete "${selectedObject.Key}"${versionId ? ` version ${versionId}` : ''}?`)) return;
-		try {
-			await s3.send(
-				new DeleteObjectCommand({
-					Bucket: selectedBucket,
-					Key: selectedObject.Key,
-					VersionId: versionId
-				})
-			);
-			toast.success(`Deleted "${selectedObject.Key}"`);
-			await loadObjects(selectedBucket, currentPrefix);
-			await inspectObject(selectedObject);
-		} catch (err: unknown) {
-			toast.error(`Failed to delete object: ${(err as Error).message}`);
-		}
-	}
-
-	async function updateObjectProperty() {
-		if (!selectedBucket || !selectedObject?.Key || !propertyKey.trim()) return;
-		try {
-			await s3.send(
-				new CopyObjectCommand({
-					Bucket: selectedBucket,
-					Key: selectedObject.Key,
-					CopySource: `${selectedBucket}/${selectedObject.Key}`,
-					MetadataDirective: 'REPLACE',
-					Metadata: { ...objectUserMetadata, [propertyKey.trim()]: propertyValue }
-				})
-			);
-			propertyKey = '';
-			propertyValue = '';
-			toast.success(`Updated properties for "${selectedObject.Key}"`);
-			await inspectObject(selectedObject);
-		} catch (err: unknown) {
-			toast.error(`Failed to update properties: ${(err as Error).message}`);
-		}
+	function inspectObject(obj: _Object) {
+		if (!selectedBucket || !obj.Key) return;
+		goto(`/dashboard/s3/${selectedBucket}/${obj.Key}`);
 	}
 
 	async function loadBucketVersioning(bucket: string) {
@@ -422,18 +320,20 @@
 				<li>
 					<div class="flex items-center">
 						<svg class="w-3 h-3 text-slate-400 mx-1" fill="none" viewBox="0 0 6 10"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 9 4-4-4-4" /></svg>
-						<span class="ms-1 text-sm font-medium text-slate-500 dark:text-slate-400">{selectedBucket}</span>
+						<button onclick={() => loadObjects(selectedBucket!, '')} class="ms-1 text-sm font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-white">{selectedBucket}</button>
 					</div>
 				</li>
 				{#if currentPrefix}
-					{#each currentPrefix
-						.replace(/\/$/, '')
-						.split('/')
-						.filter((p) => p) as part}
+					{#each currentPrefix.replace(/\/$/, '').split('/').filter((p) => p) as part, i}
+						{@const partPrefix = currentPrefix.replace(/\/$/, '').split('/').filter((p) => p).slice(0, i + 1).join('/') + '/'}
 						<li>
 							<div class="flex items-center">
 								<svg class="w-3 h-3 text-slate-400 mx-1" fill="none" viewBox="0 0 6 10"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 9 4-4-4-4" /></svg>
-								<span class="ms-1 text-sm font-medium text-slate-500 dark:text-slate-400">{part}</span>
+								{#if i < currentPrefix.replace(/\/$/, '').split('/').filter((p) => p).length - 1}
+									<button onclick={() => navigatePrefix(partPrefix)} class="ms-1 text-sm font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-white">{part}</button>
+								{:else}
+									<span class="ms-1 text-sm font-medium text-slate-500 dark:text-slate-400">{part}</span>
+								{/if}
 							</div>
 						</li>
 					{/each}
@@ -457,6 +357,7 @@
 					{loadingVersioning ? 'Loading...' : `Versioning: ${bucketVersioning}`}
 				</button>
 				<button
+					id="upload-file-btn"
 					onclick={() => { showUploadModal = true; }}
 					class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
 				>
@@ -546,12 +447,14 @@
 			</div>
 			<div class="flex gap-2">
 				<button
+					id="purge-all-btn"
 					onclick={purgeAll}
 					class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-800"
 				>
 					Purge All
 				</button>
 				<button
+					id="create-bucket-btn"
 					onclick={() => { showCreateModal = true; }}
 					class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
 				>
@@ -594,7 +497,7 @@
 		{:else}
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 				{#each pagedBuckets as bucket}
-					<div class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
+					<div id="bucket-{bucket.Name}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 						<div class="flex justify-between items-start">
 							<button onclick={() => openBucket(bucket.Name ?? '')} class="flex-1 text-left">
 								<h3 class="text-base font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
@@ -668,7 +571,7 @@
 								class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 focus:ring-4 focus:ring-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700 dark:focus:ring-slate-700">
 								Cancel
 							</button>
-							<button type="submit" disabled={creating}
+							<button id="confirm-create-bucket-btn" type="submit" disabled={creating}
 								class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 disabled:opacity-50">
 								{creating ? 'Creating...' : 'Create'}
 							</button>
@@ -714,94 +617,6 @@
 							</button>
 						</div>
 					</form>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Object Inspection Modal -->
-{#if showObjectModal && selectedObject}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showObjectModal = false; }} role="dialog" aria-modal="true">
-		<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
-			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
-				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
-					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Object Details</h3>
-					<button onclick={() => { showObjectModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
-						<svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
-					</button>
-				</div>
-				<div class="p-4 md:p-5">
-					{#if loadingMetadata}
-						<div class="flex items-center justify-center p-8">
-							<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none">
-								<path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" />
-								<path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" />
-							</svg>
-						</div>
-					{:else}
-						<div class="space-y-4">
-							<div>
-								<h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-1">Object Key</h4>
-								<p class="text-sm text-slate-600 dark:text-slate-400 break-all font-mono">{selectedObject.Key}</p>
-							</div>
-							{#if objectMetadata}
-								<div class="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-600">
-									{#each Object.entries(objectMetadata) as [key, value]}
-										<div>
-											<h5 class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">{key}</h5>
-											<p class="text-sm text-slate-900 dark:text-slate-100 break-all">
-												{#if Array.isArray(value)}
-													{value.join(', ') || '(none)'}
-												{:else}
-													{value || '(empty)'}
-												{/if}
-											</p>
-										</div>
-									{/each}
-								</div>
-							{/if}
-
-							<div class="pt-4 border-t border-slate-200 dark:border-slate-600">
-								<h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Object Versions</h4>
-								{#if objectVersions.length === 0}
-									<p class="text-sm text-slate-600 dark:text-slate-400">No versions available for this object.</p>
-								{:else}
-									<div class="space-y-2 max-h-48 overflow-y-auto">
-										{#each objectVersions as version}
-											<div class="p-3 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600 text-xs">
-												<p class="font-mono text-slate-900 dark:text-white truncate">{version.VersionId || '(current)'}</p>
-												<p class="text-slate-600 dark:text-slate-400 mt-1">{formatDate(version.LastModified)}</p>
-												<div class="mt-2 flex gap-3">
-													<button type="button" onclick={() => downloadObjectVersion(version.VersionId)} class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium">Download</button>
-													<button type="button" onclick={() => deleteObjectVersion(version.VersionId)} class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 font-medium">Delete</button>
-												</div>
-											</div>
-										{/each}
-									</div>
-								{/if}
-							</div>
-
-							<div class="pt-4 border-t border-slate-200 dark:border-slate-600">
-								<h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Change Properties</h4>
-								<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-									<input type="text" bind:value={propertyKey} placeholder="Property key" class="border border-slate-300 rounded-lg p-2 text-sm dark:bg-slate-800 dark:border-slate-600" />
-									<input type="text" bind:value={propertyValue} placeholder="Property value" class="border border-slate-300 rounded-lg p-2 text-sm dark:bg-slate-800 dark:border-slate-600" />
-								</div>
-								<div class="mt-3 flex gap-2">
-									<button type="button" onclick={() => downloadObjectVersion()} class="py-2 px-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Download Latest</button>
-									<button type="button" onclick={() => deleteObjectVersion()} class="py-2 px-3 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">Delete Object</button>
-									<button type="button" onclick={updateObjectProperty} class="py-2 px-3 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700">Save Properties</button>
-								</div>
-							</div>
-						</div>
-						<div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600 mt-6">
-							<button type="button" onclick={() => { showObjectModal = false; }}
-								class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 focus:ring-4 focus:ring-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700 dark:focus:ring-slate-700">
-								Close
-							</button>
-						</div>
-					{/if}
 				</div>
 			</div>
 		</div>

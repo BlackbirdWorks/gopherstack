@@ -47,7 +47,7 @@ func TestServiceDiscoveryDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-namespace")
-	assert.Contains(t, content, "Create Namespace")
+	assert.Contains(t, content, "Namespaces")
 }
 
 // TestServiceDiscoveryDashboard_Empty verifies the Service Discovery dashboard renders with no namespaces.

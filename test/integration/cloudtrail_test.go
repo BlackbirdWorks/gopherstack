@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,8 +17,8 @@ func TestIntegration_CloudTrail_TrailLifecycle(t *testing.T) {
 	client := createCloudTrailClient(t)
 	ctx := t.Context()
 
-	trailName := fmt.Sprintf("test-trail-%s", uuid.NewString()[:8])
-	s3Bucket := fmt.Sprintf("test-bucket-%s", uuid.NewString()[:8])
+	trailName := "test-trail-" + uuid.NewString()[:8]
+	s3Bucket := "test-bucket-" + uuid.NewString()[:8]
 
 	// CreateTrail
 	createOut, err := client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
@@ -87,8 +86,8 @@ func TestIntegration_CloudTrail_ListTrails(t *testing.T) {
 	client := createCloudTrailClient(t)
 	ctx := t.Context()
 
-	trailName := fmt.Sprintf("list-trail-%s", uuid.NewString()[:8])
-	s3Bucket := fmt.Sprintf("list-bucket-%s", uuid.NewString()[:8])
+	trailName := "list-trail-" + uuid.NewString()[:8]
+	s3Bucket := "list-bucket-" + uuid.NewString()[:8]
 
 	_, err := client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
 		Name:         aws.String(trailName),

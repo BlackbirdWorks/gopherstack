@@ -43,7 +43,7 @@ func TestWafv2Dashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/wafv2")
+	_, err = page.Goto(server.URL + "/dashboard/waf")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -78,7 +78,7 @@ func TestWafv2Dashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/wafv2")
+	_, err = page.Goto(server.URL + "/dashboard/waf")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
