@@ -82,5 +82,5 @@ func TestRedshiftDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Redshift Clusters")
+	assert.Contains(t, content, "No clusters found")
 }

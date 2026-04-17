@@ -83,5 +83,5 @@ func TestCloudTrailDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No CloudTrail trails")
+	assert.Contains(t, content, "No trails found")
 }

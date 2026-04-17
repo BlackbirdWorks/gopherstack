@@ -229,7 +229,7 @@
 									<div class="w-2 h-2 rounded-full {getStatusColor(e.state?.status)}"></div>
 									<div>
 										<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-[11px] truncate max-w-[150px]">{e.id}</div>
-										<div class="text-[8px] text-slate-400 font-mono tracking-tighter truncate opacity-60 italic">{e.experimentTemplateId} | {e.state?.status?.toUpperCase()}</div>
+											<div class="text-[8px] text-slate-400 font-mono tracking-tighter truncate opacity-60 italic">{e.experimentTemplateId} | {e.state?.status?.toUpperCase()}</div>
 									</div>
 								</div>
 								<ChevronRight class="w-4 h-4 text-slate-300" />

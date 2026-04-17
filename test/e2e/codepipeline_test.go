@@ -108,8 +108,8 @@ func TestCodePipelineDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "AWS CodePipeline")
-	assert.Contains(t, content, "No pipelines")
+	assert.Contains(t, content, "CodePipeline Engine")
+	assert.Contains(t, content, "No pipelines provisioned.")
 }
 
 // TestCodePipelineDashboard_CreatePipeline verifies creating a pipeline via the dashboard.
@@ -141,17 +141,17 @@ func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('+ Pipeline')").Click()
+	err = page.Locator("button:has-text('Deploy Pipeline')").First().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("#pipeline-name").Fill("e2e-created-pipeline")
+	err = page.Locator("input[placeholder='e.g. core-services-delivery-prod']").Fill("e2e-created-pipeline")
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('Create')").Last().Click()
+	err = page.Locator("button:has-text('Deploy Pipeline')").Last().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	err = page.Locator("text=e2e-created-pipeline").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 

@@ -89,6 +89,13 @@ func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No applications")
-	assert.Contains(t, content, "No environments")
+	assert.Contains(t, content, "No applications found")
+
+	err = page.Locator("button:has-text('Environments')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=No environments found").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 }

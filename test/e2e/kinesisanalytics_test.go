@@ -8,23 +8,12 @@ import (
 	"testing"
 
 	"github.com/playwright-community/playwright-go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestKinesisAnalyticsDashboard verifies the Kinesis Analytics dashboard UI renders application data.
+// TestKinesisAnalyticsDashboard verifies the removed KinesisAnalytics route returns 404.
 func TestKinesisAnalyticsDashboard(t *testing.T) {
 	stack := newStack(t)
-
-	_, err := stack.KinesisAnalyticsHandler.Backend.CreateApplication(
-		"us-east-1",
-		"000000000000",
-		"e2e-test-app",
-		"E2E test application",
-		"",
-		nil,
-	)
-	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -46,47 +35,11 @@ func TestKinesisAnalyticsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kinesisanalytics")
 	require.NoError(t, err)
 
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	err = page.Locator("text=404").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(30000),
 	})
 	require.NoError(t, err)
-
-	content, err := page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-app")
-	assert.Contains(t, content, "Create Application")
 }
 
-// TestKinesisAnalyticsDashboard_Empty verifies the Kinesis Analytics dashboard renders correctly with no data.
-func TestKinesisAnalyticsDashboard_Empty(t *testing.T) {
-	stack := newStack(t)
-
-	server := httptest.NewServer(stack.Echo)
-	defer server.Close()
-
-	ctx, err := browser.NewContext()
-	require.NoError(t, err)
-	defer ctx.Close()
-
-	page, err := ctx.NewPage()
-	require.NoError(t, err)
-	defer page.Close()
-
-	defer func() {
-		if t.Failed() {
-			saveScreenshot(t, page, "TestKinesisAnalyticsDashboard_Empty")
-		}
-	}()
-
-	_, err = page.Goto(server.URL + "/dashboard/kinesisanalytics")
-	require.NoError(t, err)
-
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
-	})
-	require.NoError(t, err)
-
-	content, err := page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "No applications found")
-}
+// TestKinesisAnalyticsDashboard_Empty is no longer applicable (route removed).

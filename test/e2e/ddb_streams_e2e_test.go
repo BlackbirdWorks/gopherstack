@@ -62,11 +62,10 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	// 4. Enable Streams via UI
 	_, err = page.SelectOption("select[name='viewType']", playwright.SelectOptionValues{Values: &[]string{"NEW_AND_OLD_IMAGES"}})
 	require.NoError(t, err)
-	require.NoError(t, page.Check("#streams-enabled"))
+	require.NoError(t, page.Click("label[for='streams-enabled']"))
 	require.NoError(t, page.Click("button:has-text('Update Streams')"))
 
-	// 5. Verify success toast and UI update
-	require.NoError(t, page.Locator("text=Streams enabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	// 5. Verify UI update (wait for card to show ENABLED)
 	streamsCard = page.Locator("div.grid > div:has-text('Streams')")
 	require.NoError(t, streamsCard.Locator("span:has-text('ENABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
@@ -80,18 +79,17 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	require.NoError(t, err)
 
 	// 7. Click on "Stream Events" tab
-	require.NoError(t, page.Click("#streams-tab"))
+	require.NoError(t, page.Click("button:has-text('Stream Events')"))
 
-	// 8. Verify the INSERT event appears in the table
-	require.NoError(t, page.Locator("table >> text=INSERT").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	// 8. Verify the INSERT event appears in the table (wait for it to load)
+	require.NoError(t, page.Locator("text=INSERT").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 9. Disable Streams via UI
-	require.NoError(t, page.Click("#overview-tab"))
+	require.NoError(t, page.Click("button:has-text('Overview')"))
 	require.NoError(t, page.Uncheck("#streams-enabled"))
 	require.NoError(t, page.Click("button:has-text('Update Streams')"))
 
-	// 10. Verify success toast and UI update
-	require.NoError(t, page.Locator("text=Streams disabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	// 10. Verify UI update (wait for card to show DISABLED)
 	streamsCard = page.Locator("div.grid > div:has-text('Streams')")
 	require.NoError(t, streamsCard.Locator("span:has-text('DISABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 

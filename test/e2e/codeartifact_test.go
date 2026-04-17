@@ -81,5 +81,5 @@ func TestCodeArtifactDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No CodeArtifact domains")
+	assert.Contains(t, content, "No domains found")
 }

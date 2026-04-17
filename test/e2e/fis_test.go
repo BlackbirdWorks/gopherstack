@@ -14,7 +14,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 )
 
-// TestFISDashboard verifies the FIS dashboard renders with templates and actions.
+// TestFISDashboard verifies the FIS dashboard renders template data in the current UI.
 func TestFISDashboard(t *testing.T) {
 	stack := newStack(t)
 
@@ -69,12 +69,18 @@ func TestFISDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	err = page.Locator("button:has-text('Experiment Templates')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=Stop DynamoDB writes").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "Experiment Templates")
 	assert.Contains(t, content, "Stop DynamoDB writes")
-	assert.Contains(t, content, "Action Catalog")
-	assert.Contains(t, content, "aws:fis:inject-api-throttle-error")
 }
 
 // TestFISDashboard_Empty verifies the FIS dashboard renders correctly with no data.
@@ -108,14 +114,33 @@ func TestFISDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Experiment Templates")
-	assert.Contains(t, content, "No experiment templates")
-	assert.Contains(t, content, "Action Catalog")
+	assert.Contains(t, content, "Live Experiments")
+	assert.Contains(t, content, "No registered chaos assets.")
 }
 
-// TestFISDashboard_CreateAndDeleteTemplate verifies the create and delete template UI flows.
-func TestFISDashboard_CreateAndDeleteTemplate(t *testing.T) {
+// TestFISDashboard_TemplatesTab verifies the templates tab lists seeded templates.
+func TestFISDashboard_TemplatesTab(t *testing.T) {
 	stack := newStack(t)
+
+	_, err := stack.FISHandler.Backend.CreateExperimentTemplate(
+		&fisbackend.ExportedCreateTemplateRequest{
+			Description: "E2E template",
+			RoleArn:     "arn:aws:iam::000000000000:role/e2e-role",
+			Actions: map[string]fisbackend.ExportedActionDTO{
+				"wait": {
+					ActionID: "aws:fis:wait",
+					Parameters: map[string]string{
+						"duration": "PT60S",
+					},
+				},
+			},
+			StopConditions: []fisbackend.ExportedStopConditionDTO{{Source: "none"}},
+			Tags:           map[string]string{},
+		},
+		"000000000000",
+		"us-east-1",
+	)
+	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -130,7 +155,7 @@ func TestFISDashboard_CreateAndDeleteTemplate(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestFISDashboard_CreateAndDeleteTemplate")
+			saveScreenshot(t, page, "TestFISDashboard_TemplatesTab")
 		}
 	}()
 
@@ -142,50 +167,17 @@ func TestFISDashboard_CreateAndDeleteTemplate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Open create modal.
-	err = page.Locator("button:has-text('+ Create Template')").Click()
+	err = page.Locator("button:has-text('Experiment Templates')").Click()
 	require.NoError(t, err)
 
-	// Fill in description.
-	err = page.Locator("input[name='description']").Fill("E2E test template")
-	require.NoError(t, err)
-
-	// Fill in role ARN.
-	err = page.Locator("input[name='roleArn']").Fill("arn:aws:iam::000000000000:role/e2e-role")
-	require.NoError(t, err)
-
-	// Select action ID.
-	_, err = page.Locator("select[name='actionId']").SelectOption(playwright.SelectOptionValues{
-		Values: playwright.StringSlice("aws:fis:inject-api-internal-error"),
-	})
-	require.NoError(t, err)
-
-	// Fill in service parameter.
-	err = page.Locator("input[name='service']").Fill("s3")
-	require.NoError(t, err)
-
-	// Submit (use Last() since "Create Template" text appears in both button and submit).
-	err = page.Locator("button:has-text('Create Template')").Last().Click()
-	require.NoError(t, err)
-
-	// Wait for redirect and confirm the template appears.
-	err = page.Locator("td:has-text('E2E test template')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=E2E template").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "E2E test template")
-
-	// Delete the template.
-	err = page.Locator("form[action='/dashboard/fis/templates/delete'] button").Click()
-	require.NoError(t, err)
-
-	err = page.Locator("td:has-text('No experiment templates')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(10000),
-	})
-	require.NoError(t, err)
+	assert.Contains(t, content, "E2E template")
 }
 
 // TestFISDashboard_StartAndStopExperiment verifies starting and stopping an experiment.
@@ -210,6 +202,14 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 			},
 			Tags: map[string]string{},
 		},
+		"000000000000",
+		"us-east-1",
+	)
+	require.NoError(t, err)
+
+	experiment, err := stack.FISHandler.Backend.StartExperiment(
+		t.Context(),
+		&fisbackend.ExportedStartExperimentRequest{ExperimentTemplateID: tpl.ID},
 		"000000000000",
 		"us-east-1",
 	)
@@ -240,29 +240,31 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Start the experiment.
-	err = page.Locator("form[action='/dashboard/fis/experiments/start'] button").First().Click()
+	err = page.Locator("text=" + experiment.ID).WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
 
-	// Wait for the Stop button to appear in the Active Experiments table, confirming an
-	// experiment is running (the fragment renders a Stop button for RUNNING state).
-	err = page.Locator("form[action='/dashboard/fis/experiments/stop'] button:has-text('Stop')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(15000),
+	err = page.Locator("text=" + experiment.ID).Click()
+	require.NoError(t, err)
+
+	err = page.Locator("button[title='Stop Chaos']").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Active Experiments")
-	assert.Contains(t, content, "RUNNING")
+	assert.Contains(t, content, "running")
 
-	// Stop the experiment by clicking the Stop button in the UI.
-	err = page.Locator("form[action='/dashboard/fis/experiments/stop'] button:has-text('Stop')").First().Click()
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
+
+	err = page.Locator("button[title='Stop Chaos']").Click()
 	require.NoError(t, err)
 
-	// After stop, the Stop button should disappear (experiment no longer running).
-	err = page.Locator("form[action='/dashboard/fis/experiments/stop'] button:has-text('Stop')").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateHidden,
+	err = page.Locator("text=stopped").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)

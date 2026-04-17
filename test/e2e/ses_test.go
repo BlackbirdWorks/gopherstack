@@ -6,12 +6,15 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/ses"
 	"github.com/playwright-community/playwright-go"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestSESDashboard verifies the SES dashboard UI: inbox renders and shows sent emails.
+// TestSESDashboard verifies the rewritten SES dashboard identities and send-email flows.
 func TestSESDashboard(t *testing.T) {
 	stack := newStack(t)
 
@@ -36,39 +39,72 @@ func TestSESDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ses")
 	require.NoError(t, err)
 
-	// Wait for the SES Inbox header to appear.
+	// Wait for the SES page to render.
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	// Verify the "Verify Identity" button is present.
-	btn := page.Locator("button:has-text('Verify Identity')")
-	err = btn.WaitFor(playwright.LocatorWaitForOptions{
+	// Seed a verified identity and confirm it appears on the identities tab.
+	require.NoError(t, stack.SESHandler.Backend.VerifyEmailIdentity("sender@example.com"))
+
+	identityRow := page.Locator("text=sender@example.com")
+	err = page.Locator("button:has-text('Refresh')").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	// Verify the sender identity before sending.
-	require.NoError(t, stack.SESHandler.Backend.VerifyEmailIdentity("sender@example.com"))
-
-	// Send an email via SES so that it appears in the inbox.
-	_, err = stack.SESHandler.Backend.SendEmail(
-		"sender@example.com",
-		[]string{"recipient@example.com"},
-		"Hello from SES",
-		"<b>Hello World</b>",
-		"Hello World",
-	)
+	err = page.Locator("button:has-text('Refresh')").Click()
 	require.NoError(t, err)
 
-	// Reload the page to see the new email.
-	_, err = page.Reload()
+	err = identityRow.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(60000),
+	})
 	require.NoError(t, err)
 
-	// Wait for the email subject to appear in the inbox table.
-	err = page.Locator("text=Hello from SES").WaitFor(playwright.LocatorWaitForOptions{
+	content, err := page.Content()
+	require.NoError(t, err)
+	assert.Contains(t, content, "Success")
+
+	// Use the current Send Email tab and verify the backend receives the message.
+	err = page.Locator("button:has-text('Send Email')").First().Click()
+	require.NoError(t, err)
+
+	err = page.Locator("#send-from").Fill("sender@example.com")
+	require.NoError(t, err)
+
+	err = page.Locator("#send-to").Fill("recipient@example.com")
+	require.NoError(t, err)
+
+	err = page.Locator("#send-subject").Fill("Hello from SES UI")
+	require.NoError(t, err)
+
+	err = page.Locator("#send-body").Fill("Hello World")
+	require.NoError(t, err)
+
+	err = page.Locator("button:has-text('Send Email')").Last().Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		backend, ok := stack.SESHandler.Backend.(*ses.InMemoryBackend)
+		if !ok {
+			return false
+		}
+
+		emails := backend.ListEmails()
+		if len(emails) != 1 {
+			return false
+		}
+
+		return emails[0].From == "sender@example.com" &&
+			emails[0].Subject == "Hello from SES UI" &&
+			len(emails[0].To) == 1 &&
+			emails[0].To[0] == "recipient@example.com"
+	}, 10*time.Second, 200*time.Millisecond)
+
+	err = page.Locator("text=Email sent successfully").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

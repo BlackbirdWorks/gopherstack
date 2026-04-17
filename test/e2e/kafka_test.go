@@ -48,11 +48,16 @@ func TestKafkaDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/kafka")
+	_, err = page.Goto(server.URL + "/dashboard/msk")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	err = page.Locator("text=my-test-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
@@ -83,7 +88,7 @@ func TestKafkaDashboard_CreateCluster(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/kafka")
+	_, err = page.Goto(server.URL + "/dashboard/msk")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -92,20 +97,20 @@ func TestKafkaDashboard_CreateCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open create cluster modal.
-	err = page.Locator("button:has-text('+ Cluster')").Click()
+	err = page.Locator("button:has-text('Create Cluster')").Click()
 	require.NoError(t, err)
 
 	// Fill in name field.
-	err = page.Locator("#create-cluster-modal input[name='name']").Fill("e2e-cluster")
+	err = page.Locator("#cluster-name").Fill("e2e-cluster")
 	require.NoError(t, err)
 
 	// Submit.
-	err = page.Locator("#create-cluster-modal button[type='submit']").Click()
+	err = page.Locator("button:has-text('Create Cluster')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for redirect back to kafka page.
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	// Wait for the cluster to appear in the list.
+	err = page.Locator("text=e2e-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 

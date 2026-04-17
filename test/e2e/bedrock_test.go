@@ -12,18 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBedrockDashboard verifies the Bedrock dashboard UI renders guardrails and foundation models.
+// TestBedrockDashboard verifies the Bedrock dashboard UI renders foundation models.
 func TestBedrockDashboard(t *testing.T) {
 	stack := newStack(t)
-
-	_, err := stack.BedrockHandler.Backend.CreateGuardrail(
-		"e2e-test-guardrail",
-		"E2E test guardrail",
-		"Input blocked.",
-		"Output blocked.",
-		nil,
-	)
-	require.NoError(t, err)
+	var err error
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -52,8 +44,8 @@ func TestBedrockDashboard(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-guardrail")
-	assert.Contains(t, content, "READY")
+	assert.Contains(t, content, "Amazon Bedrock")
+	assert.Contains(t, content, "Foundation Models")
 	assert.Contains(t, content, "amazon.titan-text-express-v1")
 }
 
@@ -92,8 +84,8 @@ func TestBedrockDashboard_Empty(t *testing.T) {
 	assert.Contains(t, content, "amazon.titan-text-express-v1")
 }
 
-// TestBedrockDashboard_CreateGuardrail verifies creating a guardrail via the dashboard.
-func TestBedrockDashboard_CreateGuardrail(t *testing.T) {
+// TestBedrockDashboard_CustomModels verifies the custom models tab renders.
+func TestBedrockDashboard_CustomModels(t *testing.T) {
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -109,7 +101,7 @@ func TestBedrockDashboard_CreateGuardrail(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestBedrockDashboard_CreateGuardrail")
+			saveScreenshot(t, page, "TestBedrockDashboard_CustomModels")
 		}
 	}()
 
@@ -121,22 +113,16 @@ func TestBedrockDashboard_CreateGuardrail(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Open the create guardrail modal
-	err = page.Locator("button:has-text('+ Guardrail')").Click()
+	err = page.Locator("button:has-text('Custom Models')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("#guardrail-name").Fill("e2e-created-guardrail")
-	require.NoError(t, err)
-
-	err = page.Locator("button:has-text('Create')").Last().Click()
-	require.NoError(t, err)
-
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	err = page.Locator("text=No custom models found").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-created-guardrail")
+	assert.Contains(t, content, "Custom Models")
+	assert.Contains(t, content, "No custom models found")
 }

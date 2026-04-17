@@ -82,11 +82,19 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/eventbridge/rules?bus=rules-bus")
+	_, err = page.Goto(server.URL + "/dashboard/eventbridge")
 	require.NoError(t, err)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	err = page.Locator("div").Filter(playwright.LocatorFilterOptions{HasText: "rules-bus"}).First().Locator("button:has-text('View Rules')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=test-rule").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 

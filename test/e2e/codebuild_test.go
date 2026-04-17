@@ -94,8 +94,8 @@ func TestCodeBuildDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "AWS CodeBuild")
-	assert.Contains(t, content, "No projects")
+	assert.Contains(t, content, "CodeBuild Operations")
+	assert.Contains(t, content, "No build projects found.")
 }
 
 // TestCodeBuildDashboard_CreateProject verifies creating a project via the dashboard.
@@ -127,17 +127,17 @@ func TestCodeBuildDashboard_CreateProject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('+ Project')").Click()
+	err = page.Locator("button:has-text('Deploy Build Project')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("#project-name").Fill("e2e-created-project")
+	err = page.Locator("input[placeholder='e.g. monolith-release-pipeline']").Fill("e2e-created-project")
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('Create')").Last().Click()
+	err = page.Locator("button:has-text('Deploy Blueprint')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	err = page.Locator("text=e2e-created-project").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 

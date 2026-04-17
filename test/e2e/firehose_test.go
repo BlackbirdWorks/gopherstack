@@ -82,5 +82,5 @@ func TestFirehoseDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Firehose Delivery Streams")
+	assert.Contains(t, content, "Amazon Data Firehose")
 }

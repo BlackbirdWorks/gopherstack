@@ -49,6 +49,14 @@ func TestCloudWatchDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	err = page.Locator("button:has-text('Metrics')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=TestNamespace").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "CloudWatch")
@@ -87,6 +95,7 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "CloudWatch")
+	assert.Contains(t, content, "No alarms found")
 }
 
 // TestCloudWatchDashboard_Dashboards verifies the dashboards section renders correctly.
@@ -118,6 +127,14 @@ func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	err = page.Locator("button:has-text('Dashboards')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=my-dashboard").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 

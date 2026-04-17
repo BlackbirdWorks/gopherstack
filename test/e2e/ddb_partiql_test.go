@@ -61,37 +61,30 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 	require.NoError(t, err)
 
 	// Click the PartiQL tab.
-	partiqlTab, err := page.QuerySelector("#partiql-tab")
-	require.NoError(t, err)
-	require.NotNil(t, partiqlTab, "PartiQL tab not found")
+	partiqlTab := page.Locator("button:has-text('PartiQL')")
+	require.NoError(t, partiqlTab.Click())
 
-	err = partiqlTab.Click()
-	require.NoError(t, err)
-
-	// The partiql-form should be present after HTMX loads it (triggered by the tab click).
-	err = page.Locator("textarea[name='statement']").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateAttached,
+	// The partiql-form elements should be present
+	err = page.Locator("textarea").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	// Type a SELECT statement.
-	require.NoError(t, page.Fill("textarea[name='statement']", `SELECT * FROM "PartiQLTestTable"`))
+	require.NoError(t, page.Fill("textarea", `SELECT * FROM "PartiQLTestTable"`))
 
-	// Submit the form using the uniquely-id'd button to avoid matching the hidden
-	// "Execute Query" / "Execute Scan" buttons in the other (hidden) tab panels.
-	err = page.Click("#partiql-execute")
-	require.NoError(t, err)
+	require.NoError(t, page.Click("button:has-text('Execute')"))
 
-	// Wait for results to appear (HTMX swaps #partiql-output contents).
-	err = page.Locator("#partiql-output pre").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for results to appear (the resultsTable snippet renders 1 result text)
+	err = page.Locator("text=1 result").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(8000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	// Results should appear.
-	body, err := page.TextContent("#partiql-output")
+	// Results should appear in the resultsTable which is under the PartiQL tab.
+	body, err := page.Locator("table").Last().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "item-1", "expected item ID in PartiQL results")
 }
@@ -129,9 +122,9 @@ func TestE2E_DynamoDBPartiQL_TabVisible(t *testing.T) {
 	require.NoError(t, err)
 
 	// The PartiQL tab should be present.
-	partiqlTab := page.Locator("#partiql-tab")
+	partiqlTab := page.Locator("button:has-text('PartiQL')")
 	err = partiqlTab.WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateAttached,
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(5000),
 	})
 	require.NoError(t, err)

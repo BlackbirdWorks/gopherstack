@@ -85,5 +85,6 @@ func TestKinesisDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Kinesis Streams")
+	assert.Contains(t, content, "Kinesis Data Streams")
+	assert.Contains(t, content, "No streams found")
 }

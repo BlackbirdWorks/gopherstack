@@ -87,5 +87,6 @@ func TestCognitoIdentityDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Cognito Identity Pools")
+	assert.Contains(t, content, "Cognito Identity")
+	assert.Contains(t, content, "No identity pools found")
 }

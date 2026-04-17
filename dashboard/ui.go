@@ -1,8 +1,8 @@
 package dashboard
 
 import (
-	"encoding/json"
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -731,6 +731,32 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{"objects": objectPaths})
+	})
+
+	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-events", func(c *echo.Context) error {
+		name := c.Param("name")
+		if h.config.DynamoDBStreamsOps == nil || h.config.DynamoDBStreamsOps.Streams == nil {
+			return c.HTML(http.StatusOK, "Streams backend unavailable")
+		}
+
+		// Use the backend to get recent stream events and format as minimal HTML
+		events := h.config.DynamoDBStreamsOps.Streams.GetRecentEvents(name)
+		if len(events) == 0 {
+			return c.HTML(http.StatusOK, "No recent stream events.")
+		}
+
+		var sb strings.Builder
+		sb.WriteString("<table class='w-full text-xs font-mono'>")
+		sb.WriteString("<thead><tr class='border-b'><th class='text-left pb-1'>Event</th><th class='text-left pb-1'>ID</th></tr></thead>")
+		sb.WriteString("<tbody>")
+		for _, e := range events {
+			sb.WriteString("<tr class='border-b hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors'>")
+			sb.WriteString("<td class='py-1'>" + e.EventName + "</td>")
+			sb.WriteString("<td class='py-1 truncate'>" + e.EventID + "</td>")
+			sb.WriteString("</tr>")
+		}
+		sb.WriteString("</tbody></table>")
+		return c.HTML(http.StatusOK, sb.String())
 	})
 
 	// SPA fallback

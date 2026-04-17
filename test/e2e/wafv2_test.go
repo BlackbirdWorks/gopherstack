@@ -88,5 +88,5 @@ func TestWafv2Dashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Create Web ACL")
+	assert.Contains(t, content, "No Web ACLs found")
 }

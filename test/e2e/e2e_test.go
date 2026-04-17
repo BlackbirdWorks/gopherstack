@@ -68,8 +68,10 @@ func saveScreenshot(t *testing.T, page playwright.Page, name string) {
 // waitForSPA waits for the SvelteKit SPA to fully load after navigation.
 func waitForSPA(t *testing.T, page playwright.Page) {
 	t.Helper()
+	// Using LoadStateLoad instead of Networkidle because streaming pages (Metrics, Console)
+	// never truly reach network idle state.
 	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
+		State:   playwright.LoadStateLoad,
 		Timeout: playwright.Float(10000),
 	}))
 }
@@ -656,7 +658,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Verify header
-	header := page.Locator("text=Performance Metrics")
+	header := page.Locator("h1:has-text('Performance Metrics')")
 	err = header.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -704,7 +706,7 @@ func TestE2E_Console(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Verify console header
-	header := page.Locator("text=Live API Console")
+	header := page.Locator("h1:has-text('Live API Console')")
 	err = header.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
@@ -1003,10 +1005,10 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, hasThemeOcean.(bool), "Ocean theme should add theme-ocean class")
 
-	// Select GitHub theme (light variant)
+	// Select GitHub theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button:has-text('GitHub')")
+	err = page.Click("button:has-text('GitHub Dark')")
 	require.NoError(t, err)
 
 	hasThemeGithub, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github')")
@@ -1015,7 +1017,21 @@ func TestE2E_ThemeSelector(t *testing.T) {
 
 	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
 	require.NoError(t, err)
-	assert.False(t, hasDark.(bool), "GitHub is a light theme, no dark class")
+	assert.True(t, hasDark.(bool), "GitHub Dark is a dark theme")
+
+	// Select GitHub Light theme
+	err = themeBtn.Click()
+	require.NoError(t, err)
+	err = page.Click("button:has-text('GitHub Light')")
+	require.NoError(t, err)
+
+	hasThemeGithubLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github-light')")
+	require.NoError(t, err)
+	assert.True(t, hasThemeGithubLight.(bool), "GitHub Light theme should add theme-github-light class")
+
+	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
+	require.NoError(t, err)
+	assert.False(t, hasDark.(bool), "GitHub Light is a light theme, no dark class")
 
 	// Select Light theme
 	err = themeBtn.Click()

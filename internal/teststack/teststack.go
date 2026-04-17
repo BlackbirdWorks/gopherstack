@@ -1043,10 +1043,10 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 	fs := chaos.NewFaultStore()
 
 	cfg := dashboard.Config{
-		FaultStore:            fs,
-		MediaStoreDataOps:     h.mediastoredata,
+		FaultStore:             fs,
+		MediaStoreDataOps:      h.mediastoredata,
 		CodeStarConnectionsOps: h.codeStarConn,
-		CognitoIDPOps:        h.cognitoIDP,
+		CognitoIDPOps:          h.cognitoIDP,
 	}
 
 	return cfg, fs
@@ -1118,6 +1118,7 @@ func New(t *testing.T) *Stack {
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
 	dashCfg, faultStore := newDashboardConfig(h, clients)
+	chaos.RegisterRoutes(e.Group("/_gopherstack/chaos"), faultStore, registry)
 	dashHndlr := dashboard.NewHandler(dashCfg)
 	_ = registry.Register(dashHndlr)
 

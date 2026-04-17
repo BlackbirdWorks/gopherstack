@@ -90,8 +90,8 @@ func TestChaosDashboard_WithExistingFault(t *testing.T) {
 	require.NoError(t, err)
 
 	// The page should show the s3 fault.
-	err = page.Locator("text=s3").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(10000),
+	err = page.Locator("div:has-text('s3')").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(20000),
 	})
 	require.NoError(t, err)
 

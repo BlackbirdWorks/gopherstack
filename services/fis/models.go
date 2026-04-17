@@ -339,6 +339,7 @@ type experimentDTO struct {
 	LogConfiguration     *experimentLogConfigurationDTO  `json:"logConfiguration,omitempty"`
 	Tags                 map[string]string               `json:"tags"`
 	EndTime              *float64                        `json:"endTime,omitempty"`
+	State                experimentStatusDTO             `json:"state"`
 	Status               experimentStatusDTO             `json:"status"`
 	Arn                  string                          `json:"arn"`
 	ExperimentTemplateID string                          `json:"experimentTemplateId"`
@@ -365,6 +366,7 @@ type experimentTargetDTO struct {
 type experimentActionDTO struct {
 	Parameters map[string]string          `json:"parameters,omitempty"`
 	Targets    map[string]string          `json:"targets,omitempty"`
+	State      *experimentActionStatusDTO `json:"state,omitempty"`
 	Status     *experimentActionStatusDTO `json:"status,omitempty"`
 	StartTime  *float64                   `json:"startTime,omitempty"`
 	EndTime    *float64                   `json:"endTime,omitempty"`

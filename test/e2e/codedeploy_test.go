@@ -80,5 +80,5 @@ func TestCodeDeployDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No CodeDeploy applications")
+	assert.Contains(t, content, "No applications found")
 }
