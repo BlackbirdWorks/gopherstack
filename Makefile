@@ -105,7 +105,7 @@ lint-fix: install-deps
 test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
 
-integration-test:
+integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
 terraform-test: install-tofu
@@ -116,7 +116,7 @@ e2e: ui-build e2e-test
 e2e-test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...
 
-total-coverage:
+total-coverage: build-linux
 	$(eval COVERPKGS := $(shell go list ./... | grep -v -E '(test/|/demo$$|/modules/|/teststack$$)' | tr '\n' ',' | sed 's/,$$//'))
 	@echo "Running unit tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 5m -coverpkg=$(COVERPKGS) -coverprofile=unit-coverage.out -covermode=atomic ./...

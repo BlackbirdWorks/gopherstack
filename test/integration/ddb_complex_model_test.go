@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -44,7 +45,7 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 	assert.Equal(t, types.TableStatusActive, out.TableDescription.TableStatus)
 
 	t.Cleanup(func() {
-		_, deleteErr := client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		_, deleteErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 		assert.NoError(t, deleteErr)
