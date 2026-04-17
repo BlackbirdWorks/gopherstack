@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -17,7 +16,7 @@ func createS3BenchmarkClient(b *testing.B) *s3.Client {
 	b.Helper()
 
 	cfg, err := config.LoadDefaultConfig(
-		context.Background(),
+		b.Context(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),
@@ -35,7 +34,7 @@ func createS3BenchmarkClient(b *testing.B) *s3.Client {
 
 func BenchmarkS3PutObject(b *testing.B) {
 	client := createS3BenchmarkClient(b)
-	ctx := context.Background()
+	ctx := b.Context()
 	bucket := "bench-put-" + uuid.NewString()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -66,7 +65,7 @@ func BenchmarkS3PutObject(b *testing.B) {
 
 func BenchmarkS3GetObject(b *testing.B) {
 	client := createS3BenchmarkClient(b)
-	ctx := context.Background()
+	ctx := b.Context()
 	bucket := "bench-get-" + uuid.NewString()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -104,7 +103,7 @@ func BenchmarkS3GetObject(b *testing.B) {
 
 func BenchmarkS3DeleteObject(b *testing.B) {
 	client := createS3BenchmarkClient(b)
-	ctx := context.Background()
+	ctx := b.Context()
 	bucket := "bench-del-" + uuid.NewString()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

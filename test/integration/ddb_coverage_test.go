@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -35,7 +34,7 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 	require.NoError(t, createErr)
 
 	t.Cleanup(func() {
-		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})

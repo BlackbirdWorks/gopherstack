@@ -41,8 +41,8 @@ func TestIntegration_Transcribe_TranscriptionJobLifecycle(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
-		name    string
-		jobName string
+		name     string
+		jobName  string
 		mediaURI string
 	}{
 		{

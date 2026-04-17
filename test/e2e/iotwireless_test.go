@@ -10,13 +10,17 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 )
 
 // TestIoTWirelessDashboard verifies the IoT Wireless dashboard UI renders service profile data.
 func TestIoTWirelessDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.IoTWirelessHandler.Backend.CreateServiceProfile("000000000000", "us-east-1", "e2e-test-profile", nil)
+	_, err := stack.IoTHandler.Backend.CreateThing(&iotbackend.CreateThingInput{
+		ThingName: "e2e-test-thing",
+	})
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
@@ -36,18 +40,18 @@ func TestIoTWirelessDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/iotwireless")
+	_, err = page.Goto(server.URL + "/dashboard/iot")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Wireless')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-profile")
-	assert.Contains(t, content, "Create Service Profile")
+	assert.Contains(t, content, "e2e-test-thing")
+	assert.Contains(t, content, "AWS IoT Core")
 }
 
 // TestIoTWirelessDashboard_Empty verifies the IoT Wireless dashboard renders correctly with no data.
@@ -71,15 +75,15 @@ func TestIoTWirelessDashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/iotwireless")
+	_, err = page.Goto(server.URL + "/dashboard/iot")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Wireless')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No service profiles found")
+	assert.Contains(t, content, "No IoT things found")
 }

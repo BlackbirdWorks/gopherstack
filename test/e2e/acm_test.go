@@ -39,14 +39,17 @@ func TestACMDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/acm")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('ACM Certificates')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the certificate to appear in the table.
+	err = page.Locator("text=e2e-test.example.com").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test.example.com")
 }
 
 // TestACMDashboard_Empty verifies the empty state renders correctly.
@@ -73,12 +76,12 @@ func TestACMDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/acm")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('ACM Certificates')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "ACM Certificates")
+	assert.Contains(t, content, "Certificate Manager")
 }

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -50,8 +49,8 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 	client := createCloudFrontClient(t)
 	ctx := t.Context()
 
-	callerRef := fmt.Sprintf("ref-%s", uuid.NewString()[:8])
-	comment := fmt.Sprintf("test-dist-%s", uuid.NewString()[:8])
+	callerRef := "ref-" + uuid.NewString()[:8]
+	comment := "test-dist-" + uuid.NewString()[:8]
 
 	// CreateDistribution
 	createOut, err := client.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{

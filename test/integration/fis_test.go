@@ -3,7 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -147,7 +146,7 @@ func TestIntegration_FIS_ExperimentTemplateLifecycle(t *testing.T) {
 	assert.True(t, found, "created template should appear in list")
 
 	// --- Tag ---
-	tagPath := fmt.Sprintf("/tags/%s", arnStr)
+	tagPath := "/tags/" + arnStr
 	tagResp := fisRequest(t, http.MethodPost, tagPath, map[string]any{
 		"tags": map[string]string{"team": "platform"},
 	})

@@ -596,7 +596,13 @@ func hardLinkDir(src, dst string) error {
 			return copyFile(path, target, info.Mode())
 		}
 
-		return os.Link(path, target)
+		// Attempt to hard-link the file for efficiency.
+		if linkErr := os.Link(path, target); linkErr == nil {
+			return nil
+		}
+
+		// Fallback to copy if hard-linking fails (e.g. cross-device link).
+		return copyFile(path, target, info.Mode())
 	})
 }
 
@@ -790,7 +796,7 @@ func runTFTest(t *testing.T, tc tfTestCase) {
 	dumpContainerLogsOnFailure(t)
 
 	tofuBin := ensureTofuBinary(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	dir := t.TempDir()
 
 	provFn := tc.providerFn

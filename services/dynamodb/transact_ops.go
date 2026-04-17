@@ -3,7 +3,6 @@ package dynamodb
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"sort"
 	"time"
@@ -357,7 +356,7 @@ func (db *InMemoryDB) transactGetResponseItem(
 	tableName := aws.ToString(ti.Get.TableName)
 	table, ok := tables[tableName]
 	if !ok {
-		return types.ItemResponse{}, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+		return types.ItemResponse{}, NewResourceNotFoundException("Table not found: " + tableName)
 	}
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
@@ -443,7 +442,7 @@ func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) 
 	if !exists {
 		db.mu.RUnlock()
 
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found in region %s", region))
+		return nil, NewResourceNotFoundException("Table not found in region " + region)
 	}
 
 	for _, name := range tableNames {
@@ -451,7 +450,7 @@ func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) 
 		if !ok {
 			db.mu.RUnlock()
 
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", name))
+			return nil, NewResourceNotFoundException("Table not found: " + name)
 		}
 		tables[name] = t
 	}
@@ -473,7 +472,7 @@ func (db *InMemoryDB) lockTablesRead(ctx context.Context, tableNames []string) (
 	if !exists {
 		db.mu.RUnlock()
 
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found in region %s", region))
+		return nil, NewResourceNotFoundException("Table not found in region " + region)
 	}
 
 	for _, name := range tableNames {
@@ -481,7 +480,7 @@ func (db *InMemoryDB) lockTablesRead(ctx context.Context, tableNames []string) (
 		if !ok {
 			db.mu.RUnlock()
 
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", name))
+			return nil, NewResourceNotFoundException("Table not found: " + name)
 		}
 		tables[name] = t
 	}

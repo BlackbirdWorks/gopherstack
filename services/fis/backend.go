@@ -209,7 +209,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	safetyLeverARN := arn.Build("fis", region, accountID, fmt.Sprintf("safety-lever/%s", accountID))
+	safetyLeverARN := arn.Build("fis", region, accountID, "safety-lever/"+accountID)
 
 	return &InMemoryBackend{
 		templates:            make(map[string]*ExperimentTemplate),
@@ -241,7 +241,7 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
-	safetyLeverARN := arn.Build("fis", b.region, b.accountID, fmt.Sprintf("safety-lever/%s", b.accountID))
+	safetyLeverARN := arn.Build("fis", b.region, b.accountID, "safety-lever/"+b.accountID)
 
 	b.templates = make(map[string]*ExperimentTemplate)
 	b.experiments = make(map[string]*Experiment)
@@ -282,7 +282,7 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 	accountID, region string,
 ) (*ExperimentTemplate, error) {
 	id := generateID("EXT")
-	arnStr := arn.Build("fis", region, accountID, fmt.Sprintf("experiment-template/%s", id))
+	arnStr := arn.Build("fis", region, accountID, "experiment-template/"+id)
 
 	now := time.Now()
 	tpl := &ExperimentTemplate{
@@ -446,7 +446,7 @@ func (b *InMemoryBackend) StartExperiment(
 	}
 
 	id := generateID("EXP")
-	arnStr := arn.Build("fis", region, accountID, fmt.Sprintf("experiment/%s", id))
+	arnStr := arn.Build("fis", region, accountID, "experiment/"+id)
 
 	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
 	// experiment goroutine is NOT cancelled when the HTTP response is sent.

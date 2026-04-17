@@ -256,6 +256,8 @@ func resolveField(
 		return invokeDynamoDBResolver(ctx, backend, resolver, ds, args)
 	case DataSourceTypeNone:
 		return invokeNoneResolver(resolver, args)
+	case DataSourceTypeHTTP, DataSourceTypeRelational, DataSourceTypeOpenSearch:
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
 	}

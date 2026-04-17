@@ -1,14 +1,32 @@
-.PHONY: build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
+.PHONY: build ui-install ui-lint ui-fmt ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
 BUILD_VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-build:
+build: ui-build
 	go build \
 		-trimpath \
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
 		-o bin/$(BINARY_NAME) .
+
+ui-install:
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui ci
+
+ui-lint: ui-install
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint
+
+ui-fmt: ui-install
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt:check
+
+ui-test: ui-install
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run test:coverage
+
+ui-build: ui-install
+	mkdir -p dashboard/static/spa
+	find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run build
+	touch dashboard/static/spa/.keep
 
 build-releaser:
 	go build \
@@ -77,7 +95,7 @@ install-tofu:
 	fi
 
 lint: install-deps
-	golangci-lint run ./...
+	golangci-lint run --timeout 10m ./...
 	go tool govulncheck ./...
 
 lint-fix: install-deps
@@ -89,16 +107,18 @@ lint-fix: install-deps
 test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
 
-integration-test:
+integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
 terraform-test: install-tofu
 	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 10m ./test/terraform/...
 
-e2e-test:
+e2e: e2e-test
+
+e2e-test: ui-build
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...
 
-total-coverage:
+total-coverage: build-linux
 	$(eval COVERPKGS := $(shell go list ./... | grep -v -E '(test/|/demo$$|/modules/|/teststack$$)' | tr '\n' ',' | sed 's/,$$//'))
 	@echo "Running unit tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 5m -coverpkg=$(COVERPKGS) -coverprofile=unit-coverage.out -covermode=atomic ./...
@@ -121,27 +141,8 @@ total-coverage:
 clean:
 	rm -rf bin/
 
-FLOWBITE_VERSION=4.0.1
-HTMX_VERSION=2.0.8
-
 upgrade-static:
-	@echo "Checking for latest static asset versions..."
-	$(eval NEW_FLOWBITE_VERSION=$(shell curl -s https://registry.npmjs.org/flowbite/latest | jq -r .version))
-	$(eval NEW_HTMX_VERSION=$(shell curl -s https://registry.npmjs.org/htmx.org/latest | jq -r .version))
-	@if [ "$(FLOWBITE_VERSION)" != "$(NEW_FLOWBITE_VERSION)" ]; then \
-		echo "Upgrading Flowbite: $(FLOWBITE_VERSION) -> $(NEW_FLOWBITE_VERSION)"; \
-		sed -i '' "s/FLOWBITE_VERSION=$(FLOWBITE_VERSION)/FLOWBITE_VERSION=$(NEW_FLOWBITE_VERSION)/" Makefile; \
-	fi
-	@if [ "$(HTMX_VERSION)" != "$(NEW_HTMX_VERSION)" ]; then \
-		echo "Upgrading HTMX: $(HTMX_VERSION) -> $(NEW_HTMX_VERSION)"; \
-		sed -i '' "s/HTMX_VERSION=$(HTMX_VERSION)/HTMX_VERSION=$(NEW_HTMX_VERSION)/" Makefile; \
-	fi
-	@echo "Downloading static assets..."
-	@mkdir -p dashboard/static/vendor
-	curl -sSfL https://cdn.jsdelivr.net/npm/flowbite@$(NEW_FLOWBITE_VERSION)/dist/flowbite.min.css -o dashboard/static/vendor/flowbite.min.css
-	curl -sSfL https://cdn.jsdelivr.net/npm/flowbite@$(NEW_FLOWBITE_VERSION)/dist/flowbite.min.js -o dashboard/static/vendor/flowbite.min.js
-	curl -sSfL https://unpkg.com/htmx.org@$(NEW_HTMX_VERSION)/dist/htmx.min.js -o dashboard/static/vendor/htmx.min.js
-	curl -sSfL https://cdn.tailwindcss.com -o dashboard/static/vendor/tailwind.min.js
+	@echo "Static assets are managed by npm in the ui directory."
 
 upgrade: upgrade-static install-tofu
 	go get -u ./...

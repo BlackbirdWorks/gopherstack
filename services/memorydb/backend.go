@@ -230,7 +230,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 
 	// Pre-seed the open-access ACL so Terraform resources that omit an explicit
 	// ACL name can reference it without first creating it.
-	openAccessARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("acl/%s", openAccessACL))
+	openAccessARN := arn.Build("memorydb", region, accountID, "acl/"+openAccessACL)
 	b.acls[openAccessACL] = &ACL{
 		Name:      openAccessACL,
 		ARN:       openAccessARN,
@@ -261,7 +261,7 @@ func (b *InMemoryBackend) Reset() {
 	b.arnToResource = make(map[string]resourceRef)
 
 	// Re-seed open-access ACL.
-	openAccessARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("acl/%s", openAccessACL))
+	openAccessARN := arn.Build("memorydb", b.region, b.accountID, "acl/"+openAccessACL)
 	b.acls[openAccessACL] = &ACL{
 		Name:      openAccessACL,
 		ARN:       openAccessARN,
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		tlsEnabled = *req.TLSEnabled
 	}
 
-	clusterARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("cluster/%s", req.ClusterName))
+	clusterARN := arn.Build("memorydb", region, accountID, "cluster/"+req.ClusterName)
 
 	c := &Cluster{
 		Name:                req.ClusterName,
@@ -416,7 +416,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	}
 
 	if snapshotName != "" {
-		snapshotARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("snapshot/%s", snapshotName))
+		snapshotARN := arn.Build("memorydb", region, accountID, "snapshot/"+snapshotName)
 		s := &Snapshot{
 			Name:        snapshotName,
 			ARN:         snapshotARN,
@@ -499,7 +499,7 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 		return nil, ErrACLAlreadyExists
 	}
 
-	aclARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("acl/%s", req.ACLName))
+	aclARN := arn.Build("memorydb", region, accountID, "acl/"+req.ACLName)
 
 	userNames := req.UserNames
 	if userNames == nil {
@@ -624,7 +624,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 		return nil, ErrSubnetGroupAlreadyExists
 	}
 
-	sgARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("subnetgroup/%s", req.SubnetGroupName))
+	sgARN := arn.Build("memorydb", region, accountID, "subnetgroup/"+req.SubnetGroupName)
 
 	sg := &SubnetGroup{
 		Name:        req.SubnetGroupName,
@@ -716,7 +716,7 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 		return nil, ErrUserAlreadyExists
 	}
 
-	userARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("user/%s", req.UserName))
+	userARN := arn.Build("memorydb", region, accountID, "user/"+req.UserName)
 
 	u := &User{
 		Name:         req.UserName,
@@ -823,7 +823,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 		return nil, ErrParameterGroupAlreadyExists
 	}
 
-	pgARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("parametergroup/%s", req.ParameterGroupName))
+	pgARN := arn.Build("memorydb", region, accountID, "parametergroup/"+req.ParameterGroupName)
 
 	pg := &ParameterGroup{
 		Name:        req.ParameterGroupName,
@@ -1081,7 +1081,7 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 		return nil, ErrSnapshotAlreadyExists
 	}
 
-	snapshotARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("snapshot/%s", req.SnapshotName))
+	snapshotARN := arn.Build("memorydb", region, accountID, "snapshot/"+req.SnapshotName)
 
 	s := &Snapshot{
 		Name:        req.SnapshotName,
@@ -1144,7 +1144,7 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 		return nil, ErrSnapshotAlreadyExists
 	}
 
-	targetARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("snapshot/%s", req.TargetSnapshotName))
+	targetARN := arn.Build("memorydb", region, accountID, "snapshot/"+req.TargetSnapshotName)
 
 	kmsKeyID := req.KmsKeyID
 	if kmsKeyID == "" {
@@ -1291,7 +1291,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 		return nil, ErrMultiRegionClusterAlreadyExists
 	}
 
-	mrARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("multiregioncluster/%s", fullName))
+	mrARN := arn.Build("memorydb", region, accountID, "multiregioncluster/"+fullName)
 
 	engineVersion := req.EngineVersion
 	if engineVersion == "" {
@@ -1790,7 +1790,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, nodeType string) *Cluster {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	clusterARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("cluster/%s", name))
+	clusterARN := arn.Build("memorydb", b.region, b.accountID, "cluster/"+name)
 	c := &Cluster{
 		Name:      name,
 		ARN:       clusterARN,
@@ -1812,7 +1812,7 @@ func (b *InMemoryBackend) AddACLInternal(name string) *ACL {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	aclARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("acl/%s", name))
+	aclARN := arn.Build("memorydb", b.region, b.accountID, "acl/"+name)
 	a := &ACL{
 		Name:      name,
 		ARN:       aclARN,
@@ -1832,7 +1832,7 @@ func (b *InMemoryBackend) AddSnapshotInternal(name, clusterName string) *Snapsho
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	snapshotARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("snapshot/%s", name))
+	snapshotARN := arn.Build("memorydb", b.region, b.accountID, "snapshot/"+name)
 	s := &Snapshot{
 		Name:        name,
 		ARN:         snapshotARN,
@@ -1852,7 +1852,7 @@ func (b *InMemoryBackend) AddUserInternal(name, accessString string) *User {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	userARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("user/%s", name))
+	userARN := arn.Build("memorydb", b.region, b.accountID, "user/"+name)
 	u := &User{
 		Name:         name,
 		ARN:          userARN,
@@ -1872,7 +1872,7 @@ func (b *InMemoryBackend) AddSubnetGroupInternal(name string) *SubnetGroup {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sgARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("subnetgroup/%s", name))
+	sgARN := arn.Build("memorydb", b.region, b.accountID, "subnetgroup/"+name)
 	sg := &SubnetGroup{
 		Name:      name,
 		ARN:       sgARN,
@@ -1890,7 +1890,7 @@ func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *Parame
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	pgARN := arn.Build("memorydb", b.region, b.accountID, fmt.Sprintf("parametergroup/%s", name))
+	pgARN := arn.Build("memorydb", b.region, b.accountID, "parametergroup/"+name)
 	pg := &ParameterGroup{
 		Name:       name,
 		ARN:        pgARN,

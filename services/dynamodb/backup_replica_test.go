@@ -237,7 +237,7 @@ func TestRestoreTableFromBackup(t *testing.T) {
 				createTable(t, db, "SourceTable")
 
 				// Add an item to the source table
-				_, err := db.PutItem(context.Background(), &dynamodb_sdk.PutItemInput{
+				_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
 					TableName: aws.String("SourceTable"),
 					Item: map[string]types.AttributeValue{
 						"id": &types.AttributeValueMemberS{Value: "item1"},
@@ -607,7 +607,7 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
-				_, _ = db.UpdateTable(context.Background(), sdkInput)
+				_, _ = db.UpdateTable(t.Context(), sdkInput)
 			},
 			run: func(ctx context.Context, db *dynamodb.InMemoryDB) (any, error) {
 				input := models.UpdateTableInput{
@@ -639,7 +639,7 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
-				_, _ = db.UpdateTable(context.Background(), sdkInput)
+				_, _ = db.UpdateTable(t.Context(), sdkInput)
 			},
 			run: func(ctx context.Context, db *dynamodb.InMemoryDB) (any, error) {
 				return db.DescribeTable(ctx, &dynamodb_sdk.DescribeTableInput{
@@ -666,7 +666,7 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				tt.setup(t, db)
 			}
 
-			result, err := tt.run(context.Background(), db)
+			result, err := tt.run(t.Context(), db)
 			tt.validate(t, db, result, err)
 		})
 	}
@@ -713,7 +713,7 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
-				_, _ = db.UpdateTable(context.Background(), sdkInput)
+				_, _ = db.UpdateTable(t.Context(), sdkInput)
 			},
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()

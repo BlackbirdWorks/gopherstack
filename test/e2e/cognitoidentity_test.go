@@ -46,7 +46,7 @@ func TestCognitoIdentityDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidentity")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Cognito Identity Pools')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -80,12 +80,13 @@ func TestCognitoIdentityDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidentity")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Cognito Identity Pools')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Cognito Identity Pools")
+	assert.Contains(t, content, "Cognito Identity")
+	assert.Contains(t, content, "No identity pools found")
 }

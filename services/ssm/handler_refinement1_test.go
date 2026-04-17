@@ -1,7 +1,6 @@
 package ssm_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +26,7 @@ func TestRefinement1_ProviderInit(t *testing.T) {
 	t.Parallel()
 
 	p := &ssm.Provider{}
-	ctx := &service.AppContext{JanitorCtx: context.Background()}
+	ctx := &service.AppContext{JanitorCtx: t.Context()}
 	reg, err := p.Init(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, reg)

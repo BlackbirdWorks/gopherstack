@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestIntegration_ECS_CreateCluster(t *testing.T) {
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	clusterName := fmt.Sprintf("test-cluster-%s", uuid.NewString()[:8])
+	clusterName := "test-cluster-" + uuid.NewString()[:8]
 
 	out, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -42,7 +41,7 @@ func TestIntegration_ECS_CreateCluster_AlreadyExists(t *testing.T) {
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	clusterName := fmt.Sprintf("dupe-cluster-%s", uuid.NewString()[:8])
+	clusterName := "dupe-cluster-" + uuid.NewString()[:8]
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -63,7 +62,7 @@ func TestIntegration_ECS_DescribeClusters(t *testing.T) {
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	clusterName := fmt.Sprintf("describe-cluster-%s", uuid.NewString()[:8])
+	clusterName := "describe-cluster-" + uuid.NewString()[:8]
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -85,7 +84,7 @@ func TestIntegration_ECS_DeleteCluster(t *testing.T) {
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	clusterName := fmt.Sprintf("delete-cluster-%s", uuid.NewString()[:8])
+	clusterName := "delete-cluster-" + uuid.NewString()[:8]
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -107,7 +106,7 @@ func TestIntegration_ECS_RegisterTaskDefinition(t *testing.T) {
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	family := fmt.Sprintf("test-family-%s", uuid.NewString()[:8])
+	family := "test-family-" + uuid.NewString()[:8]
 
 	out, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
@@ -135,7 +134,7 @@ func TestIntegration_ECS_RegisterTaskDefinition_MultipleRevisions(t *testing.T) 
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	family := fmt.Sprintf("multi-rev-%s", uuid.NewString()[:8])
+	family := "multi-rev-" + uuid.NewString()[:8]
 
 	for i := int32(1); i <= 3; i++ {
 		out, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -156,7 +155,7 @@ func TestIntegration_ECS_DescribeTaskDefinition(t *testing.T) {
 	client := createECSClient(t)
 	ctx := t.Context()
 
-	family := fmt.Sprintf("describe-td-%s", uuid.NewString()[:8])
+	family := "describe-td-" + uuid.NewString()[:8]
 
 	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
@@ -191,8 +190,8 @@ func TestIntegration_ECS_ListTaskDefinitions(t *testing.T) {
 
 	suffix := uuid.NewString()[:8]
 	families := []string{
-		fmt.Sprintf("list-td-a-%s", suffix),
-		fmt.Sprintf("list-td-b-%s", suffix),
+		"list-td-a-" + suffix,
+		"list-td-b-" + suffix,
 	}
 
 	for _, f := range families {
@@ -220,9 +219,9 @@ func TestIntegration_ECS_CreateService(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("svc-cluster-%s", suffix)
-	family := fmt.Sprintf("svc-task-%s", suffix)
-	serviceName := fmt.Sprintf("my-service-%s", suffix)
+	clusterName := "svc-cluster-" + suffix
+	family := "svc-task-" + suffix
+	serviceName := "my-service-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -259,9 +258,9 @@ func TestIntegration_ECS_DescribeServices(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("dsvc-cluster-%s", suffix)
-	family := fmt.Sprintf("dsvc-task-%s", suffix)
-	serviceName := fmt.Sprintf("describe-svc-%s", suffix)
+	clusterName := "dsvc-cluster-" + suffix
+	family := "dsvc-task-" + suffix
+	serviceName := "describe-svc-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -303,9 +302,9 @@ func TestIntegration_ECS_UpdateService(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("upd-cluster-%s", suffix)
-	family := fmt.Sprintf("upd-task-%s", suffix)
-	serviceName := fmt.Sprintf("update-svc-%s", suffix)
+	clusterName := "upd-cluster-" + suffix
+	family := "upd-task-" + suffix
+	serviceName := "update-svc-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -346,9 +345,9 @@ func TestIntegration_ECS_DeleteService(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("del-svc-cluster-%s", suffix)
-	family := fmt.Sprintf("del-svc-task-%s", suffix)
-	serviceName := fmt.Sprintf("delete-svc-%s", suffix)
+	clusterName := "del-svc-cluster-" + suffix
+	family := "del-svc-task-" + suffix
+	serviceName := "delete-svc-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -388,8 +387,8 @@ func TestIntegration_ECS_RunTask(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("run-cluster-%s", suffix)
-	family := fmt.Sprintf("run-task-%s", suffix)
+	clusterName := "run-cluster-" + suffix
+	family := "run-task-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -424,8 +423,8 @@ func TestIntegration_ECS_RunTask_TransitionToRunning(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("trans-cluster-%s", suffix)
-	family := fmt.Sprintf("trans-task-%s", suffix)
+	clusterName := "trans-cluster-" + suffix
+	family := "trans-task-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -467,8 +466,8 @@ func TestIntegration_ECS_StopTask(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("stop-cluster-%s", suffix)
-	family := fmt.Sprintf("stop-task-family-%s", suffix)
+	clusterName := "stop-cluster-" + suffix
+	family := "stop-task-family-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -511,8 +510,8 @@ func TestIntegration_ECS_ListTasks(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("list-tasks-cluster-%s", suffix)
-	family := fmt.Sprintf("list-tasks-family-%s", suffix)
+	clusterName := "list-tasks-cluster-" + suffix
+	family := "list-tasks-family-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -549,7 +548,7 @@ func TestIntegration_ECS_ListServices(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("list-svc-cluster-%s", suffix)
+	clusterName := "list-svc-cluster-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -557,7 +556,7 @@ func TestIntegration_ECS_ListServices(t *testing.T) {
 	require.NoError(t, err)
 
 	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String(fmt.Sprintf("list-svc-td-%s", suffix)),
+		Family: aws.String("list-svc-td-" + suffix),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{Name: aws.String("app"), Image: aws.String("nginx:latest")},
 		},
@@ -618,7 +617,7 @@ func TestIntegration_ECS_ContainerInstances(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("ci-cluster-%s", suffix)
+	clusterName := "ci-cluster-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -690,8 +689,8 @@ func TestIntegration_ECS_TaskSets(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("ts-cluster-%s", suffix)
-	serviceName := fmt.Sprintf("ts-service-%s", suffix)
+	clusterName := "ts-cluster-" + suffix
+	serviceName := "ts-service-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -699,7 +698,7 @@ func TestIntegration_ECS_TaskSets(t *testing.T) {
 	require.NoError(t, err)
 
 	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String(fmt.Sprintf("ts-td-%s", suffix)),
+		Family: aws.String("ts-td-" + suffix),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{Name: aws.String("app"), Image: aws.String("nginx:latest")},
 		},
@@ -797,7 +796,7 @@ func TestIntegration_ECS_ExecuteCommand(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterName := fmt.Sprintf("exec-cluster-%s", suffix)
+	clusterName := "exec-cluster-" + suffix
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
@@ -805,7 +804,7 @@ func TestIntegration_ECS_ExecuteCommand(t *testing.T) {
 	require.NoError(t, err)
 
 	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String(fmt.Sprintf("exec-td-%s", suffix)),
+		Family: aws.String("exec-td-" + suffix),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{Name: aws.String("app"), Image: aws.String("nginx:latest"), Essential: aws.Bool(true)},
 		},
@@ -873,14 +872,14 @@ func TestIntegration_ECS_DockerRuntime(t *testing.T) {
 	})
 
 	// Create a cluster.
-	clusterName := fmt.Sprintf("docker-cluster-%s", suffix)
+	clusterName := "docker-cluster-" + suffix
 	_, err = client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
 	})
 	require.NoError(t, err)
 
 	// Register a minimal nginx task definition.
-	family := fmt.Sprintf("docker-nginx-%s", suffix)
+	family := "docker-nginx-" + suffix
 	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{

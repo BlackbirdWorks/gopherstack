@@ -48,7 +48,7 @@ func TestIoTDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/iot")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Core')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestIoTDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/iot")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Core')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestIoTDashboard_Empty(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "Things")
-	assert.Contains(t, content, "No things")
+	assert.Contains(t, content, "No IoT things found")
 }
 
 // TestIoTDashboard_CreateAndDeleteThing verifies the create and delete thing UI flows.
@@ -118,17 +118,17 @@ func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/iot")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Core')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	// Open create modal
-	err = page.Locator("button:has-text('+ Create Thing')").Click()
+	err = page.Locator("button:has-text('Create Thing')").Click()
 	require.NoError(t, err)
 
 	// Fill in thing name
-	err = page.Locator("input[name='name']").Fill("e2e-test-device")
+	err = page.Locator("#thing-name").Fill("e2e-test-device")
 	require.NoError(t, err)
 
 	// Submit form (use Last() since "Create Thing" text appears in both the header button and submit button)
@@ -136,7 +136,7 @@ func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for redirect and verify
-	err = page.Locator("td:has-text('e2e-test-device')").First().WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-test-device").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -146,10 +146,15 @@ func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
 	assert.Contains(t, content, "e2e-test-device")
 
 	// Delete the thing
-	err = page.Locator("form[action='/dashboard/iot/thing/delete'] button").Click()
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
+
+	err = page.Locator("button[title='Delete thing']").First().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("td:has-text('No things')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-test-device").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)

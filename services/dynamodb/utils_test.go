@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -358,7 +357,7 @@ func TestRebuildIndexes(t *testing.T) {
 			{AttributeName: "sk", AttributeType: "N"},
 		},
 	}
-	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	table := db.Tables["us-east-1"][tableName]

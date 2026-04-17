@@ -255,7 +255,7 @@ func TestNewOps_CodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 
 	// Get
 	getRec := callInMemoryHandler(t, h, http.MethodGet,
-		fmt.Sprintf("/2020-04-22/code-signing-configs/%s", cscARN), "")
+		"/2020-04-22/code-signing-configs/"+cscARN, "")
 	assert.Equal(t, http.StatusOK, getRec.Code)
 
 	// Get not found
@@ -265,7 +265,7 @@ func TestNewOps_CodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 
 	// Update
 	updateRec := callInMemoryHandler(t, h, http.MethodPut,
-		fmt.Sprintf("/2020-04-22/code-signing-configs/%s", cscARN),
+		"/2020-04-22/code-signing-configs/"+cscARN,
 		`{"Description":"updated"}`)
 	assert.Equal(t, http.StatusOK, updateRec.Code)
 
@@ -279,12 +279,12 @@ func TestNewOps_CodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 
 	// Delete
 	delRec := callInMemoryHandler(t, h, http.MethodDelete,
-		fmt.Sprintf("/2020-04-22/code-signing-configs/%s", cscARN), "")
+		"/2020-04-22/code-signing-configs/"+cscARN, "")
 	assert.Equal(t, http.StatusNoContent, delRec.Code)
 
 	// Get after delete → 404
 	getRec2 := callInMemoryHandler(t, h, http.MethodGet,
-		fmt.Sprintf("/2020-04-22/code-signing-configs/%s", cscARN), "")
+		"/2020-04-22/code-signing-configs/"+cscARN, "")
 	assert.Equal(t, http.StatusNotFound, getRec2.Code)
 }
 

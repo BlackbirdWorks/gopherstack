@@ -628,7 +628,7 @@ func TestFISHandler_TagResource_ListTags_UntagResource(t *testing.T) {
 	arnStr := createResp.ExperimentTemplate.Arn
 
 	// TagResource.
-	tagPath := fmt.Sprintf("/tags/%s", arnStr)
+	tagPath := "/tags/" + arnStr
 	tagBody := map[string]any{"tags": map[string]string{"env": "prod", "owner": "team"}}
 
 	rec2 := doRequest(t, h, http.MethodPost, tagPath, tagBody)
@@ -959,7 +959,7 @@ func TestFISHandler_TagExperiment(t *testing.T) {
 	require.NotEmpty(t, arnStr)
 
 	// TagResource on experiment.
-	tagPath := fmt.Sprintf("/tags/%s", arnStr)
+	tagPath := "/tags/" + arnStr
 	rec2 := doRequest(t, h, http.MethodPost, tagPath, map[string]any{
 		"tags": map[string]string{"phase": "test"},
 	})

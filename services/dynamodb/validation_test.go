@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -182,13 +181,13 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 					{AttributeName: "pk", AttributeType: "S"},
 				},
 			}
-			_, _ = db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+			_, _ = db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 
 			inputStr := `{"TableName": "` + tableName + `", "Item": ` + tc.item + `}`
 			putInput := mustUnmarshal[models.PutItemInput](t, inputStr)
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 
-			_, pErr := db.PutItem(context.Background(), sdkPut)
+			_, pErr := db.PutItem(t.Context(), sdkPut)
 			require.Error(t, pErr)
 			if tc.wantError != "" {
 				assert.Contains(t, pErr.Error(), tc.wantError)
@@ -212,14 +211,14 @@ func TestPutItem_BlankSK(t *testing.T) {
 			{AttributeName: "sk", AttributeType: "S"},
 		},
 	}
-	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	inputStr := `{"TableName": "` + tableName + `", "Item": {"pk": {"S": "val"}, "sk": {"S": ""}}}`
 	putInput := mustUnmarshal[models.PutItemInput](t, inputStr)
 	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 
-	_, pErr := db.PutItem(context.Background(), sdkPut)
+	_, pErr := db.PutItem(t.Context(), sdkPut)
 	require.Error(t, pErr)
 	assert.Contains(t, pErr.Error(), "cannot contain an empty string value. Key: sk")
 }
@@ -237,7 +236,7 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 			{AttributeName: "pk", AttributeType: "S"},
 		},
 	}
-	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	largeVal := strings.Repeat("a", 400*1024+100)
@@ -251,7 +250,7 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 
 	putInput := mustUnmarshal[models.PutItemInput](t, input)
 	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-	_, err = db.PutItem(context.Background(), sdkPut)
+	_, err = db.PutItem(t.Context(), sdkPut)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds limit")
 }

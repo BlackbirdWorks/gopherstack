@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +18,7 @@ func TestIntegration_Batch_ComputeEnvironmentLifecycle(t *testing.T) {
 	client := createBatchClient(t)
 	ctx := t.Context()
 
-	ceName := fmt.Sprintf("test-ce-%s", uuid.NewString()[:8])
+	ceName := "test-ce-" + uuid.NewString()[:8]
 
 	// CreateComputeEnvironment
 	createOut, err := client.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
@@ -83,8 +82,8 @@ func TestIntegration_Batch_JobQueueLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	ceName := fmt.Sprintf("jq-ce-%s", suffix)
-	jqName := fmt.Sprintf("test-jq-%s", suffix)
+	ceName := "jq-ce-" + suffix
+	jqName := "test-jq-" + suffix
 
 	// Create compute environment first
 	ceOut, err := client.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
@@ -148,7 +147,7 @@ func TestIntegration_Batch_JobDefinitionLifecycle(t *testing.T) {
 	client := createBatchClient(t)
 	ctx := t.Context()
 
-	jdName := fmt.Sprintf("test-jd-%s", uuid.NewString()[:8])
+	jdName := "test-jd-" + uuid.NewString()[:8]
 
 	// RegisterJobDefinition
 	registerOut, err := client.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{

@@ -1436,7 +1436,7 @@ func marshalXML(v any) ([]byte, error) {
 
 // newRequestID generates a simple unique request ID.
 func newRequestID() string {
-	return fmt.Sprintf("gopherstack-%s", newID("req"))
+	return "gopherstack-" + newID("req")
 }
 
 // ---- XML conversion helpers ----

@@ -1,0 +1,497 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { getAppSyncClient } from '$lib/aws-client';
+	import {
+		ListGraphqlApisCommand,
+		GetGraphqlApiCommand,
+		CreateGraphqlApiCommand,
+		DeleteGraphqlApiCommand,
+		ListDataSourcesCommand,
+		ListFunctionsCommand,
+		ListResolversCommand,
+		GetIntrospectionSchemaCommand,
+		type GraphqlApi,
+		type DataSource,
+		type FunctionConfiguration
+	} from '@aws-sdk/client-appsync';
+	import { toast } from 'svelte-sonner';
+	import {
+		Zap,
+		Search,
+		RefreshCw,
+		Plus,
+		Trash2,
+		Database,
+		Code,
+		Eye,
+		ChevronRight
+	} from 'lucide-svelte';
+
+	const appsync = getAppSyncClient();
+
+	let loading = $state(false);
+	let activeTab = $state<'apis' | 'datasources' | 'functions'>('apis');
+	let searchQuery = $state('');
+
+	// APIs
+	let apis = $state<GraphqlApi[]>([]);
+	let selectedApi = $state<GraphqlApi | null>(null);
+	let apiSchema = $state<string>('');
+	let loadingSchema = $state(false);
+	let showCreateModal = $state(false);
+	let creating = $state(false);
+	let newApiName = $state('');
+	let newApiAuthType = $state<'API_KEY' | 'AWS_IAM' | 'AMAZON_COGNITO_USER_POOLS' | 'OPENID_CONNECT'>('API_KEY');
+
+	// Data sources
+	let dataSources = $state<DataSource[]>([]);
+	let selectedApiId = $state('');
+
+	// Functions
+	let functions = $state<FunctionConfiguration[]>([]);
+
+	const filteredApis = $derived(
+		apis.filter((a) => (a.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+	);
+
+	const filteredDataSources = $derived(
+		dataSources.filter(
+			(d) =>
+				(d.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(d.type ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+
+	const filteredFunctions = $derived(
+		functions.filter((f) => (f.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+	);
+
+	function authTypeBadge(authType?: string) {
+		if (authType === 'API_KEY') return 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900';
+		if (authType === 'AWS_IAM') return 'text-purple-700 bg-purple-100 dark:text-purple-300 dark:bg-purple-900';
+		if (authType === 'AMAZON_COGNITO_USER_POOLS')
+			return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900';
+		return 'text-muted-foreground bg-muted';
+	}
+
+	async function loadApis() {
+		loading = true;
+		try {
+			const res = await appsync.send(new ListGraphqlApisCommand({ maxResults: 100 }));
+			apis = res.graphqlApis ?? [];
+		} catch (e) {
+			toast.error(`Failed to load APIs: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function viewApi(api: GraphqlApi) {
+		selectedApi = api;
+		apiSchema = '';
+		if (!api.apiId) return;
+		selectedApiId = api.apiId;
+		loadingSchema = true;
+		try {
+			const res = await appsync.send(
+				new GetIntrospectionSchemaCommand({ apiId: api.apiId, format: 'SDL' })
+			);
+			if (res.schema) {
+				const decoder = new TextDecoder();
+				apiSchema = decoder.decode(res.schema as ArrayBuffer);
+			}
+		} catch {
+			apiSchema = ''; // Schema may not be available
+		} finally {
+			loadingSchema = false;
+		}
+	}
+
+	async function loadDataSources(apiId?: string) {
+		loading = true;
+		const id = apiId ?? selectedApiId;
+		if (!id) {
+			loading = false;
+			return;
+		}
+		try {
+			const res = await appsync.send(new ListDataSourcesCommand({ apiId: id, maxResults: 100 }));
+			dataSources = res.dataSources ?? [];
+		} catch (e) {
+			toast.error(`Failed to load data sources: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadFunctions(apiId?: string) {
+		loading = true;
+		const id = apiId ?? selectedApiId;
+		if (!id) {
+			loading = false;
+			return;
+		}
+		try {
+			const res = await appsync.send(
+				new ListFunctionsCommand({ apiId: id, maxResults: 100 })
+			);
+			functions = res.functions ?? [];
+		} catch (e) {
+			toast.error(`Failed to load functions: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function createApi() {
+		if (!newApiName.trim()) return;
+		creating = true;
+		try {
+			await appsync.send(
+				new CreateGraphqlApiCommand({
+					name: newApiName.trim(),
+					authenticationType: newApiAuthType
+				})
+			);
+			toast.success(`API "${newApiName}" created`);
+			showCreateModal = false;
+			newApiName = '';
+			await loadApis();
+		} catch (e) {
+			toast.error(`Failed to create API: ${e}`);
+		} finally {
+			creating = false;
+		}
+	}
+
+	async function deleteApi(api: GraphqlApi) {
+		if (!api.apiId || !confirm(`Delete API "${api.name}"?`)) return;
+		try {
+			await appsync.send(new DeleteGraphqlApiCommand({ apiId: api.apiId }));
+			toast.success(`API "${api.name}" deleted`);
+			if (selectedApi?.apiId === api.apiId) selectedApi = null;
+			await loadApis();
+		} catch (e) {
+			toast.error(`Failed to delete API: ${e}`);
+		}
+	}
+
+	async function onTabChange(tab: typeof activeTab) {
+		activeTab = tab;
+		searchQuery = '';
+		if (tab === 'apis') await loadApis();
+		else if (tab === 'datasources') {
+			if (selectedApiId) await loadDataSources();
+			else toast.error('Select an API first to view data sources');
+		} else {
+			if (selectedApiId) await loadFunctions();
+			else toast.error('Select an API first to view functions');
+		}
+	}
+
+	onMount(() => loadApis());
+</script>
+
+<div class="space-y-6">
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-3">
+			<Zap class="h-8 w-8 text-purple-600" />
+			<div>
+				<h1 class="text-2xl font-bold">AppSync</h1>
+				<p class="text-sm text-muted-foreground">Managed GraphQL APIs for real-time data</p>
+			</div>
+		</div>
+		<button
+			onclick={() => onTabChange(activeTab)}
+			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+		>
+			<RefreshCw class="h-4 w-4" />
+			Refresh
+		</button>
+	</div>
+
+	<!-- Tabs -->
+	<div class="flex border-b">
+		{#each [{ id: 'apis', label: 'GraphQL APIs' }, { id: 'datasources', label: 'Data Sources' }, { id: 'functions', label: 'Functions' }] as tab}
+			<button
+				onclick={() => onTabChange(tab.id as typeof activeTab)}
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+			>
+				{tab.label}
+			</button>
+		{/each}
+	</div>
+
+	<!-- APIs Tab -->
+	{#if activeTab === 'apis'}
+		<div class="flex items-center justify-between gap-4">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search APIs..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={() => (showCreateModal = true)}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create API
+			</button>
+		</div>
+
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredApis.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Zap class="h-12 w-12 mb-3 opacity-30" />
+				<p>No GraphQL APIs found</p>
+				<p class="text-sm">Create an API to get started</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Name</th>
+							<th class="px-4 py-3 text-left font-medium">Auth Type</th>
+							<th class="px-4 py-3 text-left font-medium">API ID</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredApis as api}
+							<tr class="hover:bg-muted/30 cursor-pointer" onclick={() => viewApi(api)}>
+								<td class="px-4 py-3 font-medium">{api.name}</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium {authTypeBadge(api.authenticationType)}">
+										{api.authenticationType?.replace(/_/g, ' ') ?? '—'}
+									</span>
+								</td>
+								<td class="px-4 py-3 font-mono text-xs text-muted-foreground">{api.apiId}</td>
+								<td class="px-4 py-3 text-right flex justify-end gap-1">
+									<button
+										onclick={(e) => { e.stopPropagation(); viewApi(api); }}
+										class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
+										title="View details"
+									>
+										<Eye class="h-4 w-4" />
+									</button>
+									<button
+										onclick={(e) => { e.stopPropagation(); deleteApi(api); }}
+										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+										title="Delete API"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+
+			<!-- API Details -->
+			{#if selectedApi}
+				<div class="rounded-lg border p-4 space-y-4">
+					<div class="flex items-center justify-between">
+						<h3 class="font-semibold">{selectedApi.name}</h3>
+						<div class="flex gap-2">
+							<button
+								onclick={() => { selectedApiId = selectedApi?.apiId ?? ''; loadDataSources(); onTabChange('datasources'); }}
+								class="flex items-center gap-1.5 text-xs rounded-md border px-3 py-1.5 hover:bg-accent"
+							>
+								<Database class="h-3.5 w-3.5" />
+								Data Sources
+							</button>
+							<button
+								onclick={() => { selectedApiId = selectedApi?.apiId ?? ''; loadFunctions(); onTabChange('functions'); }}
+								class="flex items-center gap-1.5 text-xs rounded-md border px-3 py-1.5 hover:bg-accent"
+							>
+								<Code class="h-3.5 w-3.5" />
+								Functions
+							</button>
+							<button onclick={() => (selectedApi = null)} class="text-xs text-muted-foreground hover:text-foreground">
+								Close
+							</button>
+						</div>
+					</div>
+					<div class="grid grid-cols-2 gap-3 text-sm">
+						<div>
+							<span class="text-muted-foreground">API ID:</span>
+							<span class="ml-1 font-mono">{selectedApi.apiId}</span>
+						</div>
+						<div>
+							<span class="text-muted-foreground">Region:</span>
+							<span class="ml-1">{selectedApi.arn?.split(':')[3] ?? '—'}</span>
+						</div>
+					</div>
+					{#if selectedApi.uris && Object.keys(selectedApi.uris).length > 0}
+						<div>
+							<p class="text-sm font-medium mb-2">Endpoints</p>
+							<div class="space-y-1">
+								{#each Object.entries(selectedApi.uris) as [type, uri]}
+									<div class="flex items-center gap-2 text-xs">
+										<span class="w-16 font-medium">{type}:</span>
+										<span class="text-muted-foreground font-mono truncate">{uri}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+					{#if loadingSchema}
+						<div class="flex items-center gap-2 text-sm text-muted-foreground">
+							<RefreshCw class="h-4 w-4 animate-spin" />
+							Loading schema…
+						</div>
+					{:else if apiSchema}
+						<div>
+							<p class="text-sm font-medium mb-2">Schema (SDL)</p>
+							<pre class="rounded bg-muted p-3 text-xs overflow-auto max-h-48">{apiSchema.slice(0, 2000)}{apiSchema.length > 2000 ? '\n…(truncated)' : ''}</pre>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		{/if}
+	{/if}
+
+	<!-- Data Sources Tab -->
+	{#if activeTab === 'datasources'}
+		{#if !selectedApiId}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Database class="h-12 w-12 mb-3 opacity-30" />
+				<p>Select an API from the APIs tab to view data sources</p>
+			</div>
+		{:else if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredDataSources.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Database class="h-12 w-12 mb-3 opacity-30" />
+				<p>No data sources found</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Name</th>
+							<th class="px-4 py-3 text-left font-medium">Type</th>
+							<th class="px-4 py-3 text-left font-medium">ARN</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredDataSources as ds}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3 font-medium">{ds.name}</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs bg-muted">{ds.type ?? '—'}</span>
+								</td>
+								<td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[300px]">
+									{ds.dataSourceArn ?? '—'}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Functions Tab -->
+	{#if activeTab === 'functions'}
+		{#if !selectedApiId}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Code class="h-12 w-12 mb-3 opacity-30" />
+				<p>Select an API from the APIs tab to view functions</p>
+			</div>
+		{:else if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredFunctions.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Code class="h-12 w-12 mb-3 opacity-30" />
+				<p>No functions found</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Name</th>
+							<th class="px-4 py-3 text-left font-medium">Data Source</th>
+							<th class="px-4 py-3 text-left font-medium">Runtime</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredFunctions as fn}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3 font-medium">{fn.name}</td>
+								<td class="px-4 py-3 text-muted-foreground">{fn.dataSourceName ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">
+									{fn.runtime?.name ?? fn.syncConfig?.conflictHandler ?? '—'}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+</div>
+
+<!-- Create API Modal -->
+{#if showCreateModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">Create GraphQL API</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="api-name" class="block text-sm font-medium mb-1">API Name *</label>
+					<input
+						id="api-name"
+						type="text"
+						bind:value={newApiName}
+						placeholder="my-graphql-api"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="api-auth" class="block text-sm font-medium mb-1">Authentication Type</label>
+					<select
+						id="api-auth"
+						bind:value={newApiAuthType}
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						<option value="API_KEY">API Key</option>
+						<option value="AWS_IAM">AWS IAM</option>
+						<option value="AMAZON_COGNITO_USER_POOLS">Cognito User Pools</option>
+						<option value="OPENID_CONNECT">OpenID Connect</option>
+					</select>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showCreateModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={createApi}
+					disabled={creating || !newApiName.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{creating ? 'Creating...' : 'Create API'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

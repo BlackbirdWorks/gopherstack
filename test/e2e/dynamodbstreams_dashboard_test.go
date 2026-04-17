@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDynamoDBStreamsDashboard verifies the DynamoDB Streams dashboard renders active streams.
+// TestDynamoDBStreamsDashboard verifies the DynamoDB dashboard renders stream configuration for a table.
 func TestDynamoDBStreamsDashboard(t *testing.T) {
 	stack := newStack(t)
 
@@ -54,21 +54,29 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/dynamodbstreams")
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('DynamoDB Streams')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=streams-dashboard-e2e").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	err = page.Locator("button:has-text('streams-dashboard-e2e')").First().Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=DynamoDB Streams Configuration").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "streams-dashboard-e2e")
-	assert.Contains(t, content, "arn:aws:dynamodb")
+	assert.Contains(t, content, "NEW_AND_OLD_IMAGES")
 }
 
-// TestDynamoDBStreamsDashboard_Empty verifies the DynamoDB Streams dashboard renders correctly when no streams are active.
+// TestDynamoDBStreamsDashboard_Empty verifies the DynamoDB dashboard empty state when no tables exist.
 func TestDynamoDBStreamsDashboard_Empty(t *testing.T) {
 	stack := newStack(t)
 
@@ -89,15 +97,15 @@ func TestDynamoDBStreamsDashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/dynamodbstreams")
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('DynamoDB Streams')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=No tables found").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No active DynamoDB Streams")
+	assert.Contains(t, content, "No tables found")
 }

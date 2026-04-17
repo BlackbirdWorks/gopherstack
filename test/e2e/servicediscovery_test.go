@@ -39,7 +39,7 @@ func TestServiceDiscoveryDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/servicediscovery")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Service Discovery')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func TestServiceDiscoveryDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-namespace")
-	assert.Contains(t, content, "Create Namespace")
+	assert.Contains(t, content, "Namespaces")
 }
 
 // TestServiceDiscoveryDashboard_Empty verifies the Service Discovery dashboard renders with no namespaces.
@@ -74,12 +74,12 @@ func TestServiceDiscoveryDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/servicediscovery")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Service Discovery')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No namespaces created yet")
+	assert.Contains(t, content, "No namespaces found")
 }

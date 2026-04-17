@@ -38,6 +38,7 @@ func waitForStackStatus(
 		status := string(descOut.Stacks[0].StackStatus)
 
 		// Terminal states – stop polling.
+
 		switch types.StackStatus(status) {
 		case types.StackStatusCreateComplete,
 			types.StackStatusCreateFailed,

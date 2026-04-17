@@ -43,10 +43,10 @@ func TestWafv2Dashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/wafv2")
+	_, err = page.Goto(server.URL + "/dashboard/waf")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('WAFv2')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -78,15 +78,15 @@ func TestWafv2Dashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/wafv2")
+	_, err = page.Goto(server.URL + "/dashboard/waf")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('WAFv2')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Create Web ACL")
+	assert.Contains(t, content, "No Web ACLs found")
 }

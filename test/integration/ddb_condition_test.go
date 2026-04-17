@@ -194,7 +194,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				client.DeleteTable(
-					context.Background(),
+					t.Context(),
 					&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
 				)
 			})

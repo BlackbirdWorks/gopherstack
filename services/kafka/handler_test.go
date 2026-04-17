@@ -1546,7 +1546,7 @@ func TestKafka_ListClustersV2(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			clusters, ok := resp["clusters"].([]any)
+			clusters, ok := resp["clusterInfoList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, clusters, tt.wantCount)
 		})

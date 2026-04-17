@@ -21,25 +21,45 @@ type targetsResponse struct {
 	Services []serviceTarget `json:"services"`
 }
 
+// queryResponse is the combined state returned by GET /query.
+type queryResponse struct {
+	Faults   []FaultRule     `json:"faults"`
+	Effects  NetworkEffects  `json:"effects"`
+	Activity []ActivityEvent `json:"activity"`
+}
+
+// deleteByIndexRequest is the body for DELETE /faults/by-index.
+type deleteByIndexRequest struct {
+	Index int `json:"index"`
+}
+
 // RegisterRoutes mounts the chaos REST API under the /_gopherstack/chaos prefix.
 //
-//   - GET    /_gopherstack/chaos/faults    — return current fault rules
-//   - POST   /_gopherstack/chaos/faults    — replace entire fault configuration
-//   - PATCH  /_gopherstack/chaos/faults    — append rules to existing configuration
-//   - DELETE /_gopherstack/chaos/faults    — remove matching rules
-//   - GET    /_gopherstack/chaos/effects   — return current network effect settings
-//   - POST   /_gopherstack/chaos/effects   — update network effect configuration
-//   - GET    /_gopherstack/chaos/targets   — return auto-discovered injectable targets
-//   - GET    /_gopherstack/chaos/activity  — return recent fault injection events
+//   - GET    /_gopherstack/chaos/query         — return combined state (faults + effects + activity)
+//   - GET    /_gopherstack/chaos/faults        — return current fault rules
+//   - POST   /_gopherstack/chaos/faults        — replace entire fault configuration
+//   - PATCH  /_gopherstack/chaos/faults        — append rules to existing configuration
+//   - DELETE /_gopherstack/chaos/faults        — remove matching rules
+//   - POST   /_gopherstack/chaos/faults/clear  — clear all fault rules
+//   - DELETE /_gopherstack/chaos/faults/by-index — remove a fault rule by index
+//   - GET    /_gopherstack/chaos/effects        — return current network effect settings
+//   - POST   /_gopherstack/chaos/effects        — update network effect configuration
+//   - POST   /_gopherstack/chaos/effects/reset  — reset network effects to defaults
+//   - GET    /_gopherstack/chaos/targets        — return auto-discovered injectable targets
+//   - GET    /_gopherstack/chaos/activity       — return recent fault injection events
 func RegisterRoutes(group *echo.Group, store *FaultStore, registry *service.Registry) {
 	h := &apiHandler{store: store, registry: registry}
 
+	group.GET("/query", h.getQuery)
 	group.GET("/faults", h.getFaults)
 	group.POST("/faults", h.postFaults)
 	group.PATCH("/faults", h.patchFaults)
 	group.DELETE("/faults", h.deleteFaults)
+	group.POST("/faults/clear", h.clearFaults)
+	group.DELETE("/faults/by-index", h.deleteFaultByIndex)
 	group.GET("/effects", h.getEffects)
 	group.POST("/effects", h.postEffects)
+	group.POST("/effects/reset", h.resetEffects)
 	group.GET("/targets", h.getTargets)
 	group.GET("/activity", h.getActivity)
 }
@@ -187,4 +207,54 @@ func (h *apiHandler) getActivity(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, events)
+}
+
+// getQuery returns the combined chaos state: faults, effects, and activity.
+func (h *apiHandler) getQuery(c *echo.Context) error {
+	faults := h.store.GetRules()
+	if faults == nil {
+		faults = []FaultRule{}
+	}
+
+	events := h.store.GetActivity()
+	if events == nil {
+		events = []ActivityEvent{}
+	}
+
+	return c.JSON(http.StatusOK, queryResponse{
+		Faults:   faults,
+		Effects:  h.store.GetEffects(),
+		Activity: events,
+	})
+}
+
+// clearFaults removes all fault rules.
+func (h *apiHandler) clearFaults(c *echo.Context) error {
+	h.store.SetRules([]FaultRule{})
+
+	return c.JSON(http.StatusOK, []FaultRule{})
+}
+
+// deleteFaultByIndex removes the fault rule at the given index.
+func (h *apiHandler) deleteFaultByIndex(c *echo.Context) error {
+	var req deleteByIndexRequest
+	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
+	}
+
+	h.store.DeleteRuleByIndex(req.Index)
+
+	rules := h.store.GetRules()
+	if rules == nil {
+		rules = []FaultRule{}
+	}
+
+	return c.JSON(http.StatusOK, rules)
+}
+
+// resetEffects resets network effects to the zero value.
+func (h *apiHandler) resetEffects(c *echo.Context) error {
+	h.store.SetEffects(NetworkEffects{})
+
+	return c.JSON(http.StatusOK, NetworkEffects{})
 }

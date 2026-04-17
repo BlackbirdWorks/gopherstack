@@ -679,7 +679,12 @@ func buildEventStreamHeaders(hdrs [][2]string) []byte {
 
 	for _, kv := range hdrs {
 		name, value := kv[0], kv[1]
-		buf[n] = byte(len(name)) //nolint:gosec // header name bounded by AWS event stream protocol
+		nameLen := len(name)
+		if nameLen > math.MaxUint8 {
+			continue
+		}
+
+		buf[n] = byte(nameLen)
 		n++
 		n += copy(buf[n:], name)
 		buf[n] = eventStreamHeaderValueTypeString

@@ -5,6 +5,8 @@ ENV GOTOOLCHAIN=auto
 
 WORKDIR /app
 
+RUN apk add --no-cache nodejs npm
+
 # Copy go mod and sum files
 COPY go.mod ./
 
@@ -13,6 +15,10 @@ RUN go mod download
 
 # Copy the source from the current directory to the Working Directory inside the container
 COPY . .
+
+# Build dashboard2 frontend assets before embedding in Go binary
+RUN npm --prefix ui ci --include=optional
+RUN npm --prefix ui run build
 
 # Build the Go app
 RUN go build \

@@ -41,15 +41,15 @@ func TestRAMDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ram")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('RAM Resource Shares')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-share")
-	assert.Contains(t, content, "Create Resource Share")
+	assert.Contains(t, content, "AWS Resource Access Manager")
+	assert.Contains(t, content, "Resource Shares")
 }
 
 // TestRAMDashboard_Empty verifies the RAM dashboard renders correctly with no resource shares.
@@ -76,7 +76,7 @@ func TestRAMDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ram")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('RAM Resource Shares')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

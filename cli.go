@@ -191,6 +191,8 @@ const (
 	healthCheckTimeout       = 5 * time.Second
 	configFilename           = "config.json"
 	defaultReadHeaderTimeout = 5 * time.Second
+	configDirPerm            = 0o700
+	configFilePerm           = 0o600
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -690,7 +692,7 @@ func (c *CLI) SaveConfig() error {
 	p := filepath.Join(c.resolvedDataDir(), configFilename)
 	dir := filepath.Dir(p)
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, configDirPerm); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -740,7 +742,7 @@ func (c *CLI) SaveConfig() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	return os.WriteFile(p, data, 0o600)
+	return os.WriteFile(p, data, configFilePerm)
 }
 
 // LoadConfig loads the configuration from disk if it exists.
@@ -2257,9 +2259,10 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
-	var services []service.Registerable
+	providers := getServiceProviders()
+	services := make([]service.Registerable, 0, len(providers))
 
-	for _, provider := range getServiceProviders() {
+	for _, provider := range providers {
 		svc, err := provider.Init(appCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
@@ -3067,7 +3070,10 @@ func (a *ddbStreamsReaderAdapter) GetStreamRecords(
 		limit = maxStreamRecordsLimit
 	}
 
-	lim := int32(limit) // safe: limit is clamped to [1, math.MaxInt32] above
+	lim := int32(math.MaxInt32)
+	if limit > 0 && limit <= maxStreamRecordsLimit {
+		lim = int32(limit)
+	}
 	out, err := a.backend.GetRecords(context.Background(), &awsddbstreams.GetRecordsInput{
 		ShardIterator: aws.String(iteratorToken),
 		Limit:         &lim,

@@ -698,18 +698,13 @@ func (h *Handler) handleSendMessageBatch(
 	}
 
 	for _, f := range out.Failed {
-		//nolint:staticcheck // struct tags differ; type conversion not possible
-		result.Failed = append(result.Failed, jsonBatchFailure{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		result.Failed = append(result.Failed, jsonBatchFailure(f))
 	}
 
 	return result, nil
 }
 
+//nolint:dupl // JSON batch request/response flow intentionally mirrors sibling batch handlers.
 func (h *Handler) handleDeleteMessageBatch(
 	_ context.Context,
 	_ *http.Request,
@@ -722,11 +717,7 @@ func (h *Handler) handleDeleteMessageBatch(
 
 	entries := make([]DeleteMessageBatchEntry, 0, len(req.Entries))
 	for _, e := range req.Entries {
-		//nolint:staticcheck // struct tags differ; type conversion not possible
-		entries = append(entries, DeleteMessageBatchEntry{
-			ID:            e.ID,
-			ReceiptHandle: e.ReceiptHandle,
-		})
+		entries = append(entries, DeleteMessageBatchEntry(e))
 	}
 
 	out, err := h.Backend.DeleteMessageBatch(&DeleteMessageBatchInput{
@@ -747,18 +738,13 @@ func (h *Handler) handleDeleteMessageBatch(
 	}
 
 	for _, f := range out.Failed {
-		//nolint:staticcheck // struct tags differ; type conversion not possible
-		result.Failed = append(result.Failed, jsonBatchFailure{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		result.Failed = append(result.Failed, jsonBatchFailure(f))
 	}
 
 	return result, nil
 }
 
+//nolint:dupl // JSON batch request/response flow intentionally mirrors sibling batch handlers.
 func (h *Handler) handleChangeMessageVisibilityBatch(
 	_ context.Context,
 	_ *http.Request,
@@ -771,12 +757,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 
 	entries := make([]ChangeMessageVisibilityBatchRequestEntry, 0, len(req.Entries))
 	for _, e := range req.Entries {
-		//nolint:staticcheck // struct tags differ; type conversion not possible
-		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry{
-			ID:                e.ID,
-			ReceiptHandle:     e.ReceiptHandle,
-			VisibilityTimeout: e.VisibilityTimeout,
-		})
+		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry(e))
 	}
 
 	out, err := h.Backend.ChangeMessageVisibilityBatch(&ChangeMessageVisibilityBatchInput{
@@ -797,13 +778,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 	}
 
 	for _, f := range out.Failed {
-		//nolint:staticcheck // struct tags differ; type conversion not possible
-		result.Failed = append(result.Failed, jsonBatchFailure{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		result.Failed = append(result.Failed, jsonBatchFailure(f))
 	}
 
 	return result, nil
@@ -1126,12 +1101,7 @@ func toMessageAttributeValues(attrs map[string]jsonMsgAttr) map[string]MessageAt
 	result := make(map[string]MessageAttributeValue, len(attrs))
 
 	for k, v := range attrs {
-		//nolint:staticcheck // struct tags differ; type conversion not possible
-		result[k] = MessageAttributeValue{
-			DataType:    v.DataType,
-			StringValue: v.StringValue,
-			BinaryValue: v.BinaryValue,
-		}
+		result[k] = MessageAttributeValue(v)
 	}
 
 	return result
@@ -1142,11 +1112,7 @@ func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAt
 	result := make(map[string]jsonMsgAttr, len(attrs))
 
 	for k, v := range attrs {
-		result[k] = jsonMsgAttr{ //nolint:staticcheck // types have same fields but different struct tags
-			DataType:    v.DataType,
-			StringValue: v.StringValue,
-			BinaryValue: v.BinaryValue,
-		}
+		result[k] = jsonMsgAttr(v)
 	}
 
 	return result

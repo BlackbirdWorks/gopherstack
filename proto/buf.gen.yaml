@@ -1,0 +1,14 @@
+version: v1
+plugins:
+  - plugin: buf.build/protocolbuffers/go:v1.33.0
+    out: ..
+    opt: module=github.com/blackbirdworks/gopherstack
+  - plugin: buf.build/connectrpc/go:v1.16.1
+    out: ..
+    opt: module=github.com/blackbirdworks/gopherstack
+  - plugin: buf.build/bufbuild/es:v1.10.0
+    out: ../ui/src/lib/api
+    opt: target=ts
+  - plugin: buf.build/connectrpc/es:v1.6.1
+    out: ../ui/src/lib/api
+    opt: target=ts

@@ -103,7 +103,7 @@ func (b *InMemoryBackend) AddEnvironmentInternal(name string) *Environment {
 	b.mu.Lock("AddEnvironmentInternal")
 	defer b.mu.Unlock()
 
-	envARN := arn.Build("airflow", b.region, b.accountID, fmt.Sprintf("environment/%s", name))
+	envARN := arn.Build("airflow", b.region, b.accountID, "environment/"+name)
 	env := &Environment{
 		Name:      name,
 		ARN:       envARN,
@@ -200,7 +200,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 		accessMode = defaultWebserverAccessMode
 	}
 
-	envARN := arn.Build("airflow", region, accountID, fmt.Sprintf("environment/%s", name))
+	envARN := arn.Build("airflow", region, accountID, "environment/"+name)
 
 	// Generate a deterministic unique ID for the webserver URL based on the environment name.
 	sum := sha256.Sum256([]byte(name))

@@ -1,0 +1,468 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { getCloudTrailClient } from '$lib/aws-client';
+	import {
+		DescribeTrailsCommand,
+		GetTrailStatusCommand,
+		LookupEventsCommand,
+		StartLoggingCommand,
+		StopLoggingCommand,
+		CreateTrailCommand,
+		DeleteTrailCommand,
+		type Trail,
+		type TrailInfo,
+		type Event as CloudTrailEvent
+	} from '@aws-sdk/client-cloudtrail';
+	import { toast } from 'svelte-sonner';
+	import {
+		Activity,
+		Search,
+		RefreshCw,
+		Plus,
+		Trash2,
+		Play,
+		Square,
+		CheckCircle,
+		XCircle,
+		Clock,
+		Filter
+	} from 'lucide-svelte';
+
+	const ct = getCloudTrailClient();
+
+	let loading = $state(false);
+	let activeTab = $state<'trails' | 'events'>('trails');
+	let searchQuery = $state('');
+
+	// Trails
+	let trails = $state<Trail[]>([]);
+	let trailStatuses = $state<Record<string, { IsLogging?: boolean; LatestDeliveryTime?: Date }>>({});
+	let showCreateModal = $state(false);
+	let creating = $state(false);
+	let newTrailName = $state('');
+	let newTrailBucket = $state('');
+	let newTrailMultiRegion = $state(false);
+
+	// Events
+	let events = $state<CloudTrailEvent[]>([]);
+	let loadingEvents = $state(false);
+	let eventFilter = $state('');
+	let eventStartTime = $state('');
+	let eventEndTime = $state('');
+	let maxResults = $state(50);
+
+	const filteredTrails = $derived(
+		trails.filter(
+			(t) =>
+				(t.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(t.HomeRegion ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+
+	const filteredEvents = $derived(
+		events.filter(
+			(e) =>
+				(e.EventName ?? '').toLowerCase().includes(eventFilter.toLowerCase()) ||
+				(e.Username ?? '').toLowerCase().includes(eventFilter.toLowerCase()) ||
+				(e.EventSource ?? '').toLowerCase().includes(eventFilter.toLowerCase())
+		)
+	);
+
+	async function loadTrails() {
+		loading = true;
+		try {
+			const res = await ct.send(new DescribeTrailsCommand({ includeShadowTrails: false }));
+			trails = res.trailList ?? [];
+			// Load statuses for all trails
+			await Promise.all(
+				trails.map(async (trail) => {
+					if (!trail.TrailARN) return;
+					try {
+						const status = await ct.send(
+							new GetTrailStatusCommand({ Name: trail.TrailARN })
+						);
+						trailStatuses[trail.TrailARN] = {
+							IsLogging: status.IsLogging,
+							LatestDeliveryTime: status.LatestDeliveryTime
+						};
+					} catch {
+						// ignore per-trail errors
+					}
+				})
+			);
+		} catch (e) {
+			toast.error(`Failed to load trails: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function lookupEvents() {
+		loadingEvents = true;
+		events = [];
+		try {
+			const params: {
+				MaxResults: number;
+				StartTime?: Date;
+				EndTime?: Date;
+				LookupAttributes?: Array<{ AttributeKey: string; AttributeValue: string }>;
+			} = { MaxResults: maxResults };
+			if (eventStartTime) params.StartTime = new Date(eventStartTime);
+			if (eventEndTime) params.EndTime = new Date(eventEndTime);
+			const res = await ct.send(new LookupEventsCommand(params));
+			events = res.Events ?? [];
+		} catch (e) {
+			toast.error(`Failed to lookup events: ${e}`);
+		} finally {
+			loadingEvents = false;
+		}
+	}
+
+	async function toggleLogging(trail: Trail) {
+		if (!trail.TrailARN) return;
+		const isLogging = trailStatuses[trail.TrailARN]?.IsLogging;
+		try {
+			if (isLogging) {
+				await ct.send(new StopLoggingCommand({ Name: trail.TrailARN }));
+				toast.success(`Stopped logging for ${trail.Name}`);
+			} else {
+				await ct.send(new StartLoggingCommand({ Name: trail.TrailARN }));
+				toast.success(`Started logging for ${trail.Name}`);
+			}
+			await loadTrails();
+		} catch (e) {
+			toast.error(`Failed to toggle logging: ${e}`);
+		}
+	}
+
+	async function createTrail() {
+		if (!newTrailName.trim() || !newTrailBucket.trim()) return;
+		creating = true;
+		try {
+			await ct.send(
+				new CreateTrailCommand({
+					Name: newTrailName.trim(),
+					S3BucketName: newTrailBucket.trim(),
+					IsMultiRegionTrail: newTrailMultiRegion
+				})
+			);
+			toast.success(`Trail "${newTrailName}" created`);
+			showCreateModal = false;
+			newTrailName = '';
+			newTrailBucket = '';
+			newTrailMultiRegion = false;
+			await loadTrails();
+		} catch (e) {
+			toast.error(`Failed to create trail: ${e}`);
+		} finally {
+			creating = false;
+		}
+	}
+
+	async function deleteTrail(trail: Trail) {
+		if (!trail.TrailARN || !confirm(`Delete trail "${trail.Name}"?`)) return;
+		try {
+			await ct.send(new DeleteTrailCommand({ Name: trail.TrailARN }));
+			toast.success(`Trail "${trail.Name}" deleted`);
+			await loadTrails();
+		} catch (e) {
+			toast.error(`Failed to delete trail: ${e}`);
+		}
+	}
+
+	async function onTabChange(tab: typeof activeTab) {
+		activeTab = tab;
+		if (tab === 'trails') await loadTrails();
+		else await lookupEvents();
+	}
+
+	onMount(() => loadTrails());
+</script>
+
+<div class="space-y-6">
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-3">
+			<Activity class="h-8 w-8 text-blue-600" />
+			<div>
+				<h1 class="text-2xl font-bold">CloudTrail</h1>
+				<p class="text-sm text-muted-foreground">Audit API activity and event history</p>
+			</div>
+		</div>
+		<button
+			onclick={() => (activeTab === 'trails' ? loadTrails() : lookupEvents())}
+			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+		>
+			<RefreshCw class="h-4 w-4" />
+			Refresh
+		</button>
+	</div>
+
+	<!-- Tabs -->
+	<div class="flex border-b">
+		{#each [{ id: 'trails', label: 'Trails' }, { id: 'events', label: 'Event History' }] as tab}
+			<button
+				onclick={() => onTabChange(tab.id as typeof activeTab)}
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+			>
+				{tab.label}
+			</button>
+		{/each}
+	</div>
+
+	<!-- Trails Tab -->
+	{#if activeTab === 'trails'}
+		<div class="flex items-center justify-between gap-4">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search trails..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={() => (showCreateModal = true)}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create Trail
+			</button>
+		</div>
+
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredTrails.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Activity class="h-12 w-12 mb-3 opacity-30" />
+				<p>No trails found</p>
+				<p class="text-sm">Create a trail to start logging API activity</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Name</th>
+							<th class="px-4 py-3 text-left font-medium">Region</th>
+							<th class="px-4 py-3 text-left font-medium">S3 Bucket</th>
+							<th class="px-4 py-3 text-left font-medium">Logging</th>
+							<th class="px-4 py-3 text-left font-medium">Last Delivery</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredTrails as trail}
+							{@const status = trailStatuses[trail.TrailARN ?? '']}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3 font-medium">{trail.Name}</td>
+								<td class="px-4 py-3 text-muted-foreground">{trail.HomeRegion ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground truncate max-w-[180px]">
+									{trail.S3BucketName ?? '—'}
+								</td>
+								<td class="px-4 py-3">
+									{#if status?.IsLogging}
+										<span class="flex items-center gap-1 text-green-600">
+											<CheckCircle class="h-4 w-4" />
+											Active
+										</span>
+									{:else}
+										<span class="flex items-center gap-1 text-muted-foreground">
+											<XCircle class="h-4 w-4" />
+											Stopped
+										</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">
+									{status?.LatestDeliveryTime
+										? new Date(status.LatestDeliveryTime).toLocaleString()
+										: '—'}
+								</td>
+								<td class="px-4 py-3 text-right flex justify-end gap-1">
+									<button
+										onclick={() => toggleLogging(trail)}
+										class="rounded p-1 hover:bg-accent"
+										title={status?.IsLogging ? 'Stop logging' : 'Start logging'}
+									>
+										{#if status?.IsLogging}
+											<Square class="h-4 w-4 text-yellow-500" />
+										{:else}
+											<Play class="h-4 w-4 text-green-500" />
+										{/if}
+									</button>
+									<button
+										onclick={() => deleteTrail(trail)}
+										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+										title="Delete trail"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Events Tab -->
+	{#if activeTab === 'events'}
+		<div class="space-y-4">
+			<div class="flex flex-wrap items-end gap-3 rounded-lg border p-4 bg-muted/20">
+				<div class="flex-1 min-w-[200px]">
+					<label for="event-filter" class="block text-sm font-medium mb-1">Filter (name/user/source)</label>
+					<div class="relative">
+						<Filter class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+						<input
+							id="event-filter"
+							type="text"
+							bind:value={eventFilter}
+							placeholder="e.g. RunInstances"
+							class="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+				</div>
+				<div>
+					<label for="event-start" class="block text-sm font-medium mb-1">Start Time</label>
+					<input
+						id="event-start"
+						type="datetime-local"
+						bind:value={eventStartTime}
+						class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="event-end" class="block text-sm font-medium mb-1">End Time</label>
+					<input
+						id="event-end"
+						type="datetime-local"
+						bind:value={eventEndTime}
+						class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="max-results" class="block text-sm font-medium mb-1">Max Results</label>
+					<select
+						id="max-results"
+						bind:value={maxResults}
+						class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						{#each [10, 25, 50, 100] as n}
+							<option value={n}>{n}</option>
+						{/each}
+					</select>
+				</div>
+				<button
+					onclick={lookupEvents}
+					disabled={loadingEvents}
+					class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					<Search class="h-4 w-4" />
+					{loadingEvents ? 'Loading...' : 'Search Events'}
+				</button>
+			</div>
+
+			{#if loadingEvents}
+				<div class="flex justify-center py-12">
+					<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+				</div>
+			{:else if events.length === 0}
+				<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+					<Clock class="h-12 w-12 mb-3 opacity-30" />
+					<p>No events found</p>
+					<p class="text-sm">Adjust filters and search to find events</p>
+				</div>
+			{:else}
+				<p class="text-sm text-muted-foreground">
+					Showing {filteredEvents.length} of {events.length} events
+				</p>
+				<div class="rounded-lg border overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/50">
+							<tr>
+								<th class="px-4 py-3 text-left font-medium">Time</th>
+								<th class="px-4 py-3 text-left font-medium">Event Name</th>
+								<th class="px-4 py-3 text-left font-medium">Source</th>
+								<th class="px-4 py-3 text-left font-medium">User</th>
+								<th class="px-4 py-3 text-left font-medium">Resource</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y">
+							{#each filteredEvents as event}
+								<tr class="hover:bg-muted/30">
+									<td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+										{event.EventTime ? new Date(event.EventTime).toLocaleString() : '—'}
+									</td>
+									<td class="px-4 py-3 font-medium">{event.EventName ?? '—'}</td>
+									<td class="px-4 py-3 text-muted-foreground text-xs">{event.EventSource ?? '—'}</td>
+									<td class="px-4 py-3">{event.Username ?? '—'}</td>
+									<td class="px-4 py-3 text-muted-foreground text-xs">
+										{event.Resources?.[0]?.ResourceName ?? '—'}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
+</div>
+
+<!-- Create Trail Modal -->
+{#if showCreateModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">Create Trail</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="trail-name" class="block text-sm font-medium mb-1">Trail Name *</label>
+					<input
+						id="trail-name"
+						type="text"
+						bind:value={newTrailName}
+						placeholder="my-audit-trail"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="trail-bucket" class="block text-sm font-medium mb-1">S3 Bucket *</label>
+					<input
+						id="trail-bucket"
+						type="text"
+						bind:value={newTrailBucket}
+						placeholder="my-cloudtrail-bucket"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div class="flex items-center gap-2">
+					<input
+						id="trail-multi"
+						type="checkbox"
+						bind:checked={newTrailMultiRegion}
+						class="rounded"
+					/>
+					<label for="trail-multi" class="text-sm">Multi-region trail</label>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showCreateModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={createTrail}
+					disabled={creating || !newTrailName.trim() || !newTrailBucket.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{creating ? 'Creating...' : 'Create Trail'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

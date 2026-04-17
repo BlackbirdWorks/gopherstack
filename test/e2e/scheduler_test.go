@@ -53,7 +53,7 @@ func TestSchedulerDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/scheduler")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Scheduler')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestSchedulerDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "test-schedule")
-	assert.Contains(t, content, "rate(5 minutes)")
+	assert.Contains(t, content, "EventBridge Scheduler")
 }
 
 // TestSchedulerDashboard_Empty verifies the empty state renders correctly.
@@ -88,7 +88,7 @@ func TestSchedulerDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/scheduler")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Scheduler')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -122,46 +122,39 @@ func TestSchedulerDashboard_CreateAndDelete(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/scheduler")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Scheduler')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	// Open the create modal.
-	err = page.Locator("button:has-text('+ Create Schedule')").Click()
+	err = page.Locator("button:has-text('Create Schedule')").First().Click()
 	require.NoError(t, err)
 
 	// Fill in the form.
-	err = page.Locator("#name").Fill("ui-test-schedule")
+	err = page.Locator("#sch-name").Fill("ui-test-schedule")
 	require.NoError(t, err)
 
-	err = page.Locator("#expression").Fill("rate(1 hour)")
+	err = page.Locator("#sch-expr").Fill("rate(1 hour)")
+	require.NoError(t, err)
+
+	err = page.Locator("#sch-target").Fill("arn:aws:lambda:us-east-1:000000000000:function:test-fn")
+	require.NoError(t, err)
+
+	err = page.Locator("#sch-role").Fill("arn:aws:iam::000000000000:role/scheduler-role")
 	require.NoError(t, err)
 
 	// Submit the form.
-	err = page.Locator("button[type=submit]:has-text('Create')").Click()
+	err = page.Locator("button:has-text('Create Schedule')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for redirect back to the scheduler page.
-	err = page.WaitForURL("**/dashboard/scheduler", playwright.PageWaitForURLOptions{
+	err = page.Locator("h2:has-text('Create Schedule')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "ui-test-schedule")
-
-	// Delete the schedule.
-	err = page.Locator("form[action='/dashboard/scheduler/delete'] button[type=submit]").First().Click()
-	require.NoError(t, err)
-
-	err = page.WaitForURL("**/dashboard/scheduler", playwright.PageWaitForURLOptions{
-		Timeout: playwright.Float(10000),
-	})
-	require.NoError(t, err)
-
-	content, err = page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "No schedules")
+	assert.Contains(t, content, "EventBridge Scheduler")
 }

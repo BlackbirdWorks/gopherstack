@@ -51,7 +51,7 @@ func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/resourcegroupstaggingapi")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Resource Groups Tagging API')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestResourceGroupsTaggingAPIDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/resourcegroupstaggingapi")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Resource Groups Tagging API')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

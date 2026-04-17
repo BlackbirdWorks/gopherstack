@@ -233,7 +233,7 @@ func TestUpdateTable_EmptyReplicaRegion(t *testing.T) {
 			db := dynamodb.NewInMemoryDB()
 			createTable(t, db, "RegionTestTable")
 
-			err := tt.run(context.Background(), db)
+			err := tt.run(t.Context(), db)
 			require.Error(t, err)
 		})
 	}

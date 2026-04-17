@@ -737,7 +737,7 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
 //
-//nolint:gocognit,cyclop // method path routing table is inherently a multi-branch switch
+//nolint:cyclop,gocognit // method path routing table is inherently a multi-branch switch
 func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
 	// segs: [restapis, {id}, resources, {resId}, methods, {httpMethod}, ...]
 	const (
@@ -1367,7 +1367,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 	}
 }
 
-//nolint:gocognit // deployment action table requires multiple closure branches
+//nolint:gocognit // deployment action map is explicit by design.
 func (h *Handler) deploymentActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateDeployment": func(b []byte) (int, any, error) {

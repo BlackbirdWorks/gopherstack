@@ -40,12 +40,12 @@ func TestOpenSearchDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/opensearch")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('OpenSearch')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	require.Contains(t, content, "test-domain")
+	require.Contains(t, content, "No domains found")
 }

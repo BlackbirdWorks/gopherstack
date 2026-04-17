@@ -270,7 +270,7 @@ func parseOperations(s string) []string {
 // parseISODuration parses a subset of ISO 8601 duration strings (PTxHxMxS).
 // Returns 0 on empty or invalid input.
 //
-//nolint:gocognit,cyclop // ISO 8601 parsing inherently requires complex character-by-character logic
+//nolint:cyclop,gocognit // ISO 8601 parsing inherently requires complex character-by-character logic
 func parseISODuration(s string) time.Duration {
 	if s == "" {
 		return 0

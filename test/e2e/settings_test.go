@@ -47,16 +47,28 @@ func TestE2E_SettingsPage(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/settings")
 	require.NoError(t, err)
 
-	// Page title should contain "Settings".
-	title, err := page.Title()
-	require.NoError(t, err)
-	assert.Contains(t, title, "Settings")
+	require.NoError(t, page.Locator("h1:has-text('Settings')").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
 
-	// The page should show the Account ID value.
-	body, err := page.TextContent("body")
+	accountInput := page.Locator("#accountID")
+	require.NoError(t, accountInput.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
+	accountValue, err := accountInput.InputValue()
 	require.NoError(t, err)
-	assert.Contains(t, body, "000000000000", "expected account ID on settings page")
-	assert.Contains(t, body, "us-east-1", "expected region on settings page")
+	assert.Equal(t, "000000000000", accountValue, "expected account ID value on settings page")
+
+	regionInput := page.Locator("#region")
+	require.NoError(t, regionInput.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
+	regionValue, err := regionInput.InputValue()
+	require.NoError(t, err)
+	assert.Equal(t, "us-east-1", regionValue, "expected region value on settings page")
 }
 
 func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
@@ -78,13 +90,14 @@ func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
 	require.NoError(t, err)
 
 	// The settings icon link should be present in the navbar.
-	settingsLink, err := page.QuerySelector("a[href='/dashboard/settings']")
-	require.NoError(t, err)
-	require.NotNil(t, settingsLink, "settings icon link not found in navbar")
+	settingsLink := page.Locator("#nav-settings").First()
+	require.NoError(t, settingsLink.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	}))
 
 	// Click the settings icon to navigate to the settings page.
-	err = settingsLink.Click()
-	require.NoError(t, err)
+	require.NoError(t, settingsLink.Click())
 
 	err = page.WaitForURL("**/dashboard/settings", playwright.PageWaitForURLOptions{
 		Timeout: playwright.Float(5000),
@@ -94,6 +107,32 @@ func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
 	body, err := page.TextContent("body")
 	require.NoError(t, err)
 	assert.Contains(t, body, "Runtime configuration")
+
+	autoPurgeInput := page.Locator("input[name='autoPurgeTTL']")
+	require.NoError(t, autoPurgeInput.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
+
+	currentValue, err := autoPurgeInput.InputValue()
+	require.NoError(t, err)
+
+	newValue := "35m"
+	if currentValue == newValue {
+		newValue = "36m"
+	}
+
+	require.NoError(t, autoPurgeInput.Fill(newValue))
+
+	saveBtn := page.Locator("#save-settings-btn")
+	require.NoError(t, saveBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}))
+
+	isDisabled, err := saveBtn.IsDisabled()
+	require.NoError(t, err)
+	require.False(t, isDisabled, "save button should be enabled after changing settings when arriving via navbar navigation")
 }
 
 func TestE2E_SettingsPage_SaveAutoPurgeTTL_PersistsAfterRefresh(t *testing.T) {

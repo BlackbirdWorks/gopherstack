@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -50,7 +49,7 @@ func TestUpdateItem(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -79,7 +78,7 @@ func TestUpdateItem(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -106,7 +105,7 @@ func TestUpdateItem(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -133,7 +132,7 @@ func TestUpdateItem(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -160,7 +159,7 @@ func TestUpdateItem(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(context.Background(), sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -194,7 +193,7 @@ func TestUpdateItem(t *testing.T) {
 					{AttributeName: "pk", AttributeType: "S"},
 				},
 			}
-			_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+			_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)
 
 			if tc.setup != nil {
@@ -204,7 +203,7 @@ func TestUpdateItem(t *testing.T) {
 			updateInput := mustUnmarshal[models.UpdateItemInput](t, tc.input)
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-			res, err := db.UpdateItem(context.Background(), sdkUpdate)
+			res, err := db.UpdateItem(t.Context(), sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)
 
@@ -229,7 +228,7 @@ func getItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string) map[st
 	}
 	sdkInput, _ := models.ToSDKGetItemInput(&input)
 
-	res, err := db.GetItem(context.Background(), sdkInput)
+	res, err := db.GetItem(t.Context(), sdkInput)
 	require.NoError(t, err)
 	// res.Item is map[string]types.AttributeValue
 	if res.Item == nil {

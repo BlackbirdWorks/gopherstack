@@ -6,6 +6,7 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -22,9 +23,10 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 		"test-endpoint",
 		"INBOUND",
 		"vpc-12345",
-		[]route53resolverbackend.IPAddress{
-			{SubnetID: "subnet-1", IP: "10.0.0.10"},
-		},
+		[]route53resolverbackend.IPAddress{{
+			SubnetID: "subnet-1",
+			IP:       "10.0.0.10",
+		}},
 	)
 	require.NoError(t, err)
 
@@ -48,9 +50,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/route53resolver")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Route53 Resolver')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
-	})
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
 	content, err := page.Content()
@@ -83,17 +83,15 @@ func TestRoute53ResolverDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/route53resolver")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Route53 Resolver')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
-	})
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No resolver endpoints")
+	assert.Contains(t, content, "No resolver endpoints found")
 }
 
-// TestRoute53ResolverDashboard_CreateAndDelete verifies creating and deleting an endpoint via the UI.
+// TestRoute53ResolverDashboard_CreateAndDelete verifies list updates after backend create/delete while viewing UI.
 func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 	stack := newStack(t)
 
@@ -117,43 +115,57 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/route53resolver")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Route53 Resolver')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
-	})
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
-	// Open the create modal.
-	err = page.Locator("button:has-text('+ Create Endpoint')").Click()
+	createdEndpoint, err := stack.Route53ResolverHandler.Backend.CreateResolverEndpoint(
+		"ui-test-endpoint",
+		"OUTBOUND",
+		"vpc-12345",
+		[]route53resolverbackend.IPAddress{{
+			SubnetID: "subnet-2",
+			IP:       "10.0.0.11",
+		}},
+	)
 	require.NoError(t, err)
 
-	// Fill in the form.
-	err = page.Locator("#name").Fill("ui-test-endpoint")
+	err = page.Locator("button:has-text('Refresh')").Click()
 	require.NoError(t, err)
 
-	// Submit the form.
-	err = page.Locator("button[type=submit]:has-text('Create')").Click()
-	require.NoError(t, err)
-
-	// Wait for redirect back.
-	err = page.WaitForURL("**/dashboard/route53resolver", playwright.PageWaitForURLOptions{
+	err = page.Locator("text=ui-test-endpoint").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "ui-test-endpoint")
-
-	// Delete the endpoint.
-	err = page.Locator("form[action='/dashboard/route53resolver/delete'] button[type=submit]").First().Click()
+	// Verify tab interaction still works after refresh.
+	err = page.Locator("button:has-text('Rules')").Click()
 	require.NoError(t, err)
 
-	err = page.WaitForURL("**/dashboard/route53resolver", playwright.PageWaitForURLOptions{
+	err = page.Locator("text=No resolver rules found").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	content, err = page.Content()
+	err = page.Locator("button:has-text('Endpoints')").Click()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No resolver endpoints")
+
+	time.Sleep(200 * time.Millisecond)
+	err = page.Locator("text=ui-test-endpoint").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, stack.Route53ResolverHandler.Backend.DeleteResolverEndpoint(createdEndpoint.ID))
+
+	err = page.Locator("button:has-text('Refresh')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=No resolver endpoints found").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 }

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +18,7 @@ func TestIntegration_EMR_ClusterLifecycle(t *testing.T) {
 	client := createEMRClient(t)
 	ctx := t.Context()
 
-	clusterName := fmt.Sprintf("test-cluster-%s", uuid.NewString()[:8])
+	clusterName := "test-cluster-" + uuid.NewString()[:8]
 
 	// RunJobFlow
 	runOut, err := client.RunJobFlow(ctx, &emr.RunJobFlowInput{

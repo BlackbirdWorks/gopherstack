@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -61,7 +60,7 @@ func startPurgeContainer(t *testing.T, ttl string) (testcontainers.Container, st
 	mappedPort, err := container.MappedPort(ctx, "8000")
 	require.NoError(t, err)
 
-	return container, fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	return container, "http://localhost:" + mappedPort.Port()
 }
 
 func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {

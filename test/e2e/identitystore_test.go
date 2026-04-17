@@ -63,7 +63,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Identity Store')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestIdentityStoreDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Identity Store')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Identity Store')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Identity Store')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 
 	// After the POST redirect the page reloads to the Users tab by default;
 	// click the Groups tab again to make the Groups pane visible.
-	err = page.Locator("h1:has-text('Identity Store')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)

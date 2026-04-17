@@ -4,4 +4,8 @@ resource "aws_lambda_function" "this" {
   handler       = "index.handler"
   runtime       = "python3.12"
   filename      = "{{.ZipPath}}"
+
+  lifecycle {
+    ignore_changes = [filename, last_modified, publish]
+  }
 }

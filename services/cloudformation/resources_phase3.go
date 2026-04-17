@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -247,9 +248,14 @@ func (rc *ResourceCreator) createBatchJobQueue(
 	if rawList, ok := props["ComputeEnvironmentOrder"].([]any); ok {
 		for i, item := range rawList {
 			if m, ok2 := item.(map[string]any); ok2 {
+				order := int32(math.MaxInt32)
+				if i <= math.MaxInt32 {
+					order = int32(i)
+				}
+
 				ceOrder = append(ceOrder, batchbackend.ComputeEnvironmentOrder{
 					ComputeEnvironment: resolve(m["ComputeEnvironment"], params, physicalIDs),
-					Order:              int32(i),
+					Order:              order,
 				})
 			}
 		}

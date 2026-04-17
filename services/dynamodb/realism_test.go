@@ -2,7 +2,6 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,7 +40,7 @@ func TestHandler_Realism(t *testing.T) {
 				},
 			}
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-			_, err := memoryDB.PutItem(context.Background(), sdkPut)
+			_, err := memoryDB.PutItem(t.Context(), sdkPut)
 			require.NoError(t, err)
 		}
 
@@ -87,7 +86,7 @@ func TestHandler_Realism(t *testing.T) {
 				},
 			}
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-			_, err := memoryDB.PutItem(context.Background(), sdkPut)
+			_, err := memoryDB.PutItem(t.Context(), sdkPut)
 			require.NoError(t, err)
 		}
 
@@ -137,7 +136,7 @@ func TestHandler_Realism(t *testing.T) {
 				},
 			}
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-			_, err := memoryDB.PutItem(context.Background(), sdkPut)
+			_, err := memoryDB.PutItem(t.Context(), sdkPut)
 			require.NoError(t, err)
 		}
 

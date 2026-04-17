@@ -46,14 +46,17 @@ func TestAmplifyDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/amplify")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amplify Apps')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the app to appear in the list.
+	err = page.Locator("text=e2e-test-app").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-app")
 }
 
 // TestAmplifyDashboard_Empty verifies the Amplify dashboard empty state renders correctly.
@@ -80,12 +83,12 @@ func TestAmplifyDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/amplify")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amplify Apps')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Amplify Apps")
+	assert.Contains(t, content, "Amplify Full-Stack")
 }

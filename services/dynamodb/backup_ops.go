@@ -232,7 +232,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 	db.mu.RUnlock()
 
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", req.BackupArn))
+		return nil, NewResourceNotFoundException("backup not found: " + req.BackupArn)
 	}
 
 	region := h.regionFromHandlerContext(ctx)
@@ -246,7 +246,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 		db.mu.Unlock()
 
 		return nil, NewResourceInUseException(
-			fmt.Sprintf("table already exists: %s", req.TargetTableName),
+			"table already exists: " + req.TargetTableName,
 		)
 	}
 
@@ -333,7 +333,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 
 	if !pitrEnabled {
 		return nil, NewValidationException(
-			fmt.Sprintf("point in time recovery is not enabled for table: %s", req.SourceTableName),
+			"point in time recovery is not enabled for table: " + req.SourceTableName,
 		)
 	}
 
@@ -348,7 +348,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		db.mu.Unlock()
 
 		return nil, NewResourceInUseException(
-			fmt.Sprintf("table already exists: %s", req.TargetTableName),
+			"table already exists: " + req.TargetTableName,
 		)
 	}
 

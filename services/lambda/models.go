@@ -460,14 +460,12 @@ type CodeSigningPolicies struct {
 
 // CodeSigningConfig holds a Lambda code signing configuration.
 type CodeSigningConfig struct {
-	AllowedPublishers    *AllowedPublishers `json:"AllowedPublishers"`
-	CodeSigningConfigArn string             `json:"CodeSigningConfigArn"`
-	// CodeSigningConfigId uses lowercase 'd' to match the AWS SDK JSON field name.
-	//nolint:revive,staticcheck // AWS SDK uses "Id" not "ID" for this JSON field
-	CodeSigningConfigId string               `json:"CodeSigningConfigId"`
-	CodeSigningPolicies *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
-	Description         string               `json:"Description,omitempty"`
-	LastModified        string               `json:"LastModified"`
+	AllowedPublishers    *AllowedPublishers   `json:"AllowedPublishers"`
+	CodeSigningConfigArn string               `json:"CodeSigningConfigArn"`
+	CodeSigningConfigID  string               `json:"CodeSigningConfigId"`
+	CodeSigningPolicies  *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
+	Description          string               `json:"Description,omitempty"`
+	LastModified         string               `json:"LastModified"`
 }
 
 // CreateCodeSigningConfigInput is the request body for CreateCodeSigningConfig.

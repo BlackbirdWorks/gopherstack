@@ -1092,10 +1092,7 @@ func TestHandlerExtOperations(t *testing.T) {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
 
-				return fmt.Sprintf(
-					"Action=StartInstances&Version=2016-11-15&InstanceId.1=%s",
-					url.QueryEscape(instances[0].ID),
-				)
+				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"StartInstancesResponse"},
@@ -1105,10 +1102,7 @@ func TestHandlerExtOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 
-				return fmt.Sprintf(
-					"Action=StopInstances&Version=2016-11-15&InstanceId.1=%s",
-					url.QueryEscape(instances[0].ID),
-				)
+				return "Action=StopInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"StopInstancesResponse"},
@@ -1118,10 +1112,7 @@ func TestHandlerExtOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 
-				return fmt.Sprintf(
-					"Action=RebootInstances&Version=2016-11-15&InstanceId.1=%s",
-					url.QueryEscape(instances[0].ID),
-				)
+				return "Action=RebootInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"RebootInstancesResponse"},
@@ -1417,10 +1408,7 @@ func TestHandlerExtOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 
-				return fmt.Sprintf(
-					"Action=StartInstances&Version=2016-11-15&InstanceId.1=%s",
-					url.QueryEscape(instances[0].ID),
-				)
+				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"IncorrectInstanceState"},
@@ -1432,10 +1420,7 @@ func TestHandlerExtOperations(t *testing.T) {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
 				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
 
-				return fmt.Sprintf(
-					"Action=StopInstances&Version=2016-11-15&InstanceId.1=%s",
-					url.QueryEscape(instances[0].ID),
-				)
+				return "Action=StopInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(instances[0].ID)
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"IncorrectInstanceState"},
@@ -1979,10 +1964,7 @@ func TestHandlerNewOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
 
-				return fmt.Sprintf(
-					"Action=DeleteNetworkInterface&Version=2016-11-15&NetworkInterfaceId=%s",
-					url.QueryEscape(eni.ID),
-				)
+				return "Action=DeleteNetworkInterface&Version=2016-11-15&NetworkInterfaceId=" + url.QueryEscape(eni.ID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DeleteNetworkInterfaceResponse"},
@@ -2015,10 +1997,7 @@ func TestHandlerNewOperations(t *testing.T) {
 				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
 				attachID, _ := h.Backend.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
 
-				return fmt.Sprintf(
-					"Action=DetachNetworkInterface&Version=2016-11-15&AttachmentId=%s",
-					url.QueryEscape(attachID),
-				)
+				return "Action=DetachNetworkInterface&Version=2016-11-15&AttachmentId=" + url.QueryEscape(attachID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DetachNetworkInterfaceResponse"},
@@ -2152,9 +2131,8 @@ func TestHandlerNewOperations(t *testing.T) {
 			setupFn: func(h *ec2.Handler) string {
 				req, _ := h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
 
-				return fmt.Sprintf(
-					"Action=CancelSpotInstanceRequests&Version=2016-11-15&SpotInstanceRequestId.1=%s",
-					url.QueryEscape(req.ID),
+				return "Action=CancelSpotInstanceRequests&Version=2016-11-15&SpotInstanceRequestId.1=" + url.QueryEscape(
+					req.ID,
 				)
 			},
 			wantCode:     http.StatusOK,
@@ -2336,10 +2314,7 @@ func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
 				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
 				_, _ = h.Backend.AttachVolume(vol.ID, instances[0].ID, "/dev/sdf")
 
-				return fmt.Sprintf(
-					"Action=DetachVolume&Version=2016-11-15&VolumeId=%s",
-					url.QueryEscape(vol.ID),
-				)
+				return "Action=DetachVolume&Version=2016-11-15&VolumeId=" + url.QueryEscape(vol.ID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DetachVolumeResponse"},
@@ -2365,10 +2340,7 @@ func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
 				addr, _ := h.Backend.AllocateAddress()
 				assocID, _ := h.Backend.AssociateAddress(addr.AllocationID, instances[0].ID)
 
-				return fmt.Sprintf(
-					"Action=DisassociateAddress&Version=2016-11-15&AssociationId=%s",
-					url.QueryEscape(assocID),
-				)
+				return "Action=DisassociateAddress&Version=2016-11-15&AssociationId=" + url.QueryEscape(assocID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DisassociateAddressResponse"},
@@ -2406,10 +2378,7 @@ func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
 				rt, _ := h.Backend.CreateRouteTable("vpc-default")
 				assocID, _ := h.Backend.AssociateRouteTable(rt.ID, "subnet-default")
 
-				return fmt.Sprintf(
-					"Action=DisassociateRouteTable&Version=2016-11-15&AssociationId=%s",
-					url.QueryEscape(assocID),
-				)
+				return "Action=DisassociateRouteTable&Version=2016-11-15&AssociationId=" + url.QueryEscape(assocID)
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DisassociateRouteTableResponse"},

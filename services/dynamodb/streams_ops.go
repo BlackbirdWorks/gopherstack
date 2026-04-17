@@ -57,6 +57,7 @@ type StreamsBackend interface {
 		ctx context.Context,
 		input *dynamodbstreams.ListStreamsInput,
 	) (*dynamodbstreams.ListStreamsOutput, error)
+	GetRecentEvents(tableName string) []models.StreamRecord
 }
 
 // EnableStream enables DynamoDB Streams on a table with the given view type.
@@ -125,7 +126,7 @@ func (db *InMemoryDB) DescribeStream(
 
 	if found == nil {
 		return nil, NewResourceNotFoundException(
-			fmt.Sprintf("stream not found: %s", streamARN),
+			"stream not found: " + streamARN,
 		)
 	}
 
@@ -179,7 +180,7 @@ func (db *InMemoryDB) GetShardIterator(
 
 	if found == nil {
 		return nil, NewResourceNotFoundException(
-			fmt.Sprintf("stream not found: %s", streamARN),
+			"stream not found: " + streamARN,
 		)
 	}
 
@@ -303,6 +304,23 @@ func (db *InMemoryDB) ListStreams(
 	return &dynamodbstreams.ListStreamsOutput{
 		Streams: streams,
 	}, nil
+}
+
+func (db *InMemoryDB) GetRecentEvents(tableName string) []models.StreamRecord {
+	table, ok := db.GetTable(tableName)
+	if !ok {
+		return nil
+	}
+
+	table.mu.RLock("GetRecentEvents")
+	defer table.mu.RUnlock()
+
+	tail, head := table.streamRecordsInOrder()
+	result := make([]models.StreamRecord, 0, len(tail)+len(head))
+	result = append(result, tail...)
+	result = append(result, head...)
+
+	return result
 }
 
 // buildStreamARN generates a stream ARN for the given table using the backend's account and region.

@@ -45,7 +45,7 @@ func TestE2E_LambdaDashboard_EmptyState(t *testing.T) {
 	require.NoError(t, err)
 
 	// The page should render a heading containing "Lambda".
-	err = page.Locator("h1:has-text('Lambda')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
@@ -188,12 +188,12 @@ func TestE2E_LambdaDashboard_NavLink(t *testing.T) {
 	require.NoError(t, err)
 
 	// The Lambda nav link should be visible in the sidebar.
-	lambdaLink, err := page.QuerySelector("a[href='/dashboard/lambda']")
-	require.NoError(t, err)
-	require.NotNil(t, lambdaLink, "Lambda nav link not found in sidebar")
-
-	err = lambdaLink.Click()
-	require.NoError(t, err)
+	lambdaLink := page.Locator("#nav-lambda").First()
+	require.NoError(t, lambdaLink.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	}))
+	require.NoError(t, lambdaLink.Click())
 
 	err = page.WaitForURL("**/dashboard/lambda", playwright.PageWaitForURLOptions{
 		Timeout: playwright.Float(5000),

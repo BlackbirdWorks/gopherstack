@@ -40,7 +40,7 @@ func TestEMRDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/emr")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon EMR')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestEMRDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/emr")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Amazon EMR')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

@@ -282,6 +282,11 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	return &cp, nil
 }
 
+// ListClusters returns all clusters.
+func (b *InMemoryBackend) ListClusters() ([]Cluster, error) {
+	return b.DescribeClusters(nil)
+}
+
 // DescribeClusters returns cluster metadata.
 func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, error) {
 	b.mu.RLock("DescribeClusters")

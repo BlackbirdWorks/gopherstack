@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -51,6 +50,6 @@ func createTableHelper(
 		AttributeDefinitions: attributeDefinitions,
 	}
 	sdkInput := models.ToSDKCreateTableInput(&createInput)
-	_, err := db.CreateTable(context.Background(), sdkInput)
+	_, err := db.CreateTable(t.Context(), sdkInput)
 	require.NoError(t, err)
 }

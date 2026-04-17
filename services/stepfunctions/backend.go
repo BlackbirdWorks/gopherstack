@@ -504,8 +504,8 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	// so StopExecution and DeleteStateMachine can cancel the goroutine.
 	// The context is derived from b.svcCtx so that all active executions are
 	// also cancelled when the server shuts down.
-	//nolint:gosec // G118: cancel is stored in b.cancelFns and called by StopExecution/DeleteStateMachine/Destroy
-	ctx, cancel := context.WithCancel(b.svcCtx)
+
+	ctx, cancel := context.WithCancel(b.svcCtx) //nolint:gosec // cancel is stored for StopExecution/DeleteStateMachine
 	b.cancelFns[execArn] = cancel
 	b.smExecutions[stateMachineArn] = append(b.smExecutions[stateMachineArn], execArn)
 

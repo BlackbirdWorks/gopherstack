@@ -1,8 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
-
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -103,7 +101,7 @@ func TestInMemoryDB_TaggedTables(t *testing.T) {
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				createTableHelper(t, db, "TaggedTable", "pk")
-				ctx := context.Background()
+				ctx := t.Context()
 				_, err := db.TagResource(ctx, &dynamodb_sdk.TagResourceInput{
 					ResourceArn: aws.String("arn:aws:dynamodb:us-east-1:123456789012:table/TaggedTable"),
 					Tags: []types.Tag{
@@ -158,7 +156,7 @@ func TestInMemoryDB_CreateTableInRegion(t *testing.T) {
 			t.Parallel()
 
 			db := dynamodb.NewInMemoryDB()
-			ctx := context.Background()
+			ctx := t.Context()
 
 			input := &dynamodb_sdk.CreateTableInput{
 				TableName: aws.String(tt.tableName),

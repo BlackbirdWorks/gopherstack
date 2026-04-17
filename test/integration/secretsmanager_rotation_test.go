@@ -3,7 +3,6 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http/httptest"
@@ -278,10 +277,7 @@ func TestIntegration_SecretsManager_RotateSecret_WithLambda(t *testing.T) {
 	require.NoError(t, err, "CreateSecret should succeed")
 
 	// --- Step 2: Register the rotation Lambda function. ---
-	lambdaARN := fmt.Sprintf(
-		"arn:aws:lambda:us-east-1:000000000000:function:%s",
-		rotationFunctionName,
-	)
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:" + rotationFunctionName
 
 	_, err = lambdaClient.CreateFunction(ctx, &lambdaclientsdk.CreateFunctionInput{
 		FunctionName: aws.String(rotationFunctionName),

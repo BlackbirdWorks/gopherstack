@@ -1,0 +1,229 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Theme: GitHub Dark ── */
+/* Matches github.com dark theme: canvas-default #0d1117, canvas-subtle #161b22 */
+:root:where(.theme-github) {
+  --color-bg: #0d1117;
+  --color-bg-secondary: #161b22;
+  --color-bg-tertiary: #21262d;
+  --color-text: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-border: #30363d;
+  --color-accent: #58a6ff;
+  --color-accent-hover: #79c0ff;
+  --color-accent-subtle: rgba(56, 139, 253, 0.15);
+  --color-sidebar-bg: #161b22;
+  --color-sidebar-border: #30363d;
+  --color-nav-bg: rgba(13, 17, 23, 0.95);
+  --color-nav-border: #30363d;
+  --color-card-bg: #161b22;
+  --color-hover: #21262d;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-danger: #f85149;
+}
+
+.theme-github {
+  color-scheme: dark;
+}
+
+/* ── Theme: GitHub Light ── */
+/* Matches github.com light theme: canvas-default #ffffff, canvas-subtle #f6f8fa */
+:root:where(.theme-github-light) {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-tertiary: #eaeef2;
+  --color-text: #1f2328;
+  --color-text-secondary: #636c76;
+  --color-border: #d0d7de;
+  --color-accent: #0969da;
+  --color-accent-hover: #0550ae;
+  --color-accent-subtle: rgba(9, 105, 218, 0.08);
+  --color-sidebar-bg: #f6f8fa;
+  --color-sidebar-border: #d0d7de;
+  --color-nav-bg: rgba(255, 255, 255, 0.95);
+  --color-nav-border: #d0d7de;
+  --color-card-bg: #ffffff;
+  --color-hover: #eaeef2;
+  --color-success: #1a7f37;
+  --color-warning: #9a6700;
+  --color-danger: #d1242f;
+}
+
+.theme-github-light {
+  color-scheme: light;
+}
+
+.theme-github-light body,
+.theme-github-light .bg-slate-50,
+.theme-github-light .bg-slate-100 { background-color: var(--color-bg-secondary); }
+.theme-github-light .bg-white { background-color: var(--color-bg); }
+.theme-github-light .bg-slate-800,
+.theme-github-light .dark\:bg-slate-800 { background-color: var(--color-bg-tertiary); }
+.theme-github-light .bg-slate-900,
+.theme-github-light .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-github-light .text-slate-900,
+.theme-github-light .dark\:text-white { color: var(--color-text); }
+.theme-github-light .text-slate-600,
+.theme-github-light .text-slate-500,
+.theme-github-light .dark\:text-slate-400 { color: var(--color-text-secondary); }
+.theme-github-light .border-slate-200,
+.theme-github-light .dark\:border-white\/5,
+.theme-github-light .dark\:border-slate-700 { border-color: var(--color-border); }
+.theme-github-light .text-indigo-600,
+.theme-github-light .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-github-light .text-indigo-700 { color: var(--color-accent-hover); }
+.theme-github-light .bg-indigo-50,
+.theme-github-light .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-github-light .hover\:bg-slate-100:hover { background-color: var(--color-hover); }
+.theme-github-light .hover\:bg-slate-700:hover,
+.theme-github-light .dark\:hover\:bg-slate-700:hover { background-color: var(--color-bg-tertiary); }
+
+.theme-github-light nav {
+  background-color: var(--color-nav-bg);
+  border-color: var(--color-nav-border);
+  backdrop-filter: blur(12px);
+}
+
+.theme-github-light #sidebar {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
+}
+
+.theme-github-light input,
+.theme-github-light textarea,
+.theme-github-light select {
+  background-color: var(--color-bg);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.theme-github-light .rounded-lg.border { border-color: var(--color-border); }
+.theme-github-light .shadow-sm { box-shadow: 0 1px 0 rgba(31,35,40,0.04); }
+
+.theme-github body,
+.theme-github .bg-slate-50,
+.theme-github .bg-slate-100 { background-color: var(--color-bg); }
+.theme-github .bg-white { background-color: var(--color-bg-secondary); }
+.theme-github .bg-slate-800,
+.theme-github .dark\:bg-slate-800 { background-color: var(--color-bg-tertiary); }
+.theme-github .bg-slate-900,
+.theme-github .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-github .text-slate-900,
+.theme-github .dark\:text-white { color: var(--color-text); }
+.theme-github .text-slate-600,
+.theme-github .text-slate-500,
+.theme-github .dark\:text-slate-400 { color: var(--color-text-secondary); }
+.theme-github .border-slate-200,
+.theme-github .dark\:border-white\/5,
+.theme-github .dark\:border-slate-700 { border-color: var(--color-border); }
+.theme-github .text-indigo-600,
+.theme-github .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-github .text-indigo-700 { color: var(--color-accent-hover); }
+.theme-github .bg-indigo-50,
+.theme-github .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-github .hover\:bg-slate-100:hover { background-color: var(--color-hover); }
+.theme-github .hover\:bg-slate-700:hover,
+.theme-github .dark\:hover\:bg-slate-700:hover { background-color: var(--color-bg-tertiary); }
+
+.theme-github nav {
+  background-color: var(--color-nav-bg);
+  border-color: var(--color-nav-border);
+  backdrop-filter: blur(12px);
+}
+
+.theme-github #sidebar {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
+}
+
+.theme-github input,
+.theme-github textarea,
+.theme-github select {
+  background-color: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.theme-github .rounded-lg.border { border-color: var(--color-border); }
+.theme-github .shadow-sm { box-shadow: 0 1px 0 rgba(27,31,36,0.04); }
+
+/* ── Theme: Ocean ── */
+/* Deep blue dark theme with cyan/teal accents */
+:root:where(.theme-ocean) {
+  --color-bg: #0b1120;
+  --color-bg-secondary: #0f1729;
+  --color-bg-tertiary: #131d33;
+  --color-text: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-border: #1e3a5f;
+  --color-accent: #06b6d4;
+  --color-accent-hover: #22d3ee;
+  --color-accent-subtle: rgba(6, 182, 212, 0.1);
+  --color-sidebar-bg: #0f1729;
+  --color-sidebar-border: #1e3a5f;
+  --color-nav-bg: rgba(15, 23, 41, 0.95);
+  --color-nav-border: #1e3a5f;
+  --color-card-bg: #131d33;
+  --color-hover: #1a2744;
+}
+
+.theme-ocean nav {
+  background-color: var(--color-nav-bg);
+  border-color: var(--color-nav-border);
+}
+
+.theme-ocean #sidebar {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
+}
+
+.theme-ocean .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-ocean .dark\:bg-slate-800 { background-color: var(--color-bg-tertiary); }
+.theme-ocean .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-ocean .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-ocean .dark\:border-white\/5 { border-color: var(--color-border); }
+
+/* Sidebar Mini Mode */
+.sidebar-mini #sidebar {
+  width: 4.5rem;
+  transition: width 0.2s ease;
+}
+
+.sidebar-mini #sidebar .sidebar-text,
+.sidebar-mini #sidebar .category-header-text,
+.sidebar-mini #sidebar .chevron-icon {
+  display: none;
+}
+
+.sidebar-mini #sidebar a {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar-mini #sidebar .category-btn {
+  justify-content: center;
+  pointer-events: none;
+  padding-top: 1rem;
+}
+
+.sidebar-mini .main-content {
+  margin-left: 4.5rem;
+  transition: margin-left 0.2s ease;
+}
+
+.sidebar-mini #sidebar-footer-toggle {
+  justify-content: center;
+}
+
+.sidebar-mini #sidebar-toggle-icon {
+  transform: rotate(180deg);
+}
+
+/* Sidebar transitions */
+#sidebar {
+  transition: width 0.2s ease;
+}
+

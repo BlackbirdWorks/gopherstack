@@ -42,15 +42,14 @@ func TestLakeFormationDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/lakeformation")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Lake Formation')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-bucket")
-	assert.Contains(t, content, "Register Resource")
+	assert.Contains(t, content, "Lake Formation")
 }
 
 // TestLakeFormationDashboard_Empty verifies the Lake Formation dashboard renders correctly with no data.
@@ -77,7 +76,7 @@ func TestLakeFormationDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/lakeformation")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Lake Formation')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

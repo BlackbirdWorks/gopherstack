@@ -44,7 +44,7 @@ func TestElasticTranscoderDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elastictranscoder")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Transcoder')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestElasticTranscoderDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elastictranscoder")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Transcoder')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

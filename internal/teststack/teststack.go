@@ -1,7 +1,6 @@
 package teststack
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -1040,14 +1039,11 @@ func newCFNHandler(
 }
 
 // newDashboardConfig builds the dashboard.Config for the test stack.
-func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
+func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
-	gc := config.NewGlobalConfig(config.DefaultAccountID, config.DefaultRegion, 0, 0, false, 0)
 
 	cfg := dashboard.Config{
-		DDBClient:                  clients.DDB,
-		S3Client:                   clients.S3,
-		SSMClient:                  clients.SSM,
+		FaultStore:                 fs,
 		DDBOps:                     h.ddb,
 		S3Ops:                      h.s3,
 		SSMOps:                     h.ssm,
@@ -1073,122 +1069,21 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ECROps:                     h.ecr,
 		ECSOps:                     h.ecs,
 		IoTOps:                     h.iot,
-		FISOps:                     h.fis,
-		IdentityStoreOps:           h.identitystore,
-		OpenSearchOps:              h.opensearch,
-		ACMOps:                     h.acm,
-		ACMPCAOps:                  h.acmpca,
-		RedshiftOps:                h.redshift,
-		RDSOps:                     h.rds,
-		DocDBOps:                   h.docdb,
-		AWSConfigOps:               h.awsconfig,
-		S3ControlOps:               h.s3control,
-		ResourceGroupsOps:          h.resourcegroups,
-		ResourceGroupsTaggingOps:   h.rgtagging,
-		SWFOps:                     h.swf,
-		FirehoseOps:                h.firehose,
-		SchedulerOps:               h.scheduler,
-		Route53ResolverOps:         h.route53resolver,
-		TranscribeOps:              h.transcribe,
-		SupportOps:                 h.support,
-		CognitoIdentityOps:         h.cognitoIdentity,
-		AppSyncOps:                 h.appSync,
-		CognitoIDPOps:              h.cognitoIDP,
-		IoTDataPlaneOps:            h.iotDataPlane,
 		APIGatewayManagementAPIOps: h.apiGatewayMgmt,
 		AppConfigDataOps:           h.appConfigData,
-		AmplifyOps:                 h.amplify,
-		APIGatewayV2Ops:            h.apigwv2,
-		AppConfigOps:               h.appConfig,
-		AthenaOps:                  h.athena,
-		AutoscalingOps:             h.autoscaling,
-		ApplicationAutoscalingOps:  h.appAutoScaling,
-		BackupOps:                  h.backup,
-		CloudTrailOps:              h.cloudtrail,
-		BatchOps:                   h.batch,
-		BedrockOps:                 h.bedrock,
-		BedrockRuntimeOps:          h.bedrockruntime,
-		CeOps:                      h.ce,
-		CloudControlOps:            h.cloudcontrol,
-		CloudFrontOps:              h.cloudFront,
-		CodeArtifactOps:            h.codeArtifact,
-		CodeBuildOps:               h.codebuild,
-		CodeCommitOps:              h.codeCommit,
-		CodePipelineOps:            h.codePipeline,
-		CodeConnectionsOps:         h.codeConnections,
-		CodeDeployOps:              h.codeDeploy,
-		DMSOps:                     h.dms,
+		MediaStoreDataOps:          h.mediastoredata,
 		CodeStarConnectionsOps:     h.codeStarConn,
-		DynamoDBStreamsOps:         h.dynamodbStreams,
-		ElasticbeanstalkOps:        h.elasticbeanstalk,
-		EFSOps:                     h.efs,
-		EKSOps:                     h.eks,
-		ElasticTranscoderOps:       h.elastictranscoder,
-		ELBOps:                     h.elb,
-		ELBv2Ops:                   h.elbv2,
-		EmrServerlessOps:           h.emrserverless,
-		EMROps:                     h.emr,
-		GlacierOps:                 h.glacier,
-		IoTAnalyticsOps:            h.iotanalytics,
-		IoTWirelessOps:             h.iotwireless,
-		KinesisAnalyticsOps:        h.kinesisanalytics,
-		KafkaOps:                   h.kafka,
-		GlobalConfig:               gc,
-		FaultStore:                 fs,
-		Logger:                     slog.Default(),
+		CognitoIDPOps:              h.cognitoIDP,
 	}
 
-	applyNewestDashboardOps(&cfg, h)
-
 	return cfg, fs
-}
-
-// applyNewestDashboardOps sets the most recently added service ops on a dashboard.Config.
-// It is extracted from newDashboardConfig to satisfy the funlen limit.
-func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
-	cfg.ElasticsearchOps = h.elasticsearch
-	cfg.EmrServerlessOps = h.emrserverless
-	cfg.EMROps = h.emr
-	cfg.GlacierOps = h.glacier
-	cfg.IoTAnalyticsOps = h.iotanalytics
-	cfg.IoTWirelessOps = h.iotwireless
-	cfg.KinesisAnalyticsOps = h.kinesisanalytics
-	cfg.KafkaOps = h.kafka
-	cfg.KinesisAnalyticsV2Ops = h.kinesisanalyticsv2
-	cfg.LakeFormationOps = h.lakeformation
-	cfg.MediaConvertOps = h.mediaconvert
-	cfg.MQOps = h.mq
-	cfg.MediaStoreOps = h.mediastore
-	cfg.MediaStoreDataOps = h.mediastoredata
-	cfg.MemoryDBOps = h.memorydb
-	cfg.OrganizationsOps = h.organizations
-	cfg.MWAAOps = h.mwaa
-	cfg.PinpointOps = h.pinpoint
-	cfg.NeptuneOps = h.neptune
-	cfg.PipesOps = h.pipes
-	cfg.QLDBOps = h.qldb
-	cfg.QLDBSessionOps = h.qldbsession
-	cfg.RDSDataOps = h.rdsdata
-	cfg.RAMOps = h.ram
-	cfg.RedshiftDataOps = h.redshiftdata
-	cfg.SageMakerOps = h.sagemaker
-	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
-	cfg.ServiceDiscoveryOps = h.servicediscovery
-	cfg.ServerlessRepoOps = h.serverlessrepo
-	cfg.ShieldOps = h.shield
-	cfg.TextractOps = h.textract
-	cfg.TimestreamWriteOps = h.timestreamwrite
-	cfg.TimestreamQueryOps = h.timestreamquery
-	cfg.TransferOps = h.transfer
-	cfg.VerifiedPermissionsOps = h.verifiedpermissions
-	cfg.Wafv2Ops = h.wafv2
-	cfg.XrayOps = h.xray
-	cfg.S3TablesOps = h.s3tables
 }
 
 // New creates a fully wired integration stack for testing.
 // It sets up all in-memory backends, handlers, the service registry with router,
 // AWS SDK clients (routed back through Echo via InMemClient), and the dashboard.
+//
+//nolint:funlen // integration stack wiring is intentionally explicit and exhaustive for tests.
 func New(t *testing.T) *Stack {
 	t.Helper()
 
@@ -1252,6 +1147,7 @@ func New(t *testing.T) *Stack {
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
 	dashCfg, faultStore := newDashboardConfig(h, clients)
+	chaos.RegisterRoutes(e.Group("/_gopherstack/chaos"), faultStore, registry)
 	dashHndlr := dashboard.NewHandler(dashCfg)
 	_ = registry.Register(dashHndlr)
 

@@ -117,8 +117,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
-	//nolint:gosec // G118: cancel is stored in b.cancel and called by Close.
-	ctx, cancel := context.WithCancel(svcCtx)
+
+	ctx, cancel := context.WithCancel(svcCtx) //nolint:gosec // cancel is retained on backend for shutdown cleanup
 	b := &InMemoryBackend{
 		accountID:       accountID,
 		region:          region,

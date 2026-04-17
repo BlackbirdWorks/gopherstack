@@ -942,7 +942,7 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 
 	var errs []BatchDeleteEvaluationJobError
 
-	var deleted []BatchDeleteEvaluationJobItem
+	deleted := make([]BatchDeleteEvaluationJobItem, 0, len(jobARNs))
 
 	for _, jobARN := range jobARNs {
 		job, ok := b.evaluationJobs[jobARN]

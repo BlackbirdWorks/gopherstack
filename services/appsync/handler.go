@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -1117,7 +1116,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, op string, e
 
 	return c.JSON(
 		http.StatusInternalServerError,
-		errorResponse("InternalFailure", fmt.Sprintf("internal error: %s", err.Error())),
+		errorResponse("InternalFailure", "internal error: "+err.Error()),
 	)
 }
 

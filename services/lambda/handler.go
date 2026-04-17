@@ -1302,7 +1302,7 @@ func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1342,7 +1342,7 @@ func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
 	if err := h.Backend.DeleteFunction(name); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1369,7 +1369,7 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 	if getFnErr != nil {
 		if errors.Is(getFnErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
@@ -1430,7 +1430,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	if getFnErr != nil {
 		if errors.Is(getFnErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
@@ -1516,7 +1516,7 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(invokeErr, ErrTooManyRequests) {
@@ -1575,12 +1575,12 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				fmt.Sprintf("Function URL config already exists for: %s", name))
+				"Function URL config already exists for: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
@@ -1599,7 +1599,7 @@ func (h *Handler) handleGetFunctionURLConfig(c *echo.Context, name string) error
 	if err != nil {
 		if errors.Is(err, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function URL config not found: %s", name))
+				"Function URL config not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1617,7 +1617,7 @@ func (h *Handler) handleDeleteFunctionURLConfig(c *echo.Context, name string) er
 	if err := lambdaBk.DeleteFunctionURLConfig(name); err != nil {
 		if errors.Is(err, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function URL config not found: %s", name))
+				"Function URL config not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1748,7 +1748,7 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 	if publishErr != nil {
 		if errors.Is(publishErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", publishErr.Error())
@@ -1770,7 +1770,7 @@ func (h *Handler) handleListVersionsByFunction(c *echo.Context, name string) err
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1808,12 +1808,12 @@ func (h *Handler) handleCreateAlias(c *echo.Context, name string) error {
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(createErr, ErrAliasAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				fmt.Sprintf("Alias already exists: %s", input.Name))
+				"Alias already exists: "+input.Name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
@@ -1833,7 +1833,7 @@ func (h *Handler) handleGetAlias(c *echo.Context, name, aliasName string) error 
 	if err != nil {
 		if errors.Is(err, ErrAliasNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Alias not found: %s", aliasName))
+				"Alias not found: "+aliasName)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1855,7 +1855,7 @@ func (h *Handler) handleListAliases(c *echo.Context, name string) error {
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1885,7 +1885,7 @@ func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) err
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrAliasNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Alias not found: %s", aliasName))
+				"Alias not found: "+aliasName)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -1904,7 +1904,7 @@ func (h *Handler) handleDeleteAlias(c *echo.Context, name, aliasName string) err
 	if err := lambdaBk.DeleteAlias(name, aliasName); err != nil {
 		if errors.Is(err, ErrAliasNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Alias not found: %s", aliasName))
+				"Alias not found: "+aliasName)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2084,7 +2084,7 @@ func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, 
 	if err != nil {
 		if errors.Is(err, ErrLayerNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Layer not found: %s", layerName))
+				"Layer not found: "+layerName)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2326,7 +2326,7 @@ func (h *Handler) handleListFunctionEventInvokeConfigs(c *echo.Context, name str
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2343,7 +2343,7 @@ func (h *Handler) eventInvokeConfigError(c *echo.Context, err error, name string
 	switch {
 	case errors.Is(err, ErrFunctionNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-			fmt.Sprintf("Function not found: %s", name))
+			"Function not found: "+name)
 	case errors.Is(err, ErrEventInvokeConfigNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 			fmt.Sprintf("The function %s doesn't have an event invoke config", name))
@@ -2390,7 +2390,7 @@ func (h *Handler) handlePutFunctionConcurrency(c *echo.Context, name string) err
 	if putErr != nil {
 		if errors.Is(putErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(putErr, ErrInvalidParameterValue) {
@@ -2414,7 +2414,7 @@ func (h *Handler) handleGetFunctionConcurrency(c *echo.Context, name string) err
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(err, ErrFunctionConcurrencyNotFound) {
@@ -2438,7 +2438,7 @@ func (h *Handler) handleDeleteFunctionConcurrency(c *echo.Context, name string) 
 	if err := lambdaBk.DeleteFunctionConcurrency(name); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2475,7 +2475,7 @@ func (h *Handler) handlePutProvisionedConcurrencyConfig(c *echo.Context, name st
 	if putErr != nil {
 		if errors.Is(putErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(putErr, ErrInvalidParameterValue) {
@@ -2500,12 +2500,12 @@ func (h *Handler) handleGetProvisionedConcurrencyConfig(c *echo.Context, name, q
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(err, ErrProvisionedConcurrencyConfigNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("No provisioned concurrency config found for qualifier: %s", qualifier))
+				"No provisioned concurrency config found for qualifier: "+qualifier)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2531,12 +2531,12 @@ func (h *Handler) handleDeleteProvisionedConcurrencyConfig(c *echo.Context, name
 	if err := lambdaBk.DeleteProvisionedConcurrencyConfig(name, qualifier); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(err, ErrProvisionedConcurrencyConfigNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("No provisioned concurrency config found for qualifier: %s", qualifier))
+				"No provisioned concurrency config found for qualifier: "+qualifier)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2557,7 +2557,7 @@ func (h *Handler) handleListProvisionedConcurrencyConfigs(c *echo.Context, name 
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2650,12 +2650,12 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 	if addErr != nil {
 		if errors.Is(addErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(addErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				fmt.Sprintf("Permission already exists: %s", input.StatementID))
+				"Permission already exists: "+input.StatementID)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", addErr.Error())
@@ -2675,12 +2675,12 @@ func (h *Handler) handleGetPolicy(c *echo.Context, name string) error {
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(err, ErrNoPolicyFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("No policy is associated with the given resource: %s", name))
+				"No policy is associated with the given resource: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2704,7 +2704,7 @@ func (h *Handler) handleRemovePermission(c *echo.Context, name string) error {
 	if err := lambdaBk.RemovePermission(name, statementID); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2720,7 +2720,7 @@ func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) e
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2763,7 +2763,7 @@ func (h *Handler) handleGetFunctionCodeSigningConfig(c *echo.Context, bk *InMemo
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		if errors.Is(err, ErrCodeSigningConfigNotFound) {
@@ -2803,7 +2803,7 @@ func (h *Handler) handlePutFunctionCodeSigningConfig(c *echo.Context, bk *InMemo
 	if putErr := bk.PutFunctionCodeSigningConfig(name, input.CodeSigningConfigArn); putErr != nil {
 		if errors.Is(putErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function or code signing config not found: %s", name))
+				"Function or code signing config not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
@@ -2820,7 +2820,7 @@ func (h *Handler) handleDeleteFunctionCodeSigningConfig(c *echo.Context, bk *InM
 	if err := bk.DeleteFunctionCodeSigningConfig(name); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2910,7 +2910,7 @@ func (h *Handler) handleGetCodeSigningConfig(c *echo.Context, bk *InMemoryBacken
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Code signing config not found: %s", cscARN))
+				"Code signing config not found: "+cscARN)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2924,7 +2924,7 @@ func (h *Handler) handleDeleteCodeSigningConfig(c *echo.Context, bk *InMemoryBac
 	if err := bk.DeleteCodeSigningConfig(cscARN); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Code signing config not found: %s", cscARN))
+				"Code signing config not found: "+cscARN)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -2953,7 +2953,7 @@ func (h *Handler) handleUpdateCodeSigningConfig(c *echo.Context, bk *InMemoryBac
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Code signing config not found: %s", cscARN))
+				"Code signing config not found: "+cscARN)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -2975,7 +2975,7 @@ func (h *Handler) handleListFunctionsByCodeSigningConfig(c *echo.Context, bk *In
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Code signing config not found: %s", cscARN))
+				"Code signing config not found: "+cscARN)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -3045,7 +3045,7 @@ func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBack
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				fmt.Sprintf("Capacity provider already exists: %s", input.Name))
+				"Capacity provider already exists: "+input.Name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
@@ -3060,7 +3060,7 @@ func (h *Handler) handleGetCapacityProvider(c *echo.Context, bk *InMemoryBackend
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Capacity provider not found: %s", name))
+				"Capacity provider not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -3074,7 +3074,7 @@ func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBack
 	if err := bk.DeleteCapacityProvider(name); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Capacity provider not found: %s", name))
+				"Capacity provider not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -3103,7 +3103,7 @@ func (h *Handler) handleUpdateCapacityProvider(c *echo.Context, bk *InMemoryBack
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Capacity provider not found: %s", name))
+				"Capacity provider not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -3230,7 +3230,7 @@ func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) er
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function URL config not found: %s", name))
+				"Function URL config not found: "+name)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -3267,7 +3267,7 @@ func (h *Handler) handleRuntimeMgmtRoute(c *echo.Context, path, method string) e
 		cfg, err := lambdaBk.GetRuntimeManagementConfig(name)
 		if err != nil {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return c.JSON(http.StatusOK, cfg)
@@ -3288,7 +3288,7 @@ func (h *Handler) handleRuntimeMgmtRoute(c *echo.Context, path, method string) e
 		if putErr != nil {
 			if errors.Is(putErr, ErrFunctionNotFound) {
 				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-					fmt.Sprintf("Function not found: %s", name))
+					"Function not found: "+name)
 			}
 
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
@@ -3328,7 +3328,7 @@ func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method strin
 		cfg, err := lambdaBk.GetFunctionRecursionConfig(name)
 		if err != nil {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return c.JSON(http.StatusOK, cfg)
@@ -3349,7 +3349,7 @@ func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method strin
 		if putErr != nil {
 			if errors.Is(putErr, ErrFunctionNotFound) {
 				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-					fmt.Sprintf("Function not found: %s", name))
+					"Function not found: "+name)
 			}
 
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
@@ -3389,7 +3389,7 @@ func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string)
 		cfg, err := lambdaBk.GetFunctionScalingConfig(name)
 		if err != nil {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function not found: %s", name))
+				"Function not found: "+name)
 		}
 
 		return c.JSON(http.StatusOK, cfg)
@@ -3410,7 +3410,7 @@ func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string)
 		if putErr != nil {
 			if errors.Is(putErr, ErrFunctionNotFound) {
 				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-					fmt.Sprintf("Function not found: %s", name))
+					"Function not found: "+name)
 			}
 
 			return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
@@ -3442,7 +3442,7 @@ func (h *Handler) handleGetLayerVersionByArn(c *echo.Context) error {
 	out, err := lambdaBk.GetLayerVersionByArn(arn)
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-			fmt.Sprintf("Layer version not found: %s", arn))
+			"Layer version not found: "+arn)
 	}
 
 	return c.JSON(http.StatusOK, out)

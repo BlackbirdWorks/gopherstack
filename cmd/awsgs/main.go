@@ -42,6 +42,7 @@ func main() {
 	os.Exit(run())
 }
 
+//nolint:gosec // awsgs intentionally shells out to aws CLI with caller-provided args.
 func run() int {
 	args := os.Args[1:]
 
@@ -67,8 +68,10 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	//nolint:gosec // args are user-supplied CLI arguments, not untrusted external data
-	cmd := exec.CommandContext(ctx, "aws", awsArgs...)
+	cmd := exec.CommandContext(
+		ctx,
+		"aws",
+		awsArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

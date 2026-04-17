@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/base64"
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +18,7 @@ func TestIntegration_ECR_CreateRepository(t *testing.T) {
 	client := createECRClient(t)
 	ctx := t.Context()
 
-	repoName := fmt.Sprintf("test-repo-%s", uuid.NewString()[:8])
+	repoName := "test-repo-" + uuid.NewString()[:8]
 
 	out, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repoName),
@@ -41,7 +40,7 @@ func TestIntegration_ECR_CreateRepository_AlreadyExists(t *testing.T) {
 	client := createECRClient(t)
 	ctx := t.Context()
 
-	repoName := fmt.Sprintf("duplicate-repo-%s", uuid.NewString()[:8])
+	repoName := "duplicate-repo-" + uuid.NewString()[:8]
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repoName),
@@ -62,7 +61,7 @@ func TestIntegration_ECR_DescribeRepositories(t *testing.T) {
 	client := createECRClient(t)
 	ctx := t.Context()
 
-	repoName := fmt.Sprintf("describe-repo-%s", uuid.NewString()[:8])
+	repoName := "describe-repo-" + uuid.NewString()[:8]
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repoName),
@@ -98,7 +97,7 @@ func TestIntegration_ECR_DeleteRepository(t *testing.T) {
 	client := createECRClient(t)
 	ctx := t.Context()
 
-	repoName := fmt.Sprintf("delete-repo-%s", uuid.NewString()[:8])
+	repoName := "delete-repo-" + uuid.NewString()[:8]
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repoName),
@@ -150,8 +149,8 @@ func TestIntegration_ECR_ListAllRepositories(t *testing.T) {
 
 	suffix := uuid.NewString()[:8]
 	repoNames := []string{
-		fmt.Sprintf("list-repo-a-%s", suffix),
-		fmt.Sprintf("list-repo-b-%s", suffix),
+		"list-repo-a-" + suffix,
+		"list-repo-b-" + suffix,
 	}
 
 	for _, name := range repoNames {

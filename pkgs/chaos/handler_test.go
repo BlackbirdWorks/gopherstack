@@ -663,3 +663,168 @@ func TestChaosHandler_Activity_GetWithEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestChaosHandler_Query_Empty(t *testing.T) {
+	t.Parallel()
+
+	store := chaos.NewFaultStore()
+	reg := service.NewRegistry()
+	e := buildChaosAPI(t, store, reg)
+
+	rec := callGroup(t, e, http.MethodGet, "/_gopherstack/chaos/query", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Faults   []json.RawMessage `json:"faults"`
+		Effects  json.RawMessage   `json:"effects"`
+		Activity []json.RawMessage `json:"activity"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Empty(t, resp.Faults)
+	assert.Empty(t, resp.Activity)
+}
+
+func TestChaosHandler_Query_WithData(t *testing.T) {
+	t.Parallel()
+
+	store := chaos.NewFaultStore()
+	store.AppendRules([]chaos.FaultRule{{Service: "s3", Probability: 0.5}})
+	store.SetEffects(chaos.NetworkEffects{Latency: 100})
+	store.RecordActivity(chaos.ActivityEvent{Service: "dynamodb", Operation: "PutItem", Triggered: true})
+
+	reg := service.NewRegistry()
+	e := buildChaosAPI(t, store, reg)
+
+	rec := callGroup(t, e, http.MethodGet, "/_gopherstack/chaos/query", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Faults   []chaos.FaultRule     `json:"faults"`
+		Effects  chaos.NetworkEffects  `json:"effects"`
+		Activity []chaos.ActivityEvent `json:"activity"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.Len(t, resp.Faults, 1)
+	assert.Equal(t, "s3", resp.Faults[0].Service)
+	assert.InDelta(t, 0.5, resp.Faults[0].Probability, 0.001)
+	assert.Equal(t, 100, resp.Effects.Latency)
+	require.Len(t, resp.Activity, 1)
+	assert.Equal(t, "dynamodb", resp.Activity[0].Service)
+}
+
+func TestChaosHandler_ClearFaults(t *testing.T) {
+	t.Parallel()
+
+	store := chaos.NewFaultStore()
+	store.AppendRules([]chaos.FaultRule{
+		{Service: "s3", Probability: 0.5},
+		{Service: "dynamodb", Probability: 1.0},
+	})
+
+	reg := service.NewRegistry()
+	e := buildChaosAPI(t, store, reg)
+
+	rec := callGroup(t, e, http.MethodPost, "/_gopherstack/chaos/faults/clear", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var rules []chaos.FaultRule
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&rules))
+	assert.Empty(t, rules)
+
+	// Confirm store is empty.
+	assert.Empty(t, store.GetRules())
+}
+
+func TestChaosHandler_DeleteFaultByIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*chaos.FaultStore)
+		name      string
+		body      string
+		wantCount int
+		wantCode  int
+	}{
+		{
+			name: "delete first rule",
+			setup: func(s *chaos.FaultStore) {
+				s.AppendRules([]chaos.FaultRule{
+					{Service: "s3"},
+					{Service: "dynamodb"},
+				})
+			},
+			body:      `{"index":0}`,
+			wantCode:  http.StatusOK,
+			wantCount: 1,
+		},
+		{
+			name: "delete last rule",
+			setup: func(s *chaos.FaultStore) {
+				s.AppendRules([]chaos.FaultRule{
+					{Service: "s3"},
+					{Service: "dynamodb"},
+				})
+			},
+			body:      `{"index":1}`,
+			wantCode:  http.StatusOK,
+			wantCount: 1,
+		},
+		{
+			name:      "invalid index out of range is no-op",
+			setup:     func(s *chaos.FaultStore) { s.AppendRules([]chaos.FaultRule{{Service: "s3"}}) },
+			body:      `{"index":99}`,
+			wantCode:  http.StatusOK,
+			wantCount: 1,
+		},
+		{
+			name:     "invalid json returns 400",
+			setup:    func(_ *chaos.FaultStore) {},
+			body:     `{bad json`,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := chaos.NewFaultStore()
+			tt.setup(store)
+
+			reg := service.NewRegistry()
+			e := buildChaosAPI(t, store, reg)
+
+			rec := callGroup(t, e, http.MethodDelete, "/_gopherstack/chaos/faults/by-index", []byte(tt.body))
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var rules []chaos.FaultRule
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&rules))
+				assert.Len(t, rules, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestChaosHandler_ResetEffects(t *testing.T) {
+	t.Parallel()
+
+	store := chaos.NewFaultStore()
+	store.SetEffects(chaos.NetworkEffects{Latency: 500, Jitter: 200})
+
+	reg := service.NewRegistry()
+	e := buildChaosAPI(t, store, reg)
+
+	rec := callGroup(t, e, http.MethodPost, "/_gopherstack/chaos/effects/reset", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var effects chaos.NetworkEffects
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&effects))
+	assert.Zero(t, effects.Latency)
+	assert.Zero(t, effects.Jitter)
+
+	// Confirm store is reset.
+	stored := store.GetEffects()
+	assert.Zero(t, stored.Latency)
+	assert.Zero(t, stored.Jitter)
+}

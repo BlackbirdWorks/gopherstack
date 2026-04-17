@@ -553,7 +553,7 @@ func TestCLI_AutoPurgeLoop(t *testing.T) {
 		cutoff := time.Now().UTC().Add(-ttl)
 		for _, svc := range services {
 			if p, ok := svc.(service.Purgeable); ok {
-				p.Purge(context.Background(), cutoff)
+				p.Purge(t.Context(), cutoff)
 
 				continue
 			}

@@ -168,7 +168,7 @@ func (db *InMemoryDB) batchGetTableRefs(
 	for tableName := range requestItems {
 		t, exists := regionTables[tableName]
 		if !exists {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+			return nil, NewResourceNotFoundException("Table not found: " + tableName)
 		}
 
 		tableRefs[tableName] = t
@@ -360,7 +360,7 @@ func (db *InMemoryDB) getRequestTables(
 		}
 
 		if table == nil {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+			return nil, NewResourceNotFoundException("Table not found: " + tableName)
 		}
 		tables[tableName] = table
 	}

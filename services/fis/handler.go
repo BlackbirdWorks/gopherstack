@@ -956,6 +956,10 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 				Status: a.Status.Status,
 				Reason: a.Status.Reason,
 			},
+			State: &experimentActionStatusDTO{
+				Status: a.Status.Status,
+				Reason: a.Status.Reason,
+			},
 			StartTime: toUnixPtr(a.StartTime),
 			EndTime:   toUnixPtr(a.EndTime),
 		}
@@ -974,6 +978,7 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 		ExperimentTemplateID: exp.ExperimentTemplateID,
 		RoleArn:              exp.RoleArn,
 		Status:               experimentStatusDTO{Status: exp.Status.Status, Reason: exp.Status.Reason},
+		State:                experimentStatusDTO{Status: exp.Status.Status, Reason: exp.Status.Reason},
 		Targets:              targets,
 		Actions:              actions,
 		StopConditions:       stopConditions,

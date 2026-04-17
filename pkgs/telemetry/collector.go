@@ -285,19 +285,11 @@ func parseHistogram(mf *io_prometheus_client.MetricFamily) []Summary {
 			}
 		}
 
-		// Get total count from histogram
-		rawCount := metric.GetHistogram().SampleCount
-		if rawCount == nil {
-			rawCount = new(uint64)
-		}
-
-		// G115: integer overflow conversion uint64 -> int64
-		var countVal int64
-		if *rawCount > math.MaxInt64 {
-			countVal = math.MaxInt64
-		} else {
-			// #nosec G115 -- Guarded by check above
-			countVal = int64(*rawCount)
+		// Get total count from histogram.
+		sampleCount := metric.GetHistogram().GetSampleCount()
+		countVal := int64(math.MaxInt64)
+		if sampleCount <= math.MaxInt64 {
+			countVal = int64(sampleCount)
 		}
 
 		// Estimate percentiles from histogram buckets
@@ -353,28 +345,21 @@ func calculatePercentilesFromBuckets(
 		}
 
 		currCount := bucket.GetCumulativeCount()
-		bound := bucket.UpperBound
-		if bound == nil {
-			if maxVal == 0 {
-				maxVal = 5.0 // Default max if not found
-			}
-
-			continue
-		}
+		bound := bucket.GetUpperBound()
 
 		if !p50Found && currCount >= (totalCount/p50Divisor) {
-			p50 = *bound
+			p50 = bound
 			p50Found = true
 		}
 		if !p95Found && currCount >= (totalCount*p95Factor/pctBase) {
-			p95 = *bound
+			p95 = bound
 			p95Found = true
 		}
 		if !p99Found && currCount >= (totalCount*p99Factor/pctBase) {
-			p99 = *bound
+			p99 = bound
 			p99Found = true
 		}
-		maxVal = *bound
+		maxVal = bound
 	}
 
 	p50, p95, p99 = fillMissingPercentiles(p50Found, p95Found, p99Found, p50, p95, p99, maxVal)

@@ -2,7 +2,6 @@ package ec2_test
 
 import (
 	"encoding/xml"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -276,7 +275,7 @@ func TestEC2Handler_DescribeInstances(t *testing.T) {
 
 	// Describe the instance.
 	descRec := postForm(t, h,
-		fmt.Sprintf("Action=DescribeInstances&Version=2016-11-15&InstanceId.1=%s", instanceID))
+		"Action=DescribeInstances&Version=2016-11-15&InstanceId.1="+instanceID)
 	assert.Equal(t, http.StatusOK, descRec.Code)
 	assert.Contains(t, descRec.Body.String(), instanceID)
 }
@@ -305,7 +304,7 @@ func TestEC2Handler_TerminateInstances(t *testing.T) {
 
 	// Terminate.
 	termRec := postForm(t, h,
-		fmt.Sprintf("Action=TerminateInstances&Version=2016-11-15&InstanceId.1=%s", instanceID))
+		"Action=TerminateInstances&Version=2016-11-15&InstanceId.1="+instanceID)
 	assert.Equal(t, http.StatusOK, termRec.Code)
 	assert.Contains(t, termRec.Body.String(), "TerminateInstancesResponse")
 	assert.Contains(t, termRec.Body.String(), "terminated")
@@ -340,7 +339,7 @@ func TestEC2Handler_SecurityGroupCRUD(t *testing.T) {
 
 	// Delete security group.
 	delRec := postForm(t, h,
-		fmt.Sprintf("Action=DeleteSecurityGroup&Version=2016-11-15&GroupId=%s", groupID))
+		"Action=DeleteSecurityGroup&Version=2016-11-15&GroupId="+groupID)
 	assert.Equal(t, http.StatusOK, delRec.Code)
 	assert.Contains(t, delRec.Body.String(), "DeleteSecurityGroupResponse")
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 
@@ -432,8 +433,12 @@ func encodeSelectHeaders(eventType, contentType string) []byte {
 func writeEventStringHeader(w *bytes.Buffer, name, value string) {
 	nameBuf := []byte(name)
 	valBuf := []byte(value)
+	nameLen := len(nameBuf)
+	if nameLen > math.MaxUint8 {
+		return
+	}
 
-	w.WriteByte(byte(len(nameBuf))) //nolint:gosec // header names are always < 256 bytes
+	w.WriteByte(byte(nameLen))
 	w.Write(nameBuf)
 	w.WriteByte(eventStreamHeaderTypeString)
 

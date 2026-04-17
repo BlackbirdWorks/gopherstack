@@ -113,7 +113,7 @@ func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[s
 	}
 
 	id := uuid.NewString()
-	connectionArn := arn.Build("codeconnections", b.region, b.accountID, fmt.Sprintf("connection/%s", id))
+	connectionArn := arn.Build("codeconnections", b.region, b.accountID, "connection/"+id)
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -302,7 +302,7 @@ func (b *InMemoryBackend) CreateHost(
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
-	hostArn := arn.Build("codeconnections", b.region, b.accountID, fmt.Sprintf("host/%s", id))
+	hostArn := arn.Build("codeconnections", b.region, b.accountID, "host/"+id)
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -385,7 +385,7 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
-	linkArn := arn.Build("codeconnections", b.region, b.accountID, fmt.Sprintf("repository-link/%s", id))
+	linkArn := arn.Build("codeconnections", b.region, b.accountID, "repository-link/"+id)
 
 	// Derive provider type from connection if present.
 	providerType := ""

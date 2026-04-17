@@ -420,7 +420,7 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 
 	serviceName := input.ServiceName
 	if serviceName == "" {
-		serviceName = fmt.Sprintf("express-%s", strconv.FormatInt(time.Now().UnixNano(), 10))
+		serviceName = "express-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
 	serviceArn := fmt.Sprintf(

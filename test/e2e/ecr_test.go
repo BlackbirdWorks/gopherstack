@@ -41,8 +41,9 @@ func TestECRDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	err = page.Locator("h1:has-text('ECR')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -76,8 +77,9 @@ func TestECRDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	err = page.Locator("h1:has-text('ECR')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -85,7 +87,7 @@ func TestECRDashboard_Empty(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "Repositories")
-	assert.Contains(t, content, "No repositories")
+	assert.Contains(t, content, "No repositories found")
 }
 
 // TestECRDashboard_CreateAndDeleteRepository verifies the create and delete repository UI flows.
@@ -112,25 +114,25 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('ECR')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	// Open create modal
-	err = page.Locator("button:has-text('+ Create Repository')").Click()
+	err = page.Locator("#create-repo-btn").First().Click()
 	require.NoError(t, err)
 
 	// Fill in repository name
-	err = page.Locator("input[name='name']").Fill("e2e-test-repo")
+	err = page.Locator("#new-repo-name").Fill("e2e-test-repo")
 	require.NoError(t, err)
 
-	// Submit form (use Last() since "Create Repository" text appears in both the header button and submit button)
-	err = page.Locator("button:has-text('Create Repository')").Last().Click()
+	// Submit form
+	err = page.Locator("#confirm-create-repo-btn").Click()
 	require.NoError(t, err)
 
-	// Wait for redirect and verify (use First() since the URI cell also contains the repo name)
-	err = page.Locator("td:has-text('e2e-test-repo')").First().WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for the repository card to appear.
+	err = page.Locator("text=e2e-test-repo").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -140,10 +142,16 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	assert.Contains(t, content, "e2e-test-repo")
 
 	// Delete the repository
-	err = page.Locator("form[action='/dashboard/ecr/repository/delete'] button").Click()
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
+
+	// Click the trash icon button for the specific repository
+	err = page.Locator("#delete-repo-e2e-test-repo").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("td:has-text('No repositories')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-test-repo").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)

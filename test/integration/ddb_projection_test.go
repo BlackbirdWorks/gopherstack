@@ -169,7 +169,7 @@ func createTable(t *testing.T, client *dynamodb.Client) string {
 
 	t.Cleanup(func() {
 		client.DeleteTable(
-			context.Background(),
+			t.Context(),
 			&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
 		)
 	})

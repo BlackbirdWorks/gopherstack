@@ -39,7 +39,7 @@ func TestCognitoIDPDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidp")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Cognito User Pools')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestCognitoIDPDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidp")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Cognito User Pools')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestCognitoIDPDashboard_CreateAndDeleteUserPool(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidp")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Cognito User Pools')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -123,16 +123,16 @@ func TestCognitoIDPDashboard_CreateAndDeleteUserPool(t *testing.T) {
 	err = page.Locator("button:has-text('Create User Pool')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for the pool row to appear in the table after the redirect.
-	poolRow := page.Locator("td:has-text('ui-created-pool')")
+	// Wait for the pool row to appear in the table after the rewritten page refresh.
+	poolRow := page.Locator("tr:has-text('ui-created-pool')").First()
 	err = poolRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	// Delete the pool.
-	err = page.Locator("form[action='/dashboard/cognitoidp/user-pool/delete'] button").Click()
+	// Delete the pool from the matching row in the rewritten table.
+	err = poolRow.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	// Wait for the pool row to disappear after the redirect.

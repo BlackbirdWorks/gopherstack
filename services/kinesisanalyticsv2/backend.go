@@ -187,7 +187,7 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // applicationARN builds an ARN for a Kinesis Data Analytics v2 application.
 func (b *InMemoryBackend) applicationARN(name string) string {
-	return arn.Build("kinesisanalytics", b.region, b.accountID, fmt.Sprintf("application/%s", name))
+	return arn.Build("kinesisanalytics", b.region, b.accountID, "application/"+name)
 }
 
 // CreateApplication creates a new Kinesis Data Analytics v2 application.

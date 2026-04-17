@@ -49,7 +49,7 @@ func TestServerlessRepoDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/serverlessrepo")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Serverless Application Repository')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestServerlessRepoDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-test-app")
-	assert.Contains(t, content, "+ Create Application")
+	assert.Contains(t, content, "Publish App")
 }
 
 // TestServerlessRepoDashboard_Empty verifies the Serverless Application Repository dashboard renders correctly with no applications.
@@ -84,12 +84,12 @@ func TestServerlessRepoDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/serverlessrepo")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Serverless Application Repository')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No applications found")
+	assert.Contains(t, content, "No serverless applications found")
 }

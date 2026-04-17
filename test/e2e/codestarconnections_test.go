@@ -39,7 +39,7 @@ func TestCodeStarConnectionsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codestarconnections")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestCodeStarConnectionsDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codestarconnections")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestCodeStarConnectionsDashboard_CreateConnection(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codestarconnections")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -121,7 +121,8 @@ func TestCodeStarConnectionsDashboard_CreateConnection(t *testing.T) {
 	err = page.Locator("#create-connection-modal button[type='submit']").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-new-connection").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -155,7 +156,7 @@ func TestCodeStarConnectionsDashboard_CreateHost(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/codestarconnections")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -172,7 +173,8 @@ func TestCodeStarConnectionsDashboard_CreateHost(t *testing.T) {
 	err = page.Locator("#create-host-modal button[type='submit']").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=e2e-new-host").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

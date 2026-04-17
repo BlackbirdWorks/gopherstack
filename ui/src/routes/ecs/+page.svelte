@@ -1,0 +1,458 @@
+<script lang="ts">
+import { onMount } from 'svelte';
+import { getECSClient } from '$lib/aws-client';
+import {
+	ListClustersCommand,
+	ListServicesCommand,
+	ListTasksCommand,
+	ListTaskDefinitionsCommand,
+	DescribeTaskDefinitionCommand,
+	type TaskDefinition
+} from '@aws-sdk/client-ecs';
+import { toast } from 'svelte-sonner';
+import { Container, Plus, RefreshCw, Search, Layers, Activity, Server, ChevronRight, List, Box } from 'lucide-svelte';
+
+const ecs = getECSClient();
+
+let clusters = $state<string[]>([]);
+let loading = $state(true);
+let selectedCluster = $state<string | null>(null);
+let services = $state<string[]>([]);
+let servicesLoading = $state(false);
+let tasks = $state<string[]>([]);
+let tasksLoading = $state(false);
+let taskDefs = $state<string[]>([]);
+let taskDefsLoading = $state(false);
+let selectedTaskDef = $state<TaskDefinition | null>(null);
+let taskDefLoading = $state(false);
+let search = $state('');
+let servicesByCluster = $state<Record<string, string[]>>({});
+let tasksByCluster = $state<Record<string, string[]>>({});
+let activeTab = $state<'services' | 'tasks' | 'taskdefs'>('services');
+
+onMount(async () => {
+	await loadClusters();
+	await loadTaskDefs();
+});
+
+async function loadClusters() {
+	try {
+		loading = true;
+		const data = await ecs.send(new ListClustersCommand({}));
+		clusters = data.clusterArns || [];
+		if (clusters.length > 0) {
+			selectedCluster = clusters[0];
+			await loadServices(clusters[0]);
+			await loadTasks(clusters[0]);
+		}
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load clusters');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadServices(clusterArn: string) {
+	try {
+		servicesLoading = true;
+		const data = await ecs.send(new ListServicesCommand({ cluster: clusterArn }));
+		const arns = data.serviceArns || [];
+		services = arns;
+		servicesByCluster = { ...servicesByCluster, [clusterArn]: arns };
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load services');
+	} finally {
+		servicesLoading = false;
+	}
+}
+
+async function loadTasks(clusterArn: string) {
+	try {
+		tasksLoading = true;
+		const data = await ecs.send(new ListTasksCommand({ cluster: clusterArn }));
+		const arns = data.taskArns || [];
+		tasks = arns;
+		tasksByCluster = { ...tasksByCluster, [clusterArn]: arns };
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load tasks');
+	} finally {
+		tasksLoading = false;
+	}
+}
+
+async function loadTaskDefs() {
+	try {
+		taskDefsLoading = true;
+		const data = await ecs.send(new ListTaskDefinitionsCommand({ status: 'ACTIVE', maxResults: 100 }));
+		taskDefs = data.taskDefinitionArns || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load task definitions');
+	} finally {
+		taskDefsLoading = false;
+	}
+}
+
+async function selectCluster(arn: string) {
+	selectedCluster = arn;
+	await Promise.all([loadServices(arn), loadTasks(arn)]);
+}
+
+async function selectTaskDef(arn: string) {
+	try {
+		taskDefLoading = true;
+		const data = await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: arn }));
+		selectedTaskDef = data.taskDefinition || null;
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load task definition');
+	} finally {
+		taskDefLoading = false;
+	}
+}
+
+async function reload() {
+	await loadClusters();
+	await loadTaskDefs();
+}
+
+function clusterName(arn: string) {
+	return arn.split('/').pop() || arn;
+}
+
+function serviceName(arn: string) {
+	return arn.split('/').pop() || arn;
+}
+
+function taskId(arn: string) {
+	return arn.split('/').pop()?.substring(0, 12) || arn;
+}
+
+function taskDefFamily(arn: string) {
+	// arn:aws:ecs:region:account:task-definition/family:revision
+	const part = arn.split('/').pop() || arn;
+	return part.split(':')[0];
+}
+
+function taskDefRevision(arn: string) {
+	const part = arn.split('/').pop() || '';
+	return part.split(':')[1] || '';
+}
+
+function clusterRegion(arn: string) {
+	const parts = arn.split(':');
+	return parts[3] || '—';
+}
+
+function clusterAccount(arn: string) {
+	const parts = arn.split(':');
+	return parts[4] || '—';
+}
+
+function copyToClipboard(text: string) {
+	navigator.clipboard.writeText(text).then(() => toast.success('Copied to clipboard'));
+}
+
+let filteredServices = $derived(services.filter(s =>
+	!search || serviceName(s).toLowerCase().includes(search.toLowerCase())
+));
+
+let filteredTasks = $derived(tasks.filter(t =>
+	!search || taskId(t).toLowerCase().includes(search.toLowerCase())
+));
+
+let filteredTaskDefs = $derived(taskDefs.filter(td =>
+	!search || taskDefFamily(td).toLowerCase().includes(search.toLowerCase())
+));
+
+let totalServices = $derived(Object.values(servicesByCluster).reduce((acc, s) => acc + s.length, 0));
+let totalTasks = $derived(Object.values(tasksByCluster).reduce((acc, t) => acc + t.length, 0));
+
+// Group task defs by family
+let taskDefFamilies = $derived(() => {
+	const families = new Set<string>();
+	for (const td of taskDefs) families.add(taskDefFamily(td));
+	return families.size;
+});
+</script>
+
+<div class="space-y-6">
+	<!-- Header -->
+	<div class="flex items-center justify-between">
+		<div class="flex items-center gap-3">
+			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+				<Container class="w-6 h-6 text-purple-600 dark:text-purple-400" />
+			</div>
+			<div>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">ECS Clusters</h1>
+				<p class="text-slate-600 dark:text-slate-300">Elastic Container Service</p>
+			</div>
+		</div>
+		<div class="flex gap-2">
+			<button
+				onclick={reload}
+				class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
+				title="Refresh"
+			>
+				<RefreshCw class="w-4 h-4" />
+			</button>
+			<button
+				onclick={() => toast.info('Use the AWS console or CLI to create ECS clusters.')}
+				class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+			>
+				<Plus class="w-4 h-4" />
+				Create Cluster
+			</button>
+		</div>
+	</div>
+
+	<!-- Stats cards -->
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+				<Layers class="w-5 h-5 text-purple-600 dark:text-purple-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{clusters.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Clusters</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+				<Activity class="w-5 h-5 text-green-600 dark:text-green-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{totalServices}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Services</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+				<Server class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{totalTasks}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Running Tasks</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+				<Box class="w-5 h-5 text-orange-600 dark:text-orange-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{taskDefs.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Task Definitions</p>
+			</div>
+		</div>
+	</div>
+
+	{#if loading}
+		<div class="text-center py-12 text-slate-500 dark:text-slate-400">
+			<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-3"></div>
+			<p>Loading clusters...</p>
+		</div>
+	{:else if clusters.length === 0}
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+			<Container class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4 opacity-50" />
+			<p class="text-slate-600 dark:text-slate-300 text-lg mb-1">No ECS clusters found</p>
+			<p class="text-slate-400 dark:text-slate-500 text-sm mb-4">Create a cluster to start deploying containers.</p>
+			<button
+				onclick={() => toast.info('Use the AWS console or CLI to create ECS clusters.')}
+				class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+			>
+				Create Cluster
+			</button>
+		</div>
+	{:else}
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+			<!-- Cluster list panel -->
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+				<h2 class="font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+					<Layers class="w-4 h-4 text-purple-500" />
+					Clusters ({clusters.length})
+				</h2>
+				<div class="space-y-1">
+					{#each clusters as cluster}
+						{@const name = clusterName(cluster)}
+						{@const region = clusterRegion(cluster)}
+						{@const account = clusterAccount(cluster)}
+						{@const clusterServices = servicesByCluster[cluster] ?? []}
+						{@const clusterTasks = tasksByCluster[cluster] ?? []}
+						<button
+							onclick={() => selectCluster(cluster)}
+							class="w-full text-left px-3 py-3 rounded-lg transition-colors {selectedCluster === cluster
+								? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-300 dark:ring-indigo-700'
+								: 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'}"
+						>
+							<div class="flex items-center justify-between">
+								<p class="font-semibold truncate">{name}</p>
+								<ChevronRight class="w-4 h-4 shrink-0 opacity-50" />
+							</div>
+							<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{region} · {account}</p>
+							<div class="flex gap-2 mt-1">
+								{#if clusterServices.length > 0}
+									<span class="text-xs text-green-600 dark:text-green-400">
+										{clusterServices.length} {clusterServices.length === 1 ? 'svc' : 'svcs'}
+									</span>
+								{/if}
+								{#if clusterTasks.length > 0}
+									<span class="text-xs text-blue-600 dark:text-blue-400">
+										{clusterTasks.length} {clusterTasks.length === 1 ? 'task' : 'tasks'}
+									</span>
+								{/if}
+							</div>
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Right panel with tabs -->
+			<div class="lg:col-span-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+				<!-- Tab bar -->
+				<div class="flex border-b border-slate-200 dark:border-slate-700 px-4">
+					{#each [{ id: 'services', label: 'Services', icon: Activity }, { id: 'tasks', label: 'Tasks', icon: Server }, { id: 'taskdefs', label: 'Task Definitions', icon: Box }] as tab}
+						<button
+							onclick={() => { activeTab = tab.id as typeof activeTab; search = ''; }}
+							class="flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id
+								? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+								: 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
+						>
+							<tab.icon class="w-4 h-4" />
+							{tab.label}
+							{#if tab.id === 'services'}
+								<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{services.length}</span>
+							{:else if tab.id === 'tasks'}
+								<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{tasks.length}</span>
+							{:else}
+								<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{taskDefs.length}</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+
+				<div class="p-4">
+					<!-- Search -->
+					<div class="relative mb-4">
+						<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+						<input
+							type="text"
+							placeholder="Search..."
+							bind:value={search}
+							class="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+						/>
+					</div>
+
+					<!-- Services tab -->
+					{#if activeTab === 'services'}
+						{#if servicesLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading services...</p>
+							</div>
+						{:else if filteredServices.length === 0}
+							<div class="text-center py-10">
+								<Activity class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No services found in this cluster</p>
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each filteredServices as service}
+									{@const name = serviceName(service)}
+									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm">{name}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium">Active</span>
+										</div>
+										<p class="text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 truncate">{service}</p>
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredServices.length} services</p>
+						{/if}
+
+					<!-- Tasks tab -->
+					{:else if activeTab === 'tasks'}
+						{#if tasksLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading tasks...</p>
+							</div>
+						{:else if filteredTasks.length === 0}
+							<div class="text-center py-10">
+								<List class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No running tasks found in this cluster</p>
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each filteredTasks as task}
+									{@const id = taskId(task)}
+									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm font-mono">{id}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">RUNNING</span>
+										</div>
+										<div class="flex items-center justify-between mt-1">
+											<p class="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{task}</p>
+											<button onclick={() => copyToClipboard(task)} class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-2">
+												<span class="text-xs">Copy</span>
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredTasks.length} tasks</p>
+						{/if}
+
+					<!-- Task Definitions tab -->
+					{:else if activeTab === 'taskdefs'}
+						{#if taskDefsLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading task definitions...</p>
+							</div>
+						{:else if filteredTaskDefs.length === 0}
+							<div class="text-center py-10">
+								<Box class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No task definitions found</p>
+							</div>
+						{:else}
+							<div class="grid grid-cols-1 gap-2">
+								{#each filteredTaskDefs as td}
+									{@const family = taskDefFamily(td)}
+									{@const rev = taskDefRevision(td)}
+									<div
+										class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-700 cursor-pointer transition-colors"
+										onclick={() => selectTaskDef(td)}
+										role="button"
+										tabindex="0"
+										onkeydown={(e) => e.key === 'Enter' && selectTaskDef(td)}
+									>
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm">{family}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">rev {rev}</span>
+										</div>
+										{#if selectedTaskDef && selectedTaskDef.family === family && !taskDefLoading}
+											<div class="mt-2 pt-2 border-t border-slate-200 dark:border-slate-600 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+												<p>CPU: {selectedTaskDef.cpu || '—'} · Memory: {selectedTaskDef.memory || '—'}</p>
+												<p>Network: {selectedTaskDef.networkMode || 'bridge'}</p>
+												<p>Containers: {selectedTaskDef.containerDefinitions?.length ?? 0}</p>
+												{#if (selectedTaskDef.containerDefinitions ?? []).length > 0}
+													<div class="flex flex-wrap gap-1 mt-1">
+														{#each (selectedTaskDef.containerDefinitions ?? []) as cdef}
+															<span class="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-600 rounded text-xs">{cdef.name}</span>
+														{/each}
+													</div>
+												{/if}
+											</div>
+										{:else if taskDefLoading && selectedTaskDef?.family === family}
+											<p class="text-xs text-slate-400 mt-1 animate-pulse">Loading details...</p>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredTaskDefs.length} definitions</p>
+						{/if}
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+</div>

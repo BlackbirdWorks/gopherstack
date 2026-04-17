@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2Dashboard verifies the EC2 dashboard UI renders with instances, security groups, and VPCs.
+// TestEC2Dashboard verifies the EC2 dashboard UI renders with instances, security groups, and key pairs.
 func TestEC2Dashboard(t *testing.T) {
 	stack := newStack(t)
 
@@ -41,7 +41,7 @@ func TestEC2Dashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the EC2 header to appear.
-	err = page.Locator("h1:has-text('EC2')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -60,8 +60,8 @@ func TestEC2Dashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify the VPCs & Subnets tab is present.
-	err = page.Locator("button:has-text('VPCs')").WaitFor(playwright.LocatorWaitForOptions{
+	// Verify the Key Pairs tab is present.
+	err = page.Locator("button:has-text('Key Pairs')").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})

@@ -46,7 +46,7 @@ func TestShieldDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/shield")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Shield Advanced')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestShieldDashboard_NoSubscription(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/shield")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Shield Advanced')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

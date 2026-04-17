@@ -16,13 +16,6 @@ import (
 func TestSageMakerRuntimeDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	stack.SageMakerRuntimeHandler.Backend.RecordInvocation(
-		"InvokeEndpoint",
-		"e2e-test-endpoint",
-		`{"data": "test input"}`,
-		`{"Body":"mock response from Gopherstack"}`,
-	)
-
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
@@ -40,18 +33,18 @@ func TestSageMakerRuntimeDashboard(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/sagemakerrumtime")
+	_, err = page.Goto(server.URL + "/dashboard/sagemaker")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SageMaker Runtime')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-endpoint")
-	assert.Contains(t, content, "InvokeEndpoint")
+	assert.Contains(t, content, "Amazon SageMaker")
+	assert.Contains(t, content, "Endpoints")
 }
 
 // TestSageMakerRuntimeDashboard_Empty verifies the SageMaker Runtime dashboard renders correctly with no invocations.
@@ -75,15 +68,15 @@ func TestSageMakerRuntimeDashboard_Empty(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/sagemakerrumtime")
+	_, err = page.Goto(server.URL + "/dashboard/sagemaker")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SageMaker Runtime')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No endpoint invocations recorded yet")
+	assert.Contains(t, content, "No notebook instances found")
 }

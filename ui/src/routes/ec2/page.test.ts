@@ -1,0 +1,201 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import EC2Page from './+page.svelte';
+
+const mockSend = vi.fn();
+
+vi.mock('$lib/aws-client', () => ({
+	getEC2Client: () => ({ send: mockSend })
+}));
+
+vi.mock('svelte-sonner', () => ({
+	toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }
+}));
+
+const mockInstance = {
+	InstanceId: 'i-1234567890abcdef0',
+	InstanceType: 't3.micro',
+	State: { Name: 'running' },
+	PublicIpAddress: '54.1.2.3',
+	PrivateIpAddress: '10.0.1.5',
+	Tags: [{ Key: 'Name', Value: 'my-server' }],
+	LaunchTime: new Date('2024-01-15'),
+	Platform: 'Linux/UNIX',
+	VpcId: 'vpc-abc123',
+	SubnetId: 'subnet-def456'
+};
+
+const mockStoppedInstance = {
+	InstanceId: 'i-stopped',
+	InstanceType: 't2.small',
+	State: { Name: 'stopped' },
+	Tags: [{ Key: 'Name', Value: 'dev-server' }]
+};
+
+describe('EC2 Page', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockSend.mockReset();
+	});
+
+	it('renders page title', () => {
+		mockSend.mockResolvedValue({ Reservations: [] });
+		render(EC2Page);
+		expect(screen.getByText('EC2 Instances')).toBeInTheDocument();
+	});
+
+	it('shows Launch Instance button', () => {
+		mockSend.mockResolvedValue({ Reservations: [] });
+		render(EC2Page);
+		expect(screen.getByText('Launch Instance')).toBeInTheDocument();
+	});
+
+	it('shows empty state when no instances', async () => {
+		mockSend.mockResolvedValue({ Reservations: [] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('No EC2 instances found')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('displays loaded instances by name tag', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('my-server')).toBeInTheDocument();
+		}, { timeout: 3000 });
+		expect(screen.getByText('t3.micro')).toBeInTheDocument();
+	});
+
+	it('shows instance state badge', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('running')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('shows stopped instance with start button', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockStoppedInstance] }] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('dev-server')).toBeInTheDocument();
+		}, { timeout: 3000 });
+		expect(screen.getByText('Start')).toBeInTheDocument();
+	});
+
+	it('shows running instance with stop button', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('Stop')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('shows instance IP addresses', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('54.1.2.3')).toBeInTheDocument();
+		}, { timeout: 3000 });
+		expect(screen.getByText('10.0.1.5')).toBeInTheDocument();
+	});
+
+	it('filters instances via search', async () => {
+		mockSend.mockResolvedValueOnce({
+			Reservations: [{ Instances: [mockInstance, mockStoppedInstance] }]
+		});
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('my-server')).toBeInTheDocument();
+		}, { timeout: 3000 });
+		const searchInput = screen.getByPlaceholderText('Search instances...');
+		await fireEvent.input(searchInput, { target: { value: 'dev' } });
+		await waitFor(() => {
+			expect(screen.queryByText('my-server')).not.toBeInTheDocument();
+		});
+		expect(screen.getByText('dev-server')).toBeInTheDocument();
+	});
+
+	it('calls stop API and shows toast', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+		mockSend.mockResolvedValueOnce({ StoppingInstances: [] }); // stop response
+		mockSend.mockResolvedValueOnce({ Reservations: [] }); // reload
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('Stop')).toBeInTheDocument();
+		}, { timeout: 3000 });
+		await fireEvent.click(screen.getByText('Stop'));
+		const { toast } = await import('svelte-sonner');
+		await waitFor(() => {
+			expect(vi.mocked(toast.success)).toHaveBeenCalled();
+		}, { timeout: 3000 });
+	});
+
+	it('calls start API on stopped instance', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockStoppedInstance] }] });
+		mockSend.mockResolvedValueOnce({ StartingInstances: [] });
+		mockSend.mockResolvedValueOnce({ Reservations: [] });
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText('Start')).toBeInTheDocument();
+		}, { timeout: 3000 });
+		await fireEvent.click(screen.getByText('Start'));
+		const { toast } = await import('svelte-sonner');
+		await waitFor(() => {
+			expect(vi.mocked(toast.success)).toHaveBeenCalled();
+		}, { timeout: 3000 });
+	});
+
+	it('shows error toast on load failure', async () => {
+		mockSend.mockRejectedValueOnce(new Error('access denied'));
+		render(EC2Page);
+		const { toast } = await import('svelte-sonner');
+		await waitFor(() => {
+			expect(vi.mocked(toast.error)).toHaveBeenCalled();
+		}, { timeout: 3000 });
+	});
+
+	it('shows instance count summary', async () => {
+		mockSend.mockResolvedValueOnce({
+			Reservations: [{ Instances: [mockInstance, mockStoppedInstance] }]
+		});
+		render(EC2Page);
+		await waitFor(() => {
+			expect(screen.getByText(/2/)).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('shows Security Groups and Key Pairs tabs', () => {
+		mockSend.mockResolvedValue({ Reservations: [] });
+		render(EC2Page);
+		expect(screen.getByText('Security Groups')).toBeInTheDocument();
+		expect(screen.getByText('Key Pairs')).toBeInTheDocument();
+	});
+
+	it('loads security groups when tab clicked', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [] });
+		mockSend.mockResolvedValueOnce({ SecurityGroups: [{ GroupName: 'default', GroupId: 'sg-123', VpcId: 'vpc-abc', Description: 'Default SG', IpPermissions: [], IpPermissionsEgress: [] }] });
+		render(EC2Page);
+		await waitFor(() => screen.getByText('No EC2 instances found'), { timeout: 3000 });
+		const sgButtons = screen.getAllByText(/Security Groups/i);
+		const tabBtn = sgButtons.find(el => el.tagName === 'BUTTON' || el.closest('button'));
+		if (tabBtn) await fireEvent.click(tabBtn.closest('button') ?? tabBtn);
+		await waitFor(() => {
+			expect(screen.getByText('default')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('loads key pairs when tab clicked', async () => {
+		mockSend.mockResolvedValueOnce({ Reservations: [] });
+		mockSend.mockResolvedValueOnce({ KeyPairs: [{ KeyName: 'my-keypair', KeyPairId: 'key-123', KeyFingerprint: 'abc123' }] });
+		render(EC2Page);
+		await waitFor(() => screen.getByText('No EC2 instances found'), { timeout: 3000 });
+		const kpButtons = screen.getAllByText(/Key Pairs/i);
+		const tabBtn = kpButtons.find(el => el.tagName === 'BUTTON' || el.closest('button'));
+		if (tabBtn) await fireEvent.click(tabBtn.closest('button') ?? tabBtn);
+		await waitFor(() => {
+			expect(screen.getByText('my-keypair')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+});

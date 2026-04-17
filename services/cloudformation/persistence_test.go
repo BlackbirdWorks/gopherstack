@@ -1,7 +1,6 @@
 package cloudformation_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -21,7 +20,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			name: "round_trip_preserves_state",
 			setup: func(b *cloudformation.InMemoryBackend) string {
 				stack, err := b.CreateStack(
-					context.Background(),
+					t.Context(),
 					"test-stack",
 					`{"AWSTemplateFormatVersion":"2010-09-09"}`,
 					nil,

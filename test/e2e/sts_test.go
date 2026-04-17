@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/playwright-community/playwright-go"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,17 +42,12 @@ func TestSTSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the page heading to appear.
-	err = page.Locator("h1:has-text('STS Security Token Service')").WaitFor(
+	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)
 
-	// Verify the mock account ID is shown.
-	err = page.Locator("#sts-account:has-text('000000000000')").WaitFor(
-		playwright.LocatorWaitForOptions{
-			State:   playwright.WaitForSelectorStateVisible,
-			Timeout: playwright.Float(60000),
-		},
-	)
+	content, err := page.Content()
 	require.NoError(t, err)
+	assert.Contains(t, content, "000000000000")
 }

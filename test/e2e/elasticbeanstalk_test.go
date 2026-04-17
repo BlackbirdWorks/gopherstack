@@ -47,15 +47,26 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elasticbeanstalk")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Beanstalk')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
+	// Wait for the app and env to appear.
+	err = page.Locator("text=e2e-app").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-app")
-	assert.Contains(t, content, "e2e-env")
+
+	err = page.Locator("button:has-text('Environments')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=e2e-env").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 }
 
 // TestElasticbeanstalkDashboard_Empty verifies the Elastic Beanstalk dashboard empty state renders correctly.
@@ -82,13 +93,20 @@ func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/elasticbeanstalk")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Elastic Beanstalk')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No applications")
-	assert.Contains(t, content, "No environments")
+	assert.Contains(t, content, "No applications found")
+
+	err = page.Locator("button:has-text('Environments')").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("text=No environments found").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 }

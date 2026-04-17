@@ -588,7 +588,7 @@ type describeClusterV2Output struct {
 }
 
 type listClustersV2Output struct {
-	Clusters []*clusterInfoV2 `json:"clusters"`
+	ClusterInfoList []*clusterInfoV2 `json:"clusterInfoList"`
 }
 
 type getBootstrapBrokersOutput struct {
@@ -730,7 +730,7 @@ func (h *Handler) handleListClustersV2(c *echo.Context) error {
 		out = append(out, toClusterInfoV2(cl))
 	}
 
-	return c.JSON(http.StatusOK, listClustersV2Output{Clusters: out})
+	return c.JSON(http.StatusOK, listClustersV2Output{ClusterInfoList: out})
 }
 
 func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) error {

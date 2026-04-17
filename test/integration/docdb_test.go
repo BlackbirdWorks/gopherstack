@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,7 +17,7 @@ func TestIntegration_DocDB_ClusterLifecycle(t *testing.T) {
 	client := createDocDBClient(t)
 	ctx := t.Context()
 
-	clusterID := fmt.Sprintf("test-cluster-%s", uuid.NewString()[:8])
+	clusterID := "test-cluster-" + uuid.NewString()[:8]
 
 	// CreateDBCluster
 	createOut, err := client.CreateDBCluster(ctx, &docdb.CreateDBClusterInput{
@@ -81,8 +80,8 @@ func TestIntegration_DocDB_DBInstanceLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	clusterID := fmt.Sprintf("inst-cluster-%s", suffix)
-	instanceID := fmt.Sprintf("test-inst-%s", suffix)
+	clusterID := "inst-cluster-" + suffix
+	instanceID := "test-inst-" + suffix
 
 	// Create cluster first
 	_, err := client.CreateDBCluster(ctx, &docdb.CreateDBClusterInput{

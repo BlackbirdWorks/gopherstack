@@ -44,7 +44,7 @@ func TestKinesisDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kinesis")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Kinesis Streams')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -78,12 +78,13 @@ func TestKinesisDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kinesis")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Kinesis Streams')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Kinesis Streams")
+	assert.Contains(t, content, "Kinesis Data Streams")
+	assert.Contains(t, content, "No streams found")
 }

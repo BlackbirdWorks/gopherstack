@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -15,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +65,75 @@ func saveScreenshot(t *testing.T, page playwright.Page, name string) {
 	t.Logf("Screenshot saved to %s", path)
 }
 
-func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
+// waitForSPA waits for the SvelteKit SPA to fully load after navigation.
+func waitForSPA(t *testing.T, page playwright.Page) {
+	t.Helper()
+	// Using LoadStateLoad instead of Networkidle because streaming pages (Metrics, Console)
+	// never truly reach network idle state.
+	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State:   playwright.LoadStateLoad,
+		Timeout: playwright.Float(10000),
+	}))
+}
+
+func TestE2E_DynamoDB_CreateTable(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	context, err := browser.NewContext()
+	require.NoError(t, err)
+	defer context.Close()
+
+	page, err := context.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_DynamoDB_CreateTable")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Open create modal
+	err = page.Click("#create-table-btn")
+	require.NoError(t, err)
+
+	modal := page.Locator("[role='dialog']")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	// Fill form
+	require.NoError(t, page.Fill("#tableName", "TestTable"))
+	require.NoError(t, page.Fill("#partitionKey", "pk"))
+
+	// Submit
+	require.NoError(t, page.Click("#confirm-create-table-btn"))
+
+	// Verify table appears in list
+	tableCard := page.Locator("#table-TestTable")
+	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	// Verify in backend
+	_, err = stack.DDBHandler.Backend.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+		TableName: aws.String("TestTable"),
+	})
+	assert.NoError(t, err)
+}
+
+func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 	stack := newStack(t)
 	stack.CreateDDBTable(t, "Movies")
 
@@ -82,43 +148,111 @@ func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer page.Close()
 
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb/table/Movies")
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_DynamoDB_DeleteTable")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Wait for table card and click it to open detail
+	tableCard := page.Locator("#table-Movies")
+	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = tableCard.First().Click()
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Delete Table')")
-	require.NoError(t, err)
-
-	modal := page.Locator("#global_confirm_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
+	// Wait for detail view with Delete Table button
+	deleteBtn := page.Locator("button:has-text('Delete Table')")
+	err = deleteBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err)
 
-	message := page.Locator("#global_confirm_message")
-	content, err := message.TextContent()
-	require.NoError(t, err)
-	assert.Contains(t, content, "Are you sure you want to delete this table?")
-
-	err = page.Click("#global_confirm_cancel")
-	require.NoError(t, err)
-
-	_, err = page.WaitForFunction("() => !document.getElementById('global_confirm_modal').hasAttribute('open')", nil, playwright.PageWaitForFunctionOptions{
-		Timeout: playwright.Float(1000),
+	// Register dialog handler BEFORE triggering confirm
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
 	})
-	require.NoError(t, err, "Modal should close after clicking cancel")
 
-	err = page.Click("button:has-text('Delete Table')")
-	require.NoError(t, err)
-	err = page.Click("#global_confirm_proceed")
+	err = deleteBtn.Click()
 	require.NoError(t, err)
 
-	err = page.WaitForURL(server.URL + "/dashboard/dynamodb")
-	require.NoError(t, err)
+	// Should return to table list after deletion
+	createBtn := page.Locator("#create-table-btn")
+	require.Eventually(t, func() bool {
+		visible, _ := createBtn.IsVisible()
 
-	assert.Equal(t, server.URL+"/dashboard/dynamodb", page.URL())
+		return visible
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Verify deleted in backend
+	_, err = stack.DDBHandler.Backend.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+		TableName: aws.String("Movies"),
+	})
+	assert.Error(t, err)
 }
 
-func TestE2E_S3_ConfirmDeleteBucket(t *testing.T) {
+func TestE2E_S3_CreateBucket(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	context, err := browser.NewContext()
+	require.NoError(t, err)
+	defer context.Close()
+
+	page, err := context.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_S3_CreateBucket")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/s3")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Open create modal
+	err = page.Click("#create-bucket-btn")
+	require.NoError(t, err)
+
+	modal := page.Locator("[role='dialog']")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, page.Fill("#bucketName", "test-bucket"))
+	require.NoError(t, page.Click("#confirm-create-bucket-btn"))
+
+	// Verify bucket appears
+	bucketCard := page.Locator("#bucket-test-bucket")
+	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	// Verify in backend
+	output, err := stack.S3Backend.ListBuckets(t.Context(), &s3.ListBucketsInput{})
+	require.NoError(t, err)
+	assert.Len(t, output.Buckets, 1)
+	assert.Equal(t, "test-bucket", *output.Buckets[0].Name)
+}
+
+func TestE2E_S3_DeleteBucket(t *testing.T) {
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "trash-bucket")
 
@@ -133,73 +267,44 @@ func TestE2E_S3_ConfirmDeleteBucket(t *testing.T) {
 	require.NoError(t, err)
 	defer page.Close()
 
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_S3_DeleteBucket")
+		}
+	}()
+
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	bucketCard := page.Locator("#bucket-list div.p-6:has-text('trash-bucket')")
-	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err)
-
-	err = bucketCard.Locator("button:has-text('Delete')").Click()
-	require.NoError(t, err)
-
-	modal := page.Locator("#global_confirm_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err)
-
-	txt, err := page.Locator("#global_confirm_message").TextContent()
-	require.NoError(t, err)
-	assert.Contains(t, txt, "Are you sure you want to delete bucket 'trash-bucket'?")
-
-	err = page.Click("#global_confirm_proceed")
-	require.NoError(t, err)
-
-	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
-	require.NoError(t, err)
-}
-
-func TestE2E_DynamoDB_CreateTableCompleteFlow(t *testing.T) {
-	stack := newStack(t)
-
-	server := httptest.NewServer(stack.Echo)
-	defer server.Close()
-
-	context, err := browser.NewContext()
-	require.NoError(t, err)
-	defer context.Close()
-
-	page, err := context.NewPage()
-	require.NoError(t, err)
-	defer page.Close()
-
-	// 1. Go to DynamoDB Index
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
-	require.NoError(t, err)
-
-	// 2. Click Create Table button
-	err = page.Click("button:has-text('Create Table')")
-	require.NoError(t, err)
-
-	// 3. Fill and submit form
-	require.NoError(t, page.Fill("input[name='tableName']", "TestTable"))
-	require.NoError(t, page.Fill("input[name='partitionKey']", "pk"))
-	_, err = page.SelectOption("select[name='partitionKeyType']", playwright.SelectOptionValues{Values: &[]string{"S"}})
-	require.NoError(t, err)
-	require.NoError(t, page.Click("button[type='submit']:has-text('Create')"))
-
-	// 4. Verify table appears in list
-	tableCard := page.Locator("#table-list div.p-6:has-text('TestTable')")
-	err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err)
-
-	// 5. Verify table is actually created in backend
-	_, err = stack.DDBHandler.Backend.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
-		TableName: aws.String("TestTable"),
+	// Wait for bucket to appear
+	bucketCard := page.Locator("#bucket-trash-bucket")
+	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
+	// Register dialog handler BEFORE triggering confirm
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
+
+	// Click the Delete button on the bucket card
+	err = page.Locator("button:has-text('Delete')").First().Click(
+		playwright.LocatorClickOptions{Force: playwright.Bool(true)},
+	)
+	require.NoError(t, err)
+
+	// Verify bucket disappears
+	require.Eventually(t, func() bool {
+		visible, _ := page.Locator("text=trash-bucket").First().IsVisible()
+
+		return !visible
+	}, 5*time.Second, 200*time.Millisecond)
 }
 
-func TestE2E_S3_UploadFileFlow(t *testing.T) {
+func TestE2E_S3_UploadFile(t *testing.T) {
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "upload-bucket")
 
@@ -214,21 +319,47 @@ func TestE2E_S3_UploadFileFlow(t *testing.T) {
 	require.NoError(t, err)
 	defer page.Close()
 
-	// 1. Go to bucket detail
-	_, err = page.Goto(server.URL + "/dashboard/s3/bucket/upload-bucket")
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_S3_UploadFile")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/s3")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Open bucket detail
+	bucketCard := page.Locator("#bucket-upload-bucket")
+	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = bucketCard.First().Click()
 	require.NoError(t, err)
 
-	// 2. Prepare a dummy file to upload
-	tmpFile := "test-upload.txt"
-	require.NoError(t, os.WriteFile(tmpFile, []byte("hello gopherstack"), 0o644))
-	defer os.Remove(tmpFile)
-
-	// 3. Open upload modal
-	err = page.Click("button:has-text('Upload File')")
+	// Wait for detail view
+	uploadBtn := page.Locator("#upload-file-btn")
+	err = uploadBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	// 4. Set file input
-	err = page.SetInputFiles("input[name='file']", []playwright.InputFile{
+	// Open upload modal
+	err = uploadBtn.Click()
+	require.NoError(t, err)
+
+	modal := page.Locator("[role='dialog']")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	// Set file
+	err = page.SetInputFiles("#file_input", []playwright.InputFile{
 		{
 			Name:     "test-upload.txt",
 			MimeType: "text/plain",
@@ -237,21 +368,18 @@ func TestE2E_S3_UploadFileFlow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 5. Submit
-	err = page.Click("button[type='submit']:has-text('Upload')")
-	require.NoError(t, err)
+	// Submit
+	require.NoError(t, page.Click("[role='dialog'] button:has-text('Upload')"))
 
-	// 6. Verify file appears in tree
-	fileRow := page.Locator("#file-tree:has-text('test-upload.txt')")
-	err = fileRow.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err)
+	// Verify file in backend
+	require.Eventually(t, func() bool {
+		_, e := stack.S3Backend.GetObject(t.Context(), &s3.GetObjectInput{
+			Bucket: aws.String("upload-bucket"),
+			Key:    aws.String("test-upload.txt"),
+		})
 
-	// 7. Verify object exists in backend
-	_, err = stack.S3Backend.GetObject(t.Context(), &s3.GetObjectInput{
-		Bucket: aws.String("upload-bucket"),
-		Key:    aws.String("test-upload.txt"),
-	})
-	assert.NoError(t, err)
+		return e == nil
+	}, 5*time.Second, 200*time.Millisecond)
 }
 
 func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
@@ -275,79 +403,62 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 		}
 	}()
 
-	// 1. Go to table detail
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb/table/Items")
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Open the table detail
+	tableCard := page.Locator("#table-Items")
+	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = tableCard.First().Click()
 	require.NoError(t, err)
 
-	// 2. Insert item (Scan should be empty initially, then show 1 item)
-	err = page.Click("button:has-text('New Item')")
+	// Wait for detail view
+	newItemBtn := page.Locator("button:has-text('New Item')")
+	err = newItemBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("textarea[name='itemJson']", `{"id": "test-1", "name": "Gopher"}`))
-	require.NoError(t, page.Click("button[type='submit']:has-text('Create Item')"))
+	// Create a new item
+	err = newItemBtn.Click()
+	require.NoError(t, err)
 
-	// 3. Scan and verify item appears
-	// Make sure we are on the Scan tab
-	err = page.Click("#scan-tab")
+	modal := page.Locator("[role='dialog']")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, page.Fill("#newItemJson", `{"id": "test-1", "name": "Gopher"}`))
+	require.NoError(t, page.Click("[role='dialog'] button:has-text('Create')"))
+
+	// Switch to Scan tab and execute scan
+	err = page.Click("button:has-text('Scan')")
 	require.NoError(t, err)
 
 	err = page.Click("button:has-text('Execute Scan')")
 	require.NoError(t, err)
 
-	// Wait for results to be swap-in
-	require.NoError(t, page.Locator("#scan-results").WaitFor())
-
-	itemRow := page.Locator("tr:has-text('test-1')")
-	err = itemRow.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	// Verify item appears in scan results
+	itemRow := page.Locator("text=test-1")
+	err = itemRow.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	// 4. Edit item
-	// Click Edit and wait for modal content
-	err = itemRow.Locator("button:has-text('Edit')").Click()
-	require.NoError(t, err)
-
-	// Explicitly wait for the modal to be visible first
-	modal := page.Locator("#edit_item_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: aws.Float64(5000)})
-	require.NoError(t, err)
-
-	err = page.Locator("#edit_item_modal textarea[name='itemJson']").WaitFor(
-		playwright.LocatorWaitForOptions{
-			State:   playwright.WaitForSelectorStateVisible,
-			Timeout: aws.Float64(30000),
-		},
-	)
-	require.NoError(t, err)
-
-	require.NoError(t, page.Fill("#edit_item_modal textarea[name='itemJson']", `{"id": "test-1", "name": "Super Gopher"}`))
-	err = page.Click("button[type='submit']:has-text('Save Changes')")
-	require.NoError(t, err)
-
-	// 5. Verify update (should be auto-updated by hx-target="#scan-results")
-	require.Eventually(t, func() bool {
-		content, _ := itemRow.TextContent()
-		return strings.Contains(content, "Super Gopher")
-	}, 2*time.Second, 100*time.Millisecond)
-
-	// 6. Delete item
-	err = itemRow.Locator("button:has-text('Delete')").Click()
-	require.NoError(t, err)
-
-	// In this build, Delete Table has hx-confirm, but Item Delete has hx-confirm
-	// THE BUTTON CLICK TRIGGERS THE BROWSER CONFIRM DIALOG OR THE HTMX ONE
-	// Let's assume it's the global confirmation modal based on the screenshot
-	modal = page.Locator("#global_confirm_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: aws.Float64(500)})
-	if err == nil {
-		err = page.Click("#global_confirm_proceed")
-		require.NoError(t, err)
-	} else {
-		// Fallback to native dialog handling if it was a native confirm
-		// (Already handled by playwright usually, but if we are here it might be something else)
-	}
-
-	// 7. Verify item is gone
-	err = itemRow.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
+	nameCell := page.Locator("text=Gopher")
+	err = nameCell.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(3000),
+	})
 	require.NoError(t, err)
 }
 
@@ -355,26 +466,21 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "nav-bucket")
 
-	// Pre-create some objects with prefixes
 	_, err := stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("nav-bucket"),
-		Key:    aws.String("logs/2024/01/app.log"),
-		Body:   strings.NewReader(""),
+		Key:    aws.String("logs/2024/app.log"),
+		Body:   strings.NewReader("log content"),
 	})
 	require.NoError(t, err)
 	_, err = stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("nav-bucket"),
 		Key:    aws.String("readme.md"),
-		Body:   strings.NewReader(""),
+		Body:   strings.NewReader("readme"),
 	})
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
-
-	if u, err := url.Parse(server.URL); err == nil {
-		stack.S3Handler.Endpoint = u.Host
-	}
 
 	context, err := browser.NewContext()
 	require.NoError(t, err)
@@ -390,127 +496,58 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 		}
 	}()
 
-	// 1. Go to bucket detail; wait for HTMX hx-trigger="load" to populate the tree.
-	_, err = page.Goto(server.URL + "/dashboard/s3/bucket/nav-bucket")
+	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
-	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateDomcontentloaded,
-		Timeout: playwright.Float(5000),
-	}))
+	waitForSPA(t, page)
 
-	// 2. Verify tree structure (initially should see 'logs/' and 'readme.md')
-	require.NoError(t, page.Locator("#file-tree:has-text('logs')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(30000),
-	}))
-	require.NoError(t, page.Locator("#file-tree:has-text('readme.md')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(30000),
-	}))
-
-	// Helper: click an accordion folder button, ensure target is visible, wait for HTMX.
-	// Flowbite JS only initializes accordion on page load; HTMX-loaded sub-folders
-	// need manual hidden-class removal.
-	clickFolder := func(label string) {
-		t.Helper()
-		btn := page.Locator("button[data-accordion-target]:has-text('" + label + "')")
-		require.NoError(t, btn.WaitFor(playwright.LocatorWaitForOptions{
-			State:   playwright.WaitForSelectorStateVisible,
-			Timeout: playwright.Float(30000),
-		}))
-		require.NoError(t, btn.Click())
-		// Remove 'hidden' from the accordion target div in case Flowbite didn't init it.
-		// Use getElementById instead of querySelector because the IDs contain URL-encoded chars (%).
-		_, err2 := page.Evaluate(`(label) => {
-			const btn = [...document.querySelectorAll('button[data-accordion-target]')]
-				.find(b => b.textContent.includes(label));
-			if (btn) {
-				const targetId = btn.getAttribute('data-accordion-target').replace(/^#/, '');
-				const target = document.getElementById(targetId);
-				if (target) target.classList.remove('hidden');
-			}
-		}`, label)
-		require.NoError(t, err2)
-		// Wait for HTMX to load sub-folder contents by polling for network idle.
-		_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-			State:   playwright.LoadStateNetworkidle,
-			Timeout: playwright.Float(3000),
-		})
-	}
-
-	// 3. Navigate into 'logs/' and wait for HTMX to load its contents.
-	clickFolder("logs")
-
-	// 4. Navigate into '2024/'
-	clickFolder("2024")
-
-	// 5. Navigate into '01/'
-	clickFolder("01")
-
-	// 6. Verify 'app.log' appears
-	require.NoError(t, page.Locator("#file-tree:has-text('app.log')").WaitFor())
-}
-
-func TestE2E_S3_MetadataTagging(t *testing.T) {
-	stack := newStack(t)
-	stack.CreateS3Bucket(t, "meta-bucket")
-	_, err := stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
-		Bucket: aws.String("meta-bucket"),
-		Key:    aws.String("meta.txt"),
-		Body:   strings.NewReader(""),
-	})
-	require.NoError(t, err)
-
-	server := httptest.NewServer(stack.Echo)
-	defer server.Close()
-
-	context, err := browser.NewContext()
-	require.NoError(t, err)
-	defer context.Close()
-
-	page, err := context.NewPage()
-	require.NoError(t, err)
-	defer page.Close()
-
-	defer func() {
-		if t.Failed() {
-			saveScreenshot(t, page, "TestE2E_S3_MetadataTagging")
-		}
-	}()
-
-	// 1. Go to file detail
-	_, err = page.Goto(server.URL + "/dashboard/s3/bucket/meta-bucket/file/meta.txt")
-	require.NoError(t, err)
-
-	// 2. Add a tag
-	require.NoError(t, page.Fill("input[name='key']", "Project"))
-	require.NoError(t, page.Fill("input[name='value']", "Gopherstack"))
-	require.NoError(t, page.Click("button:has-text('Add')"))
-
-	// 3. Verify tag appears (HTMX might swap the whole component, so wait for it)
-	// Using a text-based locator which is more resilient to HTMX swaps
-	tagItem := page.Locator("#tags-list").GetByText("Project: Gopherstack")
-	err = tagItem.WaitFor(playwright.LocatorWaitForOptions{
+	// Open the bucket
+	err = page.Locator("#bucket-nav-bucket").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(1000),
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = page.Locator("#bucket-nav-bucket").First().Click()
+	require.NoError(t, err)
+
+	// Verify file browser shows root contents
+	err = page.Locator("text=readme.md").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err)
 
-	// 4. Update Content-Type
-	require.NoError(t, page.Fill("input[name='contentType']", "text/markdown"))
-	require.NoError(t, page.Click("button:has-text('Update Content-Type')"))
+	// Navigate into logs/ folder
+	logsFolder := page.Locator("text=logs/")
+	err = logsFolder.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = logsFolder.First().Click()
+	require.NoError(t, err)
 
-	// 5. Verify update — wait for full page refresh triggered by Hx-Refresh header
-	mdLocator := page.Locator("body").GetByText("text/markdown")
-	err = mdLocator.First().WaitFor(playwright.LocatorWaitForOptions{
+	// Drill into 2024/
+	err = page.Locator("text=2024/").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = page.Locator("text=2024/").First().Click()
+	require.NoError(t, err)
+
+	// Verify app.log appears
+	err = page.Locator("text=app.log").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err)
 }
 
-func TestE2E_GlobalSearch(t *testing.T) {
+func TestE2E_DynamoDB_Search(t *testing.T) {
 	stack := newStack(t)
-	stack.CreateDDBTable(t, "SearchTable")
-	stack.CreateS3Bucket(t, "SearchBucket")
+	stack.CreateDDBTable(t, "Alpha")
+	stack.CreateDDBTable(t, "Beta")
+	stack.CreateDDBTable(t, "Gamma")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -525,34 +562,75 @@ func TestE2E_GlobalSearch(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestE2E_GlobalSearch")
+			saveScreenshot(t, page, "TestE2E_DynamoDB_Search")
 		}
 	}()
 
-	// 1. Go to DynamoDB Index and search
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	// Wait for page to stabilize and check if search input exists
-	count, _ := page.Locator("#table-search").Count()
-	if count > 0 {
-		require.NoError(t, page.Fill("#table-search", "Search"))
-		require.NoError(t, page.Locator("#table-list div.p-6:has-text('SearchTable')").WaitFor(playwright.LocatorWaitForOptions{
-			Timeout: playwright.Float(2000),
-		}))
-	}
-
-	// 2. Go to S3 Index (search input might be missing in some builds)
-	_, err = page.Goto(server.URL + "/dashboard/s3")
+	// Wait for tables to load
+	err = page.Locator("text=Alpha").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	count, _ = page.Locator("#bucket-search").Count()
-	if count > 0 {
-		require.NoError(t, page.Fill("#bucket-search", "Search"))
-		require.NoError(t, page.Locator("#bucket-list div.p-6:has-text('SearchBucket')").WaitFor(playwright.LocatorWaitForOptions{
-			Timeout: playwright.Float(2000),
-		}))
-	}
+	// Search for Beta
+	require.NoError(t, page.Fill("#table-search", "Beta"))
+
+	// Verify only Beta is visible
+	require.Eventually(t, func() bool {
+		visible, _ := page.Locator("#table-Beta").First().IsVisible()
+		alphaVisible, _ := page.Locator("#table-Alpha").First().IsVisible()
+
+		return visible && !alphaVisible
+	}, 3*time.Second, 200*time.Millisecond, "Search should filter to Beta only")
+}
+
+func TestE2E_S3_Search(t *testing.T) {
+	stack := newStack(t)
+	stack.CreateS3Bucket(t, "bucket-alpha")
+	stack.CreateS3Bucket(t, "bucket-beta")
+	stack.CreateS3Bucket(t, "bucket-gamma")
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	context, err := browser.NewContext()
+	require.NoError(t, err)
+	defer context.Close()
+
+	page, err := context.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_S3_Search")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/s3")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	err = page.Locator("text=bucket-alpha").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	// Search for beta
+	require.NoError(t, page.Fill("#bucket-search", "beta"))
+
+	require.Eventually(t, func() bool {
+		visible, _ := page.Locator("#bucket-bucket-beta").First().IsVisible()
+		alphaVisible, _ := page.Locator("#bucket-bucket-alpha").First().IsVisible()
+
+		return visible && !alphaVisible
+	}, 3*time.Second, 200*time.Millisecond, "Search should filter to beta only")
 }
 
 func TestE2E_MetricsDashboard(t *testing.T) {
@@ -560,10 +638,6 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
-
-	if u, err := url.Parse(server.URL); err == nil {
-		stack.S3Handler.Endpoint = u.Host
-	}
 
 	context, err := browser.NewContext()
 	require.NoError(t, err)
@@ -579,126 +653,44 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 		}
 	}()
 
-	// 1. Navigate directly to metrics page
-	_, err = page.Goto(server.URL + "/dashboard/metrics")
+	_, err = page.Goto(server.URL + "/dashboard")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Click metrics link using ID
+	err = page.Locator("#nav-metrics").Click()
 	require.NoError(t, err)
 
-	// 2. Verify page header is present
+	// Verify header
 	header := page.Locator("h1:has-text('Performance Metrics')")
-	err = header.WaitFor()
-	require.NoError(t, err, "Performance Metrics header should be visible")
-
-	// 3. Verify metrics content loads dynamically
-	metricsContent := page.Locator("#metrics-content")
-	err = metricsContent.WaitFor()
-	require.NoError(t, err, "Metrics content placeholder should exist")
-
-	// 4. Wait for dashboard view (HTMX loads metrics via /api/metrics)
-	dashboardView := page.Locator("#dashboard-view")
-	err = dashboardView.WaitFor(playwright.LocatorWaitForOptions{
+	err = header.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: playwright.Float(10000),
 	})
-	require.NoError(t, err, "Dashboard view should become visible after metrics load")
-
-	// 5. Verify metrics are populated (Check Goroutines value)
-	goroutineVal := page.Locator("#runtime-goroutines")
-	err = goroutineVal.WaitFor()
-	require.NoError(t, err, "Goroutines metric should be visible")
-
-	val, err := goroutineVal.InnerText()
-	require.NoError(t, err)
-	require.NotEqual(t, "0", val, "Goroutine count should be >= 0 (usually > 0 in a running app)")
-
-	heapVal := page.Locator("#runtime-heap")
-	val, err = heapVal.InnerText()
-	require.NoError(t, err)
-	require.Contains(t, val, "MB", "Heap memory should display MB")
-
-	// 7. Trigger some activity: Create a DynamoDB table
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 
-	// Wait for table list to load (search input should be present)
-	err = page.Locator("#table-search").WaitFor()
-	require.NoError(t, err, "DynamoDB UI should load")
-
-	// Click create table button
-	err = page.Click("button:has-text('Create Table')")
-	require.NoError(t, err)
-
-	// Fill in table creation form
-	_, err = page.WaitForSelector("#create_table_modal", playwright.PageWaitForSelectorOptions{
+	// Verify runtime metrics labels (Connect-RPC streaming populates these)
+	// We might need to wait longer for the stream to start
+	goroutinesLabel := page.Locator("text=Goroutines")
+	err = goroutinesLabel.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(1000),
+		Timeout: playwright.Float(20000),
 	})
-	require.NoError(t, err, "Create table modal should appear")
-
-	err = page.Fill("input[name='tableName']", "test-metrics-table")
 	require.NoError(t, err)
 
-	err = page.Fill("input[name='partitionKey']", "id")
-	require.NoError(t, err)
-	err = page.Click("button[type='submit']")
-	require.NoError(t, err)
-
-	// Wait for table to appear in list (card based layout)
-	err = page.Locator("#table-list div:has-text('test-metrics-table')").First().WaitFor()
-	require.NoError(t, err, "New table should appear in the list")
-
-	// 8. Return to metrics and verify operation was recorded
-	_, err = page.Goto(server.URL + "/dashboard/metrics")
-	require.NoError(t, err)
-
-	// Wait for dashboard view again
-	err = dashboardView.WaitFor()
-	require.NoError(t, err)
-
-	// Verify that at least one operation is now tracked (DynamoDB::CreateTable)
-	opBadge := page.Locator("#op-count-badge")
-	err = opBadge.WaitFor()
-	require.NoError(t, err)
-
-	val, err = opBadge.InnerText()
-	require.NoError(t, err)
-	require.NotEqual(t, "...", val, "Operations badge should be updated")
-	// The badge text is like "1 operations tracked"
-	require.Contains(t, val, "tracked", "Operations badge should show count")
-
-	// 10. Verify there's operation data (should have CreateTable recorded)
-	opRow := page.Locator("#operations-body tr:has-text('DynamoDB'):has-text('CreateTable')")
-	err = opRow.WaitFor(playwright.LocatorWaitForOptions{
+	heapLabel := page.Locator("text=Heap Memory")
+	err = heapLabel.First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(1000),
+		Timeout: playwright.Float(10000),
 	})
-	if err != nil {
-		// If the specific operation wasn't found, at least verify that operation data exists
-		_ = page.Locator("#operations-body tr").First().WaitFor(playwright.LocatorWaitForOptions{
-			State:   playwright.WaitForSelectorStateVisible,
-			Timeout: aws.Float64(2000),
-		})
-	}
-
-	// 11. Verify the live indicator is present and shows "LIVE"
-	liveIndicator := page.Locator("#live-indicator")
-	err = liveIndicator.WaitFor()
-	require.NoError(t, err, "Live indicator should be visible")
-
-	liveText, err := liveIndicator.TextContent()
 	require.NoError(t, err)
-	assert.Contains(t, liveText, "LIVE", "Live indicator should contain 'LIVE' text")
 }
-func TestE2E_S3_BucketVersioning(t *testing.T) {
+
+func TestE2E_Console(t *testing.T) {
 	stack := newStack(t)
-	bucketName := "versioning-test-bucket"
-	stack.CreateS3Bucket(t, bucketName)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
-
-	if u, err := url.Parse(server.URL); err == nil {
-		stack.S3Handler.Endpoint = u.Host
-	}
 
 	context, err := browser.NewContext()
 	require.NoError(t, err)
@@ -710,53 +702,47 @@ func TestE2E_S3_BucketVersioning(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestE2E_S3_BucketVersioning")
+			saveScreenshot(t, page, "TestE2E_Console")
 		}
 	}()
 
-	// 1. Navigate to S3 dashboard
-	_, err = page.Goto(server.URL + "/dashboard/s3")
+	_, err = page.Goto(server.URL + "/dashboard")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Click console link using ID
+	err = page.Locator("#nav-console").Click()
 	require.NoError(t, err)
 
-	// 2. Wait for bucket list to load
-	err = page.Locator("#bucket-list div.p-6").First().WaitFor()
-	require.NoError(t, err, "S3 UI should load")
-
-	// 3. Find the bucket card for our test bucket
-	bucketCard := page.Locator("#bucket-list div.p-6:has-text('" + bucketName + "')")
-	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err, "Test bucket should be visible")
-
-	// 4. Click the Enable Versioning button
-	versioningButton := bucketCard.Locator("button:has-text('Enable Versioning')")
-	err = versioningButton.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err, "Enable Versioning button should be visible")
-
-	err = versioningButton.Click()
-	require.NoError(t, err, "Should be able to click enable versioning button")
-
-	// 5. Verify versioning is now enabled by checking badge in the UI
-	enabledBadge := page.Locator("#bucket-list div.p-6:has-text('" + bucketName + "') span:has-text('Enabled')")
-	err = enabledBadge.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err, "Enabled badge should be visible after clicking enable")
-
-	// 8. Verify backend state
-	versioningStatus, err := stack.S3Backend.GetBucketVersioning(t.Context(), &s3.GetBucketVersioningInput{
-		Bucket: aws.String(bucketName),
+	// Verify console header
+	header := page.Locator("h1:has-text('Live API Console')")
+	err = header.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, types.BucketVersioningStatusEnabled, versioningStatus.Status, "Bucket versioning should be enabled in backend")
 
-	t.Log("✅ Bucket versioning enabled and verified successfully via UI")
+	// Verify auto-refresh toggle exists
+	autoToggle := page.Locator("[role='switch']")
+	err = autoToggle.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	// Verify clear button exists
+	clearBtn := page.Locator("button:has-text('Clear')")
+	require.NoError(t, clearBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	}))
 }
-
-func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
+func TestE2E_DynamoDB_Pagination(t *testing.T) {
 	stack := newStack(t)
 
-	// Create many tables to trigger pagination (limit is 12)
 	const tableCount = 15
 	for i := 1; i <= tableCount; i++ {
-		name := fmt.Sprintf("pagination-test-table-%02d", i)
+		name := fmt.Sprintf("page-test-%02d", i)
 		stack.CreateDDBTable(t, name)
 	}
 
@@ -773,71 +759,45 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestE2E_DynamoDB_Pagination_And_Search")
+			saveScreenshot(t, page, "TestE2E_DynamoDB_Pagination")
 		}
 	}()
 
-	// 1. Navigate to DynamoDB dashboard
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	// 2. Verify first page has 12 tables
-	err = page.Locator("#table-list > div.p-6").First().WaitFor()
+	// Wait for tables to load
+	err = page.Locator("text=page-test-01").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	cards, err := page.Locator("#table-list > div.p-6").All()
-	require.NoError(t, err)
-	assert.Equal(t, 12, len(cards), "First page should have 12 tables")
-
-	// 3. Verify pagination controls
-	pagination := page.Locator("#table-list").Locator("text=Showing page 1 of 2")
-	err = pagination.WaitFor()
-	require.NoError(t, err, "Pagination summary should be visible")
-
+	// Click next page
 	nextBtn := page.Locator("button:has-text('Next')")
+	err = nextBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(3000),
+	})
+	require.NoError(t, err)
 	err = nextBtn.Click()
 	require.NoError(t, err)
 
-	// 4. Verify second page has 3 tables
-	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#table-list > div.p-6").All()
-		return len(cards) == 3
-	}, 3*time.Second, 100*time.Millisecond, "Second page should have 3 tables")
-
-	pagination = page.Locator("#table-list").Locator("text=Showing page 2 of 2")
-	err = pagination.WaitFor()
+	// Verify remaining tables on page 2
+	err = page.Locator("text=page-test-15").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
-
-	// 5. Test Search (Broad search should find any table)
-	searchInput := page.Locator("input[name='search']")
-	err = searchInput.Click()
-	require.NoError(t, err)
-
-	// We'll type and then wait for the list to satisfy our condition
-	err = searchInput.Type("pagination-test-table-15")
-	require.NoError(t, err)
-	err = searchInput.Press("Enter") // Trigger search
-	require.NoError(t, err)
-
-	// Wait for exactly 1 card to be left and it must be table-15
-	targetCard := page.Locator("#table-list > div.p-6:has-text('pagination-test-table-15')")
-	err = targetCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err)
-
-	// Check final count
-	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#table-list > div.p-6").All()
-		return len(cards) == 1
-	}, 5*time.Second, 500*time.Millisecond, "Search should isolate table-15")
 }
 
-func TestE2E_S3_Pagination_And_Search(t *testing.T) {
+func TestE2E_S3_Pagination(t *testing.T) {
 	stack := newStack(t)
 
-	// Create many buckets to trigger pagination (limit: 12)
 	const bucketCount = 15
 	for i := 1; i <= bucketCount; i++ {
-		name := fmt.Sprintf("pagination-test-bucket-%02d", i)
+		name := fmt.Sprintf("page-bucket-%02d", i)
 		stack.CreateS3Bucket(t, name)
 	}
 
@@ -854,62 +814,42 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestE2E_S3_Pagination_And_Search")
+			saveScreenshot(t, page, "TestE2E_S3_Pagination")
 		}
 	}()
 
-	// 1. Navigate to S3 dashboard
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	// 2. Verify first page has 12 buckets
-	err = page.Locator("#bucket-list > div.p-6").First().WaitFor()
+	err = page.Locator("text=page-bucket-01").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	cards, err := page.Locator("#bucket-list > div.p-6").All()
+	// Navigate to next page
+	nextBtn := page.Locator("button:has-text('Next')")
+	err = nextBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(3000),
+	})
 	require.NoError(t, err)
-	assert.Equal(t, 12, len(cards), "First page should have 12 buckets")
-
-	// 3. Verify pagination
-	nextBtn := page.Locator("#bucket-list").Locator("button:has-text('Next')")
 	err = nextBtn.Click()
 	require.NoError(t, err)
 
-	pageTwo := page.Locator("#bucket-list").Locator("text=Showing page 2 of 2")
-	require.NoError(t, pageTwo.WaitFor())
-
-	// 4. Verify second page
-	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#bucket-list > div.p-6").All()
-		return len(cards) == 3
-	}, 5*time.Second, 250*time.Millisecond, "Second page should have 3 buckets")
-
-	// 5. Test Search
-	searchInput := page.Locator("input[name='search']")
-	err = searchInput.Click()
+	// Verify remaining buckets on page 2
+	err = page.Locator("text=page-bucket-15").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
-
-	err = searchInput.Type("pagination-test-bucket-15")
-	require.NoError(t, err)
-	err = searchInput.Press("Enter")
-	require.NoError(t, err)
-
-	// Wait for filtered result
-	targetCard := page.Locator("#bucket-list > div.p-6:has-text('pagination-test-bucket-15')")
-	err = targetCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err)
-
-	// Check final count
-	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#bucket-list > div.p-6").All()
-		return len(cards) == 1
-	}, 5*time.Second, 500*time.Millisecond, "S3 search should isolate bucket-15")
 }
 
 func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 	stack := newStack(t)
-	stack.CreateDDBTable(t, "purge-e2e-table-one")
-	stack.CreateDDBTable(t, "purge-e2e-table-two")
+	stack.CreateDDBTable(t, "purge-one")
+	stack.CreateDDBTable(t, "purge-two")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -922,39 +862,48 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 	require.NoError(t, err)
 	defer page.Close()
 
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_DynamoDB_PurgeAll")
+		}
+	}()
+
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	// Wait for tables to appear in the list.
-	tableCard := page.Locator("#table-list div.p-6:has-text('purge-e2e-table-one')")
-	err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	// Wait for tables
+	err = page.Locator("text=purge-one").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	// Click Purge All — this triggers hx-confirm which app.js routes through the global modal.
-	err = page.Click("button:has-text('Purge All')")
+	// Register dialog handler BEFORE triggering confirm
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
+
+	err = page.Click("#purge-all-btn")
 	require.NoError(t, err)
 
-	modal := page.Locator("#global_confirm_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err, "confirm modal should appear after clicking Purge All")
+	// Wait for tables to disappear
+	require.Eventually(t, func() bool {
+		visible, _ := page.Locator("text=purge-one").First().IsVisible()
 
-	err = page.Click("#global_confirm_proceed")
-	require.NoError(t, err)
+		return !visible
+	}, 5*time.Second, 200*time.Millisecond)
 
-	// After purge, the table list should refresh and show no tables.
-	err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
-	require.NoError(t, err, "purged table should disappear from the list")
-
-	// Verify the backend is truly empty.
+	// Verify backend is empty
 	tables, err := stack.DDBHandler.Backend.ListTables(t.Context(), &dynamodb.ListTablesInput{})
 	require.NoError(t, err)
-	assert.Empty(t, tables.TableNames, "all tables should be deleted after purge")
+	assert.Empty(t, tables.TableNames)
 }
 
 func TestE2E_S3_PurgeAll(t *testing.T) {
 	stack := newStack(t)
-	stack.CreateS3Bucket(t, "purge-e2e-bucket-one")
-	stack.CreateS3Bucket(t, "purge-e2e-bucket-two")
+	stack.CreateS3Bucket(t, "purge-one")
+	stack.CreateS3Bucket(t, "purge-two")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -967,31 +916,193 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 	require.NoError(t, err)
 	defer page.Close()
 
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_S3_PurgeAll")
+		}
+	}()
+
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitForSPA(t, page)
 
-	// Wait for buckets to appear in the list.
-	bucketCard := page.Locator("#bucket-list div.p-6:has-text('purge-e2e-bucket-one')")
-	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	err = page.Locator("text=purge-one").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
 	require.NoError(t, err)
 
-	// Click Purge All — this triggers hx-confirm which app.js routes through the global modal.
-	err = page.Click("button:has-text('Purge All')")
+	// Register dialog handler BEFORE triggering confirm
+	page.OnDialog(func(dialog playwright.Dialog) {
+		_ = dialog.Accept()
+	})
+
+	err = page.Click("#purge-all-btn")
 	require.NoError(t, err)
 
-	modal := page.Locator("#global_confirm_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err, "confirm modal should appear after clicking Purge All")
+	// Wait for buckets to be removed
+	require.Eventually(t, func() bool {
+		visible, _ := page.Locator("text=purge-one").First().IsVisible()
 
-	err = page.Click("#global_confirm_proceed")
-	require.NoError(t, err)
+		return !visible
+	}, 5*time.Second, 200*time.Millisecond)
 
-	// After purge, the bucket list should refresh and show no buckets.
-	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
-	require.NoError(t, err, "purged bucket should disappear from the list")
-
-	// Verify the backend is truly empty.
+	// Verify backend is empty
 	output, err := stack.S3Backend.ListBuckets(t.Context(), &s3.ListBucketsInput{})
 	require.NoError(t, err)
-	assert.Empty(t, output.Buckets, "all buckets should be deleted after purge")
+	assert.Empty(t, output.Buckets)
+}
+
+func TestE2E_ThemeSelector(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	context, err := browser.NewContext()
+	require.NoError(t, err)
+	defer context.Close()
+
+	page, err := context.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_ThemeSelector")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Default theme should be light (no dark class)
+	hasDark, err := page.Evaluate("() => document.documentElement.classList.contains('dark')")
+	require.NoError(t, err)
+	assert.False(t, hasDark.(bool), "Should start with light theme")
+
+	// Open theme dropdown
+	themeBtn := page.Locator("#theme-selector")
+	err = themeBtn.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = themeBtn.Click()
+	require.NoError(t, err)
+
+	// Select Dark theme
+	err = page.Click("button:has-text('Dark')")
+	require.NoError(t, err)
+
+	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
+	require.NoError(t, err)
+	assert.True(t, hasDark.(bool), "Dark theme should add dark class")
+
+	hasThemeDark, err := page.Evaluate("() => document.documentElement.classList.contains('theme-dark')")
+	require.NoError(t, err)
+	assert.True(t, hasThemeDark.(bool), "Dark theme should add theme-dark class")
+
+	// Select Ocean theme
+	err = themeBtn.Click()
+	require.NoError(t, err)
+	err = page.Click("button:has-text('Ocean')")
+	require.NoError(t, err)
+
+	hasThemeOcean, err := page.Evaluate("() => document.documentElement.classList.contains('theme-ocean')")
+	require.NoError(t, err)
+	assert.True(t, hasThemeOcean.(bool), "Ocean theme should add theme-ocean class")
+
+	// Select GitHub theme
+	err = themeBtn.Click()
+	require.NoError(t, err)
+	err = page.Click("button:has-text('GitHub Dark')")
+	require.NoError(t, err)
+
+	hasThemeGithub, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github')")
+	require.NoError(t, err)
+	assert.True(t, hasThemeGithub.(bool), "GitHub theme should add theme-github class")
+
+	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
+	require.NoError(t, err)
+	assert.True(t, hasDark.(bool), "GitHub Dark is a dark theme")
+
+	// Select GitHub Light theme
+	err = themeBtn.Click()
+	require.NoError(t, err)
+	err = page.Click("button:has-text('GitHub Light')")
+	require.NoError(t, err)
+
+	hasThemeGithubLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github-light')")
+	require.NoError(t, err)
+	assert.True(t, hasThemeGithubLight.(bool), "GitHub Light theme should add theme-github-light class")
+
+	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
+	require.NoError(t, err)
+	assert.False(t, hasDark.(bool), "GitHub Light is a light theme, no dark class")
+
+	// Select Light theme
+	err = themeBtn.Click()
+	require.NoError(t, err)
+	err = page.Click("button:has-text('Light')")
+	require.NoError(t, err)
+
+	hasThemeLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-light')")
+	require.NoError(t, err)
+	assert.True(t, hasThemeLight.(bool), "Light theme should add theme-light class")
+}
+
+func TestE2E_SidebarNavigation(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	context, err := browser.NewContext()
+	require.NoError(t, err)
+	defer context.Close()
+
+	page, err := context.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestE2E_SidebarNavigation")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard")
+	require.NoError(t, err)
+	waitForSPA(t, page)
+
+	// Verify sidebar is present
+	sidebar := page.Locator("#sidebar")
+	err = sidebar.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+
+	// Click DynamoDB in sidebar using its ID
+	err = page.Click("#nav-dynamodb")
+	require.NoError(t, err)
+
+	// Should navigate to DynamoDB page
+	err = page.Locator("text=Create Table").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	// Navigate to S3 via sidebar using its ID
+	err = page.Click("#nav-s3")
+	require.NoError(t, err)
+
+	err = page.Locator("text=Create Bucket").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 }

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +18,7 @@ func TestIntegration_AutoScaling_LaunchConfigurationLifecycle(t *testing.T) {
 	client := createAutoScalingClient(t)
 	ctx := t.Context()
 
-	lcName := fmt.Sprintf("test-lc-%s", uuid.NewString()[:8])
+	lcName := "test-lc-" + uuid.NewString()[:8]
 
 	// CreateLaunchConfiguration
 	_, err := client.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
@@ -67,8 +66,8 @@ func TestIntegration_AutoScaling_AutoScalingGroupLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	lcName := fmt.Sprintf("asg-lc-%s", suffix)
-	asgName := fmt.Sprintf("test-asg-%s", suffix)
+	lcName := "asg-lc-" + suffix
+	asgName := "test-asg-" + suffix
 
 	// Create a launch configuration first
 	_, err := client.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
@@ -148,8 +147,8 @@ func TestIntegration_AutoScaling_DescribeScalingActivities(t *testing.T) {
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	lcName := fmt.Sprintf("act-lc-%s", suffix)
-	asgName := fmt.Sprintf("act-asg-%s", suffix)
+	lcName := "act-lc-" + suffix
+	asgName := "act-asg-" + suffix
 
 	_, err := client.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String(lcName),
@@ -209,8 +208,8 @@ func TestIntegration_AutoScaling_DescribeAutoScalingGroups_WithFilter(t *testing
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
-	lcName := fmt.Sprintf("filt-lc-%s", suffix)
-	asgName := fmt.Sprintf("filt-asg-%s", suffix)
+	lcName := "filt-lc-" + suffix
+	asgName := "filt-asg-" + suffix
 
 	_, err := client.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String(lcName),

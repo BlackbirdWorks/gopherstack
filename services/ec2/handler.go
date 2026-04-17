@@ -429,7 +429,9 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 
 	count := 1
 	if v := vals.Get("MinCount"); v != "" {
-		fmt.Sscan(v, &count) //nolint:errcheck,gosec // parse best-effort; invalid values fall back to 1
+		if _, scanErr := fmt.Sscan(v, &count); scanErr != nil {
+			count = 1
+		}
 	}
 
 	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
@@ -1014,7 +1016,7 @@ func marshalXML(v any) ([]byte, error) {
 
 // newRequestID generates a unique request ID.
 func newRequestID() string {
-	return fmt.Sprintf("gopherstack-ec2-%s", uuid.New().String())
+	return "gopherstack-ec2-" + uuid.New().String()
 }
 
 // ---- XML conversion helpers ----

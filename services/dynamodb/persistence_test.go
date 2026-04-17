@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,7 +32,7 @@ func TestInMemoryDB_SnapshotRestore(t *testing.T) {
 						{AttributeName: "id", AttributeType: "S"},
 					},
 				})
-				_, err := db.CreateTable(context.Background(), input)
+				_, err := db.CreateTable(t.Context(), input)
 				if err != nil {
 					return ""
 				}

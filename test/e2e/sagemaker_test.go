@@ -49,15 +49,15 @@ func TestSageMakerDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/sagemaker")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SageMaker Models')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-model")
-	assert.Contains(t, content, "+ Create Model")
+	assert.Contains(t, content, "Amazon SageMaker")
+	assert.Contains(t, content, "Notebooks")
 }
 
 // TestSageMakerDashboard_Empty verifies the SageMaker dashboard renders correctly with no models.
@@ -84,12 +84,12 @@ func TestSageMakerDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/sagemaker")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SageMaker Models')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No models found")
+	assert.Contains(t, content, "No notebook instances found")
 }

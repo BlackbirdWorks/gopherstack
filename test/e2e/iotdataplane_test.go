@@ -36,7 +36,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/iotdataplane")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Data Plane')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/iotdataplane")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('IoT Data Plane')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

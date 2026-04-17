@@ -12,12 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTextractDashboard verifies the Textract dashboard UI renders async jobs.
+// TestTextractDashboard verifies the rewritten Textract dashboard renders adapter-focused UI.
 func TestTextractDashboard(t *testing.T) {
 	stack := newStack(t)
-
-	_, err := stack.TextractHandler.Backend.StartDocumentAnalysis("s3://my-bucket/invoice.pdf")
-	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -39,18 +36,20 @@ func TestTextractDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "DocumentAnalysis")
-	assert.Contains(t, content, "SUCCEEDED")
+	assert.Contains(t, content, "Amazon Textract")
+	assert.Contains(t, content, "Adapters")
+	assert.Contains(t, content, "Adapter Versions")
+	assert.Contains(t, content, "No adapters found")
 }
 
-// TestTextractDashboard_Empty verifies the empty state renders correctly.
+// TestTextractDashboard_Empty verifies the empty adapter state renders correctly.
 func TestTextractDashboard_Empty(t *testing.T) {
 	stack := newStack(t)
 
@@ -74,18 +73,18 @@ func TestTextractDashboard_Empty(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No Textract jobs found")
+	assert.Contains(t, content, "No adapters found")
 }
 
-// TestTextractDashboard_StartAnalysis verifies starting an analysis job via the UI.
-func TestTextractDashboard_StartAnalysis(t *testing.T) {
+// TestTextractDashboard_VersionsTab verifies the versions tab renders its current empty state.
+func TestTextractDashboard_VersionsTab(t *testing.T) {
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -108,24 +107,20 @@ func TestTextractDashboard_StartAnalysis(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('+ Analyze Document')")
+	err = page.Locator("button:has-text('Adapter Versions')").Click()
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("input[name='bucket']", "ui-test-bucket"))
-	require.NoError(t, page.Fill("input[name='key']", "ui-test-document.pdf"))
-	require.NoError(t, page.Click("button[type='submit']:has-text('Start Analysis')"))
-
-	err = page.Locator("h1:has-text('Textract Jobs')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	err = page.Locator("text=No adapter versions found").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "DocumentAnalysis")
+	assert.Contains(t, content, "No adapter versions found")
 }

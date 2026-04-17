@@ -169,7 +169,7 @@ func generateWithGemini(ctx context.Context, apiKey, modelName, prompt string) (
 		return "", ErrNoCandidates
 	}
 
-	var out []string
+	out := make([]string, 0, len(parsed.Candidates[0].Content.Parts))
 	for _, part := range parsed.Candidates[0].Content.Parts {
 		if part.Text == "" {
 			continue
@@ -281,7 +281,7 @@ func GetLatestTag(ctx context.Context) (string, error) {
 
 // GetCommitsSince returns a list of commit messages since the given tag.
 func GetCommitsSince(ctx context.Context, tag string) ([]string, error) {
-	rangeArg := fmt.Sprintf("%s..HEAD", tag)
+	rangeArg := tag + "..HEAD"
 	cmd := exec.CommandContext(ctx, "git", "log", rangeArg, "--oneline")
 	out, err := cmd.Output()
 	if err != nil {
@@ -298,7 +298,7 @@ func GetCommitsSince(ctx context.Context, tag string) ([]string, error) {
 
 // GetDiffSince returns the unified diff since the given tag.
 func GetDiffSince(ctx context.Context, tag string) (string, error) {
-	rangeArg := fmt.Sprintf("%s..HEAD", tag)
+	rangeArg := tag + "..HEAD"
 	cmd := exec.CommandContext(ctx, "git", "diff", rangeArg)
 	out, err := cmd.Output()
 	if err != nil {
