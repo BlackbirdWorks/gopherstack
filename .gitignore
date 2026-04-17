@@ -25,4 +25,4 @@ copilot_changes.patch
 ui/node_modules/
 ui/.svelte-kit/
 ui/build/
-/dashboard/static/spa/_app
+/dashboard/static/spa/

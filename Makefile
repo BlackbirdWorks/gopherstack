@@ -111,9 +111,9 @@ integration-test: build-linux
 terraform-test: install-tofu
 	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 10m ./test/terraform/...
 
-e2e: ui-build e2e-test
+e2e: e2e-test
 
-e2e-test:
+e2e-test: ui-build
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...
 
 total-coverage: build-linux
