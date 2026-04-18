@@ -221,6 +221,9 @@ func TestHandler_DebugMarshallingConditional(t *testing.T) {
 func TestHandler_JanitorLifecycle(t *testing.T) {
 	t.Parallel()
 
+	const testJanitorInterval = 50 * time.Millisecond
+	const janitorShutdownTimeout = 2 * time.Second
+
 	tests := []struct {
 		name             string
 		cancelBeforeStop bool
@@ -256,7 +259,7 @@ func TestHandler_JanitorLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(NewInMemoryDB()).WithJanitor(Settings{JanitorInterval: time.Hour})
+			h := NewHandler(NewInMemoryDB()).WithJanitor(Settings{JanitorInterval: testJanitorInterval})
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -302,7 +305,7 @@ func TestHandler_JanitorLifecycle(t *testing.T) {
 			select {
 			case <-firstDone:
 				exited = true
-			case <-time.After(2 * time.Second):
+			case <-time.After(janitorShutdownTimeout):
 			}
 
 			assert.True(t, exited)
