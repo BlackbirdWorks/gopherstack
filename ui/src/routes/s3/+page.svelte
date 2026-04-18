@@ -29,6 +29,10 @@ PutBucketEncryptionCommand,
 GetBucketLocationCommand,
 GetObjectLockConfigurationCommand,
 GetObjectCommand,
+CopyObjectCommand,
+GetBucketWebsiteCommand,
+PutBucketWebsiteCommand,
+DeleteBucketWebsiteCommand,
 type Bucket,
 type _Object,
 type ObjectVersion,
@@ -99,6 +103,29 @@ let newCorsHeaders = $state('');
 let newCorsMaxAge = $state(3600);
 let loadingCors = $state(false);
 
+// Create folder state
+let showCreateFolderModal = $state(false);
+let newFolderName = $state('');
+
+// Sort state for objects
+let sortField = $state<'name' | 'size' | 'date'>('name');
+let sortOrder = $state<'asc' | 'desc'>('asc');
+
+// Bucket sizes (lazy loaded)
+let bucketSizes = $state<Map<string, number>>(new Map());
+
+// Rename state
+let showRenameModal = $state(false);
+let renameOldKey = $state('');
+let renameNewKey = $state('');
+
+// Website hosting state
+let websiteConfig = $state<{ IndexDocument?: string; ErrorDocument?: string } | null>(null);
+let loadingWebsite = $state(false);
+
+// Bucket sort state
+let bucketSortOrder = $state<'alpha' | 'newest' | 'largest'>('alpha');
+
 const filteredBuckets = $derived(
 buckets.filter((b) => !searchQuery || (b.Name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false))
 );
@@ -106,7 +133,7 @@ buckets.filter((b) => !searchQuery || (b.Name?.toLowerCase().includes(searchQuer
 const totalBucketPages = $derived(Math.max(1, Math.ceil(filteredBuckets.length / bucketPageSize)));
 
 const pagedBuckets = $derived(
-filteredBuckets.slice((bucketPage - 1) * bucketPageSize, bucketPage * bucketPageSize)
+  sortedBuckets.slice((bucketPage - 1) * bucketPageSize, bucketPage * bucketPageSize)
 );
 
 const filteredObjects = $derived(
@@ -117,12 +144,36 @@ const filteredPrefixes = $derived(
 commonPrefixes.filter((p) => !filterObjects || p.toLowerCase().includes(filterObjects.toLowerCase()))
 );
 
+const sortedObjects = $derived(
+  [...filteredObjects].toSorted((a, b) => {
+    if (sortField === 'size') {
+      const diff = (a.Size ?? 0) - (b.Size ?? 0);
+      return sortOrder === 'asc' ? diff : -diff;
+    }
+    if (sortField === 'date') {
+      const diff = (a.LastModified?.getTime() ?? 0) - (b.LastModified?.getTime() ?? 0);
+      return sortOrder === 'asc' ? diff : -diff;
+    }
+    const diff = (a.Key ?? '').localeCompare(b.Key ?? '');
+    return sortOrder === 'asc' ? diff : -diff;
+  })
+);
+
+const sortedBuckets = $derived(
+  [...filteredBuckets].toSorted((a, b) => {
+    if (bucketSortOrder === 'newest') return (b.CreationDate?.getTime() ?? 0) - (a.CreationDate?.getTime() ?? 0);
+    if (bucketSortOrder === 'largest') return (bucketSizes.get(b.Name ?? '') ?? 0) - (bucketSizes.get(a.Name ?? '') ?? 0);
+    return (a.Name ?? '').localeCompare(b.Name ?? '');
+  })
+);
+
 async function loadBuckets() {
 loading = true;
 try {
 const res = await s3.send(new ListBucketsCommand({}));
 buckets = res.Buckets ?? [];
 bucketPage = 1;
+loadBucketSizes(buckets); // non-blocking
 } catch (err: unknown) {
 toast.error(`Failed to list buckets: ${(err as Error).message}`);
 } finally {
@@ -235,47 +286,66 @@ toast.error(`Failed to create demo data: ${(err as Error).message}`);
 }
 
 async function openBucket(name: string) {
-selectedBucket = name;
-activeDetailTab = 'objects';
-currentPrefix = '';
-selectedObjects = new Set<string>();
-filterObjects = '';
-await loadObjects(name, '');
+  selectedBucket = name;
+  activeDetailTab = 'objects';
+  currentPrefix = '';
+  selectedObjects = new Set<string>();
+  filterObjects = '';
+  await loadObjects();
 }
 
-async function loadObjects(bucket: string, prefix: string) {
-loadingObjects = true;
-try {
-const res = await s3.send(
-new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix || undefined, Delimiter: '/' })
-);
-objects = res.Contents ?? [];
-commonPrefixes = (res.CommonPrefixes ?? []).map((p) => p.Prefix ?? '');
-currentPrefix = prefix;
-} catch (err: unknown) {
-toast.error(`Failed to list objects: ${(err as Error).message}`);
-} finally {
-loadingObjects = false;
-}
+async function loadObjects(reset = true): Promise<void> {
+  if (!selectedBucket) return;
+  loadingObjects = true;
+  if (reset) { objects = []; commonPrefixes = []; }
+  try {
+    let continuationToken: string | undefined;
+    let pageCount = 0;
+    const allObjects: _Object[] = [];
+    const allPrefixes: string[] = [];
+    do {
+      const res = await s3.send(new ListObjectsV2Command({
+        Bucket: selectedBucket,
+        Prefix: currentPrefix || undefined,
+        Delimiter: '/',
+        ContinuationToken: continuationToken,
+      }));
+      allObjects.push(...(res.Contents ?? []));
+      allPrefixes.push(...(res.CommonPrefixes ?? []).map((p) => p.Prefix ?? '').filter((p) => p));
+      continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+      pageCount++;
+      if (pageCount >= 10) {
+        toast.warning(`Showing first 10,000 objects. Use a filter to narrow results.`);
+        break;
+      }
+    } while (continuationToken);
+    objects = allObjects;
+    commonPrefixes = allPrefixes;
+  } catch (err: unknown) {
+    toast.error(`Failed to load objects: ${(err as Error).message}`);
+  } finally {
+    loadingObjects = false;
+  }
 }
 
 async function navigatePrefix(prefix: string) {
-if (selectedBucket) {
-await loadObjects(selectedBucket, prefix);
-}
+  if (selectedBucket) {
+    currentPrefix = prefix;
+    await loadObjects();
+  }
 }
 
 async function goBack() {
-if (!currentPrefix) {
-selectedBucket = null;
-return;
-}
-const parts = currentPrefix.replace(/\/$/, '').split('/');
-parts.pop();
-const newPrefix = parts.length > 0 ? parts.join('/') + '/' : '';
-if (selectedBucket) {
-await loadObjects(selectedBucket, newPrefix);
-}
+  if (!currentPrefix) {
+    selectedBucket = null;
+    return;
+  }
+  const parts = currentPrefix.replace(/\/$/, '').split('/');
+  parts.pop();
+  currentPrefix = parts.length > 0 ? parts.join('/') + '/' : '';
+  if (selectedBucket) {
+    await loadObjects();
+  }
 }
 
 async function uploadObject() {
@@ -296,7 +366,7 @@ toast.success(`Uploaded "${key}"`);
 showUploadModal = false;
 uploadKey = '';
 uploadFile = null;
-await loadObjects(selectedBucket, currentPrefix);
+await loadObjects();
 } catch (err: unknown) {
 toast.error(`Upload failed: ${(err as Error).message}`);
 } finally {
@@ -304,28 +374,31 @@ uploading = false;
 }
 }
 
-async function handleDrop(e: DragEvent) {
-e.preventDefault();
-isDragging = false;
-if (!e.dataTransfer?.files.length || !selectedBucket) return;
-const file = e.dataTransfer.files[0];
-uploading = true;
-try {
-const key = currentPrefix + file.name;
-const buf = await file.arrayBuffer();
-await s3.send(new PutObjectCommand({
-Bucket: selectedBucket,
-Key: key,
-Body: new Uint8Array(buf),
-ContentType: file.type || 'application/octet-stream'
-}));
-toast.success(`Uploaded "${key}"`);
-await loadObjects(selectedBucket, currentPrefix);
-} catch (err: unknown) {
-toast.error(`Upload failed: ${(err as Error).message}`);
-} finally {
-uploading = false;
-}
+async function handleDrop(e: DragEvent): Promise<void> {
+  e.preventDefault();
+  isDragging = false;
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0 || !selectedBucket) return;
+  let uploaded = 0;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    try {
+      toast.info(`Uploading ${i + 1} of ${files.length}: ${file.name}`);
+      const key = `${currentPrefix}${file.name}`;
+      const buf = await file.arrayBuffer();
+      await s3.send(new PutObjectCommand({
+        Bucket: selectedBucket,
+        Key: key,
+        Body: new Uint8Array(buf),
+        ContentType: file.type || 'application/octet-stream',
+      }));
+      uploaded++;
+    } catch (err: unknown) {
+      toast.error(`Failed to upload ${file.name}: ${(err as Error).message}`);
+    }
+  }
+  toast.success(`Uploaded ${uploaded} of ${files.length} files`);
+  await loadObjects();
 }
 
 async function deleteObject(key: string) {
@@ -333,7 +406,7 @@ if (!selectedBucket || !confirm(`Delete "${key}"?`)) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 toast.success(`Deleted "${key}"`);
-await loadObjects(selectedBucket, currentPrefix);
+await loadObjects();
 } catch (err: unknown) {
 toast.error(`Failed to delete: ${(err as Error).message}`);
 }
@@ -348,7 +421,7 @@ await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 }
 toast.success(`Deleted ${selectedObjects.size} object(s)`);
 selectedObjects = new Set<string>();
-await loadObjects(selectedBucket, currentPrefix);
+await loadObjects();
 } catch (err: unknown) {
 toast.error(`Failed to delete: ${(err as Error).message}`);
 }
@@ -674,9 +747,128 @@ toast.error(`Failed to delete CORS rule: ${(err as Error).message}`);
 }
 }
 
+async function createFolder(): Promise<void> {
+  if (!selectedBucket || !newFolderName.trim()) return;
+  const key = `${currentPrefix}${newFolderName.trim().replace(/\/+$/, '')}/`;
+  try {
+    await s3.send(new PutObjectCommand({
+      Bucket: selectedBucket,
+      Key: key,
+      Body: new Uint8Array(0),
+      ContentType: 'application/x-directory',
+    }));
+    toast.success(`Folder "${newFolderName}" created`);
+    showCreateFolderModal = false;
+    newFolderName = '';
+    await loadObjects();
+  } catch (err: unknown) {
+    toast.error(`Failed to create folder: ${(err as Error).message}`);
+  }
+}
+
+async function loadBucketSizes(bucketList: Bucket[]): Promise<void> {
+  const results = await Promise.allSettled(
+    bucketList.map(async (b) => {
+      if (!b.Name) return;
+      let total = 0;
+      let token: string | undefined;
+      do {
+        const res = await s3.send(new ListObjectsV2Command({
+          Bucket: b.Name,
+          ContinuationToken: token,
+          MaxKeys: 1000,
+        }));
+        for (const obj of res.Contents ?? []) total += obj.Size ?? 0;
+        token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      } while (token);
+      bucketSizes = new Map(bucketSizes).set(b.Name, total);
+    })
+  );
+  void results;
+}
+
+async function renameObject(): Promise<void> {
+  if (!selectedBucket || !renameOldKey || !renameNewKey.trim()) return;
+  try {
+    await s3.send(new CopyObjectCommand({
+      Bucket: selectedBucket,
+      CopySource: `${selectedBucket}/${renameOldKey}`,
+      Key: renameNewKey.trim(),
+    }));
+    await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: renameOldKey }));
+    toast.success('Object renamed');
+    showRenameModal = false;
+    await loadObjects();
+  } catch (err: unknown) {
+    toast.error(`Rename failed: ${(err as Error).message}`);
+  }
+}
+
+async function loadWebsite(): Promise<void> {
+  if (!selectedBucket) return;
+  loadingWebsite = true;
+  try {
+    const res = await s3.send(new GetBucketWebsiteCommand({ Bucket: selectedBucket }));
+    websiteConfig = {
+      IndexDocument: res.IndexDocument?.Suffix,
+      ErrorDocument: res.ErrorDocument?.Key,
+    };
+  } catch (err: unknown) {
+    const e = err as { Code?: string; name?: string };
+    const code = e.Code ?? e.name;
+    if (code === 'NoSuchWebsiteConfiguration') {
+      websiteConfig = null;
+    } else {
+      toast.error(`Failed to load website config: ${(err as Error).message}`);
+    }
+  } finally {
+    loadingWebsite = false;
+  }
+}
+
+async function saveWebsite(): Promise<void> {
+  if (!selectedBucket || !websiteConfig) return;
+  try {
+    await s3.send(new PutBucketWebsiteCommand({
+      Bucket: selectedBucket,
+      WebsiteConfiguration: {
+        IndexDocument: { Suffix: websiteConfig.IndexDocument ?? 'index.html' },
+        ErrorDocument: websiteConfig.ErrorDocument ? { Key: websiteConfig.ErrorDocument } : undefined,
+      },
+    }));
+    toast.success('Website configuration saved');
+  } catch (err: unknown) {
+    toast.error(`Failed to save website config: ${(err as Error).message}`);
+  }
+}
+
+async function deleteWebsite(): Promise<void> {
+  if (!selectedBucket || !confirm('Delete website configuration?')) return;
+  try {
+    await s3.send(new DeleteBucketWebsiteCommand({ Bucket: selectedBucket }));
+    websiteConfig = null;
+    toast.success('Website configuration deleted');
+  } catch (err: unknown) {
+    toast.error(`Failed to delete website config: ${(err as Error).message}`);
+  }
+}
+
+function fileIcon(key: string): string {
+  const ext = key.split('.').pop()?.toLowerCase() ?? '';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'].includes(ext)) return '🖼️';
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return '🎥';
+  if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) return '🎵';
+  if (['pdf'].includes(ext)) return '📄';
+  if (['json', 'yaml', 'yml', 'xml', 'toml'].includes(ext)) return '📋';
+  if (['js', 'ts', 'jsx', 'tsx', 'py', 'go', 'rs', 'java', 'c', 'cpp'].includes(ext)) return '💻';
+  if (['zip', 'tar', 'gz', 'bz2', '7z'].includes(ext)) return '📦';
+  if (['txt', 'md', 'log', 'csv'].includes(ext)) return '📝';
+  return '📄';
+}
+
 async function switchTab(tab: typeof activeDetailTab) {
 activeDetailTab = tab;
-if (tab === 'properties') await loadPropertiesTab();
+if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); }
 else if (tab === 'tagging') await loadTagsTab();
 else if (tab === 'permissions') await loadPermissionsTab();
 else if (tab === 'lifecycle') await loadLifecycleTab();
@@ -746,7 +938,7 @@ Buckets
 <li>
 <div class="flex items-center">
 <svg class="w-3 h-3 text-slate-400 mx-1" fill="none" viewBox="0 0 6 10"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 9 4-4-4-4" /></svg>
-<button onclick={() => loadObjects(selectedBucket!, '')} class="ms-1 text-sm font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-white">{selectedBucket}</button>
+<button onclick={async () => { currentPrefix = ''; await loadObjects(); }} class="ms-1 text-sm font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-white">{selectedBucket}</button>
 </div>
 </li>
 {#if currentPrefix}
@@ -784,6 +976,12 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 >
 Upload File
 </button>
+<button
+  onclick={() => { showCreateFolderModal = true; }}
+  class="text-white bg-green-600 hover:bg-green-700 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800"
+>
+  + New Folder
+</button>
 {/if}
 </div>
 </div>
@@ -816,7 +1014,7 @@ bind:value={filterObjects}
 class="block p-2 ps-4 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white w-48"
 />
 <span class="text-xs text-slate-500 dark:text-slate-400">
-{filteredObjects.length} object{filteredObjects.length !== 1 ? 's' : ''}, {filteredPrefixes.length} folder{filteredPrefixes.length !== 1 ? 's' : ''}
+{sortedObjects.length} object{sortedObjects.length !== 1 ? 's' : ''}, {filteredPrefixes.length} folder{filteredPrefixes.length !== 1 ? 's' : ''}{selectedObjects.size > 0 ? ` · ${selectedObjects.size} selected` : ''}
 </span>
 </div>
 {#if selectedObjects.size > 0}
@@ -856,7 +1054,7 @@ aria-label="Object browser"
 <path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" />
 </svg>
 </div>
-{:else if filteredObjects.length === 0 && filteredPrefixes.length === 0}
+{:else if sortedObjects.length === 0 && filteredPrefixes.length === 0}
 <div class="text-center py-12 text-slate-500">
 <p class="text-lg font-medium">This bucket is empty</p>
 <p class="text-sm mt-1">Upload files or drop them here</p>
@@ -865,12 +1063,33 @@ aria-label="Object browser"
 <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
 <thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
 <tr>
-<th class="px-3 py-3 w-8"></th>
-<th class="px-6 py-3">Name</th>
-<th class="px-6 py-3">Storage Class</th>
-<th class="px-6 py-3 text-right">Size</th>
-<th class="px-6 py-3 text-right">Last Modified</th>
-<th class="px-6 py-3 text-right">Actions</th>
+  <th class="px-3 py-3 w-8">
+    <input type="checkbox"
+      checked={selectedObjects.size === sortedObjects.length && sortedObjects.length > 0}
+      onchange={(e) => {
+        if ((e.currentTarget as HTMLInputElement).checked) {
+          selectedObjects = new Set(sortedObjects.map(o => o.Key ?? ''));
+        } else {
+          selectedObjects = new Set();
+        }
+      }}
+      class="w-4 h-4 text-blue-600 border-slate-300 rounded"
+    />
+  </th>
+  <th class="px-6 py-3 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-600"
+    onclick={() => { if (sortField === 'name') sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'; else { sortField = 'name'; sortOrder = 'asc'; } }}>
+    Name {sortField === 'name' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+  </th>
+  <th class="px-6 py-3">Storage Class</th>
+  <th class="px-6 py-3 text-right cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-600"
+    onclick={() => { if (sortField === 'size') sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'; else { sortField = 'size'; sortOrder = 'asc'; } }}>
+    Size {sortField === 'size' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+  </th>
+  <th class="px-6 py-3 text-right cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-600"
+    onclick={() => { if (sortField === 'date') sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'; else { sortField = 'date'; sortOrder = 'asc'; } }}>
+    Last Modified {sortField === 'date' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+  </th>
+  <th class="px-6 py-3 text-right">Actions</th>
 </tr>
 </thead>
 <tbody>
@@ -887,7 +1106,7 @@ aria-label="Object browser"
 <td class="px-6 py-4 text-right">—</td>
 </tr>
 {/each}
-{#each filteredObjects.filter((o) => o.Key !== currentPrefix) as obj}
+{#each sortedObjects.filter((o) => o.Key !== currentPrefix) as obj}
 {@const badge = storageClassBadge(obj.StorageClass)}
 <tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
 <td class="px-3 py-4">
@@ -900,7 +1119,7 @@ class="w-4 h-4 text-blue-600 border-slate-300 rounded"
 </td>
 <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">
 <div class="flex items-center gap-2">
-<svg class="w-5 h-5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+<span class="text-base">{fileIcon(obj.Key ?? '')}</span>
 <button
 type="button"
 onclick={() => inspectObject(obj)}
@@ -934,6 +1153,12 @@ onclick={() => copyObjectUrl(obj.Key ?? '')}
 class="text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-medium px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-700"
 >
 Copy URL
+</button>
+<button
+  onclick={() => { renameOldKey = obj.Key ?? ''; renameNewKey = obj.Key ?? ''; showRenameModal = true; }}
+  class="text-yellow-600 hover:text-yellow-800 dark:text-yellow-400 dark:hover:text-yellow-300 text-xs font-medium px-2 py-1 rounded hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+>
+  Rename
 </button>
 <button
 onclick={() => deleteObject(obj.Key ?? '')}
@@ -1007,6 +1232,40 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
 <div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
 <h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Object Lock</h3>
 <p class="text-sm text-slate-600 dark:text-slate-400">Status: <span class={`font-medium ${objectLockStatus === 'Enabled' ? 'text-green-600 dark:text-green-400' : 'text-slate-900 dark:text-white'}`}>{objectLockStatus}</span></p>
+</div>
+
+<!-- Static Website Hosting -->
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+  <h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Static Website Hosting</h3>
+  {#if loadingWebsite}
+    <div class="text-sm text-slate-500">Loading...</div>
+  {:else if websiteConfig}
+    <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-green-600 dark:text-green-400">Enabled</span></p>
+    <div class="space-y-2 mb-4">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Index Document</label>
+        <input type="text" bind:value={websiteConfig.IndexDocument} placeholder="index.html"
+          class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Error Document</label>
+        <input type="text" bind:value={websiteConfig.ErrorDocument} placeholder="error.html"
+          class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button onclick={saveWebsite} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save</button>
+      <button onclick={deleteWebsite} class="text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-4 py-2">Disable</button>
+    </div>
+  {:else}
+    <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-slate-900 dark:text-white">Disabled</span></p>
+    <button
+      onclick={() => { websiteConfig = { IndexDocument: 'index.html', ErrorDocument: 'error.html' }; }}
+      class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2"
+    >
+      Enable
+    </button>
+  {/if}
 </div>
 {/if}
 </div>
@@ -1289,6 +1548,15 @@ class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rou
 />
 </div>
 </div>
+<div>
+  <label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort by</label>
+  <select bind:value={bucketSortOrder}
+    class="p-2 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+    <option value="alpha">Alphabetical</option>
+    <option value="newest">Newest First</option>
+    <option value="largest">Largest First</option>
+  </select>
+</div>
 </div>
 
 {#if loading}
@@ -1315,6 +1583,9 @@ class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rou
 </h3>
 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
 Created: {formatDate(bucket.CreationDate)}
+</p>
+<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+  Size: {formatSize(bucketSizes.get(bucket.Name ?? '') ?? 0)}
 </p>
 </button>
 <button
@@ -1390,6 +1661,83 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 </div>
 </div>
 </div>
+</div>
+{/if}
+
+<!-- Create Folder Modal -->
+{#if showCreateFolderModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showCreateFolderModal = false; }} role="dialog" aria-modal="true">
+  <div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+    <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+      <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
+        <h3 class="text-xl font-semibold text-slate-900 dark:text-white">New Folder</h3>
+        <button onclick={() => { showCreateFolderModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
+        </button>
+      </div>
+      <div class="p-4 md:p-5">
+        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createFolder(); }}>
+          <div>
+            <label for="folderName" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Folder Name</label>
+            <input type="text" id="folderName" bind:value={newFolderName} placeholder="my-folder" required
+              class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+            {#if currentPrefix}
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Will be created under: {currentPrefix}</p>
+            {/if}
+          </div>
+          <div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600">
+            <button type="button" onclick={() => { showCreateFolderModal = false; }}
+              class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 focus:ring-4 focus:ring-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700 dark:focus:ring-slate-700">
+              Cancel
+            </button>
+            <button type="submit"
+              class="text-white bg-green-600 hover:bg-green-700 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+              Create Folder
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Rename Object Modal -->
+{#if showRenameModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showRenameModal = false; }} role="dialog" aria-modal="true">
+  <div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+    <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+      <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
+        <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Rename Object</h3>
+        <button onclick={() => { showRenameModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
+        </button>
+      </div>
+      <div class="p-4 md:p-5">
+        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); renameObject(); }}>
+          <div>
+            <label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Current Key</label>
+            <p class="text-sm font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded p-2">{renameOldKey}</p>
+          </div>
+          <div>
+            <label for="renameNewKey" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">New Key</label>
+            <input type="text" id="renameNewKey" bind:value={renameNewKey} required
+              class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+          </div>
+          <div class="flex justify-end gap-2 pt-4 border-t dark:border-slate-600">
+            <button type="button" onclick={() => { showRenameModal = false; }}
+              class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">
+              Cancel
+            </button>
+            <button type="submit"
+              class="text-white bg-yellow-600 hover:bg-yellow-700 font-medium rounded-lg text-sm px-5 py-2.5">
+              Rename
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 {/if}
 
