@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -63,7 +66,10 @@ type DynamoDBHandler struct {
 	Backend       StorageBackend
 	Streams       StreamsBackend
 	janitor       *Janitor
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
 	DefaultRegion string
+	janitorMu     sync.Mutex
 }
 
 // NewHandler creates a new DynamoDB handler with the given storage backend.
@@ -103,11 +109,51 @@ func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout ...time.
 // StartWorker starts the background janitor if it is configured.
 func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
-		go h.janitor.Run(ctx)
+		h.janitorMu.Lock()
+		if h.janitorDone != nil {
+			h.janitorMu.Unlock()
+
+			return nil
+		}
+
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		h.janitorCancel = cancel
+		h.janitorDone = done
+		h.janitorMu.Unlock()
+
+		go func() {
+			defer close(done)
+			h.janitor.Run(runCtx)
+		}()
 	}
 
 	return nil
 }
+
+// Shutdown stops the janitor worker and waits for it to exit (or until ctx expires).
+func (h *DynamoDBHandler) Shutdown(ctx context.Context) {
+	h.janitorMu.Lock()
+	cancel := h.janitorCancel
+	done := h.janitorDone
+	h.janitorCancel = nil
+	h.janitorDone = nil
+	h.janitorMu.Unlock()
+
+	if cancel == nil || done == nil {
+		return
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+var _ service.BackgroundWorker = (*DynamoDBHandler)(nil)
+var _ service.Shutdowner = (*DynamoDBHandler)(nil)
 
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.
 func (h *DynamoDBHandler) GetSupportedOperations() []string {
@@ -138,12 +184,16 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"DisableKinesisStreamingDestination",
 		"EnableKinesisStreamingDestination",
 		"ExecuteStatement",
+		"ExecuteTransaction",
 		"ExportTableToPointInTime",
 		"GetItem",
 		"GetResourcePolicy",
+		"ImportTable",
 		"ListBackups",
+		"ListContributorInsights",
 		"ListExports",
 		"ListGlobalTables",
+		"ListImports",
 		"ListTables",
 		"ListTagsOfResource",
 		"PutItem",
@@ -157,9 +207,13 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"TransactWriteItems",
 		"UntagResource",
 		"UpdateContinuousBackups",
+		"UpdateContributorInsights",
 		"UpdateGlobalTable",
+		"UpdateGlobalTableSettings",
 		"UpdateItem",
+		"UpdateKinesisStreamingDestination",
 		"UpdateTable",
+		"UpdateTableReplicaAutoScaling",
 		"UpdateTimeToLive",
 	}
 }
@@ -409,23 +463,32 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 	case "DescribeExport":
 		return h.describeExport(ctx, body)
 	case "ListExports":
-		return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil
+		return h.listExports(ctx, body)
 	case "CreateGlobalTable",
 		"DescribeGlobalTable",
 		"DescribeGlobalTableSettings",
 		"ListGlobalTables",
 		"UpdateGlobalTable",
+		"UpdateGlobalTableSettings",
 		"EnableKinesisStreamingDestination",
 		"DescribeKinesisStreamingDestination",
 		"DisableKinesisStreamingDestination",
+		"UpdateKinesisStreamingDestination",
 		"DescribeLimits",
 		"DescribeEndpoints",
 		"DescribeContributorInsights",
+		"ListContributorInsights",
+		"UpdateContributorInsights",
+		"UpdateTableReplicaAutoScaling",
 		"DeleteResourcePolicy",
 		"GetResourcePolicy",
 		"PutResourcePolicy",
-		"DescribeImport":
+		"DescribeImport",
+		"ImportTable",
+		"ListImports":
 		return h.dispatchExtraOps(ctx, action, body)
+	case "ExecuteTransaction":
+		return h.handleExecuteTransaction(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -474,8 +537,11 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 		}
 	}
 
-	inputJSON, _ := json.Marshal(input)
-	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	debugEnabled := log.Enabled(ctx, slog.LevelDebug)
+	if debugEnabled {
+		inputJSON, _ := json.Marshal(input)
+		log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	}
 
 	sdkInput, err := toSDK(&input)
 	if err != nil {
@@ -488,8 +554,10 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	wireOutput := fromSDK(sdkOutput)
 
-	outputJSON, _ := json.Marshal(wireOutput)
-	log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	if debugEnabled {
+		outputJSON, _ := json.Marshal(wireOutput)
+		log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	}
 
 	return wireOutput, nil
 }
@@ -512,8 +580,11 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 		}
 	}
 
-	inputJSON, _ := json.Marshal(input)
-	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	debugEnabled := log.Enabled(ctx, slog.LevelDebug)
+	if debugEnabled {
+		inputJSON, _ := json.Marshal(input)
+		log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	}
 
 	sdkInput := toSDK(&input)
 	sdkOutput, err := doOp(ctx, sdkInput)
@@ -523,8 +594,10 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	wireOutput := fromSDK(sdkOutput)
 
-	outputJSON, _ := json.Marshal(wireOutput)
-	log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	if debugEnabled {
+		outputJSON, _ := json.Marshal(wireOutput)
+		log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	}
 
 	return wireOutput, nil
 }
@@ -930,23 +1003,76 @@ type listExportsOutput struct {
 	ExportSummaries []exportDescriptionFields `json:"ExportSummaries"`
 }
 
+// exportIDSuffixLen is the number of characters taken from the UUID to form the
+// second component of an export ID suffix. 16 characters is chosen to keep ARNs
+// short while still providing enough randomness to avoid collisions.
+const exportIDSuffixLen = 16
+
+// exportARNRegionIdx is the zero-based position of the region field in a colon-split ARN.
+const exportARNRegionIdx = 3
+
+// exportARNAccountIdx is the zero-based position of the account-ID field in a colon-split ARN.
+const exportARNAccountIdx = 4
+
+// exportARNPartCount is the expected number of parts when splitting a full DynamoDB ARN on ":".
+const exportARNPartCount = 6
+
+// exportARNPathParts is the expected number of parts when splitting the resource portion of an ARN on "/".
+const exportARNPathParts = 2
+
+// generateExportID creates a short unique suffix for export ARNs.
+// Format matches the AWS convention: a zero-padded Unix millisecond timestamp
+// followed by a UUID-derived hex suffix.
+func generateExportID() string {
+	return fmt.Sprintf("%016x-%s", time.Now().UnixMilli(), uuid.New().String()[:exportIDSuffixLen])
+}
+
 func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
 	var req exportTableToPointInTimeInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	exportArn := arn.Build("dynamodb", config.DefaultRegion, config.DefaultAccountID,
-		"table/table/export/01000000-0000-0000-0000-000000000000")
+	region := config.DefaultRegion
+	accountID := config.DefaultAccountID
 
-	return &exportTableToPointInTimeOutput{
-		ExportDescription: exportDescriptionFields{
-			ExportArn:    exportArn,
-			ExportStatus: "COMPLETED",
-			TableArn:     req.TableArn,
-			S3Bucket:     req.S3Bucket,
-		},
-	}, nil
+	// Extract region from the table ARN if available.
+	if req.TableArn != "" {
+		parts := strings.SplitN(req.TableArn, ":", exportARNPartCount)
+		if len(parts) >= exportARNRegionIdx+1 && parts[exportARNRegionIdx] != "" {
+			region = parts[exportARNRegionIdx]
+		}
+
+		if len(parts) >= exportARNAccountIdx+1 && parts[exportARNAccountIdx] != "" {
+			accountID = parts[exportARNAccountIdx]
+		}
+	}
+
+	// Generate a unique export ARN that encodes the table name.
+	tableSlug := "unknown"
+	if req.TableArn != "" {
+		parts := strings.SplitN(req.TableArn, "/", exportARNPathParts)
+		if len(parts) == exportARNPathParts {
+			tableSlug = parts[1]
+		}
+	}
+
+	exportID := fmt.Sprintf("%s/%s", tableSlug, generateExportID())
+	exportARN := arn.Build("dynamodb", region, accountID, "table/"+exportID)
+
+	desc := exportDescriptionFields{
+		ExportArn:    exportARN,
+		ExportStatus: "COMPLETED",
+		TableArn:     req.TableArn,
+		S3Bucket:     req.S3Bucket,
+	}
+
+	// Persist the export so ListExports and DescribeExport return it.
+	if b, ok := h.Backend.(*InMemoryDB); ok {
+		b.storeExport(desc)
+	}
+
+	return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
 }
 
 type describeExportInput struct {
@@ -959,6 +1085,19 @@ func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
+	if req.ExportArn == "" {
+		return nil, NewValidationException("ExportArn is required")
+	}
+
+	// Look up the stored export if the backend supports it.
+	if b, ok := h.Backend.(*InMemoryDB); ok {
+		if desc, found := b.lookupExport(req.ExportArn); found {
+			return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
+		}
+	}
+
+	// Fall back to synthesising a response for unknown ARNs (e.g. ARNs generated
+	// before export tracking was added, or from external injection).
 	return &exportTableToPointInTimeOutput{
 		ExportDescription: exportDescriptionFields{
 			ExportArn:    req.ExportArn,
@@ -1202,6 +1341,7 @@ type describeImportInput struct {
 type importTableDescriptionWire struct {
 	ImportArn    string `json:"ImportArn,omitempty"`
 	ImportStatus string `json:"ImportStatus,omitempty"`
+	TableArn     string `json:"TableArn,omitempty"`
 }
 
 type describeImportOutput struct {
@@ -1220,6 +1360,12 @@ func (h *DynamoDBHandler) dispatchExtraOps(
 	enableKinesis := func() (any, error) { return h.handleEnableKinesisStreamingDestination(ctx, body) }
 	describeKinesis := func() (any, error) { return h.handleDescribeKinesisStreamingDestination(ctx, body) }
 	disableKinesis := func() (any, error) { return h.handleDisableKinesisStreamingDestination(ctx, body) }
+	updateKinesis := func() (any, error) { return h.handleUpdateKinesisStreamingDestination(ctx, body) }
+	descContrib := func() (any, error) { return h.handleDescribeContributorInsights(ctx, body) }
+	listContrib := func() (any, error) { return h.handleListContributorInsights(ctx, body) }
+	updContrib := func() (any, error) { return h.handleUpdateContributorInsights(ctx, body) }
+	updASReplica := func() (any, error) { return h.handleUpdateTableReplicaAutoScaling(ctx, body) }
+	updGTSettings := func() (any, error) { return h.handleUpdateGlobalTableSettings(ctx, body) }
 
 	handlers := map[string]handlerFn{
 		"CreateGlobalTable":                   func() (any, error) { return h.handleCreateGlobalTable(ctx, body) },
@@ -1227,16 +1373,23 @@ func (h *DynamoDBHandler) dispatchExtraOps(
 		"DescribeGlobalTableSettings":         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
 		"ListGlobalTables":                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
 		"UpdateGlobalTable":                   func() (any, error) { return h.handleUpdateGlobalTable(ctx, body) },
+		"UpdateGlobalTableSettings":           updGTSettings,
 		"EnableKinesisStreamingDestination":   enableKinesis,
 		"DescribeKinesisStreamingDestination": describeKinesis,
 		"DisableKinesisStreamingDestination":  disableKinesis,
+		"UpdateKinesisStreamingDestination":   updateKinesis,
 		"DescribeLimits":                      func() (any, error) { return h.handleDescribeLimits(ctx) },
 		"DescribeEndpoints":                   func() (any, error) { return h.handleDescribeEndpoints(ctx) },
-		"DescribeContributorInsights":         func() (any, error) { return h.handleDescribeContributorInsights(ctx, body) },
+		"DescribeContributorInsights":         descContrib,
+		"ListContributorInsights":             listContrib,
+		"UpdateContributorInsights":           updContrib,
+		"UpdateTableReplicaAutoScaling":       updASReplica,
 		"GetResourcePolicy":                   func() (any, error) { return h.handleGetResourcePolicy(ctx, body) },
 		"PutResourcePolicy":                   func() (any, error) { return h.handlePutResourcePolicy(ctx, body) },
 		"DeleteResourcePolicy":                func() (any, error) { return h.handleDeleteResourcePolicy(ctx, body) },
 		"DescribeImport":                      func() (any, error) { return h.handleDescribeImport(ctx, body) },
+		"ImportTable":                         func() (any, error) { return h.handleImportTable(ctx, body) },
+		"ListImports":                         func() (any, error) { return h.handleListImports(ctx, body) },
 	}
 
 	fn, ok := handlers[action]
@@ -1682,4 +1835,373 @@ func derefStr(s *string) string {
 	}
 
 	return *s
+}
+
+// --- UpdateGlobalTableSettings handler ---
+
+type updateGlobalTableSettingsInput struct {
+	GlobalTableName string `json:"GlobalTableName"`
+}
+
+type replicaSettingsUpdateWire struct {
+	RegionName    string `json:"RegionName"`
+	ReplicaStatus string `json:"ReplicaStatus"`
+}
+
+type updateGlobalTableSettingsOutput struct {
+	GlobalTableName string                      `json:"GlobalTableName"`
+	ReplicaSettings []replicaSettingsUpdateWire `json:"ReplicaSettings,omitempty"`
+}
+
+func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(ctx context.Context, body []byte) (any, error) {
+	var req updateGlobalTableSettingsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.UpdateGlobalTableSettings(ctx, &sdkDDB.UpdateGlobalTableSettingsInput{
+		GlobalTableName: &req.GlobalTableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	wire := make([]replicaSettingsUpdateWire, 0, len(out.ReplicaSettings))
+	for _, rs := range out.ReplicaSettings {
+		wire = append(wire, replicaSettingsUpdateWire{
+			RegionName:    derefStr(rs.RegionName),
+			ReplicaStatus: string(rs.ReplicaStatus),
+		})
+	}
+
+	return &updateGlobalTableSettingsOutput{
+		GlobalTableName: derefStr(out.GlobalTableName),
+		ReplicaSettings: wire,
+	}, nil
+}
+
+// --- UpdateKinesisStreamingDestination handler ---
+
+type updateKinesisStreamingDestinationInput struct {
+	TableName string `json:"TableName"`
+	StreamArn string `json:"StreamArn"`
+}
+
+type updateKinesisStreamingDestinationOutput struct {
+	TableName         string `json:"TableName"`
+	StreamArn         string `json:"StreamArn"`
+	DestinationStatus string `json:"DestinationStatus"`
+}
+
+func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(ctx context.Context, body []byte) (any, error) {
+	var req updateKinesisStreamingDestinationInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.UpdateKinesisStreamingDestination(ctx, &sdkDDB.UpdateKinesisStreamingDestinationInput{
+		TableName: &req.TableName,
+		StreamArn: &req.StreamArn,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateKinesisStreamingDestinationOutput{
+		TableName:         derefStr(out.TableName),
+		StreamArn:         derefStr(out.StreamArn),
+		DestinationStatus: string(out.DestinationStatus),
+	}, nil
+}
+
+// --- ListContributorInsights handler ---
+
+type contributorInsightsSummaryWire struct {
+	TableName                 string `json:"TableName,omitempty"`
+	IndexName                 string `json:"IndexName,omitempty"`
+	ContributorInsightsStatus string `json:"ContributorInsightsStatus,omitempty"`
+}
+
+type listContributorInsightsOutput struct {
+	NextToken                    string                           `json:"NextToken,omitempty"`
+	ContributorInsightsSummaries []contributorInsightsSummaryWire `json:"ContributorInsightsSummaries"`
+}
+
+func (h *DynamoDBHandler) handleListContributorInsights(_ context.Context, _ []byte) (any, error) {
+	out, err := h.Backend.ListContributorInsights(context.Background(), &sdkDDB.ListContributorInsightsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]contributorInsightsSummaryWire, 0, len(out.ContributorInsightsSummaries))
+	for _, s := range out.ContributorInsightsSummaries {
+		summaries = append(summaries, contributorInsightsSummaryWire{
+			TableName:                 derefStr(s.TableName),
+			IndexName:                 derefStr(s.IndexName),
+			ContributorInsightsStatus: string(s.ContributorInsightsStatus),
+		})
+	}
+
+	return &listContributorInsightsOutput{ContributorInsightsSummaries: summaries}, nil
+}
+
+// --- UpdateContributorInsights handler ---
+
+type updateContributorInsightsInput struct {
+	TableName                 string `json:"TableName"`
+	IndexName                 string `json:"IndexName,omitempty"`
+	ContributorInsightsAction string `json:"ContributorInsightsAction"`
+}
+
+type updateContributorInsightsOutput struct {
+	TableName                 string `json:"TableName,omitempty"`
+	IndexName                 string `json:"IndexName,omitempty"`
+	ContributorInsightsStatus string `json:"ContributorInsightsStatus,omitempty"`
+}
+
+func (h *DynamoDBHandler) handleUpdateContributorInsights(ctx context.Context, body []byte) (any, error) {
+	var req updateContributorInsightsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	sdkInput := &sdkDDB.UpdateContributorInsightsInput{
+		TableName:                 &req.TableName,
+		ContributorInsightsAction: types.ContributorInsightsAction(req.ContributorInsightsAction),
+	}
+
+	if req.IndexName != "" {
+		sdkInput.IndexName = &req.IndexName
+	}
+
+	out, err := h.Backend.UpdateContributorInsights(ctx, sdkInput)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateContributorInsightsOutput{
+		TableName:                 derefStr(out.TableName),
+		IndexName:                 derefStr(out.IndexName),
+		ContributorInsightsStatus: string(out.ContributorInsightsStatus),
+	}, nil
+}
+
+// --- UpdateTableReplicaAutoScaling handler ---
+
+type updateTableReplicaAutoScalingInput struct {
+	TableName string `json:"TableName"`
+}
+
+type replicaAutoScalingDescWire struct {
+	RegionName    string `json:"RegionName,omitempty"`
+	ReplicaStatus string `json:"ReplicaStatus,omitempty"`
+}
+
+type tableAutoScalingDescWire struct {
+	TableName   string                       `json:"TableName,omitempty"`
+	TableStatus string                       `json:"TableStatus,omitempty"`
+	Replicas    []replicaAutoScalingDescWire `json:"Replicas,omitempty"`
+}
+
+type updateTableReplicaAutoScalingOutput struct {
+	TableAutoScalingDescription tableAutoScalingDescWire `json:"TableAutoScalingDescription"`
+}
+
+func (h *DynamoDBHandler) handleUpdateTableReplicaAutoScaling(ctx context.Context, body []byte) (any, error) {
+	var req updateTableReplicaAutoScalingInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.UpdateTableReplicaAutoScaling(ctx, &sdkDDB.UpdateTableReplicaAutoScalingInput{
+		TableName: &req.TableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	desc := tableAutoScalingDescWire{}
+	if out.TableAutoScalingDescription != nil {
+		d := out.TableAutoScalingDescription
+		desc.TableName = derefStr(d.TableName)
+		desc.TableStatus = string(d.TableStatus)
+		desc.Replicas = make([]replicaAutoScalingDescWire, 0, len(d.Replicas))
+
+		for _, r := range d.Replicas {
+			desc.Replicas = append(desc.Replicas, replicaAutoScalingDescWire{
+				RegionName:    derefStr(r.RegionName),
+				ReplicaStatus: string(r.ReplicaStatus),
+			})
+		}
+	}
+
+	return &updateTableReplicaAutoScalingOutput{TableAutoScalingDescription: desc}, nil
+}
+
+// --- ExecuteTransaction handler ---
+
+type executeTransactionStatementWire struct {
+	Statement  string           `json:"Statement"`
+	Parameters []map[string]any `json:"Parameters,omitempty"`
+}
+
+type executeTransactionInput struct {
+	ClientRequestToken     string                            `json:"ClientRequestToken,omitempty"`
+	ReturnConsumedCapacity string                            `json:"ReturnConsumedCapacity,omitempty"`
+	TransactStatements     []executeTransactionStatementWire `json:"TransactStatements"`
+}
+
+type executeTransactionItemResponse struct {
+	Item map[string]any `json:"Item,omitempty"`
+}
+
+type executeTransactionOutput struct {
+	Responses []executeTransactionItemResponse `json:"Responses,omitempty"`
+}
+
+func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []byte) (any, error) {
+	var req executeTransactionInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	stmts := make([]types.ParameterizedStatement, 0, len(req.TransactStatements))
+
+	for _, s := range req.TransactStatements {
+		sdkParams := make([]types.AttributeValue, 0, len(s.Parameters))
+
+		for _, p := range s.Parameters {
+			av, err := models.ToSDKAttributeValue(p)
+			if err != nil {
+				return nil, fmt.Errorf("converting parameter: %w", err)
+			}
+
+			sdkParams = append(sdkParams, av)
+		}
+
+		stmt := s.Statement
+		stmts = append(stmts, types.ParameterizedStatement{
+			Statement:  &stmt,
+			Parameters: sdkParams,
+		})
+	}
+
+	out, err := h.Backend.ExecuteTransaction(ctx, &sdkDDB.ExecuteTransactionInput{
+		TransactStatements: stmts,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make([]executeTransactionItemResponse, 0, len(out.Responses))
+
+	for _, r := range out.Responses {
+		resp := executeTransactionItemResponse{}
+		if r.Item != nil {
+			resp.Item = models.FromSDKItem(r.Item)
+		}
+
+		responses = append(responses, resp)
+	}
+
+	return &executeTransactionOutput{Responses: responses}, nil
+}
+
+// --- ImportTable handler ---
+
+type importTableS3BucketSourceWire struct {
+	S3Bucket string `json:"S3Bucket"`
+	S3Prefix string `json:"S3BucketKeyPrefix,omitempty"`
+}
+
+type importTableCreationParametersWire struct {
+	TableName string `json:"TableName"`
+}
+
+type importTableInput struct {
+	S3BucketSource          importTableS3BucketSourceWire     `json:"S3BucketSource"`
+	TableCreationParameters importTableCreationParametersWire `json:"TableCreationParameters"`
+	InputFormat             string                            `json:"InputFormat,omitempty"`
+}
+
+type importTableOutput struct {
+	ImportTableDescription importTableDescriptionWire `json:"ImportTableDescription"`
+}
+
+func (h *DynamoDBHandler) handleImportTable(ctx context.Context, body []byte) (any, error) {
+	var req importTableInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	bucket := req.S3BucketSource.S3Bucket
+	tableName := req.TableCreationParameters.TableName
+
+	out, err := h.Backend.ImportTable(ctx, &sdkDDB.ImportTableInput{
+		S3BucketSource: &types.S3BucketSource{
+			S3Bucket: &bucket,
+		},
+		TableCreationParameters: &types.TableCreationParameters{
+			TableName: &tableName,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	desc := importTableDescriptionWire{}
+	if out.ImportTableDescription != nil {
+		d := out.ImportTableDescription
+		desc.ImportArn = derefStr(d.ImportArn)
+		desc.ImportStatus = string(d.ImportStatus)
+		desc.TableArn = derefStr(d.TableArn)
+	}
+
+	return &importTableOutput{ImportTableDescription: desc}, nil
+}
+
+// --- ListImports handler ---
+
+type listImportsOutput struct {
+	NextToken         string                       `json:"NextToken,omitempty"`
+	ImportSummaryList []importTableDescriptionWire `json:"ImportSummaryList"`
+}
+
+func (h *DynamoDBHandler) handleListImports(_ context.Context, _ []byte) (any, error) {
+	out, err := h.Backend.ListImports(context.Background(), &sdkDDB.ListImportsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]importTableDescriptionWire, 0, len(out.ImportSummaryList))
+
+	for _, s := range out.ImportSummaryList {
+		summaries = append(summaries, importTableDescriptionWire{
+			ImportArn:    derefStr(s.ImportArn),
+			ImportStatus: string(s.ImportStatus),
+			TableArn:     derefStr(s.TableArn),
+		})
+	}
+
+	return &listImportsOutput{ImportSummaryList: summaries}, nil
+}
+
+// --- ListExports handler ---
+
+type listExportsInput struct {
+	TableArn  string `json:"TableArn,omitempty"`
+	NextToken string `json:"NextToken,omitempty"`
+}
+
+func (h *DynamoDBHandler) listExports(_ context.Context, body []byte) (any, error) {
+	var req listExportsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	if b, ok := h.Backend.(*InMemoryDB); ok {
+		return b.listExportsWire(req.TableArn, req.NextToken), nil
+	}
+
+	return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil
 }

@@ -3,7 +3,6 @@ package dynamodb
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
@@ -303,6 +302,11 @@ func (j *Janitor) sweepTableTTL(
 // sweepTxnTokens removes committed idempotency tokens that have exceeded their TTL.
 // AWS DynamoDB expires tokens after 10 minutes; this prevents unbounded map growth.
 // If the map exceeds txnTokensMaxCap entries the oldest half is evicted immediately.
+//
+// Optimised two-phase sweep: expired keys are identified under a read lock (allowing
+// concurrent reads to proceed), then deleted under a write lock. The write lock is
+// only acquired when there is actual work to do, keeping contention minimal on the
+// common "nothing expired" path.
 func (j *Janitor) sweepTxnTokens(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -311,13 +315,30 @@ func (j *Janitor) sweepTxnTokens(ctx context.Context) {
 	db := j.Backend
 	now := time.Now()
 
-	db.mu.Lock("sweepTxnTokens")
-	defer db.mu.Unlock()
+	// Phase 1: identify expired keys under read lock.
+	db.mu.RLock("sweepTxnTokens.scan")
+	var expired []string
 
 	for token, expiry := range db.txnTokens {
 		if now.After(expiry) {
-			delete(db.txnTokens, token)
+			expired = append(expired, token)
 		}
+	}
+
+	capExceeded := len(db.txnTokens) > txnTokensMaxCap
+	db.mu.RUnlock()
+
+	// Fast path: nothing to do.
+	if len(expired) == 0 && !capExceeded {
+		return
+	}
+
+	// Phase 2: apply deletions under write lock.
+	db.mu.Lock("sweepTxnTokens.delete")
+	defer db.mu.Unlock()
+
+	for _, token := range expired {
+		delete(db.txnTokens, token)
 	}
 
 	// Hard cap: if still over limit, evict the oldest half to prevent OOM.
@@ -330,6 +351,8 @@ func (j *Janitor) sweepTxnTokens(ctx context.Context) {
 // Under normal operation the defer in TransactWriteItems cleans up pending entries.
 // This sweep is a safety net for orphaned entries (e.g. from a crashed goroutine).
 // If the map exceeds txnPendingMaxCap entries the oldest half is evicted immediately.
+//
+// Uses the same two-phase snapshot approach as sweepTxnTokens.
 func (j *Janitor) sweepTxnPending(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -338,13 +361,30 @@ func (j *Janitor) sweepTxnPending(ctx context.Context) {
 	db := j.Backend
 	now := time.Now()
 
-	db.mu.Lock("sweepTxnPending")
-	defer db.mu.Unlock()
+	// Phase 1: identify stale keys under read lock.
+	db.mu.RLock("sweepTxnPending.scan")
+	var stale []string
 
 	for token, startTime := range db.txnPending {
 		if now.Sub(startTime) > txnPendingTTL {
-			delete(db.txnPending, token)
+			stale = append(stale, token)
 		}
+	}
+
+	capExceeded := len(db.txnPending) > txnPendingMaxCap
+	db.mu.RUnlock()
+
+	// Fast path: nothing to do.
+	if len(stale) == 0 && !capExceeded {
+		return
+	}
+
+	// Phase 2: apply deletions under write lock.
+	db.mu.Lock("sweepTxnPending.delete")
+	defer db.mu.Unlock()
+
+	for _, token := range stale {
+		delete(db.txnPending, token)
 	}
 
 	// Hard cap: if still over limit, evict the oldest half to prevent OOM.
@@ -410,28 +450,114 @@ func evictOldestPending(m map[string]time.Time, n int) {
 	}
 }
 
-// nthSmallest returns the nth smallest [time.Time] in ts (1-indexed) using a quick-select
-// algorithm. If n >= len(ts) it returns the maximum value.
+// nthSmallest returns the nth smallest [time.Time] in ts (1-indexed) using a
+// Floyd-Rivest / introselect-style quickselect algorithm — O(n) average, O(n²)
+// worst case. For the token-eviction call site n is always len(ts)/2, so the
+// average complexity is the relevant bound.
+//
+// If n >= len(ts) it returns the maximum value. ts is mutated in place; callers
+// must not rely on its order after the call.
 func nthSmallest(ts []time.Time, n int) time.Time {
 	if n <= 0 || len(ts) == 0 {
 		return time.Time{}
 	}
 
 	if n >= len(ts) {
-		latest := ts[0]
-		for _, t := range ts[1:] {
-			if t.After(latest) {
-				latest = t
-			}
-		}
-
-		return latest
+		return sliceMax(ts)
 	}
 
-	// sort.Slice is O(n log n) — far faster than insertion sort for large maps.
-	sort.Slice(ts, func(i, j int) bool { return ts[i].Before(ts[j]) })
+	// Quickselect: partition around a pivot until the kth element is in place.
+	// k is 0-indexed here (n is 1-indexed from the caller).
+	k := n - 1
+	lo, hi := 0, len(ts)-1
 
-	return ts[n-1]
+	for lo < hi {
+		p := partition(ts, lo, hi)
+
+		if p <= k {
+			lo = p + 1
+		}
+
+		if p >= k {
+			hi = p - 1
+		}
+	}
+
+	return ts[k]
+}
+
+// sliceMax returns the largest time.Time in ts. ts must not be empty.
+func sliceMax(ts []time.Time) time.Time {
+	latest := ts[0]
+
+	for _, t := range ts[1:] {
+		if t.After(latest) {
+			latest = t
+		}
+	}
+
+	return latest
+}
+
+// partition runs a Hoare-variant partition on ts[lo..hi] using a median-of-three
+// pivot. Returns the final pivot index after partitioning.
+// Extracted from nthSmallest to keep per-function cognitive complexity below 20.
+func partition(ts []time.Time, lo, hi int) int {
+	// minPartitionWindow is the window size below which sortThree has already fully
+	// sorted the elements and further pivot placement is unnecessary.
+	const minPartitionWindow = 2
+
+	mid := lo + (hi-lo)/minPartitionWindow
+	sortThree(ts, lo, mid, hi)
+
+	// Window of 2 or fewer elements is already sorted by sortThree; return mid.
+	if hi-lo < minPartitionWindow {
+		return mid
+	}
+
+	pivot := ts[mid]
+
+	// Place pivot at hi-1 so both scan directions can proceed inward.
+	ts[mid], ts[hi-1] = ts[hi-1], ts[mid]
+
+	i, j := lo, hi-1
+
+	for {
+		i++
+		for ts[i].Before(pivot) {
+			i++
+		}
+
+		j--
+		for pivot.Before(ts[j]) {
+			j--
+		}
+
+		if i >= j {
+			break
+		}
+
+		ts[i], ts[j] = ts[j], ts[i]
+	}
+
+	ts[i], ts[hi-1] = ts[hi-1], ts[i]
+
+	return i
+}
+
+// sortThree sorts the three elements at positions a, b, c in ts into ascending order.
+func sortThree(ts []time.Time, a, b, c int) {
+	if ts[c].Before(ts[a]) {
+		ts[a], ts[c] = ts[c], ts[a]
+	}
+
+	if ts[b].Before(ts[a]) {
+		ts[a], ts[b] = ts[b], ts[a]
+	}
+
+	if ts[c].Before(ts[b]) {
+		ts[b], ts[c] = ts[c], ts[b]
+	}
 }
 
 // sweepStreamRecords compacts stream records that are older than 24 hours.

@@ -854,6 +854,284 @@ func (db *InMemoryDB) DescribeImport(
 	}, nil
 }
 
+// --- ListContributorInsights ---
+
+// ListContributorInsights returns an empty list; the in-memory backend does not support
+// contributor insights. This stub satisfies the SDK completeness requirement.
+func (db *InMemoryDB) ListContributorInsights(
+	_ context.Context,
+	_ *dynamodb.ListContributorInsightsInput,
+) (*dynamodb.ListContributorInsightsOutput, error) {
+	return &dynamodb.ListContributorInsightsOutput{
+		ContributorInsightsSummaries: []types.ContributorInsightsSummary{},
+	}, nil
+}
+
+// --- UpdateContributorInsights ---
+
+// UpdateContributorInsights is a stub that accepts contributor insights configuration
+// changes but does not persist them. The in-memory backend always reports insights as
+// DISABLED.
+func (db *InMemoryDB) UpdateContributorInsights(
+	ctx context.Context,
+	input *dynamodb.UpdateContributorInsightsInput,
+) (*dynamodb.UpdateContributorInsightsOutput, error) {
+	if input.TableName == nil || *input.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	// Validate the table exists.
+	if _, err := db.getTable(ctx, *input.TableName); err != nil {
+		return nil, err
+	}
+
+	tableName := *input.TableName
+
+	out := &dynamodb.UpdateContributorInsightsOutput{
+		TableName:                 &tableName,
+		ContributorInsightsStatus: types.ContributorInsightsStatusDisabled,
+	}
+
+	if input.IndexName != nil {
+		out.IndexName = input.IndexName
+	}
+
+	return out, nil
+}
+
+// --- UpdateGlobalTableSettings ---
+
+// UpdateGlobalTableSettings is a stub that validates the global table exists and
+// returns the current (default) settings. The in-memory backend does not simulate
+// per-replica autoscaling or billing mode changes at the global level.
+func (db *InMemoryDB) UpdateGlobalTableSettings(
+	_ context.Context,
+	input *dynamodb.UpdateGlobalTableSettingsInput,
+) (*dynamodb.UpdateGlobalTableSettingsOutput, error) {
+	if input.GlobalTableName == nil || *input.GlobalTableName == "" {
+		return nil, NewValidationException("GlobalTableName is required")
+	}
+
+	name := *input.GlobalTableName
+
+	db.mu.RLock("UpdateGlobalTableSettings")
+	gt, exists := db.GlobalTables[name]
+	db.mu.RUnlock()
+
+	if !exists {
+		return nil, &Error{
+			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException",
+			Message: fmt.Sprintf("Global table with name %s not found", name),
+		}
+	}
+
+	replicas := make([]types.ReplicaSettingsDescription, 0, len(gt.ReplicationGroup))
+	for _, region := range gt.ReplicationGroup {
+		r := region
+
+		replicas = append(replicas, types.ReplicaSettingsDescription{
+			RegionName:    &r,
+			ReplicaStatus: types.ReplicaStatusActive,
+			ReplicaBillingModeSummary: &types.BillingModeSummary{
+				BillingMode: types.BillingModePayPerRequest,
+			},
+		})
+	}
+
+	return &dynamodb.UpdateGlobalTableSettingsOutput{
+		GlobalTableName: &name,
+		ReplicaSettings: replicas,
+	}, nil
+}
+
+// --- UpdateKinesisStreamingDestination ---
+
+// UpdateKinesisStreamingDestination is a stub that validates the table and stream ARN
+// and returns a synthetic ACTIVE status. The in-memory backend does not simulate
+// Kinesis streaming configuration changes beyond enable/disable.
+func (db *InMemoryDB) UpdateKinesisStreamingDestination(
+	ctx context.Context,
+	input *dynamodb.UpdateKinesisStreamingDestinationInput,
+) (*dynamodb.UpdateKinesisStreamingDestinationOutput, error) {
+	if input.TableName == nil || *input.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	if input.StreamArn == nil || *input.StreamArn == "" {
+		return nil, NewValidationException("StreamArn is required")
+	}
+
+	if _, err := db.getTable(ctx, *input.TableName); err != nil {
+		return nil, err
+	}
+
+	tableName := *input.TableName
+	streamARN := *input.StreamArn
+
+	return &dynamodb.UpdateKinesisStreamingDestinationOutput{
+		TableName:         &tableName,
+		StreamArn:         &streamARN,
+		DestinationStatus: types.DestinationStatusActive,
+	}, nil
+}
+
+// --- UpdateTableReplicaAutoScaling ---
+
+// UpdateTableReplicaAutoScaling is a stub that validates the table exists and returns
+// a basic autoscaling description. The in-memory backend does not simulate autoscaling.
+func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
+	ctx context.Context,
+	input *dynamodb.UpdateTableReplicaAutoScalingInput,
+) (*dynamodb.UpdateTableReplicaAutoScalingOutput, error) {
+	if input.TableName == nil || *input.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	table, err := db.getTable(ctx, *input.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.RLock("UpdateTableReplicaAutoScaling")
+	tableName := table.Name
+	tableStatus := table.Status
+	replicas := make([]models.ReplicaDescription, len(table.Replicas))
+	copy(replicas, table.Replicas)
+	table.mu.RUnlock()
+
+	replicaDescs := make([]types.ReplicaAutoScalingDescription, 0, len(replicas))
+
+	for _, r := range replicas {
+		region := r.RegionName
+
+		replicaDescs = append(replicaDescs, types.ReplicaAutoScalingDescription{
+			RegionName:    &region,
+			ReplicaStatus: types.ReplicaStatusActive,
+		})
+	}
+
+	return &dynamodb.UpdateTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: &types.TableAutoScalingDescription{
+			TableName:   &tableName,
+			TableStatus: types.TableStatus(tableStatus),
+			Replicas:    replicaDescs,
+		},
+	}, nil
+}
+
+// --- ExecuteTransaction ---
+
+// ExecuteTransaction executes a set of PartiQL statements in a single atomic transaction.
+// The in-memory backend delegates each statement to the PartiQL runner and returns
+// results in the same order. Atomicity is not guaranteed — like LocalStack's basic
+// implementation, this is a best-effort sequential execution.
+func (db *InMemoryDB) ExecuteTransaction(
+	ctx context.Context,
+	input *dynamodb.ExecuteTransactionInput,
+) (*dynamodb.ExecuteTransactionOutput, error) {
+	if len(input.TransactStatements) == 0 {
+		return nil, NewValidationException("TransactStatements must contain at least one statement")
+	}
+
+	const maxTransactStatements = 100
+
+	if len(input.TransactStatements) > maxTransactStatements {
+		return nil, NewValidationException(
+			fmt.Sprintf("Too many statements in transaction: maximum is %d", maxTransactStatements),
+		)
+	}
+
+	runner := &partiQLRunner{backend: db}
+	responses := make([]types.ItemResponse, len(input.TransactStatements))
+
+	for i, stmt := range input.TransactStatements {
+		stmtStr := ""
+		if stmt.Statement != nil {
+			stmtStr = *stmt.Statement
+		}
+
+		// Convert SDK AttributeValue parameters to wire format for the PartiQL runner.
+		wireParams := make([]map[string]any, 0, len(stmt.Parameters))
+		for _, p := range stmt.Parameters {
+			wire, ok := models.FromSDKAttributeValue(p).(map[string]any)
+			if !ok {
+				return nil, NewValidationException("invalid parameter type in TransactStatement")
+			}
+
+			wireParams = append(wireParams, wire)
+		}
+
+		out, err := runner.executeStatement(ctx, executeStatementRequest{
+			Statement:  stmtStr,
+			Parameters: wireParams,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		resp := types.ItemResponse{}
+		if len(out.Items) > 0 {
+			sdkItem, convErr := models.ToSDKItem(out.Items[0])
+			if convErr == nil {
+				resp.Item = sdkItem
+			}
+		}
+
+		responses[i] = resp
+	}
+
+	return &dynamodb.ExecuteTransactionOutput{Responses: responses}, nil
+}
+
+// --- ImportTable ---
+
+// ImportTable is a stub that generates a synthetic import ARN and returns COMPLETED status.
+// The in-memory backend does not perform real S3 imports.
+func (db *InMemoryDB) ImportTable(
+	_ context.Context,
+	input *dynamodb.ImportTableInput,
+) (*dynamodb.ImportTableOutput, error) {
+	if input.TableCreationParameters == nil {
+		return nil, NewValidationException("TableCreationParameters is required")
+	}
+
+	if input.S3BucketSource == nil || input.S3BucketSource.S3Bucket == nil {
+		return nil, NewValidationException("S3BucketSource.S3Bucket is required")
+	}
+
+	importARN := arn.Build("dynamodb", db.defaultRegion, db.accountID,
+		"table/import/"+uuid.New().String())
+	now := time.Now()
+
+	tableARN := ""
+	if input.TableCreationParameters.TableName != nil {
+		tableARN = arn.Build("dynamodb", db.defaultRegion, db.accountID,
+			"table/"+*input.TableCreationParameters.TableName)
+	}
+
+	return &dynamodb.ImportTableOutput{
+		ImportTableDescription: &types.ImportTableDescription{
+			ImportArn:    &importARN,
+			ImportStatus: types.ImportStatusCompleted,
+			TableArn:     &tableARN,
+			StartTime:    &now,
+			EndTime:      &now,
+		},
+	}, nil
+}
+
+// --- ListImports ---
+
+// ListImports returns an empty list; the in-memory backend does not track imports.
+func (db *InMemoryDB) ListImports(
+	_ context.Context,
+	_ *dynamodb.ListImportsInput,
+) (*dynamodb.ListImportsOutput, error) {
+	return &dynamodb.ListImportsOutput{
+		ImportSummaryList: []types.ImportSummary{},
+	}, nil
+}
+
 // --- Global table replication helpers ---
 
 // cloneTableSchema creates a new empty Table in the target region with the same

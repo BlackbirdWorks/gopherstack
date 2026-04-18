@@ -132,6 +132,38 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.DescribeImportInput,
 	) (*dynamodb.DescribeImportOutput, error)
+	ListContributorInsights(
+		context.Context,
+		*dynamodb.ListContributorInsightsInput,
+	) (*dynamodb.ListContributorInsightsOutput, error)
+	UpdateContributorInsights(
+		context.Context,
+		*dynamodb.UpdateContributorInsightsInput,
+	) (*dynamodb.UpdateContributorInsightsOutput, error)
+	UpdateGlobalTableSettings(
+		context.Context,
+		*dynamodb.UpdateGlobalTableSettingsInput,
+	) (*dynamodb.UpdateGlobalTableSettingsOutput, error)
+	UpdateKinesisStreamingDestination(
+		context.Context,
+		*dynamodb.UpdateKinesisStreamingDestinationInput,
+	) (*dynamodb.UpdateKinesisStreamingDestinationOutput, error)
+	UpdateTableReplicaAutoScaling(
+		context.Context,
+		*dynamodb.UpdateTableReplicaAutoScalingInput,
+	) (*dynamodb.UpdateTableReplicaAutoScalingOutput, error)
+	ExecuteTransaction(
+		context.Context,
+		*dynamodb.ExecuteTransactionInput,
+	) (*dynamodb.ExecuteTransactionOutput, error)
+	ImportTable(
+		context.Context,
+		*dynamodb.ImportTableInput,
+	) (*dynamodb.ImportTableOutput, error)
+	ListImports(
+		context.Context,
+		*dynamodb.ListImportsInput,
+	) (*dynamodb.ListImportsOutput, error)
 
 	// Backup Operations
 	CreateBackup(

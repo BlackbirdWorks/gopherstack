@@ -375,3 +375,59 @@ const TxnPendingMaxCap = txnPendingMaxCap
 
 // TTLSweepBatchSize exposes the package-level batch size constant for testing.
 const TTLSweepBatchSize = ttlSweepBatchSize
+
+// ExportCount returns the number of exports stored in the backend.
+func (db *InMemoryDB) ExportCount() int {
+	db.mu.RLock("ExportCount")
+	defer db.mu.RUnlock()
+
+	return len(db.exports)
+}
+
+// ExportDescFields is the exported form of exportDescriptionFields for use in tests.
+type ExportDescFields = exportDescriptionFields
+
+// StoreExportForTest inserts an export record directly without going through the HTTP handler.
+func (db *InMemoryDB) StoreExportForTest(exportARN, tableARN, bucket, status string) {
+	db.storeExport(exportDescriptionFields{
+		ExportArn:    exportARN,
+		ExportStatus: status,
+		TableArn:     tableARN,
+		S3Bucket:     bucket,
+	})
+}
+
+// GetKeySchemaForPartiQLForTest exposes getKeySchemaForPartiQL for testing.
+func (db *InMemoryDB) GetKeySchemaForPartiQLForTest(ctx context.Context, tableName string) (any, error) {
+	return db.getKeySchemaForPartiQL(ctx, tableName)
+}
+
+// NewJanitorForTest creates a Janitor for the given backend with test-friendly defaults.
+func NewJanitorForTest(db *InMemoryDB) *Janitor {
+	return &Janitor{
+		Backend:     db,
+		TaskTimeout: 5 * time.Second,
+	}
+}
+
+// NthSmallestForTest exposes nthSmallest for unit testing.
+func NthSmallestForTest(ts []time.Time, n int) time.Time {
+	return nthSmallest(ts, n)
+}
+
+// HandleRequest exposes the handler's dispatch method for use in tests.
+// It calls the internal dispatch function and returns the result.
+func (h *DynamoDBHandler) HandleRequest(ctx context.Context, action string, body []byte) (any, error) {
+	return h.dispatch(ctx, action, body)
+}
+
+// ExtractExportARNForTest extracts the ExportArn field from an exportTableToPointInTimeOutput
+// returned by the export handler. Returns "" when the output is not of the expected type.
+func ExtractExportARNForTest(out any) string {
+	v, ok := out.(*exportTableToPointInTimeOutput)
+	if !ok {
+		return ""
+	}
+
+	return v.ExportDescription.ExportArn
+}

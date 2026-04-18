@@ -32,12 +32,21 @@ type StoredGlobalTable struct {
 	ReplicationGroup []string `json:"ReplicationGroup"`
 }
 
+// storedExport holds the fields needed to satisfy DescribeExport and ListExports.
+type storedExport struct {
+	ExportArn    string
+	ExportStatus string
+	TableArn     string
+	S3Bucket     string
+}
+
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
 	Tables               map[string]map[string]*Table
 	deletingTables       map[string]map[string]*Table
 	Backups              map[string]*Backup            // backupARN → Backup
 	GlobalTables         map[string]*StoredGlobalTable // globalTableName → StoredGlobalTable
+	exports              map[string]storedExport       // exportARN → storedExport
 	txnTokens            map[string]time.Time          // committed idempotency tokens → expiry time
 	txnPending           map[string]time.Time          // in-progress idempotency tokens → start time
 	streamARNIndex       map[string]*Table             // streamARN → Table (reverse index)
@@ -132,6 +141,7 @@ func NewInMemoryDB() *InMemoryDB {
 		deletingTables:       make(map[string]map[string]*Table),
 		Backups:              make(map[string]*Backup),
 		GlobalTables:         make(map[string]*StoredGlobalTable),
+		exports:              make(map[string]storedExport),
 		txnTokens:            make(map[string]time.Time),
 		txnPending:           make(map[string]time.Time),
 		streamARNIndex:       make(map[string]*Table),
@@ -563,6 +573,7 @@ func (db *InMemoryDB) Reset() {
 	db.streamARNIndex = make(map[string]*Table)
 	db.Backups = make(map[string]*Backup)
 	db.GlobalTables = make(map[string]*StoredGlobalTable)
+	db.exports = make(map[string]storedExport)
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
@@ -584,4 +595,49 @@ func (db *InMemoryDB) regionFromARN(tableARN string) string {
 	}
 
 	return db.defaultRegion
+}
+
+// storeExport persists an export record so it can be retrieved by DescribeExport/ListExports.
+func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
+	db.mu.Lock("storeExport")
+	defer db.mu.Unlock()
+
+	db.exports[desc.ExportArn] = storedExport(desc)
+}
+
+// lookupExport retrieves a stored export by ARN.
+func (db *InMemoryDB) lookupExport(exportARN string) (exportDescriptionFields, bool) {
+	db.mu.RLock("lookupExport")
+	defer db.mu.RUnlock()
+
+	e, ok := db.exports[exportARN]
+	if !ok {
+		return exportDescriptionFields{}, false
+	}
+
+	return exportDescriptionFields(e), true
+}
+
+// listExportsWire returns all stored exports as wire-format structs, optionally
+// filtered by tableArn. nextToken is reserved for future pagination support.
+func (db *InMemoryDB) listExportsWire(tableArn, _ string) *listExportsOutput {
+	db.mu.RLock("listExportsWire")
+
+	summaries := make([]exportDescriptionFields, 0, len(db.exports))
+	for _, e := range db.exports {
+		if tableArn != "" && e.TableArn != tableArn {
+			continue
+		}
+
+		summaries = append(summaries, exportDescriptionFields(e))
+	}
+
+	db.mu.RUnlock()
+
+	// Sort by ARN for deterministic ordering.
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].ExportArn < summaries[j].ExportArn
+	})
+
+	return &listExportsOutput{ExportSummaries: summaries}
 }

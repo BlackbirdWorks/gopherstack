@@ -119,6 +119,25 @@ type partiQLRunner struct {
 	backend StorageBackend
 }
 
+// lookupKeySchema returns the key schema for the named table.
+// When the backend is an *InMemoryDB the lookup is served from the expression
+// cache (TTL: 10 minutes), avoiding repeated global-lock acquisitions on hot
+// SELECT/UPDATE/DELETE paths. For other backends it falls back to DescribeTable.
+func (r *partiQLRunner) lookupKeySchema(ctx context.Context, tableName string) ([]models.KeySchemaElement, error) {
+	if db, ok := r.backend.(*InMemoryDB); ok {
+		return db.getKeySchemaForPartiQL(ctx, tableName)
+	}
+
+	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return models.FromSDKKeySchema(descOut.Table.KeySchema), nil
+}
+
 // executeStatement dispatches a single PartiQL statement to the appropriate handler.
 func (r *partiQLRunner) executeStatement(
 	ctx context.Context,
@@ -276,6 +295,9 @@ func (r *partiQLRunner) executePartiQLSelect(
 // tryQueryOptimization attempts to convert the PartiQL SELECT into a Query operation
 // when the partition key is present. Returns (nil, nil) when scan should be used instead,
 // or (result, nil) on success, or (nil, err) when a definitive error occurred.
+//
+// Key schema lookups are performed via getKeySchemaForPartiQL, which caches results
+// in the expression cache to avoid repeated global-lock acquisitions on hot paths.
 func (r *partiQLRunner) tryQueryOptimization(
 	ctx context.Context,
 	req executeStatementRequest,
@@ -284,16 +306,30 @@ func (r *partiQLRunner) tryQueryOptimization(
 	colList string,
 	limit int,
 ) (*executeStatementResponse, error) {
-	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(tableName),
-	})
-	if err != nil {
-		return nil, errScanFallback // Table lookup failed; fall back to scan
+	var keySchema []models.KeySchemaElement
+
+	if db, ok := r.backend.(*InMemoryDB); ok {
+		ks, err := db.getKeySchemaForPartiQL(ctx, tableName)
+		if err != nil {
+			return nil, errScanFallback
+		}
+
+		keySchema = ks
+	} else {
+		// Fallback for alternative backends that don't implement the cache.
+		descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+			TableName: aws.String(tableName),
+		})
+		if descErr != nil {
+			return nil, errScanFallback
+		}
+
+		keySchema = models.FromSDKKeySchema(descOut.Table.KeySchema)
 	}
 
-	keyAttrs := make(map[string]bool, len(descOut.Table.KeySchema))
-	for _, k := range descOut.Table.KeySchema {
-		keyAttrs[aws.ToString(k.AttributeName)] = true
+	keyAttrs := make(map[string]bool, len(keySchema))
+	for _, k := range keySchema {
+		keyAttrs[k.AttributeName] = true
 	}
 
 	wireKey, err := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
@@ -306,7 +342,7 @@ func (r *partiQLRunner) tryQueryOptimization(
 		return nil, errScanFallback
 	}
 
-	pkName, _ := getPKAndSK(models.FromSDKKeySchema(descOut.Table.KeySchema))
+	pkName, _ := getPKAndSK(keySchema)
 
 	if wireKey[pkName.AttributeName] == nil {
 		return nil, errScanFallback // PK value not present
@@ -507,16 +543,15 @@ func (r *partiQLRunner) executePartiQLUpdate(
 	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
 
 	// Get key schema to identify which WHERE conditions are key conditions.
-	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(tableName),
-	})
+	// Use the cached lookup to avoid repeated global-lock acquisitions.
+	keySchema, err := r.lookupKeySchema(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	keyAttrs := make(map[string]bool, len(descOut.Table.KeySchema))
-	for _, k := range descOut.Table.KeySchema {
-		keyAttrs[aws.ToString(k.AttributeName)] = true
+	keyAttrs := make(map[string]bool, len(keySchema))
+	for _, k := range keySchema {
+		keyAttrs[k.AttributeName] = true
 	}
 
 	wireKey, err := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
@@ -569,16 +604,14 @@ func (r *partiQLRunner) executePartiQLDelete(
 
 	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
 
-	descOut, err := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(tableName),
-	})
+	keySchema, err := r.lookupKeySchema(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	keyAttrs := make(map[string]bool, len(descOut.Table.KeySchema))
-	for _, k := range descOut.Table.KeySchema {
-		keyAttrs[aws.ToString(k.AttributeName)] = true
+	keyAttrs := make(map[string]bool, len(keySchema))
+	for _, k := range keySchema {
+		keyAttrs[k.AttributeName] = true
 	}
 
 	wireKey, err := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
