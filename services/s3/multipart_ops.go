@@ -148,13 +148,6 @@ func (h *S3Handler) uploadPartCopy(
 		PartNumber: aws.Int32(int32(partNumber)), // #nosec G115
 		Body:       body,
 	})
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
-		errors.Is(err, ErrNoSuchUpload) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
 		WriteError(ctx, w, r, err)
 

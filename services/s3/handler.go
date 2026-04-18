@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	s3SDK "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -69,15 +70,13 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	DefaultRegion   string
-	janitor         *Janitor
 	notifier        NotificationDispatcher
 	notificationCtx context.Context
 	Backend         StorageBackend
-	// Endpoint is the base host (e.g. "localhost:9000") of this server.
-	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
-	// in addition to path-style URLs (/bucket/key).
-	Endpoint string
+	janitor         *Janitor
+	DefaultRegion   string
+	Endpoint        string
+	notificationMu  sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -109,7 +108,9 @@ func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration)
 
 // StartWorker starts the background janitor if it is configured.
 func (h *S3Handler) StartWorker(ctx context.Context) error {
+	h.notificationMu.Lock()
 	h.notificationCtx = ctx
+	h.notificationMu.Unlock()
 
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
@@ -119,6 +120,9 @@ func (h *S3Handler) StartWorker(ctx context.Context) error {
 }
 
 func (h *S3Handler) notificationDispatchContext() context.Context {
+	h.notificationMu.RLock()
+	defer h.notificationMu.RUnlock()
+
 	if h.notificationCtx != nil {
 		return h.notificationCtx
 	}
