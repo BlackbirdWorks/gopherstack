@@ -1,10 +1,16 @@
 package dynamodb
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandler_ClassifyError_Mapping(t *testing.T) {
@@ -109,6 +115,198 @@ func TestHandler_ClassifyError_Mapping(t *testing.T) {
 			status, wireErr := h.classifyError(tt.err)
 			assert.Equal(t, tt.wantStatusCode, status)
 			assert.Contains(t, wireErr.Type, tt.wantType)
+		})
+	}
+}
+
+type countingMarshaler struct {
+	counter *atomic.Int64
+}
+
+func (m countingMarshaler) MarshalJSON() ([]byte, error) {
+	m.counter.Add(1)
+
+	return []byte(`"counted"`), nil
+}
+
+func TestHandler_DebugMarshallingConditional(t *testing.T) {
+	t.Parallel()
+
+	type wireOut struct {
+		Value countingMarshaler `json:"Value"`
+	}
+
+	tests := []struct {
+		invoke func(context.Context, *atomic.Int64) error
+		name   string
+		level  slog.Level
+		want   int64
+	}{
+		{
+			name:  "handleOp skips marshalling when debug disabled",
+			level: slog.LevelInfo,
+			want:  0,
+			invoke: func(ctx context.Context, counter *atomic.Int64) error {
+				_, err := handleOp[struct{}, struct{}, struct{}, wireOut](
+					ctx, "TestAction", nil,
+					func(*struct{}) *struct{} { return &struct{}{} },
+					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
+					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
+				)
+
+				return err
+			},
+		},
+		{
+			name:  "handleOp marshals when debug enabled",
+			level: slog.LevelDebug,
+			want:  1,
+			invoke: func(ctx context.Context, counter *atomic.Int64) error {
+				_, err := handleOp[struct{}, struct{}, struct{}, wireOut](
+					ctx, "TestAction", nil,
+					func(*struct{}) *struct{} { return &struct{}{} },
+					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
+					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
+				)
+
+				return err
+			},
+		},
+		{
+			name:  "handleOpErr skips marshalling when debug disabled",
+			level: slog.LevelInfo,
+			want:  0,
+			invoke: func(ctx context.Context, counter *atomic.Int64) error {
+				_, err := handleOpErr[struct{}, struct{}, struct{}, wireOut](
+					ctx, "TestAction", nil,
+					func(*struct{}) (*struct{}, error) { return &struct{}{}, nil },
+					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
+					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
+				)
+
+				return err
+			},
+		},
+		{
+			name:  "handleOpErr marshals when debug enabled",
+			level: slog.LevelDebug,
+			want:  1,
+			invoke: func(ctx context.Context, counter *atomic.Int64) error {
+				_, err := handleOpErr[struct{}, struct{}, struct{}, wireOut](
+					ctx, "TestAction", nil,
+					func(*struct{}) (*struct{}, error) { return &struct{}{}, nil },
+					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
+					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
+				)
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var counter atomic.Int64
+
+			ctx := logger.Save(t.Context(), logger.NewLogger(tt.level))
+			err := tt.invoke(ctx, &counter)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, counter.Load())
+		})
+	}
+}
+
+func TestHandler_JanitorLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		cancelBeforeStop bool
+		startWorker      bool
+		startWorkerTwice bool
+		wantDoneChan     bool
+	}{
+		{
+			name:         "shutdown without started worker is no-op",
+			startWorker:  false,
+			wantDoneChan: false,
+		},
+		{
+			name:         "start then shutdown drains janitor goroutine",
+			startWorker:  true,
+			wantDoneChan: true,
+		},
+		{
+			name:             "second StartWorker call is idempotent",
+			startWorker:      true,
+			startWorkerTwice: true,
+			wantDoneChan:     true,
+		},
+		{
+			name:             "cancelled parent context still drains janitor",
+			startWorker:      true,
+			cancelBeforeStop: true,
+			wantDoneChan:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := NewHandler(NewInMemoryDB()).WithJanitor(Settings{JanitorInterval: time.Hour})
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			var firstDone chan struct{}
+
+			if tt.startWorker {
+				require.NoError(t, h.StartWorker(ctx))
+
+				h.janitorMu.Lock()
+				firstDone = h.janitorDone
+				h.janitorMu.Unlock()
+			}
+
+			if tt.startWorkerTwice {
+				require.NoError(t, h.StartWorker(ctx))
+
+				h.janitorMu.Lock()
+				secondDone := h.janitorDone
+				h.janitorMu.Unlock()
+				assert.Equal(t, firstDone, secondDone)
+			}
+
+			if tt.cancelBeforeStop {
+				cancel()
+			}
+
+			h.Shutdown(t.Context())
+
+			h.janitorMu.Lock()
+			done := h.janitorDone
+			h.janitorMu.Unlock()
+
+			if !tt.wantDoneChan {
+				assert.Nil(t, done)
+
+				return
+			}
+
+			require.NotNil(t, firstDone)
+
+			exited := false
+			select {
+			case <-firstDone:
+				exited = true
+			case <-time.After(2 * time.Second):
+			}
+
+			assert.True(t, exited)
+			assert.Nil(t, done)
 		})
 	}
 }

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -63,7 +65,10 @@ type DynamoDBHandler struct {
 	Backend       StorageBackend
 	Streams       StreamsBackend
 	janitor       *Janitor
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
 	DefaultRegion string
+	janitorMu     sync.Mutex
 }
 
 // NewHandler creates a new DynamoDB handler with the given storage backend.
@@ -103,11 +108,51 @@ func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout ...time.
 // StartWorker starts the background janitor if it is configured.
 func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
-		go h.janitor.Run(ctx)
+		h.janitorMu.Lock()
+		if h.janitorDone != nil {
+			h.janitorMu.Unlock()
+
+			return nil
+		}
+
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		h.janitorCancel = cancel
+		h.janitorDone = done
+		h.janitorMu.Unlock()
+
+		go func() {
+			defer close(done)
+			h.janitor.Run(runCtx)
+		}()
 	}
 
 	return nil
 }
+
+// Shutdown stops the janitor worker and waits for it to exit (or until ctx expires).
+func (h *DynamoDBHandler) Shutdown(ctx context.Context) {
+	h.janitorMu.Lock()
+	cancel := h.janitorCancel
+	done := h.janitorDone
+	h.janitorCancel = nil
+	h.janitorDone = nil
+	h.janitorMu.Unlock()
+
+	if cancel == nil || done == nil {
+		return
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+var _ service.BackgroundWorker = (*DynamoDBHandler)(nil)
+var _ service.Shutdowner = (*DynamoDBHandler)(nil)
 
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.
 func (h *DynamoDBHandler) GetSupportedOperations() []string {
@@ -474,8 +519,11 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 		}
 	}
 
-	inputJSON, _ := json.Marshal(input)
-	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	debugEnabled := log.Enabled(ctx, slog.LevelDebug)
+	if debugEnabled {
+		inputJSON, _ := json.Marshal(input)
+		log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	}
 
 	sdkInput, err := toSDK(&input)
 	if err != nil {
@@ -488,8 +536,10 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	wireOutput := fromSDK(sdkOutput)
 
-	outputJSON, _ := json.Marshal(wireOutput)
-	log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	if debugEnabled {
+		outputJSON, _ := json.Marshal(wireOutput)
+		log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	}
 
 	return wireOutput, nil
 }
@@ -512,8 +562,11 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 		}
 	}
 
-	inputJSON, _ := json.Marshal(input)
-	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	debugEnabled := log.Enabled(ctx, slog.LevelDebug)
+	if debugEnabled {
+		inputJSON, _ := json.Marshal(input)
+		log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
+	}
 
 	sdkInput := toSDK(&input)
 	sdkOutput, err := doOp(ctx, sdkInput)
@@ -523,8 +576,10 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	wireOutput := fromSDK(sdkOutput)
 
-	outputJSON, _ := json.Marshal(wireOutput)
-	log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	if debugEnabled {
+		outputJSON, _ := json.Marshal(wireOutput)
+		log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
+	}
 
 	return wireOutput, nil
 }
