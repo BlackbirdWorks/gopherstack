@@ -17,12 +17,16 @@ permissions:
   pull-requests: write
   security-events: write
 
+env:
+  GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -40,6 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -73,6 +78,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Initialize CodeQL
@@ -91,6 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -120,6 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -151,6 +159,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -209,6 +218,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -266,6 +276,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -312,6 +323,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
@@ -339,6 +351,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -378,7 +391,7 @@ jobs:
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_run')
         uses: actions/github-script@v9
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.GH_CI_TOKEN }}
           script: |
             const fs = require('fs');
             const { execSync } = require('child_process');
