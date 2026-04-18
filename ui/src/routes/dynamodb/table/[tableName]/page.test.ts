@@ -350,4 +350,58 @@ describe('DynamoDB Table Detail Page', () => {
 			expect(document.querySelector('#partiql-output')?.textContent).toContain('partiql-item');
 		}, { timeout: 3000 });
 	});
+
+	it('shows Export CSV button when items are loaded', async () => {
+		defaultMocks();
+		mockSend.mockResolvedValueOnce({
+			Items: [{ id: { S: 'row-1' }, val: { N: '42' } }],
+			Count: 1
+		});
+
+		render(TableDetailPage);
+		await waitFor(() => expect(screen.getByText('Items')).toBeInTheDocument(), { timeout: 3000 });
+		await fireEvent.click(screen.getByText('Items'));
+		await waitFor(() => {
+			expect(screen.getByText('Export CSV')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('filters items client-side using the filter input', async () => {
+		defaultMocks();
+		mockSend.mockResolvedValueOnce({
+			Items: [
+				{ id: { S: 'apple' } },
+				{ id: { S: 'banana' } }
+			],
+			Count: 2
+		});
+
+		render(TableDetailPage);
+		await waitFor(() => expect(screen.getByText('Items')).toBeInTheDocument(), { timeout: 3000 });
+		await fireEvent.click(screen.getByText('Items'));
+		await waitFor(() => expect(screen.getByText('apple')).toBeInTheDocument(), { timeout: 3000 });
+
+		const filterInput = screen.getByPlaceholderText('Filter…');
+		await fireEvent.input(filterInput, { target: { value: 'apple' } });
+		await waitFor(() => {
+			expect(screen.getByText('apple')).toBeInTheDocument();
+			expect(screen.queryByText('banana')).not.toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
+
+	it('shows Backups tab and loads backups', async () => {
+		defaultMocks();
+		mockSend.mockResolvedValueOnce({
+			BackupSummaries: [
+				{ BackupName: 'my-backup', BackupStatus: 'AVAILABLE', BackupArn: 'arn:aws:dynamodb:::table/t/backup/b1' }
+			]
+		});
+
+		render(TableDetailPage);
+		await waitFor(() => expect(screen.getByText('Backups')).toBeInTheDocument(), { timeout: 3000 });
+		await fireEvent.click(screen.getByText('Backups'));
+		await waitFor(() => {
+			expect(screen.getByText('my-backup')).toBeInTheDocument();
+		}, { timeout: 3000 });
+	});
 });
