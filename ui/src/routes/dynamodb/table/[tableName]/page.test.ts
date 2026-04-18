@@ -55,8 +55,8 @@ const ttlEnabledResponse = {
 };
 
 function defaultMocks(): void {
-	mockSend.mockResolvedValueOnce(ttlDisabledResponse); // DescribeTimeToLive
-	mockSend.mockResolvedValueOnce(tableResponse);        // DescribeTable
+	mockSend.mockResolvedValueOnce(ttlDisabledResponse);
+	mockSend.mockResolvedValueOnce(tableResponse);
 }
 
 describe('DynamoDB Table Detail Page', () => {
@@ -94,7 +94,7 @@ describe('DynamoDB Table Detail Page', () => {
 		defaultMocks();
 		render(TableDetailPage);
 		await waitFor(() => {
-			const card = document.getElementById('ttl-status-card');
+			const card = document.querySelector('#ttl-status-card');
 			expect(card).toBeInTheDocument();
 			expect(card?.textContent).toContain('DISABLED');
 		}, { timeout: 3000 });
@@ -105,7 +105,7 @@ describe('DynamoDB Table Detail Page', () => {
 		mockSend.mockResolvedValueOnce(tableResponse);
 		render(TableDetailPage);
 		await waitFor(() => {
-			const card = document.getElementById('ttl-status-card');
+			const card = document.querySelector('#ttl-status-card');
 			expect(card?.textContent).toContain('ENABLED');
 			expect(card?.textContent).toContain('expiry');
 		}, { timeout: 3000 });
@@ -164,7 +164,7 @@ describe('DynamoDB Table Detail Page', () => {
 			expect(screen.getByLabelText('Enable TTL')).toBeInTheDocument();
 		}, { timeout: 3000 });
 		expect(screen.getByText('Update TTL')).toBeInTheDocument();
-		expect(document.getElementById('ttl-enabled')).toBeInTheDocument();
+		expect(document.querySelector('#ttl-enabled')).toBeInTheDocument();
 		expect(document.querySelector('input[name="attributeName"]')).toBeInTheDocument();
 	});
 
@@ -174,21 +174,21 @@ describe('DynamoDB Table Detail Page', () => {
 		await waitFor(() => {
 			expect(screen.getByText('Update Streams')).toBeInTheDocument();
 		}, { timeout: 3000 });
-		expect(document.getElementById('streams-enabled')).toBeInTheDocument();
+		expect(document.querySelector('#streams-enabled')).toBeInTheDocument();
 	});
 
 	it('calls UpdateTimeToLive and shows success toast when TTL enabled', async () => {
 		defaultMocks();
-		mockSend.mockResolvedValueOnce({}); // UpdateTimeToLive
-		mockSend.mockResolvedValueOnce(ttlEnabledResponse); // reload DescribeTimeToLive
-		mockSend.mockResolvedValueOnce(tableResponse);       // reload DescribeTable
+		mockSend.mockResolvedValueOnce({});
+		mockSend.mockResolvedValueOnce(ttlEnabledResponse);
+		mockSend.mockResolvedValueOnce(tableResponse);
 
 		render(TableDetailPage);
 		await waitFor(() => {
 			expect(screen.getByText('Update TTL')).toBeInTheDocument();
 		}, { timeout: 3000 });
 
-		await fireEvent.click(document.getElementById('ttl-enabled')!);
+		await fireEvent.click(document.querySelector('#ttl-enabled')!);
 		await fireEvent.click(screen.getByText('Update TTL'));
 
 		const { toast } = await import('svelte-sonner');
@@ -198,19 +198,19 @@ describe('DynamoDB Table Detail Page', () => {
 	});
 
 	it('calls UpdateTimeToLive and shows disabled toast when TTL disabled', async () => {
-		mockSend.mockResolvedValueOnce(ttlEnabledResponse); // initial load: TTL enabled
+		mockSend.mockResolvedValueOnce(ttlEnabledResponse);
 		mockSend.mockResolvedValueOnce(tableResponse);
-		mockSend.mockResolvedValueOnce({});                 // UpdateTimeToLive
-		mockSend.mockResolvedValueOnce(ttlDisabledResponse); // reload
+		mockSend.mockResolvedValueOnce({});
+		mockSend.mockResolvedValueOnce(ttlDisabledResponse);
 		mockSend.mockResolvedValueOnce(tableResponse);
 
 		render(TableDetailPage);
 		await waitFor(() => {
-			expect(document.getElementById('ttl-status-card')?.textContent).toContain('ENABLED');
+			expect(document.querySelector('#ttl-status-card')?.textContent).toContain('ENABLED');
 		}, { timeout: 3000 });
 
 		// uncheck the checkbox (already checked because TTL is enabled)
-		await fireEvent.click(document.getElementById('ttl-enabled')!);
+		await fireEvent.click(document.querySelector('#ttl-enabled')!);
 		await fireEvent.click(screen.getByText('Update TTL'));
 
 		const { toast } = await import('svelte-sonner');
@@ -333,8 +333,8 @@ describe('DynamoDB Table Detail Page', () => {
 		render(TableDetailPage);
 		await waitFor(() => expect(screen.getByText('PartiQL')).toBeInTheDocument(), { timeout: 3000 });
 		await fireEvent.click(screen.getByText('PartiQL'));
-		expect(document.getElementById('partiql-execute')).toBeInTheDocument();
-		expect(document.getElementById('partiql-output')).toBeInTheDocument();
+		expect(document.querySelector('#partiql-execute')).toBeInTheDocument();
+		expect(document.querySelector('#partiql-output')).toBeInTheDocument();
 	});
 
 	it('executes PartiQL and shows output', async () => {
@@ -345,9 +345,9 @@ describe('DynamoDB Table Detail Page', () => {
 		await waitFor(() => expect(screen.getByText('PartiQL')).toBeInTheDocument(), { timeout: 3000 });
 		await fireEvent.click(screen.getByText('PartiQL'));
 
-		await fireEvent.click(document.getElementById('partiql-execute')!);
+		await fireEvent.click(document.querySelector('#partiql-execute')!);
 		await waitFor(() => {
-			expect(document.getElementById('partiql-output')?.textContent).toContain('partiql-item');
+			expect(document.querySelector('#partiql-output')?.textContent).toContain('partiql-item');
 		}, { timeout: 3000 });
 	});
 });
