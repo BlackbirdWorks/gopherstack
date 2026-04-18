@@ -1074,7 +1074,7 @@ func newDashboardConfig(h handlers, _ sdkClients) (dashboard.Config, *chaos.Faul
 		MediaStoreDataOps:          h.mediastoredata,
 		CodeStarConnectionsOps:     h.codeStarConn,
 		CognitoIDPOps:              h.cognitoIDP,
-		DynamoDBStreamsOps:          h.dynamodbStreams,
+		DynamoDBStreamsOps:         h.dynamodbStreams,
 	}
 
 	return cfg, fs

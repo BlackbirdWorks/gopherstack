@@ -843,8 +843,12 @@ func (h *DashboardHandler) setupSubRouter() {
 				"<tr class='border-b border-slate-100 dark:border-slate-700 " +
 					"hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors'>",
 			)
-			sb.WriteString("<td class='py-1 pr-3 font-semibold " + eventClass + "'>" + html.EscapeString(e.EventName) + "</td>")
-			sb.WriteString("<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>…" + html.EscapeString(seq) + "</td>")
+			sb.WriteString(
+				"<td class='py-1 pr-3 font-semibold " + eventClass + "'>" + html.EscapeString(e.EventName) + "</td>",
+			)
+			sb.WriteString(
+				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>…" + html.EscapeString(seq) + "</td>",
+			)
 			sb.WriteString("<td class='py-1 text-slate-500 dark:text-slate-400'>" + html.EscapeString(ts) + "</td>")
 			sb.WriteString("</tr>")
 		}
