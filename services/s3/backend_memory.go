@@ -1853,6 +1853,7 @@ func (b *InMemoryBackend) assembleMultipartData(
 		}
 	}
 
+	// Allocate buf with exact capacity to avoid O(n²) re-allocation.
 	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
 
 	// partMD5s accumulates the raw (binary) MD5 bytes of each part for the AWS
@@ -1876,10 +1877,16 @@ func (b *InMemoryBackend) assembleMultipartData(
 		buf.Write(storedPart.Data)
 
 		// Decode the stored ETag (quoted hex, e.g. `"d41d8..."`) into raw bytes.
+		// A decode failure means a corrupted/malformed part ETag was stored,
+		// which should not occur in normal operation but is treated as invalid.
 		rawETag := strings.Trim(storedPart.ETag, "\"")
-		if rawBytes, decErr := hex.DecodeString(rawETag); decErr == nil {
-			partMD5s = append(partMD5s, rawBytes...)
+		rawBytes, decErr := hex.DecodeString(rawETag)
+		if decErr != nil {
+			upload.mu.RUnlock()
+
+			return multipartAssemblyResult{}, ErrInvalidPart
 		}
+		partMD5s = append(partMD5s, rawBytes...)
 	}
 	upload.mu.RUnlock()
 
@@ -2081,7 +2088,7 @@ func seekMultipartMarker(uploads []types.MultipartUpload, keyMarker, uploadIDMar
 // truncateUploads enforces the MaxUploads page size, returning the IsTruncated flag and
 // the next-page markers. The uploads slice is truncated in-place.
 func truncateUploads(uploads *[]types.MultipartUpload, maxUploads int32) (bool, string, string) {
-	if int32(len(*uploads)) <= maxUploads { //nolint:gosec // len() is always non-negative
+	if int32(len(*uploads)) <= maxUploads { //nolint:gosec // len() is bounded by maxUploads which is at most 1000
 		return false, "", ""
 	}
 

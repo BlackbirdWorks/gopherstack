@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -3323,9 +3324,7 @@ func TestHandler_CompleteMultipartUpload_PartOrder(t *testing.T) {
 			for i := 1; i <= 3; i++ {
 				req := httptest.NewRequest(
 					http.MethodPut,
-					"/bkt/obj?partNumber="+strings.TrimSpace(
-						strings.Repeat(string(rune('0'+i)), 1),
-					)+"&uploadId="+uploadID,
+					"/bkt/obj?partNumber="+strconv.Itoa(i)+"&uploadId="+uploadID,
 					strings.NewReader("data"),
 				)
 				rec := httptest.NewRecorder()
@@ -3338,7 +3337,7 @@ func TestHandler_CompleteMultipartUpload_PartOrder(t *testing.T) {
 			var parts strings.Builder
 			for _, pn := range tt.partOrder {
 				parts.WriteString("<Part><PartNumber>")
-				parts.WriteString(strings.TrimSpace(strings.Repeat(string(rune('0'+pn)), 1)))
+				parts.WriteString(strconv.Itoa(pn))
 				parts.WriteString("</PartNumber><ETag>")
 				parts.WriteString(partETags[pn])
 				parts.WriteString("</ETag></Part>")
@@ -3378,7 +3377,7 @@ func TestHandler_MultipartUpload_ETagFormat(t *testing.T) {
 	for i := 1; i <= 2; i++ {
 		req := httptest.NewRequest(
 			http.MethodPut,
-			"/bkt/obj?partNumber="+strings.TrimSpace(strings.Repeat(string(rune('0'+i)), 1))+"&uploadId="+uploadID,
+			"/bkt/obj?partNumber="+strconv.Itoa(i)+"&uploadId="+uploadID,
 			strings.NewReader("part-data"),
 		)
 		rec := httptest.NewRecorder()
