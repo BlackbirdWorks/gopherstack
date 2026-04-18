@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
-	import { newDynamoDBClient } from '$lib/aws/client';
+	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
 	import {
 		DescribeTableCommand,
 		DescribeTimeToLiveCommand,
@@ -21,7 +21,7 @@
 	import { toast } from 'svelte-sonner';
 	import { itemToJson, avToJson } from '$lib/dynamodb';
 
-	const dynamodb = newDynamoDBClient();
+	let dynamodb = newDynamoDBClient();
 	const tableName = $derived(page.params.tableName ?? '');
 
 	// ── Core state ─────────────────────────────────────────────────────────────
@@ -39,7 +39,13 @@
 	let itemsLoading = $state(false);
 	let itemsLastKey = $state<Record<string, AttributeValue> | undefined>();
 	let itemsHasMore = $state(false);
-	let itemColumns = $derived(getItemColumns(items));
+	let itemsFilter = $state('');
+	const itemColumns = $derived(getItemColumns(items));
+	const filteredItems = $derived(
+		itemsFilter.trim()
+			? items.filter(row => Object.values(row).some(av => cellValue(av).toLowerCase().includes(itemsFilter.toLowerCase())))
+			: items
+	);
 
 	function getItemColumns(rows: Record<string, AttributeValue>[]): string[] {
 		const cols = new Set<string>();
@@ -84,6 +90,24 @@
 		URL.revokeObjectURL(url);
 	}
 
+	function exportItemsCSV(): void {
+		const data = items.map((item) => itemToJson(item));
+		const cols = [...new Set(data.flatMap(r => Object.keys(r as Record<string, unknown>)))];
+		const header = cols.map(c => JSON.stringify(c)).join(',');
+		const rows = data.map(r => cols.map(c => {
+			const v = (r as Record<string, unknown>)[c];
+			return JSON.stringify(v ?? '');
+		}).join(','));
+		const csv = [header, ...rows].join('\n');
+		const blob = new Blob([csv], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${tableName}-items.csv`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
 	// ── Query tab ──────────────────────────────────────────────────────────────
 	let queryPK = $state('');
 	let queryPKValue = $state('');
@@ -91,9 +115,14 @@
 	let querySKOp = $state('=');
 	let querySKValue = $state('');
 	let querySKValue2 = $state('');
+	let queryIndexName = $state('');
 	let queryResults = $state<Record<string, AttributeValue>[]>([]);
 	let queryLoading = $state(false);
-	let queryColumns = $derived(getItemColumns(queryResults));
+	const queryColumns = $derived(getItemColumns(queryResults));
+	const availableIndexes = $derived([
+		...(tableDesc?.GlobalSecondaryIndexes?.map(g => g.IndexName ?? '') ?? []),
+		...(tableDesc?.LocalSecondaryIndexes?.map(l => l.IndexName ?? '') ?? [])
+	].filter(Boolean));
 
 	async function runQuery(): Promise<void> {
 		if (!tableName || !queryPKValue.trim()) {
@@ -120,6 +149,7 @@
 			}
 			const result = await dynamodb.send(new QueryCommand({
 				TableName: tableName,
+				IndexName: queryIndexName || undefined,
 				KeyConditionExpression: keyCondition,
 				ExpressionAttributeNames: exprNames,
 				ExpressionAttributeValues: exprValues
@@ -336,7 +366,28 @@
 	}
 
 	// ── Lifecycle ──────────────────────────────────────────────────────────────
-	onMount(() => { void loadState(); });
+	onMount(() => {
+		void loadState();
+		const handleRegionChange = (e: Event) => {
+			const region = e instanceof CustomEvent && typeof e.detail === 'string'
+				? e.detail
+				: getStoredRegion();
+			dynamodb = newDynamoDBClient(region);
+			void loadState();
+		};
+		const handleStorage = (e: StorageEvent) => {
+			if (e.key === 'gopherstack_region' && e.newValue) {
+				dynamodb = newDynamoDBClient(e.newValue);
+				void loadState();
+			}
+		};
+		window.addEventListener('gopherstack:region-change', handleRegionChange);
+		window.addEventListener('storage', handleStorage);
+		return () => {
+			window.removeEventListener('gopherstack:region-change', handleRegionChange);
+			window.removeEventListener('storage', handleStorage);
+		};
+	});
 	onDestroy(() => { stopStreamPolling(); });
 </script>
 
@@ -579,15 +630,26 @@
 	<!-- ── Items tab ───────────────────────────────────────────────────────── -->
 	{#if activeTab === 'items'}
 		<section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
-			<div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-				<span class="text-sm font-medium text-slate-800 dark:text-slate-200">{items.length} item{items.length !== 1 ? 's' : ''} loaded</span>
-				<div class="flex gap-2">
+			<div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+				<span class="text-sm font-medium text-slate-800 dark:text-slate-200">
+					{filteredItems.length}{itemsFilter ? ` / ${items.length}` : ''} item{items.length !== 1 ? 's' : ''} loaded
+				</span>
+				<div class="flex gap-2 flex-wrap">
+					<input
+						type="text"
+						bind:value={itemsFilter}
+						placeholder="Filter…"
+						class="text-xs rounded-lg border border-slate-300 px-3 py-1.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+					/>
 					<button type="button" class="text-xs rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700" onclick={() => void loadItems(true)} disabled={itemsLoading}>
 						{itemsLoading ? 'Loading…' : 'Refresh'}
 					</button>
 					{#if items.length > 0}
 						<button type="button" class="text-xs rounded-lg border border-green-500 text-green-700 px-3 py-1.5 hover:bg-green-50 dark:text-green-400 dark:border-green-600 dark:hover:bg-green-900/20" onclick={exportItemsJSON}>
 							Export JSON
+						</button>
+						<button type="button" class="text-xs rounded-lg border border-teal-500 text-teal-700 px-3 py-1.5 hover:bg-teal-50 dark:text-teal-400 dark:border-teal-600 dark:hover:bg-teal-900/20" onclick={exportItemsCSV}>
+							Export CSV
 						</button>
 					{/if}
 				</div>
@@ -596,6 +658,8 @@
 				<div class="p-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading items…</div>
 			{:else if items.length === 0}
 				<div class="p-8 text-center text-sm text-slate-500 dark:text-slate-400">No items found in this table.</div>
+			{:else if filteredItems.length === 0}
+				<div class="p-8 text-center text-sm text-slate-500 dark:text-slate-400">No items match the filter.</div>
 			{:else}
 				<div class="overflow-x-auto">
 					<table class="w-full text-xs">
@@ -607,7 +671,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each items as item, i}
+							{#each filteredItems as item, i}
 								<tr class="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 {i % 2 === 0 ? '' : 'bg-slate-50/50 dark:bg-slate-800/50'}">
 									{#each itemColumns as col}
 										<td class="px-3 py-2 max-w-xs truncate font-mono text-slate-800 dark:text-slate-200" title={item[col] ? cellValue(item[col]) : ''}>
@@ -638,6 +702,17 @@
 	{#if activeTab === 'query'}
 		<section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm space-y-3">
 			<h3 class="text-sm font-semibold text-slate-900 dark:text-white">Query by Key</h3>
+			{#if availableIndexes.length > 0}
+				<div>
+					<label for="query-index" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Index (optional)</label>
+					<select id="query-index" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={queryIndexName}>
+						<option value="">Table (primary key)</option>
+						{#each availableIndexes as idx}
+							<option value={idx}>{idx}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 				<div>
 					<label for="query-pk-attr" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key Attribute</label>

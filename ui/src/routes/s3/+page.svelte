@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, onDestroy } from 'svelte';
+import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
 import { newS3Client, getStoredRegion } from '$lib/aws/client';
 import {
@@ -934,8 +934,6 @@ window.removeEventListener('storage', handleStorage);
 window.removeEventListener('gopherstack:region-change', handleRegionChange);
 };
 });
-
-onDestroy(() => { /* cleanup handled in onMount return */ });
 
 $effect(() => {
 if (bucketPage > totalBucketPages) {
