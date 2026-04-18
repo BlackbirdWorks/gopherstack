@@ -96,6 +96,8 @@ describe('S3 Page', () => {
 		mockSend.mockResolvedValueOnce({
 			Buckets: [{ Name: 'new-bucket', CreationDate: new Date() }]
 		});
+		// loadBucketSizes calls ListObjectsV2 for the newly created bucket
+		mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
 
 		render(S3Page);
 
@@ -108,7 +110,7 @@ describe('S3 Page', () => {
 		await fireEvent.click(submitBtn);
 
 		await waitFor(() => {
-			expect(mockSend).toHaveBeenCalledTimes(3);
+			expect(mockSend).toHaveBeenCalledTimes(4);
 		}, { timeout: 3000 });
 
 		const { toast } = await import('svelte-sonner');

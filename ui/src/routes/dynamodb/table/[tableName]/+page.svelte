@@ -174,7 +174,7 @@
 			<div class="text-xs font-medium text-slate-500 dark:text-slate-400">Item Count</div>
 			<div class="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{tableDesc?.ItemCount ?? 0}</div>
 		</div>
-		<div class="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+		<div id="ttl-status-card" class="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
 			<div class="text-xs font-medium text-slate-500 dark:text-slate-400">TTL</div>
 			<div class="mt-1"><span class="inline-block rounded bg-slate-100 px-2 py-1 text-xs font-semibold dark:bg-slate-700 dark:text-slate-300">{ttlEnabled ? 'ENABLED' : 'DISABLED'}</span></div>
 		</div>
