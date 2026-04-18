@@ -47,6 +47,7 @@ describe("theme helpers", () => {
       "cyberpunk-2077",
       "aurora",
       "solstice",
+      "arasaka",
     ]);
   });
 
@@ -59,6 +60,7 @@ describe("theme helpers", () => {
     expect(isValidTheme("cyberpunk-2077")).toBe(true);
     expect(isValidTheme("aurora")).toBe(true);
     expect(isValidTheme("solstice")).toBe(true);
+    expect(isValidTheme("arasaka")).toBe(true);
   });
 
   it("isValidTheme rejects invalid values", () => {
@@ -76,6 +78,7 @@ describe("theme helpers", () => {
     expect(isDarkTheme("light")).toBe(false);
     expect(isDarkTheme("github-light")).toBe(false);
     expect(isDarkTheme("solstice")).toBe(false);
+    expect(isDarkTheme("arasaka")).toBe(true);
   });
 
   it("resolves saved theme first", () => {
@@ -103,12 +106,28 @@ describe("theme helpers", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("theme-ocean")).toBe(true);
     expect(document.documentElement.classList.contains("theme-dark")).toBe(false);
+
+    applyTheme(document, "cyberpunk-2077");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-cyberpunk-2077")).toBe(true);
+
+    applyTheme(document, "aurora");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-aurora")).toBe(true);
+
+    applyTheme(document, "arasaka");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("theme-arasaka")).toBe(true);
   });
 
   it("removes dark class for light themes", () => {
     applyTheme(document, "light");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     expect(document.documentElement.classList.contains("theme-light")).toBe(true);
+
+    applyTheme(document, "solstice");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("theme-solstice")).toBe(true);
   });
 
   it("applies dark class for github theme", () => {

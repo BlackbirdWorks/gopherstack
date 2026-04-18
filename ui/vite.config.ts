@@ -21,6 +21,7 @@ export default defineConfig({
     conditions: ["browser"],
   },
   test: {
+    globals: true,
     expect: { requireAssertions: true },
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
@@ -29,7 +30,6 @@ export default defineConfig({
     coverage: {
       reporter: ["text", "html"],
       provider: "v8",
-      all: true,
       include: ["src/lib/**/*.ts"],
       exclude: [
         "src/lib/vitest-examples/**",

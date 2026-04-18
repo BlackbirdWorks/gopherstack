@@ -59,6 +59,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -1930,6 +1931,7 @@ func buildHealthHandler(services []service.Registerable) echo.HandlerFunc {
 
 		return c.JSON(http.StatusOK, healthResponse{
 			Status:     "ok",
+			Version:    version.Get(),
 			Services:   names,
 			Goroutines: runtime.NumGoroutine(),
 			HeapAllocB: ms.HeapAlloc,
@@ -3937,6 +3939,8 @@ func buildLogger(level string) *slog.Logger {
 type healthResponse struct {
 	// Status is always "ok" when the server is running.
 	Status string `json:"status"`
+	// Version is the build-time version of Gopherstack.
+	Version string `json:"version"`
 	// Services lists all registered mock AWS services.
 	Services []string `json:"services"`
 	// Goroutines is the current number of live goroutines (runtime.NumGoroutine).

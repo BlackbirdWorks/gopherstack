@@ -72,7 +72,7 @@
 						if (done) break;
 						chunks.push(value);
 					}
-					const blob = new Blob(chunks, { type: 'audio/mpeg' });
+					const blob = new Blob(chunks as any, { type: 'audio/mpeg' });
 					const url = URL.createObjectURL(blob);
 					const audio = new Audio(url);
 					audio.play();

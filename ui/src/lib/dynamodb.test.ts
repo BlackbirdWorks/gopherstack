@@ -10,6 +10,7 @@ import {
 	jsonToItem,
 	resolveKeySchema,
 } from "./dynamodb";
+import type { TableDescription } from "@aws-sdk/client-dynamodb";
 
 describe("avToJson", () => {
 	it("converts string values", () => {
@@ -56,7 +57,7 @@ describe("avToJson", () => {
 	});
 
 	it("falls back to JSON string for unknown shapes", () => {
-		const result = avToJson({});
+		const result = avToJson({ S: "" });
 		expect(typeof result).toBe("string");
 	});
 });
@@ -110,7 +111,7 @@ describe("jsonToAv", () => {
 	});
 
 	it("converts undefined", () => {
-		expect(jsonToAv()).toEqual({ NULL: true });
+		expect(jsonToAv(undefined)).toEqual({ NULL: true });
 	});
 
 	it("converts arrays", () => {
@@ -338,7 +339,7 @@ describe("resolveKeySchema", () => {
 			],
 			AttributeDefinitions: [{ AttributeName: "" }],
 		};
-		expect(resolveKeySchema(weirdDesc)).toEqual({
+		expect(resolveKeySchema(weirdDesc as TableDescription)).toEqual({
 			pkName: "",
 			skName: "",
 			pkType: "S",

@@ -56,7 +56,7 @@
 	async function loadZones() {
 		loading = true;
 		try {
-			const resp = await r53.send(new ListHostedZonesCommand({ MaxItems: '50' }));
+			const resp = await r53.send(new ListHostedZonesCommand({ MaxItems: 50 }));
 			zones = resp.HostedZones ?? [];
 		} catch (e) {
 			toast.error('Failed to load hosted zones: ' + String(e));
@@ -71,7 +71,7 @@
 		loadingRecords = true;
 		try {
 			const zoneId = (zone.Id ?? '').replace('/hostedzone/', '');
-			const resp = await r53.send(new ListResourceRecordSetsCommand({ HostedZoneId: zoneId, MaxItems: '300' }));
+			const resp = await r53.send(new ListResourceRecordSetsCommand({ HostedZoneId: zoneId, MaxItems: 300 }));
 			records = resp.ResourceRecordSets ?? [];
 		} catch (e) {
 			toast.error('Failed to load records: ' + String(e));

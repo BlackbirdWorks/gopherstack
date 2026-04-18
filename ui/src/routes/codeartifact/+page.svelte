@@ -132,7 +132,7 @@
 									<Archive class="w-5 h-5 text-blue-500" />
 									<div>
 										<p class="font-medium text-gray-900 dark:text-white">{repo.name}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">{repo.domainName} · {repo.format}</p>
+										<p class="text-xs text-gray-500 dark:text-gray-400">{repo.domainName}</p>
 									</div>
 								</div>
 								<ChevronRight class="w-4 h-4 text-gray-400" />

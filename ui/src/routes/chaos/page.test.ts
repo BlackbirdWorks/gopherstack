@@ -5,7 +5,7 @@ import ChaosPage from './+page.svelte';
 describe('Chaos Engineering Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		global.fetch = vi.fn();
+		vi.stubGlobal('fetch', vi.fn());
 	});
 
 	it('should render the chaos engineering page title', () => {

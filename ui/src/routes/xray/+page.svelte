@@ -30,12 +30,8 @@
 	// Traces
 	let traceSummaries = $state<TraceSummary[]>([]);
 	let errorFilter = $state<'all' | 'error' | 'fault' | 'throttle'>('all');
-	let startTime = $state(() => {
-		const d = new Date();
-		d.setHours(d.getHours() - 1);
-		return d.toISOString().slice(0, 16);
-	});
-	let endTime = $state(() => new Date().toISOString().slice(0, 16));
+	let startTime = $state(new Date(Date.now() - 3600000).toISOString().slice(0, 16));
+	let endTime = $state(new Date().toISOString().slice(0, 16));
 
 	// Groups
 	let groups = $state<Group[]>([]);

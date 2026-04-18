@@ -22,7 +22,7 @@
 		FileCode, Sliders, Play, CheckCircle2, Code2,
 		XCircle, AlertCircle, Timer, Server,
 		Database, Share2, ArrowRight, Gauge,
-		Settings2, Layout, Boxes, Shield
+		Settings2, Layout, Boxes, Shield, ExternalLink
 	} from 'lucide-svelte';
 	const appconfig = getAppConfigClient();
 

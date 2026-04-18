@@ -74,7 +74,7 @@
 	const crawlerStatus = (status: string | undefined) => {
 		if (!status) return 'gray';
 		if (status === 'READY') return 'green';
-		if (status === 'RUNNING' || status === 'CRAWLING') return 'blue';
+		if (status === 'RUNNING') return 'blue';
 		if (status === 'STOPPING') return 'yellow';
 		return 'gray';
 	};
@@ -479,7 +479,7 @@
 								<td class="px-4 py-3 flex gap-1">
 									{#if crawler.State === 'READY'}
 										<button onclick={() => startCrawler(crawler.Name ?? '')} class="text-sky-600 hover:text-sky-800 p-1" title="Start"><Play class="w-4 h-4" /></button>
-									{:else if crawler.State === 'RUNNING' || crawler.State === 'CRAWLING'}
+									{:else if crawler.State === 'RUNNING'}
 										<button onclick={() => stopCrawler(crawler.Name ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Stop"><XCircle class="w-4 h-4" /></button>
 									{/if}
 								</td>

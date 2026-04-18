@@ -396,7 +396,7 @@
 					</thead>
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 						{#each ipSets as ipset}
-							<tr><td class="px-4 py-3 font-medium">{ipset.Name}</td><td class="px-4 py-3 text-xs text-gray-500">{ipset.IPAddressVersion}</td><td class="px-4 py-3 text-xs text-gray-500">{ipset.Description ?? '-'}</td></tr>
+							<tr><td class="px-4 py-3 font-medium">{ipset.Name}</td><td class="px-4 py-3 text-xs text-gray-500">-</td><td class="px-4 py-3 text-xs text-gray-500">{ipset.Description ?? '-'}</td></tr>
 						{/each}
 					</tbody>
 				</table>
@@ -421,7 +421,7 @@
 					</thead>
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 						{#each ruleGroups as rg}
-							<tr><td class="px-4 py-3 font-medium">{rg.Name}</td><td class="px-4 py-3 text-gray-600">{rg.Capacity ?? '-'}</td><td class="px-4 py-3 text-xs text-gray-500">{rg.Description ?? '-'}</td></tr>
+							<tr><td class="px-4 py-3 font-medium">{rg.Name}</td><td class="px-4 py-3 text-gray-600">-</td><td class="px-4 py-3 text-xs text-gray-500">{rg.Description ?? '-'}</td></tr>
 						{/each}
 					</tbody>
 				</table>

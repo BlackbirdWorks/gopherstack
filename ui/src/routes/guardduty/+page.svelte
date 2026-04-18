@@ -9,7 +9,7 @@
 		ListFindingsCommand,
 		GetFindingsCommand,
 		UpdateDetectorCommand,
-		type Detector,
+		type GetDetectorCommandOutput,
 		type Finding
 	} from '@aws-sdk/client-guardduty';
 	import { toast } from 'svelte-sonner';
@@ -34,7 +34,7 @@
 
 	// Detectors
 	let detectorIds = $state<string[]>([]);
-	let detectorDetails = $state<Record<string, Detector>>({});
+	let detectorDetails = $state<Record<string, GetDetectorCommandOutput>>({});
 	let selectedDetectorId = $state('');
 	let creating = $state(false);
 

@@ -6,7 +6,8 @@ export type ThemeName =
   | "ocean"
   | "cyberpunk-2077"
   | "aurora"
-  | "solstice";
+  | "solstice"
+  | "arasaka";
 
 export const themeStorageKey = "gopherstack-theme";
 
@@ -19,19 +20,11 @@ export const themes: readonly ThemeName[] = [
   "cyberpunk-2077",
   "aurora",
   "solstice",
+  "arasaka",
 ] as const;
 
 export function isValidTheme(value: string | null): value is ThemeName {
-  return (
-    value === "light" ||
-    value === "dark" ||
-    value === "github" ||
-    value === "github-light" ||
-    value === "ocean" ||
-    value === "cyberpunk-2077" ||
-    value === "aurora" ||
-    value === "solstice"
-  );
+  return !!value && themes.includes(value as ThemeName);
 }
 
 export function resolveTheme(savedTheme: string | null, prefersDark: boolean): ThemeName {
@@ -48,7 +41,8 @@ export function isDarkTheme(theme: ThemeName): boolean {
     theme === "github" ||
     theme === "ocean" ||
     theme === "cyberpunk-2077" ||
-    theme === "aurora"
+    theme === "aurora" ||
+    theme === "arasaka"
   );
 }
 

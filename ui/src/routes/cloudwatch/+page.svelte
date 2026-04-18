@@ -117,10 +117,10 @@
 					MetricName: newMetricName.trim(),
 					Namespace: newNamespace.trim(),
 					Threshold: newThreshold,
-					ComparisonOperator: newComparisonOperator as Parameters<typeof PutMetricAlarmCommand.prototype>[0]['ComparisonOperator'],
+					ComparisonOperator: newComparisonOperator as any,
 					EvaluationPeriods: newEvaluationPeriods,
 					Period: newPeriod,
-					Statistic: newStatistic as Parameters<typeof PutMetricAlarmCommand.prototype>[0]['Statistic']
+					Statistic: newStatistic as any
 				})
 			);
 			toast.success(`Alarm "${newAlarmName}" created`);

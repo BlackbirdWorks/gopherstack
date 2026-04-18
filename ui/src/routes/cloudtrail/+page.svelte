@@ -11,7 +11,8 @@
 		DeleteTrailCommand,
 		type Trail,
 		type TrailInfo,
-		type Event as CloudTrailEvent
+		type Event as CloudTrailEvent,
+		type LookupAttribute
 	} from '@aws-sdk/client-cloudtrail';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -101,14 +102,12 @@
 		loadingEvents = true;
 		events = [];
 		try {
-			const params: {
-				MaxResults: number;
-				StartTime?: Date;
-				EndTime?: Date;
-				LookupAttributes?: Array<{ AttributeKey: string; AttributeValue: string }>;
-			} = { MaxResults: maxResults };
-			if (eventStartTime) params.StartTime = new Date(eventStartTime);
-			if (eventEndTime) params.EndTime = new Date(eventEndTime);
+			const params = { 
+				MaxResults: maxResults,
+				StartTime: eventStartTime ? new Date(eventStartTime) : undefined,
+				EndTime: eventEndTime ? new Date(eventEndTime) : undefined,
+				LookupAttributes: [] as LookupAttribute[]
+			};
 			const res = await ct.send(new LookupEventsCommand(params));
 			events = res.Events ?? [];
 		} catch (e) {

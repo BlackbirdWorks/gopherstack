@@ -36,6 +36,7 @@ describe("aws client factories", () => {
 
     const s3 = newS3Client();
     const endpointProvider = s3.config.endpoint;
+    if (typeof endpointProvider !== "function") throw new Error("endpoint is not a function");
     const endpoint = await endpointProvider();
 
     expect(endpoint).toBeDefined();

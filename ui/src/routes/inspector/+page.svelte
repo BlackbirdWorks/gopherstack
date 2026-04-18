@@ -309,7 +309,7 @@
 								<td class="px-4 py-3 font-mono text-xs font-medium truncate max-w-[200px]">{resource.resourceId}</td>
 								<td class="px-4 py-3 text-muted-foreground">{resource.resourceType}</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">{resource.accountId}</td>
-								<td class="px-4 py-3 text-muted-foreground">{resource.resourceMetadata?.ec2Metadata?.platform ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground">{resource.resourceMetadata?.ec2?.platform ?? '—'}</td>
 							</tr>
 						{/each}
 					</tbody>

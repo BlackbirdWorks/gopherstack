@@ -9,6 +9,7 @@
 		PutRecordCommand,
 		GetShardIteratorCommand,
 		GetRecordsCommand,
+		ListShardsCommand,
 		type StreamDescriptionSummary
 	} from '@aws-sdk/client-kinesis';
 	import { toast } from 'svelte-sonner';
@@ -116,11 +117,11 @@
 		if (!selectedStream || !putPartitionKey.trim() || !putData.trim()) return;
 		putting = true;
 		try {
-			const encoded = btoa(putData);
+			const encoded = new TextEncoder().encode(putData);
 			await kinesis.send(new PutRecordCommand({
 				StreamName: selectedStream,
 				PartitionKey: putPartitionKey.trim(),
-				Data: new TextEncoder().encode(encoded)
+				Data: encoded
 			}));
 			toast.success('Record put successfully');
 			showPutModal = false;
@@ -134,10 +135,10 @@
 	}
 
 	async function getRecords() {
-		if (!selectedStream || !streamDetail?.Shards?.length) return;
+		if (!selectedStream) return;
 		gettingRecords = true;
 		try {
-			const shardId = streamDetail.Shards[0].ShardId ?? '';
+			const shardId = (await kinesis.send(new ListShardsCommand({ StreamName: selectedStream }))).Shards?.[0]?.ShardId ?? '';
 			const iterRes = await kinesis.send(new GetShardIteratorCommand({
 				StreamName: selectedStream,
 				ShardId: shardId,

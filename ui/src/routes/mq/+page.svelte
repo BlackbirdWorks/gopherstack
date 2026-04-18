@@ -8,7 +8,9 @@
 		ListConfigurationsCommand,
 		type BrokerSummary,
 		type DescribeBrokerResponse,
-		type Configuration
+		type Configuration,
+		DeploymentMode,
+		EngineType
 	} from '@aws-sdk/client-mq';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -39,7 +41,7 @@
 	let newBrokerName = $state('');
 	let newBrokerEngine = $state<'ACTIVEMQ' | 'RABBITMQ'>('ACTIVEMQ');
 	let newBrokerVersion = $state('5.15.14');
-	let newBrokerDeployment = $state('SINGLE_INSTANCE');
+	let newBrokerDeployment = $state(DeploymentMode.SINGLE_INSTANCE);
 	let newBrokerInstance = $state('mq.m5.large');
 
 	const filteredBrokers = $derived(
@@ -133,7 +135,7 @@
 			await mq.send(new CreateBrokerCommand({
 				BrokerName: newBrokerName.trim(),
 				DeploymentMode: newBrokerDeployment,
-				EngineType: newBrokerEngine,
+				EngineType: newBrokerEngine as EngineType,
 				EngineVersion: newBrokerVersion,
 				HostInstanceType: newBrokerInstance,
 				PubliclyAccessible: false,

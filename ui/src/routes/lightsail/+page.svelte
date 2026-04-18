@@ -36,7 +36,7 @@
 		UserCircle, MousePointer2,
 		CloudRain, CloudLightning,
 		FastForward, History, Navigation,
-		Sun, Sunrise, Lightbulb, Sparkles as Flare
+		Sun, Sunrise, Lightbulb, Sparkles as Flare, GaugeCircle
 	} from 'lucide-svelte';
 
 	const lightsail = getLightsailClient();

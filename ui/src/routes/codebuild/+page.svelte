@@ -9,7 +9,11 @@
 		CreateProjectCommand,
 		DeleteProjectCommand,
 		type Project,
-		type Build
+		type Build,
+		SourceType,
+		ArtifactsType,
+		EnvironmentType,
+		ComputeType
 	} from '@aws-sdk/client-codebuild';
 	import { toast } from 'svelte-sonner';
 	import { 
@@ -85,14 +89,14 @@
 		try {
 			await codebuild.send(new CreateProjectCommand({
 				name: newProjectName.trim(),
-				source: { type: 'NO_SOURCE' },
-				artifacts: { type: 'NO_ARTIFACTS' },
+				source: { type: SourceType.NO_SOURCE },
+				artifacts: { type: ArtifactsType.NO_ARTIFACTS },
 				environment: {
-					type: 'LINUX_CONTAINER',
+					type: EnvironmentType.LINUX_CONTAINER,
 					image: 'aws/codebuild/standard:5.0',
-					computeType: 'BUILD_GENERAL1_SMALL'
+					computeType: ComputeType.BUILD_GENERAL1_SMALL
 				}
-			}));
+			} as any));
 			toast.success(`Project "${newProjectName}" created`);
 			showCreateModal = false;
 			newProjectName = '';

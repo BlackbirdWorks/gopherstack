@@ -17,7 +17,8 @@
 		type KeySchemaElement,
 		type ScalarAttributeType,
 		type AttributeValue,
-		type StreamSpecification
+		type StreamSpecification,
+		type StreamViewType
 	} from '@aws-sdk/client-dynamodb';
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
@@ -354,9 +355,9 @@
 	async function updateStreams() {
 		if (!selectedTable) return;
 		try {
-			const spec: Record<string, unknown> = { StreamEnabled: streamsEnabled };
-			if (streamsEnabled) spec['StreamViewType'] = streamsViewType;
-			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec as StreamSpecification }));
+			const spec: StreamSpecification = { StreamEnabled: streamsEnabled };
+			if (streamsEnabled) spec.StreamViewType = streamsViewType as StreamViewType;
+			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec }));
 			toast.success(`Streams ${streamsEnabled ? 'enabled successfully' : 'disabled successfully'}`);
 			const desc = await ddb.send(new DescribeTableCommand({ TableName: selectedTable }));
 			selectedTableDesc = desc.Table ?? null;

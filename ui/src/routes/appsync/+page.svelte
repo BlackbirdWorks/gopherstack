@@ -98,7 +98,7 @@
 			);
 			if (res.schema) {
 				const decoder = new TextDecoder();
-				apiSchema = decoder.decode(res.schema as ArrayBuffer);
+				apiSchema = decoder.decode(res.schema);
 			}
 		} catch {
 			apiSchema = ''; // Schema may not be available

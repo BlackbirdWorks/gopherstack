@@ -49,7 +49,7 @@
 				(m.modelId ?? '').toLowerCase().includes(searchQuery.toLowerCase());
 			const providerMatch = providerFilter === 'all' || m.providerName === providerFilter;
 			const modalityMatch =
-				modalityFilter === 'all' || (m.inputModalities ?? []).includes(modalityFilter);
+				modalityFilter === 'all' || (m.inputModalities as string[] ?? []).includes(modalityFilter);
 			return nameMatch && providerMatch && modalityMatch;
 		})
 	);
@@ -58,7 +58,7 @@
 		customModels.filter(
 			(m) =>
 				(m.modelName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-				(m.baseModelId ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+				(m.baseModelArn ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 
@@ -356,7 +356,7 @@
 						{#each filteredCustom as model}
 							<tr class="hover:bg-muted/30">
 								<td class="px-4 py-3 font-medium">{model.modelName}</td>
-								<td class="px-4 py-3 text-muted-foreground text-xs font-mono">{model.baseModelId}</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs font-mono">{model.baseModelArn}</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">
 									{model.creationTime ? new Date(model.creationTime).toLocaleDateString() : '—'}
 								</td>

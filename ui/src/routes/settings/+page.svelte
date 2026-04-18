@@ -45,6 +45,7 @@
 	let resetServices = $state<string[]>([]);
 	let selectedResetService = $state('all');
 	let resettingService = $state(false);
+	let version = $state('dev');
 
 	function mergeSettings(raw: unknown): SettingsState {
 		if (!raw || typeof raw !== 'object') {
@@ -82,10 +83,13 @@
 			fetch('/_gopherstack/health')
 				.then((res) => (res.ok ? res.json() : null))
 				.then((data) => {
-					if (!data || !Array.isArray(data.services)) return;
-					resetServices = data.services
-						.map((service: unknown) => String(service))
-						.sort((a, b) => a.localeCompare(b));
+					if (!data) return;
+					if (data.version) version = data.version;
+					if (Array.isArray(data.services)) {
+						resetServices = data.services
+							.map((service: unknown) => String(service))
+							.sort((a: string, b: string) => a.localeCompare(b));
+					}
 				})
 				.catch(() => {
 					resetServices = [];
@@ -149,10 +153,13 @@
 	}
 </script>
 
-<div class="max-w-7xl pb-20 space-y-6">
+<div class="max-w-7xl mx-auto pb-20 space-y-6">
 	<div class="flex items-center justify-between">
 		<div>
-			<h1 class="text-2xl font-bold text-slate-900 dark:text-white">Settings</h1>
+			<div class="flex items-center gap-3">
+				<h1 class="text-2xl font-bold text-slate-900 dark:text-white">Settings</h1>
+				<span class="px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full border border-slate-200 dark:border-white/10">{version}</span>
+			</div>
 			<p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Runtime configuration and persistence</p>
 		</div>
 		<div class="flex items-center gap-2">

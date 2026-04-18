@@ -488,3 +488,85 @@
   transition: width 0.2s ease;
 }
 
+
+/* ── Theme: Arasaka ── */
+:root:where(.theme-arasaka) {
+  --color-bg: #000000;
+  --color-bg-secondary: #0a0a0a;
+  --color-bg-tertiary: #1a1a1a;
+  --color-text: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-border: #3f0000;
+  --color-accent: #ff0000;
+  --color-accent-hover: #ff4d4d;
+  --color-hover: #2d0000;
+  --color-nav-bg: rgba(0, 0, 0, 0.9);
+  --color-nav-border: #3f0000;
+  --color-sidebar-bg: rgba(5, 5, 5, 0.95);
+  --color-sidebar-border: #3f0000;
+}
+
+.theme-arasaka {
+  color-scheme: dark;
+}
+
+.theme-arasaka body,
+.theme-arasaka .bg-slate-50,
+.theme-arasaka .bg-slate-100 { background-color: var(--color-bg); }
+.theme-arasaka .bg-white { background-color: var(--color-bg-secondary); }
+.theme-arasaka .text-slate-900 { color: var(--color-text); }
+.theme-arasaka .text-slate-600,
+.theme-arasaka .text-slate-500 { color: var(--color-text-secondary); }
+.theme-arasaka .border-slate-200 { border-color: var(--color-border); }
+.theme-arasaka .border-slate-700 { border-color: var(--color-border); }
+.theme-arasaka .bg-indigo-600 { background-color: var(--color-accent); }
+.theme-arasaka .hover\:bg-indigo-700:hover { background-color: var(--color-accent-hover); }
+.theme-arasaka .text-indigo-600,
+.theme-arasaka .text-indigo-400 { color: var(--color-accent); }
+.theme-arasaka .border-indigo-500 { border-color: var(--color-accent); }
+
+/* Arasaka Glow Effects */
+.theme-arasaka .bg-indigo-600 {
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
+}
+
+.theme-arasaka input:focus,
+.theme-arasaka select:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 8px rgba(255, 0, 0, 0.3) !important;
+  outline: none;
+}
+
+.theme-arasaka .glass-panel {
+  background: rgba(10, 0, 0, 0.8) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border) !important;
+}
+
+.theme-arasaka .card-hover:hover {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.15);
+}
+
+.theme-arasaka .sidebar-item-active {
+  background-color: rgba(255, 0, 0, 0.1) !important;
+  border-left: 3px solid var(--color-accent) !important;
+}
+.theme-arasaka .text-indigo-600,
+.theme-arasaka .text-indigo-700 { color: var(--color-accent); }
+
+.theme-arasaka #topbar,
+.theme-arasaka #sidebar {
+  background-color: var(--color-nav-bg);
+}
+
+.theme-arasaka .main-content .rounded-lg,
+.theme-arasaka .main-content .rounded-xl,
+.theme-arasaka .main-content .rounded-2xl,
+.theme-arasaka .main-content .rounded-3xl {
+  background-image: linear-gradient(135deg, rgba(20, 0, 0, 0.8), rgba(0, 0, 0, 0.9));
+  border-color: rgba(255, 0, 0, 0.3);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 15px rgba(255, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}

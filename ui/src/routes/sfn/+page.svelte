@@ -9,7 +9,7 @@
 		StartExecutionCommand,
 		DeleteStateMachineCommand,
 		type StateMachineListItem,
-		type StateMachineDetail,
+		type DescribeStateMachineCommandOutput,
 		type ExecutionListItem,
 		type DescribeExecutionOutput
 	} from '@aws-sdk/client-sfn';
@@ -28,7 +28,7 @@
 	let loading = $state(false);
 	let searchQuery = $state('');
 	let stateMachines = $state<StateMachineListItem[]>([]);
-	let selectedSM = $state<StateMachineDetail | null>(null);
+	let selectedSM = $state<DescribeStateMachineCommandOutput | null>(null);
 	let executions = $state<ExecutionListItem[]>([]);
 	let selectedExecution = $state<DescribeExecutionOutput | null>(null);
 	let loadingExecutions = $state(false);

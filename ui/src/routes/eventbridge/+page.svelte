@@ -10,7 +10,8 @@
 		DeleteRuleCommand,
 		PutEventsCommand,
 		type EventBus,
-		type Rule
+		type Rule,
+		type PutRuleCommandInput
 	} from '@aws-sdk/client-eventbridge';
 	import { toast } from 'svelte-sonner';
 	import { Zap, Search, RefreshCw, Plus, Trash2, Send, List, Bus } from 'lucide-svelte';
@@ -113,17 +114,17 @@
 		if (!newRuleName.trim() || !selectedBus) return;
 		creatingRule = true;
 		try {
-			const params: Parameters<typeof eb.send>[0] extends PutRuleCommand ? never : Record<string, unknown> = {
+			const params: PutRuleCommandInput = {
 				Name: newRuleName.trim(),
 				EventBusName: selectedBus.Name,
 				State: newRuleState
 			};
 			if (newRuleType === 'schedule') {
-				(params as Record<string, unknown>).ScheduleExpression = newRuleSchedule;
+				params.ScheduleExpression = newRuleSchedule;
 			} else {
-				(params as Record<string, unknown>).EventPattern = newRulePattern;
+				params.EventPattern = newRulePattern;
 			}
-			await eb.send(new PutRuleCommand(params as Parameters<typeof PutRuleCommand.prototype>[0]));
+			await eb.send(new PutRuleCommand(params));
 			toast.success(`Rule "${newRuleName.trim()}" created`);
 			showCreateRuleModal = false;
 			newRuleName = '';

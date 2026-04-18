@@ -11,7 +11,7 @@
 	import { toast } from 'svelte-sonner';
 	import { 
 		Zap, Search, RefreshCw, Plus, Trash2, Play, 
-		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight 
+		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X
 	} from 'lucide-svelte';
 
 	const lambda = getLambdaClient();

@@ -66,7 +66,7 @@ export function getColumns(items: Record<string, unknown>[]): string[] {
 }
 
 /** Format a table's key schema for display. */
-export function getKeySchema(desc: TableDescription | undefined): string {
+export function getKeySchema(desc?: TableDescription): string {
 	if (!desc?.KeySchema) return "";
 	return desc.KeySchema.map((k) => `${k.AttributeName} (${k.KeyType})`).join(
 		", ",

@@ -11,7 +11,8 @@
 		CreateNodegroupCommand,
 		DeleteNodegroupCommand,
 		type Cluster,
-		type Nodegroup
+		type Nodegroup,
+		AMITypes
 	} from '@aws-sdk/client-eks';
 	import { toast } from 'svelte-sonner';
 	import { Box, Search, RefreshCw, Plus, Trash2, Server, Layers } from 'lucide-svelte';
@@ -145,7 +146,7 @@
 				clusterName: selectedCluster.name,
 				nodegroupName: newNGName.trim(),
 				instanceTypes: [newNGInstanceType],
-				amiType: newNGAmiType,
+				amiType: newNGAmiType as AMITypes,
 				scalingConfig: { minSize: newNGMin, maxSize: newNGMax, desiredSize: newNGDesired },
 				nodeRole: 'arn:aws:iam::123456789012:role/EKSNodeRole',
 				subnets: []

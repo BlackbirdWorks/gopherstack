@@ -12,7 +12,7 @@
 		type BackupPlansListMember,
 		type BackupVaultListMember,
 		type BackupJob,
-		type RestoreJob
+		type RestoreJobsListMember
 	} from '@aws-sdk/client-backup';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -52,7 +52,7 @@
 
 	// Jobs
 	let jobs = $state<BackupJob[]>([]);
-	let restoreJobs = $state<RestoreJob[]>([]);
+	let restoreJobs = $state<RestoreJobsListMember[]>([]);
 	let jobStatus = $state<'all' | 'RUNNING' | 'COMPLETED' | 'FAILED'>('all');
 
 	const filteredPlans = $derived(
