@@ -614,7 +614,6 @@ export function getSWFClient(region?: string): SWFClient {
   return new SWFClient(clientConfig(region));
 }
 
-
 export function getLakeFormationClient(region?: string): LakeFormationClient {
   return new LakeFormationClient(clientConfig(region));
 }

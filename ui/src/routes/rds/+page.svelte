@@ -23,9 +23,9 @@ import {
 
 const rds = getRDSClient();
 
-let instances = $state<any[]>([]);
-let snapshots = $state<any[]>([]);
-let clusters = $state<any[]>([]);
+let instances = $state<unknown[]>([]);
+let snapshots = $state<unknown[]>([]);
+let clusters = $state<unknown[]>([]);
 let loading = $state(true);
 let search = $state('');
 let snapshotSearch = $state('');
@@ -114,18 +114,18 @@ function toggleExpand(id: string) {
 	expandedInstance = expandedInstance === id ? null : id;
 }
 
-let engines = $derived([...new Set(instances.map((i: any) => i.Engine).filter(Boolean))]);
+let engines = $derived([...new Set(instances.map((i: unknown) => i.Engine).filter(Boolean))]);
 
-let filtered = $derived(instances.filter((i: any) => {
+let filtered = $derived(instances.filter((i: unknown) => {
 	const matchSearch = !search || i.DBInstanceIdentifier?.toLowerCase().includes(search.toLowerCase())
 		|| i.Engine?.toLowerCase().includes(search.toLowerCase());
 	const matchEngine = engineFilter === 'all' || i.Engine === engineFilter;
 	return matchSearch && matchEngine;
 }));
 
-let availableCount = $derived(instances.filter((i: any) => i.DBInstanceStatus === 'available').length);
-let stoppedCount = $derived(instances.filter((i: any) => i.DBInstanceStatus === 'stopped').length);
-let multiAZCount = $derived(instances.filter((i: any) => i.MultiAZ).length);
+let availableCount = $derived(instances.filter((i: unknown) => i.DBInstanceStatus === 'available').length);
+let stoppedCount = $derived(instances.filter((i: unknown) => i.DBInstanceStatus === 'stopped').length);
+let multiAZCount = $derived(instances.filter((i: unknown) => i.MultiAZ).length);
 let filteredSnapshots = $derived(snapshots.filter(s =>
 	!snapshotSearch || s.DBSnapshotIdentifier?.toLowerCase().includes(snapshotSearch.toLowerCase())
 		|| s.DBInstanceIdentifier?.toLowerCase().includes(snapshotSearch.toLowerCase())

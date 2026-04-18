@@ -96,7 +96,7 @@
 					image: 'aws/codebuild/standard:5.0',
 					computeType: ComputeType.BUILD_GENERAL1_SMALL
 				}
-			} as any));
+			}));
 			toast.success(`Project "${newProjectName}" created`);
 			showCreateModal = false;
 			newProjectName = '';

@@ -53,7 +53,7 @@
 	}
 
 	function formatCount(n: string | undefined): string {
-		return n ? parseInt(n).toLocaleString() : '0';
+		return n ? parseInt(n, 10).toLocaleString() : '0';
 	}
 
 	async function loadQueues() {
@@ -121,7 +121,7 @@
 		}
 	}
 
-	async function selectQueue(q: typeof queues[0]) {
+	function selectQueue(q: typeof queues[0]) {
 		selectedQueue = q;
 		messages = [];
 	}

@@ -342,7 +342,7 @@
 												</div>
 												<div class="text-right">
 													<div class="text-[8px] font-black text-slate-600 uppercase">Commit</div>
-													<span class="text-[10px] font-black text-slate-400 font-mono tracking-tighter">{job.commitId?.substring(0, 7) || 'HEAD'}</span>
+													<span class="text-[10px] font-black text-slate-400 font-mono tracking-tighter">{job.commitId?.slice(0, 7) || 'HEAD'}</span>
 												</div>
 											</div>
 											<div class="flex items-center justify-between pt-4 border-t border-white/5">

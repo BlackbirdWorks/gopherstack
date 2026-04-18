@@ -114,7 +114,7 @@
 				VisibilityConfig: {
 					SampledRequestsEnabled: true,
 					CloudWatchMetricsEnabled: true,
-					MetricName: newAclName.trim().replace(/[^a-zA-Z0-9]/g, '')
+					MetricName: newAclName.trim().replaceAll(/[^a-zA-Z0-9]/g, '')
 				},
 				Rules: [],
 				TokenDomains: []

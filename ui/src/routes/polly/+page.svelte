@@ -6,6 +6,7 @@
 		ListLexiconsCommand,
 		ListSpeechSynthesisTasksCommand,
 		SynthesizeSpeechCommand,
+			type VoiceId,
 		type Voice,
 		type LexiconDescription,
 		type SynthesisTask
@@ -24,13 +25,13 @@
 	let tasks = $state<SynthesisTask[]>([]);
 
 	let textToSynthesize = $state('Hello from Amazon Polly! This is a text-to-speech demonstration.');
-	let selectedVoiceId = $state('Joanna');
+	let selectedVoiceId = $state<VoiceId>('Joanna');
 	let synthesizing = $state(false);
 
 	const filteredVoices = $derived(voices.filter((v) => (v.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredLexicons = $derived(lexicons.filter((l) => (l.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 
-	const voiceLanguages = $derived([...new Set(voices.map((v) => v.LanguageCode ?? '').filter(Boolean))].sort());
+	const voiceLanguages = $derived([...new Set(voices.map((v) => v.LanguageCode ?? '').filter(Boolean))].toSorted());
 	const filteredByLanguage = $derived(languageFilter ? filteredVoices.filter((v) => v.LanguageCode === languageFilter) : filteredVoices);
 
 	async function loadData() {
@@ -60,19 +61,19 @@
 		try {
 			const resp = await polly.send(new SynthesizeSpeechCommand({
 				Text: textToSynthesize,
-				VoiceId: selectedVoiceId as any,
+				VoiceId: selectedVoiceId,
 				OutputFormat: 'mp3'
 			}));
 			if (resp.AudioStream) {
 				const chunks: Uint8Array[] = [];
-				const reader = (resp.AudioStream as any).getReader?.();
+				const reader = (resp.AudioStream as ReadableStream<Uint8Array>).getReader?.();
 				if (reader) {
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
-						chunks.push(value);
+						if (value) chunks.push(value);
 					}
-					const blob = new Blob(chunks as any, { type: 'audio/mpeg' });
+					const blob = new Blob(chunks, { type: 'audio/mpeg' });
 					const url = URL.createObjectURL(blob);
 					const audio = new Audio(url);
 					audio.play();

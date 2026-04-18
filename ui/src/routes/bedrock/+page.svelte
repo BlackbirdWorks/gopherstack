@@ -38,8 +38,8 @@
 	// Custom Models
 	let customModels = $state<CustomModelSummary[]>([]);
 
-	const providers = $derived([...new Set(foundationModels.map((m) => m.providerName ?? 'Unknown'))].sort());
-	const modalities = $derived([...new Set(foundationModels.flatMap((m) => m.inputModalities ?? []))].sort());
+	const providers = $derived([...new Set(foundationModels.map((m) => m.providerName ?? 'Unknown'))].toSorted());
+	const modalities = $derived([...new Set(foundationModels.flatMap((m) => m.inputModalities ?? []))].toSorted());
 
 	const filteredFoundation = $derived(
 		foundationModels.filter((m) => {

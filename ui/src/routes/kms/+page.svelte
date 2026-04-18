@@ -7,13 +7,24 @@ import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, Send } from 'luc
 
 const kms = getKMSClient();
 
-let keys = $state<any[]>([]);
-let aliases = $state<any[]>([]);
+type KMSKey = {
+	CreationDate?: Date | string;
+	DeletionDate?: Date | string;
+	Description?: string;
+	KeyArn?: string;
+	KeyId?: string;
+	KeyManager?: string;
+	KeyState?: string;
+	KeyUsage?: string;
+};
+
+let keys = $state<KMSKey[]>([]);
+let aliases = $state<unknown[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
 let usageFilter = $state('all');
-let selectedKey = $state<any | null>(null);
+let selectedKey = $state<KMSKey | null>(null);
 let activeTab = $state<'keys' | 'aliases'>('keys');
 let aliasSearch = $state('');
 let showCreateModal = $state(false);
@@ -36,7 +47,7 @@ async function loadKeys() {
 		const listData = await kms.send(new ListKeysCommand({}));
 		const rawKeys = listData.Keys || [];
 		const details = await Promise.all(
-			rawKeys.slice(0, 50).map(async (k: any) => {
+			rawKeys.slice(0, 50).map(async (k: unknown) => {
 				try {
 					const d = await kms.send(new DescribeKeyCommand({ KeyId: k.KeyId }));
 					return d.KeyMetadata;
@@ -122,7 +133,7 @@ async function encrypt() {
 		encrypting = true;
 		const res = await kms.send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
 		if (res.CiphertextBlob) {
-			ciphertext = btoa(String.fromCharCode(...res.CiphertextBlob));
+			ciphertext = btoa(String.fromCodePoint(...res.CiphertextBlob));
 		}
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Encryption failed');
@@ -135,7 +146,7 @@ async function decrypt() {
 	if (!ciphertext) return;
 	try {
 		decrypting = true;
-		const res = await kms.send(new DecryptCommand({ CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0)) }));
+		const res = await kms.send(new DecryptCommand({ CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.codePointAt(0)) }));
 		if (res.Plaintext) {
 			decryptedText = new TextDecoder().decode(res.Plaintext);
 		}
@@ -161,11 +172,11 @@ function getStateColor(state: string) {
 	return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
 }
 
-function getKeySpec(key: any) {
+function getKeySpec(key: unknown) {
 	return key.CustomerMasterKeySpec || key.KeySpec || 'SYMMETRIC_DEFAULT';
 }
 
-function getKeyManager(key: any) {
+function getKeyManager(key: unknown) {
 	return key.KeyManager || 'CUSTOMER';
 }
 

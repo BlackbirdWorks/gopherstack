@@ -15,18 +15,30 @@ import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, 
 
 const ec2 = getEC2Client();
 
-let instances = $state<any[]>([]);
+type EC2Instance = {
+	ImageId?: string;
+	InstanceId?: string;
+	InstanceType?: string;
+	PrivateIpAddress?: string;
+	PublicIpAddress?: string;
+	State?: { Name?: string };
+	SubnetId?: string;
+	Tags?: Array<{ Key?: string; Value?: string }>;
+	VpcId?: string;
+};
+
+let instances = $state<EC2Instance[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
 let showLaunchModal = $state(false);
-let selectedInstance = $state<any | null>(null);
+let selectedInstance = $state<EC2Instance | null>(null);
 let newInstanceType = $state('t3.micro');
 let newInstanceAmi = $state('ami-0c55b159cbfafe1f0');
 let newInstanceName = $state('');
 let activeTab = $state<'instances' | 'secgroups' | 'keypairs'>('instances');
-let securityGroups = $state<any[]>([]);
-let keyPairs = $state<any[]>([]);
+let securityGroups = $state<unknown[]>([]);
+let keyPairs = $state<unknown[]>([]);
 let sgSearch = $state('');
 let kpSearch = $state('');
 
@@ -40,7 +52,7 @@ async function loadInstances() {
 	try {
 		loading = true;
 		const data = await ec2.send(new DescribeInstancesCommand({}));
-		instances = data.Reservations?.flatMap((r: any) => r.Instances || []) || [];
+		instances = data.Reservations?.flatMap((r) => (r.Instances ?? []) as EC2Instance[]) ?? [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load instances');
 	} finally {
@@ -85,8 +97,8 @@ async function refresh() {
 	else { keyPairs = []; await loadKeyPairs(); }
 }
 
-function getName(instance: any): string {
-return instance.Tags?.find((t: any) => t.Key === 'Name')?.Value || instance.InstanceId;
+function getName(instance: EC2Instance): string {
+	return instance.Tags?.find((t) => t.Key === 'Name')?.Value || instance.InstanceId || '';
 }
 
 function getStatusColor(state: string) {

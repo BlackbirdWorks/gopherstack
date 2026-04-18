@@ -17,6 +17,7 @@
 	import { Activity, Search, RefreshCw, Plus, Trash2, Bell, BarChart2, Layout } from 'lucide-svelte';
 
 	const cw = getCloudWatchClient();
+	type PutMetricAlarmInput = ConstructorParameters<typeof PutMetricAlarmCommand>[0];
 
 	let loading = $state(false);
 	let activeTab = $state<'alarms' | 'metrics' | 'dashboards'>('alarms');
@@ -30,10 +31,10 @@
 	let newMetricName = $state('');
 	let newNamespace = $state('AWS/EC2');
 	let newThreshold = $state(80);
-	let newComparisonOperator = $state('GreaterThanThreshold');
+	let newComparisonOperator = $state<NonNullable<PutMetricAlarmInput['ComparisonOperator']>>('GreaterThanThreshold');
 	let newEvaluationPeriods = $state(1);
 	let newPeriod = $state(300);
-	let newStatistic = $state('Average');
+	let newStatistic = $state<NonNullable<PutMetricAlarmInput['Statistic']>>('Average');
 
 	// Metrics
 	let metrics = $state<Metric[]>([]);
@@ -117,10 +118,10 @@
 					MetricName: newMetricName.trim(),
 					Namespace: newNamespace.trim(),
 					Threshold: newThreshold,
-					ComparisonOperator: newComparisonOperator as any,
+					ComparisonOperator: newComparisonOperator,
 					EvaluationPeriods: newEvaluationPeriods,
 					Period: newPeriod,
-					Statistic: newStatistic as any
+					Statistic: newStatistic
 				})
 			);
 			toast.success(`Alarm "${newAlarmName}" created`);

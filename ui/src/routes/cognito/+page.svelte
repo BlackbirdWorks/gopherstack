@@ -13,16 +13,16 @@ import { Users, Plus, RefreshCw, Search, Shield, Key, Settings, ChevronRight } f
 
 const cognito = getCognitoIDPClient();
 
-let userPools = $state<any[]>([]);
+let userPools = $state<unknown[]>([]);
 let loading = $state(true);
 let search = $state('');
 let activeTab = $state<'pools' | 'groups' | 'idps' | 'clients'>('pools');
 
 let selectedPoolId = $state<string | null>(null);
 let selectedPoolName = $state<string>('');
-let groups = $state<any[]>([]);
-let idps = $state<any[]>([]);
-let clients = $state<any[]>([]);
+let groups = $state<unknown[]>([]);
+let idps = $state<unknown[]>([]);
+let clients = $state<unknown[]>([]);
 let subLoading = $state(false);
 
 onMount(async () => { await loadUserPools(); });

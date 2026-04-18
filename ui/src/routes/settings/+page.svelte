@@ -69,14 +69,14 @@
 
 	onMount(() => {
 		const raw = window.localStorage.getItem(storageKey);
-		if (!raw) {
-			settings = { ...defaults };
-		} else {
+		if (raw) {
 			try {
 				settings = mergeSettings(JSON.parse(raw));
 			} catch {
 				settings = { ...defaults };
 			}
+		} else {
+			settings = { ...defaults };
 		}
 
 		try {
@@ -87,8 +87,8 @@
 					if (data.version) version = data.version;
 					if (Array.isArray(data.services)) {
 						resetServices = data.services
-							.map((service: unknown) => String(service))
-							.sort((a: string, b: string) => a.localeCompare(b));
+							.map(String)
+							.toSorted((a: string, b: string) => a.localeCompare(b));
 					}
 				})
 				.catch(() => {

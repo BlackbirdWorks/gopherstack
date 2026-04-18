@@ -12,14 +12,23 @@ import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, Eye
 
 const sm = getSecretsManagerClient();
 
-let secrets = $state<any[]>([]);
+type SecretItem = {
+	ARN?: string;
+	Description?: string;
+	LastAccessedDate?: Date | string;
+	LastChangedDate?: Date | string;
+	Name?: string;
+	RotationEnabled?: boolean;
+};
+
+let secrets = $state<SecretItem[]>([]);
 let loading = $state(true);
 let search = $state('');
 let showCreateModal = $state(false);
 let newSecretName = $state('');
 let newSecretValue = $state('');
 let activeTab = $state<'secrets' | 'detail'>('secrets');
-let selectedSecret = $state<any | null>(null);
+let selectedSecret = $state<SecretItem | null>(null);
 let secretValue = $state<string | null>(null);
 let showValue = $state(false);
 let loadingValue = $state(false);
@@ -38,7 +47,7 @@ async function loadSecrets() {
 	}
 }
 
-async function viewSecret(secret: any) {
+function viewSecret(secret: SecretItem) {
 	selectedSecret = secret;
 	secretValue = null;
 	showValue = false;

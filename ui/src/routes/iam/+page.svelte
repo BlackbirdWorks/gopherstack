@@ -14,13 +14,13 @@ const iam = getIAMClient();
 
 type Tab = 'users' | 'roles' | 'groups' | 'policies';
 let tab = $state<Tab>('users');
-let users = $state<any[]>([]);
-let roles = $state<any[]>([]);
-let groups = $state<any[]>([]);
-let policies = $state<any[]>([]);
+let users = $state<unknown[]>([]);
+let roles = $state<unknown[]>([]);
+let groups = $state<unknown[]>([]);
+let policies = $state<unknown[]>([]);
 let loading = $state(true);
 let search = $state('');
-let selectedItem = $state<any | null>(null);
+let selectedItem = $state<unknown | null>(null);
 let policyScope = $state<'Local' | 'AWS' | 'All'>('Local');
 
 onMount(async () => {
@@ -99,22 +99,22 @@ async function copyArn(arn: string) {
 }
 
 let items = $derived(tab === 'users' ? users : tab === 'roles' ? roles : tab === 'groups' ? groups : []);
-let filteredItems = $derived(items.filter((i: any) => {
+let filteredItems = $derived(items.filter((i: unknown) => {
 	const name = getName(i);
 	return !search || name.toLowerCase().includes(search.toLowerCase());
 }));
-let filteredPolicies = $derived(policies.filter((p: any) =>
+let filteredPolicies = $derived(policies.filter((p: unknown) =>
 	!search || p.PolicyName?.toLowerCase().includes(search.toLowerCase())
 ));
 
-function getName(i: any) { return i.UserName || i.RoleName || i.GroupName || ''; }
-function getArn(i: any) { return i.Arn || ''; }
-function getId(i: any) { return i.UserId || i.RoleId || i.GroupId || ''; }
-function getCreatedDate(i: any) {
+function getName(i: unknown) { return i.UserName || i.RoleName || i.GroupName || ''; }
+function getArn(i: unknown) { return i.Arn || ''; }
+function getId(i: unknown) { return i.UserId || i.RoleId || i.GroupId || ''; }
+function getCreatedDate(i: unknown) {
 	const d = i.CreateDate || i.CreatedDate;
 	return d ? new Date(d).toLocaleDateString() : '—';
 }
-function getPath(i: any) { return i.Path || '/'; }
+function getPath(i: unknown) { return i.Path || '/'; }
 </script>
 
 <div class="space-y-6">

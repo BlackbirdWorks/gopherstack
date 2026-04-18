@@ -85,7 +85,7 @@
 			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
 				e.preventDefault();
 				searchOpen = true;
-				document.getElementById('global-search')?.focus();
+				document.querySelector('#global-search')?.focus();
 			}
 		};
 		document.addEventListener('keydown', handleKeydown);

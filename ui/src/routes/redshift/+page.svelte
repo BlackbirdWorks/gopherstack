@@ -79,7 +79,7 @@
 		}
 	}
 
-	async function selectCluster(cluster: Cluster) {
+	function selectCluster(cluster: Cluster) {
 		selectedCluster = cluster;
 		activeTab = 'overview';
 		resizeNodeType = cluster.NodeType ?? '';

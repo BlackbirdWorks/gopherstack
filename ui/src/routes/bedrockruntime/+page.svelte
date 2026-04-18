@@ -17,7 +17,7 @@
 	let prompt = $state('What is Amazon Web Services?');
 	let modelResponse = $state<string | null>(null);
 	let invoking = $state(false);
-	let asyncInvocations = $state<any[]>([]);
+	let asyncInvocations = $state<unknown[]>([]);
 
 	const supportedModels = [
 		{ id: 'amazon.titan-text-express-v1', label: 'Titan Text Express' },
@@ -32,7 +32,7 @@
 		loading = true;
 		try {
 			const resp = await br.send(new ListAsyncInvokesCommand({}));
-			asyncInvocations = (resp as any).asyncInvokeSummaries ?? [];
+			asyncInvocations = (resp as { asyncInvokeSummaries?: unknown[] }).asyncInvokeSummaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load async invocations: ' + String(e));
 		} finally {

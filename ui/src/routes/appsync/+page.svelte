@@ -101,7 +101,8 @@
 				apiSchema = decoder.decode(res.schema);
 			}
 		} catch {
-			apiSchema = ''; // Schema may not be available
+			// Schema may not be available.
+			apiSchema = '';
 		} finally {
 			loadingSchema = false;
 		}

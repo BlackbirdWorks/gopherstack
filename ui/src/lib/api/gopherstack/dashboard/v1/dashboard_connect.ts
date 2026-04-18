@@ -3,7 +3,12 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { StreamConsoleRequest, StreamConsoleResponse, StreamMetricsRequest, StreamMetricsResponse } from "./dashboard_pb.js";
+import {
+  StreamConsoleRequest,
+  StreamConsoleResponse,
+  StreamMetricsRequest,
+  StreamMetricsResponse,
+} from "./dashboard_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -30,6 +35,5 @@ export const DashboardService = {
       O: StreamMetricsResponse,
       kind: MethodKind.ServerStreaming,
     },
-  }
+  },
 } as const;
-

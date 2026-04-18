@@ -131,7 +131,7 @@
 	}
 
 	async function deleteImage(img: ImageDetail) {
-		const tag = img.imageTags?.[0] ?? img.imageDigest?.substring(0, 20) ?? '';
+		const tag = img.imageTags?.[0] ?? img.imageDigest?.slice(0, 20) ?? '';
 		if (!selectedRepo || !confirm(`Delete image "${tag}"?`)) return;
 		const digest = img.imageDigest ?? '';
 		deletingImages = [...deletingImages, digest];

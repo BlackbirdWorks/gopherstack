@@ -29,7 +29,7 @@
 			// Note: SDK uses "-" for accountId to mean current account
 			const res = await glacier.send(new ListVaultsCommand({ accountId: '-' }));
 			vaults = res.VaultList ?? [];
-		} catch (err: any) {
+		} catch (err: unknown) {
 			toast.error(`Failed to load vaults: ${err.message}`);
 		} finally {
 			loading = false;

@@ -18,7 +18,7 @@
 	let searchQuery = $state('');
 	let stacks = $state<Stack[]>([]);
 	let fleets = $state<Fleet[]>([]);
-	let images = $state<any[]>([]);
+	let images = $state<unknown[]>([]);
 
 	const filteredStacks = $derived(stacks.filter((s) => (s.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredFleets = $derived(fleets.filter((f) => (f.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));

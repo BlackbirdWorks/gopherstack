@@ -2,9 +2,9 @@
 	import { onMount } from 'svelte';
 	import { Zap, AlertCircle, Activity, Settings, Gauge, TrendingUp, Lock, Unlock, RefreshCw } from 'lucide-svelte';
 
-	let faults = $state<any[]>([]);
+	let faults = $state<unknown[]>([]);
 	let networkEffects = $state({ latency: 0, jitter: 0 });
-	let activity = $state<any[]>([]);
+	let activity = $state<unknown[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 
@@ -47,7 +47,7 @@
 				body: JSON.stringify([{
 					service,
 					probability: parseFloat(String(probability)),
-					error: { statusCode: parseInt(String(statusCode)), code: errorCode }
+					error: { statusCode: parseInt(String(statusCode), 10), code: errorCode }
 				}])
 			});
 			if (!response.ok) throw new Error('Failed to add fault');

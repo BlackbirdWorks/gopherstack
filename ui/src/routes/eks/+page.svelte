@@ -267,7 +267,7 @@
 								<div class="grid grid-cols-2 gap-3">
 									{#each [
 										['K8s Version', selectedCluster.version ?? 'N/A'],
-										['Endpoint', selectedCluster.endpoint ? selectedCluster.endpoint.substring(0, 30) + '...' : 'N/A'],
+										['Endpoint', selectedCluster.endpoint ? selectedCluster.endpoint.slice(0, 30) + '...' : 'N/A'],
 										['Role ARN', selectedCluster.roleArn?.split('/').pop() ?? 'N/A'],
 										['Created', selectedCluster.createdAt ? new Date(selectedCluster.createdAt).toLocaleDateString() : 'N/A']
 									] as [label, value]}

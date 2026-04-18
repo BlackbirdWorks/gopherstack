@@ -251,7 +251,7 @@
 							
 							<div class="space-y-12 relative z-10">
 								{#each selectedPipeline.stages || [] as stage, i}
-									{@const stageState = pipelineState?.stageStates?.find((s: any) => s.stageName === stage.name)}
+									{@const stageState = pipelineState?.stageStates?.find((s: unknown) => s.stageName === stage.name)}
 									<div class="space-y-4">
 										<!-- Stage Header -->
 										<div class="flex items-center gap-4">
@@ -271,7 +271,7 @@
 										<!-- Actions Grid -->
 										<div class="ml-10 grid grid-cols-1 md:grid-cols-2 gap-4">
 											{#each stage.actions || [] as action}
-												{@const actionState = stageState?.actionStates?.find((as: any) => as.actionName === action.name)}
+												{@const actionState = stageState?.actionStates?.find((as: unknown) => as.actionName === action.name)}
 												{@const StatusIcon = getStatusIcon(actionState?.latestExecution?.status)}
 												<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/action hover:border-violet-500/30 transition-all">
 													<div class="flex justify-between items-start mb-4">

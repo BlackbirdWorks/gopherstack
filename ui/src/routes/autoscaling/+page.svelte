@@ -80,7 +80,7 @@
 		}
 	}
 
-	async function selectGroup(group: AutoScalingGroup) {
+	function selectGroup(group: AutoScalingGroup) {
 		selectedGroup = group;
 		activeTab = 'overview';
 		newDesired = group.DesiredCapacity ?? 1;
