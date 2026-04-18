@@ -7,6 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { initializeTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
+	import { getStoredRegion, setStoredRegion } from '$lib/aws/client';
 
 	let { children } = $props();
 	let theme = $state<ThemeName>('light');
@@ -63,6 +64,7 @@
 
 	function selectRegion(region: string) {
 		currentRegion = region;
+		setStoredRegion(region);
 		regionDropdownOpen = false;
 	}
 
@@ -73,6 +75,7 @@
 	}
 
 	onMount(() => {
+		currentRegion = getStoredRegion();
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
 		
