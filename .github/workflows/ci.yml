@@ -21,6 +21,30 @@ env:
   GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
 
 jobs:
+  ui-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Run UI lint
+        run: npm --prefix ui run lint
+
+      - name: Run UI format check
+        run: npm --prefix ui run fmt:check
+
   lint:
     runs-on: ubuntu-latest
     steps:
