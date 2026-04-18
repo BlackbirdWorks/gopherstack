@@ -270,7 +270,7 @@ func (h *S3Handler) putObject(
 		); ncErr == nil && notifXML != "" {
 			etag := aws.ToString(ver.ETag)
 			size := aws.ToInt64(ver.Size)
-			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
+			go h.notifier.DispatchObjectCreated(h.notificationDispatchContext(), bucketName, key, etag, size, notifXML)
 		}
 	}
 
@@ -410,7 +410,14 @@ func (h *S3Handler) copyObject(
 			destBucket,
 		); ncErr == nil && notifXML != "" {
 			size := aws.ToInt64(destVer.Size)
-			go h.notifier.DispatchObjectCopied(context.WithoutCancel(ctx), destBucket, destKey, etag, size, notifXML)
+			go h.notifier.DispatchObjectCopied(
+				h.notificationDispatchContext(),
+				destBucket,
+				destKey,
+				etag,
+				size,
+				notifXML,
+			)
 		}
 	}
 
@@ -482,7 +489,9 @@ func (h *S3Handler) getObject(
 	}
 
 	h.setCommonHeaders(w, details)
-	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Set x-amz-expiration header if a lifecycle rule matches this object.
+	h.setExpirationHeader(ctx, w, bucketName, key, ver.LastModified)
 
 	if ce := aws.ToString(ver.ContentEncoding); ce != "" {
 		w.Header().Set("Content-Encoding", ce)
@@ -497,7 +506,12 @@ func (h *S3Handler) getObject(
 	}
 
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-		data, _ := io.ReadAll(ver.Body)
+		data, readErr := io.ReadAll(ver.Body)
+		if readErr != nil {
+			WriteError(ctx, w, r, readErr)
+
+			return
+		}
 		if h.serveRange(ctx, w, data, rangeHeader) {
 			return
 		}
@@ -583,7 +597,7 @@ func (h *S3Handler) deleteObject(
 			bucketName,
 		); ncErr == nil &&
 			notifXML != "" {
-			go h.notifier.DispatchObjectDeleted(context.WithoutCancel(ctx), bucketName, key, notifXML)
+			go h.notifier.DispatchObjectDeleted(h.notificationDispatchContext(), bucketName, key, notifXML)
 		}
 	}
 
@@ -670,7 +684,7 @@ func (h *S3Handler) deleteObjects(
 		); ncErr == nil && notifXML != "" {
 			for _, d := range out.Deleted {
 				key := aws.ToString(d.Key)
-				go h.notifier.DispatchObjectDeleted(context.WithoutCancel(ctx), bucketName, key, notifXML)
+				go h.notifier.DispatchObjectDeleted(h.notificationDispatchContext(), bucketName, key, notifXML)
 			}
 		}
 	}
@@ -865,6 +879,10 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
 	}
 
+	// AWS always advertises byte-range support and STANDARD storage class.
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("X-Amz-Storage-Class", storageStandard)
+
 	h.setChecksumHeaders(w, out)
 }
 
@@ -995,6 +1013,7 @@ func (h *S3Handler) serveRange(
 	}
 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
 
 	// #nosec G705

@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	sdk_s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -758,6 +760,107 @@ func TestHandler_GetBucketLocation(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.want)
+		})
+	}
+}
+
+func TestHandler_GetSupportedOperations_HighPriorityS3Ops(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+	}{
+		{name: "includes GetBucketLocation", op: "GetBucketLocation"},
+		{name: "includes PutBucketTagging", op: "PutBucketTagging"},
+		{name: "includes GetBucketTagging", op: "GetBucketTagging"},
+		{name: "includes DeleteBucketTagging", op: "DeleteBucketTagging"},
+		{name: "includes PutObjectAcl", op: "PutObjectAcl"},
+		{name: "includes GetObjectAcl", op: "GetObjectAcl"},
+		{name: "includes UploadPartCopy", op: "UploadPartCopy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, _ := newTestHandler(t)
+			assert.Contains(t, handler.GetSupportedOperations(), tt.op)
+		})
+	}
+}
+
+func TestHandler_UploadPartCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		rangeHeader  string
+		expectedBody string
+	}{
+		{
+			name:         "copies full source object into multipart part",
+			expectedBody: "hello multipart copy",
+		},
+		{
+			name:         "copies ranged slice into multipart part",
+			rangeHeader:  "bytes=6-14",
+			expectedBody: "multipart",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+			mustPutObject(t, backend, "bkt", "src", []byte("hello multipart copy"))
+
+			reqInit := httptest.NewRequest(http.MethodPost, "/bkt/dst?uploads", nil)
+			recInit := httptest.NewRecorder()
+			serveS3Handler(handler, recInit, reqInit)
+			require.Equal(t, http.StatusOK, recInit.Code)
+
+			var initResp s3.InitiateMultipartUploadResult
+			require.NoError(t, xml.NewDecoder(recInit.Body).Decode(&initResp))
+			uploadID := initResp.UploadID
+
+			reqPart := httptest.NewRequest(
+				http.MethodPut,
+				"/bkt/dst?partNumber=1&uploadId="+uploadID,
+				nil,
+			)
+			reqPart.Header.Set("X-Amz-Copy-Source", "/bkt/src")
+			if tt.rangeHeader != "" {
+				reqPart.Header.Set("X-Amz-Copy-Source-Range", tt.rangeHeader)
+			}
+
+			recPart := httptest.NewRecorder()
+			serveS3Handler(handler, recPart, reqPart)
+			require.Equal(t, http.StatusOK, recPart.Code)
+			assert.Contains(t, recPart.Body.String(), "CopyPartResult")
+
+			var copyResp s3.UploadPartCopyResult
+			require.NoError(t, xml.NewDecoder(recPart.Body).Decode(&copyResp))
+			require.NotEmpty(t, copyResp.ETag)
+
+			completeXML := "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>" +
+				copyResp.ETag + "</ETag></Part></CompleteMultipartUpload>"
+			reqComplete := httptest.NewRequest(
+				http.MethodPost,
+				"/bkt/dst?uploadId="+uploadID,
+				strings.NewReader(completeXML),
+			)
+			recComplete := httptest.NewRecorder()
+			serveS3Handler(handler, recComplete, reqComplete)
+			require.Equal(t, http.StatusOK, recComplete.Code)
+
+			reqGet := httptest.NewRequest(http.MethodGet, "/bkt/dst", nil)
+			recGet := httptest.NewRecorder()
+			serveS3Handler(handler, recGet, reqGet)
+			require.Equal(t, http.StatusOK, recGet.Code)
+			assert.Equal(t, tt.expectedBody, recGet.Body.String())
 		})
 	}
 }
@@ -3170,4 +3273,297 @@ func TestS3_NewOperations_SupportedOperations(t *testing.T) {
 			assert.Contains(t, ops, tt.want)
 		})
 	}
+}
+
+func TestHandler_CompleteMultipartUpload_PartOrder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		partOrder  []int // order to send parts in the complete request
+		wantStatus int
+	}{
+		{
+			name:       "ascending order succeeds",
+			partOrder:  []int{1, 2, 3},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "descending order fails",
+			partOrder:  []int{3, 2, 1},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate part number fails",
+			partOrder:  []int{1, 1, 2},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			// Create upload
+			reqInit := httptest.NewRequest(http.MethodPost, "/bkt/obj?uploads", nil)
+			recInit := httptest.NewRecorder()
+			serveS3Handler(handler, recInit, reqInit)
+			require.Equal(t, http.StatusOK, recInit.Code)
+
+			var initResp struct {
+				UploadID string `xml:"UploadId"`
+			}
+			require.NoError(t, xml.Unmarshal(recInit.Body.Bytes(), &initResp))
+			uploadID := initResp.UploadID
+
+			// Upload parts 1-3 regardless of test order
+			partETags := make(map[int]string)
+			for i := 1; i <= 3; i++ {
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/bkt/obj?partNumber="+strconv.Itoa(i)+"&uploadId="+uploadID,
+					strings.NewReader("data"),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+				partETags[i] = rec.Header().Get("ETag")
+			}
+
+			// Build complete XML in the requested order
+			var parts strings.Builder
+			for _, pn := range tt.partOrder {
+				parts.WriteString("<Part><PartNumber>")
+				parts.WriteString(strconv.Itoa(pn))
+				parts.WriteString("</PartNumber><ETag>")
+				parts.WriteString(partETags[pn])
+				parts.WriteString("</ETag></Part>")
+			}
+			body := "<CompleteMultipartUpload>" + parts.String() + "</CompleteMultipartUpload>"
+
+			reqComplete := httptest.NewRequest(
+				http.MethodPost, "/bkt/obj?uploadId="+uploadID, strings.NewReader(body),
+			)
+			recComplete := httptest.NewRecorder()
+			serveS3Handler(handler, recComplete, reqComplete)
+			assert.Equal(t, tt.wantStatus, recComplete.Code)
+		})
+	}
+}
+
+func TestHandler_MultipartUpload_ETagFormat(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+
+	// Create upload
+	reqInit := httptest.NewRequest(http.MethodPost, "/bkt/obj?uploads", nil)
+	recInit := httptest.NewRecorder()
+	serveS3Handler(handler, recInit, reqInit)
+	require.Equal(t, http.StatusOK, recInit.Code)
+
+	var initResp struct {
+		UploadID string `xml:"UploadId"`
+	}
+	require.NoError(t, xml.Unmarshal(recInit.Body.Bytes(), &initResp))
+	uploadID := initResp.UploadID
+
+	// Upload 2 parts
+	etags := make([]string, 2)
+	for i := 1; i <= 2; i++ {
+		req := httptest.NewRequest(
+			http.MethodPut,
+			"/bkt/obj?partNumber="+strconv.Itoa(i)+"&uploadId="+uploadID,
+			strings.NewReader("part-data"),
+		)
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		etags[i-1] = rec.Header().Get("ETag")
+	}
+
+	// Complete
+	body := "<CompleteMultipartUpload>" +
+		"<Part><PartNumber>1</PartNumber><ETag>" + etags[0] + "</ETag></Part>" +
+		"<Part><PartNumber>2</PartNumber><ETag>" + etags[1] + "</ETag></Part>" +
+		"</CompleteMultipartUpload>"
+
+	reqComplete := httptest.NewRequest(
+		http.MethodPost, "/bkt/obj?uploadId="+uploadID, strings.NewReader(body),
+	)
+	recComplete := httptest.NewRecorder()
+	serveS3Handler(handler, recComplete, reqComplete)
+	require.Equal(t, http.StatusOK, recComplete.Code)
+
+	// Get object and check ETag has -2 suffix (2 parts)
+	reqGet := httptest.NewRequest(http.MethodGet, "/bkt/obj", nil)
+	recGet := httptest.NewRecorder()
+	serveS3Handler(handler, recGet, reqGet)
+	require.Equal(t, http.StatusOK, recGet.Code)
+
+	etag := recGet.Header().Get("ETag")
+	assert.True(t, strings.HasSuffix(etag, "-2\""), "multipart ETag should end with -2\" got: %s", etag)
+	assert.True(t, strings.HasPrefix(etag, "\""), "ETag should start with quote, got: %s", etag)
+}
+
+func TestHandler_GetObject_ExpirationHeader(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+	mustPutObject(t, backend, "bkt", "obj", []byte("data"))
+
+	req := httptest.NewRequest(http.MethodGet, "/bkt/obj", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	// x-amz-expiration is not always present (only with lifecycle), but
+	// we verify the handler completes without error for both HEAD and GET.
+	assert.Equal(t, "bytes", rec.Header().Get("Accept-Ranges"), "Accept-Ranges should be set on GET")
+	assert.Equal(t, "STANDARD", rec.Header().Get("X-Amz-Storage-Class"), "X-Amz-Storage-Class should be STANDARD")
+}
+
+func TestHandler_HeadObject_StorageClassAndAcceptRanges(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+	mustPutObject(t, backend, "bkt", "obj", []byte("data"))
+
+	req := httptest.NewRequest(http.MethodHead, "/bkt/obj", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "bytes", rec.Header().Get("Accept-Ranges"))
+	assert.Equal(t, "STANDARD", rec.Header().Get("X-Amz-Storage-Class"))
+}
+
+func TestHandler_GetObject_RangeContentLength(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+	mustPutObject(t, backend, "bkt", "obj", []byte("0123456789"))
+
+	req := httptest.NewRequest(http.MethodGet, "/bkt/obj", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusPartialContent, rec.Code)
+	assert.Equal(t, "4", rec.Header().Get("Content-Length"), "range response should have correct Content-Length")
+	assert.Equal(t, "bytes 2-5/10", rec.Header().Get("Content-Range"))
+	assert.Equal(t, "2345", rec.Body.String())
+}
+
+func TestHandler_PutBucketACL_InvalidValue(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+
+	req := httptest.NewRequest(http.MethodPut, "/bkt?acl", nil)
+	req.Header.Set("X-Amz-Acl", "invalid-acl-value")
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListMultipartUploads_MaxUploads(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+
+	// Create 5 multipart uploads
+	uploadIDs := make([]string, 5)
+	for i := range uploadIDs {
+		req := httptest.NewRequest(http.MethodPost, "/bkt/obj"+strings.Repeat(string(rune('a'+i)), 1)+"?uploads", nil)
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// List with max-uploads=2
+	req := httptest.NewRequest(http.MethodGet, "/bkt?uploads&max-uploads=2", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type listUploadsResult struct {
+		Uploads []struct {
+			Key string `xml:"Key"`
+		} `xml:"Upload"`
+		IsTruncated bool `xml:"IsTruncated"`
+	}
+
+	var result listUploadsResult
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
+	assert.Len(t, result.Uploads, 2, "should return exactly MaxUploads entries")
+	assert.True(t, result.IsTruncated, "should be truncated")
+}
+
+func TestHandler_ListObjectVersions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	ctx := t.Context()
+	mustCreateBucket(t, backend, "bkt")
+
+	// Enable versioning
+	_, err := backend.PutBucketVersioning(ctx, &sdk_s3.PutBucketVersioningInput{
+		Bucket: aws.String("bkt"),
+		VersioningConfiguration: &sdk_s3types.VersioningConfiguration{
+			Status: sdk_s3types.BucketVersioningStatusEnabled,
+		},
+	})
+	require.NoError(t, err)
+
+	// Put objects a, b, c with a version each
+	for _, key := range []string{"a", "b", "c"} {
+		mustPutObject(t, backend, "bkt", key, []byte(key))
+	}
+
+	// List with max-keys=2
+	req := httptest.NewRequest(http.MethodGet, "/bkt?versions&max-keys=2", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type listVersionsResult struct {
+		NextKeyMarker string `xml:"NextKeyMarker"`
+		Versions      []struct {
+			Key string `xml:"Key"`
+		} `xml:"Version"`
+		IsTruncated bool `xml:"IsTruncated"`
+	}
+
+	var result listVersionsResult
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
+	assert.Len(t, result.Versions, 2, "first page should have 2 entries")
+	assert.True(t, result.IsTruncated, "should be truncated")
+	assert.NotEmpty(t, result.NextKeyMarker, "should have next key marker")
+
+	// Fetch second page
+	req2 := httptest.NewRequest(
+		http.MethodGet, "/bkt?versions&max-keys=2&key-marker="+result.NextKeyMarker, nil,
+	)
+	rec2 := httptest.NewRecorder()
+	serveS3Handler(handler, rec2, req2)
+
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var result2 listVersionsResult
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &result2))
+	assert.Len(t, result2.Versions, 1, "second page should have 1 entry")
+	assert.False(t, result2.IsTruncated, "second page should not be truncated")
 }

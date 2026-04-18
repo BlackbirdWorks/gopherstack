@@ -1037,18 +1037,13 @@ func (b *InMemoryBackend) processListObjects(
 		return *contents[i].Key < *contents[j].Key
 	})
 
-	// Apply Marker
+	// Apply Marker using binary search for O(log n) seek instead of O(n) linear scan.
 	marker := aws.ToString(input.Marker)
 	if marker != "" {
-		startIndex := -1
-		for i, obj := range contents {
-			if *obj.Key > marker {
-				startIndex = i
-
-				break
-			}
-		}
-		if startIndex == -1 {
+		startIndex := sort.Search(len(contents), func(i int) bool {
+			return *contents[i].Key > marker
+		})
+		if startIndex >= len(contents) {
 			contents = nil
 		} else {
 			contents = contents[startIndex:]
@@ -1187,6 +1182,18 @@ func (b *InMemoryBackend) ListObjectsV2(
 	}, nil
 }
 
+// versionSnapshot holds the subset of StoredObjectVersion fields needed for
+// listing. It is captured under the bucket lock and processed outside it.
+type versionSnapshot struct {
+	lastModified time.Time
+	key          string
+	versionID    string
+	etag         string
+	size         int64
+	isLatest     bool
+	deleted      bool
+}
+
 func (b *InMemoryBackend) ListObjectVersions(
 	_ context.Context,
 	input *s3.ListObjectVersionsInput,
@@ -1202,18 +1209,58 @@ func (b *InMemoryBackend) ListObjectVersions(
 	}
 
 	prefix := aws.ToString(input.Prefix)
+	keyMarker := aws.ToString(input.KeyMarker)
+	versionIDMarker := aws.ToString(input.VersionIdMarker)
+	delimiter := aws.ToString(input.Delimiter)
 
-	// Snapshot version metadata under lock to minimise lock hold time.
-	type versionSnapshot struct {
-		lastModified time.Time
-		key          string
-		versionID    string
-		etag         string
-		size         int64
-		isLatest     bool
-		deleted      bool
+	maxKeys := int32(defaultMaxKeys)
+	if input.MaxKeys != nil && *input.MaxKeys > 0 {
+		maxKeys = *input.MaxKeys
 	}
 
+	snapshots := b.snapshotVersions(bucket, prefix)
+
+	// Sort: primary by key (ascending), secondary by LastModified (newest first).
+	sort.Slice(snapshots, func(i, j int) bool {
+		if snapshots[i].key != snapshots[j].key {
+			return snapshots[i].key < snapshots[j].key
+		}
+
+		return snapshots[i].lastModified.After(snapshots[j].lastModified)
+	})
+
+	snapshots = seekVersionMarker(snapshots, keyMarker, versionIDMarker)
+	filteredSnapshots, commonPrefixes := applyVersionDelimiter(snapshots, prefix, delimiter)
+
+	versions, deleteMarkers, isTruncated, nextKeyMarker, nextVersionIDMarker := buildVersionPage(
+		filteredSnapshots,
+		maxKeys,
+	)
+
+	var cpList []types.CommonPrefix
+	for _, cp := range commonPrefixes {
+		cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
+	}
+
+	return &s3.ListObjectVersionsOutput{
+		Name:                aws.String(bucketName),
+		Prefix:              input.Prefix,
+		KeyMarker:           input.KeyMarker,
+		VersionIdMarker:     input.VersionIdMarker,
+		MaxKeys:             aws.Int32(maxKeys),
+		Delimiter:           input.Delimiter,
+		IsTruncated:         aws.Bool(isTruncated),
+		NextKeyMarker:       aws.String(nextKeyMarker),
+		NextVersionIdMarker: aws.String(nextVersionIDMarker),
+		Versions:            versions,
+		DeleteMarkers:       deleteMarkers,
+		CommonPrefixes:      cpList,
+	}, nil
+}
+
+// snapshotVersions captures all versions from bucket.Objects that match prefix,
+// under the bucket read lock.
+func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) []versionSnapshot {
 	var snapshots []versionSnapshot
 
 	bucket.mu.RLock("ListObjectVersions")
@@ -1236,21 +1283,93 @@ func (b *InMemoryBackend) ListObjectVersions(
 	}
 	bucket.mu.RUnlock()
 
-	// Build the output outside the lock.
-	var versions []types.ObjectVersion
-	var deleteMarkers []types.DeleteMarkerEntry
+	return snapshots
+}
+
+// seekVersionMarker advances the snapshot slice past the (keyMarker, versionIDMarker) cursor.
+func seekVersionMarker(snapshots []versionSnapshot, keyMarker, versionIDMarker string) []versionSnapshot {
+	if keyMarker == "" {
+		return snapshots
+	}
+
+	for i, s := range snapshots {
+		if s.key > keyMarker {
+			return snapshots[i:]
+		}
+
+		if s.key == keyMarker && versionIDMarker != "" && s.versionID == versionIDMarker {
+			return snapshots[i+1:]
+		}
+
+		// Skip all versions of keyMarker when no versionIDMarker specified.
+		if s.key == keyMarker && versionIDMarker == "" {
+			continue
+		}
+	}
+
+	return nil
+}
+
+// applyVersionDelimiter groups snapshot keys that share a common prefix
+// (when delimiter is set) and returns the remaining non-grouped snapshots
+// together with the sorted list of discovered common-prefix strings.
+func applyVersionDelimiter(snapshots []versionSnapshot, prefix, delimiter string) ([]versionSnapshot, []string) {
+	if delimiter == "" {
+		return snapshots, nil
+	}
+
+	seenCommonPrefixes := make(map[string]struct{})
+	var filtered []versionSnapshot
+	var commonPrefixes []string
 
 	for _, snap := range snapshots {
+		rest := strings.TrimPrefix(snap.key, prefix)
+		if idx := strings.Index(rest, delimiter); idx != -1 {
+			cp := prefix + rest[:idx+len(delimiter)]
+			if _, seen := seenCommonPrefixes[cp]; !seen {
+				seenCommonPrefixes[cp] = struct{}{}
+				commonPrefixes = append(commonPrefixes, cp)
+			}
+
+			continue
+		}
+
+		filtered = append(filtered, snap)
+	}
+
+	return filtered, commonPrefixes
+}
+
+// buildVersionPage builds the Versions and DeleteMarkers page from snapshots,
+// enforcing maxKeys. It returns the pagination flags for the next request.
+func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
+	[]types.ObjectVersion,
+	[]types.DeleteMarkerEntry,
+	bool,
+	string,
+	string,
+) {
+	var versions []types.ObjectVersion
+	var deleteMarkers []types.DeleteMarkerEntry
+	count := int32(0)
+	var lastKey, lastVersionID string
+
+	for _, snap := range snapshots {
+		if count >= maxKeys {
+			// NextKeyMarker is the last key returned (follow-up uses key-marker=last).
+			return versions, deleteMarkers, true, lastKey, lastVersionID
+		}
+
+		lastKey = snap.key
+		lastVersionID = snap.versionID
+
 		if snap.deleted {
 			deleteMarkers = append(deleteMarkers, types.DeleteMarkerEntry{
 				Key:          aws.String(snap.key),
 				VersionId:    aws.String(snap.versionID),
 				IsLatest:     aws.Bool(snap.isLatest),
 				LastModified: aws.Time(snap.lastModified),
-				Owner: &types.Owner{
-					ID:          aws.String("gopherstack"),
-					DisplayName: aws.String("gopherstack"),
-				},
+				Owner:        &types.Owner{ID: aws.String("gopherstack"), DisplayName: aws.String("gopherstack")},
 			})
 		} else {
 			versions = append(versions, types.ObjectVersion{
@@ -1261,20 +1380,14 @@ func (b *InMemoryBackend) ListObjectVersions(
 				ETag:         aws.String(snap.etag),
 				Size:         aws.Int64(snap.size),
 				StorageClass: types.ObjectVersionStorageClassStandard,
-				Owner: &types.Owner{
-					ID:          aws.String("gopherstack"),
-					DisplayName: aws.String("gopherstack"),
-				},
+				Owner:        &types.Owner{ID: aws.String("gopherstack"), DisplayName: aws.String("gopherstack")},
 			})
 		}
+
+		count++
 	}
 
-	return &s3.ListObjectVersionsOutput{
-		Name:          input.Bucket,
-		Prefix:        input.Prefix,
-		Versions:      versions,
-		DeleteMarkers: deleteMarkers,
-	}, nil
+	return versions, deleteMarkers, false, "", ""
 }
 
 func (b *InMemoryBackend) PutBucketVersioning(
@@ -1713,14 +1826,40 @@ type multipartAssemblyResult struct {
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
 // the combined payload, compresses it, and returns the assembled result.
+//
+// The ETag follows the AWS multipart format: MD5 of the concatenated raw MD5
+// bytes of each part, formatted as "<hex>-<partCount>".
 func (b *InMemoryBackend) assembleMultipartData(
 	upload *StoredMultipartUpload,
 	input *s3.CompleteMultipartUploadInput,
 ) (multipartAssemblyResult, error) {
-	var data []byte
-
 	upload.mu.RLock("CompleteMultipartUpload")
 	parts := input.MultipartUpload.Parts
+
+	// Validate parts are in strictly ascending order (AWS requirement).
+	for i := 1; i < len(parts); i++ {
+		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
+			upload.mu.RUnlock()
+
+			return multipartAssemblyResult{}, ErrInvalidPartOrder
+		}
+	}
+
+	// Pre-calculate total size to avoid O(n²) repeated re-allocation from append.
+	totalSize := 0
+	for _, part := range parts {
+		if sp, ok := upload.Parts[*part.PartNumber]; ok {
+			totalSize += len(sp.Data)
+		}
+	}
+
+	// Allocate buf with exact capacity to avoid O(n²) re-allocation.
+	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
+
+	// partMD5s accumulates the raw (binary) MD5 bytes of each part for the AWS
+	// multipart ETag computation: MD5(part1_md5_bytes || ... || partN_md5_bytes).
+	partMD5s := make([]byte, 0, len(parts)*md5.Size)
+
 	for _, part := range parts {
 		pNum := *part.PartNumber
 		storedPart, ok := upload.Parts[pNum]
@@ -1734,9 +1873,24 @@ func (b *InMemoryBackend) assembleMultipartData(
 
 			return multipartAssemblyResult{}, ErrInvalidPart
 		}
-		data = append(data, storedPart.Data...)
+
+		buf.Write(storedPart.Data)
+
+		// Decode the stored ETag (quoted hex, e.g. `"d41d8..."`) into raw bytes.
+		// A decode failure means a corrupted/malformed part ETag was stored,
+		// which should not occur in normal operation but is treated as invalid.
+		rawETag := strings.Trim(storedPart.ETag, "\"")
+		rawBytes, decErr := hex.DecodeString(rawETag)
+		if decErr != nil {
+			upload.mu.RUnlock()
+
+			return multipartAssemblyResult{}, ErrInvalidPart
+		}
+		partMD5s = append(partMD5s, rawBytes...)
 	}
 	upload.mu.RUnlock()
+
+	data := buf.Bytes()
 
 	var compressedData []byte
 	var isCompressed bool
@@ -1752,8 +1906,10 @@ func (b *InMemoryBackend) assembleMultipartData(
 		compressedData = data
 	}
 
-	hash := md5.Sum(data) //nolint:gosec // MD5 required
-	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
+	// Compute the AWS multipart ETag: MD5 of the concatenated raw part MD5 bytes,
+	// followed by "-N" where N is the part count.
+	combinedHash := md5.Sum(partMD5s) //nolint:gosec // MD5 required for S3 ETag
+	etag := fmt.Sprintf("\"%s-%d\"", hex.EncodeToString(combinedHash[:]), len(parts))
 
 	return multipartAssemblyResult{
 		data:           data,
@@ -1859,7 +2015,29 @@ func (b *InMemoryBackend) ListMultipartUploads(
 		return nil, err
 	}
 
-	prefix := aws.ToString(input.Prefix)
+	const defaultMaxUploads = int32(1000)
+	maxUploads := defaultMaxUploads
+	if input.MaxUploads != nil && *input.MaxUploads > 0 && *input.MaxUploads < defaultMaxUploads {
+		maxUploads = *input.MaxUploads
+	}
+
+	uploads := b.collectAndSortUploads(bucketName, aws.ToString(input.Prefix))
+	uploads = seekMultipartMarker(uploads, aws.ToString(input.KeyMarker), aws.ToString(input.UploadIdMarker))
+
+	isTruncated, nextKeyMarker, nextUploadIDMarker := truncateUploads(&uploads, maxUploads)
+
+	return &s3.ListMultipartUploadsOutput{
+		Bucket:             aws.String(bucketName),
+		Uploads:            uploads,
+		MaxUploads:         aws.Int32(maxUploads),
+		IsTruncated:        aws.Bool(isTruncated),
+		NextKeyMarker:      aws.String(nextKeyMarker),
+		NextUploadIdMarker: aws.String(nextUploadIDMarker),
+	}, nil
+}
+
+// collectAndSortUploads snapshots and sorts the in-progress uploads for a bucket.
+func (b *InMemoryBackend) collectAndSortUploads(bucketName, prefix string) []types.MultipartUpload {
 	var uploads []types.MultipartUpload
 
 	for _, u := range b.uploads[bucketName] {
@@ -1883,10 +2061,42 @@ func (b *InMemoryBackend) ListMultipartUploads(
 		return aws.ToString(uploads[i].UploadId) < aws.ToString(uploads[j].UploadId)
 	})
 
-	return &s3.ListMultipartUploadsOutput{
-		Bucket:  aws.String(bucketName),
-		Uploads: uploads,
-	}, nil
+	return uploads
+}
+
+// seekMultipartMarker skips all upload entries that come at or before the
+// (keyMarker, uploadIDMarker) pagination cursor.
+func seekMultipartMarker(uploads []types.MultipartUpload, keyMarker, uploadIDMarker string) []types.MultipartUpload {
+	if keyMarker == "" {
+		return uploads
+	}
+
+	for i, u := range uploads {
+		k := aws.ToString(u.Key)
+		if k > keyMarker {
+			return uploads[i:]
+		}
+
+		if k == keyMarker && uploadIDMarker != "" && aws.ToString(u.UploadId) == uploadIDMarker {
+			return uploads[i+1:]
+		}
+	}
+
+	return nil
+}
+
+// truncateUploads enforces the MaxUploads page size, returning the IsTruncated flag and
+// the next-page markers. The uploads slice is truncated in-place.
+func truncateUploads(uploads *[]types.MultipartUpload, maxUploads int32) (bool, string, string) {
+	if int32(len(*uploads)) <= maxUploads { //nolint:gosec // len() is bounded by maxUploads which is at most 1000
+		return false, "", ""
+	}
+
+	nextKey := aws.ToString((*uploads)[maxUploads].Key)
+	nextID := aws.ToString((*uploads)[maxUploads].UploadId)
+	*uploads = (*uploads)[:maxUploads]
+
+	return true, nextKey, nextID
 }
 
 // ListParts returns the parts that have been uploaded for a specific multipart upload.
