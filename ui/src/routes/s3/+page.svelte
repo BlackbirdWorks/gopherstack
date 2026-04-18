@@ -173,7 +173,7 @@ try {
 const res = await s3.send(new ListBucketsCommand({}));
 buckets = res.Buckets ?? [];
 bucketPage = 1;
-loadBucketSizes(buckets); // non-blocking
+void loadBucketSizes(buckets);
 } catch (err: unknown) {
 toast.error(`Failed to list buckets: ${(err as Error).message}`);
 } finally {
@@ -311,7 +311,7 @@ async function loadObjects(reset = true): Promise<void> {
         ContinuationToken: continuationToken,
       }));
       allObjects.push(...(res.Contents ?? []));
-      allPrefixes.push(...(res.CommonPrefixes ?? []).map((p) => p.Prefix ?? '').filter((p) => p));
+      allPrefixes.push(...(res.CommonPrefixes ?? []).map((p) => p.Prefix ?? '').filter(Boolean));
       continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
       pageCount++;
       if (pageCount >= 10) {
