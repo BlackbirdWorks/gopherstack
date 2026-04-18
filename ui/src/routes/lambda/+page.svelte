@@ -338,7 +338,7 @@
 <!-- Invoke Modal -->
 {#if showInvokeModal && selectedFunction}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showInvokeModal = false}></div>
+		<div role="none" onclick={() => showInvokeModal = false} onkeydown={(e) => e.key === 'Escape' && (showInvokeModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
 		<div class="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden">
 			<div class="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700/50">
 				<div>
@@ -353,9 +353,10 @@
 			<div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
 				<!-- Input -->
 				<div class="space-y-2">
-					<label class="text-xs font-bold text-slate-500 uppercase tracking-widest">Input Payload (JSON)</label>
+					<label for="lambda-invoke-payload" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Input Payload (JSON)</label>
 					<div class="relative group">
 						<textarea 
+							id="lambda-invoke-payload"
 							bind:value={invokePayload}
 							class="w-full h-80 p-4 font-mono text-sm bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none shadow-inner"
 						></textarea>
@@ -367,7 +368,7 @@
 
 				<!-- Output -->
 				<div class="space-y-2">
-					<label class="text-xs font-bold text-slate-500 uppercase tracking-widest">Execution Response</label>
+					<p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Execution Response</p>
 					<div class="h-80 w-full p-4 font-mono text-sm bg-slate-950 text-emerald-400 rounded-xl overflow-auto shadow-inner border border-black group relative">
 						{#if invoking}
 							<div class="flex items-center gap-2 animate-pulse">

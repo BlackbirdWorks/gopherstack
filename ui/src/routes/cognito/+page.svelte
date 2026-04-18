@@ -6,23 +6,27 @@ import {
 	DescribeUserPoolCommand,
 	ListGroupsCommand,
 	ListIdentityProvidersCommand,
-	ListUserPoolClientsCommand
+	ListUserPoolClientsCommand,
+	type UserPoolDescriptionType,
+	type GroupType,
+	type ProviderDescription,
+	type UserPoolClientDescription
 } from '@aws-sdk/client-cognito-identity-provider';
 import { toast } from 'svelte-sonner';
 import { Users, Plus, RefreshCw, Search, Shield, Key, Settings, ChevronRight } from 'lucide-svelte';
 
 const cognito = getCognitoIDPClient();
 
-let userPools = $state<unknown[]>([]);
+let userPools = $state<UserPoolDescriptionType[]>([]);
 let loading = $state(true);
 let search = $state('');
 let activeTab = $state<'pools' | 'groups' | 'idps' | 'clients'>('pools');
 
 let selectedPoolId = $state<string | null>(null);
 let selectedPoolName = $state<string>('');
-let groups = $state<unknown[]>([]);
-let idps = $state<unknown[]>([]);
-let clients = $state<unknown[]>([]);
+let groups = $state<GroupType[]>([]);
+let idps = $state<ProviderDescription[]>([]);
+let clients = $state<UserPoolClientDescription[]>([]);
 let subLoading = $state(false);
 
 onMount(async () => { await loadUserPools(); });
@@ -186,7 +190,7 @@ let enabledCount = $derived(userPools.filter(p => p.Status !== 'Disabled').lengt
 							</div>
 						</div>
 						<div class="flex gap-2">
-							<button onclick={() => selectPool(pool.Id, pool.Name)} class="px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center gap-1">
+							<button onclick={() => selectPool(pool.Id ?? '', pool.Name ?? '')} class="px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center gap-1">
 								View Details <ChevronRight class="w-3 h-3" />
 							</button>
 						</div>

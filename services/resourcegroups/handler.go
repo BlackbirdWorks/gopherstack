@@ -360,14 +360,28 @@ func (h *Handler) handleDeleteGroup(_ context.Context, in *groupNameInput) (*del
 
 type listGroupsInput struct{}
 
+type listGroupIdentifierOutput struct {
+	GroupName   string `json:"GroupName"`
+	GroupArn    string `json:"GroupArn"`
+	Description string `json:"Description"`
+}
+
 type listGroupsOutput struct {
-	GroupIdentifiers []Group `json:"GroupIdentifiers"`
+	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
 }
 
 func (h *Handler) handleListGroups(_ context.Context, _ *listGroupsInput) (*listGroupsOutput, error) {
 	groups := h.Backend.ListGroups()
+	identifiers := make([]listGroupIdentifierOutput, 0, len(groups))
+	for _, group := range groups {
+		identifiers = append(identifiers, listGroupIdentifierOutput{
+			GroupName:   group.Name,
+			GroupArn:    group.ARN,
+			Description: group.Description,
+		})
+	}
 
-	return &listGroupsOutput{GroupIdentifiers: groups}, nil
+	return &listGroupsOutput{GroupIdentifiers: identifiers}, nil
 }
 
 type getGroupOutput struct {

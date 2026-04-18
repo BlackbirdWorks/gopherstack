@@ -2,9 +2,12 @@
 	import { onMount } from 'svelte';
 	import { Zap, AlertCircle, Activity, Settings, Gauge, TrendingUp, Lock, Unlock, RefreshCw } from 'lucide-svelte';
 
-	let faults = $state<unknown[]>([]);
+	type Fault = { service: string; probability: number; statusCode: number; errorCode: string; };
+	type ActivityEvent = { timestamp: string; service: string; operation: string; triggered: boolean; };
+
+	let faults = $state<Fault[]>([]);
 	let networkEffects = $state({ latency: 0, jitter: 0 });
-	let activity = $state<unknown[]>([]);
+	let activity = $state<ActivityEvent[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 
@@ -152,22 +155,22 @@
 				{#if showAddForm}
 					<div class="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 mb-4 space-y-3">
 						<div>
-							<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Service</label>
-							<input type="text" bind:value={service} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" placeholder="s3, dynamodb, lambda, etc" />
+						<label for="chaos-service" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Service</label>
+						<input id="chaos-service" type="text" bind:value={service} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" placeholder="s3, dynamodb, lambda, etc" />
 						</div>
 						<div class="grid grid-cols-2 gap-3">
 							<div>
-								<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Probability (0-1)</label>
-								<input type="number" bind:value={probability} min="0" max="1" step="0.1" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" />
+							<label for="chaos-probability" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Probability (0-1)</label>
+							<input id="chaos-probability" type="number" bind:value={probability} min="0" max="1" step="0.1" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" />
 							</div>
 							<div>
-								<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status Code</label>
-								<input type="number" bind:value={statusCode} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" />
+							<label for="chaos-statuscode" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status Code</label>
+							<input id="chaos-statuscode" type="number" bind:value={statusCode} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" />
 							</div>
 						</div>
 						<div>
-							<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Error Code</label>
-							<input type="text" bind:value={errorCode} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" placeholder="ServiceUnavailable" />
+						<label for="chaos-errorcode" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Error Code</label>
+						<input id="chaos-errorcode" type="text" bind:value={errorCode} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-800 dark:text-white text-sm" placeholder="ServiceUnavailable" />
 						</div>
 						<div class="flex gap-2">
 							<button onclick={addFault} class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium text-sm hover:bg-indigo-700 transition-colors">
@@ -235,17 +238,17 @@
 
 			<div class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-						Latency: <span class="text-indigo-600 dark:text-indigo-400 font-semibold">{latencyInput}ms</span>
-					</label>
-					<input type="range" bind:value={latencyInput} min="0" max="10000" step="100" class="w-full" />
+				<label for="chaos-latency" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+					Latency: <span class="text-indigo-600 dark:text-indigo-400 font-semibold">{latencyInput}ms</span>
+				</label>
+				<input id="chaos-latency" type="range" bind:value={latencyInput} min="0" max="10000" step="100" class="w-full" />
 				</div>
 
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-						Jitter: <span class="text-indigo-600 dark:text-indigo-400 font-semibold">{jitterInput}ms</span>
-					</label>
-					<input type="range" bind:value={jitterInput} min="0" max="5000" step="100" class="w-full" />
+				<label for="chaos-jitter" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+					Jitter: <span class="text-indigo-600 dark:text-indigo-400 font-semibold">{jitterInput}ms</span>
+				</label>
+				<input id="chaos-jitter" type="range" bind:value={jitterInput} min="0" max="5000" step="100" class="w-full" />
 				</div>
 
 				<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/50 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300">

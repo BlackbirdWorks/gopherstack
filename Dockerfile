@@ -17,8 +17,13 @@ RUN go mod download
 COPY . .
 
 # Build dashboard2 frontend assets before embedding in Go binary
-RUN npm --prefix ui ci --include=optional
-RUN npm --prefix ui run build
+# Build dashboard2 frontend assets before embedding in Go binary
+# If the SPA was pre-built (e.g. via `make ui-build` before `make demo`), skip the npm build
+# to avoid OOM inside the container. Fall back to building in-container if assets are absent.
+RUN if [ ! -f dashboard/static/spa/index.html ]; then \
+        npm --prefix ui ci --include=optional && \
+        NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build; \
+    fi
 
 # Build the Go app
 RUN go build \

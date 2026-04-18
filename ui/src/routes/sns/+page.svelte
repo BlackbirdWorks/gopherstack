@@ -391,8 +391,9 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Topic</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createTopic(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Topic Name</label>
+					<label for="sns-topic-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Topic Name</label>
 					<input
+						id="sns-topic-name"
 						type="text"
 						bind:value={newTopicName}
 						placeholder="e.g. my-notifications"
@@ -425,8 +426,9 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Subscribe to Topic</h2>
 			<form onsubmit={(e) => { e.preventDefault(); subscribe(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Protocol</label>
+					<label for="sns-protocol" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Protocol</label>
 					<select
+						id="sns-protocol"
 						bind:value={subProtocol}
 						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
 					>
@@ -436,8 +438,9 @@
 					</select>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Endpoint</label>
+					<label for="sns-endpoint" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Endpoint</label>
 					<input
+						id="sns-endpoint"
 						type="text"
 						bind:value={subEndpoint}
 						placeholder="e.g. user@example.com"
@@ -463,8 +466,9 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Publish Message</h2>
 			<form onsubmit={(e) => { e.preventDefault(); publish(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Subject (optional)</label>
+					<label for="sns-subject" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Subject (optional)</label>
 					<input
+						id="sns-subject"
 						type="text"
 						bind:value={pubSubject}
 						placeholder="e.g. Alert notification"
@@ -472,8 +476,9 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
+					<label for="sns-message" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
 					<textarea
+						id="sns-message"
 						bind:value={pubMessage}
 						rows={4}
 						placeholder="Message body..."
@@ -482,8 +487,9 @@
 					></textarea>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Attributes (JSON)</label>
+					<label for="sns-msg-attrs" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Attributes (JSON)</label>
 					<textarea
+						id="sns-msg-attrs"
 						bind:value={pubAttributes}
 						rows={2}
 						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
@@ -491,8 +497,9 @@
 				</div>
 				{#if isFifo(selectedTopic?.TopicArn)}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Deduplication ID (FIFO)</label>
+						<label for="sns-dedup-id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Deduplication ID (FIFO)</label>
 						<input
+							id="sns-dedup-id"
 							type="text"
 							bind:value={pubDeduplicationId}
 							placeholder="e.g. unique-msg-id-123"

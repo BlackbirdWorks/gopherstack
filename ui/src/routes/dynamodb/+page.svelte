@@ -28,6 +28,8 @@
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
 
+	const enableDemoActions = ((import.meta as ImportMeta).env.PUBLIC_ENABLE_DEMO_ACTIONS ?? '').toLowerCase() === 'true';
+
 	let ddb = $state(newDynamoDBClient());
 	let currentRegion = $state(getStoredRegion());
 
@@ -200,6 +202,7 @@
                                 }
 			}
 			tableDetails = details;
+			tablePage = 0;
 		} catch (err: unknown) {
 			toast.error(`Failed to list tables: ${(err as Error).message}`);
 		} finally {
@@ -457,6 +460,11 @@
 
 	// Seed Demo Data
 	async function seedDemoData(): Promise<void> {
+		if (!enableDemoActions) {
+			toast.error('Demo data actions are disabled. Set PUBLIC_ENABLE_DEMO_ACTIONS=true to enable.');
+			return;
+		}
+
 		try {
 			const tables: { name: string; ks: KeySchemaElement[]; ad: { AttributeName: string; AttributeType: ScalarAttributeType }[] }[] = [
 				{ name: 'users', ks: [{ AttributeName: 'userId', KeyType: 'HASH' }], ad: [{ AttributeName: 'userId', AttributeType: 'S' }] },
@@ -710,6 +718,24 @@
 		};
 	});
 	onDestroy(() => { if (streamPollTimer) clearInterval(streamPollTimer); });
+
+	$effect(() => {
+		if (searchQuery || tableSortOrder) {
+			tablePage = 0;
+
+			return;
+		}
+
+		tablePage = 0;
+	});
+
+	$effect(() => {
+		if (tablePage < totalTablePages - 1) {
+			return;
+		}
+
+		tablePage = Math.max(0, totalTablePages - 1);
+	});
 </script>
 {#snippet resultsTable(items: Record<string, unknown>[])}
 	{#if items.length === 0}
@@ -1069,7 +1095,7 @@
 						<input type="number" id="q-limit" bind:value={queryLimit} min="1" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
 					</div>
 					<div>
-						<label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort Order</label>
+						<p class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort Order</p>
 						<div class="flex gap-6">
 							<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
 								<input type="radio" bind:group={querySortOrder} value="ASC" class="w-4 h-4 text-blue-600" /> Ascending
@@ -1382,7 +1408,9 @@
 			</div>
 			<div class="flex gap-2">
 				<button id="purge-all-btn" onclick={purgeAll} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-900">Purge All</button>
-				<button onclick={seedDemoData} class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Seed Demo Data</button>
+				{#if enableDemoActions}
+					<button onclick={seedDemoData} class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Seed Demo Data</button>
+				{/if}
 				<button id="create-table-btn" onclick={() => { showCreateModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">+ Create Table</button>
 			</div>
 		</div>
@@ -1458,12 +1486,12 @@
 </div>
 
 {#if showCreateModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showCreateModal = false; }} role="dialog" aria-modal="true">
-		<div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+	<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showCreateModal = false; }}></button>
+		<div class="relative p-4 w-full max-w-md z-10" role="dialog" aria-modal="true" tabindex="-1">
 			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create Table</h3>
-					<button onclick={() => { showCreateModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+					<button onclick={() => { showCreateModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
 				</div>
 				<div class="p-4 md:p-5">
 					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createTable(); }}>
@@ -1492,7 +1520,7 @@
 							</select>
 						</div>
 						<div>
-							<label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Billing Mode</label>
+							<p class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Billing Mode</p>
 							<div class="flex gap-6">
 								<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
 									<input type="radio" bind:group={createTableBillingMode} value="PAY_PER_REQUEST" class="w-4 h-4 text-blue-600" /> On-Demand
@@ -1526,12 +1554,12 @@
 {/if}
 
 {#if showNewItemModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showNewItemModal = false; }} role="dialog" aria-modal="true">
-		<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
+	<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showNewItemModal = false; }}></button>
+		<div class="relative p-4 w-full max-w-2xl z-10" role="dialog" aria-modal="true" tabindex="-1">
 			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create New Item</h3>
-					<button onclick={() => { showNewItemModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+					<button onclick={() => { showNewItemModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
 				</div>
 				<div class="p-4 md:p-5">
 					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createItem(); }}>
@@ -1551,12 +1579,12 @@
 {/if}
 
 {#if showImportModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }} role="dialog" aria-modal="true">
-		<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
+	<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showImportModal = false; }}></button>
+		<div class="relative p-4 w-full max-w-2xl z-10" role="dialog" aria-modal="true" tabindex="-1">
 			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Import Items (JSON Array)</h3>
-					<button onclick={() => { showImportModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+					<button onclick={() => { showImportModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
 				</div>
 				<div class="p-4 md:p-5">
 					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); importItems(); }}>
@@ -1576,12 +1604,12 @@
 {/if}
 
 {#if showEditModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showEditModal = false; }} role="dialog" aria-modal="true">
-		<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
+	<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showEditModal = false; }}></button>
+		<div class="relative p-4 w-full max-w-2xl z-10" role="dialog" aria-modal="true" tabindex="-1">
 			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 				<div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Edit Item</h3>
-					<button onclick={() => { showEditModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+					<button onclick={() => { showEditModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
 				</div>
 				<div class="p-4 md:p-5">
 					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); saveEditItem(); }}>
@@ -1601,12 +1629,12 @@
 {/if}
 
 {#if showCreateGsiModal}
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showCreateGsiModal = false; }} role="dialog" aria-modal="true">
-<div class="relative p-4 w-full max-w-lg" onclick={(e) => e.stopPropagation()} role="document">
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showCreateGsiModal = false; }}></button>
+<div class="relative p-4 w-full max-w-lg z-10" role="dialog" aria-modal="true" tabindex="-1">
 <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create Global Secondary Index</h3>
-<button onclick={() => { showCreateGsiModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+<button onclick={() => { showCreateGsiModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
 </div>
 <div class="p-4 md:p-5">
 <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createGsi(); }}>

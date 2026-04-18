@@ -312,8 +312,8 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Event Bus</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createBus(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Bus Name</label>
-					<input type="text" bind:value={newBusName} placeholder="e.g. my-app-events" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="eb-bus-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Bus Name</label>
+					<input id="eb-bus-name" type="text" bind:value={newBusName} placeholder="e.g. my-app-events" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div class="flex justify-end gap-3">
 					<button type="button" onclick={() => { showCreateBusModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
@@ -333,8 +333,8 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Rule</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createRule(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rule Name</label>
-					<input type="text" bind:value={newRuleName} placeholder="e.g. process-orders-daily" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="eb-rule-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rule Name</label>
+					<input id="eb-rule-name" type="text" bind:value={newRuleName} placeholder="e.g. process-orders-daily" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div class="flex gap-4">
 					{#each [['schedule', 'Schedule Expression'], ['pattern', 'Event Pattern']] as [val, lbl]}
@@ -346,18 +346,18 @@
 				</div>
 				{#if newRuleType === 'schedule'}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Schedule Expression</label>
-						<input type="text" bind:value={newRuleSchedule} placeholder="e.g. rate(5 minutes)" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+						<label for="eb-schedule" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Schedule Expression</label>
+						<input id="eb-schedule" type="text" bind:value={newRuleSchedule} placeholder="e.g. rate(5 minutes)" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
 					</div>
 				{:else}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Pattern (JSON)</label>
-						<textarea bind:value={newRulePattern} rows={4} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea>
+						<label for="eb-pattern" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Pattern (JSON)</label>
+						<textarea id="eb-pattern" bind:value={newRulePattern} rows={4} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea>
 					</div>
 				{/if}
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">State</label>
-					<select bind:value={newRuleState} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+					<label for="eb-rule-state" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">State</label>
+					<select id="eb-rule-state" bind:value={newRuleState} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 						<option value="ENABLED">ENABLED</option>
 						<option value="DISABLED">DISABLED</option>
 					</select>
@@ -381,21 +381,21 @@
 			<form onsubmit={(e) => { e.preventDefault(); putEvents(); }} class="space-y-4">
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Source</label>
-						<input type="text" bind:value={evtSource} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="eb-source" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Source</label>
+						<input id="eb-source" type="text" bind:value={evtSource} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Detail Type</label>
-						<input type="text" bind:value={evtDetailType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="eb-detail-type" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Detail Type</label>
+						<input id="eb-detail-type" type="text" bind:value={evtDetailType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Bus Name</label>
-					<input type="text" bind:value={evtBusName} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+					<label for="eb-evt-bus" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Bus Name</label>
+					<input id="eb-evt-bus" type="text" bind:value={evtBusName} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Detail (JSON)</label>
-					<textarea bind:value={evtDetail} rows={5} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea>
+					<label for="eb-detail" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Detail (JSON)</label>
+					<textarea id="eb-detail" bind:value={evtDetail} rows={5} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea>
 				</div>
 				<div class="flex justify-end gap-3">
 					<button type="button" onclick={() => { showPutEventsModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>

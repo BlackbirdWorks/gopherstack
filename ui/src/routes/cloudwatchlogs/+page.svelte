@@ -325,7 +325,7 @@
 								<td class="px-4 py-3">
 									<select
 										value={group.retentionInDays ?? 0}
-										onchange={(e) => updateRetention(group.logGroupName ?? '', parseInt((e.target as HTMLSelectElement, 10).value))}
+										onchange={(e) => updateRetention(group.logGroupName ?? '', parseInt((e.target as HTMLSelectElement).value, 10))}
 										class="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300"
 									>
 										{#each retentionOptions as opt}

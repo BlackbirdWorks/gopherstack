@@ -328,20 +328,20 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create EKS Cluster</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createCluster(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cluster Name</label>
-					<input type="text" bind:value={newClusterName} placeholder="e.g. production-cluster" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="eks-cluster-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cluster Name</label>
+					<input id="eks-cluster-name" type="text" bind:value={newClusterName} placeholder="e.g. production-cluster" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Kubernetes Version</label>
-					<select bind:value={newK8sVersion} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+					<label for="eks-k8s-version" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Kubernetes Version</label>
+					<select id="eks-k8s-version" bind:value={newK8sVersion} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 						{#each ['1.31', '1.30', '1.29', '1.28'] as v}
 							<option value={v}>{v}</option>
 						{/each}
 					</select>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cluster Role ARN</label>
-					<input type="text" bind:value={newRoleArn} placeholder="arn:aws:iam::123:role/EKSClusterRole" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm" required />
+					<label for="eks-role-arn" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cluster Role ARN</label>
+					<input id="eks-role-arn" type="text" bind:value={newRoleArn} placeholder="arn:aws:iam::123:role/EKSClusterRole" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm" required />
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => { showCreateCluster = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
@@ -361,21 +361,21 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Node Group</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createNodeGroup(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Node Group Name</label>
-					<input type="text" bind:value={newNGName} placeholder="e.g. general-workers" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="eks-ng-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Node Group Name</label>
+					<input id="eks-ng-name" type="text" bind:value={newNGName} placeholder="e.g. general-workers" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Instance Type</label>
-						<select bind:value={newNGInstanceType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+						<label for="eks-instance-type" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Instance Type</label>
+						<select id="eks-instance-type" bind:value={newNGInstanceType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 							{#each ['t3.small', 't3.medium', 't3.large', 'm5.large', 'm5.xlarge', 'c5.large'] as it}
 								<option value={it}>{it}</option>
 							{/each}
 						</select>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">AMI Type</label>
-						<select bind:value={newNGAmiType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+						<label for="eks-ami-type" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">AMI Type</label>
+						<select id="eks-ami-type" bind:value={newNGAmiType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 							{#each ['AL2_x86_64', 'AL2_x86_64_GPU', 'AL2_ARM_64', 'BOTTLEROCKET_x86_64'] as at}
 								<option value={at}>{at}</option>
 							{/each}
@@ -384,16 +384,16 @@
 				</div>
 				<div class="grid grid-cols-3 gap-3">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Min</label>
-						<input type="number" bind:value={newNGMin} min="0" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="eks-ng-min" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Min</label>
+						<input id="eks-ng-min" type="number" bind:value={newNGMin} min="0" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Desired</label>
-						<input type="number" bind:value={newNGDesired} min="0" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="eks-ng-desired" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Desired</label>
+						<input id="eks-ng-desired" type="number" bind:value={newNGDesired} min="0" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Max</label>
-						<input type="number" bind:value={newNGMax} min="1" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="eks-ng-max" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Max</label>
+						<input id="eks-ng-max" type="number" bind:value={newNGMax} min="1" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 				</div>
 				<div class="flex justify-end gap-3 pt-2">

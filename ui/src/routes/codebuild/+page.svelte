@@ -89,6 +89,7 @@
 		try {
 			await codebuild.send(new CreateProjectCommand({
 				name: newProjectName.trim(),
+				serviceRole: 'arn:aws:iam::000000000000:role/codebuild-role',
 				source: { type: SourceType.NO_SOURCE },
 				artifacts: { type: ArtifactsType.NO_ARTIFACTS },
 				environment: {
@@ -377,7 +378,7 @@
 <!-- Create Modal -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false}></div>
+		<div role="none" onclick={() => showCreateModal = false} onkeydown={(e) => e.key === 'Escape' && (showCreateModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-blue-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
 				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Assemble Build Blueprint</h3>

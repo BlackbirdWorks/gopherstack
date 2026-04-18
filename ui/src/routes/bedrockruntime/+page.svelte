@@ -8,6 +8,11 @@
 	import { toast } from 'svelte-sonner';
 	import { Zap, RefreshCw, Search, Send, Activity, MessageSquare } from 'lucide-svelte';
 
+	interface AsyncInvokeSummary {
+		invocationArn?: string;
+		[key: string]: unknown;
+	}
+
 	const br = getBedrockRuntimeClient();
 
 	let loading = $state(false);
@@ -17,7 +22,7 @@
 	let prompt = $state('What is Amazon Web Services?');
 	let modelResponse = $state<string | null>(null);
 	let invoking = $state(false);
-	let asyncInvocations = $state<unknown[]>([]);
+	let asyncInvocations = $state<AsyncInvokeSummary[]>([]);
 
 	const supportedModels = [
 		{ id: 'amazon.titan-text-express-v1', label: 'Titan Text Express' },
@@ -32,7 +37,7 @@
 		loading = true;
 		try {
 			const resp = await br.send(new ListAsyncInvokesCommand({}));
-			asyncInvocations = (resp as { asyncInvokeSummaries?: unknown[] }).asyncInvokeSummaries ?? [];
+			asyncInvocations = (resp as { asyncInvokeSummaries?: AsyncInvokeSummary[] }).asyncInvokeSummaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load async invocations: ' + String(e));
 		} finally {
@@ -106,16 +111,16 @@
 		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Invoke Foundation Model</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model</label>
-				<select bind:value={modelId} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm">
+				<label for="br-model-id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model</label>
+				<select id="br-model-id" bind:value={modelId} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm">
 					{#each supportedModels as model}
 						<option value={model.id}>{model.label} ({model.id})</option>
 					{/each}
 				</select>
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prompt</label>
-				<textarea bind:value={prompt} rows={4} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm resize-none"></textarea>
+				<label for="br-prompt" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prompt</label>
+				<textarea id="br-prompt" bind:value={prompt} rows={4} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm resize-none"></textarea>
 			</div>
 			<button onclick={invokeModel} disabled={invoking} class="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
 				<Send class="w-4 h-4" /> {invoking ? 'Invoking...' : 'Invoke Model'}

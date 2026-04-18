@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
@@ -130,6 +131,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return slices.Contains(h.GetSupportedOperations(), op)
 		}
 
+		if target := extractTargetOperation(r.Header.Get("X-Amz-Target")); target != "" {
+			return slices.Contains(h.GetSupportedOperations(), target)
+		}
+
 		ct := r.Header.Get("Content-Type")
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
@@ -151,6 +156,19 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
+func extractTargetOperation(target string) string {
+	if target == "" {
+		return ""
+	}
+
+	parts := strings.Split(target, ".")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return parts[len(parts)-1]
+}
+
 const cloudwatchMatchPriority = 80
 
 // MatchPriority returns the routing priority for the CloudWatch handler.
@@ -164,11 +182,39 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return extractCBOROperation(r.URL.Path)
 	}
 
+	if target := extractTargetOperation(r.Header.Get("X-Amz-Target")); target != "" {
+		return target
+	}
+
 	if err := r.ParseForm(); err != nil {
+		body, readErr := httputils.ReadBody(r)
+		if readErr != nil {
+			return ""
+		}
+
+		vals, parseErr := url.ParseQuery(string(body))
+		if parseErr != nil {
+			return ""
+		}
+
+		return vals.Get("Action")
+	}
+
+	if action := r.Form.Get("Action"); action != "" {
+		return action
+	}
+
+	body, err := httputils.ReadBody(r)
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	return vals.Get("Action")
 }
 
 // ExtractResource extracts the resource name (Namespace) from the form.
@@ -197,6 +243,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // handleFormRequest handles the query-protocol (form-encoded) path for CloudWatch requests.
 func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
+	if handled, err := h.handleTargetRequest(c, r); handled {
+		return err
+	}
+
 	// ParseForm is idempotent; RouteMatcher may have already called it.
 	if err := r.ParseForm(); err != nil {
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
@@ -205,6 +255,31 @@ func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
 	c.Response().Header().Set("Content-Type", "text/xml")
 
 	return h.dispatchFormAction(action, r.Form, c)
+}
+
+func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, error) {
+	target := extractTargetOperation(r.Header.Get("X-Amz-Target"))
+	if target == "" {
+		return false, nil
+	}
+
+	input := cbor.Map{}
+	body, err := httputils.ReadBody(r)
+	if err != nil || len(body) == 0 {
+		return true, h.dispatchCBOR(target, input, c)
+	}
+
+	val, decErr := cbor.Decode(body)
+	if decErr != nil {
+		return true, h.dispatchCBOR(target, input, c)
+	}
+
+	m, ok := val.(cbor.Map)
+	if !ok {
+		return true, h.dispatchCBOR(target, input, c)
+	}
+
+	return true, h.dispatchCBOR(target, m, c)
 }
 
 // dispatchFormAction routes a form-encoded action to the appropriate handler.

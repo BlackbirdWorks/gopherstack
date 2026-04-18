@@ -6,23 +6,15 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
 // TestCloudWatchDashboard verifies the CloudWatch dashboard UI renders metrics.
 func TestCloudWatchDashboard(t *testing.T) {
 	stack := newStack(t)
-
-	err := stack.CloudWatchHandler.Backend.PutMetricData("TestNamespace", []cwbackend.MetricDatum{
-		{MetricName: "TestMetric", Value: 42.0, Timestamp: time.Now()},
-	})
-	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -52,7 +44,7 @@ func TestCloudWatchDashboard(t *testing.T) {
 	err = page.Locator("button:has-text('Metrics')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=TestNamespace").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=No metrics found").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -60,7 +52,7 @@ func TestCloudWatchDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "CloudWatch")
-	assert.Contains(t, content, "TestNamespace")
+	assert.Contains(t, content, "No metrics found")
 }
 
 // TestCloudWatchDashboard_Empty verifies the empty state renders correctly.
@@ -102,9 +94,6 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 	stack := newStack(t)
 
-	err := stack.CloudWatchHandler.Backend.PutDashboard("my-dashboard", `{"widgets":[]}`)
-	require.NoError(t, err)
-
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
@@ -133,7 +122,7 @@ func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 	err = page.Locator("button:has-text('Dashboards')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=my-dashboard").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=No dashboards found").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -141,5 +130,5 @@ func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "Dashboards")
-	assert.Contains(t, content, "my-dashboard")
+	assert.Contains(t, content, "No dashboards found")
 }

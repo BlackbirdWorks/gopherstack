@@ -329,19 +329,19 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Repository</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createRepository(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Repository Name</label>
+					<label for="new-repo-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Repository Name</label>
 					<input id="new-repo-name" type="text" bind:value={newRepoName} placeholder="e.g. my-service/api" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Image Tag Mutability</label>
-					<select bind:value={newMutability} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+					<label for="ecr-mutability" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Image Tag Mutability</label>
+					<select id="ecr-mutability" bind:value={newMutability} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 						<option value="MUTABLE">MUTABLE</option>
 						<option value="IMMUTABLE">IMMUTABLE</option>
 					</select>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Encryption</label>
-					<select bind:value={newEncryption} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+					<label for="ecr-encryption" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Encryption</label>
+					<select id="ecr-encryption" bind:value={newEncryption} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 						<option value="AES256">AES256</option>
 						<option value="KMS">KMS</option>
 					</select>

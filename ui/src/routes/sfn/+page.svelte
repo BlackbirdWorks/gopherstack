@@ -363,15 +363,16 @@
 <!-- Start Modal -->
 {#if showStartModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showStartModal = false}></div>
+		<div role="none" onclick={() => showStartModal = false} onkeydown={(e) => e.key === 'Escape' && (showStartModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
 		<div class="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-pink-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
 				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tight italic">New Workflow Execution</h3>
 				
 				<form onsubmit={(e) => { e.preventDefault(); startExecution(); }} class="space-y-6">
 					<div>
-						<label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1">Input JSON</label>
+						<label for="sfn-execution-input" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1">Input JSON</label>
 						<textarea 
+							id="sfn-execution-input"
 							bind:value={executionInput}
 							rows="8"
 							class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 transition-all font-mono text-xs italic"

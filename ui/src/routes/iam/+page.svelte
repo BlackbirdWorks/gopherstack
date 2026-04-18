@@ -12,15 +12,35 @@ import { Users, Shield, RefreshCw, Search, UserCircle, ChevronRight, FileText, C
 
 const iam = getIAMClient();
 
+interface IamItem {
+	UserName?: string;
+	RoleName?: string;
+	GroupName?: string;
+	Arn?: string;
+	UserId?: string;
+	RoleId?: string;
+	GroupId?: string;
+	Path?: string;
+	CreateDate?: Date;
+}
+
+interface IamPolicy {
+	PolicyName?: string;
+	Arn?: string;
+	Description?: string;
+	AttachmentCount?: number;
+	CreateDate?: Date;
+}
+
 type Tab = 'users' | 'roles' | 'groups' | 'policies';
 let tab = $state<Tab>('users');
-let users = $state<unknown[]>([]);
-let roles = $state<unknown[]>([]);
-let groups = $state<unknown[]>([]);
-let policies = $state<unknown[]>([]);
+let users = $state<IamItem[]>([]);
+let roles = $state<IamItem[]>([]);
+let groups = $state<IamItem[]>([]);
+let policies = $state<IamPolicy[]>([]);
 let loading = $state(true);
 let search = $state('');
-let selectedItem = $state<unknown | null>(null);
+let selectedItem = $state<IamItem | null>(null);
 let policyScope = $state<'Local' | 'AWS' | 'All'>('Local');
 
 onMount(async () => {
@@ -99,22 +119,22 @@ async function copyArn(arn: string) {
 }
 
 let items = $derived(tab === 'users' ? users : tab === 'roles' ? roles : tab === 'groups' ? groups : []);
-let filteredItems = $derived(items.filter((i: unknown) => {
+let filteredItems = $derived(items.filter((i) => {
 	const name = getName(i);
 	return !search || name.toLowerCase().includes(search.toLowerCase());
 }));
-let filteredPolicies = $derived(policies.filter((p: unknown) =>
+let filteredPolicies = $derived(policies.filter((p) =>
 	!search || p.PolicyName?.toLowerCase().includes(search.toLowerCase())
 ));
 
-function getName(i: unknown) { return i.UserName || i.RoleName || i.GroupName || ''; }
-function getArn(i: unknown) { return i.Arn || ''; }
-function getId(i: unknown) { return i.UserId || i.RoleId || i.GroupId || ''; }
-function getCreatedDate(i: unknown) {
-	const d = i.CreateDate || i.CreatedDate;
+function getName(i: IamItem | null): string { return i ? (i.UserName || i.RoleName || i.GroupName || '') : ''; }
+function getArn(i: IamItem | null): string { return i?.Arn || ''; }
+function getId(i: IamItem | null): string { return i ? (i.UserId || i.RoleId || i.GroupId || '') : ''; }
+function getCreatedDate(i: IamItem | null): string {
+	const d = i?.CreateDate;
 	return d ? new Date(d).toLocaleDateString() : '—';
 }
-function getPath(i: unknown) { return i.Path || '/'; }
+function getPath(i: IamItem | null): string { return i?.Path || '/'; }
 </script>
 
 <div class="space-y-6">
@@ -233,7 +253,7 @@ function getPath(i: unknown) { return i.Path || '/'; }
 							</div>
 							<div class="flex items-center gap-2 shrink-0">
 								<span class="text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-600 dark:text-slate-300">{policy.AttachmentCount ?? 0} attached</span>
-								<button onclick={() => copyArn(policy.Arn)} class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+								<button onclick={() => copyArn(policy.Arn ?? '')} class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
 									<Copy class="w-3.5 h-3.5" />
 								</button>
 							</div>

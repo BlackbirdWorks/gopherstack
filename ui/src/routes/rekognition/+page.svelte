@@ -16,7 +16,7 @@
 	let activeTab = $state<'collections' | 'processors'>('collections');
 	let searchQuery = $state('');
 	let collections = $state<string[]>([]);
-	let faces = $state<unknown[]>([]);
+	let faces = $state<{ FaceId?: string; FaceModelVersion?: string }[]>([]);
 	let processors = $state<StreamProcessor[]>([]);
 	let selectedCollection = $state<string | null>(null);
 

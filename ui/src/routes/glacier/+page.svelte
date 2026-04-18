@@ -30,7 +30,7 @@
 			const res = await glacier.send(new ListVaultsCommand({ accountId: '-' }));
 			vaults = res.VaultList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load vaults: ${err.message}`);
+			toast.error(`Failed to load vaults: ${err instanceof Error ? err.message : String(err)}`);
 		} finally {
 			loading = false;
 		}
