@@ -96,10 +96,13 @@
 
 	const themeLabels: Record<ThemeName, string> = {
 		light: 'Light',
-		dark: 'Dark',
+		dark: 'Dark (Black)',
 		github: 'GitHub Dark',
 		'github-light': 'GitHub Light',
-		ocean: 'Ocean'
+		ocean: 'Ocean',
+		'cyberpunk-2077': 'Cyberpunk 2077',
+		aurora: 'Aurora',
+		solstice: 'Solstice'
 	};
 
 	const themeIcons: Record<ThemeName, string> = {
@@ -107,7 +110,10 @@
 		dark: 'moon',
 		github: 'github',
 		'github-light': 'github',
-		ocean: 'waves'
+		ocean: 'waves',
+		'cyberpunk-2077': 'zap',
+		aurora: 'sparkles',
+		solstice: 'sunrise'
 	};
 
 	function toggleMiniMode(): void {
@@ -229,7 +235,7 @@
 				</a>
 				<div class="relative">
 					<button id="theme-selector" onclick={() => themeDropdownOpen = !themeDropdownOpen} type="button" class="inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors" title="Theme: {themeLabels[theme]}">
-						{#if theme === 'dark' || theme === 'ocean'}
+						{#if theme === 'dark' || theme === 'ocean' || theme === 'github' || theme === 'cyberpunk-2077' || theme === 'aurora'}
 							<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>
 						{:else}
 							<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" /></svg>
@@ -240,7 +246,7 @@
 							<div class="py-1 text-sm">
 								{#each themes as t}
 									<button onclick={() => selectTheme(t)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-2 {theme === t ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}">
-										<span class="w-3 h-3 rounded-full {t === 'light' ? 'bg-amber-400' : t === 'dark' ? 'bg-slate-600' : t === 'github' ? 'bg-gray-800' : t === 'github-light' ? 'bg-blue-400 border border-gray-300' : 'bg-cyan-500'}"></span>
+										<span class="w-3 h-3 rounded-full {t === 'light' ? 'bg-amber-400' : t === 'dark' ? 'bg-black border border-white/20' : t === 'github' ? 'bg-gray-800' : t === 'github-light' ? 'bg-blue-400 border border-gray-300' : t === 'ocean' ? 'bg-cyan-500' : t === 'cyberpunk-2077' ? 'bg-fuchsia-500' : t === 'aurora' ? 'bg-emerald-400' : 'bg-orange-300 border border-orange-400/60'}"></span>
 										{themeLabels[t]}
 									</button>
 								{/each}

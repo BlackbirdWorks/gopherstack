@@ -1,11 +1,37 @@
-export type ThemeName = "light" | "dark" | "github" | "github-light" | "ocean";
+export type ThemeName =
+  | "light"
+  | "dark"
+  | "github"
+  | "github-light"
+  | "ocean"
+  | "cyberpunk-2077"
+  | "aurora"
+  | "solstice";
 
 export const themeStorageKey = "gopherstack-theme";
 
-export const themes: readonly ThemeName[] = ["light", "dark", "github", "github-light", "ocean"] as const;
+export const themes: readonly ThemeName[] = [
+  "light",
+  "dark",
+  "github",
+  "github-light",
+  "ocean",
+  "cyberpunk-2077",
+  "aurora",
+  "solstice",
+] as const;
 
 export function isValidTheme(value: string | null): value is ThemeName {
-  return value === "light" || value === "dark" || value === "github" || value === "github-light" || value === "ocean";
+  return (
+    value === "light" ||
+    value === "dark" ||
+    value === "github" ||
+    value === "github-light" ||
+    value === "ocean" ||
+    value === "cyberpunk-2077" ||
+    value === "aurora" ||
+    value === "solstice"
+  );
 }
 
 export function resolveTheme(savedTheme: string | null, prefersDark: boolean): ThemeName {
@@ -17,7 +43,13 @@ export function resolveTheme(savedTheme: string | null, prefersDark: boolean): T
 }
 
 export function isDarkTheme(theme: ThemeName): boolean {
-  return theme === "dark" || theme === "github" || theme === "ocean";
+  return (
+    theme === "dark" ||
+    theme === "github" ||
+    theme === "ocean" ||
+    theme === "cyberpunk-2077" ||
+    theme === "aurora"
+  );
 }
 
 export function applyTheme(doc: Document, theme: ThemeName): void {

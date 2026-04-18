@@ -205,7 +205,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        chunk: [0, 1, 2]
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -241,7 +241,7 @@ jobs:
       - name: Compute test pattern for chunk
         id: tests
         run: |
-          TOTAL_CHUNKS=3
+          TOTAL_CHUNKS=8
           CHUNK=${{ matrix.chunk }}
           # Discover all test functions from source (no Docker needed)
           TESTS=$(grep -rh '^func Test' test/terraform/terraform_test.go | sed 's/func \(Test[^ (]*\).*/\1/' | sort)

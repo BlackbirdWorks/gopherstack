@@ -37,8 +37,17 @@ function newMemoryStorage(): Storage {
 }
 
 describe("theme helpers", () => {
-  it("themes list contains all five themes", () => {
-    expect(themes).toEqual(["light", "dark", "github", "github-light", "ocean"]);
+  it("themes list contains all configured themes", () => {
+    expect(themes).toEqual([
+      "light",
+      "dark",
+      "github",
+      "github-light",
+      "ocean",
+      "cyberpunk-2077",
+      "aurora",
+      "solstice",
+    ]);
   });
 
   it("isValidTheme accepts valid themes", () => {
@@ -47,6 +56,9 @@ describe("theme helpers", () => {
     expect(isValidTheme("github")).toBe(true);
     expect(isValidTheme("github-light")).toBe(true);
     expect(isValidTheme("ocean")).toBe(true);
+    expect(isValidTheme("cyberpunk-2077")).toBe(true);
+    expect(isValidTheme("aurora")).toBe(true);
+    expect(isValidTheme("solstice")).toBe(true);
   });
 
   it("isValidTheme rejects invalid values", () => {
@@ -59,8 +71,11 @@ describe("theme helpers", () => {
     expect(isDarkTheme("dark")).toBe(true);
     expect(isDarkTheme("ocean")).toBe(true);
     expect(isDarkTheme("github")).toBe(true);
+    expect(isDarkTheme("cyberpunk-2077")).toBe(true);
+    expect(isDarkTheme("aurora")).toBe(true);
     expect(isDarkTheme("light")).toBe(false);
     expect(isDarkTheme("github-light")).toBe(false);
+    expect(isDarkTheme("solstice")).toBe(false);
   });
 
   it("resolves saved theme first", () => {
@@ -69,6 +84,9 @@ describe("theme helpers", () => {
     expect(resolveTheme("github", false)).toBe("github");
     expect(resolveTheme("github-light", false)).toBe("github-light");
     expect(resolveTheme("ocean", true)).toBe("ocean");
+    expect(resolveTheme("cyberpunk-2077", false)).toBe("cyberpunk-2077");
+    expect(resolveTheme("aurora", false)).toBe("aurora");
+    expect(resolveTheme("solstice", true)).toBe("solstice");
   });
 
   it("resolves from prefers dark when no saved value", () => {

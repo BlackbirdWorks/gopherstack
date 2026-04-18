@@ -1,6 +1,266 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ── Theme: Dark (Black) ── */
+:root:where(.theme-dark) {
+  --color-bg: #030303;
+  --color-bg-secondary: #090909;
+  --color-bg-tertiary: #121212;
+  --color-text: #f3f4f6;
+  --color-text-secondary: #a1a1aa;
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-accent: #d4d4d8;
+  --color-accent-hover: #e4e4e7;
+  --color-hover: rgba(255, 255, 255, 0.08);
+  --color-nav-bg: rgba(5, 5, 5, 0.72);
+  --color-sidebar-bg: rgba(9, 9, 9, 0.68);
+}
+
+.theme-dark {
+  color-scheme: dark;
+}
+
+.theme-dark body,
+.theme-dark .bg-slate-50,
+.theme-dark .bg-slate-100,
+.theme-dark .dark\:bg-slate-900 {
+  background-color: var(--color-bg);
+}
+
+.theme-dark .bg-white,
+.theme-dark .bg-white\/80,
+.theme-dark .dark\:bg-slate-800,
+.theme-dark .dark\:bg-slate-800\/80,
+.theme-dark .dark\:bg-slate-700 {
+  background-color: var(--color-bg-secondary);
+}
+
+.theme-dark .bg-slate-100\/50,
+.theme-dark .bg-slate-100\/80,
+.theme-dark .dark\:bg-slate-900\/80,
+.theme-dark .dark\:bg-slate-900\/60 {
+  background-color: rgba(14, 14, 14, 0.82);
+}
+
+.theme-dark .text-slate-900,
+.theme-dark .dark\:text-white {
+  color: var(--color-text);
+}
+
+.theme-dark .text-slate-600,
+.theme-dark .text-slate-500,
+.theme-dark .dark\:text-slate-400 {
+  color: var(--color-text-secondary);
+}
+
+.theme-dark .border-slate-200,
+.theme-dark .dark\:border-white\/5,
+.theme-dark .dark\:border-slate-700 {
+  border-color: var(--color-border);
+}
+
+.theme-dark .text-indigo-600,
+.theme-dark .text-indigo-700,
+.theme-dark .dark\:text-indigo-400 {
+  color: var(--color-accent);
+}
+
+.theme-dark .hover\:bg-slate-100:hover,
+.theme-dark .hover\:bg-slate-700:hover,
+.theme-dark .dark\:hover\:bg-slate-700:hover {
+  background-color: var(--color-hover);
+}
+
+/* Glassmorphism shell surfaces for custom themes only (excluding toaster notifications). */
+:where(.theme-dark, .theme-cyberpunk-2077, .theme-aurora, .theme-solstice) #topbar,
+:where(.theme-dark, .theme-cyberpunk-2077, .theme-aurora, .theme-solstice) #sidebar {
+  backdrop-filter: blur(14px) saturate(145%);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+}
+
+.theme-dark #topbar,
+.theme-dark #sidebar {
+  background-color: var(--color-nav-bg);
+}
+
+.theme-dark .main-content .rounded-lg,
+.theme-dark .main-content .rounded-xl,
+.theme-dark .main-content .rounded-2xl,
+.theme-dark .main-content .rounded-3xl,
+.theme-dark .main-content section,
+.theme-dark .main-content article {
+  background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px) saturate(135%);
+  -webkit-backdrop-filter: blur(12px) saturate(135%);
+}
+
+/* ── Theme: Cyberpunk 2077 ── */
+:root:where(.theme-cyberpunk-2077) {
+  --color-bg: #070609;
+  --color-bg-secondary: #120c1d;
+  --color-bg-tertiary: #1b1230;
+  --color-text: #f4f3ff;
+  --color-text-secondary: #b5a7cf;
+  --color-border: #3a1f66;
+  --color-accent: #00f0ff;
+  --color-accent-hover: #ff4fd8;
+  --color-hover: #261749;
+  --color-nav-bg: rgba(13, 9, 21, 0.8);
+  --color-nav-border: #542a93;
+  --color-sidebar-bg: rgba(17, 11, 31, 0.76);
+  --color-sidebar-border: #542a93;
+}
+
+.theme-cyberpunk-2077 {
+  color-scheme: dark;
+}
+
+.theme-cyberpunk-2077 body,
+.theme-cyberpunk-2077 .bg-slate-50,
+.theme-cyberpunk-2077 .bg-slate-100,
+.theme-cyberpunk-2077 .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-cyberpunk-2077 .bg-white,
+.theme-cyberpunk-2077 .dark\:bg-slate-800 { background-color: var(--color-bg-secondary); }
+.theme-cyberpunk-2077 .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-cyberpunk-2077 .text-slate-900,
+.theme-cyberpunk-2077 .dark\:text-white { color: var(--color-text); }
+.theme-cyberpunk-2077 .text-slate-600,
+.theme-cyberpunk-2077 .text-slate-500,
+.theme-cyberpunk-2077 .dark\:text-slate-400 { color: var(--color-text-secondary); }
+.theme-cyberpunk-2077 .border-slate-200,
+.theme-cyberpunk-2077 .dark\:border-white\/5,
+.theme-cyberpunk-2077 .dark\:border-slate-700 { border-color: var(--color-border); }
+.theme-cyberpunk-2077 .text-indigo-600,
+.theme-cyberpunk-2077 .dark\:text-indigo-400 { color: var(--color-accent); }
+.theme-cyberpunk-2077 .text-indigo-700 { color: var(--color-accent-hover); }
+
+.theme-cyberpunk-2077 #topbar,
+.theme-cyberpunk-2077 #sidebar {
+  background-color: var(--color-nav-bg);
+}
+
+.theme-cyberpunk-2077 .main-content .rounded-lg,
+.theme-cyberpunk-2077 .main-content .rounded-xl,
+.theme-cyberpunk-2077 .main-content .rounded-2xl,
+.theme-cyberpunk-2077 .main-content .rounded-3xl,
+.theme-cyberpunk-2077 .main-content section,
+.theme-cyberpunk-2077 .main-content article {
+  background-image: linear-gradient(135deg, rgba(13, 9, 21, 0.82), rgba(35, 17, 61, 0.78));
+  border-color: rgba(108, 62, 187, 0.46);
+  box-shadow: 0 18px 42px rgba(11, 5, 23, 0.45);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* ── Theme: Aurora ── */
+:root:where(.theme-aurora) {
+  --color-bg: #061113;
+  --color-bg-secondary: #0b1b1f;
+  --color-bg-tertiary: #10272b;
+  --color-text: #e8fff7;
+  --color-text-secondary: #95c9be;
+  --color-border: #1d5b57;
+  --color-accent: #2ef0c4;
+  --color-accent-hover: #9cfbe3;
+  --color-hover: #123336;
+  --color-nav-bg: rgba(8, 20, 22, 0.82);
+  --color-nav-border: #1d5b57;
+  --color-sidebar-bg: rgba(10, 25, 27, 0.78);
+  --color-sidebar-border: #1d5b57;
+}
+
+.theme-aurora {
+  color-scheme: dark;
+}
+
+.theme-aurora body,
+.theme-aurora .bg-slate-50,
+.theme-aurora .bg-slate-100,
+.theme-aurora .dark\:bg-slate-900 { background-color: var(--color-bg); }
+.theme-aurora .bg-white,
+.theme-aurora .dark\:bg-slate-800 { background-color: var(--color-bg-secondary); }
+.theme-aurora .dark\:bg-slate-700 { background-color: var(--color-hover); }
+.theme-aurora .text-slate-900,
+.theme-aurora .dark\:text-white { color: var(--color-text); }
+.theme-aurora .text-slate-600,
+.theme-aurora .text-slate-500,
+.theme-aurora .dark\:text-slate-400 { color: var(--color-text-secondary); }
+.theme-aurora .border-slate-200,
+.theme-aurora .dark\:border-white\/5,
+.theme-aurora .dark\:border-slate-700 { border-color: var(--color-border); }
+.theme-aurora .text-indigo-600,
+.theme-aurora .dark\:text-indigo-400 { color: var(--color-accent); }
+
+.theme-aurora #topbar,
+.theme-aurora #sidebar {
+  background-color: var(--color-nav-bg);
+}
+
+.theme-aurora .main-content .rounded-lg,
+.theme-aurora .main-content .rounded-xl,
+.theme-aurora .main-content .rounded-2xl,
+.theme-aurora .main-content .rounded-3xl,
+.theme-aurora .main-content section,
+.theme-aurora .main-content article {
+  background-image: linear-gradient(135deg, rgba(46, 240, 196, 0.13), rgba(130, 230, 255, 0.08));
+  border-color: rgba(29, 91, 87, 0.75);
+  box-shadow: 0 16px 38px rgba(3, 12, 12, 0.38);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* ── Theme: Solstice ── */
+:root:where(.theme-solstice) {
+  --color-bg: #fff6eb;
+  --color-bg-secondary: #fffaf3;
+  --color-bg-tertiary: #ffe8cf;
+  --color-text: #342216;
+  --color-text-secondary: #8b5f3d;
+  --color-border: #efc9a6;
+  --color-accent: #c95a1b;
+  --color-accent-hover: #8e3f14;
+  --color-hover: #ffe3c8;
+  --color-nav-bg: rgba(255, 248, 237, 0.84);
+  --color-nav-border: #efc9a6;
+  --color-sidebar-bg: rgba(255, 250, 243, 0.82);
+  --color-sidebar-border: #efc9a6;
+}
+
+.theme-solstice {
+  color-scheme: light;
+}
+
+.theme-solstice body,
+.theme-solstice .bg-slate-50,
+.theme-solstice .bg-slate-100 { background-color: var(--color-bg); }
+.theme-solstice .bg-white { background-color: var(--color-bg-secondary); }
+.theme-solstice .text-slate-900 { color: var(--color-text); }
+.theme-solstice .text-slate-600,
+.theme-solstice .text-slate-500 { color: var(--color-text-secondary); }
+.theme-solstice .border-slate-200 { border-color: var(--color-border); }
+.theme-solstice .text-indigo-600,
+.theme-solstice .text-indigo-700 { color: var(--color-accent); }
+
+.theme-solstice #topbar,
+.theme-solstice #sidebar {
+  background-color: var(--color-nav-bg);
+}
+
+.theme-solstice .main-content .rounded-lg,
+.theme-solstice .main-content .rounded-xl,
+.theme-solstice .main-content .rounded-2xl,
+.theme-solstice .main-content .rounded-3xl,
+.theme-solstice .main-content section,
+.theme-solstice .main-content article {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.66), rgba(255, 224, 191, 0.54));
+  border-color: rgba(229, 174, 127, 0.64);
+  box-shadow: 0 12px 30px rgba(149, 83, 33, 0.12);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+
 /* ── Theme: GitHub Dark ── */
 /* Matches github.com dark theme: canvas-default #0d1117, canvas-subtle #161b22 */
 :root:where(.theme-github) {
