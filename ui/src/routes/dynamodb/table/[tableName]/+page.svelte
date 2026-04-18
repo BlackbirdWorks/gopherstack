@@ -611,7 +611,11 @@
 								<tr class="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 {i % 2 === 0 ? '' : 'bg-slate-50/50 dark:bg-slate-800/50'}">
 									{#each itemColumns as col}
 										<td class="px-3 py-2 max-w-xs truncate font-mono text-slate-800 dark:text-slate-200" title={item[col] ? cellValue(item[col]) : ''}>
-											{item[col] ? cellValue(item[col]) : <span class="text-slate-400">—</span>}
+											{#if item[col]}
+												{cellValue(item[col])}
+											{:else}
+												<span class="text-slate-400">—</span>
+											{/if}
 										</td>
 									{/each}
 								</tr>
@@ -636,21 +640,21 @@
 			<h3 class="text-sm font-semibold text-slate-900 dark:text-white">Query by Key</h3>
 			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 				<div>
-					<label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key Attribute</label>
-					<input class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={queryPK} placeholder="{tableDesc?.KeySchema?.[0]?.AttributeName ?? 'pk'}" />
+					<label for="query-pk-attr" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key Attribute</label>
+					<input id="query-pk-attr" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={queryPK} placeholder="{tableDesc?.KeySchema?.[0]?.AttributeName ?? 'pk'}" />
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key Value</label>
-					<input class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={queryPKValue} placeholder="value" />
+					<label for="query-pk-value" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key Value</label>
+					<input id="query-pk-value" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={queryPKValue} placeholder="value" />
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Sort Key Attribute (optional)</label>
-					<input class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={querySKAttr} placeholder="sk" />
+					<label for="query-sk-attr" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Sort Key Attribute (optional)</label>
+					<input id="query-sk-attr" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={querySKAttr} placeholder="sk" />
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Sort Key Condition</label>
+					<label for="query-sk-op" class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Sort Key Condition</label>
 					<div class="flex gap-2">
-						<select class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={querySKOp}>
+						<select id="query-sk-op" class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white" bind:value={querySKOp}>
 							<option value="=">=</option>
 							<option value="<">&lt;</option>
 							<option value="<=">&lt;=</option>
