@@ -45,6 +45,9 @@ jobs:
       - name: Run UI format check
         run: npm --prefix ui run fmt:check
 
+      - name: Run UI type check
+        run: npm --prefix ui run check
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -163,6 +166,8 @@ jobs:
 
       - name: Build static binary
         run: |
+          mkdir -p dashboard/static/spa
+          touch dashboard/static/spa/.keep
           CGO_ENABLED=0 GOOS=linux go build -tags 'netgo osusergo static_build' -trimpath \
             -ldflags="-w -s" -o bin/gopherstack .
 
