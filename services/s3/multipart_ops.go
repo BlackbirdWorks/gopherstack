@@ -287,9 +287,22 @@ func (h *S3Handler) listMultipartUploads(
 ) {
 	h.setOperation(ctx, "ListMultipartUploads")
 
+	q := r.URL.Query()
+
+	var maxUploads *int32
+	if mu := q.Get("max-uploads"); mu != "" {
+		if n, err := strconv.Atoi(mu); err == nil && n > 0 {
+			v := int32(n) //nolint:gosec // validated non-negative
+			maxUploads = &v
+		}
+	}
+
 	out, err := h.Backend.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
-		Bucket: aws.String(bucketName),
-		Prefix: aws.String(r.URL.Query().Get("prefix")),
+		Bucket:         aws.String(bucketName),
+		Prefix:         aws.String(q.Get("prefix")),
+		KeyMarker:      aws.String(q.Get("key-marker")),
+		UploadIdMarker: aws.String(q.Get("upload-id-marker")),
+		MaxUploads:     maxUploads,
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -298,10 +311,12 @@ func (h *S3Handler) listMultipartUploads(
 	}
 
 	result := ListMultipartUploadsResult{
-		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
-		Bucket:      bucketName,
-		MaxUploads:  1000, //nolint:mnd // S3 default max uploads per page
-		IsTruncated: false,
+		Xmlns:              "http://s3.amazonaws.com/doc/2006-03-01/",
+		Bucket:             bucketName,
+		MaxUploads:         int(aws.ToInt32(out.MaxUploads)),
+		IsTruncated:        aws.ToBool(out.IsTruncated),
+		NextKeyMarker:      aws.ToString(out.NextKeyMarker),
+		NextUploadIDMarker: aws.ToString(out.NextUploadIdMarker),
 	}
 
 	for _, u := range out.Uploads {

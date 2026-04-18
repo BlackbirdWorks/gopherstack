@@ -489,7 +489,9 @@ func (h *S3Handler) getObject(
 	}
 
 	h.setCommonHeaders(w, details)
-	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Set x-amz-expiration header if a lifecycle rule matches this object.
+	h.setExpirationHeader(ctx, w, bucketName, key, ver.LastModified)
 
 	if ce := aws.ToString(ver.ContentEncoding); ce != "" {
 		w.Header().Set("Content-Encoding", ce)
@@ -877,6 +879,10 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
 	}
 
+	// AWS always advertises byte-range support and STANDARD storage class.
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("X-Amz-Storage-Class", storageStandard)
+
 	h.setChecksumHeaders(w, out)
 }
 
@@ -1007,6 +1013,7 @@ func (h *S3Handler) serveRange(
 	}
 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
 
 	// #nosec G705

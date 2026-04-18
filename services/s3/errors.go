@@ -23,6 +23,7 @@ var (
 	ErrInvalidArgument            = errors.New("InvalidArgument")
 	ErrNoSuchUpload               = awserr.New("NoSuchUpload", awserr.ErrNotFound)
 	ErrInvalidPart                = errors.New("InvalidPart")
+	ErrInvalidPartOrder           = errors.New("InvalidPartOrder")
 	ErrNoCompressor               = errors.New("data is compressed but no compressor available")
 	ErrNoBucketPolicy             = errors.New("NoSuchBucketPolicy")
 	ErrNoCORSConfig               = errors.New("NoSuchCORSConfiguration")
@@ -63,7 +64,7 @@ func errorTable() []s3ErrorEntry {
 	return append(coreErrorTable(), configErrorTable()...)
 }
 
-func coreErrorTable() []s3ErrorEntry {
+func coreErrorTable() []s3ErrorEntry { //nolint:dupl // structurally similar to configErrorTable by design
 	return []s3ErrorEntry{
 		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
 		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
@@ -97,6 +98,11 @@ func coreErrorTable() []s3ErrorEntry {
 			"One or more of the specified parts could not be found.",
 			http.StatusBadRequest,
 		}},
+		{ErrInvalidPartOrder, s3ErrorInfo{
+			"InvalidPartOrder",
+			"The list of parts was not in ascending order. Parts must be ordered by part number.",
+			http.StatusBadRequest,
+		}},
 		{ErrInvalidArgument, s3ErrorInfo{"InvalidArgument", "Invalid Argument.", http.StatusBadRequest}},
 		{ErrMethodNotAllowed, s3ErrorInfo{
 			"MethodNotAllowed",
@@ -127,7 +133,7 @@ func coreErrorTable() []s3ErrorEntry {
 	}
 }
 
-func configErrorTable() []s3ErrorEntry {
+func configErrorTable() []s3ErrorEntry { //nolint:dupl // structurally similar to coreErrorTable by design
 	return []s3ErrorEntry{
 		{ErrNoBucketPolicy, s3ErrorInfo{
 			"NoSuchBucketPolicy",

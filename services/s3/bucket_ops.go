@@ -767,12 +767,29 @@ func (h *S3Handler) listObjectVersions(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjectVersions")
-	prefix := r.URL.Query().Get("prefix")
+	q := r.URL.Query()
+	prefix := q.Get("prefix")
+	keyMarker := q.Get("key-marker")
+	versionIDMarker := q.Get("version-id-marker")
+	delimiter := q.Get("delimiter")
 
-	out, err := h.Backend.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-		Bucket: aws.String(bucketName),
-		Prefix: aws.String(prefix),
-	})
+	maxKeys := int32(defaultMaxKeys)
+	if mk := q.Get("max-keys"); mk != "" {
+		if n, err := strconv.Atoi(mk); err == nil && n > 0 && n <= defaultMaxKeys {
+			maxKeys = int32(n) //nolint:gosec // validated range
+		}
+	}
+
+	input := &s3.ListObjectVersionsInput{
+		Bucket:          aws.String(bucketName),
+		Prefix:          aws.String(prefix),
+		KeyMarker:       aws.String(keyMarker),
+		VersionIdMarker: aws.String(versionIDMarker),
+		Delimiter:       aws.String(delimiter),
+		MaxKeys:         aws.Int32(maxKeys),
+	}
+
+	out, err := h.Backend.ListObjectVersions(ctx, input)
 	if errors.Is(err, ErrNoSuchBucket) {
 		WriteError(ctx, w, r, err)
 
@@ -786,9 +803,15 @@ func (h *S3Handler) listObjectVersions(
 	}
 
 	resp := ListVersionsResult{
-		Name:    bucketName,
-		Prefix:  prefix,
-		MaxKeys: defaultMaxKeys,
+		Name:                bucketName,
+		Prefix:              prefix,
+		KeyMarker:           keyMarker,
+		VersionIDMarker:     versionIDMarker,
+		NextKeyMarker:       aws.ToString(out.NextKeyMarker),
+		NextVersionIDMarker: aws.ToString(out.NextVersionIdMarker),
+		MaxKeys:             int(maxKeys),
+		IsTruncated:         aws.ToBool(out.IsTruncated),
+		Delimiter:           delimiter,
 	}
 
 	// Map SDK types to XML
@@ -829,7 +852,23 @@ func (h *S3Handler) listObjectVersions(
 		})
 	}
 
+	for _, cp := range out.CommonPrefixes {
+		resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)})
+	}
+
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+}
+
+// validCannedACLs is the complete set of canned ACL strings that AWS S3 accepts
+// for PutBucketAcl.
+var validCannedACLs = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
+	"private":                   {},
+	"public-read":               {},
+	"public-read-write":         {},
+	"authenticated-read":        {},
+	"bucket-owner-read":         {},
+	"bucket-owner-full-control": {},
+	"log-delivery-write":        {},
 }
 
 func (h *S3Handler) putBucketACL(
@@ -843,6 +882,12 @@ func (h *S3Handler) putBucketACL(
 	acl := r.Header.Get("X-Amz-Acl")
 	if acl == "" {
 		acl = "private"
+	}
+
+	if _, ok := validCannedACLs[acl]; !ok {
+		WriteError(ctx, w, r, ErrInvalidArgument)
+
+		return
 	}
 
 	if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {

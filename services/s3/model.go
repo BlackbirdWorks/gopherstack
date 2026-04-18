@@ -169,15 +169,19 @@ type LocationConstraintResponse struct {
 }
 
 type ListVersionsResult struct {
-	XMLName       xml.Name           `xml:"ListVersionsResult"`
-	Name          string             `xml:"Name"`
-	Prefix        string             `xml:"Prefix"`
-	KeyMarker     string             `xml:"KeyMarker"`
-	VersionMarker string             `xml:"VersionIdMarker"`
-	Versions      []ObjectVersionXML `xml:"Version"`
-	DeleteMarkers []DeleteMarkerXML  `xml:"DeleteMarker"`
-	MaxKeys       int                `xml:"MaxKeys"`
-	IsTruncated   bool               `xml:"IsTruncated"`
+	XMLName             xml.Name           `xml:"ListVersionsResult"`
+	Name                string             `xml:"Name"`
+	Prefix              string             `xml:"Prefix"`
+	KeyMarker           string             `xml:"KeyMarker"`
+	VersionIDMarker     string             `xml:"VersionIdMarker"`
+	NextKeyMarker       string             `xml:"NextKeyMarker,omitempty"`
+	NextVersionIDMarker string             `xml:"NextVersionIdMarker,omitempty"`
+	Delimiter           string             `xml:"Delimiter,omitempty"`
+	CommonPrefixes      []CommonPrefixXML  `xml:"CommonPrefixes"`
+	Versions            []ObjectVersionXML `xml:"Version"`
+	DeleteMarkers       []DeleteMarkerXML  `xml:"DeleteMarker"`
+	MaxKeys             int                `xml:"MaxKeys"`
+	IsTruncated         bool               `xml:"IsTruncated"`
 }
 
 type ObjectVersionXML struct {

@@ -135,6 +135,11 @@ const (
 	// would each spawn a goroutine, all competing for the same locks and
 	// exhausting goroutine and memory budgets.
 	maxConcurrentDrains = 32
+
+	// defaultDrainTimeout is applied per drain goroutine when TaskTimeout is
+	// not configured. Five minutes is enough to drain even large buckets while
+	// ensuring the goroutine doesn't leak past service shutdown.
+	defaultDrainTimeout = 5 * time.Minute
 )
 
 // Janitor is the S3 background worker that drains buckets queued for async
@@ -264,10 +269,25 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 					<-j.drainSem
 					j.activeDrains.Delete(n)
 				}()
-				j.processBucket(ctx, n)
+
+				drainCtx, cancel := j.newDrainContext(ctx)
+				defer cancel()
+
+				j.processBucket(drainCtx, n)
 			}(name)
 		}
 	}
+}
+
+// newDrainContext creates a child context with the per-bucket drain timeout
+// applied. If TaskTimeout is not configured, defaultDrainTimeout is used.
+func (j *Janitor) newDrainContext(parent context.Context) (context.Context, context.CancelFunc) {
+	timeout := j.TaskTimeout
+	if timeout == 0 {
+		timeout = defaultDrainTimeout
+	}
+
+	return context.WithTimeout(parent, timeout)
 }
 
 const defaultMultipartMaxAge = 24 * time.Hour
