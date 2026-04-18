@@ -149,7 +149,7 @@
 	}
 </script>
 
-<section class="max-w-6xl mx-auto pb-20 space-y-6">
+<div class="max-w-7xl pb-20 space-y-6">
 	<div class="flex items-center justify-between">
 		<div>
 			<h1 class="text-2xl font-bold text-slate-900 dark:text-white">Settings</h1>
@@ -375,4 +375,4 @@
 			</div>
 		</div>
 	{/if}
-</section>
+</div>

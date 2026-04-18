@@ -12,8 +12,8 @@
   --color-accent: #d4d4d8;
   --color-accent-hover: #e4e4e7;
   --color-hover: rgba(255, 255, 255, 0.08);
-  --color-nav-bg: rgba(5, 5, 5, 0.72);
-  --color-sidebar-bg: rgba(9, 9, 9, 0.68);
+  --color-nav-bg: #030303;
+  --color-sidebar-bg: #030303;
 }
 
 .theme-dark {
@@ -95,9 +95,7 @@
 .theme-dark .main-content .rounded-lg,
 .theme-dark .main-content .rounded-xl,
 .theme-dark .main-content .rounded-2xl,
-.theme-dark .main-content .rounded-3xl,
-.theme-dark .main-content section,
-.theme-dark .main-content article {
+.theme-dark .main-content .rounded-3xl {
   background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
   border-color: rgba(255, 255, 255, 0.12);
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
@@ -153,9 +151,7 @@
 .theme-cyberpunk-2077 .main-content .rounded-lg,
 .theme-cyberpunk-2077 .main-content .rounded-xl,
 .theme-cyberpunk-2077 .main-content .rounded-2xl,
-.theme-cyberpunk-2077 .main-content .rounded-3xl,
-.theme-cyberpunk-2077 .main-content section,
-.theme-cyberpunk-2077 .main-content article {
+.theme-cyberpunk-2077 .main-content .rounded-3xl {
   background-image: linear-gradient(135deg, rgba(13, 9, 21, 0.82), rgba(35, 17, 61, 0.78));
   border-color: rgba(108, 62, 187, 0.46);
   box-shadow: 0 18px 42px rgba(11, 5, 23, 0.45);
@@ -210,9 +206,7 @@
 .theme-aurora .main-content .rounded-lg,
 .theme-aurora .main-content .rounded-xl,
 .theme-aurora .main-content .rounded-2xl,
-.theme-aurora .main-content .rounded-3xl,
-.theme-aurora .main-content section,
-.theme-aurora .main-content article {
+.theme-aurora .main-content .rounded-3xl {
   background-image: linear-gradient(135deg, rgba(46, 240, 196, 0.13), rgba(130, 230, 255, 0.08));
   border-color: rgba(29, 91, 87, 0.75);
   box-shadow: 0 16px 38px rgba(3, 12, 12, 0.38);
@@ -260,9 +254,7 @@
 .theme-solstice .main-content .rounded-lg,
 .theme-solstice .main-content .rounded-xl,
 .theme-solstice .main-content .rounded-2xl,
-.theme-solstice .main-content .rounded-3xl,
-.theme-solstice .main-content section,
-.theme-solstice .main-content article {
+.theme-solstice .main-content .rounded-3xl {
   background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.66), rgba(255, 224, 191, 0.54));
   border-color: rgba(229, 174, 127, 0.64);
   box-shadow: 0 12px 30px rgba(149, 83, 33, 0.12);

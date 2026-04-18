@@ -151,8 +151,8 @@
 <div class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 antialiased font-sans min-h-screen">
 	<!-- Top Navbar -->
 	<nav id="topbar" class="fixed top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 dark:bg-slate-900/80 dark:border-white/5 shadow-sm">
-		<div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-between">
-			<div class="flex items-center">
+		<div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-start">
+			<div class="flex items-center lg:w-[15.25rem] shrink-0">
 				<button onclick={() => sidebarOpen = !sidebarOpen} type="button" class="inline-flex items-center p-2 text-sm text-gray-500 rounded-lg lg:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600">
 					<span class="sr-only">Open sidebar</span>
 					<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path clip-rule="evenodd" fill-rule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" /></svg>
@@ -163,7 +163,7 @@
 				</a>
 			</div>
 			
-			<div class="hidden md:flex flex-grow justify-start max-w-3xl lg:ml-32 relative group">
+			<div class="hidden md:flex justify-start max-w-2xl lg:ml-4 relative group">
                 <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                     <svg class="w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
@@ -173,7 +173,7 @@
                 	bind:value={searchQuery}
                 	onfocus={() => searchOpen = true}
                 	onblur={() => setTimeout(() => searchOpen = false, 150)}
-                	class="w-full pl-10 pr-12 py-2 bg-slate-100/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 shadow-inner group-focus-within:bg-white dark:group-focus-within:bg-slate-800" 
+                	class="w-full pl-10 pr-12 py-1.5 bg-slate-100/40 dark:bg-white/5 border border-transparent hover:border-slate-200/60 dark:hover:border-white/10 rounded-xl text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 group-focus-within:bg-white dark:group-focus-within:bg-slate-900" 
                 	placeholder="Search services..." 
                 	autocomplete="off">
                 <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
@@ -198,7 +198,7 @@
                 {/if}
             </div>
 
-			<div class="flex items-center gap-1">
+			<div class="flex items-center gap-1 ml-auto">
 				<!-- Region Selector -->
 				<div class="relative">
 					<button onclick={() => regionDropdownOpen = !regionDropdownOpen} type="button" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Switch region" aria-haspopup="listbox" aria-expanded={regionDropdownOpen}>
