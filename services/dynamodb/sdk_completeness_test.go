@@ -17,14 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	h := dynamodb.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &dynamodbsdk.Client{}, h.GetSupportedOperations(), []string{
-		"ExecuteTransaction",
-		"ImportTable",
-		"ListContributorInsights",
-		"ListImports",
-		"UpdateContributorInsights",
-		"UpdateGlobalTableSettings",
-		"UpdateKinesisStreamingDestination",
-		"UpdateTableReplicaAutoScaling",
-	})
+	sdkcheck.CheckCompleteness(t, &dynamodbsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

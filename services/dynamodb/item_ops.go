@@ -80,6 +80,36 @@ func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error)
 	return table, nil
 }
 
+// getKeySchemaForPartiQL returns the key schema for the named table.
+// Results are memoised in the expression cache (TTL: 10 minutes) to avoid
+// repeated global-lock acquisitions on every PartiQL SELECT / UPDATE / DELETE.
+// The cache is keyed by "partiql:ks:<tableName>" and is automatically invalidated
+// when the entry expires, ensuring schema changes (e.g. recreation) are picked up.
+func (db *InMemoryDB) getKeySchemaForPartiQL(ctx context.Context, tableName string) ([]models.KeySchemaElement, error) {
+	cacheKey := "partiql:ks:" + tableName
+
+	if v, ok := db.exprCache.Get(cacheKey); ok {
+		ks, isKS := v.([]models.KeySchemaElement)
+		if isKS {
+			return ks, nil
+		}
+	}
+
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.RLock("getKeySchemaForPartiQL")
+	ks := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(ks, table.KeySchema)
+	table.mu.RUnlock()
+
+	db.exprCache.Put(cacheKey, ks)
+
+	return ks, nil
+}
+
 func (db *InMemoryDB) getTableRLock(ctx context.Context, name string) (*Table, bool) {
 	db.mu.RLock("getTable")
 	defer db.mu.RUnlock()
