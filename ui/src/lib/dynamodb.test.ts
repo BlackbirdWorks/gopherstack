@@ -112,7 +112,8 @@ describe("jsonToAv", () => {
   });
 
   it("converts undefined", () => {
-    expect(jsonToAv(undefined)).toEqual({ NULL: true });
+    const value = void 0;
+    expect(jsonToAv(value)).toEqual({ NULL: true });
   });
 
   it("converts arrays", () => {
