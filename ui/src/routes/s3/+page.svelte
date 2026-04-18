@@ -1,7 +1,7 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 import { goto } from '$app/navigation';
-import { newS3Client } from '$lib/aws/client';
+import { newS3Client, getStoredRegion } from '$lib/aws/client';
 import {
 ListBucketsCommand,
 CreateBucketCommand,
@@ -42,7 +42,7 @@ type LifecycleRule
 } from '@aws-sdk/client-s3';
 import { toast } from 'svelte-sonner';
 
-const s3 = newS3Client();
+let s3 = newS3Client();
 
 let buckets = $state<Bucket[]>([]);
 let loading = $state(true);
@@ -912,7 +912,30 @@ newCorsMethods = [...newCorsMethods, method];
 
 onMount(() => {
 loadBuckets();
+
+function refreshS3Client(region: string | null | undefined): void {
+if (!region) return;
+s3 = newS3Client(region);
+void loadBuckets();
+}
+const handleStorage = (e: StorageEvent) => {
+if (e.key === 'gopherstack_region') refreshS3Client(e.newValue);
+};
+const handleRegionChange = (e: Event) => {
+const region = e instanceof CustomEvent && typeof e.detail === 'string'
+? e.detail
+: getStoredRegion();
+refreshS3Client(region);
+};
+window.addEventListener('storage', handleStorage);
+window.addEventListener('gopherstack:region-change', handleRegionChange);
+return () => {
+window.removeEventListener('storage', handleStorage);
+window.removeEventListener('gopherstack:region-change', handleRegionChange);
+};
 });
+
+onDestroy(() => { /* cleanup handled in onMount return */ });
 
 $effect(() => {
 if (bucketPage > totalBucketPages) {
