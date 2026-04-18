@@ -1,8 +1,8 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
-import { newS3Client } from '$lib/aws/client';
+import { newS3Client, getStoredRegion } from '$lib/aws/client';
 import {
 HeadObjectCommand,
 GetObjectCommand,
@@ -16,7 +16,7 @@ type Tag
 import { toast } from 'svelte-sonner';
 import { Download, Trash2, Edit, ChevronLeft, Clock, FileText, Tag as TagIcon, Link, Eye } from 'lucide-svelte';
 
-const s3 = newS3Client();
+let s3 = newS3Client();
 
 interface ObjectMetadata {
 ContentType?: string;
@@ -65,6 +65,8 @@ const expiryOptions = [
 { label: '7 days', seconds: 604800 }
 ];
 
+let regionChangeCleanup: (() => void) | null = null;
+
 onMount(async () => {
 const bucketParam = String(page.params.bucket ?? '');
 const objectKeyParam = String(page.params.objectKey ?? '');
@@ -73,7 +75,27 @@ objectKey = objectKeyParam;
 await loadObjectMetadata();
 await loadObjectVersions();
 await loadObjectTags();
+
+const handleRegionChange = (e: Event) => {
+const region = e instanceof CustomEvent && typeof e.detail === 'string'
+? e.detail
+: getStoredRegion();
+s3 = newS3Client(region);
+};
+window.addEventListener('gopherstack:region-change', handleRegionChange);
+const handleStorage = (e: StorageEvent) => {
+if (e.key === 'gopherstack_region' && e.newValue) {
+s3 = newS3Client(e.newValue);
+}
+};
+window.addEventListener('storage', handleStorage);
+regionChangeCleanup = () => {
+window.removeEventListener('gopherstack:region-change', handleRegionChange);
+window.removeEventListener('storage', handleStorage);
+};
 });
+
+onDestroy(() => { regionChangeCleanup?.(); });
 
 async function loadObjectMetadata() {
 try {
@@ -152,9 +174,11 @@ toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`
 // Do not use in production environments.
 function generatePresignedUrl() {
 const now = new Date();
+const region = getStoredRegion();
 const dateShort = now.toISOString().slice(0, 10).replaceAll('-', '');
 const isoDate = now.toISOString().replaceAll('-', '').replaceAll(':', '').replace(/\.\d+Z$/, 'Z');
-presignedUrl = `${window.location.origin}/${bucket}/${objectKey}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2F${dateShort}%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=${isoDate}&X-Amz-Expires=${selectedExpiry}&X-Amz-SignedHeaders=host&X-Amz-Signature=${'0'.repeat(64)}`;
+const encodedKey = objectKey.split('/').map(seg => encodeURIComponent(seg)).join('/');
+presignedUrl = `${window.location.origin}/${encodeURIComponent(bucket)}/${encodedKey}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2F${dateShort}%2F${encodeURIComponent(region)}%2Fs3%2Faws4_request&X-Amz-Date=${isoDate}&X-Amz-Expires=${selectedExpiry}&X-Amz-SignedHeaders=host&X-Amz-Signature=${'0'.repeat(64)}`;
 }
 
 function copyPresignedUrl() {
@@ -168,33 +192,49 @@ if (previewBlobUrl) {
 URL.revokeObjectURL(previewBlobUrl);
 previewBlobUrl = null;
 }
+const MAX_TEXT_BYTES = 10240;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ct = metadata?.ContentType ?? '';
+const size = metadata?.ContentLength ?? 0;
 try {
+if (ct.startsWith('image/')) {
+if (size > MAX_IMAGE_BYTES) {
+previewType = 'binary';
+previewBinarySize = size;
+return;
+}
 const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
-const ct = metadata?.ContentType ?? '';
-if (ct.startsWith('image/')) {
 previewType = 'image';
 previewBlobUrl = URL.createObjectURL(new Blob([bytes], { type: ct }));
-} else if (ct === 'application/json' || objectKey.endsWith('.json')) {
-previewType = 'json';
+} else if (ct === 'application/json' || objectKey.endsWith('.json') || ct.startsWith('text/') || objectKey.endsWith('.txt') || objectKey.endsWith('.log') || objectKey.endsWith('.csv')) {
+const rangeEnd = Math.min(MAX_TEXT_BYTES, size > 0 ? size - 1 : MAX_TEXT_BYTES) - 1;
+const res = await s3.send(new GetObjectCommand({
+Bucket: bucket,
+Key: objectKey,
+Range: `bytes=0-${rangeEnd}`
+}));
+const bytes = await res.Body?.transformToByteArray();
+if (!bytes) return;
 const text = new TextDecoder().decode(bytes);
+if (ct === 'application/json' || objectKey.endsWith('.json')) {
+previewType = 'json';
 try {
 previewContent = JSON.stringify(JSON.parse(text), null, 2);
 } catch {
 previewContent = text;
 }
-} else if (ct.startsWith('text/') || objectKey.endsWith('.txt') || objectKey.endsWith('.log') || objectKey.endsWith('.csv')) {
+} else {
 previewType = 'text';
-const maxBytes = 10240;
-const slice = bytes.slice(0, maxBytes);
-previewContent = new TextDecoder().decode(slice);
-if (bytes.length > maxBytes) {
-previewContent += `\n\n... (truncated, showing first 10KB of ${formatBytes(bytes.length)})`;
+previewContent = text;
+if (size > MAX_TEXT_BYTES) {
+previewContent += `\n\n... (truncated, showing first 10KB of ${formatBytes(size)})`;
+}
 }
 } else {
 previewType = 'binary';
-previewBinarySize = bytes.length;
+previewBinarySize = size;
 }
 } catch (e) {
 toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -520,13 +560,15 @@ Versions
 <div class="flex gap-2 mt-2">
 <button
 onclick={() => downloadObject(version.VersionId)}
-class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium"
+disabled={!version.VersionId}
+class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
 >
 Download
 </button>
 <button
-onclick={() => deleteVersion(version.VersionId ?? '')}
-class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs font-medium"
+onclick={() => version.VersionId && deleteVersion(version.VersionId)}
+disabled={!version.VersionId}
+class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
 >
 Delete
 </button>

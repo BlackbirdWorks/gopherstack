@@ -6,13 +6,14 @@ const defaultRegion = "us-east-1";
 const REGION_STORAGE_KEY = "gopherstack_region";
 
 export function getStoredRegion(): string {
-  if (typeof window === "undefined") return "us-east-1";
-  return window.localStorage.getItem(REGION_STORAGE_KEY) ?? "us-east-1";
+  if (typeof window === "undefined") return defaultRegion;
+  return window.localStorage.getItem(REGION_STORAGE_KEY) ?? defaultRegion;
 }
 
 export function setStoredRegion(region: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(REGION_STORAGE_KEY, region);
+  window.dispatchEvent(new CustomEvent("gopherstack:region-change", { detail: region }));
 }
 
 function endpointURL(): string {

@@ -75,7 +75,7 @@
 	let itemsResults = $state<Record<string, unknown>[]>([]);
 	let itemsLastKey = $state<Record<string, AttributeValue> | null>(null);
 	let itemsLoading = $state(false);
-	let itemsSelectedRows = $state<Set<number>>(new Set());
+	let itemsSelectedKeys = $state<Set<string>>(new Set());
 
 	// Backups State
 	let backups = $state<BackupSummary[]>([]);
@@ -136,9 +136,9 @@
 	const filteredTables = $derived.by(() => {
 		const filtered = tableNames.filter((t) => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase()));
 		if (tableSortOrder === 'itemCount') {
-			return [...filtered].sort((a, b) => (tableDetails.get(b)?.ItemCount ?? 0) - (tableDetails.get(a)?.ItemCount ?? 0));
+			return filtered.toSorted((a, b) => (tableDetails.get(b)?.ItemCount ?? 0) - (tableDetails.get(a)?.ItemCount ?? 0));
 		}
-		return [...filtered].sort((a, b) => a.localeCompare(b));
+		return filtered.toSorted((a, b) => a.localeCompare(b));
 	});
 
 	// Pagination state
@@ -149,9 +149,9 @@
 
 
 	const filteredItemsResults = $derived(
-		!filterItems ? itemsResults : itemsResults.filter(item =>
+		filterItems ? itemsResults.filter(item =>
 			Object.values(item).some(v => String(v).toLowerCase().includes(filterItems.toLowerCase()))
-		)
+		) : itemsResults
 	);
 	const currentKeySchema = $derived(resolveKeySchema(selectedTableDesc, queryIndexName || undefined));
 	const tableKeySchema = $derived(resolveKeySchema(selectedTableDesc));
@@ -266,7 +266,7 @@
 		selectedTable = name;
 		activeTab = 'overview';
 		queryResults = []; scanResults = []; partiqlResults = []; itemsResults = []; backups = [];
-		itemsLastKey = null; itemsSelectedRows = new Set();
+		itemsLastKey = null; itemsSelectedKeys = new Set();
 		streamEventsHtml = '';
 		partiqlStatement = `SELECT * FROM "${name}"`;
 		try {
@@ -347,7 +347,7 @@
 		if (reset) {
 			itemsResults = [];
 			itemsLastKey = null;
-			itemsSelectedRows = new Set();
+			itemsSelectedKeys = new Set();
 		}
 		try {
 			const res = await ddb.send(new ScanCommand({
@@ -365,11 +365,20 @@
 		}
 	}
 
-	function toggleItemRow(idx: number): void {
-		const next = new Set(itemsSelectedRows);
-		if (next.has(idx)) next.delete(idx);
-		else next.add(idx);
-		itemsSelectedRows = next;
+	function itemStableKey(item: Record<string, unknown>): string {
+		const pkAttr = selectedTableDesc?.KeySchema?.[0]?.AttributeName ?? '';
+		const skAttr = selectedTableDesc?.KeySchema?.[1]?.AttributeName ?? '';
+		const pk = pkAttr ? String(item[pkAttr] ?? '') : '';
+		const sk = skAttr ? String(item[skAttr] ?? '') : '';
+		return pkAttr ? `${pk}\u0000${sk}` : JSON.stringify(item);
+	}
+
+	function toggleItemRow(item: Record<string, unknown>): void {
+		const key = itemStableKey(item);
+		const next = new Set(itemsSelectedKeys);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		itemsSelectedKeys = next;
 	}
 
 	async function deleteItem(item: Record<string, unknown>): Promise<void> {
@@ -674,15 +683,30 @@
 	onMount(() => {
 		currentRegion = getStoredRegion();
 		loadTables();
+
+		function refreshRegionClient(region: string | null | undefined): void {
+			if (!region || region === currentRegion) return;
+			currentRegion = region;
+			ddb = newDynamoDBClient(region);
+			void loadTables();
+		}
+
 		const handleStorage = (e: StorageEvent) => {
-			if (e.key === 'gopherstack_region' && e.newValue && e.newValue !== currentRegion) {
-				currentRegion = e.newValue;
-				ddb = newDynamoDBClient(e.newValue);
-				void loadTables();
-			}
+			if (e.key === 'gopherstack_region') refreshRegionClient(e.newValue);
 		};
+		const handleRegionChange = (e: Event) => {
+			const region = e instanceof CustomEvent && typeof e.detail === 'string'
+				? e.detail
+				: getStoredRegion();
+			refreshRegionClient(region);
+		};
+
 		window.addEventListener('storage', handleStorage);
-		return () => window.removeEventListener('storage', handleStorage);
+		window.addEventListener('gopherstack:region-change', handleRegionChange);
+		return () => {
+			window.removeEventListener('storage', handleStorage);
+			window.removeEventListener('gopherstack:region-change', handleRegionChange);
+		};
 	});
 	onDestroy(() => { if (streamPollTimer) clearInterval(streamPollTimer); });
 </script>
@@ -1108,8 +1132,8 @@
 				<div class="flex items-center justify-between">
 					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">
 						All Items
-						{#if itemsSelectedRows.size > 0}
-							<span class="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">{itemsSelectedRows.size} of {filteredItemsResults.length} selected</span>
+						{#if itemsSelectedKeys.size > 0}
+							<span class="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">{itemsSelectedKeys.size} of {filteredItemsResults.length} selected</span>
 						{/if}
 					</h3>
 					<button onclick={() => loadItems(true)} disabled={itemsLoading} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
@@ -1129,7 +1153,7 @@
 						<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
 							<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
 								<tr>
-									<th class="px-3 py-3 w-8"><input type="checkbox" class="w-4 h-4" onchange={(e) => { const cb = e.currentTarget as HTMLInputElement; itemsSelectedRows = cb.checked ? new Set(filteredItemsResults.map((_, i) => i)) : new Set(); }} /></th>
+									<th class="px-3 py-3 w-8"><input type="checkbox" class="w-4 h-4" onchange={(e) => { const cb = e.currentTarget as HTMLInputElement; itemsSelectedKeys = cb.checked ? new Set(filteredItemsResults.map(item => itemStableKey(item))) : new Set(); }} /></th>
 									{#each getColumns(filteredItemsResults) as col}
 										<th class="px-4 py-3">{col}</th>
 									{/each}
@@ -1137,9 +1161,9 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each filteredItemsResults as item, idx}
-									<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 {itemsSelectedRows.has(idx) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}">
-										<td class="px-3 py-3"><input type="checkbox" class="w-4 h-4" checked={itemsSelectedRows.has(idx)} onchange={() => toggleItemRow(idx)} /></td>
+								{#each filteredItemsResults as item}
+									<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 {itemsSelectedKeys.has(itemStableKey(item)) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}">
+										<td class="px-3 py-3"><input type="checkbox" class="w-4 h-4" checked={itemsSelectedKeys.has(itemStableKey(item))} onchange={() => toggleItemRow(item)} /></td>
 										{#each getColumns(filteredItemsResults) as col}
 											<td class="px-4 py-3 font-mono text-xs max-w-[200px] truncate" title={String(item[col] ?? '')}>{item[col] ?? ''}</td>
 										{/each}
