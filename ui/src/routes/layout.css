@@ -78,6 +78,15 @@
   -webkit-backdrop-filter: blur(14px) saturate(145%);
 }
 
+:where(.theme-dark, .theme-cyberpunk-2077, .theme-aurora, .theme-solstice) #topbar {
+  border-bottom-color: transparent;
+}
+
+:where(.theme-dark, .theme-cyberpunk-2077, .theme-aurora, .theme-solstice) #sidebar,
+:where(.theme-dark, .theme-cyberpunk-2077, .theme-aurora, .theme-solstice) #sidebar-footer-toggle {
+  border-color: transparent;
+}
+
 .theme-dark #topbar,
 .theme-dark #sidebar {
   background-color: var(--color-nav-bg);
