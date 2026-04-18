@@ -374,7 +374,7 @@ const TxnTokensMaxCap = txnTokensMaxCap
 const TxnPendingMaxCap = txnPendingMaxCap
 
 // TTLSweepBatchSize exposes the package-level batch size constant for testing.
-const TTLSweepBatchSize = ttlSweepBatchSize
+const TTLSweepBatchSize = defaultTTLSweepBatchSize
 
 // ExportCount returns the number of exports stored in the backend.
 func (db *InMemoryDB) ExportCount() int {
@@ -407,7 +407,7 @@ func NewJanitorForTest(db *InMemoryDB) *Janitor {
 	return &Janitor{
 		Backend:           db,
 		TaskTimeout:       5 * time.Second,
-		ttlSweepBatchSize: ttlSweepBatchSize,
+		ttlSweepBatchSize: defaultTTLSweepBatchSize,
 	}
 }
 
