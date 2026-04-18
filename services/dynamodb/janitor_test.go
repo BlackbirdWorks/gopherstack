@@ -191,6 +191,47 @@ func TestDDBJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 	}
 }
 
+func TestDDBJanitor_TTLSweepBatchSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		settings  dynamodb.Settings
+		wantBatch int
+	}{
+		{
+			name:      "uses default when unset",
+			settings:  dynamodb.Settings{},
+			wantBatch: dynamodb.TTLSweepBatchSize,
+		},
+		{
+			name: "uses configured batch size",
+			settings: dynamodb.Settings{
+				TTLSweepBatchSize: 32,
+			},
+			wantBatch: 32,
+		},
+		{
+			name: "falls back to default when configured as non-positive",
+			settings: dynamodb.Settings{
+				TTLSweepBatchSize: -10,
+			},
+			wantBatch: dynamodb.TTLSweepBatchSize,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			j := dynamodb.NewJanitor(db, tt.settings)
+
+			assert.Equal(t, tt.wantBatch, j.TTLSweepBatchSizeForTest())
+		})
+	}
+}
+
 // TestDDBJanitor_SweepOnce_EvictsPendingDeletion verifies SweepOnce removes
 // tables pending deletion without running the janitor loop.
 func TestDDBJanitor_SweepOnce_EvictsPendingDeletion(t *testing.T) {
