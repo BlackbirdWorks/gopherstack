@@ -405,9 +405,15 @@ func (db *InMemoryDB) GetKeySchemaForPartiQLForTest(ctx context.Context, tableNa
 // NewJanitorForTest creates a Janitor for the given backend with test-friendly defaults.
 func NewJanitorForTest(db *InMemoryDB) *Janitor {
 	return &Janitor{
-		Backend:     db,
-		TaskTimeout: 5 * time.Second,
+		Backend:           db,
+		TaskTimeout:       5 * time.Second,
+		ttlSweepBatchSize: ttlSweepBatchSize,
 	}
+}
+
+// TTLSweepBatchSizeForTest returns the janitor TTL sweep batch size used for tests.
+func (j *Janitor) TTLSweepBatchSizeForTest() int {
+	return j.ttlSweepBatchSize
 }
 
 // NthSmallestForTest exposes nthSmallest for unit testing.
