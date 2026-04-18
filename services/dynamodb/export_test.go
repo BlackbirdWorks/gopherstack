@@ -374,7 +374,7 @@ const TxnTokensMaxCap = txnTokensMaxCap
 const TxnPendingMaxCap = txnPendingMaxCap
 
 // TTLSweepBatchSize exposes the package-level batch size constant for testing.
-const TTLSweepBatchSize = ttlSweepBatchSize
+const TTLSweepBatchSize = defaultTTLSweepBatchSize
 
 // ExportCount returns the number of exports stored in the backend.
 func (db *InMemoryDB) ExportCount() int {
@@ -405,9 +405,15 @@ func (db *InMemoryDB) GetKeySchemaForPartiQLForTest(ctx context.Context, tableNa
 // NewJanitorForTest creates a Janitor for the given backend with test-friendly defaults.
 func NewJanitorForTest(db *InMemoryDB) *Janitor {
 	return &Janitor{
-		Backend:     db,
-		TaskTimeout: 5 * time.Second,
+		Backend:           db,
+		TaskTimeout:       5 * time.Second,
+		ttlSweepBatchSize: defaultTTLSweepBatchSize,
 	}
+}
+
+// TTLSweepBatchSizeForTest returns the janitor TTL sweep batch size used for tests.
+func (j *Janitor) TTLSweepBatchSizeForTest() int {
+	return j.ttlSweepBatchSize
 }
 
 // NthSmallestForTest exposes nthSmallest for unit testing.
