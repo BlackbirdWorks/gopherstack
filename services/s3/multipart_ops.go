@@ -1,11 +1,14 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -50,7 +53,6 @@ func (h *S3Handler) uploadPart(
 	r *http.Request,
 	bucketName, key string,
 ) {
-	h.setOperation(ctx, "UploadPart")
 	uploadID := r.URL.Query().Get("uploadId")
 	partNumberStr := r.URL.Query().Get("partNumber")
 	partNumber, err := strconv.Atoi(partNumberStr)
@@ -59,6 +61,14 @@ func (h *S3Handler) uploadPart(
 
 		return
 	}
+
+	if r.Header.Get("X-Amz-Copy-Source") != "" {
+		h.uploadPartCopy(ctx, w, r, bucketName, key, uploadID, partNumber)
+
+		return
+	}
+
+	h.setOperation(ctx, "UploadPart")
 
 	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
 		ctx = context.WithValue(ctx, md5Key, md5Header)
@@ -93,6 +103,70 @@ func (h *S3Handler) uploadPart(
 
 	w.Header().Set("ETag", *out.ETag)
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) uploadPartCopy(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key, uploadID string,
+	partNumber int,
+) {
+	h.setOperation(ctx, "UploadPartCopy")
+
+	srcVer, err := h.copySourceData(ctx, r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	defer srcVer.Body.Close()
+
+	var body io.Reader = srcVer.Body
+	if srcRange := r.Header.Get("X-Amz-Copy-Source-Range"); srcRange != "" {
+		data, readErr := io.ReadAll(srcVer.Body)
+		if readErr != nil {
+			WriteError(ctx, w, r, readErr)
+
+			return
+		}
+
+		start, end, ok := parseRange(srcRange, int64(len(data)))
+		if !ok {
+			WriteError(ctx, w, r, ErrInvalidArgument)
+
+			return
+		}
+
+		body = bytes.NewReader(data[start : end+1])
+	}
+
+	out, err := h.Backend.UploadPart(ctx, &s3.UploadPartInput{
+		Bucket:     aws.String(bucketName),
+		Key:        aws.String(key),
+		UploadId:   aws.String(uploadID),
+		PartNumber: aws.Int32(int32(partNumber)), // #nosec G115
+		Body:       body,
+	})
+	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
+		errors.Is(err, ErrNoSuchUpload) {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	resp := UploadPartCopyResult{
+		LastModified: time.Now().UTC().Format(time.RFC3339),
+		ETag:         aws.ToString(out.ETag),
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) completeMultipartUpload(
@@ -173,7 +247,14 @@ func (h *S3Handler) completeMultipartUpload(
 			}); headErr == nil {
 				size = aws.ToInt64(headOut.ContentLength)
 			}
-			go h.notifier.DispatchObjectCompleted(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
+			go h.notifier.DispatchObjectCompleted(
+				h.notificationDispatchContext(),
+				bucketName,
+				key,
+				etag,
+				size,
+				notifXML,
+			)
 		}
 	}
 

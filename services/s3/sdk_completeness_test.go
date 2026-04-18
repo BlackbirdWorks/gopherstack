@@ -18,28 +18,21 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := s3.NewInMemoryBackend(nil)
 	h := s3.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &s3sdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteBucketTagging",
 		"GetBucketAbac",
 		"GetBucketAccelerateConfiguration",
-		"GetBucketLocation",
 		"GetBucketPolicyStatus",
 		"GetBucketRequestPayment",
-		"GetBucketTagging",
-		"GetObjectAcl",
 		"GetObjectAttributes",
 		"GetObjectTorrent",
 		"ListDirectoryBuckets",
 		"PutBucketAbac",
 		"PutBucketAccelerateConfiguration",
 		"PutBucketRequestPayment",
-		"PutBucketTagging",
-		"PutObjectAcl",
 		"RenameObject",
 		"RestoreObject",
 		"UpdateBucketMetadataInventoryTableConfiguration",
 		"UpdateBucketMetadataJournalTableConfiguration",
 		"UpdateObjectEncryption",
-		"UploadPartCopy",
 		"WriteGetObjectResponse",
 	})
 }

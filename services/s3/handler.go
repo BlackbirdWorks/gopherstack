@@ -69,10 +69,11 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	DefaultRegion string
-	janitor       *Janitor
-	notifier      NotificationDispatcher
-	Backend       StorageBackend
+	DefaultRegion   string
+	janitor         *Janitor
+	notifier        NotificationDispatcher
+	notificationCtx context.Context
+	Backend         StorageBackend
 	// Endpoint is the base host (e.g. "localhost:9000") of this server.
 	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
 	// in addition to path-style URLs (/bucket/key).
@@ -82,8 +83,9 @@ type S3Handler struct {
 // NewHandler creates a new S3 Handler with the given backend.
 func NewHandler(backend StorageBackend) *S3Handler {
 	return &S3Handler{
-		Backend:       backend,
-		DefaultRegion: config.DefaultRegion,
+		Backend:         backend,
+		DefaultRegion:   config.DefaultRegion,
+		notificationCtx: context.Background(),
 	}
 }
 
@@ -107,11 +109,21 @@ func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration)
 
 // StartWorker starts the background janitor if it is configured.
 func (h *S3Handler) StartWorker(ctx context.Context) error {
+	h.notificationCtx = ctx
+
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
 	}
 
 	return nil
+}
+
+func (h *S3Handler) notificationDispatchContext() context.Context {
+	if h.notificationCtx != nil {
+		return h.notificationCtx
+	}
+
+	return context.Background()
 }
 
 // SetNotificationDispatcher attaches a NotificationDispatcher that delivers
@@ -142,7 +154,11 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"ListBuckets",
 		"HeadBucket",
 		"GetBucketVersioning",
+		"GetBucketLocation",
 		"PutBucketVersioning",
+		"PutBucketTagging",
+		"GetBucketTagging",
+		"DeleteBucketTagging",
 		"PutObject",
 		"GetObject",
 		"HeadObject",
@@ -155,8 +171,11 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"PutObjectTagging",
 		"GetObjectTagging",
 		"DeleteObjectTagging",
+		"PutObjectAcl",
+		"GetObjectAcl",
 		"CreateMultipartUpload",
 		"UploadPart",
+		"UploadPartCopy",
 		"CompleteMultipartUpload",
 		"AbortMultipartUpload",
 		"ListMultipartUploads",

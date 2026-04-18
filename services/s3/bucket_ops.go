@@ -609,15 +609,16 @@ func (h *S3Handler) listObjects(
 func (h *S3Handler) getBucketLocation(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
-	_ string,
+	r *http.Request,
+	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketLocation")
 
-	// Get the region from context
-	region := h.DefaultRegion
-	if contextRegion, ok := ctx.Value(regionContextKey{}).(string); ok && contextRegion != "" {
-		region = contextRegion
+	region, _, _, err := h.Backend.GetBucketMetadata(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, &LocationConstraintResponse{

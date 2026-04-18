@@ -226,6 +226,12 @@ type CompleteMultipartUploadResult struct {
 	ETag     string   `xml:"ETag"`
 }
 
+type UploadPartCopyResult struct {
+	XMLName      xml.Name `xml:"CopyPartResult"`
+	LastModified string   `xml:"LastModified"`
+	ETag         string   `xml:"ETag"`
+}
+
 // Bulk Delete Structures
 
 type DeleteRequest struct {

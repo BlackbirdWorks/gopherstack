@@ -762,6 +762,107 @@ func TestHandler_GetBucketLocation(t *testing.T) {
 	}
 }
 
+func TestHandler_GetSupportedOperations_HighPriorityS3Ops(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+	}{
+		{name: "includes GetBucketLocation", op: "GetBucketLocation"},
+		{name: "includes PutBucketTagging", op: "PutBucketTagging"},
+		{name: "includes GetBucketTagging", op: "GetBucketTagging"},
+		{name: "includes DeleteBucketTagging", op: "DeleteBucketTagging"},
+		{name: "includes PutObjectAcl", op: "PutObjectAcl"},
+		{name: "includes GetObjectAcl", op: "GetObjectAcl"},
+		{name: "includes UploadPartCopy", op: "UploadPartCopy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, _ := newTestHandler(t)
+			assert.Contains(t, handler.GetSupportedOperations(), tt.op)
+		})
+	}
+}
+
+func TestHandler_UploadPartCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		rangeHeader  string
+		expectedBody string
+	}{
+		{
+			name:         "copies full source object into multipart part",
+			expectedBody: "hello multipart copy",
+		},
+		{
+			name:         "copies ranged slice into multipart part",
+			rangeHeader:  "bytes=6-14",
+			expectedBody: "multipart",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+			mustPutObject(t, backend, "bkt", "src", []byte("hello multipart copy"))
+
+			reqInit := httptest.NewRequest(http.MethodPost, "/bkt/dst?uploads", nil)
+			recInit := httptest.NewRecorder()
+			serveS3Handler(handler, recInit, reqInit)
+			require.Equal(t, http.StatusOK, recInit.Code)
+
+			var initResp s3.InitiateMultipartUploadResult
+			require.NoError(t, xml.NewDecoder(recInit.Body).Decode(&initResp))
+			uploadID := initResp.UploadID
+
+			reqPart := httptest.NewRequest(
+				http.MethodPut,
+				"/bkt/dst?partNumber=1&uploadId="+uploadID,
+				nil,
+			)
+			reqPart.Header.Set("X-Amz-Copy-Source", "/bkt/src")
+			if tt.rangeHeader != "" {
+				reqPart.Header.Set("X-Amz-Copy-Source-Range", tt.rangeHeader)
+			}
+
+			recPart := httptest.NewRecorder()
+			serveS3Handler(handler, recPart, reqPart)
+			require.Equal(t, http.StatusOK, recPart.Code)
+			assert.Contains(t, recPart.Body.String(), "CopyPartResult")
+
+			var copyResp s3.UploadPartCopyResult
+			require.NoError(t, xml.NewDecoder(recPart.Body).Decode(&copyResp))
+			require.NotEmpty(t, copyResp.ETag)
+
+			completeXML := "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>" +
+				copyResp.ETag + "</ETag></Part></CompleteMultipartUpload>"
+			reqComplete := httptest.NewRequest(
+				http.MethodPost,
+				"/bkt/dst?uploadId="+uploadID,
+				strings.NewReader(completeXML),
+			)
+			recComplete := httptest.NewRecorder()
+			serveS3Handler(handler, recComplete, reqComplete)
+			require.Equal(t, http.StatusOK, recComplete.Code)
+
+			reqGet := httptest.NewRequest(http.MethodGet, "/bkt/dst", nil)
+			recGet := httptest.NewRecorder()
+			serveS3Handler(handler, recGet, reqGet)
+			require.Equal(t, http.StatusOK, recGet.Code)
+			assert.Equal(t, tt.expectedBody, recGet.Body.String())
+		})
+	}
+}
+
 func TestHandler_DeleteBucket_Errors(t *testing.T) {
 	t.Parallel()
 
