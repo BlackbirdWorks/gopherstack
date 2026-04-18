@@ -14,10 +14,10 @@ import (
 const (
 	defaultDDBJanitorInterval  = 500 * time.Millisecond
 	defaultDDBTTLSweepInterval = 5 * time.Second
-	// ttlSweepBatchSize is the maximum number of items checked per lock acquisition
+	// defaultTTLSweepBatchSize is the maximum number of items checked per lock acquisition
 	// in sweepTableTTL. Smaller values reduce lock hold time at the cost of more
 	// lock round-trips; 1 000 is a reasonable balance for typical table sizes.
-	ttlSweepBatchSize = 1_000
+	defaultTTLSweepBatchSize = 1_000
 	// txnTokensMaxCap is the maximum number of committed idempotency tokens kept
 	// in memory. When the cap is exceeded, the oldest half is evicted immediately
 	// rather than waiting for the TTL sweep, preventing unbounded map growth.
@@ -37,6 +37,9 @@ const (
 type Janitor struct {
 	Backend  *InMemoryDB
 	Interval time.Duration
+	// ttlSweepBatchSize is the maximum number of items checked per lock
+	// acquisition when sweeping TTL-expired items.
+	ttlSweepBatchSize int
 	// TaskTimeout bounds each individual janitor task (TTL sweep, table cleaner, etc.).
 	// When non-zero, each task runs with a child context that expires after this duration,
 	// preventing a stalled operation from blocking the janitor loop indefinitely.
@@ -52,9 +55,15 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 		interval = defaultDDBJanitorInterval
 	}
 
+	ttlSweepBatchSize := settings.TTLSweepBatchSize
+	if ttlSweepBatchSize <= 0 {
+		ttlSweepBatchSize = defaultTTLSweepBatchSize
+	}
+
 	return &Janitor{
-		Backend:  backend,
-		Interval: interval,
+		Backend:           backend,
+		Interval:          interval,
+		ttlSweepBatchSize: ttlSweepBatchSize,
 	}
 }
 
@@ -246,7 +255,7 @@ func (j *Janitor) sweepTableTTL(
 			i = len(table.Items) - 1
 		}
 
-		batchEnd := i - ttlSweepBatchSize
+		batchEnd := i - j.ttlSweepBatchSize
 		if batchEnd < 0 {
 			batchEnd = -1
 		}

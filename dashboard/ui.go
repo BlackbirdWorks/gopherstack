@@ -3,6 +3,7 @@ package dashboard
 import (
 	"embed"
 	"encoding/json"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -807,19 +808,48 @@ func (h *DashboardHandler) setupSubRouter() {
 		// Use the backend to get recent stream events and format as minimal HTML
 		events := h.config.DynamoDBStreamsOps.Streams.GetRecentEvents(name)
 		if len(events) == 0 {
-			return c.HTML(http.StatusOK, "No recent stream events.")
+			return c.HTML(http.StatusOK, "<p class='text-slate-400 text-xs italic'>No recent stream events.</p>")
 		}
 
 		var sb strings.Builder
-		sb.WriteString("<table class='w-full text-xs font-mono'>")
+		sb.WriteString("<table class='w-full text-xs font-mono border-collapse'>")
 		sb.WriteString(
-			"<thead><tr class='border-b'><th class='text-left pb-1'>Event</th><th class='text-left pb-1'>ID</th></tr></thead>",
+			"<thead><tr class='border-b border-slate-200 dark:border-slate-700'>" +
+				"<th class='text-left pb-1 pr-3 text-slate-500 font-medium'>Event</th>" +
+				"<th class='text-left pb-1 pr-3 text-slate-500 font-medium'>Sequence</th>" +
+				"<th class='text-left pb-1 text-slate-500 font-medium'>Time</th>" +
+				"</tr></thead>",
 		)
+		const seqSuffixLen = 12
 		sb.WriteString("<tbody>")
-		for _, e := range events {
-			sb.WriteString("<tr class='border-b hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors'>")
-			sb.WriteString("<td class='py-1'>" + e.EventName + "</td>")
-			sb.WriteString("<td class='py-1 truncate'>" + e.EventID + "</td>")
+		// Show most recent first
+		for i := len(events) - 1; i >= 0; i-- {
+			e := events[i]
+			var eventClass string
+			switch e.EventName {
+			case "INSERT":
+				eventClass = "text-green-700 dark:text-green-400"
+			case "REMOVE":
+				eventClass = "text-red-700 dark:text-red-400"
+			default:
+				eventClass = "text-blue-700 dark:text-blue-400"
+			}
+			ts := time.Unix(e.ApproximateCreationDateTime, 0).Format("15:04:05")
+			seq := e.SequenceNumber
+			if len(seq) > seqSuffixLen {
+				seq = seq[len(seq)-seqSuffixLen:]
+			}
+			sb.WriteString(
+				"<tr class='border-b border-slate-100 dark:border-slate-700 " +
+					"hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors'>",
+			)
+			sb.WriteString(
+				"<td class='py-1 pr-3 font-semibold " + eventClass + "'>" + html.EscapeString(e.EventName) + "</td>",
+			)
+			sb.WriteString(
+				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>…" + html.EscapeString(seq) + "</td>",
+			)
+			sb.WriteString("<td class='py-1 text-slate-500 dark:text-slate-400'>" + html.EscapeString(ts) + "</td>")
 			sb.WriteString("</tr>")
 		}
 		sb.WriteString("</tbody></table>")
