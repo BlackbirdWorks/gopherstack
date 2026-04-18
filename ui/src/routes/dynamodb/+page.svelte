@@ -6,6 +6,7 @@
 		DescribeTableCommand,
 		CreateTableCommand,
 		DeleteTableCommand,
+		DeleteItemCommand,
 		ScanCommand,
 		QueryCommand,
 		PutItemCommand,
@@ -13,11 +14,15 @@
 		DescribeTimeToLiveCommand,
 		UpdateTimeToLiveCommand,
 		UpdateTableCommand,
+		ListBackupsCommand,
+		CreateBackupCommand,
+		DeleteBackupCommand,
 		type TableDescription,
 		type KeySchemaElement,
 		type ScalarAttributeType,
 		type AttributeValue,
-		type StreamSpecification
+		type StreamSpecification,
+		type BackupSummary
 	} from '@aws-sdk/client-dynamodb';
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
@@ -41,6 +46,7 @@
 	let selectedTable = $state<string | null>(null);
 	let selectedTableDesc = $state<TableDescription | null>(null);
 	let activeTab = $state<string>('overview');
+	let showTableDetails = $state(false);
 
 	// Query State
 	let queryIndexName = $state('');
@@ -53,6 +59,7 @@
 	let queryResults = $state<Record<string, unknown>[]>([]);
 	let queryLoading = $state(false);
 	let queryCount = $state(0);
+	let querySortOrder = $state<'ASC' | 'DESC'>('ASC');
 
 	// Scan State
 	let scanFilterExp = $state('');
@@ -61,6 +68,17 @@
 	let scanResults = $state<Record<string, unknown>[]>([]);
 	let scanLoading = $state(false);
 	let scanCount = $state(0);
+
+	// Items Tab State
+	let itemsResults = $state<Record<string, unknown>[]>([]);
+	let itemsLastKey = $state<Record<string, AttributeValue> | null>(null);
+	let itemsLoading = $state(false);
+	let itemsSelectedRows = $state<Set<number>>(new Set());
+
+	// Backups State
+	let backups = $state<BackupSummary[]>([]);
+	let backupsLoading = $state(false);
+	let newBackupName = $state('');
 
 	// PartiQL State
 	let partiqlStatement = $state('');
@@ -102,6 +120,33 @@
 
 	const currentKeySchema = $derived(resolveKeySchema(selectedTableDesc, queryIndexName || undefined));
 	const tableKeySchema = $derived(resolveKeySchema(selectedTableDesc));
+
+	// Helpers
+	function formatBytes(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+		return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+	}
+
+	function buildItemKey(item: Record<string, unknown>): Record<string, AttributeValue> {
+		const key: Record<string, AttributeValue> = {};
+		const { pkName, skName } = tableKeySchema;
+		if (pkName && item[pkName] !== undefined) key[pkName] = jsonToAv(item[pkName]);
+		if (skName && item[skName] !== undefined) key[skName] = jsonToAv(item[skName]);
+		return key;
+	}
+
+	function exportJson(data: Record<string, unknown>[], filename: string): void {
+		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
 
 	// Table List Operations
 	async function loadTables() {
@@ -178,8 +223,10 @@
 	async function openTable(name: string) {
 		selectedTable = name;
 		activeTab = 'overview';
-		queryResults = []; scanResults = []; partiqlResults = [];
+		queryResults = []; scanResults = []; partiqlResults = []; itemsResults = []; backups = [];
+		itemsLastKey = null; itemsSelectedRows = new Set();
 		streamEventsHtml = '';
+		partiqlStatement = `SELECT * FROM "${name}"`;
 		try {
 			const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
 			selectedTableDesc = desc.Table ?? null;
@@ -198,6 +245,10 @@
 		}
 	}
 
+	async function refreshTable(): Promise<void> {
+		if (selectedTable) await openTable(selectedTable);
+	}
+
 	// Query
 	async function executeQuery() {
 		if (!selectedTable || !queryPKValue) return;
@@ -211,6 +262,7 @@
 				ExpressionAttributeNames: kc.names,
 				ExpressionAttributeValues: kc.values,
 				Limit: queryLimit,
+				ScanIndexForward: querySortOrder === 'ASC',
 				...(queryIndexName ? { IndexName: queryIndexName } : {}),
 				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {})
 			};
@@ -242,6 +294,136 @@
 			toast.error(`Scan failed: ${(err as Error).message}`);
 		} finally {
 			scanLoading = false;
+		}
+	}
+
+	// Items Tab
+	async function loadItems(reset = true): Promise<void> {
+		if (!selectedTable) return;
+		itemsLoading = true;
+		if (reset) {
+			itemsResults = [];
+			itemsLastKey = null;
+			itemsSelectedRows = new Set();
+		}
+		try {
+			const res = await ddb.send(new ScanCommand({
+				TableName: selectedTable,
+				Limit: 25,
+				...(itemsLastKey && !reset ? { ExclusiveStartKey: itemsLastKey } : {})
+			}));
+			const newItems = (res.Items ?? []).map((item) => itemToJson(item));
+			itemsResults = reset ? newItems : [...itemsResults, ...newItems];
+			itemsLastKey = res.LastEvaluatedKey ?? null;
+		} catch (err: unknown) {
+			toast.error(`Failed to load items: ${(err as Error).message}`);
+		} finally {
+			itemsLoading = false;
+		}
+	}
+
+	function toggleItemRow(idx: number): void {
+		const next = new Set(itemsSelectedRows);
+		if (next.has(idx)) next.delete(idx);
+		else next.add(idx);
+		itemsSelectedRows = next;
+	}
+
+	async function deleteItem(item: Record<string, unknown>): Promise<void> {
+		if (!selectedTable) return;
+		if (!confirm('Delete this item?')) return;
+		try {
+			await ddb.send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
+			toast.success('Item deleted');
+			if (activeTab === 'items') await loadItems(true);
+			else if (activeTab === 'scan') await executeScan();
+			else if (activeTab === 'query') await executeQuery();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	// Backups
+	async function loadBackups(): Promise<void> {
+		if (!selectedTable) return;
+		backupsLoading = true;
+		try {
+			const res = await ddb.send(new ListBackupsCommand({ TableName: selectedTable }));
+			backups = res.BackupSummaries ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load backups: ${(err as Error).message}`);
+		} finally {
+			backupsLoading = false;
+		}
+	}
+
+	async function createBackup(): Promise<void> {
+		if (!selectedTable || !newBackupName.trim()) return;
+		try {
+			await ddb.send(new CreateBackupCommand({ TableName: selectedTable, BackupName: newBackupName.trim() }));
+			toast.success(`Backup "${newBackupName.trim()}" created`);
+			newBackupName = '';
+			await loadBackups();
+		} catch (err: unknown) {
+			toast.error(`Create backup failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function deleteBackup(arn: string): Promise<void> {
+		if (!confirm('Delete this backup?')) return;
+		try {
+			await ddb.send(new DeleteBackupCommand({ BackupArn: arn }));
+			toast.success('Backup deleted');
+			await loadBackups();
+		} catch (err: unknown) {
+			toast.error(`Delete backup failed: ${(err as Error).message}`);
+		}
+	}
+
+	// TTL test
+	async function testTTL(): Promise<void> {
+		if (!selectedTable || !ttlAttribute.trim()) {
+			toast.error('No TTL attribute configured');
+			return;
+		}
+		try {
+			const now = Math.floor(Date.now() / 1000);
+			const oneHourFromNow = now + 3600;
+			const res = await ddb.send(new ScanCommand({
+				TableName: selectedTable,
+				FilterExpression: '#ttlAttr BETWEEN :now AND :plus1h',
+				ExpressionAttributeNames: { '#ttlAttr': ttlAttribute },
+				ExpressionAttributeValues: { ':now': { N: String(now) }, ':plus1h': { N: String(oneHourFromNow) } }
+			}));
+			const count = res.Count ?? 0;
+			toast.success(`${count} item${count === 1 ? '' : 's'} will expire in the next hour`);
+		} catch (err: unknown) {
+			toast.error(`TTL test failed: ${(err as Error).message}`);
+		}
+	}
+
+	// Seed Demo Data
+	async function seedDemoData(): Promise<void> {
+		try {
+			const tables: { name: string; ks: KeySchemaElement[]; ad: { AttributeName: string; AttributeType: ScalarAttributeType }[] }[] = [
+				{ name: 'users', ks: [{ AttributeName: 'userId', KeyType: 'HASH' }], ad: [{ AttributeName: 'userId', AttributeType: 'S' }] },
+				{ name: 'orders', ks: [{ AttributeName: 'orderId', KeyType: 'HASH' }, { AttributeName: 'customerId', KeyType: 'RANGE' }], ad: [{ AttributeName: 'orderId', AttributeType: 'S' }, { AttributeName: 'customerId', AttributeType: 'S' }] },
+				{ name: 'sessions', ks: [{ AttributeName: 'sessionId', KeyType: 'HASH' }], ad: [{ AttributeName: 'sessionId', AttributeType: 'S' }] }
+			];
+			for (const t of tables) {
+				try {
+					await ddb.send(new CreateTableCommand({ TableName: t.name, KeySchema: t.ks, AttributeDefinitions: t.ad, BillingMode: 'PAY_PER_REQUEST' }));
+				} catch {
+					// table may already exist - skip
+				}
+			}
+			await ddb.send(new PutItemCommand({ TableName: 'users', Item: { userId: { S: 'u1' }, name: { S: 'Alice' }, email: { S: 'alice@example.com' }, age: { N: '30' }, createdAt: { N: '1700000000' } } }));
+			await ddb.send(new PutItemCommand({ TableName: 'orders', Item: { orderId: { S: 'o1' }, customerId: { S: 'c1' }, amount: { N: '99.99' }, status: { S: 'completed' }, createdAt: { N: '1700000000' } } }));
+			await ddb.send(new PutItemCommand({ TableName: 'sessions', Item: { sessionId: { S: 's1' }, userId: { S: 'u1' }, expiresAt: { N: '9999999999' } } }));
+			toast.success('Demo data seeded (users, orders, sessions)');
+			await loadTables();
+		} catch (err: unknown) {
+			toast.error(`Seed failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -323,6 +505,7 @@
 			editItemJson = '';
 			if (activeTab === 'scan') await executeScan();
 			else if (activeTab === 'query') await executeQuery();
+			else if (activeTab === 'items') await loadItems(true);
 		} catch (err: unknown) {
 			toast.error(`Failed: ${(err as Error).message}`);
 		}
@@ -366,6 +549,18 @@
 		}
 	}
 
+	$effect(() => {
+		if (activeTab === 'items' && selectedTable) {
+			void loadItems(true);
+		}
+	});
+
+	$effect(() => {
+		if (activeTab === 'backups' && selectedTable) {
+			void loadBackups();
+		}
+	});
+
 	onMount(() => { loadTables(); });
 	onDestroy(() => { if (streamPollTimer) clearInterval(streamPollTimer); });
 </script>
@@ -380,15 +575,19 @@
 						{#each getColumns(items) as col}
 							<th class="px-4 py-3">{col}</th>
 						{/each}
+						<th class="px-4 py-3">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each items as item}
-						<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
-							onclick={() => openEditItem(item)}>
+						<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50">
 							{#each getColumns(items) as col}
 								<td class="px-4 py-3 font-mono text-xs max-w-[200px] truncate" title={String(item[col] ?? '')}>{item[col] ?? ''}</td>
 							{/each}
+							<td class="px-4 py-3 whitespace-nowrap">
+								<button onclick={() => openEditItem(item)} class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 mr-2">Edit</button>
+								<button onclick={() => deleteItem(item)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">Delete</button>
+							</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -429,7 +628,7 @@
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['streams', 'Stream Events'], ['partiql', 'PartiQL']] as [id, label]}
+				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups']] as [id, label]}
 					<li class="me-2">
 						<button onclick={() => { activeTab = id; }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
@@ -442,6 +641,28 @@
 
 		{#if activeTab === 'overview'}
 			<div class="space-y-6">
+				<div class="flex justify-end">
+					<button onclick={refreshTable} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700 flex items-center gap-2">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+						Refresh
+					</button>
+				</div>
+				<!-- Table Details expandable -->
+				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+					<button type="button" onclick={() => { showTableDetails = !showTableDetails; }} class="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white w-full text-left">
+						<svg class="w-4 h-4 transition-transform {showTableDetails ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+						Table Details
+					</button>
+					{#if showTableDetails}
+						<dl class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+							<div><dt class="text-slate-500 dark:text-slate-400">ARN</dt><dd class="font-mono text-xs break-all text-slate-900 dark:text-white mt-0.5">{selectedTableDesc?.TableArn ?? '-'}</dd></div>
+							<div><dt class="text-slate-500 dark:text-slate-400">Creation Date</dt><dd class="text-slate-900 dark:text-white mt-0.5">{selectedTableDesc?.CreationDateTime ? new Date(selectedTableDesc.CreationDateTime).toLocaleString() : '-'}</dd></div>
+							<div><dt class="text-slate-500 dark:text-slate-400">Status</dt><dd class="mt-0.5"><span class="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{selectedTableDesc?.TableStatus ?? '-'}</span></dd></div>
+							<div><dt class="text-slate-500 dark:text-slate-400">Billing Mode</dt><dd class="mt-0.5"><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{selectedTableDesc?.BillingModeSummary?.BillingMode ?? 'PROVISIONED'}</span></dd></div>
+							<div><dt class="text-slate-500 dark:text-slate-400">Table Size</dt><dd class="text-slate-900 dark:text-white mt-0.5">{formatBytes(selectedTableDesc?.TableSizeBytes ?? 0)}</dd></div>
+						</dl>
+					{/if}
+				</div>
 				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 					<h2 class="mb-4 text-xl font-bold text-slate-900 dark:text-white">Key Schema</h2>
 					<div class="overflow-x-auto">
@@ -466,10 +687,18 @@
 						</table>
 					</div>
 				</div>
-				<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+				<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
 					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 						<div class="text-sm font-medium text-slate-500 dark:text-slate-400">Item Count</div>
 						<div class="text-2xl font-bold text-blue-600 dark:text-blue-400">{selectedTableDesc?.ItemCount ?? 0}</div>
+					</div>
+					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+						<div class="text-sm font-medium text-slate-500 dark:text-slate-400">Table Size</div>
+						<div class="text-lg font-bold text-slate-700 dark:text-slate-300 mt-1">{formatBytes(selectedTableDesc?.TableSizeBytes ?? 0)}</div>
+					</div>
+					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+						<div class="text-sm font-medium text-slate-500 dark:text-slate-400">Billing</div>
+						<div class="mt-1"><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{selectedTableDesc?.BillingModeSummary?.BillingMode === 'PAY_PER_REQUEST' ? 'ON_DEMAND' : 'PROVISIONED'}</span></div>
 					</div>
 					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 						<div class="text-sm font-medium text-slate-500 dark:text-slate-400">GSIs</div>
@@ -513,6 +742,7 @@
 							<label for="ttl-enabled" class="ms-2 text-sm font-medium text-slate-900 dark:text-slate-300">Enabled</label>
 						</div>
 						<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">Update TTL</button>
+						<button type="button" onclick={testTTL} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Test TTL</button>
 					</form>
 				</div>
 				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
@@ -545,7 +775,7 @@
 						<div class="overflow-x-auto">
 							<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
 								<thead class="text-xs text-slate-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
-									<tr><th class="px-6 py-3">Index Name</th><th class="px-6 py-3">Partition Key</th><th class="px-6 py-3">Sort Key</th><th class="px-6 py-3">Projection</th></tr>
+									<tr><th class="px-6 py-3">Index Name</th><th class="px-6 py-3">Partition Key</th><th class="px-6 py-3">Sort Key</th><th class="px-6 py-3">Status</th><th class="px-6 py-3">Item Count</th><th class="px-6 py-3">Projection</th></tr>
 								</thead>
 								<tbody>
 									{#each selectedTableDesc.GlobalSecondaryIndexes ?? [] as gsi}
@@ -553,6 +783,8 @@
 											<td class="px-6 py-4 font-mono">{gsi.IndexName}</td>
 											<td class="px-6 py-4 font-mono">{gsi.KeySchema?.find((k) => k.KeyType === 'HASH')?.AttributeName ?? ''}</td>
 											<td class="px-6 py-4 font-mono">{gsi.KeySchema?.find((k) => k.KeyType === 'RANGE')?.AttributeName ?? '-'}</td>
+											<td class="px-6 py-4"><span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{gsi.IndexStatus ?? 'ACTIVE'}</span></td>
+											<td class="px-6 py-4">{gsi.ItemCount ?? 0}</td>
 											<td class="px-6 py-4"><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{gsi.Projection?.ProjectionType ?? ''}</span></td>
 										</tr>
 									{/each}
@@ -567,7 +799,7 @@
 						<div class="overflow-x-auto">
 							<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
 								<thead class="text-xs text-slate-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
-									<tr><th class="px-6 py-3">Index Name</th><th class="px-6 py-3">Sort Key</th><th class="px-6 py-3">Projection</th></tr>
+									<tr><th class="px-6 py-3">Index Name</th><th class="px-6 py-3">SK Attr</th><th class="px-6 py-3">Projection Type</th></tr>
 								</thead>
 								<tbody>
 									{#each selectedTableDesc.LocalSecondaryIndexes ?? [] as lsi}
@@ -633,12 +865,26 @@
 						<label for="q-limit" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Limit</label>
 						<input type="number" id="q-limit" bind:value={queryLimit} min="1" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
 					</div>
+					<div>
+						<label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort Order</label>
+						<div class="flex gap-6">
+							<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+								<input type="radio" bind:group={querySortOrder} value="ASC" class="w-4 h-4 text-blue-600" /> Ascending
+							</label>
+							<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+								<input type="radio" bind:group={querySortOrder} value="DESC" class="w-4 h-4 text-blue-600" /> Descending
+							</label>
+						</div>
+					</div>
 					<button type="submit" disabled={queryLoading} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800 disabled:opacity-50">
 						{queryLoading ? 'Querying...' : 'Execute Query'}
 					</button>
 				</form>
 				{#if queryCount > 0}
-					<p class="text-sm text-slate-600 dark:text-slate-400">{queryCount} result{queryCount !== 1 ? 's' : ''}</p>
+					<div class="flex items-center justify-between">
+						<p class="text-sm text-slate-600 dark:text-slate-400">Showing {queryResults.length} of {queryCount} result{queryCount !== 1 ? 's' : ''} scanned</p>
+						<button onclick={() => exportJson(queryResults, `${selectedTable ?? 'query'}-results.json`)} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Export JSON</button>
+					</div>
 				{/if}
 				{@render resultsTable(queryResults)}
 			</div>
@@ -666,9 +912,62 @@
 					</button>
 				</form>
 				{#if scanCount > 0}
-					<p class="text-sm text-slate-600 dark:text-slate-400">{scanCount} result{scanCount !== 1 ? 's' : ''}</p>
+					<div class="flex items-center justify-between">
+						<p class="text-sm text-slate-600 dark:text-slate-400">Showing {scanResults.length} of {scanCount} item{scanCount !== 1 ? 's' : ''} scanned</p>
+						<button onclick={() => exportJson(scanResults, `${selectedTable ?? 'scan'}-results.json`)} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Export JSON</button>
+					</div>
 				{/if}
 				{@render resultsTable(scanResults)}
+			</div>
+		{:else if activeTab === 'items'}
+			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-4">
+				<div class="flex items-center justify-between">
+					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">All Items</h3>
+					<button onclick={() => loadItems(true)} disabled={itemsLoading} class="py-1.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+						{itemsLoading ? 'Loading...' : 'Reload'}
+					</button>
+				</div>
+				{#if itemsLoading && itemsResults.length === 0}
+					<div class="flex justify-center p-8">
+						<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
+					</div>
+				{:else if itemsResults.length > 0}
+					<p class="text-sm text-slate-600 dark:text-slate-400">Showing {itemsResults.length} items{itemsLastKey ? ' (more available)' : ''}</p>
+					<div class="overflow-x-auto">
+						<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+							<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+								<tr>
+									<th class="px-3 py-3 w-8"><input type="checkbox" class="w-4 h-4" onchange={(e) => { const cb = e.currentTarget as HTMLInputElement; itemsSelectedRows = cb.checked ? new Set(itemsResults.map((_, i) => i)) : new Set(); }} /></th>
+									{#each getColumns(itemsResults) as col}
+										<th class="px-4 py-3">{col}</th>
+									{/each}
+									<th class="px-4 py-3">Actions</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each itemsResults as item, idx}
+									<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 {itemsSelectedRows.has(idx) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}">
+										<td class="px-3 py-3"><input type="checkbox" class="w-4 h-4" checked={itemsSelectedRows.has(idx)} onchange={() => toggleItemRow(idx)} /></td>
+										{#each getColumns(itemsResults) as col}
+											<td class="px-4 py-3 font-mono text-xs max-w-[200px] truncate" title={String(item[col] ?? '')}>{item[col] ?? ''}</td>
+										{/each}
+										<td class="px-4 py-3 whitespace-nowrap">
+											<button onclick={() => openEditItem(item)} class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 mr-2">Edit</button>
+											<button onclick={() => deleteItem(item)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					{#if itemsLastKey}
+						<button onclick={() => loadItems(false)} disabled={itemsLoading} class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:opacity-50">
+							{itemsLoading ? 'Loading...' : 'Load More'}
+						</button>
+					{/if}
+				{:else}
+					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">No items found in this table.</p>
+				{/if}
 			</div>
 		{:else if activeTab === 'streams'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
@@ -689,10 +988,11 @@
 					<p class="text-sm text-slate-500 dark:text-slate-400 mb-2">Run SQL-style queries against DynamoDB using PartiQL syntax.</p>
 					<div class="flex flex-wrap gap-2 text-xs">
 						<span class="text-slate-500 dark:text-slate-400 self-center">Examples:</span>
-						<button onclick={() => setPartiqlExample('SELECT * FROM "' + selectedTable + '"')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">SELECT * FROM "{selectedTable}"</button>
-						<button onclick={() => setPartiqlExample('SELECT * FROM "' + selectedTable + '" WHERE id=\'value\'')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">SELECT * ... WHERE id='value'</button>
-						<button onclick={() => setPartiqlExample('INSERT INTO "' + selectedTable + '" VALUE {\'id\': \'new-id\', \'attr\': \'val\'}')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">INSERT INTO ...</button>
-						<button onclick={() => setPartiqlExample('DELETE FROM "' + selectedTable + '" WHERE id=\'value\'')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">DELETE FROM ...</button>
+						<button onclick={() => setPartiqlExample('SELECT * FROM "' + selectedTable + '"')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">SELECT *</button>
+						<button onclick={() => setPartiqlExample('SELECT * FROM "' + selectedTable + '" WHERE id=\'value\'')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">SELECT ... WHERE</button>
+						<button onclick={() => setPartiqlExample('INSERT INTO "' + selectedTable + '" VALUE {\'id\': \'new-id\', \'attr\': \'val\'}')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">INSERT</button>
+						<button onclick={() => setPartiqlExample('UPDATE "' + selectedTable + '" SET attr=\'new-value\' WHERE id=\'value\'')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">UPDATE</button>
+						<button onclick={() => setPartiqlExample('DELETE FROM "' + selectedTable + '" WHERE id=\'value\'')} class="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-300">DELETE</button>
 					</div>
 				</div>
 				<form onsubmit={(e) => { e.preventDefault(); executePartiQL(); }}>
@@ -700,12 +1000,118 @@
 						<label for="partiql-stmt" class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Statement</label>
 						<textarea id="partiql-stmt" bind:value={partiqlStatement} rows="4" class="w-full font-mono text-sm p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder='SELECT * FROM "table"'></textarea>
 					</div>
-					<button type="submit" disabled={partiqlLoading} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium disabled:opacity-50">{partiqlLoading ? 'Executing...' : 'Execute'}</button>
+					<div class="flex gap-2">
+						<button type="submit" disabled={partiqlLoading} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium disabled:opacity-50">{partiqlLoading ? 'Executing...' : 'Execute'}</button>
+						{#if partiqlResults.length > 0}
+							<button type="button" onclick={() => exportJson(partiqlResults, `${selectedTable ?? 'partiql'}-results.json`)} class="px-4 py-2 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Download Results</button>
+						{/if}
+					</div>
 				</form>
 				{#if partiqlCount > 0}
 					<p class="text-sm text-slate-600 dark:text-slate-400">{partiqlCount} result{partiqlCount !== 1 ? 's' : ''}</p>
 				{/if}
 				{@render resultsTable(partiqlResults)}
+			</div>
+		{:else if activeTab === 'metrics'}
+			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
+				<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Table Metrics</h3>
+				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Items</div>
+						<div class="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-2">{selectedTableDesc?.ItemCount ?? 0}</div>
+					</div>
+					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Table Size</div>
+						<div class="text-3xl font-bold text-green-600 dark:text-green-400 mt-2">{formatBytes(selectedTableDesc?.TableSizeBytes ?? 0)}</div>
+					</div>
+					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Capacity Mode</div>
+						<div class="mt-2">
+							{#if selectedTableDesc?.BillingModeSummary?.BillingMode === 'PAY_PER_REQUEST'}
+								<span class="text-lg font-bold text-purple-600 dark:text-purple-400">ON_DEMAND</span>
+							{:else}
+								<div class="space-y-1">
+									<div class="text-sm text-slate-700 dark:text-slate-300">Read: <span class="font-bold">{selectedTableDesc?.ProvisionedThroughput?.ReadCapacityUnits ?? 0} RCU</span></div>
+									<div class="text-sm text-slate-700 dark:text-slate-300">Write: <span class="font-bold">{selectedTableDesc?.ProvisionedThroughput?.WriteCapacityUnits ?? 0} WCU</span></div>
+								</div>
+							{/if}
+						</div>
+					</div>
+					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">GSI Count</div>
+						<div class="text-3xl font-bold text-yellow-600 dark:text-yellow-400 mt-2">{selectedTableDesc?.GlobalSecondaryIndexes?.length ?? 0}</div>
+					</div>
+					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Stream Status</div>
+						<div class="mt-2">
+							{#if streamsEnabled}
+								<span class="inline-block bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded dark:bg-blue-900 dark:text-blue-300">ENABLED</span>
+								<div class="text-xs text-slate-500 dark:text-slate-400 mt-1">{streamsViewType}</div>
+							{:else}
+								<span class="inline-block bg-slate-100 text-slate-600 text-sm font-bold px-3 py-1 rounded dark:bg-slate-600 dark:text-slate-300">DISABLED</span>
+							{/if}
+						</div>
+					</div>
+					<div class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">TTL Status</div>
+						<div class="mt-2">
+							{#if ttlEnabled}
+								<span class="inline-block bg-green-100 text-green-800 text-sm font-bold px-3 py-1 rounded dark:bg-green-900 dark:text-green-300">ENABLED</span>
+								<div class="text-xs text-slate-500 dark:text-slate-400 mt-1">Attr: {ttlAttribute}</div>
+							{:else}
+								<span class="inline-block bg-slate-100 text-slate-600 text-sm font-bold px-3 py-1 rounded dark:bg-slate-600 dark:text-slate-300">DISABLED</span>
+							{/if}
+						</div>
+					</div>
+				</div>
+			</div>
+		{:else if activeTab === 'backups'}
+			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
+				<div class="flex items-center justify-between">
+					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Backups</h3>
+				</div>
+				<form onsubmit={(e) => { e.preventDefault(); createBackup(); }} class="flex gap-3 items-end">
+					<div class="flex-1 max-w-xs">
+						<label for="backup-name" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Backup Name</label>
+						<input type="text" id="backup-name" bind:value={newBackupName} placeholder="my-backup-2024" required class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+					</div>
+					<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">Create Backup</button>
+					<button type="button" onclick={() => toast.success('Restore not supported in local emulator')} class="py-2.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Restore</button>
+				</form>
+				{#if backupsLoading}
+					<div class="flex justify-center p-8">
+						<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
+					</div>
+				{:else if backups.length === 0}
+					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">No backups found for this table.</p>
+				{:else}
+					<div class="overflow-x-auto">
+						<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+							<thead class="text-xs text-slate-700 uppercase bg-slate-100 dark:bg-slate-700 dark:text-slate-400">
+								<tr>
+									<th class="px-6 py-3">Backup Name</th>
+									<th class="px-6 py-3">Status</th>
+									<th class="px-6 py-3">Creation Date</th>
+									<th class="px-6 py-3">ARN</th>
+									<th class="px-6 py-3">Actions</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each backups as backup}
+									<tr class="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+										<td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{backup.BackupName ?? '-'}</td>
+										<td class="px-6 py-4"><span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{backup.BackupStatus ?? '-'}</span></td>
+										<td class="px-6 py-4">{backup.BackupCreationDateTime ? new Date(backup.BackupCreationDateTime).toLocaleString() : '-'}</td>
+										<td class="px-6 py-4 font-mono text-xs max-w-[200px] truncate" title={backup.BackupArn ?? ''}>{backup.BackupArn ?? '-'}</td>
+										<td class="px-6 py-4">
+											<button onclick={() => backup.BackupArn && deleteBackup(backup.BackupArn)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{:else}
@@ -719,6 +1125,7 @@
 			</div>
 			<div class="flex gap-2">
 				<button id="purge-all-btn" onclick={purgeAll} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-900">Purge All</button>
+				<button onclick={seedDemoData} class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Seed Demo Data</button>
 				<button id="create-table-btn" onclick={() => { showCreateModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">+ Create Table</button>
 			</div>
 		</div>
