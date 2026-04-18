@@ -85,7 +85,7 @@
 			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
 				e.preventDefault();
 				searchOpen = true;
-				document.querySelector('#global-search')?.focus();
+				document.querySelector<HTMLInputElement>('#global-search')?.focus();
 			}
 		};
 		document.addEventListener('keydown', handleKeydown);
@@ -239,7 +239,7 @@
 						<div class="absolute right-0 mt-1 w-40 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50">
 							<div class="py-1 text-sm">
 								{#each themes as t}
-									<button onclick={() => selectTheme(t)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-2 {theme === t ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}">
+									<button data-theme={t} onclick={() => selectTheme(t)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-2 {theme === t ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}">
 										<span class="w-3 h-3 rounded-full {t === 'light' ? 'bg-amber-400' : t === 'dark' ? 'bg-black border border-white/20' : t === 'github' ? 'bg-gray-800' : t === 'github-light' ? 'bg-blue-400 border border-gray-300' : t === 'ocean' ? 'bg-cyan-500' : t === 'cyberpunk-2077' ? 'bg-fuchsia-500' : t === 'aurora' ? 'bg-emerald-400' : 'bg-orange-300 border border-orange-400/60'}"></span>
 										{themeLabels[t]}
 									</button>
