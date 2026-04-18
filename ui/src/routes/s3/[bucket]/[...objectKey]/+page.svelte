@@ -147,6 +147,9 @@ toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`
 }
 }
 
+// Generates a fake presigned URL with a zeroed SigV4 signature for local dev only.
+// The local backend validates structure and expiry but not cryptographic validity.
+// Do not use in production environments.
 function generatePresignedUrl() {
 const now = new Date();
 const dateShort = now.toISOString().slice(0, 10).replaceAll('-', '');

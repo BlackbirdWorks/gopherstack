@@ -209,7 +209,8 @@ toast.error(`Failed to delete bucket: ${(err as Error).message}`);
 
 async function createDemoData() {
 try {
-const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]);
+// Minimal JPEG magic bytes header for demo purposes (not a valid full image).
+		const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]);
 const demoItems: Array<{ bucket: string; key: string; body: Uint8Array | string; contentType: string }> = [
 { bucket: 'demo-images', key: 'photo1.jpg', body: jpegBytes, contentType: 'image/jpeg' },
 { bucket: 'demo-images', key: 'photos/vacation.jpg', body: jpegBytes, contentType: 'image/jpeg' },
@@ -476,7 +477,8 @@ try {
 const res = await s3.send(new GetBucketTaggingCommand({ Bucket: selectedBucket }));
 bucketTags = res.TagSet ?? [];
 } catch (err: unknown) {
-const code = (err as { Code?: string; name?: string }).Code ?? (err as { Code?: string; name?: string }).name;
+const e = err as { Code?: string; name?: string };
+		const code = e.Code ?? e.name;
 if (code === 'NoSuchTagSet') {
 bucketTags = [];
 } else {
@@ -526,7 +528,8 @@ try {
 const res = await s3.send(new GetBucketPolicyCommand({ Bucket: selectedBucket }));
 bucketPolicy = res.Policy ?? '';
 } catch (err: unknown) {
-const code = (err as { Code?: string; name?: string }).Code ?? (err as { Code?: string; name?: string }).name;
+const e = err as { Code?: string; name?: string };
+		const code = e.Code ?? e.name;
 if (code === 'NoSuchBucketPolicy') {
 bucketPolicy = '';
 } else {
@@ -565,7 +568,8 @@ try {
 const res = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: selectedBucket }));
 lifecycleRules = res.Rules ?? [];
 } catch (err: unknown) {
-const code = (err as { Code?: string; name?: string }).Code ?? (err as { Code?: string; name?: string }).name;
+const e = err as { Code?: string; name?: string };
+		const code = e.Code ?? e.name;
 if (code === 'NoSuchLifecycleConfiguration') {
 lifecycleRules = [];
 } else {
@@ -620,7 +624,8 @@ try {
 const res = await s3.send(new GetBucketCorsCommand({ Bucket: selectedBucket }));
 corsRules = res.CORSRules ?? [];
 } catch (err: unknown) {
-const code = (err as { Code?: string; name?: string }).Code ?? (err as { Code?: string; name?: string }).name;
+const e = err as { Code?: string; name?: string };
+		const code = e.Code ?? e.name;
 if (code === 'NoSuchCORSConfiguration') {
 corsRules = [];
 } else {
