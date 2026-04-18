@@ -503,13 +503,15 @@ func sliceMax(ts []time.Time) time.Time {
 // pivot. Returns the final pivot index after partitioning.
 // Extracted from nthSmallest to keep per-function cognitive complexity below 20.
 func partition(ts []time.Time, lo, hi int) int {
-	const minWindowForPivotShuffle = 2
+	// minPartitionWindow is the window size below which sortThree has already fully
+	// sorted the elements and further pivot placement is unnecessary.
+	const minPartitionWindow = 2
 
-	mid := lo + (hi-lo)/minWindowForPivotShuffle
+	mid := lo + (hi-lo)/minPartitionWindow
 	sortThree(ts, lo, mid, hi)
 
 	// Window of 2 or fewer elements is already sorted by sortThree; return mid.
-	if hi-lo < minWindowForPivotShuffle {
+	if hi-lo < minPartitionWindow {
 		return mid
 	}
 

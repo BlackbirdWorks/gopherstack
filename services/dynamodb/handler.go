@@ -1003,11 +1003,28 @@ type listExportsOutput struct {
 	ExportSummaries []exportDescriptionFields `json:"ExportSummaries"`
 }
 
+// exportIDSuffixLen is the number of characters taken from the UUID to form the
+// second component of an export ID suffix. 16 characters is chosen to keep ARNs
+// short while still providing enough randomness to avoid collisions.
+const exportIDSuffixLen = 16
+
+// exportARNRegionIdx is the zero-based position of the region field in a colon-split ARN.
+const exportARNRegionIdx = 3
+
+// exportARNAccountIdx is the zero-based position of the account-ID field in a colon-split ARN.
+const exportARNAccountIdx = 4
+
+// exportARNPartCount is the expected number of parts when splitting a full DynamoDB ARN on ":".
+const exportARNPartCount = 6
+
+// exportARNPathParts is the expected number of parts when splitting the resource portion of an ARN on "/".
+const exportARNPathParts = 2
+
 // generateExportID creates a short unique suffix for export ARNs.
 // Format matches the AWS convention: a zero-padded Unix millisecond timestamp
 // followed by a UUID-derived hex suffix.
 func generateExportID() string {
-	return fmt.Sprintf("%016x-%s", time.Now().UnixMilli(), uuid.New().String()[:16])
+	return fmt.Sprintf("%016x-%s", time.Now().UnixMilli(), uuid.New().String()[:exportIDSuffixLen])
 }
 
 func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
@@ -1021,27 +1038,21 @@ func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byt
 
 	// Extract region from the table ARN if available.
 	if req.TableArn != "" {
-		const arnRegionIdx = 3
-		const arnAccountIdx = 4
-		const arnPartCount = 6
-
-		parts := strings.SplitN(req.TableArn, ":", arnPartCount)
-		if len(parts) >= arnRegionIdx+1 && parts[arnRegionIdx] != "" {
-			region = parts[arnRegionIdx]
+		parts := strings.SplitN(req.TableArn, ":", exportARNPartCount)
+		if len(parts) >= exportARNRegionIdx+1 && parts[exportARNRegionIdx] != "" {
+			region = parts[exportARNRegionIdx]
 		}
 
-		if len(parts) >= arnAccountIdx+1 && parts[arnAccountIdx] != "" {
-			accountID = parts[arnAccountIdx]
+		if len(parts) >= exportARNAccountIdx+1 && parts[exportARNAccountIdx] != "" {
+			accountID = parts[exportARNAccountIdx]
 		}
 	}
 
 	// Generate a unique export ARN that encodes the table name.
 	tableSlug := "unknown"
 	if req.TableArn != "" {
-		const arnPathParts = 2
-
-		parts := strings.SplitN(req.TableArn, "/", arnPathParts)
-		if len(parts) == arnPathParts {
+		parts := strings.SplitN(req.TableArn, "/", exportARNPathParts)
+		if len(parts) == exportARNPathParts {
 			tableSlug = parts[1]
 		}
 	}
