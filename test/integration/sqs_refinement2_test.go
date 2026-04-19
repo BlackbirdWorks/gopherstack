@@ -21,9 +21,9 @@ func TestIntegration_SQS_CreateQueueIdempotent(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
-		name        string
 		firstAttrs  map[string]string
 		secondAttrs map[string]string
+		name        string
 		wantErr     bool
 	}{
 		{
@@ -149,10 +149,10 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name              string
-		filter            []string
-		wantAttrNames     []string
-		wantMissingNames  []string
+		name             string
+		filter           []string
+		wantAttrNames    []string
+		wantMissingNames []string
 	}{
 		{
 			name:          "all",
@@ -195,7 +195,8 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			recv, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			var recv *sqs.ReceiveMessageOutput
+			recv, err = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 				QueueUrl:              aws.String(qURL),
 				MaxNumberOfMessages:   1,
 				MessageAttributeNames: tt.filter,

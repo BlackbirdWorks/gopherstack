@@ -75,9 +75,9 @@ func TestCreateQueueDuplicate(t *testing.T) {
 	createTestQueue(t, b, "my-queue")
 
 	tests := []struct {
-		name    string
-		attrs   map[string]string
 		wantErr error
+		attrs   map[string]string
+		name    string
 	}{
 		{
 			name:    "same_attrs_idempotent",

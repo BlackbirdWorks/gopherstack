@@ -294,7 +294,10 @@ func TestHandlerActions_CreateQueue(t *testing.T) {
 				t.Helper()
 				doCreateQueue(t, h, "test-queue")
 			},
-			body:            map[string]any{"QueueName": "test-queue", "Attributes": map[string]string{"VisibilityTimeout": "60"}},
+			body: map[string]any{
+				"QueueName":  "test-queue",
+				"Attributes": map[string]string{"VisibilityTimeout": "60"},
+			},
 			wantCode:        http.StatusBadRequest,
 			wantBodyContain: "QueueNameExists",
 		},

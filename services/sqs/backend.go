@@ -277,18 +277,23 @@ func appendWithLength(buf, data []byte) []byte {
 	return buf
 }
 
-// configurableQueueAttributes is the set of user-visible attribute keys whose
-// values are compared during the idempotency check in CreateQueue. System-managed
+// isConfigurableQueueAttribute reports whether name is a user-visible attribute key
+// that is compared during the idempotency check in CreateQueue. System-managed
 // attributes (ARN, timestamps, approximate counts, etc.) are excluded.
-var configurableQueueAttributes = map[string]struct{}{
-	attrVisibilityTimeout:             {},
-	attrMaximumMessageSize:            {},
-	attrMessageRetentionPeriod:        {},
-	attrDelaySeconds:                  {},
-	attrReceiveMessageWaitTimeSeconds: {},
-	attrFifoQueue:                     {},
-	attrContentBasedDeduplication:     {},
-	attrRedrivePolicy:                 {},
+func isConfigurableQueueAttribute(name string) bool {
+	switch name {
+	case attrVisibilityTimeout,
+		attrMaximumMessageSize,
+		attrMessageRetentionPeriod,
+		attrDelaySeconds,
+		attrReceiveMessageWaitTimeSeconds,
+		attrFifoQueue,
+		attrContentBasedDeduplication,
+		attrRedrivePolicy:
+		return true
+	}
+
+	return false
 }
 
 // queueNamePattern is a regex-free check used by validateQueueName.
@@ -302,8 +307,8 @@ func validateQueueName(name string) error {
 	}
 
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') && c != '_' && c != '-' && c != '.' {
 			return ErrInvalidQueueName
 		}
 	}
@@ -354,9 +359,8 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	// If the same name is used with different configurable attributes, return
 	// QueueNameExists (matches real SQS behaviour).
 	if q, exists := b.queues[input.QueueName]; exists {
-		for k := range configurableQueueAttributes {
-			v, supplied := input.Attributes[k]
-			if !supplied {
+		for k, v := range input.Attributes {
+			if !isConfigurableQueueAttribute(k) {
 				continue
 			}
 
@@ -826,9 +830,12 @@ func pruneDedup(q *Queue, now time.Time) {
 // A 1-second recheck interval is also applied so that messages which reappear
 // due to visibility-timeout expiry (reQueueExpired) are picked up promptly even
 // when no new SendMessage occurs.
-func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
+// validateReceiveInput validates and normalises the receive input, returning an
+// error if any parameter is out of range.  It mutates MaxNumberOfMessages so
+// that a zero value becomes the AWS default of 1.
+func validateReceiveInput(input *ReceiveMessageInput) error {
 	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxWaitTimeSeconds {
-		return nil, ErrInvalidWaitTime
+		return ErrInvalidWaitTime
 	}
 
 	// AWS accepts MaxNumberOfMessages in [1, 10]. Default to 1 when unset (0).
@@ -837,7 +844,15 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 	}
 
 	if input.MaxNumberOfMessages < 1 || input.MaxNumberOfMessages > maxBatchSize {
-		return nil, ErrInvalidMaxMessages
+		return ErrInvalidMaxMessages
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
+	if err := validateReceiveInput(input); err != nil {
+		return nil, err
 	}
 
 	// If the caller did not specify a positive WaitTimeSeconds, apply the queue's

@@ -14,12 +14,18 @@ PurgeQueueCommand,
 TagQueueCommand,
 UntagQueueCommand,
 ListQueueTagsCommand,
-type Message
+ListDeadLetterSourceQueuesCommand,
+StartMessageMoveTaskCommand,
+CancelMessageMoveTaskCommand,
+ListMessageMoveTasksCommand,
+type Message,
+type ListMessageMoveTasksCommandOutput
 } from '@aws-sdk/client-sqs';
 import { toast } from 'svelte-sonner';
 import {
 MessageSquare, Search, RefreshCw, Plus, Trash2, Send, Inbox,
-Flame, ChevronDown, ChevronUp, Copy, Settings, Tag, X, Eye
+Flame, ChevronDown, ChevronUp, Copy, Settings, Tag, X, Eye,
+ArrowRightLeft, BookOpen, AlertCircle
 } from 'lucide-svelte';
 
 const sqs = getSQSClient();
@@ -29,7 +35,7 @@ let loading = $state(false);
 let queues = $state<Array<{ url: string; attrs: Record<string, string> }>>([]);
 let searchQuery = $state('');
 let selectedQueue = $state<{ url: string; attrs: Record<string, string> } | null>(null);
-let activeTab = $state<'messages' | 'attributes' | 'tags'>('messages');
+let activeTab = $state<'messages' | 'attributes' | 'tags' | 'move' | 'docs'>('messages');
 
 // Create queue
 let showCreateModal = $state(false);
@@ -60,12 +66,24 @@ let deletingReceipt = $state<string | null>(null);
 // Edit attributes
 let editAttrs = $state<Record<string, string>>({});
 let savingAttrs = $state(false);
+let editRedriveTargetArn = $state('');
+let editRedriveMaxReceiveCount = $state('3');
 
 // Tags
 let queueTags = $state<Record<string, string>>({});
 let tagRows = $state<Array<{ key: string; value: string }>>([]);
 let savingTags = $state(false);
 let loadingTags = $state(false);
+
+// Dead-letter source queues
+let dlqSourceQueues = $state<string[]>([]);
+let loadingDlqSources = $state(false);
+
+// Message move tasks
+let moveTasks = $state<NonNullable<ListMessageMoveTasksCommandOutput['Results']>>([]);
+let loadingMoveTasks = $state(false);
+let moveTaskDestArn = $state('');
+let startingMoveTask = $state(false);
 
 // ──────────────── Derived ────────────────
 const filteredQueues = $derived(
@@ -184,6 +202,8 @@ function selectQueue(q: typeof queues[0]) {
 	selectedQueue = q;
 	messages = [];
 	activeTab = 'messages';
+	dlqSourceQueues = [];
+	moveTasks = [];
 	editAttrs = {
 		VisibilityTimeout: q.attrs.VisibilityTimeout ?? '30',
 		MessageRetentionPeriod: q.attrs.MessageRetentionPeriod ?? '345600',
@@ -191,6 +211,20 @@ function selectQueue(q: typeof queues[0]) {
 		DelaySeconds: q.attrs.DelaySeconds ?? '0',
 		ReceiveMessageWaitTimeSeconds: q.attrs.ReceiveMessageWaitTimeSeconds ?? '0'
 	};
+	// Parse existing redrive policy
+	if (q.attrs.RedrivePolicy) {
+		try {
+			const rp = JSON.parse(q.attrs.RedrivePolicy);
+			editRedriveTargetArn = rp.deadLetterTargetArn ?? '';
+			editRedriveMaxReceiveCount = String(rp.maxReceiveCount ?? 3);
+		} catch {
+			editRedriveTargetArn = '';
+			editRedriveMaxReceiveCount = '3';
+		}
+	} else {
+		editRedriveTargetArn = '';
+		editRedriveMaxReceiveCount = '3';
+	}
 }
 
 // ──────────────── Send Message ────────────────
@@ -215,8 +249,7 @@ MessageAttributes: Object.keys(messageAttributes).length > 0 ? messageAttributes
 toast.success('Message sent');
 showSendModal = false;
 resetSendForm();
-const attrs = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: selectedQueue.url, AttributeNames: ['All'] }));
-selectedQueue = { ...selectedQueue, attrs: attrs.Attributes ?? {} };
+await refreshSelectedQueueStats();
 } catch (err: unknown) {
 toast.error(`Send failed: ${(err as Error).message}`);
 } finally {
@@ -254,6 +287,7 @@ MessageAttributeNames: ['All']
 }));
 messages = res.Messages ?? [];
 if (messages.length === 0) toast.info('No messages available');
+await refreshSelectedQueueStats();
 } catch (err: unknown) {
 toast.error(`Receive failed: ${(err as Error).message}`);
 } finally {
@@ -285,8 +319,28 @@ try {
 await sqs.send(new PurgeQueueCommand({ QueueUrl: url }));
 toast.success('Queue purged');
 messages = [];
+await refreshSelectedQueueStats();
 } catch (err: unknown) {
 toast.error(`Purge failed: ${(err as Error).message}`);
+}
+}
+
+// ──────────────── Refresh stats ────────────────
+async function refreshSelectedQueueStats() {
+if (!selectedQueue) return;
+try {
+const attrs = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: selectedQueue.url, AttributeNames: ['All'] }));
+selectedQueue = { ...selectedQueue, attrs: attrs.Attributes ?? {} };
+// keep editAttrs in sync
+editAttrs = {
+VisibilityTimeout: selectedQueue.attrs.VisibilityTimeout ?? '30',
+MessageRetentionPeriod: selectedQueue.attrs.MessageRetentionPeriod ?? '345600',
+MaximumMessageSize: selectedQueue.attrs.MaximumMessageSize ?? '262144',
+DelaySeconds: selectedQueue.attrs.DelaySeconds ?? '0',
+ReceiveMessageWaitTimeSeconds: selectedQueue.attrs.ReceiveMessageWaitTimeSeconds ?? '0'
+};
+} catch {
+// best-effort
 }
 }
 
@@ -295,20 +349,29 @@ async function saveAttributes() {
 if (!selectedQueue) return;
 savingAttrs = true;
 try {
+const attrsToSave: Record<string, string> = { ...editAttrs };
+// Build/clear RedrivePolicy
+if (editRedriveTargetArn.trim()) {
+attrsToSave.RedrivePolicy = JSON.stringify({
+deadLetterTargetArn: editRedriveTargetArn.trim(),
+maxReceiveCount: parseInt(editRedriveMaxReceiveCount, 10) || 3
+});
+}
 await sqs.send(new SetQueueAttributesCommand({
 QueueUrl: selectedQueue.url,
-Attributes: editAttrs
+Attributes: attrsToSave
 }));
 toast.success('Attributes updated');
-const attrs = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: selectedQueue.url, AttributeNames: ['All'] }));
-selectedQueue = { ...selectedQueue, attrs: attrs.Attributes ?? {} };
-editAttrs = {
-VisibilityTimeout: selectedQueue.attrs.VisibilityTimeout ?? '30',
-MessageRetentionPeriod: selectedQueue.attrs.MessageRetentionPeriod ?? '345600',
-MaximumMessageSize: selectedQueue.attrs.MaximumMessageSize ?? '262144',
-DelaySeconds: selectedQueue.attrs.DelaySeconds ?? '0',
-ReceiveMessageWaitTimeSeconds: selectedQueue.attrs.ReceiveMessageWaitTimeSeconds ?? '0'
-};
+await refreshSelectedQueueStats();
+if (selectedQueue.attrs.RedrivePolicy) {
+try {
+const rp = JSON.parse(selectedQueue.attrs.RedrivePolicy);
+editRedriveTargetArn = rp.deadLetterTargetArn ?? '';
+editRedriveMaxReceiveCount = String(rp.maxReceiveCount ?? 3);
+} catch (_) {
+// ignore parse errors
+}
+}
 } catch (err: unknown) {
 toast.error(`Save failed: ${(err as Error).message}`);
 } finally {
@@ -365,14 +428,75 @@ function removeTagRow(i: number) {
 tagRows = tagRows.filter((_, idx) => idx !== i);
 }
 
-async function onTabChange(tab: 'messages' | 'attributes' | 'tags') {
+async function onTabChange(tab: 'messages' | 'attributes' | 'tags' | 'move' | 'docs') {
 activeTab = tab;
 if (tab === 'tags' && selectedQueue) await loadTags();
+if (tab === 'move' && selectedQueue) await loadMoveTasks();
 }
 
 async function copyUrl(url: string) {
 await navigator.clipboard.writeText(url);
 toast.success('URL copied');
+}
+
+// ──────────────── Dead-Letter Source Queues ────────────────
+async function loadDlqSourceQueues() {
+if (!selectedQueue) return;
+loadingDlqSources = true;
+try {
+const res = await sqs.send(new ListDeadLetterSourceQueuesCommand({ QueueUrl: selectedQueue.url }));
+dlqSourceQueues = res.queueUrls ?? [];
+} catch {
+dlqSourceQueues = [];
+} finally {
+loadingDlqSources = false;
+}
+}
+
+// ──────────────── Message Move Tasks ────────────────
+async function loadMoveTasks() {
+if (!selectedQueue) return;
+loadingMoveTasks = true;
+try {
+const arn = selectedQueue.attrs.QueueArn;
+if (!arn) { moveTasks = []; return; }
+const res = await sqs.send(new ListMessageMoveTasksCommand({ SourceArn: arn }));
+moveTasks = res.Results ?? [];
+} catch {
+moveTasks = [];
+} finally {
+loadingMoveTasks = false;
+}
+}
+
+async function startMoveTask() {
+if (!selectedQueue) return;
+const sourceArn = selectedQueue.attrs.QueueArn;
+if (!sourceArn) { toast.error('Queue ARN not available'); return; }
+startingMoveTask = true;
+try {
+await sqs.send(new StartMessageMoveTaskCommand({
+SourceArn: sourceArn,
+DestinationArn: moveTaskDestArn.trim() || undefined
+}));
+toast.success('Message move task started');
+moveTaskDestArn = '';
+await loadMoveTasks();
+} catch (err: unknown) {
+toast.error(`Failed to start move task: ${(err as Error).message}`);
+} finally {
+startingMoveTask = false;
+}
+}
+
+async function cancelMoveTask(taskHandle: string) {
+try {
+await sqs.send(new CancelMessageMoveTaskCommand({ TaskHandle: taskHandle }));
+toast.success('Move task cancelled');
+await loadMoveTasks();
+} catch (err: unknown) {
+toast.error(`Cancel failed: ${(err as Error).message}`);
+}
 }
 
 onMount(() => { loadQueues(); });
@@ -516,24 +640,36 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 
 <!-- Tabs -->
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-<div class="flex border-b border-slate-200 dark:border-slate-700">
+<div class="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
 	<button
 		onclick={() => onTabChange('messages')}
-		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors {activeTab === 'messages' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
+		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'messages' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 	>
 		<Eye class="w-4 h-4" /> Messages
 	</button>
 	<button
 		onclick={() => onTabChange('attributes')}
-		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors {activeTab === 'attributes' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
+		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'attributes' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 	>
 		<Settings class="w-4 h-4" /> Attributes
 	</button>
 	<button
 		onclick={() => onTabChange('tags')}
-		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors {activeTab === 'tags' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
+		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'tags' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 	>
 		<Tag class="w-4 h-4" /> Tags
+	</button>
+	<button
+		onclick={() => onTabChange('move')}
+		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'move' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
+	>
+		<ArrowRightLeft class="w-4 h-4" /> Move Tasks
+	</button>
+	<button
+		onclick={() => onTabChange('docs')}
+		class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'docs' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
+	>
+		<BookOpen class="w-4 h-4" /> Docs
 	</button>
 </div>
 
@@ -632,6 +768,61 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 </div>
 {/each}
 </div>
+
+<!-- Redrive Policy (DLQ) -->
+<div class="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+<AlertCircle class="w-4 h-4 text-orange-500" /> Dead Letter Queue (Redrive Policy)
+</h3>
+<div>
+<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">DLQ ARN <span class="text-slate-400 font-normal">(leave blank to remove)</span></label>
+<input
+type="text"
+bind:value={editRedriveTargetArn}
+placeholder="arn:aws:sqs:us-east-1:000000000000:my-dlq"
+class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono"
+/>
+</div>
+{#if editRedriveTargetArn.trim()}
+<div>
+<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Max Receive Count</label>
+<input
+type="number"
+bind:value={editRedriveMaxReceiveCount}
+min="1" max="1000"
+class="w-40 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+/>
+</div>
+{/if}
+{#if selectedQueue?.attrs.RedrivePolicy}
+<div class="flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 rounded text-xs text-orange-700 dark:text-orange-300">
+<AlertCircle class="w-3 h-3 flex-shrink-0" />
+DLQ wired — messages exceeding maxReceiveCount are routed to the dead-letter queue
+</div>
+{/if}
+
+<!-- DLQ Source Queues (shown when this queue is a DLQ) -->
+{#if selectedQueue?.attrs.QueueArn}
+<div class="mt-2">
+<div class="flex items-center justify-between mb-1">
+<p class="text-xs font-medium text-slate-600 dark:text-slate-400">Source Queues using this as DLQ</p>
+<button type="button" onclick={loadDlqSourceQueues} class="text-xs text-indigo-500 hover:underline">Refresh</button>
+</div>
+{#if loadingDlqSources}
+<p class="text-xs text-slate-400">Loading...</p>
+{:else if dlqSourceQueues.length === 0}
+<p class="text-xs text-slate-400 italic">None found (or not a DLQ target)</p>
+{:else}
+<div class="space-y-1 max-h-32 overflow-y-auto">
+{#each dlqSourceQueues as srcUrl}
+<p class="text-xs font-mono text-slate-600 dark:text-slate-400 truncate">{srcUrl}</p>
+{/each}
+</div>
+{/if}
+</div>
+{/if}
+</div>
+
 <div class="flex justify-end pt-2">
 <button type="submit" disabled={savingAttrs} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
 {savingAttrs ? 'Saving...' : 'Save Attributes'}
@@ -679,6 +870,112 @@ class="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 {/if}
 </div>
 {/if}
+
+<!-- Move Tasks Tab -->
+{#if activeTab === 'move'}
+<div class="p-4 space-y-4">
+<div class="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Start Message Move Task</h3>
+<p class="text-xs text-slate-500 dark:text-slate-400">Move messages from this queue (source) to another queue. Typically used to move messages out of a DLQ back to the original queue.</p>
+<div>
+<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Destination Queue ARN <span class="text-slate-400 font-normal">(optional — omit to use default destination)</span></label>
+<input
+type="text"
+bind:value={moveTaskDestArn}
+placeholder="arn:aws:sqs:us-east-1:000000000000:destination-queue"
+class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono"
+/>
+</div>
+<button onclick={startMoveTask} disabled={startingMoveTask} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 text-sm">
+<ArrowRightLeft class="w-4 h-4" />
+{startingMoveTask ? 'Starting...' : 'Start Move Task'}
+</button>
+</div>
+
+<div>
+<div class="flex items-center justify-between mb-3">
+<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Move Tasks</h3>
+<button onclick={loadMoveTasks} class="text-xs text-indigo-500 hover:underline flex items-center gap-1">
+<RefreshCw class="w-3 h-3 {loadingMoveTasks ? 'animate-spin' : ''}" /> Refresh
+</button>
+</div>
+{#if loadingMoveTasks}
+<p class="text-sm text-slate-400 text-center py-4">Loading...</p>
+{:else if moveTasks.length === 0}
+<p class="text-sm text-slate-400 text-center py-4 italic">No move tasks found</p>
+{:else}
+<div class="space-y-2">
+{#each moveTasks as task}
+<div class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
+<div class="flex items-start justify-between">
+<div class="min-w-0 flex-1">
+<div class="flex items-center gap-2 mb-1">
+<span class="text-xs font-semibold px-2 py-0.5 rounded-full {task.Status === 'RUNNING' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : task.Status === 'COMPLETED' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : task.Status === 'CANCELLING' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{task.Status ?? 'UNKNOWN'}</span>
+{#if task.ApproximateNumberOfMessagesMoved != null}
+<span class="text-xs text-slate-500">{task.ApproximateNumberOfMessagesMoved} moved</span>
+{/if}
+{#if task.ApproximateNumberOfMessagesToMove != null}
+<span class="text-xs text-slate-500">of ~{task.ApproximateNumberOfMessagesToMove}</span>
+{/if}
+</div>
+{#if task.DestinationArn}
+<p class="text-xs font-mono text-slate-500 truncate">→ {task.DestinationArn}</p>
+{/if}
+{#if task.StartedTimestamp}
+<p class="text-xs text-slate-400">Started: {new Date(task.StartedTimestamp * 1000).toLocaleString()}</p>
+{/if}
+</div>
+{#if task.Status === 'RUNNING' || task.Status === 'CANCELLING'}
+<button onclick={() => cancelMoveTask(task.TaskHandle ?? '')} class="ml-2 text-xs px-2 py-1 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0">
+Cancel
+</button>
+{/if}
+</div>
+</div>
+{/each}
+</div>
+{/if}
+</div>
+</div>
+{/if}
+
+<!-- Docs Tab -->
+{#if activeTab === 'docs'}
+<div class="p-4 space-y-4 max-h-96 overflow-y-auto">
+<p class="text-xs text-slate-500 dark:text-slate-400">Supported SQS operations in GopherStack.</p>
+{#each [
+['CreateQueue', 'Create a new standard or FIFO queue. Queue names must be 1–80 characters, alphanumeric, hyphens, and underscores. FIFO queues must end with .fifo. Re-creating with identical attributes is idempotent; different attributes returns QueueNameExists.'],
+['DeleteQueue', 'Delete a queue by URL. The operation is irreversible. Inflight messages are discarded.'],
+['ListQueues', 'List up to 1000 queue URLs. Supports QueueNamePrefix filter and NextToken pagination.'],
+['GetQueueUrl', 'Return the URL for a queue given its name.'],
+['GetQueueAttributes', 'Retrieve attributes such as ApproximateNumberOfMessages, VisibilityTimeout, QueueArn, and RedrivePolicy.'],
+['SetQueueAttributes', 'Update configurable attributes including VisibilityTimeout, MessageRetentionPeriod, DelaySeconds, MaximumMessageSize, ReceiveMessageWaitTimeSeconds, and RedrivePolicy.'],
+['SendMessage', 'Publish a message (1 B – MaximumMessageSize). DelaySeconds overrides the queue-level delay for this message. FIFO queues require MessageGroupId.'],
+['SendMessageBatch', 'Send up to 10 messages in a single call. Per-entry failures are reported in the Failed list.'],
+['ReceiveMessage', 'Pull 1–10 messages. Received messages become invisible for VisibilityTimeout seconds. Supports long-polling via WaitTimeSeconds (0–20).'],
+['DeleteMessage', 'Permanently delete a received message by its ReceiptHandle.'],
+['DeleteMessageBatch', 'Delete up to 10 messages in one call.'],
+['ChangeMessageVisibility', 'Extend or shorten a message\'s visibility timeout. Setting it to 0 makes the message immediately available again.'],
+['ChangeMessageVisibilityBatch', 'Change visibility for up to 10 in-flight messages.'],
+['PurgeQueue', 'Delete all messages from a queue without deleting the queue itself.'],
+['TagQueue', 'Add or update resource tags on a queue.'],
+['UntagQueue', 'Remove resource tags by key.'],
+['ListQueueTags', 'List all resource tags on a queue.'],
+['AddPermission', 'Add an IAM-style permission to the queue policy.'],
+['RemovePermission', 'Remove a permission entry by label.'],
+['ListDeadLetterSourceQueues', 'List all queues that point to this queue as their dead-letter queue.'],
+['StartMessageMoveTask', 'Initiate a task to move messages from a source queue (e.g. DLQ) to a destination.'],
+['ListMessageMoveTasks', 'List move tasks for a source queue ARN.'],
+['CancelMessageMoveTask', 'Cancel a running move task by its TaskHandle.']
+] as [op, desc]}
+<div class="border border-slate-100 dark:border-slate-700 rounded-lg p-3">
+<p class="text-sm font-semibold text-slate-800 dark:text-slate-200 font-mono">{op}</p>
+<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{desc}</p>
+</div>
+{/each}
+</div>
+{/if}
+
 </div>
 </div>
 {:else}
