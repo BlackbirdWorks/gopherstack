@@ -31,17 +31,18 @@ type Topic struct {
 // Subscription represents an SNS subscription.
 type Subscription struct {
 	CreationTimestamp   time.Time `json:"creationTimestamp"`
-	SubscriptionArn     string    `json:"subscriptionArn"`
-	TopicArn            string    `json:"topicArn"`
-	Protocol            string    `json:"protocol"`
-	Endpoint            string    `json:"endpoint"`
-	Owner               string    `json:"owner"`
-	FilterPolicy        string    `json:"filterPolicy,omitempty"`
-	RedrivePolicy       string    `json:"redrivePolicy,omitempty"`
-	SubscriptionRoleArn string    `json:"subscriptionRoleArn,omitempty"`
-	FilterPolicyScope   string    `json:"filterPolicyScope,omitempty"`
-	RawMessageDelivery  bool      `json:"rawMessageDelivery,omitempty"`
-	PendingConfirmation bool      `json:"pendingConfirmation"`
+	parsedFilterPolicy  parsedFilterPolicy
+	RedrivePolicy       string `json:"redrivePolicy,omitempty"`
+	Endpoint            string `json:"endpoint"`
+	Owner               string `json:"owner"`
+	TopicArn            string `json:"topicArn"`
+	Protocol            string `json:"protocol"`
+	SubscriptionRoleArn string `json:"subscriptionRoleArn,omitempty"`
+	FilterPolicyScope   string `json:"filterPolicyScope,omitempty"`
+	SubscriptionArn     string `json:"subscriptionArn"`
+	FilterPolicy        string `json:"filterPolicy,omitempty"`
+	RawMessageDelivery  bool   `json:"rawMessageDelivery,omitempty"`
+	PendingConfirmation bool   `json:"pendingConfirmation"`
 }
 
 // Message represents a published SNS message.

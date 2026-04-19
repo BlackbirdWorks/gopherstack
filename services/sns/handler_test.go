@@ -3,6 +3,7 @@ package sns_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -73,6 +74,21 @@ func newTestHandler(t *testing.T) (*sns.Handler, *sns.InMemoryBackend) {
 	b := sns.NewInMemoryBackend()
 
 	return sns.NewHandler(b), b
+}
+
+// extractSNSHTTPMessage extracts the Message field from a standard SNS HTTP notification
+// JSON envelope. If the body is not a JSON object with a "Message" field, the raw body is
+// returned as-is. This allows tests to work correctly regardless of RawMessageDelivery setting.
+func extractSNSHTTPMessage(body string) string {
+	var env struct {
+		Message string `json:"Message"`
+		Type    string `json:"Type"`
+	}
+	if err := json.Unmarshal([]byte(body), &env); err == nil && env.Type == "Notification" {
+		return env.Message
+	}
+
+	return body
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +284,11 @@ func TestInMemoryBackend_GetTopicAttributes(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.topicArn, attrs["TopicArn"])
+			// Verify computed attributes are always present.
+			assert.NotEmpty(t, attrs["EffectiveDeliveryPolicy"], "EffectiveDeliveryPolicy should be set")
+			assert.Equal(t, "0", attrs["SubscriptionsDeleted"], "SubscriptionsDeleted should default to 0")
+			assert.Equal(t, "0", attrs["SubscriptionsConfirmed"])
+			assert.Equal(t, "0", attrs["SubscriptionsPending"])
 		})
 	}
 }
@@ -291,6 +312,43 @@ func TestInMemoryBackend_SetTopicAttributes(t *testing.T) {
 			topicArn:  "arn:aws:sns:us-east-1:000000000000:set-topic",
 			attrName:  "DisplayName",
 			attrValue: "Hello",
+		},
+		{
+			name: "sqs_success_feedback_sample_rate",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("feedback-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:feedback-topic",
+			attrName:  "SQSSuccessFeedbackSampleRate",
+			attrValue: "50",
+		},
+		{
+			name: "http_success_feedback_sample_rate",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("http-feedback-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:http-feedback-topic",
+			attrName:  "HTTPSuccessFeedbackSampleRate",
+			attrValue: "100",
+		},
+		{
+			name: "lambda_failure_feedback_role_arn",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("lambda-feedback-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:lambda-feedback-topic",
+			attrName:  "LambdaFailureFeedbackRoleArn",
+			attrValue: "arn:aws:iam::000000000000:role/sns-feedback",
+		},
+		{
+			name: "unknown_attribute_rejected",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("unknown-attr-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:unknown-attr-topic",
+			attrName:  "NotARealAttribute",
+			attrValue: "value",
+			wantErr:   sns.ErrInvalidParameter,
 		},
 		{
 			name:      "not found",
@@ -498,6 +556,59 @@ func TestInMemoryBackend_ListSubscriptionsByTopic(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, subs, tt.wantCount)
 			assert.Equal(t, tt.topicArn, subs[0].TopicArn)
+		})
+	}
+}
+
+func TestInMemoryBackend_TopicSubscriptionCounts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup              func(t *testing.T, b *sns.InMemoryBackend) string
+		name               string
+		wantConfirmedCount string
+		wantPendingCount   string
+	}{
+		{
+			name: "counts include confirmed and pending subscriptions",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) string {
+				t.Helper()
+				topicArn := mustCreateTopic(t, b, "count-topic-1")
+				mustSubscribe(t, b, topicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:count-topic-1")
+				mustSubscribe(t, b, topicArn, "http", "http://localhost:12345")
+
+				return topicArn
+			},
+			wantConfirmedCount: "1",
+			wantPendingCount:   "1",
+		},
+		{
+			name: "unsubscribed subscription is excluded from counts",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) string {
+				t.Helper()
+				topicArn := mustCreateTopic(t, b, "count-topic-2")
+				subArn := mustSubscribe(t, b, topicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:count-topic-2")
+				err := b.Unsubscribe(subArn)
+				require.NoError(t, err)
+
+				return topicArn
+			},
+			wantConfirmedCount: "0",
+			wantPendingCount:   "0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := tt.setup(t, b)
+
+			attrs, err := b.GetTopicAttributes(topicArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantConfirmedCount, attrs["SubscriptionsConfirmed"])
+			assert.Equal(t, tt.wantPendingCount, attrs["SubscriptionsPending"])
 		})
 	}
 }
@@ -1589,22 +1700,22 @@ func TestSNSPagination(t *testing.T) {
 
 	b := sns.NewInMemoryBackend()
 
-	// Create 30 topics (>25 page size) to trigger pagination
-	for i := range 30 {
-		_, err := b.CreateTopic(fmt.Sprintf("topic-%02d", i), nil)
+	// Create 110 topics (>100 page size) to trigger pagination
+	for i := range 110 {
+		_, err := b.CreateTopic(fmt.Sprintf("topic-%03d", i), nil)
 		require.NoError(t, err)
 	}
 
 	// First page
 	page1, token1, err := b.ListTopics("")
 	require.NoError(t, err)
-	assert.Len(t, page1, 25)
+	assert.Len(t, page1, 100)
 	assert.NotEmpty(t, token1)
 
 	// Second page using token from first
 	page2, token2, err := b.ListTopics(token1)
 	require.NoError(t, err)
-	assert.Len(t, page2, 5)
+	assert.Len(t, page2, 10)
 	assert.Empty(t, token2)
 
 	// Verify no overlap
@@ -1625,8 +1736,8 @@ func TestSNSSubscriptionPagination(t *testing.T) {
 	topic, err := b.CreateTopic("big-topic", nil)
 	require.NoError(t, err)
 
-	// Create 28 subscriptions
-	for i := range 28 {
+	// Create 105 subscriptions (>100 page size) to trigger pagination
+	for i := range 105 {
 		_, subErr := b.Subscribe(topic.TopicArn, "sqs", fmt.Sprintf("arn:aws:sqs:us-east-1:000000000000:q%d", i), "")
 		require.NoError(t, subErr)
 	}
@@ -1634,13 +1745,13 @@ func TestSNSSubscriptionPagination(t *testing.T) {
 	// First page
 	subs1, token, err := b.ListSubscriptions("")
 	require.NoError(t, err)
-	assert.Len(t, subs1, 25)
+	assert.Len(t, subs1, 100)
 	assert.NotEmpty(t, token)
 
 	// Second page
 	subs2, tok2, err := b.ListSubscriptions(token)
 	require.NoError(t, err)
-	assert.Len(t, subs2, 3)
+	assert.Len(t, subs2, 5)
 	assert.Empty(t, tok2)
 
 	// ListSubscriptions with invalid token
@@ -1676,7 +1787,7 @@ func TestSNSHTTPDelivery(t *testing.T) {
 	// Verify message was delivered
 	select {
 	case msg := <-received:
-		assert.Equal(t, "test-message", msg)
+		assert.Equal(t, "test-message", extractSNSHTTPMessage(msg))
 	case <-time.After(500 * time.Millisecond):
 		require.FailNow(t, "HTTP delivery did not arrive in time")
 	}
@@ -1806,7 +1917,7 @@ func TestFilterPolicy(t *testing.T) {
 	require.NoError(t, err)
 	select {
 	case msg := <-delivered:
-		assert.Equal(t, "match", msg)
+		assert.Equal(t, "match", extractSNSHTTPMessage(msg))
 	case <-time.After(500 * time.Millisecond):
 		require.FailNow(t, "expected delivery for matching attribute")
 	}
@@ -1822,6 +1933,85 @@ func TestFilterPolicy(t *testing.T) {
 		require.FailNow(t, "expected no delivery for non-matching attribute")
 	case <-time.After(100 * time.Millisecond):
 		// OK: nothing delivered
+	}
+}
+
+func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs        map[string]sns.MessageAttribute
+		name         string
+		filterPolicy string
+		wantDelivery bool
+	}{
+		{
+			name:         "matching filter policy delivers message",
+			filterPolicy: `{"color":["red"]}`,
+			attrs: map[string]sns.MessageAttribute{
+				"color": {DataType: "String", StringValue: "red"},
+			},
+			wantDelivery: true,
+		},
+		{
+			name:         "non matching filter policy blocks delivery",
+			filterPolicy: `{"color":["red"]}`,
+			attrs: map[string]sns.MessageAttribute{
+				"color": {DataType: "String", StringValue: "blue"},
+			},
+			wantDelivery: false,
+		},
+		{
+			name:         "invalid filter policy is treated as allow all",
+			filterPolicy: `{"color":[}`,
+			attrs: map[string]sns.MessageAttribute{
+				"color": {DataType: "String", StringValue: "blue"},
+			},
+			wantDelivery: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := mustCreateTopic(t, b, "set-filter-policy-topic-"+strings.ReplaceAll(tt.name, " ", "-"))
+			received := make(chan string, 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- string(body)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer ts.Close()
+
+			sub, err := b.Subscribe(topicArn, "http", ts.URL, "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			require.NoError(t, err)
+
+			_, err = b.Publish(topicArn, "hello", "", "", tt.attrs)
+			require.NoError(t, err)
+
+			if tt.wantDelivery {
+				select {
+				case msg := <-received:
+					assert.Equal(t, "hello", extractSNSHTTPMessage(msg))
+				case <-time.After(500 * time.Millisecond):
+					require.FailNow(t, "expected delivery")
+				}
+
+				return
+			}
+
+			select {
+			case <-received:
+				require.FailNow(t, "expected no delivery")
+			case <-time.After(120 * time.Millisecond):
+				// no-op
+			}
+		})
 	}
 }
 
@@ -1851,7 +2041,7 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	require.NoError(t, err)
 	select {
 	case msg := <-delivered:
-		assert.Equal(t, "prefix-match", msg)
+		assert.Equal(t, "prefix-match", extractSNSHTTPMessage(msg))
 	case <-time.After(500 * time.Millisecond):
 		require.FailNow(t, "expected delivery for prefix match")
 	}
@@ -1868,7 +2058,7 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	require.NoError(t, err)
 	select {
 	case msg := <-delivered:
-		assert.Equal(t, "anything-but-match", msg)
+		assert.Equal(t, "anything-but-match", extractSNSHTTPMessage(msg))
 	case <-time.After(500 * time.Millisecond):
 		require.FailNow(t, "expected delivery for anything-but match")
 	}
@@ -1911,7 +2101,7 @@ func TestMessageStructureJSON(t *testing.T) {
 
 	select {
 	case msg := <-received:
-		assert.Equal(t, "http specific msg", msg)
+		assert.Equal(t, "http specific msg", extractSNSHTTPMessage(msg))
 	case <-time.After(500 * time.Millisecond):
 		require.FailNow(t, "expected HTTP delivery with per-protocol message")
 	}
@@ -1943,7 +2133,7 @@ func TestMessageStructureJSONDefaultFallback(t *testing.T) {
 
 	select {
 	case msg := <-received:
-		assert.Equal(t, "fallback msg", msg)
+		assert.Equal(t, "fallback msg", extractSNSHTTPMessage(msg))
 	case <-time.After(500 * time.Millisecond):
 		require.FailNow(t, "expected delivery with default fallback")
 	}
@@ -3215,7 +3405,7 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 			if tt.wantBody != "" {
 				select {
 				case got := <-received:
-					assert.Equal(t, tt.wantBody, got)
+					assert.Equal(t, tt.wantBody, extractSNSHTTPMessage(got))
 				case <-time.After(3 * time.Second):
 					require.FailNow(t, "timed out waiting for HTTP delivery")
 				}
@@ -3344,7 +3534,7 @@ func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 	// Oversized policy must be treated as allow-all.
 	select {
 	case msg := <-received:
-		assert.Equal(t, "delivered", msg)
+		assert.Equal(t, "delivered", extractSNSHTTPMessage(msg))
 	case <-time.After(2 * time.Second):
 		require.FailNow(t, "oversized FilterPolicy should allow all messages through")
 	}
@@ -4573,19 +4763,46 @@ func TestSNS_SubscribeProtocols(t *testing.T) {
 	tests := []struct {
 		name       string
 		protocol   string
+		endpoint   string
 		wantStatus int
 	}{
-		{name: "http", protocol: "http", wantStatus: http.StatusOK},
-		{name: "https", protocol: "https", wantStatus: http.StatusOK},
-		{name: "email", protocol: "email", wantStatus: http.StatusOK},
-		{name: "email_json", protocol: "email-json", wantStatus: http.StatusOK},
-		{name: "sqs", protocol: "sqs", wantStatus: http.StatusOK},
-		{name: "lambda", protocol: "lambda", wantStatus: http.StatusOK},
-		{name: "sms", protocol: "sms", wantStatus: http.StatusOK},
-		{name: "application", protocol: "application", wantStatus: http.StatusOK},
-		{name: "firehose", protocol: "firehose", wantStatus: http.StatusOK},
-		{name: "invalid", protocol: "ftp", wantStatus: http.StatusBadRequest},
-		{name: "empty", protocol: "", wantStatus: http.StatusBadRequest},
+		{name: "http", protocol: "http", endpoint: "http://example.com/sns", wantStatus: http.StatusOK},
+		{name: "https", protocol: "https", endpoint: "https://example.com/sns", wantStatus: http.StatusOK},
+		{name: "email", protocol: "email", endpoint: "user@example.com", wantStatus: http.StatusOK},
+		{name: "email_json", protocol: "email-json", endpoint: "user@example.com", wantStatus: http.StatusOK},
+		{
+			name: "sqs", protocol: "sqs",
+			endpoint:   "arn:aws:sqs:us-east-1:123456789012:my-queue",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "lambda", protocol: "lambda",
+			endpoint:   "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
+			wantStatus: http.StatusOK,
+		},
+		{name: "sms", protocol: "sms", endpoint: "+12125551234", wantStatus: http.StatusOK},
+		{
+			name: "application", protocol: "application",
+			endpoint:   "arn:aws:sns:us-east-1:123456789012:endpoint/GCM/app/uuid",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "firehose", protocol: "firehose",
+			endpoint:   "arn:aws:firehose:us-east-1:123456789012:deliverystream/my-stream",
+			wantStatus: http.StatusOK,
+		},
+		{name: "invalid", protocol: "ftp", endpoint: "ftp://example.com", wantStatus: http.StatusBadRequest},
+		{name: "empty", protocol: "", endpoint: "", wantStatus: http.StatusBadRequest},
+		{
+			name: "email_invalid_endpoint", protocol: "email",
+			endpoint:   "not-an-email",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "email_json_invalid_endpoint", protocol: "email-json",
+			endpoint:   "also-not-an-email",
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -4600,10 +4817,7 @@ func TestSNS_SubscribeProtocols(t *testing.T) {
 				"Version":  {"2010-03-31"},
 				"TopicArn": {topicArn},
 				"Protocol": {tt.protocol},
-				"Endpoint": {"arn:aws:sqs:us-east-1:123456789012:my-queue"},
-			}
-			if tt.protocol == "sms" {
-				form["Endpoint"] = []string{"+12125551234"}
+				"Endpoint": {tt.endpoint},
 			}
 
 			rec := snsPost(t, h, form)

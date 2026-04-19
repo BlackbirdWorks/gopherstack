@@ -268,6 +268,53 @@ func TestIntegration_SNS_SetTopicAttributes(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, displayName, attrOut.Attributes["DisplayName"])
+	// Verify computed attributes are returned.
+	assert.NotEmpty(t, attrOut.Attributes["EffectiveDeliveryPolicy"], "EffectiveDeliveryPolicy should be present")
+	assert.Equal(t, "0", attrOut.Attributes["SubscriptionsConfirmed"])
+	assert.Equal(t, "0", attrOut.Attributes["SubscriptionsDeleted"])
+}
+
+func TestIntegration_SNS_FeedbackAttributes(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	snsClient := createSNSClient(t)
+	ctx := t.Context()
+
+	topicName := "test-feedback-" + uuid.NewString()
+	createOut, err := snsClient.CreateTopic(ctx, &sns.CreateTopicInput{
+		Name: aws.String(topicName),
+	})
+	require.NoError(t, err)
+	topicARN := createOut.TopicArn
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"SQSSuccessFeedbackSampleRate", "50"},
+		{"HTTPSuccessFeedbackSampleRate", "100"},
+		{"LambdaFailureFeedbackRoleArn", "arn:aws:iam::000000000000:role/sns-feedback"},
+		{"FirehoseSuccessFeedbackSampleRate", "25"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, setErr := snsClient.SetTopicAttributes(ctx, &sns.SetTopicAttributesInput{
+				TopicArn:       topicARN,
+				AttributeName:  aws.String(tt.name),
+				AttributeValue: aws.String(tt.value),
+			})
+			require.NoError(t, setErr, "SetTopicAttributes should accept %s", tt.name)
+
+			attrOut, getErr := snsClient.GetTopicAttributes(ctx, &sns.GetTopicAttributesInput{
+				TopicArn: topicARN,
+			})
+			require.NoError(t, getErr)
+			assert.Equal(t, tt.value, attrOut.Attributes[tt.name])
+		})
+	}
 }
 
 func TestIntegration_SNS_PlatformApplicationLifecycle(t *testing.T) {

@@ -29,8 +29,6 @@
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
 
-	const enableDemoActions = ((import.meta as ImportMeta).env.PUBLIC_ENABLE_DEMO_ACTIONS ?? '').toLowerCase() === 'true';
-
 	let ddb = $state(newDynamoDBClient());
 	let currentRegion = $state(getStoredRegion());
 
@@ -459,35 +457,6 @@
 		}
 	}
 
-	// Seed Demo Data
-	async function seedDemoData(): Promise<void> {
-		if (!enableDemoActions) {
-			toast.error('Demo data actions are disabled. Set PUBLIC_ENABLE_DEMO_ACTIONS=true to enable.');
-			return;
-		}
-
-		try {
-			const tables: { name: string; ks: KeySchemaElement[]; ad: { AttributeName: string; AttributeType: ScalarAttributeType }[] }[] = [
-				{ name: 'users', ks: [{ AttributeName: 'userId', KeyType: 'HASH' }], ad: [{ AttributeName: 'userId', AttributeType: 'S' }] },
-				{ name: 'orders', ks: [{ AttributeName: 'orderId', KeyType: 'HASH' }, { AttributeName: 'customerId', KeyType: 'RANGE' }], ad: [{ AttributeName: 'orderId', AttributeType: 'S' }, { AttributeName: 'customerId', AttributeType: 'S' }] },
-				{ name: 'sessions', ks: [{ AttributeName: 'sessionId', KeyType: 'HASH' }], ad: [{ AttributeName: 'sessionId', AttributeType: 'S' }] }
-			];
-			for (const t of tables) {
-				try {
-					await ddb.send(new CreateTableCommand({ TableName: t.name, KeySchema: t.ks, AttributeDefinitions: t.ad, BillingMode: 'PAY_PER_REQUEST' }));
-				} catch {
-					// table may already exist - skip
-				}
-			}
-			await ddb.send(new PutItemCommand({ TableName: 'users', Item: { userId: { S: 'u1' }, name: { S: 'Alice' }, email: { S: 'alice@example.com' }, age: { N: '30' }, createdAt: { N: '1700000000' } } }));
-			await ddb.send(new PutItemCommand({ TableName: 'orders', Item: { orderId: { S: 'o1' }, customerId: { S: 'c1' }, amount: { N: '99.99' }, status: { S: 'completed' }, createdAt: { N: '1700000000' } } }));
-			await ddb.send(new PutItemCommand({ TableName: 'sessions', Item: { sessionId: { S: 's1' }, userId: { S: 'u1' }, expiresAt: { N: '9999999999' } } }));
-			toast.success('Demo data seeded (users, orders, sessions)');
-			await loadTables();
-		} catch (err: unknown) {
-			toast.error(`Seed failed: ${(err as Error).message}`);
-		}
-	}
 
 	// PartiQL
 	async function executePartiQL() {
@@ -1409,9 +1378,6 @@
 			</div>
 			<div class="flex gap-2">
 				<button id="purge-all-btn" onclick={purgeAll} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-900">Purge All</button>
-				{#if enableDemoActions}
-					<button onclick={seedDemoData} class="py-2.5 px-5 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Seed Demo Data</button>
-				{/if}
 				<button id="create-table-btn" onclick={() => { showCreateModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">+ Create Table</button>
 			</div>
 		</div>

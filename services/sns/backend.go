@@ -41,7 +41,9 @@ var (
 )
 
 const (
-	pageSize = 25
+	// pageSize is the default page size for SNS List operations.
+	// AWS SNS returns up to 100 items per page for most list operations.
+	pageSize = 100
 
 	attrFilterPolicy        = "FilterPolicy"
 	attrRawMessageDelivery  = "RawMessageDelivery"
@@ -78,6 +80,16 @@ const (
 	// defaultPolicyJSON is the default SNS topic access policy (empty statements).
 	defaultPolicyJSON = `{"Version":"2012-10-17","Statement":[]}`
 
+	// defaultEffectiveDeliveryPolicyJSON mirrors the AWS default SNS delivery
+	// retry configuration returned in GetTopicAttributes when no custom
+	// DeliveryPolicy has been set.
+	defaultEffectiveDeliveryPolicyJSON = `{"http":{"defaultHealthyRetryPolicy":{"minDelayTarget":20,` +
+		`"maxDelayTarget":20,"numRetries":3,"numMaxDelayRetries":0,"numNoDelayRetries":0,` +
+		`"numMinDelayRetries":0,"backoffFunction":"linear"},"disableSubscriptionOverrides":false}}`
+
+	// fifoTopicAttrValue is the attribute value indicating a topic is FIFO.
+	fifoTopicAttrValue = "true"
+
 	// maxListSMSSandboxResults is the maximum MaxResults value for ListSMSSandboxPhoneNumbers.
 	maxListSMSSandboxResults = 100
 
@@ -100,9 +112,17 @@ const (
 	// fifoTopicSuffix is the required suffix for FIFO topic names.
 	fifoTopicSuffix = ".fifo"
 
+	// maxMessageSizeBytes is the maximum byte size of an SNS message body (256 KB).
+	// This matches the AWS SNS service limit.
+	maxMessageSizeBytes = 256 * 1024
+
+	// maxBatchEntryIDLen is the maximum character length of a PublishBatch entry ID.
+	maxBatchEntryIDLen = 80
+
 	// computedTopicAttrCount is the number of computed attributes added to GetTopicAttributes
-	// output beyond stored attributes: Owner, SubscriptionsConfirmed, SubscriptionsPending.
-	computedTopicAttrCount = 3
+	// output beyond stored attributes: Owner, TopicArn, EffectiveDeliveryPolicy,
+	// SubscriptionsConfirmed, SubscriptionsPending, SubscriptionsDeleted.
+	computedTopicAttrCount = 6
 )
 
 // isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
@@ -163,6 +183,12 @@ type StorageBackend interface {
 	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
 	SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
+	// PublishToTargetArn publishes directly to a platform endpoint ARN.
+	// In the mock, this generates and returns a unique message ID without real delivery.
+	PublishToTargetArn(targetArn, message, subject string, attrs map[string]MessageAttribute) (string, error)
+	// PublishSMS publishes directly to a phone number via SMS.
+	// In the mock, this generates and returns a unique message ID without real delivery.
+	PublishSMS(phoneNumber, message string) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
 	ListAllPlatformApplications() []PlatformApplication
@@ -213,6 +239,7 @@ type InMemoryBackend struct {
 	platformEndpoints    map[string]*PlatformEndpoint
 	topics               map[string]*Topic
 	subscriptions        map[string]*Subscription
+	topicSubscriptions   map[string]map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
 	smsSandbox           map[string]*SandboxPhoneNumber
@@ -251,6 +278,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	return &InMemoryBackend{
 		topics:               make(map[string]*Topic),
 		subscriptions:        make(map[string]*Subscription),
+		topicSubscriptions:   make(map[string]map[string]*Subscription),
 		topicTags:            make(map[string]*svcTags.Tags),
 		platformApplications: make(map[string]*PlatformApplication),
 		platformEndpoints:    make(map[string]*PlatformEndpoint),
@@ -320,9 +348,28 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		attrs["Policy"] = defaultPolicyJSON
 	}
 
+	// Validate FifoTopic attribute consistency with topic name.
+	// AWS rejects CreateTopic when FifoTopic=true but name doesn't end in ".fifo".
+	if attrs["FifoTopic"] == fifoTopicAttrValue && !strings.HasSuffix(name, fifoTopicSuffix) {
+		return nil, fmt.Errorf(
+			"%w: Topic name must end with '.fifo' for FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// ContentBasedDeduplication is only valid on FIFO topics.
+	if attrs["ContentBasedDeduplication"] != "" &&
+		attrs["FifoTopic"] != fifoTopicAttrValue &&
+		!strings.HasSuffix(name, fifoTopicSuffix) {
+		return nil, fmt.Errorf(
+			"%w: ContentBasedDeduplication is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
 	// FIFO topics: auto-set FifoTopic=true and ContentBasedDeduplication if not already set.
 	if strings.HasSuffix(name, fifoTopicSuffix) {
-		attrs["FifoTopic"] = "true"
+		attrs["FifoTopic"] = fifoTopicAttrValue
 		if attrs["ContentBasedDeduplication"] == "" {
 			attrs["ContentBasedDeduplication"] = "false"
 		}
@@ -334,6 +381,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		CreationTimestamp: time.Now().UTC(),
 	}
 	b.topics[topicArn] = topic
+	b.topicSubscriptions[topicArn] = make(map[string]*Subscription)
 
 	return topic, nil
 }
@@ -361,6 +409,7 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 			delete(b.subscriptions, subArn)
 		}
 	}
+	delete(b.topicSubscriptions, topicArn)
 
 	return nil
 }
@@ -406,14 +455,27 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 		attrs["Owner"] = b.accountID
 	}
 
+	// AWS always returns TopicArn as an attribute in GetTopicAttributes.
+	if attrs["TopicArn"] == "" {
+		attrs["TopicArn"] = topicArn
+	}
+
+	// EffectiveDeliveryPolicy is the resolved delivery policy (defaults to
+	// AWS standard retry configuration when no custom DeliveryPolicy is set).
+	if attrs["EffectiveDeliveryPolicy"] == "" {
+		if attrs["DeliveryPolicy"] != "" {
+			attrs["EffectiveDeliveryPolicy"] = attrs["DeliveryPolicy"]
+		} else {
+			attrs["EffectiveDeliveryPolicy"] = defaultEffectiveDeliveryPolicyJSON
+		}
+	}
+
 	// Count subscriptions for this topic.
+	// SubscriptionsDeleted is not tracked in memory — AWS also resets this counter
+	// periodically, so we report 0 for consistency with a fresh mock environment.
 	confirmed, pending := 0, 0
 
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn != topicArn {
-			continue
-		}
-
+	for _, sub := range b.topicSubscriptions[topicArn] {
 		if sub.PendingConfirmation {
 			pending++
 		} else {
@@ -423,8 +485,41 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 
 	attrs["SubscriptionsConfirmed"] = strconv.Itoa(confirmed)
 	attrs["SubscriptionsPending"] = strconv.Itoa(pending)
+	attrs["SubscriptionsDeleted"] = "0"
 
 	return attrs, nil
+}
+
+// isKnownTopicAttribute reports whether name is a settable SNS topic attribute.
+// Includes the core attributes plus all delivery-status logging attributes.
+func isKnownTopicAttribute(name string) bool {
+	switch name {
+	// Core topic attributes.
+	case "DeliveryPolicy", "DisplayName", "FifoTopic", "ContentBasedDeduplication",
+		"KmsMasterKeyId", "Policy", "TracingConfig", "FifoThroughputScope",
+		"ArchivePolicy", "DataProtectionPolicy", "SignatureVersion":
+		return true
+	// HTTP/HTTPS delivery status logging.
+	case "HTTPSuccessFeedbackRoleArn", "HTTPSuccessFeedbackSampleRate", "HTTPFailureFeedbackRoleArn",
+		"HTTPSSuccessFeedbackRoleArn", "HTTPSSuccessFeedbackSampleRate", "HTTPSFailureFeedbackRoleArn":
+		return true
+	// SQS delivery status logging.
+	case "SQSSuccessFeedbackRoleArn", "SQSSuccessFeedbackSampleRate", "SQSFailureFeedbackRoleArn":
+		return true
+	// Lambda delivery status logging.
+	case "LambdaSuccessFeedbackRoleArn", "LambdaSuccessFeedbackSampleRate", "LambdaFailureFeedbackRoleArn":
+		return true
+	// Firehose delivery status logging.
+	case "FirehoseSuccessFeedbackRoleArn", "FirehoseSuccessFeedbackSampleRate", "FirehoseFailureFeedbackRoleArn":
+		return true
+	// Mobile application (GCM/APNS/etc.) delivery status logging.
+	case "ApplicationSuccessFeedbackRoleArn",
+		"ApplicationSuccessFeedbackSampleRate",
+		"ApplicationFailureFeedbackRoleArn":
+		return true
+	}
+
+	return false
 }
 
 // SetTopicAttributes sets a single attribute on a topic.
@@ -437,16 +532,69 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		return ErrTopicNotFound
 	}
 
+	// Reject read-only/computed attributes that cannot be mutated directly.
+	if isReadOnlyTopicAttribute(attrName) {
+		return fmt.Errorf(
+			"%w: Invalid parameter: Attribute %s is a read-only attribute and cannot be set",
+			ErrInvalidParameter,
+			attrName,
+		)
+	}
+
+	if !isKnownTopicAttribute(attrName) {
+		return fmt.Errorf(
+			"%w: Invalid parameter: Attribute name %s is not a known topic attribute",
+			ErrInvalidParameter,
+			attrName,
+		)
+	}
+
+	// ContentBasedDeduplication is only valid on FIFO topics.
+	if attrName == "ContentBasedDeduplication" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
+		return fmt.Errorf(
+			"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// FifoThroughputScope is only valid on FIFO topics.
+	if attrName == "FifoThroughputScope" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
+		return fmt.Errorf(
+			"%w: Invalid parameter: FifoThroughputScope is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// When clearing EffectiveDeliveryPolicy derived from DeliveryPolicy, reset it.
+	if attrName == "DeliveryPolicy" {
+		if attrValue == "" {
+			delete(topic.Attributes, "EffectiveDeliveryPolicy")
+		} else {
+			topic.Attributes["EffectiveDeliveryPolicy"] = attrValue
+		}
+	}
+
 	topic.Attributes[attrName] = attrValue
 
 	return nil
 }
 
 // Subscribe creates a new subscription for the given topic, protocol, and endpoint.
+// If a confirmed subscription for the same topic+protocol+endpoint already exists,
+// the existing subscription ARN is returned (matching AWS deduplication behaviour).
 func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
 	// Validate SMS endpoint is a valid E.164 phone number.
 	if protocol == "sms" && !isValidE164(endpoint) {
 		return nil, fmt.Errorf("%w: Endpoint must be in E.164 format for SMS protocol", ErrInvalidParameter)
+	}
+
+	// Validate email/email-json endpoints look like email addresses.
+	if (protocol == "email" || protocol == "email-json") && !isValidEmail(endpoint) {
+		return nil, fmt.Errorf(
+			"%w: Invalid parameter: Endpoint must be a valid email address for %s protocol",
+			ErrInvalidParameter,
+			protocol,
+		)
 	}
 
 	b.mu.Lock("Subscribe")
@@ -457,11 +605,27 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		return nil, ErrTopicNotFound
 	}
 
+	// Dedup: return the existing subscription ARN when protocol+endpoint already
+	// has a confirmed subscription on this topic (matches AWS behaviour).
+	for _, existing := range b.topicSubscriptions[topicArn] {
+		if !existing.PendingConfirmation &&
+			existing.Protocol == protocol &&
+			existing.Endpoint == endpoint {
+			return existing, nil
+		}
+	}
+
 	parts := strings.Split(topic.TopicArn, ":")
 	topicName := parts[len(parts)-1]
 
 	subArn := arn.Build("sns", b.region, b.accountID, topicName+":"+uuid.New().String())
-	pending := protocol == "http" || protocol == "https"
+
+	// HTTP and HTTPS subscriptions require out-of-band confirmation.
+	// Email/email-json require the recipient to click a link.
+	// SQS, Lambda, Firehose, and Application (mobile push) are auto-confirmed.
+	pending := protocol == "http" || protocol == "https" ||
+		protocol == "email" || protocol == "email-json"
+
 	sub := &Subscription{
 		SubscriptionArn:     subArn,
 		TopicArn:            topicArn,
@@ -469,11 +633,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		Endpoint:            endpoint,
 		Owner:               b.accountID,
 		FilterPolicy:        filterPolicy,
+		parsedFilterPolicy:  parseFilterPolicy(filterPolicy),
 		PendingConfirmation: pending,
 		CreationTimestamp:   time.Now().UTC(),
 	}
 
 	b.subscriptions[subArn] = sub
+	b.indexSubscription(sub)
 
 	return sub, nil
 }
@@ -483,11 +649,13 @@ func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
 	b.mu.Lock("Unsubscribe")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subscriptions[subscriptionArn]; !exists {
+	sub, exists := b.subscriptions[subscriptionArn]
+	if !exists {
 		return ErrSubscriptionNotFound
 	}
 
 	delete(b.subscriptions, subscriptionArn)
+	b.removeIndexedSubscription(sub.TopicArn, subscriptionArn)
 
 	return nil
 }
@@ -504,8 +672,9 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	b.mu.Lock("ConfirmSubscription")
 	defer b.mu.Unlock()
 
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn == topicArn && sub.PendingConfirmation {
+	// Use topic index for O(topic_subs) instead of O(all_subs).
+	for _, sub := range b.topicSubscriptions[topicArn] {
+		if sub.PendingConfirmation {
 			sub.PendingConfirmation = false
 
 			return sub, nil
@@ -526,13 +695,14 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 	}
 
 	attrs := map[string]string{
-		"SubscriptionArn":      sub.SubscriptionArn,
-		"TopicArn":             sub.TopicArn,
-		"Protocol":             sub.Protocol,
-		"Endpoint":             sub.Endpoint,
-		"Owner":                sub.Owner,
-		"PendingConfirmation":  strconv.FormatBool(sub.PendingConfirmation),
-		attrRawMessageDelivery: strconv.FormatBool(sub.RawMessageDelivery),
+		"SubscriptionArn":              sub.SubscriptionArn,
+		"TopicArn":                     sub.TopicArn,
+		"Protocol":                     sub.Protocol,
+		"Endpoint":                     sub.Endpoint,
+		"Owner":                        sub.Owner,
+		"PendingConfirmation":          strconv.FormatBool(sub.PendingConfirmation),
+		"ConfirmationWasAuthenticated": strconv.FormatBool(!sub.PendingConfirmation),
+		attrRawMessageDelivery:         strconv.FormatBool(sub.RawMessageDelivery),
 	}
 
 	if sub.FilterPolicy != "" {
@@ -569,6 +739,7 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
 	case attrFilterPolicy:
 		sub.FilterPolicy = attrValue
+		sub.parsedFilterPolicy = parseFilterPolicy(attrValue)
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
 	case attrSubscriptionRoleArn:
@@ -615,14 +786,14 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 		return nil, "", ErrTopicNotFound
 	}
 
-	all := b.sortedSubscriptions()
-	filtered := make([]Subscription, 0, len(all))
-
-	for _, s := range all {
-		if s.TopicArn == topicArn {
-			filtered = append(filtered, s)
-		}
+	topicSubs := b.topicSubscriptions[topicArn]
+	filtered := make([]Subscription, 0, len(topicSubs))
+	for _, sub := range topicSubs {
+		filtered = append(filtered, *sub)
 	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].SubscriptionArn < filtered[j].SubscriptionArn
+	})
 
 	offset, err := decodeToken(nextToken)
 	if err != nil {
@@ -636,14 +807,48 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
 type httpDelivery struct {
-	endpoint string
-	body     string
+	endpoint        string
+	body            string
+	subject         string
+	messageID       string
+	topicARN        string
+	subscriptionARN string
+	rawDelivery     bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
 type publishTargets struct {
 	subs           []events.SNSSubscriptionSnapshot
 	httpDeliveries []httpDelivery
+}
+
+type parsedFilterPolicy map[string][]json.RawMessage
+
+func parseFilterPolicy(filterPolicy string) parsedFilterPolicy {
+	if filterPolicy == "" {
+		return nil
+	}
+
+	if len(filterPolicy) > maxFilterPolicySizeBytes {
+		return nil
+	}
+
+	var rawPolicy map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
+		return nil
+	}
+
+	parsed := make(parsedFilterPolicy, len(rawPolicy))
+	for key, rawConditions := range rawPolicy {
+		var conditions []json.RawMessage
+		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
+			return nil
+		}
+
+		parsed[key] = conditions
+	}
+
+	return parsed
 }
 
 // buildMessageResolver returns a function that picks the correct message body for a given protocol,
@@ -670,25 +875,27 @@ func buildMessageResolver(defaultMsg string, perProtocol map[string]string) func
 // subscription snapshots and HTTP/HTTPS deliveries to dispatch.
 // Must be called with at least RLock held.
 func (b *InMemoryBackend) collectPublishTargets(
-	topicArn string,
+	topicArn, subject string,
 	resolveMsg func(string) string,
 	attrs map[string]MessageAttribute,
 ) publishTargets {
 	var out publishTargets
 
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn != topicArn {
-			continue
-		}
-
-		if !matchesFilterPolicy(sub.FilterPolicy, attrs) {
+	for _, sub := range b.topicSubscriptions[topicArn] {
+		if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
 			continue
 		}
 
 		msg := resolveMsg(sub.Protocol)
 
 		if sub.Protocol == "http" || sub.Protocol == "https" {
-			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{endpoint: sub.Endpoint, body: msg})
+			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
+				endpoint:        sub.Endpoint,
+				body:            msg,
+				subject:         subject,
+				subscriptionARN: sub.SubscriptionArn,
+				rawDelivery:     sub.RawMessageDelivery,
+			})
 		}
 
 		out.subs = append(out.subs, events.SNSSubscriptionSnapshot{
@@ -713,6 +920,34 @@ func (b *InMemoryBackend) collectPublishTargets(
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
+	// Validate message size before acquiring any lock (cheap pre-check).
+	if len(message) > maxMessageSizeBytes {
+		return "", fmt.Errorf(
+			"%w: Message size exceeds SNS limit of %d bytes",
+			ErrInvalidParameter,
+			maxMessageSizeBytes,
+		)
+	}
+
+	// When MessageStructure is "json", the body must be valid JSON and must include
+	// a "default" key. AWS SNS returns InvalidParameter when the key is missing.
+	if messageStructure == "json" {
+		var pm map[string]string
+		if err := json.Unmarshal([]byte(message), &pm); err != nil {
+			return "", fmt.Errorf(
+				"%w: Invalid JSON in Message when MessageStructure is json: %s",
+				ErrInvalidParameter,
+				err.Error(),
+			)
+		}
+		if _, ok := pm["default"]; !ok {
+			return "", fmt.Errorf(
+				"%w: Message must contain a 'default' key when MessageStructure is json",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
 	b.mu.RLock("Publish")
 
 	if _, exists := b.topics[topicArn]; !exists {
@@ -735,7 +970,13 @@ func (b *InMemoryBackend) Publish(
 	resolveMsg := buildMessageResolver(message, perProtocolMessages)
 
 	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
-	targets := b.collectPublishTargets(topicArn, resolveMsg, attrs)
+	targets := b.collectPublishTargets(topicArn, subject, resolveMsg, attrs)
+
+	// Annotate HTTP deliveries with messageID and topicARN for SNS envelope/headers.
+	for i := range targets.httpDeliveries {
+		targets.httpDeliveries[i].messageID = messageID
+		targets.httpDeliveries[i].topicARN = topicArn
+	}
 
 	// Capture emitter and httpClient under the read lock to avoid data races
 	// with concurrent SetPublishEmitter / SetHTTPDeliveryClient calls.
@@ -761,7 +1002,7 @@ func (b *InMemoryBackend) Publish(
 			b.deliveryWg.Go(func() {
 				b.workerSem <- struct{}{} // wait for a delivery slot
 				defer func() { <-b.workerSem }()
-				deliverHTTP(b.svcCtx, d.endpoint, d.body, client)
+				deliverHTTPWithMeta(b.svcCtx, d, client)
 			})
 		}
 	}
@@ -789,34 +1030,40 @@ func (b *InMemoryBackend) Publish(
 	return messageID, nil
 }
 
-// matchesFilterPolicy returns true if the message attributes satisfy all conditions in the filter policy.
-// If filterPolicy is empty, exceeds maxFilterPolicySizeBytes, or is invalid JSON, it returns true (no filtering).
-func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute) bool {
-	if filterPolicy == "" {
+// PublishToTargetArn publishes a message directly to a platform endpoint ARN.
+// In the mock, this generates and returns a unique message ID. No actual delivery occurs.
+func (b *InMemoryBackend) PublishToTargetArn(
+	targetArn, _ /* message */, _ /* subject */ string,
+	_ map[string]MessageAttribute,
+) (string, error) {
+	b.mu.RLock("PublishToTargetArn")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.platformEndpoints[targetArn]; !exists {
+		return "", ErrEndpointNotFound
+	}
+
+	return uuid.New().String(), nil
+}
+
+// PublishSMS publishes a message directly to a phone number via SMS.
+// In the mock, this validates the phone number and generates a unique message ID.
+func (b *InMemoryBackend) PublishSMS(phoneNumber, _ /* message */ string) (string, error) {
+	if !isValidE164(phoneNumber) {
+		return "", fmt.Errorf("%w: Invalid phone number; must be in E.164 format", ErrInvalidParameter)
+	}
+
+	return uuid.New().String(), nil
+}
+
+func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]MessageAttribute) bool {
+	if policy == nil {
 		return true
 	}
 
-	if len(filterPolicy) > maxFilterPolicySizeBytes {
-		return true
-	}
-
-	var policy map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(filterPolicy), &policy); err != nil {
-		return true
-	}
-
-	for key, rawConditions := range policy {
-		attr, ok := attrs[key]
-		if !ok {
-			return false
-		}
-
-		var conditions []json.RawMessage
-		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
-			return true
-		}
-
-		if !matchesConditions(attr.StringValue, conditions) {
+	for key, conditions := range policy {
+		attr, attrExists := attrs[key]
+		if !matchesConditions(attr.StringValue, attrExists, conditions) {
 			return false
 		}
 	}
@@ -824,49 +1071,207 @@ func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute)
 	return true
 }
 
-func matchObjectCondition(value string, obj map[string]string) bool {
-	if prefix, ok := obj["prefix"]; ok {
-		return strings.HasPrefix(value, prefix)
+// matchObjectCondition evaluates a single JSON-object SNS filter condition such as
+// {"prefix": "order-"}, {"anything-but": [...]}, {"exists": true}, or {"numeric": [">", 0]}.
+func matchObjectCondition(value string, attrExists bool, obj map[string]json.RawMessage) bool {
+	if prefixRaw, ok := obj["prefix"]; ok {
+		var prefix string
+		if err := json.Unmarshal(prefixRaw, &prefix); err == nil {
+			return attrExists && strings.HasPrefix(value, prefix)
+		}
+
+		return false
 	}
 
-	if excluded, ok := obj["anything-but"]; ok {
-		return value != excluded
+	if existsRaw, ok := obj["exists"]; ok {
+		var existsVal bool
+		if err := json.Unmarshal(existsRaw, &existsVal); err == nil {
+			return attrExists == existsVal
+		}
+
+		return false
+	}
+
+	if anythingButRaw, ok := obj["anything-but"]; ok {
+		return matchAnythingBut(value, attrExists, anythingButRaw)
+	}
+
+	if numericRaw, ok := obj["numeric"]; ok {
+		return attrExists && matchNumericCondition(value, numericRaw)
 	}
 
 	return false
 }
 
-func matchCondition(value string, raw json.RawMessage) bool {
-	var obj map[string]string
-	if err := json.Unmarshal(raw, &obj); err == nil {
-		return matchObjectCondition(value, obj)
+// matchAnythingBut handles {"anything-but": value}, {"anything-but": [...]},
+// and {"anything-but": {"prefix": "..."}} conditions.
+func matchAnythingBut(value string, attrExists bool, raw json.RawMessage) bool {
+	if !attrExists {
+		return false
 	}
 
+	// Try as string literal.
+	var s string
+	if errStr := json.Unmarshal(raw, &s); errStr == nil {
+		return value != s
+	}
+
+	// Try as number literal.
+	var n json.Number
+	if errNum := json.Unmarshal(raw, &n); errNum == nil {
+		return value != n.String()
+	}
+
+	// Try as array of literals.
+	var arr []json.RawMessage
+	if errArr := json.Unmarshal(raw, &arr); errArr == nil {
+		return matchAnythingButArray(value, arr)
+	}
+
+	// Try as nested prefix object: {"anything-but": {"prefix": "order-"}}.
+	var prefixObj map[string]json.RawMessage
+	if errObj := json.Unmarshal(raw, &prefixObj); errObj == nil {
+		if prefixRaw, ok := prefixObj["prefix"]; ok {
+			var prefix string
+			if errP := json.Unmarshal(prefixRaw, &prefix); errP == nil {
+				return !strings.HasPrefix(value, prefix)
+			}
+		}
+	}
+
+	return true
+}
+
+// matchAnythingButArray checks that value does not equal any element in the "anything-but" array.
+func matchAnythingButArray(value string, arr []json.RawMessage) bool {
+	for _, item := range arr {
+		var sv string
+		if errI := json.Unmarshal(item, &sv); errI == nil {
+			if value == sv {
+				return false
+			}
+
+			continue
+		}
+
+		var nv json.Number
+		if errN := json.Unmarshal(item, &nv); errN == nil && value == nv.String() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchNumericCondition evaluates {"numeric": [op, num, ...]} conditions.
+// Conditions are pairs of [operator, number] and ALL pairs must be satisfied (AND semantics).
+func matchNumericCondition(value string, raw json.RawMessage) bool {
+	valFloat, errParse := strconv.ParseFloat(value, 64)
+	if errParse != nil {
+		return false
+	}
+
+	var conditions []json.RawMessage
+	if errUnm := json.Unmarshal(raw, &conditions); errUnm != nil {
+		return false
+	}
+
+	for i := 0; i+1 < len(conditions); i += 2 {
+		var op string
+		if errOp := json.Unmarshal(conditions[i], &op); errOp != nil {
+			return false
+		}
+
+		var num json.Number
+		if errNum := json.Unmarshal(conditions[i+1], &num); errNum != nil {
+			return false
+		}
+
+		threshold, errThresh := strconv.ParseFloat(num.String(), 64)
+		if errThresh != nil {
+			return false
+		}
+
+		if !numericOpMatches(op, valFloat, threshold) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// numericOpMatches evaluates a single numeric comparison operator.
+func numericOpMatches(op string, value, threshold float64) bool {
+	switch op {
+	case "=":
+		return value == threshold
+	case "<>":
+		return value != threshold
+	case ">":
+		return value > threshold
+	case ">=":
+		return value >= threshold
+	case "<":
+		return value < threshold
+	case "<=":
+		return value <= threshold
+	default:
+		return false
+	}
+}
+
+func matchCondition(value string, attrExists bool, raw json.RawMessage) bool {
+	// Object conditions: prefix, exists, anything-but, numeric.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		return matchObjectCondition(value, attrExists, obj)
+	}
+
+	// String exact match — attribute must exist.
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return value == s
+		return attrExists && value == s
 	}
 
+	// Number exact match — attribute must exist.
 	var n json.Number
 	if err := json.Unmarshal(raw, &n); err == nil {
-		return value == n.String()
+		return attrExists && value == n.String()
 	}
 
 	return false
 }
 
-// matchesConditions returns true if value satisfies at least one condition in the list.
-func matchesConditions(
-	value string,
-	conditions []json.RawMessage,
-) bool {
+// matchesConditions returns true if value/existence satisfies at least one condition in the list.
+func matchesConditions(value string, attrExists bool, conditions []json.RawMessage) bool {
 	for _, raw := range conditions {
-		if matchCondition(value, raw) {
+		if matchCondition(value, attrExists, raw) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func (b *InMemoryBackend) indexSubscription(sub *Subscription) {
+	topicSubs := b.topicSubscriptions[sub.TopicArn]
+	if topicSubs == nil {
+		topicSubs = make(map[string]*Subscription)
+		b.topicSubscriptions[sub.TopicArn] = topicSubs
+	}
+
+	topicSubs[sub.SubscriptionArn] = sub
+}
+
+func (b *InMemoryBackend) removeIndexedSubscription(topicArn, subscriptionArn string) {
+	topicSubs := b.topicSubscriptions[topicArn]
+	if topicSubs == nil {
+		return
+	}
+
+	delete(topicSubs, subscriptionArn)
+	// Preserve the inner map even when empty so the next Subscribe call does not
+	// need to re-allocate. Only remove it when the topic itself is deleted.
 }
 
 // ListAllTopics returns all topics sorted by ARN.
@@ -930,23 +1335,80 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 	return subs
 }
 
-// deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint
-// using the provided client. Errors are intentionally ignored: delivery is
-// fire-and-forget for HTTP/HTTPS subscriptions. Response bodies are capped at
-// maxDeliveryResponseBytes to prevent unbounded memory growth.
-// The parent context is used so that service shutdown propagates to in-flight deliveries.
-func deliverHTTP(parent context.Context, endpoint, body string, client *http.Client) {
+// snsHTTPNotification is the SNS notification JSON envelope sent to HTTP/HTTPS subscribers.
+// When RawMessageDelivery is false, this struct is serialised as the POST body.
+// Field names use the exact casing required by AWS SNS.
+type snsHTTPNotification struct {
+	Subject          string `json:"Subject,omitempty"`
+	Type             string `json:"Type"`
+	MessageID        string `json:"MessageId"`
+	TopicArn         string `json:"TopicArn"`
+	Message          string `json:"Message"`
+	Timestamp        string `json:"Timestamp"`
+	SignatureVersion string `json:"SignatureVersion"`
+	Signature        string `json:"Signature"`
+	SigningCertURL   string `json:"SigningCertURL"`
+	UnsubscribeURL   string `json:"UnsubscribeURL"`
+}
+
+// deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
+// to the endpoint. Standard AWS SNS headers are added when metadata is available.
+// When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
+// (matching what AWS SNS sends to http/https subscribers by default).
+func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
 	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
 	defer cancel()
+
+	body := d.body
+
+	// When RawMessageDelivery is false (the default), wrap the message in the
+	// standard SNS Notification JSON envelope. This matches what real AWS SNS
+	// delivers to http/https subscribers so that notification handling libraries
+	// (e.g. aws-sns-body-parser) can parse the payload correctly.
+	if !d.rawDelivery && d.messageID != "" {
+		env := snsHTTPNotification{
+			Type:             "Notification",
+			MessageID:        d.messageID,
+			TopicArn:         d.topicARN,
+			Message:          d.body,
+			Timestamp:        time.Now().UTC().Format(time.RFC3339),
+			SignatureVersion: "1",
+			// Signature fields are placeholders — the mock does not sign messages.
+			Signature:      "MOCK-SIGNATURE",
+			SigningCertURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
+			UnsubscribeURL: "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
+		}
+		if d.subject != "" {
+			env.Subject = d.subject
+		}
+
+		if enc, err := json.Marshal(env); err == nil {
+			body = string(enc)
+		}
+	}
 
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		endpoint,
+		d.endpoint,
 		strings.NewReader(body),
 	)
 	if err != nil {
 		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add standard AWS SNS HTTP notification headers.
+	req.Header.Set("X-Amz-Sns-Message-Type", "Notification")
+	if d.messageID != "" {
+		req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
+	}
+	if d.topicARN != "" {
+		req.Header.Set("X-Amz-Sns-Topic-Arn", d.topicARN)
+	}
+	if d.subscriptionARN != "" {
+		req.Header.Set("X-Amz-Sns-Subscription-Arn", d.subscriptionARN)
 	}
 
 	resp, err := client.Do(req)
@@ -1118,6 +1580,18 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 		return nil, fmt.Errorf("%w: Name and Platform must not contain '/'", ErrInvalidParameter)
 	}
 
+	// Validate platform is one of the known AWS SNS platforms.
+	validPlatforms := map[string]bool{
+		"GCM": true, "APNS": true, "APNS_SANDBOX": true,
+		"ADM": true, "BAIDU": true, "WNS": true, "MPNS": true,
+	}
+	if !validPlatforms[platform] {
+		return nil, fmt.Errorf(
+			"%w: Platform must be one of GCM, APNS, APNS_SANDBOX, ADM, BAIDU, WNS, MPNS",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.mu.Lock("CreatePlatformApplication")
 	defer b.mu.Unlock()
 
@@ -1127,8 +1601,13 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 		return nil, ErrPlatformApplicationAlreadyExists
 	}
 
-	attrs := make(map[string]string, len(attributes))
+	attrs := make(map[string]string, len(attributes)+1)
 	maps.Copy(attrs, attributes)
+
+	// AWS always returns Enabled=true for newly created platform applications.
+	if attrs["Enabled"] == "" {
+		attrs["Enabled"] = "true"
+	}
 
 	app := &PlatformApplication{
 		PlatformApplicationArn: appArn,
@@ -1213,6 +1692,8 @@ func (b *InMemoryBackend) DeletePlatformApplication(platformApplicationArn strin
 }
 
 // CreatePlatformEndpoint registers a device token as an endpoint for a platform application.
+// AWS deduplication behaviour: if an endpoint with the same token already exists under this
+// platform application, the existing endpoint ARN is returned instead of creating a new one.
 func (b *InMemoryBackend) CreatePlatformEndpoint(
 	platformApplicationArn, token string,
 	attributes map[string]string,
@@ -1223,6 +1704,15 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	app, exists := b.platformApplications[platformApplicationArn]
 	if !exists {
 		return nil, ErrPlatformApplicationNotFound
+	}
+
+	// Dedup: return the existing endpoint when the same token is already registered
+	// under this platform application (mirrors AWS CreatePlatformEndpoint behaviour).
+	for _, ep := range b.platformEndpoints {
+		if ep.PlatformApplicationArn == platformApplicationArn &&
+			ep.Attributes["Token"] == token {
+			return ep, nil
+		}
 	}
 
 	// Derive the platform and app name from the platform application ARN.
@@ -1379,6 +1869,50 @@ func isValidE164(phone string) bool {
 	}
 
 	return true
+}
+
+// isValidEmail performs a basic check that the string contains exactly one '@'
+// with a non-empty local part and a domain containing at least one '.'.
+// This mirrors the lightweight check AWS SNS applies; full RFC 5322 is not enforced.
+func isValidEmail(email string) bool {
+	atIdx := strings.Index(email, "@")
+	if atIdx <= 0 {
+		return false
+	}
+
+	domain := email[atIdx+1:]
+
+	return strings.Contains(domain, ".")
+}
+
+// isValidBatchEntryID returns true if the batch entry ID is non-empty, at most
+// maxBatchEntryIDLen characters, and contains only alphanumeric characters, hyphens,
+// or underscores. Matches the AWS SNS batch entry ID constraints.
+func isValidBatchEntryID(id string) bool {
+	if id == "" || len(id) > maxBatchEntryIDLen {
+		return false
+	}
+
+	for _, c := range id {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') &&
+			c != '-' && c != '_' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isReadOnlyTopicAttribute returns true if the attribute name is a computed/read-only
+// topic attribute that must not be set via SetTopicAttributes.
+func isReadOnlyTopicAttribute(name string) bool {
+	switch name {
+	case "Owner", "TopicArn", "SubscriptionsConfirmed", "SubscriptionsPending",
+		"SubscriptionsDeleted", "EffectiveDeliveryPolicy":
+		return true
+	}
+
+	return false
 }
 
 // isValidPermissionLabel returns true if the label is non-empty, not longer than
@@ -1753,12 +2287,14 @@ func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
 }
 
 func (b *InMemoryBackend) purgeSubscriptions(ctx context.Context, cutoff time.Time) {
-	for arn, sub := range b.subscriptions {
+	for subArn, sub := range b.subscriptions {
 		if ctx.Err() != nil {
 			return
 		}
 		if sub.CreationTimestamp.Before(cutoff) {
-			delete(b.subscriptions, arn)
+			delete(b.subscriptions, subArn)
+			// Also clean up the topic subscription index to prevent stale entries.
+			b.removeIndexedSubscription(sub.TopicArn, subArn)
 		}
 	}
 }
@@ -1811,6 +2347,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.topics = make(map[string]*Topic)
 	b.subscriptions = make(map[string]*Subscription)
+	// topicSubscriptions must be reset alongside subscriptions to avoid stale index entries.
+	b.topicSubscriptions = make(map[string]map[string]*Subscription)
 	b.topicTags = make(map[string]*svcTags.Tags)
 	b.platformApplications = make(map[string]*PlatformApplication)
 	b.platformEndpoints = make(map[string]*PlatformEndpoint)
