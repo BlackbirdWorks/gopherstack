@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import {
 		GetFunctionCommand,
 		UpdateFunctionConfigurationCommand,
@@ -13,14 +14,19 @@
 		GetFunctionUrlConfigCommand,
 		CreateFunctionUrlConfigCommand,
 		DeleteFunctionUrlConfigCommand,
+		DeleteFunctionCommand,
+		InvokeCommand,
 		type GetFunctionCommandOutput,
 		type EventSourceMappingConfiguration,
 		type AliasConfiguration,
 		type FunctionConfiguration,
-		type GetFunctionUrlConfigResponse
+		type GetFunctionUrlConfigResponse,
+		type InvocationResponse
 	} from '@aws-sdk/client-lambda';
 	import { getLambdaClient } from '$lib/aws-client';
 	import { toast } from 'svelte-sonner';
+	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { Play, Trash2, RefreshCw, X } from 'lucide-svelte';
 
 	const lambda = getLambdaClient();
 
@@ -51,6 +57,13 @@
 	// Function URL
 	let functionURL = $state<GetFunctionUrlConfigResponse | null>(null);
 	let loadingURL = $state(false);
+
+	// Invoke
+	let showInvokeModal = $state(false);
+	let invokePayload = $state('{\n  "key": "value"\n}');
+	let invoking = $state(false);
+	let invokeResponse = $state<InvocationResponse | null>(null);
+	let invokeType = $state<'RequestResponse' | 'Event' | 'DryRun'>('RequestResponse');
 
 	async function loadFunction(): Promise<void> {
 		if (!functionName) {
@@ -197,6 +210,60 @@
 		}
 	}
 
+	async function invokeFunction(): Promise<void> {
+		invoking = true;
+		invokeResponse = null;
+		try {
+			const payload = new TextEncoder().encode(invokePayload);
+			const res = await lambda.send(new InvokeCommand({
+				FunctionName: functionName,
+				InvocationType: invokeType,
+				LogType: 'Tail',
+				Payload: payload
+			}));
+			invokeResponse = res;
+			if (res.StatusCode === 200 || res.StatusCode === 202) {
+				toast.success(`Successfully invoked ${functionName}`);
+			} else {
+				toast.warning(`Invoked with status ${res.StatusCode}`);
+			}
+		} catch (err) {
+			toast.error(`Invocation failed: ${(err as Error).message}`);
+		} finally {
+			invoking = false;
+		}
+	}
+
+	async function deleteFunction(): Promise<void> {
+		if (!await confirmDestructive({ title: 'Delete Function', message: `Delete function "${functionName}"? This action cannot be undone.` })) return;
+		try {
+			await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
+			toast.success(`Function "${functionName}" deleted`);
+			await goto('/dashboard/lambda');
+		} catch (err) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	function parseResponsePayload(payload: Uint8Array | undefined): string {
+		if (!payload) return 'No payload returned';
+		try {
+			const decoded = new TextDecoder().decode(payload);
+			return JSON.stringify(JSON.parse(decoded), null, 2);
+		} catch {
+			return new TextDecoder().decode(payload);
+		}
+	}
+
+	function decodeLogResult(logResult: string | undefined): string {
+		if (!logResult) return '';
+		try {
+			return atob(logResult);
+		} catch {
+			return logResult;
+		}
+	}
+
 	onMount(() => {
 		void loadFunction();
 		void loadESMs();
@@ -214,9 +281,27 @@
 			<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 dark:from-orange-400 dark:to-amber-400 bg-clip-text text-transparent">Lambda Function Details</h1>
 			<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Inspect runtime configuration and package information.</p>
 		</div>
-		<a href="/dashboard/lambda" class="px-4 py-2 rounded-xl bg-white/60 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 text-sm font-medium hover:bg-white dark:hover:bg-slate-700">
-			Back to functions
-		</a>
+		<div class="flex items-center gap-3">
+			<a href="/dashboard/lambda" class="px-4 py-2 rounded-xl bg-white/60 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 text-sm font-medium hover:bg-white dark:hover:bg-slate-700">
+				Back to functions
+			</a>
+			{#if response?.Configuration}
+				<button
+					onclick={() => showInvokeModal = true}
+					class="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-medium shadow-lg shadow-teal-600/20 transition-all active:scale-95"
+				>
+					<Play class="w-4 h-4" />
+					Invoke
+				</button>
+				<button
+					onclick={deleteFunction}
+					class="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium shadow-lg shadow-red-600/20 transition-all active:scale-95"
+				>
+					<Trash2 class="w-4 h-4" />
+					Delete Function
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Config Section -->
@@ -263,6 +348,18 @@
 					<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Role ARN</p>
 					<p class="text-sm font-semibold text-slate-900 dark:text-white truncate">{response.Configuration.Role ?? '-'}</p>
 				</div>
+				{#if response.Configuration.CodeSha256}
+					<div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20 md:col-span-2" title={response.Configuration.CodeSha256}>
+						<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Code SHA256</p>
+						<p class="text-sm font-semibold text-slate-900 dark:text-white font-mono truncate">{response.Configuration.CodeSha256.slice(0, 12)}…</p>
+					</div>
+				{/if}
+				{#if response.Configuration.Description}
+					<div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20 md:col-span-3">
+						<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Description</p>
+						<p class="text-sm font-semibold text-slate-900 dark:text-white">{response.Configuration.Description}</p>
+					</div>
+				{/if}
 			</div>
 		{:else}
 			<p class="text-slate-500 dark:text-slate-400">Function not found.</p>
@@ -408,3 +505,94 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Invoke Modal -->
+{#if showInvokeModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+<div role="none" onclick={() => showInvokeModal = false} onkeydown={(e) => e.key === 'Escape' && (showInvokeModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+<div class="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden">
+<div class="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700/50">
+<div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white">Invoke {functionName}</h3>
+<p class="text-xs text-slate-500">Configure function payload and view response.</p>
+</div>
+<button onclick={() => showInvokeModal = false} class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+<X class="w-5 h-5 text-slate-400" />
+</button>
+</div>
+<div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-3">
+<div>
+<p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Invocation Type</p>
+<div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl">
+{#each (['RequestResponse', 'Event', 'DryRun'] as const) as t}
+<button
+onclick={() => invokeType = t}
+class="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all {invokeType === t ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
+>{t}</button>
+{/each}
+</div>
+</div>
+<label for="detail-invoke-payload" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Input Payload (JSON)</label>
+<textarea
+id="detail-invoke-payload"
+bind:value={invokePayload}
+class="w-full h-56 p-4 font-mono text-sm bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none shadow-inner"
+></textarea>
+</div>
+<div class="space-y-2">
+<p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Execution Response</p>
+<div class="h-56 w-full p-4 font-mono text-sm bg-slate-950 text-emerald-400 rounded-xl overflow-auto shadow-inner border border-black">
+{#if invoking}
+<div class="flex items-center gap-2 animate-pulse">
+<RefreshCw class="w-4 h-4 animate-spin" />
+Invoking function...
+</div>
+{:else if invokeResponse}
+<div class="space-y-2">
+<div class="flex items-center gap-2 {invokeResponse.FunctionError ? 'text-red-400' : 'text-emerald-400'}">
+<div class="w-2 h-2 rounded-full {invokeResponse.FunctionError ? 'bg-red-500' : 'bg-emerald-500'}"></div>
+Status: {invokeResponse.StatusCode}
+{invokeResponse.FunctionError ? '(' + invokeResponse.FunctionError + ')' : ''}
+</div>
+<div class="text-slate-400 text-[10px] border-b border-slate-800 pb-1 mb-2">Payload:</div>
+<pre class="whitespace-pre-wrap">{parseResponsePayload(invokeResponse.Payload)}</pre>
+</div>
+{:else}
+<div class="text-slate-600 italic h-full flex items-center justify-center text-center px-8">
+The execution output will be displayed here after invocation.
+</div>
+{/if}
+</div>
+{#if invokeResponse?.LogResult}
+<div>
+<p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Log Output</p>
+<pre class="w-full p-3 font-mono text-xs bg-slate-950 text-slate-300 rounded-xl overflow-auto border border-black whitespace-pre-wrap max-h-32">{decodeLogResult(invokeResponse.LogResult)}</pre>
+</div>
+{/if}
+</div>
+</div>
+<div class="p-6 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700/50 flex justify-end gap-3">
+<button
+onclick={() => showInvokeModal = false}
+class="px-5 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-50 dark:hover:bg-slate-600 transition-all"
+>
+Close
+</button>
+<button
+onclick={invokeFunction}
+disabled={invoking}
+class="flex items-center gap-2 px-8 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg shadow-orange-600/20 disabled:opacity-50 transition-all active:scale-[0.98]"
+>
+{#if invoking}
+<RefreshCw class="w-4 h-4 animate-spin" />
+Invoking...
+{:else}
+<Play class="w-4 h-4 fill-current" />
+Invoke Function
+{/if}
+</button>
+</div>
+</div>
+</div>
+{/if}

@@ -960,11 +960,19 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 
 // handleTagsRoute handles GET/POST/DELETE /2015-03-31/tags/{arn}.
 func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
-	arn := strings.TrimPrefix(c.Request().URL.Path, lambdaTagsPathPrefix+"/")
+	resourceARN := strings.TrimPrefix(c.Request().URL.Path, lambdaTagsPathPrefix+"/")
+	fnName := functionNameFromARN(resourceARN)
 
 	switch method {
 	case http.MethodGet:
-		return c.JSON(http.StatusOK, &getTagsOutput{Tags: h.getTags(arn)})
+		if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok && fnName != "" {
+			fn, err := lambdaBk.GetFunction(fnName)
+			if err == nil {
+				return c.JSON(http.StatusOK, &getTagsOutput{Tags: fn.Tags})
+			}
+		}
+
+		return c.JSON(http.StatusOK, &getTagsOutput{Tags: h.getTags(resourceARN)})
 	case http.MethodPost:
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
@@ -978,13 +986,19 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 		if input.Tags != nil {
 			kv = input.Tags.Clone()
 		}
-		h.setTags(arn, kv)
+		if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok && fnName != "" {
+			_ = lambdaBk.TagResource(fnName, kv)
+		}
+		h.setTags(resourceARN, kv)
 		c.Response().WriteHeader(http.StatusNoContent)
 
 		return nil
 	case http.MethodDelete:
 		keys := c.Request().URL.Query()["tagKeys"]
-		h.removeTags(arn, keys)
+		if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok && fnName != "" {
+			_ = lambdaBk.UntagResource(fnName, keys)
+		}
+		h.removeTags(resourceARN, keys)
 		c.Response().WriteHeader(http.StatusNoContent)
 
 		return nil
@@ -1571,7 +1585,7 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 		input.AuthType = "NONE"
 	}
 
-	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType)
+	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType, input.Cors)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

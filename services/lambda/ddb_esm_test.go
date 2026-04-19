@@ -100,6 +100,7 @@ func TestLambda_DDB_Poller_SkipsWhenNoReader(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/my-table/stream/2024-01-01T00:00:00.000",
 		FunctionName:     "my-function",
@@ -121,6 +122,7 @@ func TestLambda_DDB_Poller_GetIteratorError(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/my-table/stream/2024-01-01T00:00:00.000",
 		FunctionName:     "my-function",
@@ -149,6 +151,7 @@ func TestLambda_DDB_Poller_GetRecordsError(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/my-table/stream/2024-01-01T00:00:00.000",
 		FunctionName:     "my-function",
@@ -180,6 +183,7 @@ func TestLambda_DDB_Poller_InvokesLambdaWithRecords(t *testing.T) {
 
 	streamARN := "arn:aws:dynamodb:us-east-1:000000000000:table/my-table/stream/2024-01-01T00:00:00.000"
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   streamARN,
 		FunctionName:     "arn:aws:lambda:us-east-1:000000000000:function:my-function",
@@ -264,6 +268,7 @@ func TestLambda_DDB_Poller_NoRecords(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/my-table/stream/2024-01-01T00:00:00.000",
 		FunctionName:     "my-function",
@@ -295,6 +300,7 @@ func TestLambda_DDB_Poller_DisabledMappingSkipped(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/my-table/stream/2024-01-01T00:00:00.000",
 		FunctionName:     "my-function",
@@ -337,6 +343,7 @@ func TestLambda_ESM_ShardIteratorCleanup(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "cleanup-fn"}))
 	esm, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   streamARN,
 		FunctionName:     "cleanup-fn",

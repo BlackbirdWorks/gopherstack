@@ -390,3 +390,8 @@ func CleanupSemLen(b *InMemoryBackend) int { return len(b.cleanupSem) }
 
 // PollerNotifyC returns the notify channel of an EventSourcePoller for testing.
 func PollerNotifyC(p *EventSourcePoller) chan struct{} { return p.notifyC }
+
+// PushInvocationLog exports pushInvocationLog for testing.
+func PushInvocationLog(ctx context.Context, b *InMemoryBackend, functionName string, payload, result []byte) {
+	b.pushInvocationLog(ctx, functionName, payload, result)
+}

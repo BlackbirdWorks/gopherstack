@@ -90,6 +90,7 @@ type FunctionConfiguration struct {
 	S3KeyCode                    string             `json:"-"`
 	Handler                      string             `json:"Handler,omitempty"`
 	Version                      string             `json:"Version,omitempty"`
+	Tags                         map[string]string  `json:"Tags,omitempty"`
 	ZipData                      []byte             `json:"-"`
 	Layers                       []*FunctionLayer   `json:"Layers,omitempty"`
 	MemorySize                   int                `json:"MemorySize"`
@@ -173,18 +174,30 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+// FunctionURLCors holds CORS configuration for a Lambda function URL.
+type FunctionURLCors struct {
+	AllowOrigins     []string `json:"AllowOrigins,omitempty"`
+	AllowMethods     []string `json:"AllowMethods,omitempty"`
+	AllowHeaders     []string `json:"AllowHeaders,omitempty"`
+	ExposeHeaders    []string `json:"ExposeHeaders,omitempty"`
+	MaxAge           int      `json:"MaxAge,omitempty"`
+	AllowCredentials bool     `json:"AllowCredentials,omitempty"`
+}
+
 // FunctionURLConfig holds the configuration for a Lambda function URL.
 type FunctionURLConfig struct {
-	FunctionArn      string `json:"FunctionArn"`
-	FunctionURL      string `json:"FunctionUrl"`
-	AuthType         string `json:"AuthType"`
-	CreationTime     string `json:"CreationTime"`
-	LastModifiedTime string `json:"LastModifiedTime"`
+	Cors             *FunctionURLCors `json:"Cors,omitempty"`
+	FunctionArn      string           `json:"FunctionArn"`
+	FunctionURL      string           `json:"FunctionUrl"`
+	AuthType         string           `json:"AuthType"`
+	CreationTime     string           `json:"CreationTime"`
+	LastModifiedTime string           `json:"LastModifiedTime"`
 }
 
 // CreateFunctionURLConfigInput is the request body for CreateFunctionUrlConfig.
 type CreateFunctionURLConfigInput struct {
-	AuthType string `json:"AuthType"`
+	Cors     *FunctionURLCors `json:"Cors,omitempty"`
+	AuthType string           `json:"AuthType"`
 }
 
 // ListFunctionURLConfigsOutput is the response for listing function URL configs.
@@ -194,19 +207,20 @@ type ListFunctionURLConfigsOutput struct {
 
 // FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
 type FunctionVersion struct {
-	CreatedAt    string             `json:"LastModified"`
 	Environment  *EnvironmentConfig `json:"Environment,omitempty"`
-	Handler      string             `json:"Handler,omitempty"`
+	FunctionArn  string             `json:"FunctionArn"`
+	FunctionName string             `json:"FunctionName"`
 	RevisionID   string             `json:"RevisionId"`
 	ImageURI     string             `json:"ImageUri,omitempty"`
 	PackageType  string             `json:"PackageType"`
 	Role         string             `json:"Role"`
 	Runtime      string             `json:"Runtime,omitempty"`
-	FunctionArn  string             `json:"FunctionArn"`
-	Description  string             `json:"Description"`
-	FunctionName string             `json:"FunctionName"`
+	CreatedAt    string             `json:"LastModified"`
+	Handler      string             `json:"Handler,omitempty"`
 	State        FunctionState      `json:"State"`
+	Description  string             `json:"Description"`
 	Version      string             `json:"Version"`
+	CodeSha256   string             `json:"CodeSha256,omitempty"`
 	Layers       []*FunctionLayer   `json:"Layers,omitempty"`
 	MemorySize   int                `json:"MemorySize"`
 	Timeout      int                `json:"Timeout"`

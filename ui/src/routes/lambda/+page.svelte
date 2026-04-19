@@ -40,6 +40,7 @@
 	let newFnHandler = $state('handler.handler');
 	let newFnMemory = $state(128);
 	let newFnTimeout = $state(30);
+	let newFnDescription = $state('');
 
 	// Derived
 	const filteredFunctions = $derived(
@@ -123,10 +124,12 @@
 				Role: newFnRole,
 				MemorySize: newFnMemory,
 				Timeout: newFnTimeout,
+				Description: newFnDescription || undefined,
 			}));
 			toast.success(`Function "${newFnName.trim()}" created`);
 			showCreateModal = false;
 			newFnName = '';
+			newFnDescription = '';
 			await loadFunctions();
 		} catch (err: unknown) {
 			toast.error(`Create failed: ${(err as Error).message}`);
@@ -225,6 +228,8 @@
 							<tr class="bg-slate-50/50 dark:bg-slate-900/20">
 								<th class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Function Details</th>
 								<th class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Runtime</th>
+								<th class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Memory</th>
+								<th class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Timeout</th>
 								<th class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Last Modified</th>
 								<th class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Actions</th>
 							</tr>
@@ -233,7 +238,7 @@
 							{#if loading && !functions.length}
 								{#each Array(3) as _}
 									<tr class="animate-pulse">
-										<td colspan="4" class="px-6 py-8"><div class="h-12 bg-slate-200/50 dark:bg-slate-700/30 rounded-xl w-full"></div></td>
+										<td colspan="6" class="px-6 py-8"><div class="h-12 bg-slate-200/50 dark:bg-slate-700/30 rounded-xl w-full"></div></td>
 									</tr>
 								{/each}
 							{:else}
@@ -248,13 +253,20 @@
 													<Zap class="w-5 h-5 text-orange-600 dark:text-orange-400" />
 												</div>
 												<div>
-													<a
-														href={`/dashboard/lambda/function?name=${encodeURIComponent(func.FunctionName ?? '')}`}
-														class="font-bold text-slate-900 dark:text-white hover:text-orange-600 dark:hover:text-orange-400"
-														onclick={(e) => e.stopPropagation()}
-													>
-														{func.FunctionName}
-													</a>
+													<div class="flex items-center gap-2">
+														<a
+															href={`/dashboard/lambda/function?name=${encodeURIComponent(func.FunctionName ?? '')}`}
+															class="font-bold text-slate-900 dark:text-white hover:text-orange-600 dark:hover:text-orange-400"
+															onclick={(e) => e.stopPropagation()}
+														>
+															{func.FunctionName}
+														</a>
+														{#if func.State}
+															<span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium {func.State === 'Active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : func.State === 'Failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}">
+																{func.State}
+															</span>
+														{/if}
+													</div>
 													<div class="text-[10px] text-slate-400 font-mono truncate max-w-[200px]">{func.FunctionArn}</div>
 												</div>
 											</div>
@@ -262,9 +274,15 @@
 										<td class="px-6 py-4">
 											<div class="flex items-center gap-2">
 												<Code class="w-3 h-3 text-slate-400" />
-												<span class="text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{func.Runtime}</span>
+												{#if func.PackageType === 'Image'}
+													<span class="text-xs font-medium text-slate-600 dark:text-slate-300 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-2 py-0.5 rounded-md">Container</span>
+												{:else}
+													<span class="text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{func.Runtime ?? 'Custom'}</span>
+												{/if}
 											</div>
 										</td>
+										<td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{func.MemorySize ?? '-'} MB</td>
+										<td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{func.Timeout ?? '-'}s</td>
 										<td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{func.LastModified}</td>
 										<td class="px-6 py-4 text-right">
 											<div class="flex items-center justify-end gap-2">
@@ -290,7 +308,7 @@
 
 								{#if !functions.length}
 									<tr>
-										<td colspan="4" class="px-6 py-20 text-center">
+										<td colspan="6" class="px-6 py-20 text-center">
 											<div class="flex flex-col items-center gap-4">
 												<div class="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-full">
 													<Zap class="w-12 h-12 text-slate-300 dark:text-slate-700" />
@@ -543,6 +561,10 @@
 						<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-timeout">Timeout (s)</label>
 						<input id="create-fn-timeout" type="number" bind:value={newFnTimeout} min="1" max="900" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
 					</div>
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-description">Description</label>
+					<input id="create-fn-description" type="text" bind:value={newFnDescription} placeholder="Optional description" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
 				</div>
 			</div>
 			<div class="p-6 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700/50 flex justify-end gap-3">

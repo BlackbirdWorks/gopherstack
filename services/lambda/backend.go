@@ -342,6 +342,16 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		return nil, fmt.Errorf("%w: EventSourceARN must not be empty", ErrInvalidParameterValue)
 	}
 
+	// FunctionName may be supplied as a bare name or as a full ARN; normalise to bare name for lookup.
+	lookupName := input.FunctionName
+	if extracted := functionNameFromARN(input.FunctionName); extracted != "" {
+		lookupName = extracted
+	}
+
+	if _, ok := b.functions[lookupName]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
 	id := uuid.New().String()
 	state := ESMStateEnabled
 	if !input.Enabled {
@@ -461,7 +471,10 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 
 // CreateFunctionURLConfig creates a function URL endpoint for the given function.
 // It allocates a port, starts an HTTP listener, registers DNS, and returns the config.
-func (b *InMemoryBackend) CreateFunctionURLConfig(functionName, authType string) (*FunctionURLConfig, error) {
+func (b *InMemoryBackend) CreateFunctionURLConfig(
+	functionName, authType string,
+	cors *FunctionURLCors,
+) (*FunctionURLConfig, error) {
 	b.mu.Lock("CreateFunctionURLConfig")
 	defer b.mu.Unlock()
 
@@ -486,6 +499,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(functionName, authType string)
 		AuthType:         authType,
 		CreationTime:     now,
 		LastModifiedTime: now,
+		Cors:             cors,
 	}
 
 	b.functionURLConfigs[functionName] = cfg
@@ -766,6 +780,10 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		return ErrFunctionAlreadyExists
 	}
 
+	if fn.Tags == nil {
+		fn.Tags = make(map[string]string)
+	}
+
 	b.functions[fn.FunctionName] = fn
 
 	return nil
@@ -949,8 +967,12 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 		return fnToVersion(fn), nil
 	}
 
-	for _, v := range b.versions[name] {
-		if v.Version == version {
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if vMap := b.versionIndex[name]; vMap != nil {
+		if v, ok := vMap[version]; ok {
 			return v, nil
 		}
 	}
@@ -1210,6 +1232,7 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		RevisionID:   fn.RevisionID,
 		CreatedAt:    fn.LastModified,
 		State:        fn.State,
+		CodeSha256:   fn.CodeSha256,
 	}
 }
 
@@ -1346,7 +1369,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
 	_ = isError
 
-	b.pushInvocationLog(ctx, fn.FunctionName, payload, result)
+	go b.pushInvocationLog(context.WithoutCancel(ctx), fn.FunctionName, payload, result)
 
 	return result, http.StatusOK, nil
 }
@@ -1469,7 +1492,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 
 		if !result.isError || attempt == maxRetries {
 			if !result.isError {
-				b.pushInvocationLog(context.Background(), functionName, inv.payload, result.payload)
+				go b.pushInvocationLog(context.Background(), functionName, inv.payload, result.payload)
 			} else {
 				slog.Default().Warn("lambda: async invocation failed after retries",
 					"function", functionName, "attempts", attempt+1)
@@ -1830,11 +1853,20 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 		// context.Background is intentional: the caller's ctx may be cancelled by the
 		// time the goroutine runs, and we still need to release container/port resources.
 		if evicted != nil {
-			go func() { // #nosec G118 -- intentional detached context; caller ctx may be cancelled before cleanup completes
+			select {
+			case b.cleanupSem <- struct{}{}:
+				go func(rt *functionRuntime) { // #nosec G118 -- intentional detached cleanup goroutine
+					defer func() { <-b.cleanupSem }()
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+					defer cancel()
+					b.cleanupRuntime(cleanupCtx, rt)
+				}(evicted)
+			default:
+				// cleanupSem is full; run inline to avoid leaking the evicted runtime's resources.
 				cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
 				defer cancel()
 				b.cleanupRuntime(cleanupCtx, evicted)
-			}()
+			}
 		}
 	}
 
@@ -3592,6 +3624,8 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		esm.BatchSize = input.BatchSize
 	}
 
+	esm.LastModified = time.Now()
+
 	poller := b.kinesisPoller
 	b.mu.Unlock()
 
@@ -3742,4 +3776,38 @@ func (b *InMemoryBackend) GetLayerVersionByArn(layerVersionARN string) (*GetLaye
 	}
 
 	return b.GetLayerVersion(layerName, version)
+}
+
+// TagResource applies the given tags to the named function, updating FunctionConfiguration.Tags.
+func (b *InMemoryBackend) TagResource(functionName string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[functionName]
+	if !ok {
+		return ErrFunctionNotFound
+	}
+
+	fn.Tags = maps.Clone(fn.Tags)
+	maps.Copy(fn.Tags, tags)
+
+	return nil
+}
+
+// UntagResource removes the specified tag keys from the named function's FunctionConfiguration.Tags.
+func (b *InMemoryBackend) UntagResource(functionName string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[functionName]
+	if !ok {
+		return ErrFunctionNotFound
+	}
+
+	fn.Tags = maps.Clone(fn.Tags)
+	for _, k := range tagKeys {
+		delete(fn.Tags, k)
+	}
+
+	return nil
 }
