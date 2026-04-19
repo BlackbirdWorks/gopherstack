@@ -88,21 +88,22 @@ func TestIntegration_SQS_ReceiveMessageWaitTimeSeconds(t *testing.T) {
 		{name: "invalid_negative", waitSec: "-1", wantErr: true},
 	}
 
-	qName := "wait-time-" + uuid.NewString()[:8]
-	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String(qName),
-	})
-	require.NoError(t, err)
-
-	qURL := *out.QueueUrl
-	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
-	})
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dumpContainerLogsOnFailure(t)
+
+			// Each sub-test gets its own queue to avoid parallel SetQueueAttributes races.
+			qName := "wait-time-" + uuid.NewString()[:8]
+			qOut, createErr := client.CreateQueue(ctx, &sqs.CreateQueueInput{
+				QueueName: aws.String(qName),
+			})
+			require.NoError(t, createErr)
+
+			qURL := *qOut.QueueUrl
+			t.Cleanup(func() {
+				_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+			})
 
 			_, setErr := client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
 				QueueUrl: aws.String(qURL),

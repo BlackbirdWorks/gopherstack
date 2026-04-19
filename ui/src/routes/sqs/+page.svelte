@@ -1134,7 +1134,7 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <div>
 <div class="flex items-center justify-between mb-1">
 <label for="sqs-msg-body" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Body</label>
-<span class="text-xs text-slate-400" class:text-red-500={msgBody.length > 262144}>{msgBody.length.toLocaleString()} / 262,144 bytes</span>
+<span class="text-xs text-slate-400" class:text-red-500={new TextEncoder().encode(msgBody).length > 262144}>{new TextEncoder().encode(msgBody).length.toLocaleString()} / 262,144 bytes</span>
 </div>
 <textarea
 id="sqs-msg-body"
