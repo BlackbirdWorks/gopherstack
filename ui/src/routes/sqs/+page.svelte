@@ -34,6 +34,7 @@ const sqs = getSQSClient();
 let loading = $state(false);
 let queues = $state<Array<{ url: string; attrs: Record<string, string> }>>([]);
 let searchQuery = $state('');
+let filterType = $state<'all' | 'standard' | 'fifo'>('all');
 let selectedQueue = $state<{ url: string; attrs: Record<string, string> } | null>(null);
 let activeTab = $state<'messages' | 'attributes' | 'tags' | 'move' | 'docs'>('messages');
 
@@ -47,6 +48,7 @@ let newVisibilityTimeout = $state(30);
 let newRetentionPeriod = $state(345600);
 let newMaxMsgSize = $state(262144);
 let newDelaySeconds = $state(0);
+let newWaitTimeSeconds = $state(0);
 
 // Send message
 let showSendModal = $state(false);
@@ -62,6 +64,7 @@ let messages = $state<Message[]>([]);
 let receivingMessages = $state(false);
 let expandedMsg = $state<string | null>(null);
 let deletingReceipt = $state<string | null>(null);
+let receiveMaxMessages = $state(10);
 
 // Edit attributes
 let editAttrs = $state<Record<string, string>>({});
@@ -87,7 +90,11 @@ let startingMoveTask = $state(false);
 
 // ──────────────── Derived ────────────────
 const filteredQueues = $derived(
-queues.filter((q) => queueName(q.url).toLowerCase().includes(searchQuery.toLowerCase()))
+queues.filter((q) => {
+const nameMatch = queueName(q.url).toLowerCase().includes(searchQuery.toLowerCase());
+const typeMatch = filterType === 'all' || (filterType === 'fifo' ? isFifo(q.url) : !isFifo(q.url));
+return nameMatch && typeMatch;
+})
 );
 
 // ──────────────── Helpers ────────────────
@@ -114,6 +121,13 @@ if (n < 60) return `${n}s`;
 if (n < 3600) return `${Math.floor(n / 60)}m ${n % 60}s`;
 if (n < 86400) return `${Math.floor(n / 3600)}h`;
 return `${Math.floor(n / 86400)}d`;
+}
+
+function formatTimestamp(ms: string | undefined): string {
+if (!ms) return '—';
+const ts = parseInt(ms, 10);
+if (!ts) return '—';
+return new Date(ts).toLocaleString();
 }
 
 // ──────────────── Queue List ────────────────
@@ -157,7 +171,8 @@ const attrs: Record<string, string> = {
 VisibilityTimeout: String(newVisibilityTimeout),
 MessageRetentionPeriod: String(newRetentionPeriod),
 MaximumMessageSize: String(newMaxMsgSize),
-DelaySeconds: String(newDelaySeconds)
+DelaySeconds: String(newDelaySeconds),
+ReceiveMessageWaitTimeSeconds: String(newWaitTimeSeconds)
 };
 if (newQueueFifo) {
 attrs.FifoQueue = 'true';
@@ -183,6 +198,7 @@ newVisibilityTimeout = 30;
 newRetentionPeriod = 345600;
 newMaxMsgSize = 262144;
 newDelaySeconds = 0;
+newWaitTimeSeconds = 0;
 }
 
 async function deleteQueue(url: string) {
@@ -280,7 +296,7 @@ receivingMessages = true;
 try {
 const res = await sqs.send(new ReceiveMessageCommand({
 QueueUrl: selectedQueue.url,
-MaxNumberOfMessages: 10,
+MaxNumberOfMessages: receiveMaxMessages,
 WaitTimeSeconds: 1,
 AttributeNames: ['All'],
 MessageAttributeNames: ['All']
@@ -439,6 +455,16 @@ await navigator.clipboard.writeText(url);
 toast.success('URL copied');
 }
 
+async function copyArn(arn: string) {
+await navigator.clipboard.writeText(arn);
+toast.success('ARN copied');
+}
+
+function clearMessages() {
+messages = [];
+expandedMsg = null;
+}
+
 // ──────────────── Dead-Letter Source Queues ────────────────
 async function loadDlqSourceQueues() {
 if (!selectedQueue) return;
@@ -535,6 +561,19 @@ class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200
 />
 </div>
 
+<!-- Type filter + queue count -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1">
+{#each [['all', 'All'], ['standard', 'Standard'], ['fifo', 'FIFO']] as [type, label]}
+<button
+onclick={() => { filterType = type as typeof filterType; }}
+class="px-3 py-1 text-xs rounded-full border transition-colors {filterType === type ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-indigo-400'}"
+>{label}</button>
+{/each}
+</div>
+<span class="text-xs text-slate-500 dark:text-slate-400">{filteredQueues.length} / {queues.length} queue{queues.length !== 1 ? 's' : ''}</span>
+</div>
+
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 <!-- Queue List -->
 <div class="lg:col-span-1 space-y-2">
@@ -571,6 +610,9 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 {#if hasDLQ(q.attrs)}
 <span class="px-2 py-0.5 text-xs rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">DLQ</span>
 {/if}
+{#if q.attrs.SqsManagedSseEnabled === 'true'}
+<span class="px-2 py-0.5 text-xs rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" title="Server-side encryption enabled">SSE</span>
+{/if}
 <button onclick={(e) => { e.stopPropagation(); deleteQueue(q.url); }} class="p-1 text-slate-400 hover:text-red-500">
 <Trash2 class="w-4 h-4" />
 </button>
@@ -597,13 +639,19 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 {#if hasDLQ(selectedQueue.attrs)}
 <span class="px-2 py-0.5 text-xs rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">DLQ wired</span>
 {/if}
+{#if selectedQueue.attrs.SqsManagedSseEnabled === 'true'}
+<span class="px-2 py-0.5 text-xs rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" title="Server-side encryption">SSE</span>
+{/if}
 </h2>
 <button onclick={() => copyUrl(selectedQueue?.url ?? '')} class="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-500 mt-1 font-mono">
 <Copy class="w-3 h-3" />
 {selectedQueue.url}
 </button>
 {#if selectedQueue.attrs.QueueArn}
-<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 font-mono">{selectedQueue.attrs.QueueArn}</p>
+<button onclick={() => copyArn(selectedQueue?.attrs.QueueArn ?? '')} class="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-500 mt-0.5 font-mono">
+<Copy class="w-3 h-3" />
+{selectedQueue.attrs.QueueArn}
+</button>
 {/if}
 </div>
 <div class="flex gap-2 flex-wrap justify-end">
@@ -676,6 +724,23 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 <!-- Messages Tab -->
 {#if activeTab === 'messages'}
 <div class="p-4">
+<!-- Receive options bar -->
+<div class="flex items-center gap-3 mb-4">
+<div class="flex items-center gap-2">
+<label for="receive-count" class="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">Max messages:</label>
+<select id="receive-count" bind:value={receiveMaxMessages}
+class="px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+{#each [1,2,3,4,5,6,7,8,9,10] as n}
+<option value={n}>{n}</option>
+{/each}
+</select>
+</div>
+{#if messages.length > 0}
+<button onclick={clearMessages} class="ml-auto text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 flex items-center gap-1">
+<X class="w-3 h-3" /> Clear ({messages.length})
+</button>
+{/if}
+</div>
 {#if messages.length === 0}
 <p class="text-center text-slate-400 dark:text-slate-500 py-8">No messages received. Click "Receive" to fetch messages.</p>
 {:else}
@@ -688,7 +753,12 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 onclick={() => { expandedMsg = expandedMsg === msg.MessageId ? null : (msg.MessageId ?? null); }}
 class="flex items-center gap-2 text-left flex-1 min-w-0"
 >
-<span class="font-mono text-xs text-slate-600 dark:text-slate-400 truncate">{msg.MessageId}</span>
+<div class="min-w-0 flex-1">
+<span class="font-mono text-xs text-slate-600 dark:text-slate-400 truncate block">{msg.MessageId}</span>
+{#if msg.Attributes?.SentTimestamp}
+<span class="text-xs text-slate-400 dark:text-slate-500">{formatTimestamp(msg.Attributes.SentTimestamp)}</span>
+{/if}
+</div>
 {#if expandedMsg === msg.MessageId}
 <ChevronUp class="w-4 h-4 text-slate-400 flex-shrink-0" />
 {:else}
@@ -1038,6 +1108,11 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <input id="sqs-maxsize" type="number" bind:value={newMaxMsgSize} min="1024" max="262144"
 class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 </div>
+<div>
+<label for="sqs-wait-time" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Receive Wait Time (s)</label>
+<input id="sqs-wait-time" type="number" bind:value={newWaitTimeSeconds} min="0" max="20"
+class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+</div>
 </div>
 <div class="flex justify-end gap-3 pt-2">
 <button type="button" onclick={() => { showCreateModal = false; resetCreateForm(); }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
@@ -1057,7 +1132,10 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Send Message</h2>
 <form onsubmit={(e) => { e.preventDefault(); sendMessage(); }} class="space-y-4">
 <div>
-<label for="sqs-msg-body" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Body</label>
+<div class="flex items-center justify-between mb-1">
+<label for="sqs-msg-body" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Body</label>
+<span class="text-xs text-slate-400" class:text-red-500={msgBody.length > 262144}>{msgBody.length.toLocaleString()} / 262,144 bytes</span>
+</div>
 <textarea
 id="sqs-msg-body"
 bind:value={msgBody}

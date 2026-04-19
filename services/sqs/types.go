@@ -112,7 +112,7 @@ type QueuePermissionEntry struct {
 type Queue struct {
 	// lastPurgedAt records when PurgeQueue was last called on this queue.
 	// AWS enforces a 60-second cooldown between purge operations.
-	lastPurgedAt    time.Time
+	lastPurgedAt        time.Time
 	deduplicationMsgIDs map[string]string
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string

@@ -130,9 +130,9 @@ func TestIntegration_SQS_FIFONameValidation(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
+		attrs     map[string]string
 		name      string
 		queueName string
-		attrs     map[string]string
 		wantErr   bool
 	}{
 		{
@@ -166,6 +166,7 @@ func TestIntegration_SQS_FIFONameValidation(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, createErr)
+
 				return
 			}
 
