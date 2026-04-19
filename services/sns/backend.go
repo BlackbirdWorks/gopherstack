@@ -41,7 +41,9 @@ var (
 )
 
 const (
-	pageSize = 25
+	// pageSize is the default page size for SNS List operations.
+	// AWS SNS returns up to 100 items per page for most list operations.
+	pageSize = 100
 
 	attrFilterPolicy        = "FilterPolicy"
 	attrRawMessageDelivery  = "RawMessageDelivery"
@@ -109,6 +111,13 @@ const (
 
 	// fifoTopicSuffix is the required suffix for FIFO topic names.
 	fifoTopicSuffix = ".fifo"
+
+	// maxMessageSizeBytes is the maximum byte size of an SNS message body (256 KB).
+	// This matches the AWS SNS service limit.
+	maxMessageSizeBytes = 256 * 1024
+
+	// maxBatchEntryIDLen is the maximum character length of a PublishBatch entry ID.
+	maxBatchEntryIDLen = 80
 
 	// computedTopicAttrCount is the number of computed attributes added to GetTopicAttributes
 	// output beyond stored attributes: Owner, TopicArn, EffectiveDeliveryPolicy,
@@ -523,6 +532,15 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		return ErrTopicNotFound
 	}
 
+	// Reject read-only/computed attributes that cannot be mutated directly.
+	if isReadOnlyTopicAttribute(attrName) {
+		return fmt.Errorf(
+			"%w: Invalid parameter: Attribute %s is a read-only attribute and cannot be set",
+			ErrInvalidParameter,
+			attrName,
+		)
+	}
+
 	if !isKnownTopicAttribute(attrName) {
 		return fmt.Errorf(
 			"%w: Invalid parameter: Attribute name %s is not a known topic attribute",
@@ -570,6 +588,15 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		return nil, fmt.Errorf("%w: Endpoint must be in E.164 format for SMS protocol", ErrInvalidParameter)
 	}
 
+	// Validate email/email-json endpoints look like email addresses.
+	if (protocol == "email" || protocol == "email-json") && !isValidEmail(endpoint) {
+		return nil, fmt.Errorf(
+			"%w: Invalid parameter: Endpoint must be a valid email address for %s protocol",
+			ErrInvalidParameter,
+			protocol,
+		)
+	}
+
 	b.mu.Lock("Subscribe")
 	defer b.mu.Unlock()
 
@@ -592,7 +619,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	topicName := parts[len(parts)-1]
 
 	subArn := arn.Build("sns", b.region, b.accountID, topicName+":"+uuid.New().String())
-	pending := protocol == "http" || protocol == "https"
+
+	// HTTP and HTTPS subscriptions require out-of-band confirmation.
+	// Email/email-json require the recipient to click a link.
+	// SQS, Lambda, Firehose, and Application (mobile push) are auto-confirmed.
+	pending := protocol == "http" || protocol == "https" ||
+		protocol == "email" || protocol == "email-json"
+
 	sub := &Subscription{
 		SubscriptionArn:     subArn,
 		TopicArn:            topicArn,
@@ -776,9 +809,11 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 type httpDelivery struct {
 	endpoint        string
 	body            string
+	subject         string
 	messageID       string
 	topicARN        string
 	subscriptionARN string
+	rawDelivery     bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
@@ -840,7 +875,7 @@ func buildMessageResolver(defaultMsg string, perProtocol map[string]string) func
 // subscription snapshots and HTTP/HTTPS deliveries to dispatch.
 // Must be called with at least RLock held.
 func (b *InMemoryBackend) collectPublishTargets(
-	topicArn string,
+	topicArn, subject string,
 	resolveMsg func(string) string,
 	attrs map[string]MessageAttribute,
 ) publishTargets {
@@ -857,7 +892,9 @@ func (b *InMemoryBackend) collectPublishTargets(
 			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
 				endpoint:        sub.Endpoint,
 				body:            msg,
+				subject:         subject,
 				subscriptionARN: sub.SubscriptionArn,
+				rawDelivery:     sub.RawMessageDelivery,
 			})
 		}
 
@@ -883,6 +920,34 @@ func (b *InMemoryBackend) collectPublishTargets(
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
+	// Validate message size before acquiring any lock (cheap pre-check).
+	if len(message) > maxMessageSizeBytes {
+		return "", fmt.Errorf(
+			"%w: Message size exceeds SNS limit of %d bytes",
+			ErrInvalidParameter,
+			maxMessageSizeBytes,
+		)
+	}
+
+	// When MessageStructure is "json", the body must be valid JSON and must include
+	// a "default" key. AWS SNS returns InvalidParameter when the key is missing.
+	if messageStructure == "json" {
+		var pm map[string]string
+		if err := json.Unmarshal([]byte(message), &pm); err != nil {
+			return "", fmt.Errorf(
+				"%w: Invalid JSON in Message when MessageStructure is json: %s",
+				ErrInvalidParameter,
+				err.Error(),
+			)
+		}
+		if _, ok := pm["default"]; !ok {
+			return "", fmt.Errorf(
+				"%w: Message must contain a 'default' key when MessageStructure is json",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
 	b.mu.RLock("Publish")
 
 	if _, exists := b.topics[topicArn]; !exists {
@@ -905,9 +970,9 @@ func (b *InMemoryBackend) Publish(
 	resolveMsg := buildMessageResolver(message, perProtocolMessages)
 
 	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
-	targets := b.collectPublishTargets(topicArn, resolveMsg, attrs)
+	targets := b.collectPublishTargets(topicArn, subject, resolveMsg, attrs)
 
-	// Annotate HTTP deliveries with messageID and topicARN for SNS headers.
+	// Annotate HTTP deliveries with messageID and topicARN for SNS envelope/headers.
 	for i := range targets.httpDeliveries {
 		targets.httpDeliveries[i].messageID = messageID
 		targets.httpDeliveries[i].topicARN = topicArn
@@ -1270,17 +1335,63 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 	return subs
 }
 
+// snsHTTPNotification is the SNS notification JSON envelope sent to HTTP/HTTPS subscribers.
+// When RawMessageDelivery is false, this struct is serialised as the POST body.
+// Field names use the exact casing required by AWS SNS.
+type snsHTTPNotification struct {
+	Subject          string `json:"Subject,omitempty"`
+	Type             string `json:"Type"`
+	MessageID        string `json:"MessageId"`
+	TopicArn         string `json:"TopicArn"`
+	Message          string `json:"Message"`
+	Timestamp        string `json:"Timestamp"`
+	SignatureVersion string `json:"SignatureVersion"`
+	Signature        string `json:"Signature"`
+	SigningCertURL   string `json:"SigningCertURL"`
+	UnsubscribeURL   string `json:"UnsubscribeURL"`
+}
+
 // deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
 // to the endpoint. Standard AWS SNS headers are added when metadata is available.
+// When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
+// (matching what AWS SNS sends to http/https subscribers by default).
 func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
 	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
 	defer cancel()
+
+	body := d.body
+
+	// When RawMessageDelivery is false (the default), wrap the message in the
+	// standard SNS Notification JSON envelope. This matches what real AWS SNS
+	// delivers to http/https subscribers so that notification handling libraries
+	// (e.g. aws-sns-body-parser) can parse the payload correctly.
+	if !d.rawDelivery && d.messageID != "" {
+		env := snsHTTPNotification{
+			Type:             "Notification",
+			MessageID:        d.messageID,
+			TopicArn:         d.topicARN,
+			Message:          d.body,
+			Timestamp:        time.Now().UTC().Format(time.RFC3339),
+			SignatureVersion: "1",
+			// Signature fields are placeholders — the mock does not sign messages.
+			Signature:      "MOCK-SIGNATURE",
+			SigningCertURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
+			UnsubscribeURL: "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
+		}
+		if d.subject != "" {
+			env.Subject = d.subject
+		}
+
+		if enc, err := json.Marshal(env); err == nil {
+			body = string(enc)
+		}
+	}
 
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
 		d.endpoint,
-		strings.NewReader(d.body),
+		strings.NewReader(body),
 	)
 	if err != nil {
 		return
@@ -1581,6 +1692,8 @@ func (b *InMemoryBackend) DeletePlatformApplication(platformApplicationArn strin
 }
 
 // CreatePlatformEndpoint registers a device token as an endpoint for a platform application.
+// AWS deduplication behaviour: if an endpoint with the same token already exists under this
+// platform application, the existing endpoint ARN is returned instead of creating a new one.
 func (b *InMemoryBackend) CreatePlatformEndpoint(
 	platformApplicationArn, token string,
 	attributes map[string]string,
@@ -1591,6 +1704,15 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	app, exists := b.platformApplications[platformApplicationArn]
 	if !exists {
 		return nil, ErrPlatformApplicationNotFound
+	}
+
+	// Dedup: return the existing endpoint when the same token is already registered
+	// under this platform application (mirrors AWS CreatePlatformEndpoint behaviour).
+	for _, ep := range b.platformEndpoints {
+		if ep.PlatformApplicationArn == platformApplicationArn &&
+			ep.Attributes["Token"] == token {
+			return ep, nil
+		}
 	}
 
 	// Derive the platform and app name from the platform application ARN.
@@ -1747,6 +1869,50 @@ func isValidE164(phone string) bool {
 	}
 
 	return true
+}
+
+// isValidEmail performs a basic check that the string contains exactly one '@'
+// with a non-empty local part and a domain containing at least one '.'.
+// This mirrors the lightweight check AWS SNS applies; full RFC 5322 is not enforced.
+func isValidEmail(email string) bool {
+	atIdx := strings.Index(email, "@")
+	if atIdx <= 0 {
+		return false
+	}
+
+	domain := email[atIdx+1:]
+
+	return strings.Contains(domain, ".")
+}
+
+// isValidBatchEntryID returns true if the batch entry ID is non-empty, at most
+// maxBatchEntryIDLen characters, and contains only alphanumeric characters, hyphens,
+// or underscores. Matches the AWS SNS batch entry ID constraints.
+func isValidBatchEntryID(id string) bool {
+	if id == "" || len(id) > maxBatchEntryIDLen {
+		return false
+	}
+
+	for _, c := range id {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') &&
+			c != '-' && c != '_' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isReadOnlyTopicAttribute returns true if the attribute name is a computed/read-only
+// topic attribute that must not be set via SetTopicAttributes.
+func isReadOnlyTopicAttribute(name string) bool {
+	switch name {
+	case "Owner", "TopicArn", "SubscriptionsConfirmed", "SubscriptionsPending",
+		"SubscriptionsDeleted", "EffectiveDeliveryPolicy":
+		return true
+	}
+
+	return false
 }
 
 // isValidPermissionLabel returns true if the label is non-empty, not longer than
@@ -2121,12 +2287,14 @@ func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
 }
 
 func (b *InMemoryBackend) purgeSubscriptions(ctx context.Context, cutoff time.Time) {
-	for arn, sub := range b.subscriptions {
+	for subArn, sub := range b.subscriptions {
 		if ctx.Err() != nil {
 			return
 		}
 		if sub.CreationTimestamp.Before(cutoff) {
-			delete(b.subscriptions, arn)
+			delete(b.subscriptions, subArn)
+			// Also clean up the topic subscription index to prevent stale entries.
+			b.removeIndexedSubscription(sub.TopicArn, subArn)
 		}
 	}
 }
@@ -2179,6 +2347,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.topics = make(map[string]*Topic)
 	b.subscriptions = make(map[string]*Subscription)
+	// topicSubscriptions must be reset alongside subscriptions to avoid stale index entries.
+	b.topicSubscriptions = make(map[string]map[string]*Subscription)
 	b.topicTags = make(map[string]*svcTags.Tags)
 	b.platformApplications = make(map[string]*PlatformApplication)
 	b.platformEndpoints = make(map[string]*PlatformEndpoint)

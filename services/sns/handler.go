@@ -296,6 +296,12 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 		return h.handleBackendError(c, err)
 	}
 
+	// Apply Tags.member.N.Key/Value pairs supplied at topic creation time.
+	tags := parseSNSTagsFromForm(c)
+	if len(tags) > 0 {
+		h.Backend.SetTopicTags(topic.TopicArn, svcTags.FromMap("sns."+topic.TopicArn+".tags", tags))
+	}
+
 	return h.writeXML(c, CreateTopicResponse{
 		CreateTopicResult: CreateTopicResult{TopicArn: topic.TopicArn},
 		ResponseMetadata:  ResponseMetadata{RequestID: uuid.New().String()},
@@ -580,6 +586,33 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		)
 
 		return h.writeError(c, http.StatusBadRequest, "TooManyEntriesInBatchRequest", msg)
+	}
+
+	// Validate each entry ID format (non-empty, max 80 chars, alphanumeric/-/_).
+	for _, entry := range entries {
+		if !isValidBatchEntryID(entry.id) {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidBatchEntryId",
+				fmt.Sprintf(
+					"Id '%s' is invalid: must be 1-%d chars, alphanumeric, hyphen, or underscore",
+					entry.id,
+					maxBatchEntryIDLen,
+				),
+			)
+		}
+	}
+
+	// Validate batch entry IDs are unique within this request.
+	seen := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if seen[entry.id] {
+			return h.writeError(c, http.StatusBadRequest, "BatchEntryIdsNotDistinct",
+				fmt.Sprintf("Id '%s' appears more than once in the batch request", entry.id))
+		}
+
+		seen[entry.id] = true
 	}
 
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
@@ -1318,13 +1351,20 @@ func attrsToEntries(attrs map[string]string) []XMLAttributeEntry {
 }
 
 // toXMLSubscriptions converts Subscription slice to XMLSubscription slice.
+// Pending (unconfirmed) subscriptions use "PendingConfirmation" as their ARN,
+// matching the AWS SNS ListSubscriptions / ListSubscriptionsByTopic behaviour.
 func toXMLSubscriptions(subs []Subscription) []XMLSubscription {
 	result := make([]XMLSubscription, len(subs))
 	for i, s := range subs {
+		subArn := s.SubscriptionArn
+		if s.PendingConfirmation {
+			subArn = "PendingConfirmation"
+		}
+
 		result[i] = XMLSubscription{
 			TopicArn:        s.TopicArn,
 			Protocol:        s.Protocol,
-			SubscriptionArn: s.SubscriptionArn,
+			SubscriptionArn: subArn,
 			Owner:           s.Owner,
 			Endpoint:        s.Endpoint,
 		}
