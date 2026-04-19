@@ -358,6 +358,7 @@ type jsonBatchSuccess struct {
 	MessageID              string `json:"MessageId,omitempty"`
 	MD5OfMessageBody       string `json:"MD5OfMessageBody,omitempty"`
 	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
+	SequenceNumber         string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonBatchFailure struct {
@@ -411,9 +412,15 @@ func (h *Handler) handleCreateQueue(
 
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
+	var initialTags map[string]string
+	if req.Tags != nil {
+		initialTags = req.Tags.Clone()
+	}
+
 	out, err := h.Backend.CreateQueue(&CreateQueueInput{
 		QueueName:  req.QueueName,
 		Attributes: req.Attributes,
+		Tags:       initialTags,
 		Endpoint:   endpoint,
 		Region:     region,
 	})
@@ -561,7 +568,7 @@ func (h *Handler) handleSendMessage(
 		MessageID:              out.MessageID,
 		MD5OfMessageBody:       out.MD5OfBody,
 		MD5OfMessageAttributes: out.MD5OfMessageAttributes,
-		SequenceNumber:         "",
+		SequenceNumber:         out.SequenceNumber,
 	}, nil
 }
 
@@ -581,11 +588,12 @@ func (h *Handler) handleReceiveMessage(
 	}
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
-		QueueURL:            req.QueueURL,
-		MaxNumberOfMessages: req.MaxNumberOfMessages,
-		VisibilityTimeout:   vt,
-		WaitTimeSeconds:     req.WaitTimeSeconds,
-		AttributeNames:      req.AttributeNames,
+		QueueURL:              req.QueueURL,
+		MaxNumberOfMessages:   req.MaxNumberOfMessages,
+		VisibilityTimeout:     vt,
+		WaitTimeSeconds:       req.WaitTimeSeconds,
+		AttributeNames:        req.AttributeNames,
+		MessageAttributeNames: req.MessageAttributeNames,
 	})
 	if err != nil {
 		return nil, err
@@ -604,8 +612,8 @@ func (h *Handler) handleReceiveMessage(
 			MD5OfBody:              msg.MD5OfBody,
 			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
 			Body:                   msg.Body,
-			Attributes:             attrs,
-			MessageAttributes:      toJSONMsgAttrs(msg.MessageAttributes),
+			Attributes:             filterSystemAttrs(attrs, req.AttributeNames),
+			MessageAttributes:      filterJSONMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames),
 		})
 	}
 
@@ -694,6 +702,7 @@ func (h *Handler) handleSendMessageBatch(
 			MessageID:              s.MessageID,
 			MD5OfMessageBody:       s.MD5OfBody,
 			MD5OfMessageAttributes: s.MD5OfMessageAttributes,
+			SequenceNumber:         s.SequenceNumber,
 		})
 	}
 
@@ -1071,6 +1080,27 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 			"A message move task with the specified task handle is not running.",
 			badReq,
 		}},
+		{ErrInvalidQueueName, errorEntry{
+			ipv,
+			"The name of a queue can only include alphanumeric characters, hyphens, or underscores. " +
+				"Queue name must be between 1 and 80 characters.",
+			badReq,
+		}},
+		{ErrInvalidMessageBody, errorEntry{
+			ipv,
+			"The request includes a parameter that is not valid for this queue type.",
+			badReq,
+		}},
+		{ErrInvalidMaxMessages, errorEntry{
+			ipv,
+			"Value for parameter MaxNumberOfMessages is invalid. Reason: must be between 1 and 10, if provided.",
+			badReq,
+		}},
+		{ErrPurgeQueueInProgress, errorEntry{
+			"com.amazonaws.sqs#PurgeQueueInProgress",
+			"Only one PurgeQueue operation on SomeQueue is allowed every 60 seconds.",
+			badReq,
+		}},
 	}
 
 	for _, row := range rows {
@@ -1113,6 +1143,73 @@ func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAt
 
 	for k, v := range attrs {
 		result[k] = jsonMsgAttr(v)
+	}
+
+	return result
+}
+
+func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []string) map[string]jsonMsgAttr {
+	if len(attrs) == 0 || len(requested) == 0 {
+		return map[string]jsonMsgAttr{}
+	}
+
+	// AWS SDKs may send either "All" or ".*" to request all message attributes.
+	// Both are treated as wildcards that return every attribute, matching the
+	// behaviour of the real SQS service.
+	if containsStr(requested, attrAll) || containsStr(requested, ".*") {
+		return toJSONMsgAttrs(attrs)
+	}
+
+	exact := make(map[string]struct{}, len(requested))
+	prefixes := make([]string, 0, len(requested))
+	for _, name := range requested {
+		if before, ok := strings.CutSuffix(name, ".*"); ok {
+			prefixes = append(prefixes, before)
+
+			continue
+		}
+
+		exact[name] = struct{}{}
+	}
+
+	result := make(map[string]jsonMsgAttr)
+	for name, value := range attrs {
+		if _, ok := exact[name]; ok {
+			result[name] = jsonMsgAttr(value)
+
+			continue
+		}
+
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				result[name] = jsonMsgAttr(value)
+
+				break
+			}
+		}
+	}
+
+	return result
+}
+
+// filterSystemAttrs returns a copy of attrs filtered to only the names requested by
+// the AttributeNames parameter of a ReceiveMessage call. When requested is empty or
+// contains the "All" sentinel the full map is returned unchanged.
+func filterSystemAttrs(attrs map[string]string, requested []string) map[string]string {
+	if len(requested) == 0 {
+		return attrs
+	}
+
+	if containsStr(requested, attrAll) {
+		return attrs
+	}
+
+	result := make(map[string]string, len(requested))
+
+	for _, name := range requested {
+		if v, ok := attrs[name]; ok {
+			result[name] = v
+		}
 	}
 
 	return result

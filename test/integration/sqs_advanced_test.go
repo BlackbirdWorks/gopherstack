@@ -298,7 +298,7 @@ func TestIntegration_SQS_FIFODeduplication(t *testing.T) {
 			t.Parallel()
 			dumpContainerLogsOnFailure(t)
 
-			queueName := "fifo-dedup-" + tt.name + "-" + uuid.NewString() + ".fifo"
+			queueName := "fd-" + uuid.NewString()[:8] + ".fifo"
 			createOut, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
 				QueueName: aws.String(queueName),
 				Attributes: map[string]string{

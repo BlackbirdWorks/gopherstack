@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -56,6 +58,11 @@ type StorageBackend interface {
 // message to the destination and delete it from the source.
 const moveTaskVisibilityTimeoutSecs = 30
 
+const (
+	janitorInterval      = 30 * time.Second
+	moveTaskRetentionTTL = 15 * time.Minute
+)
+
 // moveTaskState tracks the live state of a StartMessageMoveTask goroutine.
 type moveTaskState struct {
 	cancel        context.CancelFunc
@@ -76,6 +83,7 @@ type InMemoryBackend struct {
 	queues         map[string]*Queue
 	moveTasks      map[string]*moveTaskState
 	snsUnsubscribe func()
+	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
@@ -90,13 +98,92 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		queues:    make(map[string]*Queue),
 		moveTasks: make(map[string]*moveTaskState),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
 	}
+
+	b.startJanitor()
+
+	return b
+}
+
+func (b *InMemoryBackend) startJanitor() {
+	b.janitorStop = make(chan struct{})
+
+	go b.runJanitor()
+}
+
+// Close stops the background janitor goroutine and releases associated
+// resources.  It is safe to call Close multiple times; subsequent calls are
+// no-ops.  The backend must not be used after Close returns.
+func (b *InMemoryBackend) Close() {
+	select {
+	case <-b.janitorStop:
+		// already closed
+	default:
+		close(b.janitorStop)
+	}
+}
+
+func (b *InMemoryBackend) runJanitor() {
+	ticker := time.NewTicker(janitorInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.janitorStop:
+			return
+		case <-ticker.C:
+			b.pruneState(time.Now())
+		}
+	}
+}
+
+func (b *InMemoryBackend) pruneState(now time.Time) {
+	b.mu.Lock("pruneState")
+	defer b.mu.Unlock()
+
+	dedupPruned := 0
+	msgExpired := 0
+
+	for _, q := range b.queues {
+		if q.IsFIFO {
+			before := len(q.DeduplicationIDs)
+			pruneDedup(q, now)
+			dedupPruned += before - len(q.DeduplicationIDs)
+		}
+
+		before := len(q.messages)
+		reQueueExpired(q, now)
+		expireRetainedMessages(q, now)
+		drainToDLQ(q)
+		msgExpired += max(0, before-len(q.messages))
+	}
+
+	tasksPruned := 0
+	pruneBefore := now.Add(-moveTaskRetentionTTL).UnixMilli()
+
+	for taskHandle, task := range b.moveTasks {
+		task.mu.Lock()
+		isTerminal := task.status == MoveTaskStatusCompleted ||
+			task.status == MoveTaskStatusCancelled ||
+			task.status == MoveTaskStatusFailed
+		isExpired := task.startedAt <= pruneBefore
+		task.mu.Unlock()
+
+		if isTerminal && isExpired {
+			delete(b.moveTasks, taskHandle)
+			tasksPruned++
+		}
+	}
+
+	totalItems := dedupPruned + msgExpired + tasksPruned
+	telemetry.RecordWorkerItems("sqs", "JanitorSweeper", totalItems)
+	telemetry.RecordWorkerTask("sqs", "JanitorSweeper", "success")
 }
 
 // queueNameFromInput extracts the queue name from a queue URL.
@@ -202,6 +289,64 @@ func appendWithLength(buf, data []byte) []byte {
 	return buf
 }
 
+// isConfigurableQueueAttribute reports whether name is a user-visible attribute key
+// that is compared during the idempotency check in CreateQueue. System-managed
+// attributes (ARN, timestamps, approximate counts, etc.) are excluded.
+func isConfigurableQueueAttribute(name string) bool {
+	switch name {
+	case attrVisibilityTimeout,
+		attrMaximumMessageSize,
+		attrMessageRetentionPeriod,
+		attrDelaySeconds,
+		attrReceiveMessageWaitTimeSeconds,
+		attrFifoQueue,
+		attrContentBasedDeduplication,
+		attrRedrivePolicy,
+		attrSqsManagedSseEnabled:
+		return true
+	}
+
+	return false
+}
+
+// queueNamePattern is a regex-free check used by validateQueueName.
+// AWS allows [a-zA-Z0-9_-]{1,80}.  FIFO queues must end with ".fifo".
+const maxQueueNameLength = 80
+
+// isValidQueueNameChar reports whether c is a character allowed in an SQS queue name.
+// AWS allows letters, digits, hyphens, and underscores only.  Periods are NOT part of
+// the standard character set; they appear exclusively in the ".fifo" suffix which is
+// checked separately in validateQueueName.
+func isValidQueueNameChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '_' || c == '-'
+}
+
+// validateQueueName returns an error if name violates AWS queue-name rules.
+func validateQueueName(name string) error {
+	if len(name) == 0 || len(name) > maxQueueNameLength {
+		return ErrInvalidQueueName
+	}
+
+	// For FIFO queues, the ".fifo" suffix is allowed.  Strip it before character validation
+	// so that the only allowed character that is not in [a-zA-Z0-9_-] is the trailing ".fifo".
+	base := name
+	if strings.HasSuffix(name, fifoSuffix) {
+		base = name[:len(name)-len(fifoSuffix)]
+		if base == "" {
+			return ErrInvalidQueueName
+		}
+	}
+
+	for _, c := range base {
+		if !isValidQueueNameChar(c) {
+			return ErrInvalidQueueName
+		}
+	}
+
+	return nil
+}
+
 // buildDefaultAttributes initialises the attribute map for a new queue.
 func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
 	now := strconv.FormatInt(time.Now().Unix(), 10)
@@ -217,6 +362,7 @@ func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) ma
 		attrLastModifiedTimestamp:         now,
 		attrQueueArn:                      queueARN,
 		attrApproxMessagesDelayed:         attrValZero,
+		attrSqsManagedSseEnabled:          attrValTrue,
 	}
 
 	if isFIFO {
@@ -229,11 +375,33 @@ func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) ma
 
 // CreateQueue creates a new SQS queue.
 func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutput, error) {
+	if err := validateQueueName(input.QueueName); err != nil {
+		return nil, err
+	}
+
+	if err := validateQueueAttributes(input.Attributes); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
-	if _, exists := b.queues[input.QueueName]; exists {
-		return nil, ErrQueueAlreadyExists
+	// AWS idempotency: if a queue with the same name exists and the caller-supplied
+	// configurable attributes are the same (or absent), return the existing URL.
+	// If the same name is used with different configurable attributes, return
+	// QueueNameExists (matches real SQS behaviour).
+	if q, exists := b.queues[input.QueueName]; exists {
+		for k, v := range input.Attributes {
+			if !isConfigurableQueueAttribute(k) {
+				continue
+			}
+
+			if existing := q.Attributes[k]; existing != v {
+				return nil, ErrQueueAlreadyExists
+			}
+		}
+
+		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
@@ -247,11 +415,14 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 	queueURL := "http://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
 
+	tagName := "sqs.queue." + input.QueueName + ".tags"
+
 	q := &Queue{
 		Name:                input.QueueName,
 		URL:                 queueURL,
 		IsFIFO:              isFIFO,
 		Attributes:          attrs,
+		Tags:                tags.FromMap(tagName, input.Tags),
 		Permissions:         make(map[string]*QueuePermissionEntry),
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
@@ -400,6 +571,10 @@ func containsStr(slice []string, s string) bool {
 
 // SetQueueAttributes updates attributes on an existing queue.
 func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) error {
+	if err := validateQueueAttributes(input.Attributes); err != nil {
+		return err
+	}
+
 	b.mu.Lock("SetQueueAttributes")
 	defer b.mu.Unlock()
 
@@ -421,14 +596,74 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 	return nil
 }
 
-// maxWaitTimeSeconds is the AWS maximum for ReceiveMessage WaitTimeSeconds.
-const maxWaitTimeSeconds = 20
+// validateQueueAttributes returns an error if any of the provided queue attributes
+// fall outside their allowed ranges (matching AWS SQS validation).
+func validateQueueAttributes(attrs map[string]string) error {
+	if err := validateIntAttrRange(attrs, attrVisibilityTimeout, 0, maxVisibilityTimeoutSeconds); err != nil {
+		return err
+	}
+
+	if err := validateIntAttrRange(attrs, attrDelaySeconds, 0, maxDelaySeconds); err != nil {
+		return err
+	}
+
+	if err := validateIntAttrRange(
+		attrs,
+		attrMessageRetentionPeriod,
+		minMessageRetentionPeriod,
+		maxMessageRetentionPeriod,
+	); err != nil {
+		return err
+	}
+
+	if err := validateIntAttrRange(
+		attrs,
+		attrReceiveMessageWaitTimeSeconds,
+		0,
+		maxReceiveMessageWaitTimeSeconds,
+	); err != nil {
+		return err
+	}
+
+	return validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize)
+}
+
+// maxReceiveMessageWaitTimeSeconds is the AWS maximum for ReceiveMessageWaitTimeSeconds.
+const maxReceiveMessageWaitTimeSeconds = 20
+
+// validateIntAttrRange returns ErrInvalidAttribute if the named attribute exists and
+// its integer value falls outside [attrMin, attrMax].
+func validateIntAttrRange(attrs map[string]string, name string, attrMin, attrMax int) error {
+	v, ok := attrs[name]
+	if !ok {
+		return nil
+	}
+
+	n, err := strconv.Atoi(v)
+	if err != nil || n < attrMin || n > attrMax {
+		return ErrInvalidAttribute
+	}
+
+	return nil
+}
 
 // maxVisibilityTimeoutSeconds is the AWS maximum for VisibilityTimeout (12 hours).
 const maxVisibilityTimeoutSeconds = 43200
 
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
+	if input.MessageBody == "" {
+		return nil, ErrInvalidMessageBody
+	}
+
+	if input.DelaySeconds < 0 || input.DelaySeconds > maxDelaySeconds {
+		return nil, ErrInvalidDelaySeconds
+	}
+
+	md5Body := computeMD5(input.MessageBody)
+	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
+	msgID := uuid.New().String()
+
 	b.mu.Lock("SendMessage")
 	defer b.mu.Unlock()
 
@@ -449,16 +684,11 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		}
 	}
 
-	md5Body := computeMD5(input.MessageBody)
-	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
-
 	// Capture now once so that pruneDedup, checkDedup, storeDedup, and message
 	// timestamps all use the same consistent clock value.
 	now := time.Now()
 
 	if q.IsFIFO {
-		pruneDedup(q, now)
-
 		if out, dup := checkDedup(
 			q,
 			input.MessageDeduplicationID,
@@ -470,8 +700,15 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		}
 	}
 
-	msgID := uuid.New().String()
 	sentTS := strconv.FormatInt(now.UnixMilli(), 10)
+
+	var seqNum string
+	if q.IsFIFO {
+		// fifoSeqCounter is guarded by b.mu (write-locked throughout SendMessage).
+		// No additional synchronisation is required.
+		q.fifoSeqCounter++
+		seqNum = fmt.Sprintf("%020d", q.fifoSeqCounter)
+	}
 
 	msg := &Message{
 		MessageID:              msgID,
@@ -480,6 +717,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		MD5OfMessageAttributes: md5Attrs,
 		MessageGroupID:         input.MessageGroupID,
 		MessageDeduplicationID: input.MessageDeduplicationID,
+		SequenceNumber:         seqNum,
 		SentTimestamp:          now.UnixMilli(),
 		MessageAttributes:      input.MessageAttributes,
 		Attributes: map[string]string{
@@ -490,6 +728,15 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	}
 
 	if q.IsFIFO {
+		msg.Attributes[attrSequenceNumber] = seqNum
+		if input.MessageGroupID != "" {
+			msg.Attributes[attrMessageGroupIDSys] = input.MessageGroupID
+		}
+
+		if input.MessageDeduplicationID != "" {
+			msg.Attributes[attrMessageDeduplicationIDSys] = input.MessageDeduplicationID
+		}
+
 		storeDedup(q, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now)
 	}
 
@@ -504,7 +751,12 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	q.notify = make(chan struct{})
 	close(old)
 
-	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
+	return &SendMessageOutput{
+		MessageID:              msgID,
+		MD5OfBody:              md5Body,
+		MD5OfMessageAttributes: md5Attrs,
+		SequenceNumber:         seqNum,
+	}, nil
 }
 
 // validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
@@ -567,7 +819,17 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 	}
 
 	expiry, found := q.DeduplicationIDs[effectiveID]
-	if !found || !now.Before(expiry) {
+	if !found {
+		return nil, false
+	}
+
+	if !now.Before(expiry) {
+		// Eagerly remove the expired entry inline. This keeps the deduplication map
+		// lean without waiting for the next janitor sweep, reducing memory pressure
+		// and speeding up subsequent lookups.
+		delete(q.DeduplicationIDs, effectiveID)
+		delete(q.deduplicationMsgIDs, effectiveID)
+
 		return nil, false
 	}
 
@@ -609,15 +871,44 @@ func pruneDedup(q *Queue, now time.Time) {
 // A 1-second recheck interval is also applied so that messages which reappear
 // due to visibility-timeout expiry (reQueueExpired) are picked up promptly even
 // when no new SendMessage occurs.
-func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
-	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxWaitTimeSeconds {
-		return nil, ErrInvalidWaitTime
+// validateReceiveInput validates and normalises the receive input, returning an
+// error if any parameter is out of range.  It mutates MaxNumberOfMessages so
+// that a zero value becomes the AWS default of 1.
+func validateReceiveInput(input *ReceiveMessageInput) error {
+	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxReceiveMessageWaitTimeSeconds {
+		return ErrInvalidWaitTime
 	}
 
+	// AWS accepts MaxNumberOfMessages in [1, 10]. Default to 1 when unset (0).
+	if input.MaxNumberOfMessages == 0 {
+		input.MaxNumberOfMessages = 1
+	}
+
+	if input.MaxNumberOfMessages < 1 || input.MaxNumberOfMessages > maxBatchSize {
+		return ErrInvalidMaxMessages
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
+	if err := validateReceiveInput(input); err != nil {
+		return nil, err
+	}
+
+	// If the caller did not specify a positive WaitTimeSeconds, apply the queue's
+	// ReceiveMessageWaitTimeSeconds attribute as the default long-poll duration.
+	// This mirrors the AWS behaviour where the queue-level attribute acts as the
+	// default wait time for receives that omit the parameter.
+	waitSecs := b.resolveWaitSeconds(input.QueueURL, input.WaitTimeSeconds)
+
 	name := queueNameFromInput(input.QueueURL)
-	deadline := time.Now().Add(time.Duration(input.WaitTimeSeconds) * time.Second)
+	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
 
 	const recheckInterval = time.Second
+
+	timer := time.NewTimer(recheckInterval)
+	defer timer.Stop()
 
 	for {
 		msgs, notifyCh, err := b.receiveOnce(name, input)
@@ -636,11 +927,48 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 
 		sleep := min(remaining, recheckInterval)
 
+		// Stop and drain the timer before Reset to guarantee the channel is empty
+		// before the next iteration begins. Both select arms leave the timer in a
+		// consistent state: the notifyCh arm already stops and drains; the C arm
+		// fires normally and drains. An explicit stop-and-drain here makes the
+		// invariant explicit and safe against future loop restructuring.
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		timer.Reset(sleep)
+
 		select {
 		case <-notifyCh:
-		case <-time.After(sleep):
+			if !timer.Stop() {
+				<-timer.C
+			}
+		case <-timer.C:
 		}
 	}
+}
+
+// resolveWaitSeconds returns the effective long-poll wait duration.
+// If requested is positive it is returned unchanged. Otherwise the queue's
+// ReceiveMessageWaitTimeSeconds attribute is used as the default.
+func (b *InMemoryBackend) resolveWaitSeconds(queueURL string, requested int) int {
+	if requested > 0 {
+		return requested
+	}
+
+	b.mu.RLock("resolveWaitSeconds")
+	defer b.mu.RUnlock()
+
+	if q, ok := b.queues[queueNameFromInput(queueURL)]; ok {
+		if v, err := strconv.Atoi(q.Attributes[attrReceiveMessageWaitTimeSeconds]); err == nil && v > 0 {
+			return v
+		}
+	}
+
+	return 0
 }
 
 // drainToDLQ moves messages that have hit maxReceiveCount into the DLQ queue.
@@ -692,7 +1020,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 
-	return pickMessages(q, maxMessages, vt, now), q.notify, nil
+	return pickMessages(q, b.accountID, maxMessages, vt, now), q.notify, nil
 }
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
@@ -750,8 +1078,9 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 
 // pickMessages moves up to maxMessages visible (non-delayed) messages from the
 // queue to in-flight and returns them. Messages whose VisibleAt is in the future
-// are skipped and remain in the queue.
-func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
+// are skipped and remain in the queue. The accountID is used to populate the
+// SenderId system attribute on first-time receive.
+func pickMessages(q *Queue, accountID string, maxMessages, vt int, now time.Time) []*Message {
 	// No capacity hint — user-derived values like maxMessages in the
 	// capacity slot trigger CodeQL.
 	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
@@ -765,13 +1094,14 @@ func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
 			msg.ApproximateReceiveCount++
 			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
 
-			// Set ApproximateFirstReceiveTimestamp on the first receive.
+			// Set ApproximateFirstReceiveTimestamp and SenderId on the first receive.
 			if msg.ApproximateFirstReceiveTimestamp == 0 {
 				msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
 				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
 					msg.ApproximateFirstReceiveTimestamp,
 					10,
 				)
+				msg.Attributes[attrSenderID] = accountID
 			}
 
 			inf := &InFlightMessage{
@@ -834,13 +1164,31 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 }
 
 // changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
+// When visibilityTimeout is 0 the message is immediately returned to the visible queue,
+// matching the AWS behaviour where a zero timeout makes a message immediately available.
 func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) error {
-	for _, inf := range q.inFlightMessages {
-		if inf.ReceiptHandle == receiptHandle {
-			inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
+	for i, inf := range q.inFlightMessages {
+		if inf.ReceiptHandle != receiptHandle {
+			continue
+		}
+
+		if visibilityTimeout == 0 {
+			// Move back to the visible queue immediately.
+			inf.Msg.VisibleAt = time.Now()
+			q.messages = append(q.messages, inf.Msg)
+			q.inFlightMessages = append(q.inFlightMessages[:i], q.inFlightMessages[i+1:]...)
+
+			// Wake long-poll receivers that may be waiting for a message.
+			old := q.notify
+			q.notify = make(chan struct{})
+			close(old)
 
 			return nil
 		}
+
+		inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
+
+		return nil
 	}
 
 	return ErrMessageNotInflight
@@ -943,6 +1291,7 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 			MessageID:              sendOut.MessageID,
 			MD5OfBody:              sendOut.MD5OfBody,
 			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
+			SequenceNumber:         sendOut.SequenceNumber,
 		})
 	}
 
@@ -953,6 +1302,24 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*DeleteMessageBatchOutput, error) {
 	if len(input.Entries) == 0 {
 		return nil, ErrInvalidBatchEntry
+	}
+
+	if len(input.Entries) > maxBatchSize {
+		return nil, ErrTooManyEntriesInBatch
+	}
+
+	// AWS requires batch entry IDs to be distinct within a single request.
+	seen := make(map[string]struct{}, len(input.Entries))
+	for _, entry := range input.Entries {
+		if entry.ID == "" {
+			return nil, ErrInvalidBatchEntry
+		}
+
+		if _, dup := seen[entry.ID]; dup {
+			return nil, ErrBatchEntryIDsNotDistinct
+		}
+
+		seen[entry.ID] = struct{}{}
 	}
 
 	out := &DeleteMessageBatchOutput{}
@@ -980,6 +1347,7 @@ func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*D
 }
 
 // PurgeQueue removes all messages from a queue without deleting it.
+// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
 func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	b.mu.Lock("PurgeQueue")
 	defer b.mu.Unlock()
@@ -991,8 +1359,22 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 		return ErrQueueNotFound
 	}
 
+	// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
+	// b.mu is already held (write-locked above), so this read is safe.
+	if !q.lastPurgedAt.IsZero() && time.Since(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
+		return ErrPurgeQueueInProgress
+	}
+
 	q.messages = nil
 	q.inFlightMessages = nil
+	q.lastPurgedAt = time.Now()
+
+	// For FIFO queues, purging messages also resets the deduplication state so
+	// that producers can re-send messages with the same deduplication IDs.
+	if q.IsFIFO {
+		q.DeduplicationIDs = make(map[string]time.Time)
+		q.deduplicationMsgIDs = make(map[string]string)
+	}
 
 	return nil
 }
