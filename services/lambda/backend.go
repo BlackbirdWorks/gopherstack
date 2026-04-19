@@ -76,6 +76,9 @@ const versionLatest = "$LATEST"
 // lambdaDefaultMaxItems is the default page size for ListFunctions.
 const lambdaDefaultMaxItems = 50
 
+// maxCleanupConcurrency is the maximum number of concurrent runtime cleanup goroutines.
+const maxCleanupConcurrency = 64
+
 const extractParentDirPerm = 0o750
 
 // StorageBackend defines the interface for Lambda backend operations.
@@ -160,6 +163,12 @@ type InMemoryBackend struct {
 	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
 	layers                   map[string][]*LayerVersion
 	eventSourceMappings      map[string]*EventSourceMapping
+	// esmByFunctionARN indexes ESM UUIDs by function ARN for O(1) list-by-function.
+	esmByFunctionARN map[string]map[string]struct{}
+	// versionIndex indexes published versions by function name and version number.
+	versionIndex map[string]map[string]*FunctionVersion
+	// cleanupSem bounds concurrent runtime cleanup goroutines.
+	cleanupSem               chan struct{}
 	layerPolicies            map[string]map[int64]map[string]*LayerVersionStatement
 	fisFaults                map[string]*FISInvocationFault
 	permissions              map[string]map[string]*FunctionPermission
@@ -190,6 +199,9 @@ func NewInMemoryBackend(
 		functions:                make(map[string]*FunctionConfiguration),
 		runtimes:                 make(map[string]*functionRuntime),
 		eventSourceMappings:      make(map[string]*EventSourceMapping),
+		esmByFunctionARN:         make(map[string]map[string]struct{}),
+		versionIndex:             make(map[string]map[string]*FunctionVersion),
+		cleanupSem:               make(chan struct{}, maxCleanupConcurrency),
 		functionURLConfigs:       make(map[string]*FunctionURLConfig),
 		functionURLServers:       make(map[string]*functionURLServer),
 		versions:                 make(map[string][]*FunctionVersion),
@@ -326,6 +338,10 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 	b.mu.Lock("CreateEventSourceMapping")
 	defer b.mu.Unlock()
 
+	if input.EventSourceARN == "" {
+		return nil, fmt.Errorf("%w: EventSourceARN must not be empty", ErrInvalidParameterValue)
+	}
+
 	id := uuid.New().String()
 	state := ESMStateEnabled
 	if !input.Enabled {
@@ -356,6 +372,15 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 
 	b.eventSourceMappings[id] = m
 
+	if b.esmByFunctionARN[fnARN] == nil {
+		b.esmByFunctionARN[fnARN] = make(map[string]struct{})
+	}
+	b.esmByFunctionARN[fnARN][id] = struct{}{}
+
+	if input.Enabled && b.kinesisPoller != nil {
+		b.kinesisPoller.Notify()
+	}
+
 	return m, nil
 }
 
@@ -380,13 +405,22 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 	b.mu.RLock("ListEventSourceMappings")
 	defer b.mu.RUnlock()
 
-	result := make([]*EventSourceMapping, 0, len(b.eventSourceMappings))
-	for _, m := range b.eventSourceMappings {
-		if functionName != "" && !strings.HasSuffix(m.FunctionARN, ":function:"+functionName) {
-			continue
-		}
+	var result []*EventSourceMapping
 
-		result = append(result, m)
+	if functionName != "" {
+		fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+functionName)
+		ids := b.esmByFunctionARN[fnARN]
+		result = make([]*EventSourceMapping, 0, len(ids))
+		for id := range ids {
+			if m, ok := b.eventSourceMappings[id]; ok {
+				result = append(result, m)
+			}
+		}
+	} else {
+		result = make([]*EventSourceMapping, 0, len(b.eventSourceMappings))
+		for _, m := range b.eventSourceMappings {
+			result = append(result, m)
+		}
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -407,6 +441,12 @@ func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMappi
 	}
 
 	delete(b.eventSourceMappings, id)
+	if ids := b.esmByFunctionARN[m.FunctionARN]; ids != nil {
+		delete(ids, id)
+		if len(ids) == 0 {
+			delete(b.esmByFunctionARN, m.FunctionARN)
+		}
+	}
 	if b.kinesisPoller != nil {
 		b.kinesisPoller.RemoveMapping(id)
 	}
@@ -563,15 +603,34 @@ func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) 
 	return &functionURLServer{listener: ln, server: srv, port: port}, nil
 }
 
+// lambdaURLHTTPContext contains the HTTP-specific fields of the Lambda URL request context.
+type lambdaURLHTTPContext struct {
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	Protocol string `json:"protocol"`
+	SourceIP string `json:"sourceIp"`
+}
+
+// lambdaURLRequestContext contains request context metadata for Lambda Function URL events.
+type lambdaURLRequestContext struct {
+	HTTP       lambdaURLHTTPContext `json:"http"`
+	RequestID  string               `json:"requestId"`
+	Stage      string               `json:"stage"`
+	DomainName string               `json:"domainName"`
+	Time       string               `json:"time"`
+	TimeEpoch  int64                `json:"timeEpoch"`
+}
+
 // lambdaURLEvent is a simplified Lambda Function URL (HTTP API v2) event.
 type lambdaURLEvent struct {
-	RawPath         string            `json:"rawPath"`
-	RawQueryString  string            `json:"rawQueryString"`
-	Headers         map[string]string `json:"headers"`
-	Body            string            `json:"body,omitempty"`
-	Version         string            `json:"version"`
-	RouteKey        string            `json:"routeKey"`
-	IsBase64Encoded bool              `json:"isBase64Encoded"`
+	Headers         map[string]string       `json:"headers"`
+	RawPath         string                  `json:"rawPath"`
+	RawQueryString  string                  `json:"rawQueryString"`
+	Body            string                  `json:"body,omitempty"`
+	Version         string                  `json:"version"`
+	RouteKey        string                  `json:"routeKey"`
+	RequestContext  lambdaURLRequestContext `json:"requestContext"`
+	IsBase64Encoded bool                    `json:"isBase64Encoded"`
 }
 
 // lambdaURLResponse is a simplified Lambda Function URL response.
@@ -627,6 +686,26 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 		RawPath:        r.URL.Path,
 		RawQueryString: r.URL.RawQuery,
 		Headers:        headers,
+		RequestContext: lambdaURLRequestContext{
+			HTTP: lambdaURLHTTPContext{
+				Method:   r.Method,
+				Path:     r.URL.Path,
+				Protocol: r.Proto,
+				SourceIP: func() string {
+					ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+					if ip == "" {
+						return r.RemoteAddr
+					}
+
+					return ip
+				}(),
+			},
+			RequestID:  uuid.New().String(),
+			Stage:      "$default",
+			DomainName: r.Host,
+			TimeEpoch:  time.Now().UTC().UnixMilli(),
+			Time:       time.Now().UTC().Format(time.RFC3339Nano),
+		},
 	}
 
 	if len(bodyBytes) > 0 {
@@ -736,9 +815,27 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 	rt := b.runtimes[name]
 	delete(b.runtimes, name)
+
+	// Cascade-delete event source mappings for this function.
+	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+name)
+	var esmIDsToRemove []string
+	if ids, ok := b.esmByFunctionARN[fnARN]; ok {
+		for id := range ids {
+			delete(b.eventSourceMappings, id)
+			esmIDsToRemove = append(esmIDsToRemove, id)
+		}
+		delete(b.esmByFunctionARN, fnARN)
+	}
+
 	b.mu.Unlock()
 
-	// Clean up runtime resources outside the lock to avoid blocking while stopping the server.
+	for _, id := range esmIDsToRemove {
+		if b.kinesisPoller != nil {
+			b.kinesisPoller.RemoveMapping(id)
+		}
+	}
+
+	// Clean up runtime resources; must not hold b.mu while stopping the server.
 	if rt != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
 		defer cancel()
@@ -775,11 +872,20 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	// before the container shuts down. rt is passed as a parameter to make the capture
 	// explicit and safe against future refactoring.
 	if rt != nil {
-		go func(evicted *functionRuntime) { // #nosec G118 -- intentional detached context for background cleanup
+		select {
+		case b.cleanupSem <- struct{}{}:
+			go func(evicted *functionRuntime) { // #nosec G118 -- intentional detached context for background cleanup
+				defer func() { <-b.cleanupSem }()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				defer cancel()
+				b.cleanupRuntime(shutdownCtx, evicted)
+			}(rt)
+		default:
+			// Already at max concurrent cleanups; run inline (rare, only under extreme load).
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
 			defer cancel()
-			b.cleanupRuntime(shutdownCtx, evicted)
-		}(rt)
+			b.cleanupRuntime(shutdownCtx, rt)
+		}
 	}
 
 	return nil
@@ -819,6 +925,11 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 	}
 
 	b.versions[name] = append(b.versions[name], ver)
+
+	if b.versionIndex[name] == nil {
+		b.versionIndex[name] = make(map[string]*FunctionVersion)
+	}
+	b.versionIndex[name][versionNum] = ver
 
 	return ver, nil
 }
@@ -1029,8 +1140,8 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	}
 
 	// Now qualifier is a version number. Find the version snapshot.
-	for _, v := range b.versions[name] {
-		if v.Version == qualifier {
+	if vMap := b.versionIndex[name]; vMap != nil {
+		if v, ok := vMap[qualifier]; ok {
 			fn := versionToFn(v)
 			b.mu.RUnlock()
 
@@ -1235,7 +1346,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
 	_ = isError
 
-	b.pushInvocationLog(fn.FunctionName, payload, result)
+	b.pushInvocationLog(ctx, fn.FunctionName, payload, result)
 
 	return result, http.StatusOK, nil
 }
@@ -1358,7 +1469,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 
 		if !result.isError || attempt == maxRetries {
 			if !result.isError {
-				b.pushInvocationLog(functionName, inv.payload, result.payload)
+				b.pushInvocationLog(context.Background(), functionName, inv.payload, result.payload)
 			} else {
 				slog.Default().Warn("lambda: async invocation failed after retries",
 					"function", functionName, "attempts", attempt+1)
@@ -1530,7 +1641,7 @@ func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
 }
 
 // pushInvocationLog writes a minimal invocation log entry to CloudWatch Logs when a backend is set.
-func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, result []byte) {
+func (b *InMemoryBackend) pushInvocationLog(ctx context.Context, functionName string, _ []byte, result []byte) {
 	b.mu.RLock("pushInvocationLog")
 	cwl := b.cwLogs
 	b.mu.RUnlock()
@@ -1543,19 +1654,29 @@ func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, resul
 	streamName := time.Now().UTC().Format("2006/01/02") + "/[$LATEST]" + uuid.New().String()[:8]
 
 	if err := cwl.EnsureLogGroupAndStream(groupName, streamName); err != nil {
-		slog.Default().Warn("pushInvocationLog: failed to ensure log group/stream",
+		logger.Load(ctx).WarnContext(ctx, "pushInvocationLog: failed to ensure log group/stream",
 			"function", functionName, "error", err)
 
 		return
 	}
 
+	requestID := uuid.New().String()
+	report := "REPORT RequestId: " + requestID +
+		"\tDuration: 0.00 ms\tBilled Duration: 1 ms\tMemory Size: 128 MB\tMax Memory Used: 128 MB"
 	messages := []string{
-		"END RequestId: " + uuid.New().String(),
-		"REPORT response length: " + strconv.Itoa(len(result)),
+		"START RequestId: " + requestID + " Version: $LATEST",
 	}
+	if len(result) > 0 {
+		messages = append(messages, string(result))
+	}
+	messages = append(
+		messages,
+		"END RequestId: "+requestID,
+		report,
+	)
 
 	if err := cwl.PutLogLines(groupName, streamName, messages); err != nil {
-		slog.Default().Warn("pushInvocationLog: failed to put log lines",
+		logger.Load(ctx).WarnContext(ctx, "pushInvocationLog: failed to put log lines",
 			"function", functionName, "error", err)
 	}
 }
@@ -1662,7 +1783,14 @@ func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
 		return
 	}
 
+	select {
+	case b.cleanupSem <- struct{}{}:
+	default:
+		// Already at max concurrent cleanups; skip
+		return
+	}
 	go func() {
+		defer func() { <-b.cleanupSem }()
 		ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
 		defer cancel()
 		b.cleanupRuntime(ctx, rt)
@@ -2854,6 +2982,8 @@ func (b *InMemoryBackend) Reset() {
 	b.layerVersionCounters = make(map[string]int64)
 	b.layerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
 	b.eventSourceMappings = make(map[string]*EventSourceMapping)
+	b.esmByFunctionARN = make(map[string]map[string]struct{})
+	b.versionIndex = make(map[string]map[string]*FunctionVersion)
 	b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
 	b.functionConcurrencies = make(map[string]int)
 	b.activeConcurrencies = make(map[string]int)
@@ -2955,9 +3085,16 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 	delete(b.fisFaults, name)
 	for id, m := range b.eventSourceMappings {
 		if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
+			if ids, ok := b.esmByFunctionARN[m.FunctionARN]; ok {
+				delete(ids, id)
+				if len(ids) == 0 {
+					delete(b.esmByFunctionARN, m.FunctionARN)
+				}
+			}
 			delete(b.eventSourceMappings, id)
 		}
 	}
+	delete(b.versionIndex, name)
 }
 
 // shutdownPurgedResources shuts down URL servers and runtimes outside the lock.
@@ -3433,16 +3570,19 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	input *UpdateEventSourceMappingInput,
 ) (*EventSourceMapping, error) {
 	b.mu.Lock("UpdateEventSourceMapping")
-	defer b.mu.Unlock()
 
 	esm, ok := b.eventSourceMappings[id]
 	if !ok {
+		b.mu.Unlock()
+
 		return nil, ErrESMNotFound
 	}
 
+	var nowEnabled bool
 	if input.Enabled != nil {
 		if *input.Enabled {
 			esm.State = ESMStateEnabled
+			nowEnabled = true
 		} else {
 			esm.State = ESMStateDisabled
 		}
@@ -3450,6 +3590,13 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 
 	if input.BatchSize > 0 {
 		esm.BatchSize = input.BatchSize
+	}
+
+	poller := b.kinesisPoller
+	b.mu.Unlock()
+
+	if nowEnabled && poller != nil {
+		poller.Notify()
 	}
 
 	return esm, nil

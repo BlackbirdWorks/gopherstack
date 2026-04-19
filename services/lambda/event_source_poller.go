@@ -93,6 +93,7 @@ type EventSourcePoller struct {
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
 	mu               *lockmetrics.RWMutex
+	notifyCh         chan struct{}
 	// sqsInvoker is an optional override for the Lambda invocation step used
 	// when processing SQS messages. When nil the real InMemoryBackend is used.
 	// Intended for use in unit tests only.
@@ -113,6 +114,16 @@ func NewEventSourcePoller(
 		kinesisReader:  kinesisReader,
 		shardIterators: make(map[string]string),
 		mu:             lockmetrics.New("lambda.esm"),
+		notifyCh:       make(chan struct{}, 1),
+	}
+}
+
+// Notify triggers an immediate poll cycle without waiting for the next tick.
+// It is safe to call concurrently. If a notification is already pending, this is a no-op.
+func (p *EventSourcePoller) Notify() {
+	select {
+	case p.notifyCh <- struct{}{}:
+	default:
 	}
 }
 
@@ -160,6 +171,8 @@ func (p *EventSourcePoller) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.notifyCh:
+			p.poll(ctx)
 		case <-ticker.C:
 			p.poll(ctx)
 		}
