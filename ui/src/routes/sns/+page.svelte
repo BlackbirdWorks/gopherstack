@@ -720,6 +720,7 @@ class="p-1 text-slate-400 hover:text-red-500"
 {/if}
 <button
 onclick={() => copyText(selectedTopic?.TopicArn ?? '', 'Topic ARN')}
+title={selectedTopic.TopicArn}
 class="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-500 mt-1 font-mono"
 >
 <Copy class="w-3 h-3" />
@@ -793,7 +794,13 @@ title="Add subscription"
 <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500"></div>
 </div>
 {:else if subscriptions.length === 0}
-<p class="text-slate-500 dark:text-slate-400 text-sm py-4 text-center">No subscriptions yet</p>
+<div class="py-6 text-center">
+<p class="text-slate-500 dark:text-slate-400 text-sm">No subscriptions yet</p>
+<button
+onclick={() => { showSubscribeModal = true; }}
+class="mt-2 text-xs text-indigo-500 hover:underline"
+>Add first subscription &rarr;</button>
+</div>
 {:else}
 {#each subscriptions as sub}
 {@const subArn = sub.SubscriptionArn ?? ''}
@@ -1415,15 +1422,19 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <option value="ADM">ADM (Amazon Kindle)</option>
 <option value="BAIDU">BAIDU (China)</option>
 <option value="WNS">WNS (Windows)</option>
+<option value="MPNS">MPNS (Windows Phone)</option>
 </select>
 </div>
 <div>
-<label for="app-credential" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Platform Credential <span class="font-normal text-slate-400">(server key / certificate)</span></label>
+<label for="app-credential" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+{newAppPlatform === 'GCM' ? 'Server API Key (PlatformCredential)' : newAppPlatform === 'APNS' || newAppPlatform === 'APNS_SANDBOX' ? 'Private Key (PlatformCredential)' : newAppPlatform === 'WNS' ? 'Client Secret (PlatformCredential)' : 'Platform Credential'}
+<span class="font-normal text-slate-400">(server key / certificate)</span>
+</label>
 <textarea
 id="app-credential"
 bind:value={newAppCredential}
 rows={3}
-placeholder="Server API key or PEM certificate content..."
+placeholder={newAppPlatform === 'GCM' ? 'AIza...' : newAppPlatform === 'APNS' || newAppPlatform === 'APNS_SANDBOX' ? '-----BEGIN PRIVATE KEY-----\n...' : 'Server API key or PEM certificate content...'}
 class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-xs resize-none"
 required
 ></textarea>

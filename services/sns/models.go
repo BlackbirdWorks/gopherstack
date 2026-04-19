@@ -32,15 +32,15 @@ type Topic struct {
 type Subscription struct {
 	CreationTimestamp   time.Time `json:"creationTimestamp"`
 	parsedFilterPolicy  parsedFilterPolicy
-	FilterPolicy        string `json:"filterPolicy,omitempty"`
-	Protocol            string `json:"protocol"`
+	RedrivePolicy       string `json:"redrivePolicy,omitempty"`
 	Endpoint            string `json:"endpoint"`
 	Owner               string `json:"owner"`
 	TopicArn            string `json:"topicArn"`
-	RedrivePolicy       string `json:"redrivePolicy,omitempty"`
+	Protocol            string `json:"protocol"`
 	SubscriptionRoleArn string `json:"subscriptionRoleArn,omitempty"`
 	FilterPolicyScope   string `json:"filterPolicyScope,omitempty"`
 	SubscriptionArn     string `json:"subscriptionArn"`
+	FilterPolicy        string `json:"filterPolicy,omitempty"`
 	RawMessageDelivery  bool   `json:"rawMessageDelivery,omitempty"`
 	PendingConfirmation bool   `json:"pendingConfirmation"`
 }

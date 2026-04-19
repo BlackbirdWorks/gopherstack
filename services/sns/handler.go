@@ -506,19 +506,53 @@ func (h *Handler) handleListSubscriptionsByTopic(c *echo.Context) error {
 
 func (h *Handler) handlePublish(c *echo.Context) error {
 	topicArn := c.Request().FormValue("TopicArn")
+	targetArn := c.Request().FormValue("TargetArn")
+	phoneNumber := c.Request().FormValue("PhoneNumber")
 	message := c.Request().FormValue("Message")
 	subject := c.Request().FormValue("Subject")
 	messageStructure := c.Request().FormValue("MessageStructure")
 
-	if topicArn == "" || message == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Message are required")
+	// Exactly one of TopicArn, TargetArn, or PhoneNumber must be specified.
+	if message == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Message is required")
+	}
+
+	if topicArn == "" && targetArn == "" && phoneNumber == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+			"TopicArn, TargetArn, or PhoneNumber is required")
 	}
 
 	attrs := extractMessageAttributes(c.Request().Form)
 
-	messageID, err := h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
-	if err != nil {
-		return h.handleBackendError(c, err)
+	var messageID string
+	var err error
+
+	switch {
+	case topicArn != "":
+		// FIFO topics require MessageGroupId.
+		if strings.HasSuffix(topicArn, ".fifo") {
+			if c.Request().FormValue("MessageGroupId") == "" {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+					"MessageGroupId is required for FIFO topics")
+			}
+		}
+
+		messageID, err = h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
+		if err != nil {
+			return h.handleBackendError(c, err)
+		}
+	case targetArn != "":
+		// TargetArn addresses a platform endpoint. In the mock, generate a message ID.
+		messageID, err = h.Backend.PublishToTargetArn(targetArn, message, subject, attrs)
+		if err != nil {
+			return h.handleBackendError(c, err)
+		}
+	default:
+		// PhoneNumber direct SMS publish — generate a message ID in the mock.
+		messageID, err = h.Backend.PublishSMS(phoneNumber, message)
+		if err != nil {
+			return h.handleBackendError(c, err)
+		}
 	}
 
 	return h.writeXML(c, PublishResponse{
@@ -551,7 +585,21 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
 	failed := make([]XMLPublishBatchFailEntry, 0)
 
+	isFIFO := strings.HasSuffix(topicArn, ".fifo")
+
 	for _, entry := range entries {
+		// FIFO topics require MessageGroupId on every batch entry.
+		if isFIFO && entry.messageGroupID == "" {
+			failed = append(failed, XMLPublishBatchFailEntry{
+				ID:          entry.id,
+				Code:        "InvalidParameter",
+				Message:     "MessageGroupId is required for FIFO topics",
+				SenderFault: true,
+			})
+
+			continue
+		}
+
 		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "" /* messageStructure */, entry.attrs)
 		if err != nil {
 			failed = append(failed, XMLPublishBatchFailEntry{
@@ -1339,10 +1387,11 @@ func extractMessageAttributesWithPrefix(form url.Values, prefix string) map[stri
 
 // batchEntry holds a single parsed PublishBatch entry.
 type batchEntry struct {
-	attrs   map[string]MessageAttribute
-	id      string
-	message string
-	subject string
+	attrs          map[string]MessageAttribute
+	id             string
+	message        string
+	subject        string
+	messageGroupID string
 }
 
 // snsListTagsResult is the inner result element for ListTagsForResource.
@@ -1379,10 +1428,11 @@ func extractBatchEntries(form url.Values) []batchEntry {
 		attrs := extractMessageAttributesWithPrefix(form, prefix)
 
 		entries = append(entries, batchEntry{
-			id:      id,
-			message: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
-			subject: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
-			attrs:   attrs,
+			id:             id,
+			message:        form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
+			subject:        form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
+			attrs:          attrs,
+			messageGroupID: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageGroupId", i)),
 		})
 	}
 }

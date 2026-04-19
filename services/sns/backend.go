@@ -81,7 +81,12 @@ const (
 	// defaultEffectiveDeliveryPolicyJSON mirrors the AWS default SNS delivery
 	// retry configuration returned in GetTopicAttributes when no custom
 	// DeliveryPolicy has been set.
-	defaultEffectiveDeliveryPolicyJSON = `{"http":{"defaultHealthyRetryPolicy":{"minDelayTarget":20,"maxDelayTarget":20,"numRetries":3,"numMaxDelayRetries":0,"numNoDelayRetries":0,"numMinDelayRetries":0,"backoffFunction":"linear"},"disableSubscriptionOverrides":false}}`
+	defaultEffectiveDeliveryPolicyJSON = `{"http":{"defaultHealthyRetryPolicy":{"minDelayTarget":20,` +
+		`"maxDelayTarget":20,"numRetries":3,"numMaxDelayRetries":0,"numNoDelayRetries":0,` +
+		`"numMinDelayRetries":0,"backoffFunction":"linear"},"disableSubscriptionOverrides":false}}`
+
+	// fifoTopicAttrValue is the attribute value indicating a topic is FIFO.
+	fifoTopicAttrValue = "true"
 
 	// maxListSMSSandboxResults is the maximum MaxResults value for ListSMSSandboxPhoneNumbers.
 	maxListSMSSandboxResults = 100
@@ -169,6 +174,12 @@ type StorageBackend interface {
 	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
 	SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
+	// PublishToTargetArn publishes directly to a platform endpoint ARN.
+	// In the mock, this generates and returns a unique message ID without real delivery.
+	PublishToTargetArn(targetArn, message, subject string, attrs map[string]MessageAttribute) (string, error)
+	// PublishSMS publishes directly to a phone number via SMS.
+	// In the mock, this generates and returns a unique message ID without real delivery.
+	PublishSMS(phoneNumber, message string) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
 	ListAllPlatformApplications() []PlatformApplication
@@ -330,7 +341,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 
 	// Validate FifoTopic attribute consistency with topic name.
 	// AWS rejects CreateTopic when FifoTopic=true but name doesn't end in ".fifo".
-	if attrs["FifoTopic"] == "true" && !strings.HasSuffix(name, fifoTopicSuffix) {
+	if attrs["FifoTopic"] == fifoTopicAttrValue && !strings.HasSuffix(name, fifoTopicSuffix) {
 		return nil, fmt.Errorf(
 			"%w: Topic name must end with '.fifo' for FIFO topics",
 			ErrInvalidParameter,
@@ -338,7 +349,9 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	}
 
 	// ContentBasedDeduplication is only valid on FIFO topics.
-	if attrs["ContentBasedDeduplication"] != "" && attrs["FifoTopic"] != "true" && !strings.HasSuffix(name, fifoTopicSuffix) {
+	if attrs["ContentBasedDeduplication"] != "" &&
+		attrs["FifoTopic"] != fifoTopicAttrValue &&
+		!strings.HasSuffix(name, fifoTopicSuffix) {
 		return nil, fmt.Errorf(
 			"%w: ContentBasedDeduplication is only applicable to FIFO topics",
 			ErrInvalidParameter,
@@ -347,7 +360,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 
 	// FIFO topics: auto-set FifoTopic=true and ContentBasedDeduplication if not already set.
 	if strings.HasSuffix(name, fifoTopicSuffix) {
-		attrs["FifoTopic"] = "true"
+		attrs["FifoTopic"] = fifoTopicAttrValue
 		if attrs["ContentBasedDeduplication"] == "" {
 			attrs["ContentBasedDeduplication"] = "false"
 		}
@@ -449,7 +462,9 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	}
 
 	// Count subscriptions for this topic.
-	confirmed, pending, deleted := 0, 0, 0
+	// SubscriptionsDeleted is not tracked in memory — AWS also resets this counter
+	// periodically, so we report 0 for consistency with a fresh mock environment.
+	confirmed, pending := 0, 0
 
 	for _, sub := range b.topicSubscriptions[topicArn] {
 		if sub.PendingConfirmation {
@@ -461,7 +476,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 
 	attrs["SubscriptionsConfirmed"] = strconv.Itoa(confirmed)
 	attrs["SubscriptionsPending"] = strconv.Itoa(pending)
-	attrs["SubscriptionsDeleted"] = strconv.Itoa(deleted)
+	attrs["SubscriptionsDeleted"] = "0"
 
 	return attrs, nil
 }
@@ -489,7 +504,9 @@ func isKnownTopicAttribute(name string) bool {
 	case "FirehoseSuccessFeedbackRoleArn", "FirehoseSuccessFeedbackSampleRate", "FirehoseFailureFeedbackRoleArn":
 		return true
 	// Mobile application (GCM/APNS/etc.) delivery status logging.
-	case "ApplicationSuccessFeedbackRoleArn", "ApplicationSuccessFeedbackSampleRate", "ApplicationFailureFeedbackRoleArn":
+	case "ApplicationSuccessFeedbackRoleArn",
+		"ApplicationSuccessFeedbackSampleRate",
+		"ApplicationFailureFeedbackRoleArn":
 		return true
 	}
 
@@ -515,7 +532,7 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	}
 
 	// ContentBasedDeduplication is only valid on FIFO topics.
-	if attrName == "ContentBasedDeduplication" && topic.Attributes["FifoTopic"] != "true" {
+	if attrName == "ContentBasedDeduplication" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
 		return fmt.Errorf(
 			"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
 			ErrInvalidParameter,
@@ -523,7 +540,7 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	}
 
 	// FifoThroughputScope is only valid on FIFO topics.
-	if attrName == "FifoThroughputScope" && topic.Attributes["FifoTopic"] != "true" {
+	if attrName == "FifoThroughputScope" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
 		return fmt.Errorf(
 			"%w: Invalid parameter: FifoThroughputScope is only applicable to FIFO topics",
 			ErrInvalidParameter,
@@ -948,6 +965,32 @@ func (b *InMemoryBackend) Publish(
 	return messageID, nil
 }
 
+// PublishToTargetArn publishes a message directly to a platform endpoint ARN.
+// In the mock, this generates and returns a unique message ID. No actual delivery occurs.
+func (b *InMemoryBackend) PublishToTargetArn(
+	targetArn, _ /* message */, _ /* subject */ string,
+	_ map[string]MessageAttribute,
+) (string, error) {
+	b.mu.RLock("PublishToTargetArn")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.platformEndpoints[targetArn]; !exists {
+		return "", ErrEndpointNotFound
+	}
+
+	return uuid.New().String(), nil
+}
+
+// PublishSMS publishes a message directly to a phone number via SMS.
+// In the mock, this validates the phone number and generates a unique message ID.
+func (b *InMemoryBackend) PublishSMS(phoneNumber, _ /* message */ string) (string, error) {
+	if !isValidE164(phoneNumber) {
+		return "", fmt.Errorf("%w: Invalid phone number; must be in E.164 format", ErrInvalidParameter)
+	}
+
+	return uuid.New().String(), nil
+}
+
 func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]MessageAttribute) bool {
 	if policy == nil {
 		return true
@@ -1227,15 +1270,6 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 	return subs
 }
 
-// deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint
-// using the provided client. Errors are intentionally ignored: delivery is
-// fire-and-forget for HTTP/HTTPS subscriptions. Response bodies are capped at
-// maxDeliveryResponseBytes to prevent unbounded memory growth.
-// The parent context is used so that service shutdown propagates to in-flight deliveries.
-func deliverHTTP(parent context.Context, endpoint, body string, client *http.Client) {
-	deliverHTTPWithMeta(parent, httpDelivery{endpoint: endpoint, body: body}, client)
-}
-
 // deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
 // to the endpoint. Standard AWS SNS headers are added when metadata is available.
 func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
@@ -1255,15 +1289,15 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	req.Header.Set("Content-Type", "application/json")
 
 	// Add standard AWS SNS HTTP notification headers.
-	req.Header.Set("x-amz-sns-message-type", "Notification")
+	req.Header.Set("X-Amz-Sns-Message-Type", "Notification")
 	if d.messageID != "" {
-		req.Header.Set("x-amz-sns-message-id", d.messageID)
+		req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
 	}
 	if d.topicARN != "" {
-		req.Header.Set("x-amz-sns-topic-arn", d.topicARN)
+		req.Header.Set("X-Amz-Sns-Topic-Arn", d.topicARN)
 	}
 	if d.subscriptionARN != "" {
-		req.Header.Set("x-amz-sns-subscription-arn", d.subscriptionARN)
+		req.Header.Set("X-Amz-Sns-Subscription-Arn", d.subscriptionARN)
 	}
 
 	resp, err := client.Do(req)
