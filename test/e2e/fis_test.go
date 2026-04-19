@@ -265,7 +265,7 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
-	err = confirmDialog.Locator("button:has-text('Delete')").Click()
+	err = confirmDialog.Locator("button:has-text('Stop')").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=stopped").First().WaitFor(playwright.LocatorWaitForOptions{

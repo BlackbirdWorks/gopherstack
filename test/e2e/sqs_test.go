@@ -87,7 +87,7 @@ func TestSQSDashboard(t *testing.T) {
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
-	err = confirmDialog.Locator("button:has-text('Delete')").Click()
+	err = confirmDialog.Locator("button:has-text('Purge')").Click()
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)
