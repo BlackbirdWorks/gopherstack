@@ -45,4 +45,6 @@ var (
 	ErrInvalidMessageBody = errors.New("InvalidParameterValue.MessageBody")
 	// ErrInvalidMaxMessages is returned when MaxNumberOfMessages is outside [1, 10].
 	ErrInvalidMaxMessages = errors.New("InvalidParameterValue.MaxNumberOfMessages")
+	// ErrPurgeQueueInProgress is returned when PurgeQueue is called within 60s of a previous purge.
+	ErrPurgeQueueInProgress = errors.New("AWS.SimpleQueueService.PurgeQueueInProgress")
 )

@@ -588,11 +588,12 @@ func (h *Handler) handleReceiveMessage(
 	}
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
-		QueueURL:            req.QueueURL,
-		MaxNumberOfMessages: req.MaxNumberOfMessages,
-		VisibilityTimeout:   vt,
-		WaitTimeSeconds:     req.WaitTimeSeconds,
-		AttributeNames:      req.AttributeNames,
+		QueueURL:              req.QueueURL,
+		MaxNumberOfMessages:   req.MaxNumberOfMessages,
+		VisibilityTimeout:     vt,
+		WaitTimeSeconds:       req.WaitTimeSeconds,
+		AttributeNames:        req.AttributeNames,
+		MessageAttributeNames: req.MessageAttributeNames,
 	})
 	if err != nil {
 		return nil, err
@@ -1093,6 +1094,11 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 		{ErrInvalidMaxMessages, errorEntry{
 			ipv,
 			"Value for parameter MaxNumberOfMessages is invalid. Reason: must be between 1 and 10, if provided.",
+			badReq,
+		}},
+		{ErrPurgeQueueInProgress, errorEntry{
+			"com.amazonaws.sqs#PurgeQueueInProgress",
+			"Only one PurgeQueue operation on SomeQueue is allowed every 60 seconds.",
 			badReq,
 		}},
 	}

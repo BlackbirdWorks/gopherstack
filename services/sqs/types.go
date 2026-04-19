@@ -44,6 +44,7 @@ const (
 	attrRedrivePolicy             = "RedrivePolicy"
 	attrApproxMessagesDelayed     = "ApproximateNumberOfMessagesDelayed"
 	attrAll                       = "All"
+	attrSqsManagedSseEnabled      = "SqsManagedSseEnabled"
 
 	attrApproxReceiveCount          = "ApproximateReceiveCount"
 	attrSentTimestamp               = "SentTimestamp"
@@ -61,6 +62,8 @@ const (
 	maxMessageRetentionPeriod = 1209600
 	// minMaximumMessageSize is the AWS minimum for MaximumMessageSize.
 	minMaximumMessageSize = 1024
+	// purgeCooldownSecs is the AWS-mandated minimum interval between PurgeQueue calls.
+	purgeCooldownSecs = 60
 
 	attrValTrue  = "true"
 	attrValFalse = "false"
@@ -107,6 +110,9 @@ type QueuePermissionEntry struct {
 
 // Queue represents an SQS queue.
 type Queue struct {
+	// lastPurgedAt records when PurgeQueue was last called on this queue.
+	// AWS enforces a 60-second cooldown between purge operations.
+	lastPurgedAt    time.Time
 	deduplicationMsgIDs map[string]string
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
@@ -213,11 +219,12 @@ type SendMessageOutput struct {
 
 // ReceiveMessageInput is the input for ReceiveMessage.
 type ReceiveMessageInput struct {
-	QueueURL            string
-	AttributeNames      []string
-	MaxNumberOfMessages int
-	VisibilityTimeout   int
-	WaitTimeSeconds     int
+	QueueURL              string
+	AttributeNames        []string
+	MessageAttributeNames []string
+	MaxNumberOfMessages   int
+	VisibilityTimeout     int
+	WaitTimeSeconds       int
 }
 
 // ReceiveMessageOutput is the output for ReceiveMessage.

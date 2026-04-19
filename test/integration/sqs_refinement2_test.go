@@ -121,17 +121,6 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 	client := createSQSClient(t)
 	ctx := t.Context()
 
-	qName := "msg-attr-filter-" + uuid.NewString()[:8]
-	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String(qName),
-	})
-	require.NoError(t, err)
-
-	qURL := *out.QueueUrl
-	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
-	})
-
 	tests := []struct {
 		name             string
 		filter           []string
@@ -161,8 +150,17 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 			t.Parallel()
 			dumpContainerLogsOnFailure(t)
 
-			_, purgeErr := client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(qURL)})
-			require.NoError(t, purgeErr)
+			// Each sub-test owns its own queue to avoid PurgeQueue cooldown conflicts.
+			qName := "msg-attr-filter-" + uuid.NewString()[:8]
+			qOut, createErr := client.CreateQueue(ctx, &sqs.CreateQueueInput{
+				QueueName: aws.String(qName),
+			})
+			require.NoError(t, createErr)
+
+			qURL := *qOut.QueueUrl
+			t.Cleanup(func() {
+				_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+			})
 
 			_, sendErr := client.SendMessage(ctx, &sqs.SendMessageInput{
 				QueueUrl:    aws.String(qURL),

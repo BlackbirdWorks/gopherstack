@@ -301,7 +301,8 @@ func isConfigurableQueueAttribute(name string) bool {
 		attrReceiveMessageWaitTimeSeconds,
 		attrFifoQueue,
 		attrContentBasedDeduplication,
-		attrRedrivePolicy:
+		attrRedrivePolicy,
+		attrSqsManagedSseEnabled:
 		return true
 	}
 
@@ -313,10 +314,12 @@ func isConfigurableQueueAttribute(name string) bool {
 const maxQueueNameLength = 80
 
 // isValidQueueNameChar reports whether c is a character allowed in an SQS queue name.
-// AWS allows letters, digits, hyphens, underscores, and periods.
+// AWS allows letters, digits, hyphens, and underscores only.  Periods are NOT part of
+// the standard character set; they appear exclusively in the ".fifo" suffix which is
+// checked separately in validateQueueName.
 func isValidQueueNameChar(c rune) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'
+		(c >= '0' && c <= '9') || c == '_' || c == '-'
 }
 
 // validateQueueName returns an error if name violates AWS queue-name rules.
@@ -325,7 +328,17 @@ func validateQueueName(name string) error {
 		return ErrInvalidQueueName
 	}
 
-	for _, c := range name {
+	// For FIFO queues, the ".fifo" suffix is allowed.  Strip it before character validation
+	// so that the only allowed character that is not in [a-zA-Z0-9_-] is the trailing ".fifo".
+	base := name
+	if strings.HasSuffix(name, fifoSuffix) {
+		base = name[:len(name)-len(fifoSuffix)]
+		if base == "" {
+			return ErrInvalidQueueName
+		}
+	}
+
+	for _, c := range base {
 		if !isValidQueueNameChar(c) {
 			return ErrInvalidQueueName
 		}
@@ -349,6 +362,7 @@ func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) ma
 		attrLastModifiedTimestamp:         now,
 		attrQueueArn:                      queueARN,
 		attrApproxMessagesDelayed:         attrValZero,
+		attrSqsManagedSseEnabled:          attrValTrue,
 	}
 
 	if isFIFO {
@@ -602,8 +616,20 @@ func validateQueueAttributes(attrs map[string]string) error {
 		return err
 	}
 
+	if err := validateIntAttrRange(
+		attrs,
+		attrReceiveMessageWaitTimeSeconds,
+		0,
+		maxReceiveMessageWaitTimeSeconds,
+	); err != nil {
+		return err
+	}
+
 	return validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize)
 }
+
+// maxReceiveMessageWaitTimeSeconds is the AWS maximum for ReceiveMessageWaitTimeSeconds.
+const maxReceiveMessageWaitTimeSeconds = 20
 
 // validateIntAttrRange returns ErrInvalidAttribute if the named attribute exists and
 // its integer value falls outside [attrMin, attrMax].
@@ -620,9 +646,6 @@ func validateIntAttrRange(attrs map[string]string, name string, attrMin, attrMax
 
 	return nil
 }
-
-// maxWaitTimeSeconds is the AWS maximum for ReceiveMessage WaitTimeSeconds.
-const maxWaitTimeSeconds = 20
 
 // maxVisibilityTimeoutSeconds is the AWS maximum for VisibilityTimeout (12 hours).
 const maxVisibilityTimeoutSeconds = 43200
@@ -852,7 +875,7 @@ func pruneDedup(q *Queue, now time.Time) {
 // error if any parameter is out of range.  It mutates MaxNumberOfMessages so
 // that a zero value becomes the AWS default of 1.
 func validateReceiveInput(input *ReceiveMessageInput) error {
-	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxWaitTimeSeconds {
+	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxReceiveMessageWaitTimeSeconds {
 		return ErrInvalidWaitTime
 	}
 
@@ -1281,6 +1304,24 @@ func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*D
 		return nil, ErrInvalidBatchEntry
 	}
 
+	if len(input.Entries) > maxBatchSize {
+		return nil, ErrTooManyEntriesInBatch
+	}
+
+	// AWS requires batch entry IDs to be distinct within a single request.
+	seen := make(map[string]struct{}, len(input.Entries))
+	for _, entry := range input.Entries {
+		if entry.ID == "" {
+			return nil, ErrInvalidBatchEntry
+		}
+
+		if _, dup := seen[entry.ID]; dup {
+			return nil, ErrBatchEntryIDsNotDistinct
+		}
+
+		seen[entry.ID] = struct{}{}
+	}
+
 	out := &DeleteMessageBatchOutput{}
 
 	for _, entry := range input.Entries {
@@ -1306,6 +1347,7 @@ func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*D
 }
 
 // PurgeQueue removes all messages from a queue without deleting it.
+// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
 func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	b.mu.Lock("PurgeQueue")
 	defer b.mu.Unlock()
@@ -1317,8 +1359,15 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 		return ErrQueueNotFound
 	}
 
+	// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
+	// b.mu is already held (write-locked above), so this read is safe.
+	if !q.lastPurgedAt.IsZero() && time.Since(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
+		return ErrPurgeQueueInProgress
+	}
+
 	q.messages = nil
 	q.inFlightMessages = nil
+	q.lastPurgedAt = time.Now()
 
 	// For FIFO queues, purging messages also resets the deduplication state so
 	// that producers can re-send messages with the same deduplication IDs.
