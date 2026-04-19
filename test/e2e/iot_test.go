@@ -146,11 +146,15 @@ func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
 	assert.Contains(t, content, "e2e-test-device")
 
 	// Delete the thing
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	err = page.Locator("button[title='Delete thing']").First().Click()
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=e2e-test-device").First().WaitFor(playwright.LocatorWaitForOptions{

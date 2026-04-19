@@ -93,11 +93,15 @@ func TestSSMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 3: Delete the selected parameter.
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	err = page.Click("button:has-text('Delete')")
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)

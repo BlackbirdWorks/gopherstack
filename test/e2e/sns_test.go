@@ -91,12 +91,16 @@ func TestSNSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	deleteBtn := page.Locator("div[role='button']:has-text('test-notifications')").First().Locator("button")
 	err = deleteBtn.Click()
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)

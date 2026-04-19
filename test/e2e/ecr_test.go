@@ -142,12 +142,16 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	assert.Contains(t, content, "e2e-test-repo")
 
 	// Delete the repository
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	// Click the trash icon button for the specific repository
 	err = page.Locator("#delete-repo-e2e-test-repo").Click()
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=e2e-test-repo").First().WaitFor(playwright.LocatorWaitForOptions{
