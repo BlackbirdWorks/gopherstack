@@ -285,8 +285,8 @@ func TestHandlerActions_CreateQueue(t *testing.T) {
 				doCreateQueue(t, h, "test-queue")
 			},
 			body:            map[string]any{"QueueName": "test-queue"},
-			wantCode:        http.StatusBadRequest,
-			wantBodyContain: "QueueNameExists",
+			wantCode:        http.StatusOK,
+			wantBodyContain: "test-queue",
 		},
 	}
 

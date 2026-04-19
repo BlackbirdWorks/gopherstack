@@ -48,6 +48,19 @@ const (
 	attrApproxReceiveCount          = "ApproximateReceiveCount"
 	attrSentTimestamp               = "SentTimestamp"
 	attrApproxFirstReceiveTimestamp = "ApproximateFirstReceiveTimestamp"
+	attrSenderID                    = "SenderId"
+	attrMessageGroupIDSys           = "MessageGroupId"
+	attrMessageDeduplicationIDSys   = "MessageDeduplicationId"
+	attrSequenceNumber              = "SequenceNumber"
+
+	// maxDelaySeconds is the AWS maximum for per-message or queue-level DelaySeconds.
+	maxDelaySeconds = 900
+	// minMessageRetentionPeriod is the AWS minimum for MessageRetentionPeriod.
+	minMessageRetentionPeriod = 60
+	// maxMessageRetentionPeriod is the AWS maximum for MessageRetentionPeriod.
+	maxMessageRetentionPeriod = 1209600
+	// minMaximumMessageSize is the AWS minimum for MaximumMessageSize.
+	minMaximumMessageSize = 1024
 
 	attrValTrue  = "true"
 	attrValFalse = "false"
@@ -69,6 +82,7 @@ type Message struct {
 	Body                             string                           `json:"body"`
 	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
 	MessageDeduplicationID           string                           `json:"messageDeduplicationID,omitempty"`
+	SequenceNumber                   string                           `json:"sequenceNumber,omitempty"`
 	MessageID                        string                           `json:"messageID"`
 	ReceiptHandle                    string                           `json:"receiptHandle"`
 	MD5OfBody                        string                           `json:"md5OfBody"`
@@ -105,8 +119,11 @@ type Queue struct {
 	URL              string
 	messages         []*Message
 	inFlightMessages []*InFlightMessage
-	MaxReceiveCount  int // 0 = no DLQ
-	IsFIFO           bool
+	// fifoSeqCounter is an atomically-incremented sequence counter used to
+	// generate FIFO SequenceNumber values. Monotonically increasing per queue.
+	fifoSeqCounter  uint64
+	MaxReceiveCount int // 0 = no DLQ
+	IsFIFO          bool
 }
 
 // QueueInfo holds the immutable-after-creation fields of a queue, returned by ListAll.
@@ -190,6 +207,7 @@ type SendMessageOutput struct {
 	MessageID              string
 	MD5OfBody              string
 	MD5OfMessageAttributes string
+	SequenceNumber         string
 }
 
 // ReceiveMessageInput is the input for ReceiveMessage.
@@ -241,6 +259,7 @@ type SendMessageBatchResultEntry struct {
 	MessageID              string
 	MD5OfBody              string
 	MD5OfMessageAttributes string
+	SequenceNumber         string
 }
 
 // BatchResultErrorEntry is a failed entry in a batch result.

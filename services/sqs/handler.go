@@ -358,6 +358,7 @@ type jsonBatchSuccess struct {
 	MessageID              string `json:"MessageId,omitempty"`
 	MD5OfMessageBody       string `json:"MD5OfMessageBody,omitempty"`
 	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
+	SequenceNumber         string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonBatchFailure struct {
@@ -561,7 +562,7 @@ func (h *Handler) handleSendMessage(
 		MessageID:              out.MessageID,
 		MD5OfMessageBody:       out.MD5OfBody,
 		MD5OfMessageAttributes: out.MD5OfMessageAttributes,
-		SequenceNumber:         "",
+		SequenceNumber:         out.SequenceNumber,
 	}, nil
 }
 
@@ -604,7 +605,7 @@ func (h *Handler) handleReceiveMessage(
 			MD5OfBody:              msg.MD5OfBody,
 			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
 			Body:                   msg.Body,
-			Attributes:             attrs,
+			Attributes:             filterSystemAttrs(attrs, req.AttributeNames),
 			MessageAttributes:      filterJSONMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames),
 		})
 	}
@@ -694,6 +695,7 @@ func (h *Handler) handleSendMessageBatch(
 			MessageID:              s.MessageID,
 			MD5OfMessageBody:       s.MD5OfBody,
 			MD5OfMessageAttributes: s.MD5OfMessageAttributes,
+			SequenceNumber:         s.SequenceNumber,
 		})
 	}
 
@@ -1153,6 +1155,29 @@ func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []stri
 
 				break
 			}
+		}
+	}
+
+	return result
+}
+
+// filterSystemAttrs returns a copy of attrs filtered to only the names requested by
+// the AttributeNames parameter of a ReceiveMessage call. When requested is empty or
+// contains the "All" sentinel the full map is returned unchanged.
+func filterSystemAttrs(attrs map[string]string, requested []string) map[string]string {
+	if len(requested) == 0 {
+		return attrs
+	}
+
+	if containsStr(requested, attrAll) {
+		return attrs
+	}
+
+	result := make(map[string]string, len(requested))
+
+	for _, name := range requested {
+		if v, ok := attrs[name]; ok {
+			result[name] = v
 		}
 	}
 

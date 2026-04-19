@@ -37,4 +37,6 @@ var (
 	// ErrInvalidMaxMessagesPerSecond is returned by StartMessageMoveTask when
 	// MaxNumberOfMessagesPerSecond is negative.
 	ErrInvalidMaxMessagesPerSecond = errors.New("InvalidParameterValue.MaxNumberOfMessagesPerSecond")
+	// ErrInvalidDelaySeconds is returned by SendMessage when DelaySeconds is out of range (0-900).
+	ErrInvalidDelaySeconds = errors.New("InvalidParameterValue.DelaySeconds")
 )

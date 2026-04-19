@@ -73,8 +73,10 @@ func TestCreateQueueDuplicate(t *testing.T) {
 	b := newBackend()
 	createTestQueue(t, b, "my-queue")
 
-	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "my-queue", Endpoint: testEndpoint})
-	require.ErrorIs(t, err, sqs.ErrQueueAlreadyExists)
+	// AWS idempotency: creating a queue with the same name returns the existing URL (no error).
+	out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "my-queue", Endpoint: testEndpoint})
+	require.NoError(t, err)
+	assert.Contains(t, out.QueueURL, "my-queue")
 }
 
 func TestDeleteQueue(t *testing.T) {
@@ -766,24 +768,13 @@ func TestResolveVisibilityTimeoutInvalidAttr(t *testing.T) {
 	b := newBackend()
 	qURL := createTestQueue(t, b, "vis-invalid-queue")
 
-	// Corrupt the visibility timeout attribute to a non-integer.
+	// SetQueueAttributes now validates attribute ranges; a non-integer VisibilityTimeout
+	// should be rejected.
 	err := b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
 		QueueURL:   qURL,
 		Attributes: map[string]string{"VisibilityTimeout": "notanumber"},
 	})
-	require.NoError(t, err)
-
-	_, err = b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hi"})
-	require.NoError(t, err)
-
-	// VisibilityTimeout=-1 forces resolveVisibilityTimeout to use the queue attr,
-	// which is now invalid, so the default (30s) should be used.
-	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:          qURL,
-		VisibilityTimeout: -1,
-	})
-	require.NoError(t, err)
-	assert.Len(t, out.Messages, 1)
+	require.ErrorIs(t, err, sqs.ErrInvalidAttribute)
 }
 
 func TestReQueueExpiredMixed(t *testing.T) {

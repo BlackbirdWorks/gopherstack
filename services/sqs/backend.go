@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -133,17 +135,26 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 	b.mu.Lock("pruneState")
 	defer b.mu.Unlock()
 
+	dedupPruned := 0
+	msgExpired := 0
+
 	for _, q := range b.queues {
 		if q.IsFIFO {
+			before := len(q.DeduplicationIDs)
 			pruneDedup(q, now)
+			dedupPruned += before - len(q.DeduplicationIDs)
 		}
 
+		before := len(q.messages)
 		reQueueExpired(q, now)
 		expireRetainedMessages(q, now)
 		drainToDLQ(q)
+		msgExpired += max(0, before-len(q.messages))
 	}
 
+	tasksPruned := 0
 	pruneBefore := now.Add(-moveTaskRetentionTTL).UnixMilli()
+
 	for taskHandle, task := range b.moveTasks {
 		task.mu.Lock()
 		isTerminal := task.status == MoveTaskStatusCompleted ||
@@ -154,8 +165,13 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 
 		if isTerminal && isExpired {
 			delete(b.moveTasks, taskHandle)
+			tasksPruned++
 		}
 	}
+
+	totalItems := dedupPruned + msgExpired + tasksPruned
+	telemetry.RecordWorkerItems("sqs", "JanitorSweeper", totalItems)
+	telemetry.RecordWorkerTask("sqs", "JanitorSweeper", "success")
 }
 
 // queueNameFromInput extracts the queue name from a queue URL.
@@ -291,8 +307,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
-	if _, exists := b.queues[input.QueueName]; exists {
-		return nil, ErrQueueAlreadyExists
+	// AWS idempotency: if a queue with the same name already exists, return its URL.
+	// (Attributes are not compared in this simplified implementation, matching the
+	// LocalStack/elasticmq behaviour of returning success on same-name re-creation.)
+	if q, exists := b.queues[input.QueueName]; exists {
+		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
@@ -459,6 +478,10 @@ func containsStr(slice []string, s string) bool {
 
 // SetQueueAttributes updates attributes on an existing queue.
 func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) error {
+	if err := validateQueueAttributes(input.Attributes); err != nil {
+		return err
+	}
+
 	b.mu.Lock("SetQueueAttributes")
 	defer b.mu.Unlock()
 
@@ -480,6 +503,45 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 	return nil
 }
 
+// validateQueueAttributes returns an error if any of the provided queue attributes
+// fall outside their allowed ranges (matching AWS SQS validation).
+func validateQueueAttributes(attrs map[string]string) error {
+	if err := validateIntAttrRange(attrs, attrVisibilityTimeout, 0, maxVisibilityTimeoutSeconds); err != nil {
+		return err
+	}
+
+	if err := validateIntAttrRange(attrs, attrDelaySeconds, 0, maxDelaySeconds); err != nil {
+		return err
+	}
+
+	if err := validateIntAttrRange(
+		attrs,
+		attrMessageRetentionPeriod,
+		minMessageRetentionPeriod,
+		maxMessageRetentionPeriod,
+	); err != nil {
+		return err
+	}
+
+	return validateIntAttrRange(attrs, attrMaximumMessageSize, minMaximumMessageSize, defaultMaxMessageSize)
+}
+
+// validateIntAttrRange returns ErrInvalidAttribute if the named attribute exists and
+// its integer value falls outside [attrMin, attrMax].
+func validateIntAttrRange(attrs map[string]string, name string, attrMin, attrMax int) error {
+	v, ok := attrs[name]
+	if !ok {
+		return nil
+	}
+
+	n, err := strconv.Atoi(v)
+	if err != nil || n < attrMin || n > attrMax {
+		return ErrInvalidAttribute
+	}
+
+	return nil
+}
+
 // maxWaitTimeSeconds is the AWS maximum for ReceiveMessage WaitTimeSeconds.
 const maxWaitTimeSeconds = 20
 
@@ -488,6 +550,10 @@ const maxVisibilityTimeoutSeconds = 43200
 
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
+	if input.DelaySeconds < 0 || input.DelaySeconds > maxDelaySeconds {
+		return nil, ErrInvalidDelaySeconds
+	}
+
 	md5Body := computeMD5(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 	msgID := uuid.New().String()
@@ -530,6 +596,12 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	sentTS := strconv.FormatInt(now.UnixMilli(), 10)
 
+	var seqNum string
+	if q.IsFIFO {
+		q.fifoSeqCounter++
+		seqNum = fmt.Sprintf("%020d", q.fifoSeqCounter)
+	}
+
 	msg := &Message{
 		MessageID:              msgID,
 		Body:                   input.MessageBody,
@@ -537,6 +609,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		MD5OfMessageAttributes: md5Attrs,
 		MessageGroupID:         input.MessageGroupID,
 		MessageDeduplicationID: input.MessageDeduplicationID,
+		SequenceNumber:         seqNum,
 		SentTimestamp:          now.UnixMilli(),
 		MessageAttributes:      input.MessageAttributes,
 		Attributes: map[string]string{
@@ -547,6 +620,15 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	}
 
 	if q.IsFIFO {
+		msg.Attributes[attrSequenceNumber] = seqNum
+		if input.MessageGroupID != "" {
+			msg.Attributes[attrMessageGroupIDSys] = input.MessageGroupID
+		}
+
+		if input.MessageDeduplicationID != "" {
+			msg.Attributes[attrMessageDeduplicationIDSys] = input.MessageDeduplicationID
+		}
+
 		storeDedup(q, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication], msgID, now)
 	}
 
@@ -561,7 +643,12 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	q.notify = make(chan struct{})
 	close(old)
 
-	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
+	return &SendMessageOutput{
+		MessageID:              msgID,
+		MD5OfBody:              md5Body,
+		MD5OfMessageAttributes: md5Attrs,
+		SequenceNumber:         seqNum,
+	}, nil
 }
 
 // validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
@@ -678,10 +765,19 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 		return nil, ErrInvalidWaitTime
 	}
 
+	// If the caller did not specify a positive WaitTimeSeconds, apply the queue's
+	// ReceiveMessageWaitTimeSeconds attribute as the default long-poll duration.
+	// This mirrors the AWS behaviour where the queue-level attribute acts as the
+	// default wait time for receives that omit the parameter.
+	waitSecs := b.resolveWaitSeconds(input.QueueURL, input.WaitTimeSeconds)
+
 	name := queueNameFromInput(input.QueueURL)
-	deadline := time.Now().Add(time.Duration(input.WaitTimeSeconds) * time.Second)
+	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
 
 	const recheckInterval = time.Second
+
+	timer := time.NewTimer(recheckInterval)
+	defer timer.Stop()
 
 	for {
 		msgs, notifyCh, err := b.receiveOnce(name, input)
@@ -700,11 +796,36 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 
 		sleep := min(remaining, recheckInterval)
 
+		timer.Reset(sleep)
+
 		select {
 		case <-notifyCh:
-		case <-time.After(sleep):
+			if !timer.Stop() {
+				<-timer.C
+			}
+		case <-timer.C:
 		}
 	}
+}
+
+// resolveWaitSeconds returns the effective long-poll wait duration.
+// If requested is positive it is returned unchanged. Otherwise the queue's
+// ReceiveMessageWaitTimeSeconds attribute is used as the default.
+func (b *InMemoryBackend) resolveWaitSeconds(queueURL string, requested int) int {
+	if requested > 0 {
+		return requested
+	}
+
+	b.mu.RLock("resolveWaitSeconds")
+	defer b.mu.RUnlock()
+
+	if q, ok := b.queues[queueNameFromInput(queueURL)]; ok {
+		if v, err := strconv.Atoi(q.Attributes[attrReceiveMessageWaitTimeSeconds]); err == nil && v > 0 {
+			return v
+		}
+	}
+
+	return 0
 }
 
 // drainToDLQ moves messages that have hit maxReceiveCount into the DLQ queue.
@@ -756,7 +877,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 
-	return pickMessages(q, maxMessages, vt, now), q.notify, nil
+	return pickMessages(q, b.accountID, maxMessages, vt, now), q.notify, nil
 }
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
@@ -814,8 +935,9 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 
 // pickMessages moves up to maxMessages visible (non-delayed) messages from the
 // queue to in-flight and returns them. Messages whose VisibleAt is in the future
-// are skipped and remain in the queue.
-func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
+// are skipped and remain in the queue. The accountID is used to populate the
+// SenderId system attribute on first-time receive.
+func pickMessages(q *Queue, accountID string, maxMessages, vt int, now time.Time) []*Message {
 	// No capacity hint — user-derived values like maxMessages in the
 	// capacity slot trigger CodeQL.
 	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
@@ -829,13 +951,14 @@ func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
 			msg.ApproximateReceiveCount++
 			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
 
-			// Set ApproximateFirstReceiveTimestamp on the first receive.
+			// Set ApproximateFirstReceiveTimestamp and SenderId on the first receive.
 			if msg.ApproximateFirstReceiveTimestamp == 0 {
 				msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
 				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
 					msg.ApproximateFirstReceiveTimestamp,
 					10,
 				)
+				msg.Attributes[attrSenderID] = accountID
 			}
 
 			inf := &InFlightMessage{
@@ -1007,6 +1130,7 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 			MessageID:              sendOut.MessageID,
 			MD5OfBody:              sendOut.MD5OfBody,
 			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
+			SequenceNumber:         sendOut.SequenceNumber,
 		})
 	}
 
@@ -1057,6 +1181,13 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 
 	q.messages = nil
 	q.inFlightMessages = nil
+
+	// For FIFO queues, purging messages also resets the deduplication state so
+	// that producers can re-send messages with the same deduplication IDs.
+	if q.IsFIFO {
+		q.DeduplicationIDs = make(map[string]time.Time)
+		q.deduplicationMsgIDs = make(map[string]string)
+	}
 
 	return nil
 }
