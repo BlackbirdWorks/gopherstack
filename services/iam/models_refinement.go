@@ -246,7 +246,7 @@ type ListServiceSpecificCredentialsResponse struct {
 	XMLName                              xml.Name                             `xml:"ListServiceSpecificCredentialsResponse"`
 	Xmlns                                string                               `xml:"xmlns,attr"`
 	ResponseMetadata                     ResponseMetadata                     `xml:"ResponseMetadata"`
-	ListServiceSpecificCredentialsResult ListServiceSpecificCredentialsResult `xml:"ListServiceSpecificCredentialsResult"` //nolint:lll // long AWS field name
+	ListServiceSpecificCredentialsResult ListServiceSpecificCredentialsResult `xml:"ListServiceSpecificCredentialsResult"`
 }
 
 // DeleteServiceSpecificCredentialResponse is the XML response for DeleteServiceSpecificCredential.
@@ -363,8 +363,9 @@ type GetServiceLinkedRoleDeletionStatusResult struct {
 
 // GetServiceLinkedRoleDeletionStatusResponse is the XML response for GetServiceLinkedRoleDeletionStatus.
 type GetServiceLinkedRoleDeletionStatusResponse struct {
-	XMLName                                  xml.Name                                 `xml:"GetServiceLinkedRoleDeletionStatusResponse"`
-	Xmlns                                    string                                   `xml:"xmlns,attr"`
-	ResponseMetadata                         ResponseMetadata                         `xml:"ResponseMetadata"`
-	GetServiceLinkedRoleDeletionStatusResult GetServiceLinkedRoleDeletionStatusResult `xml:"GetServiceLinkedRoleDeletionStatusResult"` //nolint:lll // long AWS field name
+	XMLName          xml.Name         `xml:"GetServiceLinkedRoleDeletionStatusResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	// GetServiceLinkedRoleDeletionStatusResult mirrors the AWS API field name.
+	GetServiceLinkedRoleDeletionStatusResult GetServiceLinkedRoleDeletionStatusResult `xml:"GetServiceLinkedRoleDeletionStatusResult"` //nolint:lll // AWS contract
 }

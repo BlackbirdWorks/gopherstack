@@ -394,6 +394,7 @@ func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, en
 	b.policyAttachments[policyArn] = refs
 }
 
+// firstKey returns an arbitrary key from a set-like map, or an empty string if the map is empty.
 func firstKey(values map[string]struct{}) string {
 	for value := range values {
 		return value

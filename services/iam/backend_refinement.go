@@ -263,8 +263,6 @@ func (b *InMemoryBackend) DeleteAccountPasswordPolicy() error {
 	return nil
 }
 
-// defaultMinPasswordLength is the minimum password length for the default account password policy.
-
 func defaultPasswordPolicy() *PasswordPolicy {
 	return &PasswordPolicy{
 		MinimumPasswordLength:      defaultMinPasswordLength,
