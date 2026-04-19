@@ -277,6 +277,40 @@ func appendWithLength(buf, data []byte) []byte {
 	return buf
 }
 
+// configurableQueueAttributes is the set of user-visible attribute keys whose
+// values are compared during the idempotency check in CreateQueue. System-managed
+// attributes (ARN, timestamps, approximate counts, etc.) are excluded.
+var configurableQueueAttributes = map[string]struct{}{
+	attrVisibilityTimeout:             {},
+	attrMaximumMessageSize:            {},
+	attrMessageRetentionPeriod:        {},
+	attrDelaySeconds:                  {},
+	attrReceiveMessageWaitTimeSeconds: {},
+	attrFifoQueue:                     {},
+	attrContentBasedDeduplication:     {},
+	attrRedrivePolicy:                 {},
+}
+
+// queueNamePattern is a regex-free check used by validateQueueName.
+// AWS allows [a-zA-Z0-9_-]{1,80}.  FIFO queues must end with ".fifo".
+const maxQueueNameLength = 80
+
+// validateQueueName returns an error if name violates AWS queue-name rules.
+func validateQueueName(name string) error {
+	if len(name) == 0 || len(name) > maxQueueNameLength {
+		return ErrInvalidQueueName
+	}
+
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+			return ErrInvalidQueueName
+		}
+	}
+
+	return nil
+}
+
 // buildDefaultAttributes initialises the attribute map for a new queue.
 func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
 	now := strconv.FormatInt(time.Now().Unix(), 10)
@@ -304,13 +338,33 @@ func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) ma
 
 // CreateQueue creates a new SQS queue.
 func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutput, error) {
+	if err := validateQueueName(input.QueueName); err != nil {
+		return nil, err
+	}
+
+	if err := validateQueueAttributes(input.Attributes); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
-	// AWS idempotency: if a queue with the same name already exists, return its URL.
-	// (Attributes are not compared in this simplified implementation, matching the
-	// LocalStack/elasticmq behaviour of returning success on same-name re-creation.)
+	// AWS idempotency: if a queue with the same name exists and the caller-supplied
+	// configurable attributes are the same (or absent), return the existing URL.
+	// If the same name is used with different configurable attributes, return
+	// QueueNameExists (matches real SQS behaviour).
 	if q, exists := b.queues[input.QueueName]; exists {
+		for k := range configurableQueueAttributes {
+			v, supplied := input.Attributes[k]
+			if !supplied {
+				continue
+			}
+
+			if existing := q.Attributes[k]; existing != v {
+				return nil, ErrQueueAlreadyExists
+			}
+		}
+
 		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
 
@@ -325,11 +379,14 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 	queueURL := "http://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
 
+	tagName := "sqs.queue." + input.QueueName + ".tags"
+
 	q := &Queue{
 		Name:                input.QueueName,
 		URL:                 queueURL,
 		IsFIFO:              isFIFO,
 		Attributes:          attrs,
+		Tags:                tags.FromMap(tagName, input.Tags),
 		Permissions:         make(map[string]*QueuePermissionEntry),
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
@@ -550,6 +607,10 @@ const maxVisibilityTimeoutSeconds = 43200
 
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
+	if input.MessageBody == "" {
+		return nil, ErrInvalidMessageBody
+	}
+
 	if input.DelaySeconds < 0 || input.DelaySeconds > maxDelaySeconds {
 		return nil, ErrInvalidDelaySeconds
 	}
@@ -768,6 +829,15 @@ func pruneDedup(q *Queue, now time.Time) {
 func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
 	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxWaitTimeSeconds {
 		return nil, ErrInvalidWaitTime
+	}
+
+	// AWS accepts MaxNumberOfMessages in [1, 10]. Default to 1 when unset (0).
+	if input.MaxNumberOfMessages == 0 {
+		input.MaxNumberOfMessages = 1
+	}
+
+	if input.MaxNumberOfMessages < 1 || input.MaxNumberOfMessages > maxBatchSize {
+		return nil, ErrInvalidMaxMessages
 	}
 
 	// If the caller did not specify a positive WaitTimeSeconds, apply the queue's
@@ -1038,13 +1108,31 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 }
 
 // changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
+// When visibilityTimeout is 0 the message is immediately returned to the visible queue,
+// matching the AWS behaviour where a zero timeout makes a message immediately available.
 func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) error {
-	for _, inf := range q.inFlightMessages {
-		if inf.ReceiptHandle == receiptHandle {
-			inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
+	for i, inf := range q.inFlightMessages {
+		if inf.ReceiptHandle != receiptHandle {
+			continue
+		}
+
+		if visibilityTimeout == 0 {
+			// Move back to the visible queue immediately.
+			inf.Msg.VisibleAt = time.Now()
+			q.messages = append(q.messages, inf.Msg)
+			q.inFlightMessages = append(q.inFlightMessages[:i], q.inFlightMessages[i+1:]...)
+
+			// Wake long-poll receivers that may be waiting for a message.
+			old := q.notify
+			q.notify = make(chan struct{})
+			close(old)
 
 			return nil
 		}
+
+		inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
+
+		return nil
 	}
 
 	return ErrMessageNotInflight

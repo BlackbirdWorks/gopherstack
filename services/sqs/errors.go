@@ -39,4 +39,10 @@ var (
 	ErrInvalidMaxMessagesPerSecond = errors.New("InvalidParameterValue.MaxNumberOfMessagesPerSecond")
 	// ErrInvalidDelaySeconds is returned by SendMessage when DelaySeconds is out of range (0-900).
 	ErrInvalidDelaySeconds = errors.New("InvalidParameterValue.DelaySeconds")
+	// ErrInvalidQueueName is returned when a queue name does not conform to AWS naming rules.
+	ErrInvalidQueueName = errors.New("InvalidParameterValue.QueueName")
+	// ErrInvalidMessageBody is returned when the message body is empty.
+	ErrInvalidMessageBody = errors.New("InvalidParameterValue.MessageBody")
+	// ErrInvalidMaxMessages is returned when MaxNumberOfMessages is outside [1, 10].
+	ErrInvalidMaxMessages = errors.New("InvalidParameterValue.MaxNumberOfMessages")
 )

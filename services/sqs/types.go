@@ -136,6 +136,7 @@ type QueueInfo struct {
 // CreateQueueInput is the input for CreateQueue.
 type CreateQueueInput struct {
 	Attributes map[string]string
+	Tags       map[string]string
 	QueueName  string
 	Endpoint   string
 	// Region is the AWS region for ARN construction (optional; defaults to backend region).

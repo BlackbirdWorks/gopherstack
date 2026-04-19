@@ -279,7 +279,7 @@ func TestHandlerActions_CreateQueue(t *testing.T) {
 			wantBodyContain: "test-queue",
 		},
 		{
-			name: "duplicate",
+			name: "duplicate_same_attrs",
 			setup: func(t *testing.T, h *sqs.Handler) {
 				t.Helper()
 				doCreateQueue(t, h, "test-queue")
@@ -287,6 +287,21 @@ func TestHandlerActions_CreateQueue(t *testing.T) {
 			body:            map[string]any{"QueueName": "test-queue"},
 			wantCode:        http.StatusOK,
 			wantBodyContain: "test-queue",
+		},
+		{
+			name: "duplicate_diff_attrs",
+			setup: func(t *testing.T, h *sqs.Handler) {
+				t.Helper()
+				doCreateQueue(t, h, "test-queue")
+			},
+			body:            map[string]any{"QueueName": "test-queue", "Attributes": map[string]string{"VisibilityTimeout": "60"}},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "QueueNameExists",
+		},
+		{
+			name:     "invalid_name",
+			body:     map[string]any{"QueueName": "invalid name!"},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

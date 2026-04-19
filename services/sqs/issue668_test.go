@@ -1,7 +1,6 @@
 package sqs_test
 
 import (
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -626,14 +625,18 @@ func TestMessageRetentionPeriodExpiry(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
+			// Create with a valid retention period, then immediately lower it via
+			// SetQueueAttributes so the test can use a sub-60-second window without
+			// triggering the CreateQueue attribute-range validation.
 			out, err := b.CreateQueue(&sqs.CreateQueueInput{
 				QueueName: "retention-queue",
 				Endpoint:  testEndpoint,
-				Attributes: map[string]string{
-					"MessageRetentionPeriod": strconv.Itoa(tt.retentionSecs),
-				},
 			})
 			require.NoError(t, err)
+
+			// Bypass the 60-second minimum by injecting via SetQueueAttributes directly.
+			// SetQueueAttributes also validates ranges, so force via a direct attribute update here.
+			b.SetRetentionForTest(out.QueueURL, tt.retentionSecs)
 
 			_, err = b.SendMessage(&sqs.SendMessageInput{
 				QueueURL:    out.QueueURL,

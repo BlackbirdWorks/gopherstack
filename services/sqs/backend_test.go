@@ -3,6 +3,7 @@ package sqs_test
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -73,10 +74,75 @@ func TestCreateQueueDuplicate(t *testing.T) {
 	b := newBackend()
 	createTestQueue(t, b, "my-queue")
 
-	// AWS idempotency: creating a queue with the same name returns the existing URL (no error).
-	out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "my-queue", Endpoint: testEndpoint})
-	require.NoError(t, err)
-	assert.Contains(t, out.QueueURL, "my-queue")
+	tests := []struct {
+		name    string
+		attrs   map[string]string
+		wantErr error
+	}{
+		{
+			name:    "same_attrs_idempotent",
+			attrs:   nil,
+			wantErr: nil,
+		},
+		{
+			name:    "different_visibility_timeout",
+			attrs:   map[string]string{"VisibilityTimeout": "60"},
+			wantErr: sqs.ErrQueueAlreadyExists,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName:  "my-queue",
+				Attributes: tt.attrs,
+				Endpoint:   testEndpoint,
+			})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Contains(t, out.QueueURL, "my-queue")
+		})
+	}
+}
+
+func TestCreateQueueNameValidation(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	tests := []struct {
+		name    string
+		qName   string
+		wantErr bool
+	}{
+		{name: "valid_name", qName: "my-queue-1", wantErr: false},
+		{name: "empty_name", qName: "", wantErr: true},
+		{name: "too_long", qName: strings.Repeat("a", 81), wantErr: true},
+		{name: "invalid_chars", qName: "my queue!", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName: tt.qName,
+				Endpoint:  testEndpoint,
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestDeleteQueue(t *testing.T) {
@@ -911,10 +977,29 @@ func TestMaxNumberOfMessages_ClampsAt10(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Request more than 10: should be clamped to 10.
-	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 20})
+	// MaxNumberOfMessages > 10 should now return an error (matches AWS validation).
+	_, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 20})
+	require.ErrorIs(t, err, sqs.ErrInvalidMaxMessages)
+}
+
+func TestMaxNumberOfMessages_AtBoundary(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "boundary-queue")
+
+	for i := range 15 {
+		_, err := b.SendMessage(&sqs.SendMessageInput{
+			QueueURL:    qURL,
+			MessageBody: strconv.Itoa(i),
+		})
+		require.NoError(t, err)
+	}
+
+	// MaxNumberOfMessages=10 (boundary) should succeed and return 10 messages.
+	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 10})
 	require.NoError(t, err)
-	assert.LessOrEqual(t, len(out.Messages), 10, "MaxNumberOfMessages should be clamped to 10")
+	assert.Len(t, out.Messages, 10)
 }
 
 func TestSentTimestamp_PresentInAttributes(t *testing.T) {

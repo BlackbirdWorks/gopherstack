@@ -412,9 +412,15 @@ func (h *Handler) handleCreateQueue(
 
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
+	var initialTags map[string]string
+	if req.Tags != nil {
+		initialTags = req.Tags.Clone()
+	}
+
 	out, err := h.Backend.CreateQueue(&CreateQueueInput{
 		QueueName:  req.QueueName,
 		Attributes: req.Attributes,
+		Tags:       initialTags,
 		Endpoint:   endpoint,
 		Region:     region,
 	})
@@ -1071,6 +1077,22 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 		{ErrMoveTaskNotRunning, errorEntry{
 			conflict,
 			"A message move task with the specified task handle is not running.",
+			badReq,
+		}},
+		{ErrInvalidQueueName, errorEntry{
+			ipv,
+			"The name of a queue can only include alphanumeric characters, hyphens, or underscores. " +
+				"Queue name must be between 1 and 80 characters.",
+			badReq,
+		}},
+		{ErrInvalidMessageBody, errorEntry{
+			ipv,
+			"The request include parameter that is not valid for this queue type.",
+			badReq,
+		}},
+		{ErrInvalidMaxMessages, errorEntry{
+			ipv,
+			"Value for parameter MaxNumberOfMessages is invalid. Reason: must be between 1 and 10, if provided.",
 			badReq,
 		}},
 	}
