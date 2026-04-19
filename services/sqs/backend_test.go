@@ -17,7 +17,10 @@ import (
 const testEndpoint = "localhost:4566"
 
 func newBackend() *sqs.InMemoryBackend {
-	return sqs.NewInMemoryBackend()
+	b := sqs.NewInMemoryBackend()
+	// The janitor goroutine runs in the background; not stopped in unit tests
+	// since the test process exits promptly and the goroutine will be cleaned up.
+	return b
 }
 
 func createTestQueue(t *testing.T, b *sqs.InMemoryBackend, name string) string {

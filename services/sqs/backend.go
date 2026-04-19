@@ -117,6 +117,18 @@ func (b *InMemoryBackend) startJanitor() {
 	go b.runJanitor()
 }
 
+// Close stops the background janitor goroutine and releases associated
+// resources.  It is safe to call Close multiple times; subsequent calls are
+// no-ops.  The backend must not be used after Close returns.
+func (b *InMemoryBackend) Close() {
+	select {
+	case <-b.janitorStop:
+		// already closed
+	default:
+		close(b.janitorStop)
+	}
+}
+
 func (b *InMemoryBackend) runJanitor() {
 	ticker := time.NewTicker(janitorInterval)
 	defer ticker.Stop()
@@ -300,6 +312,13 @@ func isConfigurableQueueAttribute(name string) bool {
 // AWS allows [a-zA-Z0-9_-]{1,80}.  FIFO queues must end with ".fifo".
 const maxQueueNameLength = 80
 
+// isValidQueueNameChar reports whether c is a character allowed in an SQS queue name.
+// AWS allows letters, digits, hyphens, underscores, and periods.
+func isValidQueueNameChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'
+}
+
 // validateQueueName returns an error if name violates AWS queue-name rules.
 func validateQueueName(name string) error {
 	if len(name) == 0 || len(name) > maxQueueNameLength {
@@ -307,8 +326,7 @@ func validateQueueName(name string) error {
 	}
 
 	for _, c := range name {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
-			(c < '0' || c > '9') && c != '_' && c != '-' && c != '.' {
+		if !isValidQueueNameChar(c) {
 			return ErrInvalidQueueName
 		}
 	}

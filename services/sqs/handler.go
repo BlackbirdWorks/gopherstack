@@ -1087,7 +1087,7 @@ func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
 		}},
 		{ErrInvalidMessageBody, errorEntry{
 			ipv,
-			"The request include parameter that is not valid for this queue type.",
+			"The request includes a parameter that is not valid for this queue type.",
 			badReq,
 		}},
 		{ErrInvalidMaxMessages, errorEntry{

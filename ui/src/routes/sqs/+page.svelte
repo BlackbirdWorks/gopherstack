@@ -785,8 +785,9 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 </div>
 {#if editRedriveTargetArn.trim()}
 <div>
-<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Max Receive Count</label>
+<label for="sqs-max-receive-count" class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Max Receive Count</label>
 <input
+id="sqs-max-receive-count"
 type="number"
 bind:value={editRedriveMaxReceiveCount}
 min="1" max="1000"
@@ -878,8 +879,9 @@ class="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Start Message Move Task</h3>
 <p class="text-xs text-slate-500 dark:text-slate-400">Move messages from this queue (source) to another queue. Typically used to move messages out of a DLQ back to the original queue.</p>
 <div>
-<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Destination Queue ARN <span class="text-slate-400 font-normal">(optional — omit to use default destination)</span></label>
+<label for="sqs-move-dest-arn" class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Destination Queue ARN <span class="text-slate-400 font-normal">(optional — omit to use default destination)</span></label>
 <input
+id="sqs-move-dest-arn"
 type="text"
 bind:value={moveTaskDestArn}
 placeholder="arn:aws:sqs:us-east-1:000000000000:destination-queue"

@@ -132,22 +132,6 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
-	_, err = client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:    aws.String(qURL),
-		MessageBody: aws.String("hello"),
-		MessageAttributes: map[string]sqstypes.MessageAttributeValue{
-			"Color": {
-				DataType:    aws.String("String"),
-				StringValue: aws.String("blue"),
-			},
-			"Count": {
-				DataType:    aws.String("Number"),
-				StringValue: aws.String("42"),
-			},
-		},
-	})
-	require.NoError(t, err)
-
 	tests := []struct {
 		name             string
 		filter           []string
@@ -177,9 +161,10 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 			t.Parallel()
 			dumpContainerLogsOnFailure(t)
 
-			_, _ = client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(qURL)})
+			_, purgeErr := client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(qURL)})
+			require.NoError(t, purgeErr)
 
-			_, err = client.SendMessage(ctx, &sqs.SendMessageInput{
+			_, sendErr := client.SendMessage(ctx, &sqs.SendMessageInput{
 				QueueUrl:    aws.String(qURL),
 				MessageBody: aws.String("hello"),
 				MessageAttributes: map[string]sqstypes.MessageAttributeValue{
@@ -193,15 +178,14 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 					},
 				},
 			})
-			require.NoError(t, err)
+			require.NoError(t, sendErr)
 
-			var recv *sqs.ReceiveMessageOutput
-			recv, err = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			recv, recvErr := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 				QueueUrl:              aws.String(qURL),
 				MaxNumberOfMessages:   1,
 				MessageAttributeNames: tt.filter,
 			})
-			require.NoError(t, err)
+			require.NoError(t, recvErr)
 			require.Len(t, recv.Messages, 1)
 
 			for _, wantName := range tt.wantAttrNames {
