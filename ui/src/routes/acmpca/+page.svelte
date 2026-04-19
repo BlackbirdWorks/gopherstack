@@ -96,7 +96,7 @@
 	}
 
 	async function deleteCA(arn: string | undefined) {
-		if (!arn || !await confirmDestructive(`Delete Private CA? All certificates issued by this authority will be potentially invalidated.`)) return;
+		if (!arn || !await confirmDestructive({ title: 'Delete Private CA', message: 'Delete this Private Certificate Authority? All issued certificates may be invalidated.' })) return;
 		try {
 			await acmpca.send(new DeleteCertificateAuthorityCommand({ CertificateAuthorityArn: arn }));
 			toast.success(`CA deletion initiated`);

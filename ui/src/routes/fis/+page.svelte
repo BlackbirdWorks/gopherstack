@@ -101,7 +101,7 @@
 	}
 
 	async function stopExperiment(id: string | undefined) {
-		if (!id || !await confirmDestructive(`Cease Fault Injection cycle? State restoration artifacts will be prioritized.`)) return;
+		if (!id || !await confirmDestructive({ title: 'Stop Experiment', message: 'Stop this fault injection experiment? State restoration will be prioritized.', confirmLabel: 'Stop', dangerous: false })) return;
 		try {
 			await fis.send(new StopExperimentCommand({ id }));
 			toast.success(`Experiment cessation triggered`);

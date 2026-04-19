@@ -331,7 +331,7 @@ deletingReceipt = null;
 
 // ──────────────── Purge ────────────────
 async function purgeQueue(url: string) {
-if (!await confirmDestructive(`Purge all messages from "${queueName(url)}"? This cannot be undone.`)) return;
+if (!await confirmDestructive({ title: 'Purge Queue', message: `Delete all messages from "${queueName(url)}"? This cannot be undone.`, confirmLabel: 'Purge' })) return;
 try {
 await sqs.send(new PurgeQueueCommand({ QueueUrl: url }));
 toast.success('Queue purged');

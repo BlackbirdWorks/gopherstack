@@ -82,7 +82,7 @@
 	}
 
 	async function terminateWorkspace(id: string | undefined) {
-		if (!id || !await confirmDestructive(`Terminate WorkSpace? All user profile data and persistent storage attached to this instance will be permanently purged.`)) return;
+		if (!id || !await confirmDestructive({ title: 'Terminate WorkSpace', message: 'Terminate this WorkSpace? All user profile data and persistent storage will be permanently purged.', confirmLabel: 'Terminate' })) return;
 		try {
 			await workspaces.send(new TerminateWorkspacesCommand({
 				TerminateWorkspaceRequests: [{ WorkspaceId: id }]

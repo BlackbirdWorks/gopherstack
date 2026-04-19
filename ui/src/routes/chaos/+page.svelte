@@ -77,7 +77,7 @@
 	}
 
 	async function clearFaults() {
-		if (!await confirmDestructive('Clear all faults?')) return;
+		if (!await confirmDestructive({ title: 'Clear All Faults', message: 'Remove all injected fault conditions?', confirmLabel: 'Clear All', dangerous: false })) return;
 		try {
 			const response = await fetch('/_gopherstack/chaos/faults/clear', { method: 'POST' });
 			if (!response.ok) throw new Error('Failed to clear faults');

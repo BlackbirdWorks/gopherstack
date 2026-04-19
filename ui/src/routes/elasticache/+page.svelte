@@ -84,7 +84,7 @@
 	}
 
 	async function rebootCluster(id: string) {
-		if (!await confirmDestructive(`Reboot cluster "${id}"?`)) return;
+		if (!await confirmDestructive({ title: 'Reboot Cluster', message: `Reboot cluster "${id}"? All connections will be dropped.`, confirmLabel: 'Reboot', dangerous: false })) return;
 		try {
 			await ec.send(new RebootCacheClusterCommand({ 
 				CacheClusterId: id,

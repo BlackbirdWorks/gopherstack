@@ -145,7 +145,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to reboot');
 }
 
 async function terminateInstance(id: string) {
-if (!await confirmDestructive(`Terminate ${id}? This cannot be undone.`)) return;
+if (!await confirmDestructive({ title: 'Terminate Instance', message: `Terminate instance ${id}? This cannot be undone.`, confirmLabel: 'Terminate' })) return;
 try {
 await ec2.send(new TerminateInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} terminated`);

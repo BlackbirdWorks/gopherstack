@@ -112,7 +112,7 @@
 	}
 
 	async function deleteService(service: ServiceSummary) {
-		if (!service.ServiceArn || !await confirmDestructive(`Delete service "${service.ServiceName}"?`)) return;
+		if (!service.ServiceArn || !await confirmDestructive({ title: 'Delete App Runner Service', message: `Delete service "${service.ServiceName}"? The service will be stopped and all associated resources removed.` })) return;
 		try {
 			await apprunner.send(new DeleteServiceCommand({ ServiceArn: service.ServiceArn }));
 			toast.success(`Service "${service.ServiceName}" deletion initiated`);

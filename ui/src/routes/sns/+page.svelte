@@ -154,7 +154,7 @@
 	}
 
 	async function unsubscribe(arn: string) {
-		if (!await confirmDestructive('Remove this subscription?')) return;
+		if (!await confirmDestructive({ title: 'Remove Subscription', message: 'Remove this SNS subscription? The endpoint will stop receiving messages.', confirmLabel: 'Remove' })) return;
 		try {
 			await sns.send(new UnsubscribeCommand({ SubscriptionArn: arn }));
 			toast.success('Subscription removed');

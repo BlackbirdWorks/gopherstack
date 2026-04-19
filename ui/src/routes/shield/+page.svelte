@@ -73,7 +73,7 @@
 	}
 
 	async function deleteProtection(id: string | undefined) {
-		if (!id || !await confirmDestructive(`Remove DDoS protection for this resource?`)) return;
+		if (!id || !await confirmDestructive({ title: 'Remove DDoS Protection', message: 'Remove Shield Advanced protection from this resource? The resource will no longer be monitored.', confirmLabel: 'Remove' })) return;
 		try {
 			await shield.send(new DeleteProtectionCommand({ ProtectionId: id }));
 			toast.success(`Protection removed`);

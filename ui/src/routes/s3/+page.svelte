@@ -232,7 +232,7 @@ await s3.send(new DeleteObjectCommand({ Bucket: bucketName, Key: obj.Key }));
 }
 
 async function purgeAll() {
-if (!await confirmDestructive('Are you sure you want to delete ALL buckets? This cannot be undone.')) return;
+if (!await confirmDestructive({ title: 'Delete All Buckets', message: 'Delete ALL S3 buckets and their contents? This cannot be undone.', confirmLabel: 'Delete All' })) return;
 try {
 for (const bucket of buckets) {
 if (!bucket.Name) continue;
@@ -592,7 +592,7 @@ toast.error(`Failed to save tags: ${(err as Error).message}`);
 }
 
 async function clearAllTags() {
-if (!selectedBucket || !await confirmDestructive('Delete all tags?')) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete All Tags', message: 'Remove all tags from this bucket?' })) return;
 try {
 await s3.send(new DeleteBucketTaggingCommand({ Bucket: selectedBucket }));
 bucketTags = [];
@@ -632,7 +632,7 @@ toast.error(`Failed to save policy: ${(err as Error).message}`);
 }
 
 async function deletePolicy() {
-if (!selectedBucket || !await confirmDestructive('Delete bucket policy?')) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete Bucket Policy', message: 'Remove the bucket policy? Access control will revert to default bucket settings.' })) return;
 try {
 await s3.send(new DeleteBucketPolicyCommand({ Bucket: selectedBucket }));
 bucketPolicy = '';
@@ -851,7 +851,7 @@ async function saveWebsite(): Promise<void> {
 }
 
 async function deleteWebsite(): Promise<void> {
-  if (!selectedBucket || !await confirmDestructive('Delete website configuration?')) return;
+  if (!selectedBucket || !await confirmDestructive({ title: 'Remove Website Configuration', message: 'Remove the static website hosting configuration from this bucket?', confirmLabel: 'Remove' })) return;
   try {
     await s3.send(new DeleteBucketWebsiteCommand({ Bucket: selectedBucket }));
     websiteConfig = null;

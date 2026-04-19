@@ -144,7 +144,7 @@
 	}
 
 	async function terminateCluster(id: string, name: string) {
-		if (!await confirmDestructive(`Terminate cluster "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Terminate Cluster', message: `Terminate EMR cluster "${name}"? All running jobs will be aborted.`, confirmLabel: 'Terminate' })) return;
 		try {
 			await emr.send(new TerminateJobFlowsCommand({ JobFlowIds: [id] }));
 			toast.success(`Cluster "${name}" termination initiated`);

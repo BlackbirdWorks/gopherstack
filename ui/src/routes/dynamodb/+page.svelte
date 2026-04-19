@@ -243,7 +243,7 @@
 	}
 
 	async function purgeAll() {
-		if (!await confirmDestructive('Are you sure you want to delete ALL tables? This cannot be undone.')) return;
+		if (!await confirmDestructive({ title: 'Delete All Tables', message: 'Delete ALL DynamoDB tables? This cannot be undone.', confirmLabel: 'Delete All' })) return;
 		try {
 			for (const name of tableNames) await ddb.send(new DeleteTableCommand({ TableName: name }));
 			toast.success('All tables purged');
@@ -388,7 +388,7 @@
 
 	async function deleteItem(item: Record<string, unknown>): Promise<void> {
 		if (!selectedTable) return;
-		if (!await confirmDestructive('Delete this item?')) return;
+		if (!await confirmDestructive({ title: 'Delete Item', message: 'Delete this item? This cannot be undone.', confirmLabel: 'Delete Item' })) return;
 		try {
 			await ddb.send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
 			toast.success('Item deleted');
@@ -427,7 +427,7 @@
 	}
 
 	async function deleteBackup(arn: string): Promise<void> {
-		if (!await confirmDestructive('Delete this backup?')) return;
+		if (!await confirmDestructive({ title: 'Delete Backup', message: 'Delete this backup? This cannot be undone.' })) return;
 		try {
 			await ddb.send(new DeleteBackupCommand({ BackupArn: arn }));
 			toast.success('Backup deleted');
