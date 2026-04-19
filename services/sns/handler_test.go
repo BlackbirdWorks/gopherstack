@@ -268,6 +268,11 @@ func TestInMemoryBackend_GetTopicAttributes(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.topicArn, attrs["TopicArn"])
+			// Verify computed attributes are always present.
+			assert.NotEmpty(t, attrs["EffectiveDeliveryPolicy"], "EffectiveDeliveryPolicy should be set")
+			assert.Equal(t, "0", attrs["SubscriptionsDeleted"], "SubscriptionsDeleted should default to 0")
+			assert.Equal(t, "0", attrs["SubscriptionsConfirmed"])
+			assert.Equal(t, "0", attrs["SubscriptionsPending"])
 		})
 	}
 }
@@ -291,6 +296,43 @@ func TestInMemoryBackend_SetTopicAttributes(t *testing.T) {
 			topicArn:  "arn:aws:sns:us-east-1:000000000000:set-topic",
 			attrName:  "DisplayName",
 			attrValue: "Hello",
+		},
+		{
+			name: "sqs_success_feedback_sample_rate",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("feedback-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:feedback-topic",
+			attrName:  "SQSSuccessFeedbackSampleRate",
+			attrValue: "50",
+		},
+		{
+			name: "http_success_feedback_sample_rate",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("http-feedback-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:http-feedback-topic",
+			attrName:  "HTTPSuccessFeedbackSampleRate",
+			attrValue: "100",
+		},
+		{
+			name: "lambda_failure_feedback_role_arn",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("lambda-feedback-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:lambda-feedback-topic",
+			attrName:  "LambdaFailureFeedbackRoleArn",
+			attrValue: "arn:aws:iam::000000000000:role/sns-feedback",
+		},
+		{
+			name: "unknown_attribute_rejected",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("unknown-attr-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:unknown-attr-topic",
+			attrName:  "NotARealAttribute",
+			attrValue: "value",
+			wantErr:   sns.ErrInvalidParameter,
 		},
 		{
 			name:      "not found",

@@ -63,6 +63,11 @@ let newTopicFifo = $state(false);
 let newTopicContentBasedDedup = $state(false);
 let newTopicDisplayName = $state('');
 
+// Topic name is valid if it matches AWS constraints: 1-256 chars, alphanumeric/hyphen/underscore.
+const topicNameValid = $derived(
+  newTopicName.trim() !== '' && /^[a-zA-Z0-9_-]{1,256}$/.test(newTopicName.trim())
+);
+
 // ─── Subscribe modal ──────────────────────────────────────────────────────────
 let showSubscribeModal = $state(false);
 let subscribing = $state(false);
@@ -630,7 +635,7 @@ Create Topic
 onclick={() => switchPageTab(id)}
 class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors {pageTab === id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 >
-<svelte:component this={Icon} class="w-4 h-4" />{label}
+<Icon class="w-4 h-4" />{label}
 </button>
 {/each}
 </nav>
@@ -660,7 +665,13 @@ class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200
 {:else if filteredTopics.length === 0}
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-8 text-center">
 <Bell class="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+{#if searchQuery}
+<p class="text-slate-500 dark:text-slate-400">No topics match &ldquo;{searchQuery}&rdquo;</p>
+<button onclick={() => { searchQuery = ''; }} class="mt-2 text-xs text-indigo-500 hover:underline">Clear search</button>
+{:else}
 <p class="text-slate-500 dark:text-slate-400">No topics found</p>
+<p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Create your first topic to get started.</p>
+{/if}
 </div>
 {:else}
 {#each filteredTopics as topic}
@@ -742,7 +753,7 @@ Publish
 onclick={() => { activeTab = id; }}
 class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 >
-<svelte:component this={Icon} class="w-4 h-4" />{label}
+<Icon class="w-4 h-4" />{label}
 </button>
 {/each}
 </nav>
@@ -752,6 +763,8 @@ class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transiti
 {#if activeTab === 'subscriptions'}
 <div class="p-5 space-y-3">
 <div class="flex items-center justify-between mb-1">
+<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Subscriptions</h3>
+<div class="flex items-center gap-3">
 <div class="flex gap-3 text-xs text-slate-500 dark:text-slate-400">
 <span class="text-green-600 dark:text-green-400 font-medium">&#10003; {confirmedCount} confirmed</span>
 {#if pendingCount > 0}
@@ -765,6 +778,14 @@ title="Refresh subscriptions"
 >
 <RefreshCw class="w-4 h-4" />
 </button>
+<button
+onclick={() => { showSubscribeModal = true; }}
+class="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded"
+title="Add subscription"
+>
+<Plus class="w-3 h-3" />Add
+</button>
+</div>
 </div>
 
 {#if loadingSubscriptions}
@@ -855,13 +876,19 @@ class="p-1 text-slate-400 hover:text-red-500"
 {#if activeTab === 'attributes'}
 <div class="p-5 space-y-3">
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-{#each Object.entries(selectedTopic.Attributes ?? {}).filter(([k]) => !['Policy', 'DeliveryPolicy', 'EffectiveDeliveryPolicy', 'TopicArn'].includes(k)) as [key, value]}
+{#each Object.entries(selectedTopic.Attributes ?? {}).filter(([k]) => !['Policy', 'DeliveryPolicy', 'EffectiveDeliveryPolicy', 'TopicArn', 'FifoTopic', 'ContentBasedDeduplication'].includes(k) && k !== 'Owner') as [key, value]}
 <div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
 <p class="text-xs font-medium text-slate-500 dark:text-slate-400">{key}</p>
 <p class="text-sm text-slate-900 dark:text-white mt-0.5 break-all">{value || '—'}</p>
 </div>
 {/each}
 </div>
+{#if selectedTopic.Attributes?.EffectiveDeliveryPolicy || selectedTopic.Attributes?.DeliveryPolicy}
+<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+<p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Effective Delivery Policy</p>
+<pre class="text-xs font-mono text-slate-700 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">{(() => { try { return JSON.stringify(JSON.parse(selectedTopic.Attributes?.EffectiveDeliveryPolicy ?? selectedTopic.Attributes?.DeliveryPolicy ?? ''), null, 2); } catch { return selectedTopic.Attributes?.EffectiveDeliveryPolicy ?? ''; } })()}</pre>
+</div>
+{/if}
 {#if isFifo(selectedTopic.TopicArn)}
 <div class="mt-2 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg flex items-center justify-between">
 <div>
@@ -1064,7 +1091,14 @@ Create Application
 <div class="flex items-start justify-between">
 <div class="min-w-0">
 <p class="font-medium text-slate-900 dark:text-white truncate">{appName}</p>
-<span class="inline-block mt-1 px-2 py-0.5 text-xs rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">{platform}</span>
+<div class="flex items-center gap-2 mt-1 flex-wrap">
+<span class="inline-block px-2 py-0.5 text-xs rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">{platform}</span>
+{#if app.Attributes?.Enabled === 'false'}
+<span class="px-2 py-0.5 text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">Disabled</span>
+{:else}
+<span class="px-2 py-0.5 text-xs rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">Enabled</span>
+{/if}
+</div>
 </div>
 <div class="flex items-center gap-1">
 <button
@@ -1111,10 +1145,12 @@ id="sns-topic-name"
 type="text"
 bind:value={newTopicName}
 placeholder="e.g. my-notifications"
-class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border {newTopicName.trim() && !topicNameValid ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 dark:border-slate-600 focus:ring-indigo-500'} rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2"
 required
 />
-{#if newTopicFifo && newTopicName.trim()}
+{#if newTopicName.trim() && !topicNameValid}
+<p class="text-xs text-red-500 mt-1">Name must be 1–256 characters: letters, numbers, hyphens, underscores only.</p>
+{:else if newTopicFifo && newTopicName.trim()}
 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Final name: {newTopicName.trim()}.fifo</p>
 {/if}
 </div>
@@ -1140,7 +1176,7 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 {/if}
 <div class="flex justify-end gap-3 pt-2">
 <button type="button" onclick={() => { showCreateModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-<button type="submit" disabled={creating} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+<button type="submit" disabled={creating || !topicNameValid} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
 {creating ? 'Creating...' : 'Create Topic'}
 </button>
 </div>
@@ -1173,10 +1209,13 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 id="sns-endpoint"
 type="text"
 bind:value={subEndpoint}
-placeholder={subProtocol === 'email' || subProtocol === 'email-json' ? 'user@example.com' : subProtocol === 'sqs' ? 'arn:aws:sqs:...' : 'Enter endpoint'}
+placeholder={subProtocol === 'email' || subProtocol === 'email-json' ? 'user@example.com' : subProtocol === 'sqs' ? 'arn:aws:sqs:us-east-1:000000000000:my-queue' : subProtocol === 'lambda' ? 'arn:aws:lambda:us-east-1:000000000000:function:my-fn' : subProtocol === 'http' ? 'http://example.com/notify' : subProtocol === 'https' ? 'https://example.com/notify' : subProtocol === 'sms' ? '+15555555555' : subProtocol === 'firehose' ? 'arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream' : 'Enter endpoint'}
 class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
 required
 />
+{#if subProtocol === 'http' || subProtocol === 'https'}
+<p class="text-xs text-amber-600 dark:text-amber-400 mt-1">⚠ HTTP/HTTPS subscriptions require manual confirmation via ConfirmSubscription.</p>
+{/if}
 </div>
 <div>
 <label for="sns-filter-policy" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Filter Policy <span class="font-normal text-slate-400">(JSON, optional)</span></label>
@@ -1287,7 +1326,10 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 />
 </div>
 <div>
-<label for="sns-message" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
+<div class="flex items-center justify-between mb-1">
+<label for="sns-message" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message</label>
+<span class="text-xs {pubMessage.length > 262144 ? 'text-red-500 font-medium' : 'text-slate-400'}">{pubMessage.length.toLocaleString()} / 262,144</span>
+</div>
 <textarea
 id="sns-message"
 bind:value={pubMessage}

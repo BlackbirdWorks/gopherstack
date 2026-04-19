@@ -78,6 +78,11 @@ const (
 	// defaultPolicyJSON is the default SNS topic access policy (empty statements).
 	defaultPolicyJSON = `{"Version":"2012-10-17","Statement":[]}`
 
+	// defaultEffectiveDeliveryPolicyJSON mirrors the AWS default SNS delivery
+	// retry configuration returned in GetTopicAttributes when no custom
+	// DeliveryPolicy has been set.
+	defaultEffectiveDeliveryPolicyJSON = `{"http":{"defaultHealthyRetryPolicy":{"minDelayTarget":20,"maxDelayTarget":20,"numRetries":3,"numMaxDelayRetries":0,"numNoDelayRetries":0,"numMinDelayRetries":0,"backoffFunction":"linear"},"disableSubscriptionOverrides":false}}`
+
 	// maxListSMSSandboxResults is the maximum MaxResults value for ListSMSSandboxPhoneNumbers.
 	maxListSMSSandboxResults = 100
 
@@ -101,8 +106,9 @@ const (
 	fifoTopicSuffix = ".fifo"
 
 	// computedTopicAttrCount is the number of computed attributes added to GetTopicAttributes
-	// output beyond stored attributes: Owner, SubscriptionsConfirmed, SubscriptionsPending.
-	computedTopicAttrCount = 3
+	// output beyond stored attributes: Owner, TopicArn, EffectiveDeliveryPolicy,
+	// SubscriptionsConfirmed, SubscriptionsPending, SubscriptionsDeleted.
+	computedTopicAttrCount = 6
 )
 
 // isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
@@ -322,6 +328,23 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		attrs["Policy"] = defaultPolicyJSON
 	}
 
+	// Validate FifoTopic attribute consistency with topic name.
+	// AWS rejects CreateTopic when FifoTopic=true but name doesn't end in ".fifo".
+	if attrs["FifoTopic"] == "true" && !strings.HasSuffix(name, fifoTopicSuffix) {
+		return nil, fmt.Errorf(
+			"%w: Topic name must end with '.fifo' for FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// ContentBasedDeduplication is only valid on FIFO topics.
+	if attrs["ContentBasedDeduplication"] != "" && attrs["FifoTopic"] != "true" && !strings.HasSuffix(name, fifoTopicSuffix) {
+		return nil, fmt.Errorf(
+			"%w: ContentBasedDeduplication is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
 	// FIFO topics: auto-set FifoTopic=true and ContentBasedDeduplication if not already set.
 	if strings.HasSuffix(name, fifoTopicSuffix) {
 		attrs["FifoTopic"] = "true"
@@ -410,8 +433,23 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 		attrs["Owner"] = b.accountID
 	}
 
+	// AWS always returns TopicArn as an attribute in GetTopicAttributes.
+	if attrs["TopicArn"] == "" {
+		attrs["TopicArn"] = topicArn
+	}
+
+	// EffectiveDeliveryPolicy is the resolved delivery policy (defaults to
+	// AWS standard retry configuration when no custom DeliveryPolicy is set).
+	if attrs["EffectiveDeliveryPolicy"] == "" {
+		if attrs["DeliveryPolicy"] != "" {
+			attrs["EffectiveDeliveryPolicy"] = attrs["DeliveryPolicy"]
+		} else {
+			attrs["EffectiveDeliveryPolicy"] = defaultEffectiveDeliveryPolicyJSON
+		}
+	}
+
 	// Count subscriptions for this topic.
-	confirmed, pending := 0, 0
+	confirmed, pending, deleted := 0, 0, 0
 
 	for _, sub := range b.topicSubscriptions[topicArn] {
 		if sub.PendingConfirmation {
@@ -423,16 +461,35 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 
 	attrs["SubscriptionsConfirmed"] = strconv.Itoa(confirmed)
 	attrs["SubscriptionsPending"] = strconv.Itoa(pending)
+	attrs["SubscriptionsDeleted"] = strconv.Itoa(deleted)
 
 	return attrs, nil
 }
 
 // isKnownTopicAttribute reports whether name is a settable SNS topic attribute.
+// Includes the core attributes plus all delivery-status logging attributes.
 func isKnownTopicAttribute(name string) bool {
 	switch name {
+	// Core topic attributes.
 	case "DeliveryPolicy", "DisplayName", "FifoTopic", "ContentBasedDeduplication",
 		"KmsMasterKeyId", "Policy", "TracingConfig", "FifoThroughputScope",
-		"ArchivePolicy", "DataProtectionPolicy":
+		"ArchivePolicy", "DataProtectionPolicy", "SignatureVersion":
+		return true
+	// HTTP/HTTPS delivery status logging.
+	case "HTTPSuccessFeedbackRoleArn", "HTTPSuccessFeedbackSampleRate", "HTTPFailureFeedbackRoleArn",
+		"HTTPSSuccessFeedbackRoleArn", "HTTPSSuccessFeedbackSampleRate", "HTTPSFailureFeedbackRoleArn":
+		return true
+	// SQS delivery status logging.
+	case "SQSSuccessFeedbackRoleArn", "SQSSuccessFeedbackSampleRate", "SQSFailureFeedbackRoleArn":
+		return true
+	// Lambda delivery status logging.
+	case "LambdaSuccessFeedbackRoleArn", "LambdaSuccessFeedbackSampleRate", "LambdaFailureFeedbackRoleArn":
+		return true
+	// Firehose delivery status logging.
+	case "FirehoseSuccessFeedbackRoleArn", "FirehoseSuccessFeedbackSampleRate", "FirehoseFailureFeedbackRoleArn":
+		return true
+	// Mobile application (GCM/APNS/etc.) delivery status logging.
+	case "ApplicationSuccessFeedbackRoleArn", "ApplicationSuccessFeedbackSampleRate", "ApplicationFailureFeedbackRoleArn":
 		return true
 	}
 
@@ -455,6 +512,31 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 			ErrInvalidParameter,
 			attrName,
 		)
+	}
+
+	// ContentBasedDeduplication is only valid on FIFO topics.
+	if attrName == "ContentBasedDeduplication" && topic.Attributes["FifoTopic"] != "true" {
+		return fmt.Errorf(
+			"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// FifoThroughputScope is only valid on FIFO topics.
+	if attrName == "FifoThroughputScope" && topic.Attributes["FifoTopic"] != "true" {
+		return fmt.Errorf(
+			"%w: Invalid parameter: FifoThroughputScope is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// When clearing EffectiveDeliveryPolicy derived from DeliveryPolicy, reset it.
+	if attrName == "DeliveryPolicy" {
+		if attrValue == "" {
+			delete(topic.Attributes, "EffectiveDeliveryPolicy")
+		} else {
+			topic.Attributes["EffectiveDeliveryPolicy"] = attrValue
+		}
 	}
 
 	topic.Attributes[attrName] = attrValue
@@ -563,13 +645,14 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 	}
 
 	attrs := map[string]string{
-		"SubscriptionArn":      sub.SubscriptionArn,
-		"TopicArn":             sub.TopicArn,
-		"Protocol":             sub.Protocol,
-		"Endpoint":             sub.Endpoint,
-		"Owner":                sub.Owner,
-		"PendingConfirmation":  strconv.FormatBool(sub.PendingConfirmation),
-		attrRawMessageDelivery: strconv.FormatBool(sub.RawMessageDelivery),
+		"SubscriptionArn":              sub.SubscriptionArn,
+		"TopicArn":                     sub.TopicArn,
+		"Protocol":                     sub.Protocol,
+		"Endpoint":                     sub.Endpoint,
+		"Owner":                        sub.Owner,
+		"PendingConfirmation":          strconv.FormatBool(sub.PendingConfirmation),
+		"ConfirmationWasAuthenticated": strconv.FormatBool(!sub.PendingConfirmation),
+		attrRawMessageDelivery:         strconv.FormatBool(sub.RawMessageDelivery),
 	}
 
 	if sub.FilterPolicy != "" {
@@ -674,8 +757,11 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
 type httpDelivery struct {
-	endpoint string
-	body     string
+	endpoint        string
+	body            string
+	messageID       string
+	topicARN        string
+	subscriptionARN string
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
@@ -751,7 +837,11 @@ func (b *InMemoryBackend) collectPublishTargets(
 		msg := resolveMsg(sub.Protocol)
 
 		if sub.Protocol == "http" || sub.Protocol == "https" {
-			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{endpoint: sub.Endpoint, body: msg})
+			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
+				endpoint:        sub.Endpoint,
+				body:            msg,
+				subscriptionARN: sub.SubscriptionArn,
+			})
 		}
 
 		out.subs = append(out.subs, events.SNSSubscriptionSnapshot{
@@ -800,6 +890,12 @@ func (b *InMemoryBackend) Publish(
 	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
 	targets := b.collectPublishTargets(topicArn, resolveMsg, attrs)
 
+	// Annotate HTTP deliveries with messageID and topicARN for SNS headers.
+	for i := range targets.httpDeliveries {
+		targets.httpDeliveries[i].messageID = messageID
+		targets.httpDeliveries[i].topicARN = topicArn
+	}
+
 	// Capture emitter and httpClient under the read lock to avoid data races
 	// with concurrent SetPublishEmitter / SetHTTPDeliveryClient calls.
 	emitter := b.emitter
@@ -824,7 +920,7 @@ func (b *InMemoryBackend) Publish(
 			b.deliveryWg.Go(func() {
 				b.workerSem <- struct{}{} // wait for a delivery slot
 				defer func() { <-b.workerSem }()
-				deliverHTTP(b.svcCtx, d.endpoint, d.body, client)
+				deliverHTTPWithMeta(b.svcCtx, d, client)
 			})
 		}
 	}
@@ -1137,20 +1233,38 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 // maxDeliveryResponseBytes to prevent unbounded memory growth.
 // The parent context is used so that service shutdown propagates to in-flight deliveries.
 func deliverHTTP(parent context.Context, endpoint, body string, client *http.Client) {
+	deliverHTTPWithMeta(parent, httpDelivery{endpoint: endpoint, body: body}, client)
+}
+
+// deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
+// to the endpoint. Standard AWS SNS headers are added when metadata is available.
+func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
 	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		endpoint,
-		strings.NewReader(body),
+		d.endpoint,
+		strings.NewReader(d.body),
 	)
 	if err != nil {
 		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add standard AWS SNS HTTP notification headers.
+	req.Header.Set("x-amz-sns-message-type", "Notification")
+	if d.messageID != "" {
+		req.Header.Set("x-amz-sns-message-id", d.messageID)
+	}
+	if d.topicARN != "" {
+		req.Header.Set("x-amz-sns-topic-arn", d.topicARN)
+	}
+	if d.subscriptionARN != "" {
+		req.Header.Set("x-amz-sns-subscription-arn", d.subscriptionARN)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1321,6 +1435,18 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 		return nil, fmt.Errorf("%w: Name and Platform must not contain '/'", ErrInvalidParameter)
 	}
 
+	// Validate platform is one of the known AWS SNS platforms.
+	validPlatforms := map[string]bool{
+		"GCM": true, "APNS": true, "APNS_SANDBOX": true,
+		"ADM": true, "BAIDU": true, "WNS": true, "MPNS": true,
+	}
+	if !validPlatforms[platform] {
+		return nil, fmt.Errorf(
+			"%w: Platform must be one of GCM, APNS, APNS_SANDBOX, ADM, BAIDU, WNS, MPNS",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.mu.Lock("CreatePlatformApplication")
 	defer b.mu.Unlock()
 
@@ -1330,8 +1456,13 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 		return nil, ErrPlatformApplicationAlreadyExists
 	}
 
-	attrs := make(map[string]string, len(attributes))
+	attrs := make(map[string]string, len(attributes)+1)
 	maps.Copy(attrs, attributes)
+
+	// AWS always returns Enabled=true for newly created platform applications.
+	if attrs["Enabled"] == "" {
+		attrs["Enabled"] = "true"
+	}
 
 	app := &PlatformApplication{
 		PlatformApplicationArn: appArn,
