@@ -99,6 +99,22 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild the per-topic subscription index and restore the parsed filter-policy
+	// cache for each subscription (both are transient and not persisted).
+	b.topicSubscriptions = make(map[string]map[string]*Subscription, len(b.topics))
+	for topicArn := range b.topics {
+		b.topicSubscriptions[topicArn] = make(map[string]*Subscription)
+	}
+
+	for _, sub := range b.subscriptions {
+		if _, ok := b.topicSubscriptions[sub.TopicArn]; !ok {
+			b.topicSubscriptions[sub.TopicArn] = make(map[string]*Subscription)
+		}
+
+		b.topicSubscriptions[sub.TopicArn][sub.SubscriptionArn] = sub
+		sub.parsedFilterPolicy = parseFilterPolicy(sub.FilterPolicy)
+	}
+
 	return nil
 }
 

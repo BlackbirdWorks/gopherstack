@@ -427,6 +427,18 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	return attrs, nil
 }
 
+// isKnownTopicAttribute reports whether name is a settable SNS topic attribute.
+func isKnownTopicAttribute(name string) bool {
+	switch name {
+	case "DeliveryPolicy", "DisplayName", "FifoTopic", "ContentBasedDeduplication",
+		"KmsMasterKeyId", "Policy", "TracingConfig", "FifoThroughputScope",
+		"ArchivePolicy", "DataProtectionPolicy":
+		return true
+	}
+
+	return false
+}
+
 // SetTopicAttributes sets a single attribute on a topic.
 func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue string) error {
 	b.mu.Lock("SetTopicAttributes")
@@ -437,12 +449,22 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		return ErrTopicNotFound
 	}
 
+	if !isKnownTopicAttribute(attrName) {
+		return fmt.Errorf(
+			"%w: Invalid parameter: Attribute name %s is not a known topic attribute",
+			ErrInvalidParameter,
+			attrName,
+		)
+	}
+
 	topic.Attributes[attrName] = attrValue
 
 	return nil
 }
 
 // Subscribe creates a new subscription for the given topic, protocol, and endpoint.
+// If a confirmed subscription for the same topic+protocol+endpoint already exists,
+// the existing subscription ARN is returned (matching AWS deduplication behaviour).
 func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
 	// Validate SMS endpoint is a valid E.164 phone number.
 	if protocol == "sms" && !isValidE164(endpoint) {
@@ -455,6 +477,16 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	topic, exists := b.topics[topicArn]
 	if !exists {
 		return nil, ErrTopicNotFound
+	}
+
+	// Dedup: return the existing subscription ARN when protocol+endpoint already
+	// has a confirmed subscription on this topic (matches AWS behaviour).
+	for _, existing := range b.topicSubscriptions[topicArn] {
+		if !existing.PendingConfirmation &&
+			existing.Protocol == protocol &&
+			existing.Endpoint == endpoint {
+			return existing, nil
+		}
 	}
 
 	parts := strings.Split(topic.TopicArn, ":")
@@ -508,8 +540,9 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	b.mu.Lock("ConfirmSubscription")
 	defer b.mu.Unlock()
 
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn == topicArn && sub.PendingConfirmation {
+	// Use topic index for O(topic_subs) instead of O(all_subs).
+	for _, sub := range b.topicSubscriptions[topicArn] {
+		if sub.PendingConfirmation {
 			sub.PendingConfirmation = false
 
 			return sub, nil
@@ -825,12 +858,8 @@ func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]Messa
 	}
 
 	for key, conditions := range policy {
-		attr, ok := attrs[key]
-		if !ok {
-			return false
-		}
-
-		if !matchesConditions(attr.StringValue, conditions) {
+		attr, attrExists := attrs[key]
+		if !matchesConditions(attr.StringValue, attrExists, conditions) {
 			return false
 		}
 	}
@@ -838,44 +867,181 @@ func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]Messa
 	return true
 }
 
-func matchObjectCondition(value string, obj map[string]string) bool {
-	if prefix, ok := obj["prefix"]; ok {
-		return strings.HasPrefix(value, prefix)
+// matchObjectCondition evaluates a single JSON-object SNS filter condition such as
+// {"prefix": "order-"}, {"anything-but": [...]}, {"exists": true}, or {"numeric": [">", 0]}.
+func matchObjectCondition(value string, attrExists bool, obj map[string]json.RawMessage) bool {
+	if prefixRaw, ok := obj["prefix"]; ok {
+		var prefix string
+		if err := json.Unmarshal(prefixRaw, &prefix); err == nil {
+			return attrExists && strings.HasPrefix(value, prefix)
+		}
+
+		return false
 	}
 
-	if excluded, ok := obj["anything-but"]; ok {
-		return value != excluded
+	if existsRaw, ok := obj["exists"]; ok {
+		var existsVal bool
+		if err := json.Unmarshal(existsRaw, &existsVal); err == nil {
+			return attrExists == existsVal
+		}
+
+		return false
+	}
+
+	if anythingButRaw, ok := obj["anything-but"]; ok {
+		return matchAnythingBut(value, attrExists, anythingButRaw)
+	}
+
+	if numericRaw, ok := obj["numeric"]; ok {
+		return attrExists && matchNumericCondition(value, numericRaw)
 	}
 
 	return false
 }
 
-func matchCondition(value string, raw json.RawMessage) bool {
-	var obj map[string]string
-	if err := json.Unmarshal(raw, &obj); err == nil {
-		return matchObjectCondition(value, obj)
+// matchAnythingBut handles {"anything-but": value}, {"anything-but": [...]},
+// and {"anything-but": {"prefix": "..."}} conditions.
+func matchAnythingBut(value string, attrExists bool, raw json.RawMessage) bool {
+	if !attrExists {
+		return false
 	}
 
+	// Try as string literal.
+	var s string
+	if errStr := json.Unmarshal(raw, &s); errStr == nil {
+		return value != s
+	}
+
+	// Try as number literal.
+	var n json.Number
+	if errNum := json.Unmarshal(raw, &n); errNum == nil {
+		return value != n.String()
+	}
+
+	// Try as array of literals.
+	var arr []json.RawMessage
+	if errArr := json.Unmarshal(raw, &arr); errArr == nil {
+		return matchAnythingButArray(value, arr)
+	}
+
+	// Try as nested prefix object: {"anything-but": {"prefix": "order-"}}.
+	var prefixObj map[string]json.RawMessage
+	if errObj := json.Unmarshal(raw, &prefixObj); errObj == nil {
+		if prefixRaw, ok := prefixObj["prefix"]; ok {
+			var prefix string
+			if errP := json.Unmarshal(prefixRaw, &prefix); errP == nil {
+				return !strings.HasPrefix(value, prefix)
+			}
+		}
+	}
+
+	return true
+}
+
+// matchAnythingButArray checks that value does not equal any element in the "anything-but" array.
+func matchAnythingButArray(value string, arr []json.RawMessage) bool {
+	for _, item := range arr {
+		var sv string
+		if errI := json.Unmarshal(item, &sv); errI == nil {
+			if value == sv {
+				return false
+			}
+
+			continue
+		}
+
+		var nv json.Number
+		if errN := json.Unmarshal(item, &nv); errN == nil && value == nv.String() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchNumericCondition evaluates {"numeric": [op, num, ...]} conditions.
+// Conditions are pairs of [operator, number] and ALL pairs must be satisfied (AND semantics).
+func matchNumericCondition(value string, raw json.RawMessage) bool {
+	valFloat, errParse := strconv.ParseFloat(value, 64)
+	if errParse != nil {
+		return false
+	}
+
+	var conditions []json.RawMessage
+	if errUnm := json.Unmarshal(raw, &conditions); errUnm != nil {
+		return false
+	}
+
+	for i := 0; i+1 < len(conditions); i += 2 {
+		var op string
+		if errOp := json.Unmarshal(conditions[i], &op); errOp != nil {
+			return false
+		}
+
+		var num json.Number
+		if errNum := json.Unmarshal(conditions[i+1], &num); errNum != nil {
+			return false
+		}
+
+		threshold, errThresh := strconv.ParseFloat(num.String(), 64)
+		if errThresh != nil {
+			return false
+		}
+
+		if !numericOpMatches(op, valFloat, threshold) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// numericOpMatches evaluates a single numeric comparison operator.
+func numericOpMatches(op string, value, threshold float64) bool {
+	switch op {
+	case "=":
+		return value == threshold
+	case "<>":
+		return value != threshold
+	case ">":
+		return value > threshold
+	case ">=":
+		return value >= threshold
+	case "<":
+		return value < threshold
+	case "<=":
+		return value <= threshold
+	default:
+		return false
+	}
+}
+
+func matchCondition(value string, attrExists bool, raw json.RawMessage) bool {
+	// Object conditions: prefix, exists, anything-but, numeric.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		return matchObjectCondition(value, attrExists, obj)
+	}
+
+	// String exact match — attribute must exist.
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return value == s
+		return attrExists && value == s
 	}
 
+	// Number exact match — attribute must exist.
 	var n json.Number
 	if err := json.Unmarshal(raw, &n); err == nil {
-		return value == n.String()
+		return attrExists && value == n.String()
 	}
 
 	return false
 }
 
-// matchesConditions returns true if value satisfies at least one condition in the list.
-func matchesConditions(
-	value string,
-	conditions []json.RawMessage,
-) bool {
+// matchesConditions returns true if value/existence satisfies at least one condition in the list.
+func matchesConditions(value string, attrExists bool, conditions []json.RawMessage) bool {
 	for _, raw := range conditions {
-		if matchCondition(value, raw) {
+		if matchCondition(value, attrExists, raw) {
 			return true
 		}
 	}
@@ -900,9 +1066,8 @@ func (b *InMemoryBackend) removeIndexedSubscription(topicArn, subscriptionArn st
 	}
 
 	delete(topicSubs, subscriptionArn)
-	if len(topicSubs) == 0 {
-		delete(b.topicSubscriptions, topicArn)
-	}
+	// Preserve the inner map even when empty so the next Subscribe call does not
+	// need to re-allocate. Only remove it when the topic itself is deleted.
 }
 
 // ListAllTopics returns all topics sorted by ARN.
@@ -984,6 +1149,8 @@ func deliverHTTP(parent context.Context, endpoint, body string, client *http.Cli
 	if err != nil {
 		return
 	}
+
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {

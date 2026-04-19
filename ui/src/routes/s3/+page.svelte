@@ -43,8 +43,6 @@ type LifecycleRule
 } from '@aws-sdk/client-s3';
 import { toast } from 'svelte-sonner';
 
-const enableDemoActions = ((import.meta as ImportMeta).env.PUBLIC_ENABLE_DEMO_ACTIONS ?? '').toLowerCase() === 'true';
-
 let s3 = newS3Client();
 
 let buckets = $state<Bucket[]>([]);
@@ -261,37 +259,6 @@ toast.error(`Failed to delete bucket: ${(err as Error).message}`);
 }
 }
 
-async function createDemoData() {
-if (!enableDemoActions) {
-toast.error('Demo data actions are disabled. Set PUBLIC_ENABLE_DEMO_ACTIONS=true to enable.');
-return;
-}
-
-try {
-// Minimal JPEG magic bytes header for demo purposes (not a valid full image).
-		const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]);
-const demoItems: Array<{ bucket: string; key: string; body: Uint8Array | string; contentType: string }> = [
-{ bucket: 'demo-images', key: 'photo1.jpg', body: jpegBytes, contentType: 'image/jpeg' },
-{ bucket: 'demo-images', key: 'photos/vacation.jpg', body: jpegBytes, contentType: 'image/jpeg' },
-{ bucket: 'demo-data', key: 'data.json', body: JSON.stringify({ users: [{ id: 1, name: 'Alice' }] }), contentType: 'application/json' },
-{ bucket: 'demo-data', key: 'report.csv', body: 'id,name,amount\n1,Alice,100.00\n', contentType: 'text/csv' },
-{ bucket: 'demo-logs', key: 'app.log', body: '2024-01-01 INFO Application started\n2024-01-02 INFO Request received\n', contentType: 'text/plain' },
-{ bucket: 'demo-logs', key: 'error.log', body: '2024-01-01 ERROR Connection timeout\n', contentType: 'text/plain' }
-];
-const demoBuckets = ['demo-images', 'demo-data', 'demo-logs'];
-for (const b of demoBuckets) {
-await s3.send(new CreateBucketCommand({ Bucket: b }));
-}
-for (const item of demoItems) {
-const body = typeof item.body === 'string' ? new TextEncoder().encode(item.body) : item.body;
-await s3.send(new PutObjectCommand({ Bucket: item.bucket, Key: item.key, Body: body, ContentType: item.contentType }));
-}
-toast.success('Demo data created');
-await loadBuckets();
-} catch (err: unknown) {
-toast.error(`Failed to create demo data: ${(err as Error).message}`);
-}
-}
 
 async function openBucket(name: string) {
   selectedBucket = name;
@@ -1538,14 +1505,6 @@ class="text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 font-m
 >
 Refresh
 </button>
-{#if enableDemoActions}
-<button
-onclick={createDemoData}
-class="text-white bg-purple-600 hover:bg-purple-700 font-medium rounded-lg text-sm px-5 py-2.5"
->
-Demo Data
-</button>
-{/if}
 <button
 id="purge-all-btn"
 onclick={purgeAll}
