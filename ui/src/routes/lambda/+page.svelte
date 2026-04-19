@@ -6,6 +6,7 @@
 		ListFunctionsCommand,
 		InvokeCommand,
 		DeleteFunctionCommand,
+		CreateFunctionCommand,
 		type FunctionConfiguration,
 		type InvocationResponse
 	} from '@aws-sdk/client-lambda';
@@ -28,11 +29,33 @@
 	let invokePayload = $state('{\n  "key": "value"\n}');
 	let invoking = $state(false);
 	let invokeResponse = $state<InvocationResponse | null>(null);
+	let invokeType = $state<'RequestResponse' | 'Event' | 'DryRun'>('RequestResponse');
+
+	// Create Function Modal State
+	let showCreateModal = $state(false);
+	let creating = $state(false);
+	let newFnName = $state('');
+	let newFnRuntime = $state('python3.12');
+	let newFnRole = $state('arn:aws:iam::000000000000:role/lambda-role');
+	let newFnHandler = $state('handler.handler');
+	let newFnMemory = $state(128);
+	let newFnTimeout = $state(30);
 
 	// Derived
 	const filteredFunctions = $derived(
 		functions.filter(f => f.FunctionName?.toLowerCase().includes(searchQuery.toLowerCase()))
 	);
+
+	const runtimeImageMap: Record<string, string> = {
+		'nodejs22.x': 'public.ecr.aws/lambda/nodejs:22',
+		'nodejs20.x': 'public.ecr.aws/lambda/nodejs:20',
+		'python3.12': 'public.ecr.aws/lambda/python:3.12',
+		'python3.11': 'public.ecr.aws/lambda/python:3.11',
+		'java21': 'public.ecr.aws/lambda/java:21',
+		'go1.x': 'public.ecr.aws/lambda/provided:al2',
+		'ruby3.3': 'public.ecr.aws/lambda/ruby:3.3',
+		'dotnet8': 'public.ecr.aws/lambda/dotnet:8',
+	};
 
 	// Actions
 	async function loadFunctions() {
@@ -67,11 +90,13 @@
 			const payload = new TextEncoder().encode(invokePayload);
 			const res = await lambda.send(new InvokeCommand({
 				FunctionName: selectedFunction.FunctionName,
+				InvocationType: invokeType,
+				LogType: 'Tail',
 				Payload: payload
 			}));
 			invokeResponse = res;
 			
-			if (res.StatusCode === 200) {
+			if (res.StatusCode === 200 || res.StatusCode === 202) {
 				toast.success(`Successfully invoked ${selectedFunction.FunctionName}`);
 			} else {
 				toast.warning(`Invoked with status ${res.StatusCode}`);
@@ -83,6 +108,33 @@
 		}
 	}
 
+	async function createFunction() {
+		if (!newFnName.trim()) {
+			toast.error('Function name is required');
+			return;
+		}
+		creating = true;
+		try {
+			const imageUri = runtimeImageMap[newFnRuntime] ?? 'public.ecr.aws/lambda/python:3.12';
+			await lambda.send(new CreateFunctionCommand({
+				FunctionName: newFnName.trim(),
+				PackageType: 'Image',
+				Code: { ImageUri: imageUri },
+				Role: newFnRole,
+				MemorySize: newFnMemory,
+				Timeout: newFnTimeout,
+			}));
+			toast.success(`Function "${newFnName.trim()}" created`);
+			showCreateModal = false;
+			newFnName = '';
+			await loadFunctions();
+		} catch (err: unknown) {
+			toast.error(`Create failed: ${(err as Error).message}`);
+		} finally {
+			creating = false;
+		}
+	}
+
 	function parseResponsePayload(payload: Uint8Array | undefined): string {
 		if (!payload) return 'No payload returned';
 		try {
@@ -90,6 +142,15 @@
 			return JSON.stringify(JSON.parse(decoded), null, 2);
 		} catch {
 			return new TextDecoder().decode(payload);
+		}
+	}
+
+	function decodeLogResult(logResult: string | undefined): string {
+		if (!logResult) return '';
+		try {
+			return atob(logResult);
+		} catch {
+			return logResult;
 		}
 	}
 
@@ -119,7 +180,7 @@
 				<RefreshCw class="w-5 h-5 text-slate-600 dark:text-slate-300 {loading ? 'animate-spin' : ''}" />
 			</button>
 			<button 
-				onclick={() => toast.info("Function creation wizard coming soon.")}
+				onclick={() => showCreateModal = true}
 				class="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-medium shadow-lg shadow-orange-600/20 transition-all active:scale-95"
 			>
 				<Plus class="w-5 h-5" />
@@ -133,7 +194,7 @@
 			{ label: 'Total Functions', value: functions.length, color: 'text-orange-500' },
 			{ label: 'Node.js', value: functions.filter(f => (f.Runtime ?? '').includes('nodejs')).length, color: 'text-green-500' },
 			{ label: 'Python', value: functions.filter(f => (f.Runtime ?? '').includes('python')).length, color: 'text-blue-500' },
-			{ label: 'With Layers', value: functions.filter(f => (f.Layers?.length ?? 0) > 0).length, color: 'text-purple-500' }
+			{ label: 'Go', value: functions.filter(f => (f.Runtime ?? '').includes('go')).length, color: 'text-cyan-500' }
 		] as s}
 			<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-xl p-4">
 				<p class="text-2xl font-bold {s.color}">{s.value}</p>
@@ -353,13 +414,25 @@
 
 			<div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
 				<!-- Input -->
-				<div class="space-y-2">
+				<div class="space-y-3">
+					<!-- Invocation Type Selector -->
+					<div>
+						<p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Invocation Type</p>
+						<div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl">
+							{#each (['RequestResponse', 'Event', 'DryRun'] as const) as t}
+								<button
+									onclick={() => invokeType = t}
+									class="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all {invokeType === t ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
+								>{t}</button>
+							{/each}
+						</div>
+					</div>
 					<label for="lambda-invoke-payload" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Input Payload (JSON)</label>
 					<div class="relative group">
 						<textarea 
 							id="lambda-invoke-payload"
 							bind:value={invokePayload}
-							class="w-full h-80 p-4 font-mono text-sm bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none shadow-inner"
+							class="w-full h-64 p-4 font-mono text-sm bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none shadow-inner"
 						></textarea>
 						<div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
 							<Terminal class="w-4 h-4 text-slate-300" />
@@ -370,7 +443,7 @@
 				<!-- Output -->
 				<div class="space-y-2">
 					<p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Execution Response</p>
-					<div class="h-80 w-full p-4 font-mono text-sm bg-slate-950 text-emerald-400 rounded-xl overflow-auto shadow-inner border border-black group relative">
+					<div class="h-64 w-full p-4 font-mono text-sm bg-slate-950 text-emerald-400 rounded-xl overflow-auto shadow-inner border border-black group relative">
 						{#if invoking}
 							<div class="flex items-center gap-2 animate-pulse">
 								<RefreshCw class="w-4 h-4 animate-spin" />
@@ -392,6 +465,12 @@
 							</div>
 						{/if}
 					</div>
+					{#if invokeResponse?.LogResult}
+						<div>
+							<p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Log Output</p>
+							<pre class="w-full p-3 font-mono text-xs bg-slate-950 text-slate-300 rounded-xl overflow-auto border border-black whitespace-pre-wrap max-h-32">{decodeLogResult(invokeResponse.LogResult)}</pre>
+						</div>
+					{/if}
 				</div>
 			</div>
 
@@ -413,6 +492,68 @@
 					{:else}
 						<Play class="w-4 h-4 fill-current" />
 						Invoke Function
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Function Modal -->
+{#if showCreateModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div role="none" onclick={() => showCreateModal = false} onkeydown={(e) => e.key === 'Escape' && (showCreateModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+		<div class="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden">
+			<div class="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700/50">
+				<div>
+					<h3 class="text-xl font-bold text-slate-900 dark:text-white">Create Function</h3>
+					<p class="text-xs text-slate-500">Configure a new Lambda function.</p>
+				</div>
+				<button onclick={() => showCreateModal = false} class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+					<X class="w-5 h-5 text-slate-400" />
+				</button>
+			</div>
+			<div class="p-6 space-y-4">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-name">Function Name *</label>
+					<input id="create-fn-name" type="text" bind:value={newFnName} placeholder="my-function" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-runtime">Runtime</label>
+					<select id="create-fn-runtime" bind:value={newFnRuntime} class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+						{#each ['nodejs22.x', 'python3.12', 'python3.11', 'java21', 'go1.x', 'ruby3.3', 'dotnet8'] as rt}
+							<option value={rt}>{rt}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-role">IAM Role ARN</label>
+					<input id="create-fn-role" type="text" bind:value={newFnRole} class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-handler">Handler</label>
+					<input id="create-fn-handler" type="text" bind:value={newFnHandler} class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-memory">Memory (MB)</label>
+						<input id="create-fn-memory" type="number" bind:value={newFnMemory} min="128" max="10240" step="64" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+					</div>
+					<div>
+						<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1" for="create-fn-timeout">Timeout (s)</label>
+						<input id="create-fn-timeout" type="number" bind:value={newFnTimeout} min="1" max="900" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+					</div>
+				</div>
+			</div>
+			<div class="p-6 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700/50 flex justify-end gap-3">
+				<button onclick={() => showCreateModal = false} class="px-5 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-50 transition-all">Cancel</button>
+				<button onclick={createFunction} disabled={creating} class="flex items-center gap-2 px-8 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg shadow-orange-600/20 disabled:opacity-50 transition-all active:scale-[0.98]">
+					{#if creating}
+						<RefreshCw class="w-4 h-4 animate-spin" />
+						Creating...
+					{:else}
+						<Plus class="w-4 h-4" />
+						Create
 					{/if}
 				</button>
 			</div>

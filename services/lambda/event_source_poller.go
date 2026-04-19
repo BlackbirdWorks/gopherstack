@@ -93,7 +93,8 @@ type EventSourcePoller struct {
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
 	mu               *lockmetrics.RWMutex
-	notifyCh         chan struct{}
+	// notifyC allows callers to trigger an immediate poll without waiting for the next tick.
+	notifyC chan struct{}
 	// sqsInvoker is an optional override for the Lambda invocation step used
 	// when processing SQS messages. When nil the real InMemoryBackend is used.
 	// Intended for use in unit tests only.
@@ -114,7 +115,7 @@ func NewEventSourcePoller(
 		kinesisReader:  kinesisReader,
 		shardIterators: make(map[string]string),
 		mu:             lockmetrics.New("lambda.esm"),
-		notifyCh:       make(chan struct{}, 1),
+		notifyC:        make(chan struct{}, 1),
 	}
 }
 
@@ -122,7 +123,7 @@ func NewEventSourcePoller(
 // It is safe to call concurrently. If a notification is already pending, this is a no-op.
 func (p *EventSourcePoller) Notify() {
 	select {
-	case p.notifyCh <- struct{}{}:
+	case p.notifyC <- struct{}{}:
 	default:
 	}
 }
@@ -155,6 +156,8 @@ func (p *EventSourcePoller) getDDBStreamsReader() DynamoDBStreamsReader {
 const (
 	// defaultPollInterval is how often the poller ticks to check for new records.
 	defaultPollInterval = 1 * time.Second
+	// maxBackoffInterval is the maximum idle-backoff interval when no enabled mappings exist.
+	maxBackoffInterval = 16 * time.Second
 )
 
 // Start runs the event source poller as a background goroutine.
@@ -164,26 +167,62 @@ func (p *EventSourcePoller) Start(ctx context.Context) {
 }
 
 func (p *EventSourcePoller) run(ctx context.Context) {
-	ticker := time.NewTicker(defaultPollInterval)
+	interval := defaultPollInterval
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-p.notifyCh:
+		case <-p.notifyC:
+			// Received explicit notification; reset to default interval and poll immediately.
+			interval = defaultPollInterval
+			ticker.Reset(interval)
 			p.poll(ctx)
 		case <-ticker.C:
-			p.poll(ctx)
+			interval = p.pollAndBackoff(ctx, interval, ticker)
 		}
 	}
 }
 
+// pollAndBackoff runs a single poll cycle and adjusts the ticker interval based
+// on whether any enabled mappings were found. It returns the new interval.
+func (p *EventSourcePoller) pollAndBackoff(
+	ctx context.Context,
+	interval time.Duration,
+	ticker *time.Ticker,
+) time.Duration {
+	enabled := p.poll(ctx)
+	if enabled > 0 {
+		if interval != defaultPollInterval {
+			interval = defaultPollInterval
+			ticker.Reset(interval)
+		}
+
+		return interval
+	}
+
+	// No enabled mappings; apply exponential backoff up to maxBackoffInterval.
+	if interval < maxBackoffInterval {
+		interval *= 2
+		if interval > maxBackoffInterval {
+			interval = maxBackoffInterval
+		}
+
+		ticker.Reset(interval)
+	}
+
+	return interval
+}
+
 // poll iterates over all enabled event source mappings and processes new records.
-func (p *EventSourcePoller) poll(ctx context.Context) {
+// It returns the number of enabled mappings found.
+func (p *EventSourcePoller) poll(ctx context.Context) int {
 	mappings := p.lambdaBackend.ListEventSourceMappings("", "", 0).Data
 
 	activeUUIDs := make(map[string]struct{}, len(mappings))
+	enabledCount := 0
 
 	for _, m := range mappings {
 		activeUUIDs[m.UUID] = struct{}{}
@@ -192,10 +231,13 @@ func (p *EventSourcePoller) poll(ctx context.Context) {
 			continue
 		}
 
+		enabledCount++
 		p.processOneMapping(ctx, m)
 	}
 
 	p.sweepStaleIterators(activeUUIDs)
+
+	return enabledCount
 }
 
 // processOneMapping dispatches a single enabled event source mapping to the appropriate handler.

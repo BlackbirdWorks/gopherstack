@@ -1096,6 +1096,113 @@ func TestLambda_Poller_Kinesis_EmptyRecords(t *testing.T) {
 	assert.Positive(t, calls, "GetRecords should have been called even for empty result")
 }
 
+// TestLambda_ESMIndex_ListByFunctionName_UsesIndex verifies that the ESM function-ARN
+// index correctly filters mappings per function and that listing with no filter returns all.
+func TestLambda_ESMIndex_ListByFunctionName_UsesIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filterFn     string
+		wantContains string
+		wantCount    int
+	}{
+		{
+			name:         "filter_function_a",
+			filterFn:     "function-a",
+			wantCount:    1,
+			wantContains: "function-a",
+		},
+		{
+			name:         "filter_function_b",
+			filterFn:     "function-b",
+			wantCount:    1,
+			wantContains: "function-b",
+		},
+		{
+			name:      "no_filter_returns_all",
+			filterFn:  "",
+			wantCount: 2,
+		},
+	}
+
+	_, backend := newRealHandler(t)
+
+	// Create ESMs for two distinct functions.
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/stream-a",
+		FunctionName:   "function-a",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/stream-b",
+		FunctionName:   "function-b",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := backend.ListEventSourceMappings(tt.filterFn, "", 0)
+			assert.Len(t, result.Data, tt.wantCount)
+
+			if tt.wantContains != "" {
+				require.Len(t, result.Data, 1)
+				assert.Contains(t, result.Data[0].FunctionARN, tt.wantContains)
+			}
+		})
+	}
+}
+
+// TestLambda_DeleteFunction_CascadesESMDelete verifies that deleting a function also
+// removes all of its event source mappings.
+func TestLambda_DeleteFunction_CascadesESMDelete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "cascade_deletes_esm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, backend := newRealHandler(t)
+
+			fnName := "cascade-fn-" + tt.name
+			require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: fnName}))
+
+			_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+				EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/cascade-stream",
+				FunctionName:   fnName,
+				Enabled:        true,
+			})
+			require.NoError(t, err)
+
+			// Verify ESM exists before deletion.
+			before := backend.ListEventSourceMappings(fnName, "", 0)
+			require.Len(t, before.Data, 1)
+
+			// Delete the function.
+			require.NoError(t, backend.DeleteFunction(fnName))
+
+			// ESMs for the deleted function must be gone.
+			after := backend.ListEventSourceMappings(fnName, "", 0)
+			assert.Empty(t, after.Data)
+
+			// The global list must also be empty.
+			all := backend.ListEventSourceMappings("", "", 0)
+			assert.Empty(t, all.Data)
+		})
+	}
+}
+
 // TestLambda_Poller_NonKinesisNonSQSARN verifies that unknown ESM source types are skipped.
 func TestLambda_Poller_NonKinesisNonSQSARN(t *testing.T) {
 	t.Parallel()

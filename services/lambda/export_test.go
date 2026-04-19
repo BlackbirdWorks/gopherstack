@@ -384,3 +384,9 @@ func EnqueueAsync(
 
 	return inv.requestID
 }
+
+// CleanupSemLen returns the number of cleanup goroutines currently holding a slot in cleanupSem.
+func CleanupSemLen(b *InMemoryBackend) int { return len(b.cleanupSem) }
+
+// PollerNotifyC returns the notify channel of an EventSourcePoller for testing.
+func PollerNotifyC(p *EventSourcePoller) chan struct{} { return p.notifyC }
