@@ -56,6 +56,11 @@ type StorageBackend interface {
 // message to the destination and delete it from the source.
 const moveTaskVisibilityTimeoutSecs = 30
 
+const (
+	janitorInterval      = 30 * time.Second
+	moveTaskRetentionTTL = 15 * time.Minute
+)
+
 // moveTaskState tracks the live state of a StartMessageMoveTask goroutine.
 type moveTaskState struct {
 	cancel        context.CancelFunc
@@ -76,6 +81,7 @@ type InMemoryBackend struct {
 	queues         map[string]*Queue
 	moveTasks      map[string]*moveTaskState
 	snsUnsubscribe func()
+	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
@@ -90,12 +96,65 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		queues:    make(map[string]*Queue),
 		moveTasks: make(map[string]*moveTaskState),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
+	}
+
+	b.startJanitor()
+
+	return b
+}
+
+func (b *InMemoryBackend) startJanitor() {
+	b.janitorStop = make(chan struct{})
+
+	go b.runJanitor()
+}
+
+func (b *InMemoryBackend) runJanitor() {
+	ticker := time.NewTicker(janitorInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.janitorStop:
+			return
+		case <-ticker.C:
+			b.pruneState(time.Now())
+		}
+	}
+}
+
+func (b *InMemoryBackend) pruneState(now time.Time) {
+	b.mu.Lock("pruneState")
+	defer b.mu.Unlock()
+
+	for _, q := range b.queues {
+		if q.IsFIFO {
+			pruneDedup(q, now)
+		}
+
+		reQueueExpired(q, now)
+		expireRetainedMessages(q, now)
+		drainToDLQ(q)
+	}
+
+	pruneBefore := now.Add(-moveTaskRetentionTTL).UnixMilli()
+	for taskHandle, task := range b.moveTasks {
+		task.mu.Lock()
+		isTerminal := task.status == MoveTaskStatusCompleted ||
+			task.status == MoveTaskStatusCancelled ||
+			task.status == MoveTaskStatusFailed
+		isExpired := task.startedAt <= pruneBefore
+		task.mu.Unlock()
+
+		if isTerminal && isExpired {
+			delete(b.moveTasks, taskHandle)
+		}
 	}
 }
 
@@ -429,6 +488,10 @@ const maxVisibilityTimeoutSeconds = 43200
 
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
+	md5Body := computeMD5(input.MessageBody)
+	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
+	msgID := uuid.New().String()
+
 	b.mu.Lock("SendMessage")
 	defer b.mu.Unlock()
 
@@ -449,16 +512,11 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		}
 	}
 
-	md5Body := computeMD5(input.MessageBody)
-	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
-
 	// Capture now once so that pruneDedup, checkDedup, storeDedup, and message
 	// timestamps all use the same consistent clock value.
 	now := time.Now()
 
 	if q.IsFIFO {
-		pruneDedup(q, now)
-
 		if out, dup := checkDedup(
 			q,
 			input.MessageDeduplicationID,
@@ -470,7 +528,6 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		}
 	}
 
-	msgID := uuid.New().String()
 	sentTS := strconv.FormatInt(now.UnixMilli(), 10)
 
 	msg := &Message{
@@ -567,7 +624,14 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 	}
 
 	expiry, found := q.DeduplicationIDs[effectiveID]
-	if !found || !now.Before(expiry) {
+	if !found {
+		return nil, false
+	}
+
+	if !now.Before(expiry) {
+		delete(q.DeduplicationIDs, effectiveID)
+		delete(q.deduplicationMsgIDs, effectiveID)
+
 		return nil, false
 	}
 

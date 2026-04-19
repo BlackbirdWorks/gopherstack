@@ -15,9 +15,9 @@ import (
 
 // ─── Memory Leaks ───────────────────────────────────────────────────────────
 
-// TestFIFODedupPrunedOnSendMessage verifies that expired deduplication IDs are
-// removed during SendMessage so that send-only FIFO queues don't leak memory.
-func TestFIFODedupPrunedOnSendMessage(t *testing.T) {
+// TestFIFODedupPrunedByJanitor verifies that expired deduplication IDs are
+// removed by janitor cleanup so quiet FIFO queues don't leak memory.
+func TestFIFODedupPrunedByJanitor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -49,8 +49,7 @@ func TestFIFODedupPrunedOnSendMessage(t *testing.T) {
 			// Sanity-check: expired entries are now present in the map.
 			require.Equal(t, len(tt.expiredIDs), b.DedupMapLen(qName))
 
-			// SendMessage on a FIFO queue calls pruneDedup before storing the new
-			// entry; the expired entries should be swept out.
+			// SendMessage stores a fresh dedup entry.
 			_, err := b.SendMessage(&sqs.SendMessageInput{
 				QueueURL:               qURL,
 				MessageBody:            "fresh-body",
@@ -59,7 +58,9 @@ func TestFIFODedupPrunedOnSendMessage(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// After SendMessage, only the freshly added entry should remain.
+			b.RunJanitorOnceForTest(time.Now())
+
+			// After janitor cleanup, only the freshly added entry should remain.
 			assert.Equal(t, tt.wantDedupLen, b.DedupMapLen(qName))
 		})
 	}

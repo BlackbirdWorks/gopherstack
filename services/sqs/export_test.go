@@ -32,3 +32,30 @@ func (b *InMemoryBackend) InjectExpiredDedupID(queueName, dedupID string) {
 	q.DeduplicationIDs[dedupID] = expired
 	q.deduplicationMsgIDs[dedupID] = "injected-" + dedupID
 }
+
+func (b *InMemoryBackend) RunJanitorOnceForTest(now time.Time) {
+	b.pruneState(now)
+}
+
+func (b *InMemoryBackend) InjectMoveTaskForTest(
+	taskHandle string,
+	status MoveTaskStatus,
+	startedAt int64,
+) {
+	b.mu.Lock("InjectMoveTaskForTest")
+	defer b.mu.Unlock()
+
+	b.moveTasks[taskHandle] = &moveTaskState{
+		cancel:     func() {},
+		taskHandle: taskHandle,
+		status:     status,
+		startedAt:  startedAt,
+	}
+}
+
+func (b *InMemoryBackend) MoveTaskCountForTest() int {
+	b.mu.RLock("MoveTaskCountForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.moveTasks)
+}

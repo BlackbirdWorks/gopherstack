@@ -643,6 +643,78 @@ func TestHandlerActions_ReceiveMessage(t *testing.T) {
 	})
 }
 
+func TestHandlerActions_ReceiveMessageAttributeNamesFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		messageAttrNames []string
+		wantAttrNames    []string
+		wantAttrNamesLen int
+	}{
+		{
+			name:             "no_requested_message_attributes_returns_empty_map",
+			messageAttrNames: nil,
+			wantAttrNamesLen: 0,
+		},
+		{
+			name:             "explicit_attribute_name_filters_results",
+			messageAttrNames: []string{"AttrA"},
+			wantAttrNames:    []string{"AttrA"},
+			wantAttrNamesLen: 1,
+		},
+		{
+			name:             "all_sentinel_returns_all_attributes",
+			messageAttrNames: []string{"All"},
+			wantAttrNames:    []string{"AttrA", "AttrB", "Other"},
+			wantAttrNamesLen: 3,
+		},
+		{
+			name:             "prefix_wildcard_returns_matching_attributes",
+			messageAttrNames: []string{"Attr.*"},
+			wantAttrNames:    []string{"AttrA", "AttrB"},
+			wantAttrNamesLen: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			queueURL := doCreateQueue(t, h, "msg-attr-filter-queue")
+			doRequest(t, h, "SendMessage", map[string]any{
+				"QueueUrl":    queueURL,
+				"MessageBody": "hello",
+				"MessageAttributes": map[string]any{
+					"AttrA": map[string]any{"DataType": "String", "StringValue": "A"},
+					"AttrB": map[string]any{"DataType": "String", "StringValue": "B"},
+					"Other": map[string]any{"DataType": "String", "StringValue": "X"},
+				},
+			})
+
+			rec := doRequest(t, h, "ReceiveMessage", map[string]any{
+				"QueueUrl":              queueURL,
+				"MaxNumberOfMessages":   1,
+				"MessageAttributeNames": tt.messageAttrNames,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Messages []struct {
+					MessageAttributes map[string]map[string]any `json:"MessageAttributes"`
+				} `json:"Messages"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Len(t, resp.Messages, 1)
+			assert.Len(t, resp.Messages[0].MessageAttributes, tt.wantAttrNamesLen)
+			for _, name := range tt.wantAttrNames {
+				assert.Contains(t, resp.Messages[0].MessageAttributes, name)
+			}
+		})
+	}
+}
+
 func TestHandlerActions_DeleteMessage(t *testing.T) {
 	t.Parallel()
 

@@ -605,7 +605,7 @@ func (h *Handler) handleReceiveMessage(
 			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
 			Body:                   msg.Body,
 			Attributes:             attrs,
-			MessageAttributes:      toJSONMsgAttrs(msg.MessageAttributes),
+			MessageAttributes:      filterJSONMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames),
 		})
 	}
 
@@ -1113,6 +1113,47 @@ func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAt
 
 	for k, v := range attrs {
 		result[k] = jsonMsgAttr(v)
+	}
+
+	return result
+}
+
+func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []string) map[string]jsonMsgAttr {
+	if len(attrs) == 0 || len(requested) == 0 {
+		return map[string]jsonMsgAttr{}
+	}
+
+	if containsStr(requested, attrAll) || containsStr(requested, ".*") {
+		return toJSONMsgAttrs(attrs)
+	}
+
+	exact := make(map[string]struct{}, len(requested))
+	prefixes := make([]string, 0, len(requested))
+	for _, name := range requested {
+		if before, ok := strings.CutSuffix(name, ".*"); ok {
+			prefixes = append(prefixes, before)
+
+			continue
+		}
+
+		exact[name] = struct{}{}
+	}
+
+	result := make(map[string]jsonMsgAttr)
+	for name, value := range attrs {
+		if _, ok := exact[name]; ok {
+			result[name] = jsonMsgAttr(value)
+
+			continue
+		}
+
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				result[name] = jsonMsgAttr(value)
+
+				break
+			}
+		}
 	}
 
 	return result

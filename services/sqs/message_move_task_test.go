@@ -941,6 +941,75 @@ func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 	require.ErrorIs(t, err, sqs.ErrMoveTaskNotRunning)
 }
 
+func TestSQS_MoveTaskJanitorPruning(t *testing.T) {
+	t.Parallel()
+
+	type taskFixture struct {
+		handle    string
+		status    sqs.MoveTaskStatus
+		startedAt int64
+	}
+
+	now := time.Now()
+	tests := []struct {
+		name      string
+		tasks     []taskFixture
+		wantCount int
+	}{
+		{
+			name: "old_terminal_tasks_are_removed",
+			tasks: []taskFixture{
+				{
+					handle:    "completed-old",
+					status:    sqs.MoveTaskStatusCompleted,
+					startedAt: now.Add(-16 * time.Minute).UnixMilli(),
+				},
+				{
+					handle:    "cancelled-old",
+					status:    sqs.MoveTaskStatusCancelled,
+					startedAt: now.Add(-16 * time.Minute).UnixMilli(),
+				},
+				{
+					handle:    "failed-old",
+					status:    sqs.MoveTaskStatusFailed,
+					startedAt: now.Add(-16 * time.Minute).UnixMilli(),
+				},
+			},
+			wantCount: 0,
+		},
+		{
+			name: "running_and_recent_terminal_tasks_are_kept",
+			tasks: []taskFixture{
+				{
+					handle:    "running-old",
+					status:    sqs.MoveTaskStatusRunning,
+					startedAt: now.Add(-30 * time.Minute).UnixMilli(),
+				},
+				{
+					handle:    "completed-recent",
+					status:    sqs.MoveTaskStatusCompleted,
+					startedAt: now.Add(-5 * time.Minute).UnixMilli(),
+				},
+			},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sqs.NewInMemoryBackend()
+			for _, task := range tt.tasks {
+				b.InjectMoveTaskForTest(task.handle, task.status, task.startedAt)
+			}
+
+			b.RunJanitorOnceForTest(now)
+			assert.Equal(t, tt.wantCount, b.MoveTaskCountForTest())
+		})
+	}
+}
+
 // TestSQS_AddPermission_Validation tests input validation for AddPermission.
 func TestSQS_AddPermission_Validation(t *testing.T) {
 	t.Parallel()
