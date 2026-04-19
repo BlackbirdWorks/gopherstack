@@ -31,6 +31,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -271,15 +272,109 @@ func loadS3(ctx context.Context, s3Client *s3.Client) error {
 }
 
 func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
+	log := pkgslogger.Load(ctx)
+
+	// Standard queue used for SNS fan-out demo.
 	queueName := "demo-queue"
-	_, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+	if _, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: &queueName,
+		Attributes: map[string]string{
+			"VisibilityTimeout":             "30",
+			"MessageRetentionPeriod":        "86400",
+			"ReceiveMessageWaitTimeSeconds": "5",
+		},
+		Tags: map[string]string{"env": "demo", "team": "platform"},
+	}); err != nil {
+		log.WarnContext(ctx, "Failed to create queue", "name", queueName, "error", err)
+	} else {
+		log.InfoContext(ctx, "Created SQS queue", "name", queueName)
+	}
+
+	// DLQ for the order-processing queue.
+	dlqName := "order-processing-dlq"
+	dlqOut, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName:  &dlqName,
+		Attributes: map[string]string{"MessageRetentionPeriod": "1209600"},
+		Tags:       map[string]string{"env": "demo", "purpose": "dlq"},
 	})
 	if err != nil {
-		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create queue", "error", err)
+		log.WarnContext(ctx, "Failed to create DLQ", "name", dlqName, "error", err)
 	} else {
-		pkgslogger.Load(ctx).InfoContext(ctx, "Created SQS queue", "name", queueName)
+		log.InfoContext(ctx, "Created SQS DLQ", "name", dlqName)
 	}
+
+	// Standard queue with DLQ wired up.
+	orderQueueName := "order-processing"
+	dlqARN := arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, dlqName)
+	orderAttrs := map[string]string{
+		"VisibilityTimeout":      "60",
+		"MessageRetentionPeriod": "345600",
+	}
+	if dlqOut != nil {
+		orderAttrs["RedrivePolicy"] = `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":"3"}`
+	}
+	if _, createErr := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName:  &orderQueueName,
+		Attributes: orderAttrs,
+		Tags:       map[string]string{"env": "demo", "service": "orders"},
+	}); createErr != nil {
+		log.WarnContext(ctx, "Failed to create order queue", "error", createErr)
+	} else {
+		log.InfoContext(ctx, "Created SQS queue", "name", orderQueueName)
+	}
+
+	// FIFO queue for order events.
+	fifoQueueName := "order-events.fifo"
+	if _, fifoErr := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: &fifoQueueName,
+		Attributes: map[string]string{
+			"FifoQueue":                 "true",
+			"ContentBasedDeduplication": "false",
+			"VisibilityTimeout":         "30",
+		},
+		Tags: map[string]string{"env": "demo", "service": "orders"},
+	}); fifoErr != nil {
+		log.WarnContext(ctx, "Failed to create FIFO queue", "name", fifoQueueName, "error", fifoErr)
+	} else {
+		log.InfoContext(ctx, "Created SQS FIFO queue", "name", fifoQueueName)
+	}
+
+	// Seed a few messages into demo-queue so the dashboard shows something on first load.
+	demoMessages := []struct {
+		attrs map[string]sqstypes.MessageAttributeValue
+		body  string
+	}{
+		{
+			body: `{"event":"user.signup","userId":"u-001","email":"alice@example.com"}`,
+			attrs: map[string]sqstypes.MessageAttributeValue{
+				"ContentType": {DataType: aws.String("String"), StringValue: aws.String("application/json")},
+				"Source":      {DataType: aws.String("String"), StringValue: aws.String("auth-service")},
+			},
+		},
+		{
+			body: `{"event":"order.created","orderId":"ord-1234","amount":59.99}`,
+			attrs: map[string]sqstypes.MessageAttributeValue{
+				"ContentType": {DataType: aws.String("String"), StringValue: aws.String("application/json")},
+				"Priority":    {DataType: aws.String("Number"), StringValue: aws.String("1")},
+			},
+		},
+		{
+			body:  `{"event":"payment.processed","orderId":"ord-1234","status":"success"}`,
+			attrs: map[string]sqstypes.MessageAttributeValue{},
+		},
+	}
+
+	for i, m := range demoMessages {
+		queueURL := "http://localhost:4566/000000000000/" + queueName
+		if _, sendErr := sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
+			QueueUrl:          &queueURL,
+			MessageBody:       aws.String(m.body),
+			MessageAttributes: m.attrs,
+		}); sendErr != nil {
+			log.WarnContext(ctx, "Failed to seed demo message", "index", i, "error", sendErr)
+		}
+	}
+	log.InfoContext(ctx, "Seeded demo messages", "queue", queueName, "count", len(demoMessages))
 }
 
 func loadSNS(ctx context.Context, snsClient *sns.Client, _ *sqs.Client) error {

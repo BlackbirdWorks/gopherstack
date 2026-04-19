@@ -1,6 +1,9 @@
 package sqs
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // DedupMapLen returns the number of entries currently in the deduplication map
 // for the named FIFO queue. Used only in tests.
@@ -31,4 +34,46 @@ func (b *InMemoryBackend) InjectExpiredDedupID(queueName, dedupID string) {
 	expired := time.Now().Add(-deduplicationWindowSecs * time.Second * 2)
 	q.DeduplicationIDs[dedupID] = expired
 	q.deduplicationMsgIDs[dedupID] = "injected-" + dedupID
+}
+
+func (b *InMemoryBackend) RunJanitorOnceForTest(now time.Time) {
+	b.pruneState(now)
+}
+
+func (b *InMemoryBackend) InjectMoveTaskForTest(
+	taskHandle string,
+	status MoveTaskStatus,
+	startedAt int64,
+) {
+	b.mu.Lock("InjectMoveTaskForTest")
+	defer b.mu.Unlock()
+
+	b.moveTasks[taskHandle] = &moveTaskState{
+		cancel:     func() {},
+		taskHandle: taskHandle,
+		status:     status,
+		startedAt:  startedAt,
+	}
+}
+
+func (b *InMemoryBackend) MoveTaskCountForTest() int {
+	b.mu.RLock("MoveTaskCountForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.moveTasks)
+}
+
+// SetRetentionForTest directly overrides the MessageRetentionPeriod attribute
+// for the queue at queueURL without going through attribute range validation.
+// This exists solely to allow unit tests to use sub-60-second retention windows
+// for fast testing of message expiry behaviour.
+func (b *InMemoryBackend) SetRetentionForTest(queueURL string, seconds int) {
+	b.mu.Lock("SetRetentionForTest")
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(queueURL)
+
+	if q, ok := b.queues[name]; ok {
+		q.Attributes[attrMessageRetentionPeriod] = strconv.Itoa(seconds)
+	}
 }
