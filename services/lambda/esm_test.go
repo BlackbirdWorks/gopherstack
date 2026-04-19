@@ -57,9 +57,11 @@ func doESMRequest(t *testing.T, h *lambda.Handler, method, path string, body any
 func TestLambda_ESM_CRUD(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newRealHandler(t)
+	h, bk := newRealHandler(t)
 
 	streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream"
+
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 
 	// CreateEventSourceMapping
 	rec := doESMRequest(t, h, http.MethodPost, "/2015-03-31/event-source-mappings/", map[string]any{
@@ -122,7 +124,9 @@ func TestLambda_ESM_CRUD(t *testing.T) {
 func TestLambda_ESM_CreateDisabled(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newRealHandler(t)
+	h, bk := newRealHandler(t)
+
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 
 	enabled := false
 	rec := doESMRequest(t, h, http.MethodPost, "/2015-03-31/event-source-mappings/", map[string]any{
@@ -143,7 +147,9 @@ func TestLambda_ESM_CreateDisabled(t *testing.T) {
 func TestLambda_ESM_CreateNilEnabled(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newRealHandler(t)
+	h, bk := newRealHandler(t)
+
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "my-function"}))
 
 	// No Enabled field - should default to enabled
 	rec := doESMRequest(t, h, http.MethodPost, "/2015-03-31/event-source-mappings/", map[string]any{
@@ -163,7 +169,10 @@ func TestLambda_ESM_CreateNilEnabled(t *testing.T) {
 func TestLambda_ESM_ListByFunctionName(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newRealHandler(t)
+	h, bk := newRealHandler(t)
+
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "function-a"}))
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "function-b"}))
 
 	// Create two mappings for different functions
 	doESMRequest(t, h, http.MethodPost, "/2015-03-31/event-source-mappings/", map[string]any{
@@ -464,6 +473,7 @@ func TestLambda_Poller_PollWithRecords(t *testing.T) {
 	_, backend := newRealHandler(t)
 
 	// Create an ESM
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	m, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN:   "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
 		FunctionName:     "test-function",
@@ -503,6 +513,7 @@ func TestLambda_Poller_PollWithDisabledMapping(t *testing.T) {
 	_, backend := newRealHandler(t)
 
 	// Create a disabled ESM
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
 		FunctionName:   "test-function",
@@ -534,6 +545,7 @@ func TestLambda_Poller_PollStreamNotFound(t *testing.T) {
 	_, backend := newRealHandler(t)
 
 	// Create an ESM for a non-existent stream
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/nonexistent",
 		FunctionName:   "test-function",
@@ -572,6 +584,36 @@ func TestLambda_Poller_StartAndStop(t *testing.T) {
 	poller.Start(ctx)
 	<-ctx.Done()
 	// No panic - goroutine should have stopped cleanly
+}
+
+// TestLambda_DeleteEventSourceMapping_RemovesPollerIterators verifies that deleting an ESM
+// eagerly removes poller shard iterator state for that mapping.
+func TestLambda_DeleteEventSourceMapping_RemovesPollerIterators(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
+	mapping, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+		FunctionName:   "test-function",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &pollingKinesisReader{
+		shardIDs: []string{"shardId-000000000000"},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, reader)
+	backend.SetKinesisPoller(poller)
+
+	lambda.PollOnce(t.Context(), poller)
+	require.Equal(t, 1, lambda.ShardIteratorsLen(poller))
+
+	_, err = backend.DeleteEventSourceMapping(mapping.UUID)
+	require.NoError(t, err)
+	assert.Zero(t, lambda.ShardIteratorsLen(poller))
 }
 
 // errorKinesisReader returns errors from GetShardIDs.
@@ -645,6 +687,7 @@ func TestLambda_Poller_SQS_PollWithMessages_InvocationFails(t *testing.T) {
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:test-queue"
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-function",
@@ -685,6 +728,7 @@ func TestLambda_Poller_SQS_SkipsDisabledMapping(t *testing.T) {
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:disabled-queue"
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-function",
@@ -715,6 +759,7 @@ func TestLambda_Poller_SQS_NoMessagesNoop(t *testing.T) {
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:empty-queue"
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-function",
@@ -749,6 +794,7 @@ func TestLambda_Poller_SQS_ReceiveError(t *testing.T) {
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:error-queue"
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-function",
@@ -838,6 +884,7 @@ func TestLambda_Backend_SetSQSReader_WithPoller(t *testing.T) {
 
 	// Verify the reader was propagated: create an SQS ESM and poll once.
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:set-reader-queue"
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-fn"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-fn",
@@ -866,6 +913,7 @@ func TestLambda_Poller_SQS_DeleteError(t *testing.T) {
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:delete-err-queue"
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-function"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-function",
@@ -980,6 +1028,7 @@ func TestLambda_Poller_Kinesis_GetShardIteratorError(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-fn"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/err-iter-stream",
 		FunctionName:   "test-fn",
@@ -1011,6 +1060,7 @@ func TestLambda_Poller_Kinesis_GetRecordsError(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-fn"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/get-records-err-stream",
 		FunctionName:   "test-fn",
@@ -1042,6 +1092,7 @@ func TestLambda_Poller_Kinesis_EmptyRecords(t *testing.T) {
 
 	_, backend := newRealHandler(t)
 
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-fn"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/empty-records-stream",
 		FunctionName:   "test-fn",
@@ -1067,6 +1118,116 @@ func TestLambda_Poller_Kinesis_EmptyRecords(t *testing.T) {
 	assert.Positive(t, calls, "GetRecords should have been called even for empty result")
 }
 
+// TestLambda_ESMIndex_ListByFunctionName_UsesIndex verifies that the ESM function-ARN
+// index correctly filters mappings per function and that listing with no filter returns all.
+func TestLambda_ESMIndex_ListByFunctionName_UsesIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filterFn     string
+		wantContains string
+		wantCount    int
+	}{
+		{
+			name:         "filter_function_a",
+			filterFn:     "function-a",
+			wantCount:    1,
+			wantContains: "function-a",
+		},
+		{
+			name:         "filter_function_b",
+			filterFn:     "function-b",
+			wantCount:    1,
+			wantContains: "function-b",
+		},
+		{
+			name:      "no_filter_returns_all",
+			filterFn:  "",
+			wantCount: 2,
+		},
+	}
+
+	_, backend := newRealHandler(t)
+
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "function-a"}))
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "function-b"}))
+
+	// Create ESMs for two distinct functions.
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/stream-a",
+		FunctionName:   "function-a",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/stream-b",
+		FunctionName:   "function-b",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := backend.ListEventSourceMappings(tt.filterFn, "", 0)
+			assert.Len(t, result.Data, tt.wantCount)
+
+			if tt.wantContains != "" {
+				require.Len(t, result.Data, 1)
+				assert.Contains(t, result.Data[0].FunctionARN, tt.wantContains)
+			}
+		})
+	}
+}
+
+// TestLambda_DeleteFunction_CascadesESMDelete verifies that deleting a function also
+// removes all of its event source mappings.
+func TestLambda_DeleteFunction_CascadesESMDelete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "cascade_deletes_esm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, backend := newRealHandler(t)
+
+			fnName := "cascade-fn-" + tt.name
+			require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: fnName}))
+
+			_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+				EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/cascade-stream",
+				FunctionName:   fnName,
+				Enabled:        true,
+			})
+			require.NoError(t, err)
+
+			// Verify ESM exists before deletion.
+			before := backend.ListEventSourceMappings(fnName, "", 0)
+			require.Len(t, before.Data, 1)
+
+			// Delete the function.
+			require.NoError(t, backend.DeleteFunction(fnName))
+
+			// ESMs for the deleted function must be gone.
+			after := backend.ListEventSourceMappings(fnName, "", 0)
+			assert.Empty(t, after.Data)
+
+			// The global list must also be empty.
+			all := backend.ListEventSourceMappings("", "", 0)
+			assert.Empty(t, all.Data)
+		})
+	}
+}
+
 // TestLambda_Poller_NonKinesisNonSQSARN verifies that unknown ESM source types are skipped.
 func TestLambda_Poller_NonKinesisNonSQSARN(t *testing.T) {
 	t.Parallel()
@@ -1075,6 +1236,7 @@ func TestLambda_Poller_NonKinesisNonSQSARN(t *testing.T) {
 
 	// "arn:aws:dynamodb:us-east-1" has only 4 segments (3 colons), fewer than the 6
 	// required by streamNameFromARN, so it returns "" and the mapping is skipped.
+	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "test-fn"}))
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: "arn:aws:dynamodb:us-east-1",
 		FunctionName:   "test-fn",
@@ -1096,4 +1258,85 @@ func TestLambda_Poller_NonKinesisNonSQSARN(t *testing.T) {
 
 	// The ARN has too few parts → streamNameFromARN returns "" → ESM skipped.
 	assert.Zero(t, calls, "non-Kinesis ARN should not trigger GetRecords")
+}
+
+// TestLambda_CreateESM_AllowsNonExistentFunction verifies that CreateEventSourceMapping
+// succeeds even when the referenced Lambda function does not exist. AWS allows creating ESMs
+// for functions that have not yet been created; the ESM enters an error state at invoke time.
+func TestLambda_CreateESM_AllowsNonExistentFunction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		functionName string
+	}{
+		{
+			name:         "bare_function_name",
+			functionName: "does-not-exist",
+		},
+		{
+			name:         "function_arn",
+			functionName: "arn:aws:lambda:us-east-1:000000000000:function:also-does-not-exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, backend := newRealHandler(t)
+
+			m, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+				EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/test-stream",
+				FunctionName:   tt.functionName,
+				Enabled:        true,
+			})
+
+			require.NoError(t, err, "CreateEventSourceMapping must succeed even when function does not exist")
+			assert.NotEmpty(t, m.UUID)
+		})
+	}
+}
+
+// TestLambda_UpdateESM_UpdatesLastModified verifies that UpdateEventSourceMapping sets
+// LastModified to a time after the mapping was created.
+func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "updates_last_modified"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, backend := newRealHandler(t)
+
+			require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "update-esm-fn"}))
+
+			m, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+				EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/update-stream",
+				FunctionName:   "update-esm-fn",
+				Enabled:        true,
+			})
+			require.NoError(t, err)
+
+			createdAt := m.LastModified
+
+			// Ensure at least 1ms passes.
+			time.Sleep(time.Millisecond)
+
+			updated, updateErr := backend.UpdateEventSourceMapping(m.UUID, &lambda.UpdateEventSourceMappingInput{
+				Enabled:   new(false),
+				BatchSize: 0,
+			})
+			require.NoError(t, updateErr)
+
+			assert.True(t, updated.LastModified.After(createdAt),
+				"LastModified should be after creation time: got %v, created %v", updated.LastModified, createdAt)
+		})
+	}
 }

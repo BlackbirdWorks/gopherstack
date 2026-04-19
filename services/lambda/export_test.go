@@ -277,6 +277,9 @@ func ShardIteratorsLen(p *EventSourcePoller) int {
 // RuntimeQueueSize exposes the internal runtimeQueueSize constant for test use.
 const RuntimeQueueSize = runtimeQueueSize
 
+// MaxAsyncEnqueueWaiters exposes maxAsyncEnqueueWaiters for test use.
+const MaxAsyncEnqueueWaiters = maxAsyncEnqueueWaiters
+
 // PendingLen returns the number of entries in the runtime server's pending invocations map.
 // Intended for use in unit tests to verify stale-pending cleanup.
 func PendingLen(s *ExportedRuntimeServer) int {
@@ -293,6 +296,11 @@ func PendingLen(s *ExportedRuntimeServer) int {
 // QueueLen returns the current number of items in the runtime server's invocation queue.
 func QueueLen(s *ExportedRuntimeServer) int {
 	return len(s.inner.queue)
+}
+
+// AsyncEnqueueWaitersLen returns the number of currently active slow-path async enqueue waiters.
+func AsyncEnqueueWaitersLen(b *InMemoryBackend) int {
+	return len(b.asyncEnqueueWaiters)
 }
 
 // FillQueue fills the runtime server's queue with dummy placeholder entries up to n items.
@@ -375,4 +383,15 @@ func EnqueueAsync(
 	b.enqueueAsyncInvocation(ctx, srv.inner, functionName, inv, timeout, trackConcurrency)
 
 	return inv.requestID
+}
+
+// CleanupSemLen returns the number of cleanup goroutines currently holding a slot in cleanupSem.
+func CleanupSemLen(b *InMemoryBackend) int { return len(b.cleanupSem) }
+
+// PollerNotifyC returns the notify channel of an EventSourcePoller for testing.
+func PollerNotifyC(p *EventSourcePoller) chan struct{} { return p.notifyC }
+
+// PushInvocationLog exports pushInvocationLog for testing.
+func PushInvocationLog(ctx context.Context, b *InMemoryBackend, functionName string, payload, result []byte) {
+	b.pushInvocationLog(ctx, functionName, payload, result)
 }

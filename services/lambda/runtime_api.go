@@ -263,5 +263,24 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 	}
 
 	slog.Default().Error("lambda runtime init error", "error", string(body))
+
+	// Deliver the init error to the first pending invocation so the caller gets an
+	// immediate error response instead of timing out.
+	s.pending.Range(func(key, value any) bool {
+		inv, ok := value.(*pendingInvocation)
+		if !ok {
+			return true
+		}
+
+		select {
+		case inv.result <- invocationResult{payload: body, isError: true, statusCode: http.StatusOK}:
+		default:
+		}
+
+		s.pending.Delete(key)
+
+		return false // stop after first
+	})
+
 	w.WriteHeader(http.StatusAccepted)
 }

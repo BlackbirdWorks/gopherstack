@@ -2,6 +2,7 @@ package demo
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -26,6 +27,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iot"
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -57,6 +60,7 @@ type Clients struct {
 	KMS            *kms.Client
 	SecretsManager *secretsmanager.Client
 	ECR            *ecr.Client
+	Lambda         *lambdasdk.Client
 	AppSync        *appsync.Client
 	Amplify        *amplify.Client
 	ECS            *ecs.Client
@@ -127,6 +131,10 @@ func LoadData(
 
 	if clients.CodePipeline != nil {
 		loadCodePipeline(ctx, clients.CodePipeline)
+	}
+
+	if clients.Lambda != nil {
+		loadLambda(ctx, clients.Lambda)
 	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
@@ -816,5 +824,114 @@ func loadCodePipeline(ctx context.Context, client *codepipelinesvc.Client) {
 		}
 
 		pkgslogger.Load(ctx).InfoContext(ctx, "Created CodePipeline pipeline", "name", p.name)
+	}
+}
+
+// demoLambdaZipB64 is a tiny but valid ZIP archive containing an empty handler.py file.
+// It is used as the code payload for demo Lambda functions that do not need to execute.
+// The archive contains a single file named handler.py with no content.
+const demoLambdaZipB64 = "UEsDBAoAAAAAAItpCFkAAAAAAAAAAAAAAAAKAAAAaGFuZGxlci5weVBLAQIeAwoA" +
+	"AAAAAItpCFkAAAAAAAAAAAAAAAAKAAAAAAAAAAAAEADtQQAAAABoYW5kbGVyLnB5UEsFBgAAAAABAAEAOAAAACgAAAAAAA=="
+
+// demoLambdaRole is the IAM role ARN used for all demo Lambda functions.
+const demoLambdaRole = "arn:aws:iam::000000000000:role/lambda-role"
+
+const (
+	// demoHelloWorldMemory is the memory size for the demo hello-world function.
+	demoHelloWorldMemory = int32(128)
+	// demoHelloWorldTimeout is the timeout for the demo hello-world function.
+	demoHelloWorldTimeout = int32(30)
+	// demoS3ProcessorMemory is the memory size for the demo S3 processor function.
+	demoS3ProcessorMemory = int32(256)
+	// demoS3ProcessorTimeout is the timeout for the demo S3 processor function.
+	demoS3ProcessorTimeout = int32(60)
+	// demoAPIHandlerMemory is the memory size for the demo API handler function.
+	demoAPIHandlerMemory = int32(512)
+	// demoAPIHandlerTimeout is the timeout for the demo API handler function.
+	demoAPIHandlerTimeout = int32(15)
+)
+
+func loadLambda(ctx context.Context, client *lambdasdk.Client) {
+	type demoFn struct {
+		name        string
+		handler     string
+		description string
+		env         map[string]string
+		runtime     lambdatypes.Runtime
+		memory      int32
+		timeout     int32
+	}
+
+	demos := []demoFn{
+		{
+			name:        "demo-hello-world",
+			runtime:     lambdatypes.RuntimePython312,
+			handler:     "handler.handler",
+			description: "Hello World demo function",
+			memory:      demoHelloWorldMemory,
+			timeout:     demoHelloWorldTimeout,
+			env:         map[string]string{"STAGE": "demo", "LOG_LEVEL": "INFO"},
+		},
+		{
+			name:        "demo-s3-processor",
+			runtime:     lambdatypes.RuntimePython312,
+			handler:     "handler.handler",
+			description: "S3 event processor demo",
+			memory:      demoS3ProcessorMemory,
+			timeout:     demoS3ProcessorTimeout,
+		},
+		{
+			name:        "demo-api-handler",
+			runtime:     lambdatypes.RuntimeNodejs22x,
+			handler:     "index.handler",
+			description: "API Gateway handler demo",
+			memory:      demoAPIHandlerMemory,
+			timeout:     demoAPIHandlerTimeout,
+		},
+	}
+
+	zipBytes, decErr := base64.StdEncoding.DecodeString(demoLambdaZipB64)
+	if decErr != nil {
+		pkgslogger.Load(ctx).WarnContext(ctx, "loadLambda: failed to decode demo zip", "error", decErr)
+
+		return
+	}
+
+	for _, d := range demos {
+		// Skip if already exists.
+		_, getErr := client.GetFunction(ctx, &lambdasdk.GetFunctionInput{FunctionName: aws.String(d.name)})
+		if getErr == nil {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Lambda function already exists, skipping", "name", d.name)
+
+			continue
+		}
+
+		input := &lambdasdk.CreateFunctionInput{
+			FunctionName: aws.String(d.name),
+			Runtime:      d.runtime,
+			Handler:      aws.String(d.handler),
+			Role:         aws.String(demoLambdaRole),
+			Description:  aws.String(d.description),
+			MemorySize:   aws.Int32(d.memory),
+			Timeout:      aws.Int32(d.timeout),
+			PackageType:  lambdatypes.PackageTypeZip,
+			Code: &lambdatypes.FunctionCode{
+				ZipFile: zipBytes,
+			},
+		}
+
+		if len(d.env) > 0 {
+			input.Environment = &lambdatypes.Environment{Variables: d.env}
+		}
+
+		_, createErr := client.CreateFunction(ctx, input)
+		if createErr != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "loadLambda: failed to create function",
+				"name", d.name, "error", createErr)
+
+			continue
+		}
+
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created demo Lambda function", "name", d.name)
 	}
 }
