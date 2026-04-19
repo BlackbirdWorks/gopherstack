@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getGlobalAcceleratorClient } from '$lib/aws-client';
 	import {
@@ -83,7 +84,7 @@
 	}
 
 	async function deleteAccelerator(arn: string | undefined) {
-		if (!arn || !confirm(`Delete Global Accelerator? This will permanently sever all global static IP entry points.`)) return;
+		if (!arn || !await confirmDestructive({ title: 'Delete Global Accelerator', message: 'Delete this Global Accelerator? All static IP entry points will be permanently decommissioned.' })) return;
 		try {
 			await ga.send(new DeleteAcceleratorCommand({ AcceleratorArn: arn }));
 			toast.success(`Accelerator deletion initiated`);

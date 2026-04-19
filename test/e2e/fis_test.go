@@ -257,11 +257,15 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "running")
 
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	err = page.Locator("button[title='Stop Chaos']").Click()
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Stop')").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=stopped").First().WaitFor(playwright.LocatorWaitForOptions{

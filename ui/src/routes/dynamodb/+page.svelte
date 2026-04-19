@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount, onDestroy } from 'svelte';
 	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
 	import {
@@ -242,7 +243,7 @@
 	}
 
 	async function purgeAll() {
-		if (!confirm('Are you sure you want to delete ALL tables? This cannot be undone.')) return;
+		if (!await confirmDestructive({ title: 'Delete All Tables', message: 'Delete ALL DynamoDB tables? This cannot be undone.', confirmLabel: 'Delete All' })) return;
 		try {
 			for (const name of tableNames) await ddb.send(new DeleteTableCommand({ TableName: name }));
 			toast.success('All tables purged');
@@ -254,7 +255,7 @@
 	}
 
 	async function deleteTable(name: string) {
-		if (!confirm(`Delete table "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Table', message: `Delete table "${name}"? All items and indexes will be permanently removed.` })) return;
 		try {
 			await ddb.send(new DeleteTableCommand({ TableName: name }));
 			toast.success(`Table "${name}" deleted`);
@@ -387,7 +388,7 @@
 
 	async function deleteItem(item: Record<string, unknown>): Promise<void> {
 		if (!selectedTable) return;
-		if (!confirm('Delete this item?')) return;
+		if (!await confirmDestructive({ title: 'Delete Item', message: 'Delete this item? This cannot be undone.', confirmLabel: 'Delete Item' })) return;
 		try {
 			await ddb.send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
 			toast.success('Item deleted');
@@ -426,7 +427,7 @@
 	}
 
 	async function deleteBackup(arn: string): Promise<void> {
-		if (!confirm('Delete this backup?')) return;
+		if (!await confirmDestructive({ title: 'Delete Backup', message: 'Delete this backup? This cannot be undone.' })) return;
 		try {
 			await ddb.send(new DeleteBackupCommand({ BackupArn: arn }));
 			toast.success('Backup deleted');
@@ -644,7 +645,7 @@
 
 	async function deleteGsi(indexName: string): Promise<void> {
 		if (!selectedTable) return;
-		if (!confirm(`Delete GSI "${indexName}"? This cannot be undone.`)) return;
+		if (!await confirmDestructive({ title: 'Delete Global Secondary Index', message: `Delete GSI "${indexName}"? This cannot be undone and will impact existing queries.` })) return;
 		try {
 			await ddb.send(new UpdateTableCommand({
 				TableName: selectedTable,

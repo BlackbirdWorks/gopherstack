@@ -7,7 +7,9 @@
 	import { goto } from '$app/navigation';
 	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { getStoredRegion, setStoredRegion } from '$lib/aws/client';
+	import { registerConfirmDialog, unregisterConfirmDialog } from '$lib/confirm-dialog';
 
 	let { children } = $props();
 	let theme = $state<ThemeName>('light');
@@ -21,6 +23,7 @@
 
 	let sidebarOpen = $state(false);
 	let sidebarMini = $state(false);
+	let confirmDialog = $state<ConfirmDialog | null>(null);
 
 	const visibleSidebarCategories = $derived.by(() => {
 		// Filter to show only the 25 most common implemented services, organized by category
@@ -75,6 +78,14 @@
 	}
 
 	onMount(() => {
+		const confirmHandler = (options: Parameters<ConfirmDialog['show']>[0]) => {
+			if (!confirmDialog) {
+				return Promise.resolve(false);
+			}
+
+			return confirmDialog.show(options);
+		};
+		registerConfirmDialog(confirmHandler);
 		currentRegion = getStoredRegion();
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
@@ -89,7 +100,10 @@
 			}
 		};
 		document.addEventListener('keydown', handleKeydown);
-		return () => document.removeEventListener('keydown', handleKeydown);
+		return () => {
+			unregisterConfirmDialog(confirmHandler);
+			document.removeEventListener('keydown', handleKeydown);
+		};
 	});
 
 	function selectTheme(t: ThemeName): void {
@@ -300,4 +314,5 @@
 			{@render children()}
 		</main>
 	</div>
+	<ConfirmDialog bind:this={confirmDialog} />
 </div>

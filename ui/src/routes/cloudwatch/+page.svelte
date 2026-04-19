@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCloudWatchClient } from '$lib/aws-client';
 	import {
@@ -137,7 +138,7 @@
 	}
 
 	async function deleteAlarm(name: string) {
-		if (!confirm(`Delete alarm "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Alarm', message: `Delete alarm "${name}"? No further alerts will be triggered.` })) return;
 		try {
 			await cw.send(new DeleteAlarmsCommand({ AlarmNames: [name] }));
 			toast.success(`Alarm "${name}" deleted`);
@@ -168,7 +169,7 @@
 	}
 
 	async function deleteDashboard(name: string) {
-		if (!confirm(`Delete dashboard "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Dashboard', message: `Delete dashboard "${name}"? All widgets and layout settings will be lost.` })) return;
 		try {
 			await cw.send(new DeleteDashboardsCommand({ DashboardNames: [name] }));
 			toast.success(`Dashboard "${name}" deleted`);

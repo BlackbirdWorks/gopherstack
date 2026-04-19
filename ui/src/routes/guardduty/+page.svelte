@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getGuardDutyClient } from '$lib/aws-client';
 	import {
@@ -132,7 +133,7 @@
 	}
 
 	async function deleteDetector(id: string) {
-		if (!confirm(`Delete detector ${id}?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Detector', message: `Delete GuardDuty detector ${id}? Threat detection will be disabled for this account.` })) return;
 		try {
 			await gd.send(new DeleteDetectorCommand({ DetectorId: id }));
 			toast.success('Detector deleted');

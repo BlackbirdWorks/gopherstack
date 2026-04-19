@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getRedshiftClient } from '$lib/aws-client';
 	import {
@@ -145,7 +146,7 @@
 	}
 
 	async function deleteCluster(id: string) {
-		if (!confirm(`Delete cluster "${id}"? All data will be lost unless you create a final snapshot.`)) return;
+		if (!await confirmDestructive({ title: 'Delete Redshift Cluster', message: `Delete cluster "${id}"? All data will be permanently lost unless a final snapshot was created.` })) return;
 		try {
 			await redshift.send(new DeleteClusterCommand({
 				ClusterIdentifier: id,

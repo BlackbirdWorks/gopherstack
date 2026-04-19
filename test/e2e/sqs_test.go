@@ -73,9 +73,6 @@ func TestSQSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 2: Purge the queue messages
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
 	purgeButton := page.Locator("button:has-text('Purge')").First()
 	err = purgeButton.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -83,6 +80,14 @@ func TestSQSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 	err = purgeButton.Click()
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Purge')").Click()
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -96,6 +101,14 @@ func TestSQSDashboard(t *testing.T) {
 
 	// Step 3: Delete the queue from the same queue card
 	err = queueCard.Locator("button").First().Click()
+	require.NoError(t, err)
+	confirmDialog = page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
 import { getEC2Client } from '$lib/aws-client';
 import {
@@ -144,7 +145,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to reboot');
 }
 
 async function terminateInstance(id: string) {
-if (!confirm(`Terminate ${id}? This cannot be undone.`)) return;
+if (!await confirmDestructive({ title: 'Terminate Instance', message: `Terminate instance ${id}? This cannot be undone.`, confirmLabel: 'Terminate' })) return;
 try {
 await ec2.send(new TerminateInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} terminated`);

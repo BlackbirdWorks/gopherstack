@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getAmplifyClient } from '$lib/aws-client';
 	import {
@@ -117,7 +118,7 @@
 	}
 
 	async function deleteApp(id: string | undefined) {
-		if (!id || !confirm(`Delete Amplify app? This will remove all environments and hosting configurations.`)) return;
+		if (!id || !await confirmDestructive({ title: 'Delete Amplify App', message: 'Delete this Amplify app? All environments and hosting configurations will be removed.' })) return;
 		try {
 			await amplify.send(new DeleteAppCommand({ appId: id }));
 			toast.success(`App deleted`);

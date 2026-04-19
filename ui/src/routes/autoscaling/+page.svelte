@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getAutoScalingClient } from '$lib/aws-client';
 	import {
@@ -152,7 +153,7 @@
 	}
 
 	async function deleteGroup(name: string) {
-		if (!confirm(`Delete Auto Scaling Group "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Auto Scaling Group', message: `Delete ASG "${name}"? All running instances will be terminated.` })) return;
 		try {
 			await asg.send(new DeleteAutoScalingGroupCommand({ AutoScalingGroupName: name, ForceDelete: true }));
 			toast.success(`Group "${name}" deleted`);

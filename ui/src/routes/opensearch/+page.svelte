@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getOpenSearchClient } from '$lib/aws-client';
 	import {
@@ -181,7 +182,7 @@
 	}
 
 	async function deleteDomain(name: string) {
-		if (!confirm(`Delete domain "${name}"? All data will be lost.`)) return;
+		if (!await confirmDestructive({ title: 'Delete OpenSearch Domain', message: `Delete domain "${name}"? All indices and data will be permanently lost.` })) return;
 		try {
 			await opensearch.send(new DeleteDomainCommand({ DomainName: name }));
 			toast.success(`Domain "${name}" deletion initiated`);

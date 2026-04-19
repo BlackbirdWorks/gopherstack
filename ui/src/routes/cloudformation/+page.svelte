@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCloudFormationClient } from '$lib/aws-client';
 	import {
@@ -177,7 +178,7 @@
 	}
 
 	async function deleteStack(name: string) {
-		if (!confirm(`Delete stack "${name}"? This cannot be undone.`)) return;
+		if (!await confirmDestructive({ title: 'Delete Stack', message: `Delete stack "${name}"? All provisioned resources will be destroyed.` })) return;
 		deletingStack = name;
 		try {
 			await cfn.send(new DeleteStackCommand({ StackName: name }));

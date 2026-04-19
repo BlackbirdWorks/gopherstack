@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getBackupClient } from '$lib/aws-client';
 	import {
@@ -134,7 +135,7 @@
 	}
 
 	async function deletePlan(plan: BackupPlansListMember) {
-		if (!plan.BackupPlanId || !confirm(`Delete plan "${plan.BackupPlanName}"?`)) return;
+		if (!plan.BackupPlanId || !await confirmDestructive({ title: 'Delete Backup Plan', message: `Delete backup plan "${plan.BackupPlanName}"? Scheduled backups will no longer run.` })) return;
 		try {
 			await backup.send(new DeleteBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
 			toast.success(`Plan "${plan.BackupPlanName}" deleted`);

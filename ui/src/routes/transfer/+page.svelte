@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getTransferClient } from '$lib/aws-client';
 	import {
@@ -121,7 +122,7 @@
 	}
 
 	async function deleteServer(server: ListedServer) {
-		if (!server.ServerId || !confirm(`Delete server ${server.ServerId}?`)) return;
+		if (!server.ServerId || !await confirmDestructive({ title: 'Delete Transfer Server', message: `Delete server ${server.ServerId}? All user sessions will be terminated.` })) return;
 		try {
 			await transfer.send(new DeleteServerCommand({ ServerId: server.ServerId }));
 			toast.success(`Server deleted`);
@@ -179,7 +180,7 @@
 	}
 
 	async function deleteUser(userName: string) {
-		if (!selectedServerId || !confirm(`Delete user "${userName}"?`)) return;
+		if (!selectedServerId || !await confirmDestructive({ title: 'Delete User', message: `Delete user "${userName}"? The user will immediately lose access to the transfer server.` })) return;
 		try {
 			await transfer.send(new DeleteUserCommand({ ServerId: selectedServerId, UserName: userName }));
 			toast.success(`User "${userName}" deleted`);

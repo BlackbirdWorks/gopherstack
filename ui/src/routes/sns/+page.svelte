@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getSNSClient } from '$lib/aws-client';
 	import {
@@ -108,7 +109,7 @@
 
 	async function deleteTopic(arn: string) {
 		const name = topicName(arn);
-		if (!confirm(`Delete topic "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Topic', message: `Delete topic "${name}"? All subscriptions will be removed and no further messages will be delivered.` })) return;
 		try {
 			await sns.send(new DeleteTopicCommand({ TopicArn: arn }));
 			toast.success(`Topic "${name}" deleted`);
@@ -153,7 +154,7 @@
 	}
 
 	async function unsubscribe(arn: string) {
-		if (!confirm('Remove this subscription?')) return;
+		if (!await confirmDestructive({ title: 'Remove Subscription', message: 'Remove this SNS subscription? The endpoint will stop receiving messages.', confirmLabel: 'Remove' })) return;
 		try {
 			await sns.send(new UnsubscribeCommand({ SubscriptionArn: arn }));
 			toast.success('Subscription removed');

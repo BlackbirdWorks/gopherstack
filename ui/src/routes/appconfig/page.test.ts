@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import AppConfigPage from "./+page.svelte";
+import { confirmDestructive } from "$lib/confirm-dialog";
 
 const mockSend = vi.fn();
 
@@ -13,6 +14,10 @@ vi.mock("svelte-sonner", () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: vi.fn().mockResolvedValue(true),
 }));
 
 describe("AppConfig Page", () => {
@@ -206,7 +211,7 @@ describe("AppConfig Page", () => {
     // profiles
     mockSend.mockResolvedValueOnce({ Items: [] });
     // delete + reload
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    vi.mocked(confirmDestructive).mockResolvedValueOnce(true);
     // DeleteApplication
     mockSend.mockResolvedValueOnce({});
     // Reload

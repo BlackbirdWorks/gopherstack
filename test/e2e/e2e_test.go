@@ -176,12 +176,15 @@ func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Register dialog handler BEFORE triggering confirm
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	err = deleteBtn.Click()
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	// Should return to table list after deletion
@@ -285,15 +288,18 @@ func TestE2E_S3_DeleteBucket(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Register dialog handler BEFORE triggering confirm
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	// Click the Delete button on the bucket card
 	err = page.Locator("button:has-text('Delete')").First().Click(
 		playwright.LocatorClickOptions{Force: playwright.Bool(true)},
 	)
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	// Verify bucket disappears
@@ -879,12 +885,15 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Register dialog handler BEFORE triggering confirm
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	err = page.Click("#purge-all-btn")
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	// Wait for tables to disappear
@@ -932,12 +941,15 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Register dialog handler BEFORE triggering confirm
-	page.OnDialog(func(dialog playwright.Dialog) {
-		_ = dialog.Accept()
-	})
-
 	err = page.Click("#purge-all-btn")
+	require.NoError(t, err)
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	// Wait for buckets to be removed

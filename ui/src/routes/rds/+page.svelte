@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
 import { getRDSClient } from '$lib/aws-client';
 import { DescribeDBInstancesCommand, DeleteDBInstanceCommand, DescribeDBSnapshotsCommand, DescribeDBClustersCommand, type DBInstance, type DBSnapshot, type DBCluster } from '@aws-sdk/client-rds';
@@ -88,7 +89,7 @@ async function refresh() {
 }
 
 async function deleteInstance(id: string) {
-	if (!confirm(`Delete RDS instance ${id}? This cannot be undone.`)) return;
+	if (!await confirmDestructive({ title: 'Delete RDS Instance', message: `Delete instance ${id}? All data will be permanently lost unless a final snapshot was taken.` })) return;
 	try {
 		await rds.send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id, SkipFinalSnapshot: true }));
 		toast.success(`Instance ${id} deleted`);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCodePipelineClient } from '$lib/aws-client';
 	import {
@@ -110,7 +111,7 @@
 	}
 
 	async function deletePipeline(name: string | undefined) {
-		if (!name || !confirm(`Delete pipeline "${name}"? This action is irreversible.`)) return;
+		if (!name || !await confirmDestructive({ title: 'Delete Pipeline', message: `Delete pipeline "${name}"? This cannot be undone.` })) return;
 		try {
 			await codepipeline.send(new DeletePipelineCommand({ name }));
 			toast.success(`Pipeline deleted`);

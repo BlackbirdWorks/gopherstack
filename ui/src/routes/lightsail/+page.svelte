@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getLightsailClient } from '$lib/aws-client';
 	import {
@@ -87,7 +88,7 @@
 	}
 
 	async function terminateInstance(name: string | undefined) {
-		if (!name || !confirm(`Terminate Lightsail Instance? All ephemeral data and public cloud compute will be permanently purged.`)) return;
+		if (!name || !await confirmDestructive({ title: 'Terminate Instance', message: 'Terminate this Lightsail instance? All ephemeral data and the public IP will be permanently released.', confirmLabel: 'Terminate' })) return;
 		try {
 			await lightsail.send(new DeleteInstanceCommand({ instanceName: name }));
 			toast.success(`Instance termination initiated`);

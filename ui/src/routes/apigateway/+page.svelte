@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getAPIGatewayClient } from '$lib/aws-client';
 	import {
@@ -129,7 +130,7 @@
 	}
 
 	async function deleteApi(api: RestApi) {
-		if (!api.id || !confirm(`Delete API "${api.name}"?`)) return;
+		if (!api.id || !await confirmDestructive({ title: 'Delete API', message: `Delete API "${api.name}"? All stages and resources will be removed.` })) return;
 		try {
 			await apigw.send(new DeleteRestApiCommand({ restApiId: api.id }));
 			toast.success(`API "${api.name}" deleted`);
