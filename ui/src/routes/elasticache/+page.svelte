@@ -72,7 +72,7 @@
 	}
 
 	async function deleteCluster(id: string) {
-		if (!await confirmDestructive(`Delete cluster "${id}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Cluster', message: `Delete ElastiCache cluster "${id}"? All cached data will be lost.` })) return;
 		try {
 			await ec.send(new DeleteCacheClusterCommand({ CacheClusterId: id }));
 			toast.success(`Cluster "${id}" deletion initiated`);

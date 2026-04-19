@@ -133,7 +133,7 @@
 	}
 
 	async function deleteWebACL(summary: WebACLSummary) {
-		if (!await confirmDestructive(`Delete Web ACL "${summary.Name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Web ACL', message: `Delete Web ACL "${summary.Name}"? Any associated resources will lose their WAF protection.` })) return;
 		try {
 			await waf.send(new DeleteWebACLCommand({
 				Name: summary.Name ?? '',

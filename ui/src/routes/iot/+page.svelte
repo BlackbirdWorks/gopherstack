@@ -119,7 +119,7 @@
 	}
 
 	async function deleteThing(thing: ThingAttribute) {
-		if (!thing.thingName || !await confirmDestructive(`Delete thing "${thing.thingName}"?`)) return;
+		if (!thing.thingName || !await confirmDestructive({ title: 'Delete Thing', message: `Delete thing "${thing.thingName}"? All attached certificates and policies will be detached.` })) return;
 		try {
 			await iot.send(new DeleteThingCommand({ thingName: thing.thingName }));
 			toast.success(`Thing "${thing.thingName}" deleted`);

@@ -100,7 +100,7 @@
 	}
 
 	async function deleteSchedule(schedule: ScheduleSummary) {
-		if (!schedule.Name || !await confirmDestructive(`Delete schedule "${schedule.Name}"?`)) return;
+		if (!schedule.Name || !await confirmDestructive({ title: 'Delete Schedule', message: `Delete schedule "${schedule.Name}"? The associated target will no longer be invoked.` })) return;
 		try {
 			await scheduler.send(
 				new DeleteScheduleCommand({

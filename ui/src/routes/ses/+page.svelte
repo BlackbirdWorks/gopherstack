@@ -134,7 +134,7 @@
 	}
 
 	async function deleteIdentity(identity: string) {
-		if (!await confirmDestructive(`Delete identity "${identity}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Identity', message: `Delete SES identity "${identity}"? Email sending from this identity will be disabled.` })) return;
 		try {
 			await ses.send(new DeleteIdentityCommand({ Identity: identity }));
 			toast.success(`Deleted ${identity}`);
@@ -173,7 +173,7 @@
 	}
 
 	async function deleteTemplate(name: string) {
-		if (!await confirmDestructive(`Delete template "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Email Template', message: `Delete template "${name}"? Any integrations referencing this template will stop working.` })) return;
 		try {
 			await ses.send(new DeleteTemplateCommand({ TemplateName: name }));
 			toast.success(`Template "${name}" deleted`);

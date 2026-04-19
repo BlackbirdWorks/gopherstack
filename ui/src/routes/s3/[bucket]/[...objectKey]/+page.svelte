@@ -277,7 +277,7 @@ toast.error(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
 }
 
 async function deleteVersion(versionId: string) {
-if (!await confirmDestructive(`Delete version ${versionId.slice(0, 12)}...?`)) return;
+if (!await confirmDestructive({ title: 'Delete Version', message: `Delete version ${versionId.slice(0, 12)}…? This cannot be undone.` })) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, VersionId: versionId }));
 toast.success('Version deleted');
@@ -288,7 +288,7 @@ toast.error(`Failed to delete version: ${e instanceof Error ? e.message : String
 }
 
 async function deleteObject() {
-if (!await confirmDestructive(`Delete object "${objectKey}"?`)) return;
+if (!await confirmDestructive({ title: 'Delete Object', message: `Delete object "${objectKey}"? This cannot be undone.` })) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
 toast.success('Object deleted');

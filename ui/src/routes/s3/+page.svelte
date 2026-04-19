@@ -247,7 +247,7 @@ toast.error(`Failed to purge: ${(err as Error).message}`);
 }
 
 async function deleteBucket(name: string) {
-if (!await confirmDestructive(`Delete bucket "${name}"?`)) return;
+if (!await confirmDestructive({ title: 'Delete Bucket', message: `Delete bucket "${name}"? The bucket must be empty before deletion.` })) return;
 try {
 await deleteAllObjectsInBucket(name);
 await s3.send(new DeleteBucketCommand({ Bucket: name }));
@@ -410,7 +410,7 @@ async function handleDrop(e: DragEvent): Promise<void> {
 }
 
 async function deleteObject(key: string) {
-if (!selectedBucket || !await confirmDestructive(`Delete "${key}"?`)) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete Object', message: `Delete "${key}"? This cannot be undone.` })) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 toast.success(`Deleted "${key}"`);
@@ -422,7 +422,7 @@ toast.error(`Failed to delete: ${(err as Error).message}`);
 
 async function deleteSelectedObjects() {
 if (!selectedBucket || selectedObjects.size === 0) return;
-if (!await confirmDestructive(`Delete ${selectedObjects.size} selected object(s)?`)) return;
+if (!await confirmDestructive({ title: 'Delete Objects', message: `Delete ${selectedObjects.size} selected object(s)? This cannot be undone.` })) return;
 try {
 for (const key of selectedObjects) {
 await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));

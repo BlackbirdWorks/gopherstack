@@ -109,7 +109,7 @@
 
 	async function deleteTopic(arn: string) {
 		const name = topicName(arn);
-		if (!await confirmDestructive(`Delete topic "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Topic', message: `Delete topic "${name}"? All subscriptions will be removed and no further messages will be delivered.` })) return;
 		try {
 			await sns.send(new DeleteTopicCommand({ TopicArn: arn }));
 			toast.success(`Topic "${name}" deleted`);

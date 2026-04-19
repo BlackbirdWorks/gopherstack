@@ -255,7 +255,7 @@
 	}
 
 	async function deleteTable(name: string) {
-		if (!await confirmDestructive(`Delete table "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Table', message: `Delete table "${name}"? All items and indexes will be permanently removed.` })) return;
 		try {
 			await ddb.send(new DeleteTableCommand({ TableName: name }));
 			toast.success(`Table "${name}" deleted`);
@@ -645,7 +645,7 @@
 
 	async function deleteGsi(indexName: string): Promise<void> {
 		if (!selectedTable) return;
-		if (!await confirmDestructive(`Delete GSI "${indexName}"? This cannot be undone.`)) return;
+		if (!await confirmDestructive({ title: 'Delete Global Secondary Index', message: `Delete GSI "${indexName}"? This cannot be undone and will impact existing queries.` })) return;
 		try {
 			await ddb.send(new UpdateTableCommand({
 				TableName: selectedTable,

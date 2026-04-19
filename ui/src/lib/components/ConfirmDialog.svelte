@@ -80,16 +80,11 @@
 	}
 
 	function handleClose(): void {
-		if (!dialogElement) {
-			resolvePending?.(false);
-			resolvePending = null;
-			activeElementBeforeOpen?.focus();
-			return;
-		}
-
 		const pending = resolvePending;
 		resolvePending = null;
-		pending?.(dialogElement.returnValue === 'confirm');
+		// dialogElement?.returnValue is undefined (not 'confirm') when the element is
+		// gone, so the resolver always receives false in that edge case.
+		pending?.(dialogElement?.returnValue === 'confirm');
 		activeElementBeforeOpen?.focus();
 	}
 
@@ -107,7 +102,12 @@
 		}
 
 		if (resolvePending) {
+			// Capture and nullify before close() so the synchronous close event
+			// (handleClose) cannot double-resolve the old promise.
+			const stale = resolvePending;
+			resolvePending = null;
 			dialogElement.close('cancel');
+			stale(false);
 		}
 
 		title = options.title ?? 'Confirm action';

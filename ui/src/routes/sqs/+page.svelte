@@ -204,7 +204,7 @@ newWaitTimeSeconds = 0;
 
 async function deleteQueue(url: string) {
 const name = queueName(url);
-if (!await confirmDestructive(`Delete queue "${name}"?`)) return;
+if (!await confirmDestructive({ title: 'Delete Queue', message: `Delete queue "${name}"? All messages will be lost and the URL will be unavailable for 60 seconds.` })) return;
 try {
 await sqs.send(new DeleteQueueCommand({ QueueUrl: url }));
 toast.success(`Queue "${name}" deleted`);

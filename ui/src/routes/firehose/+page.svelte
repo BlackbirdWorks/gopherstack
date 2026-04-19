@@ -117,7 +117,7 @@
 	}
 
 	async function deleteStream(name: string) {
-		if (!await confirmDestructive(`Delete delivery stream "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Delivery Stream', message: `Delete delivery stream "${name}"? In-flight records may be lost.` })) return;
 		try {
 			await firehose.send(new DeleteDeliveryStreamCommand({ DeliveryStreamName: name }));
 			toast.success(`Stream "${name}" deleted`);
