@@ -76,8 +76,9 @@
 			isConnected = true;
 			for await (const response of stream) {
 				if (response.dashboard) {
-					metrics = response.dashboard;
-					const totalOps = (metrics.operations ?? []).reduce((sum, op) => sum + Number(op.count), 0);
+					const dashboard = response.dashboard;
+					metrics = dashboard;
+					const totalOps = (dashboard.operations ?? []).reduce((sum, op) => sum + Number(op.count), 0);
 					sparklineBars = [...sparklineBars.slice(1), totalOps];
 				}
 			}
