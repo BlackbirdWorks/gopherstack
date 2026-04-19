@@ -11,6 +11,8 @@
 		SubscribeCommand,
 		PublishCommand,
 		UnsubscribeCommand,
+		GetSubscriptionAttributesCommand,
+		SetSubscriptionAttributesCommand,
 		type Topic,
 		type Subscription
 	} from '@aws-sdk/client-sns';
@@ -24,6 +26,7 @@
 	let searchQuery = $state('');
 	let selectedTopic = $state<(Topic & { Attributes?: Record<string, string> }) | null>(null);
 	let subscriptions = $state<Subscription[]>([]);
+	let subscriptionFilterPolicies = $state<Record<string, string>>({});
 	let loadingSubscriptions = $state(false);
 
 	// Create topic modal
@@ -37,6 +40,13 @@
 	let subscribing = $state(false);
 	let subProtocol = $state('email');
 	let subEndpoint = $state('');
+	let subFilterPolicy = $state('{}');
+
+	// Edit filter policy modal
+	let showFilterPolicyModal = $state(false);
+	let savingFilterPolicy = $state(false);
+	let selectedSubscriptionArn = $state('');
+	let editFilterPolicy = $state('{}');
 
 	// Publish modal
 	let showPublishModal = $state(false);
@@ -126,11 +136,30 @@
 		try {
 			const res = await sns.send(new ListSubscriptionsByTopicCommand({ TopicArn: topic.TopicArn }));
 			subscriptions = res.Subscriptions ?? [];
+			await loadSubscriptionFilterPolicies(subscriptions);
 		} catch (err: unknown) {
 			toast.error(`Failed to load subscriptions: ${(err as Error).message}`);
 		} finally {
 			loadingSubscriptions = false;
 		}
+	}
+
+	async function loadSubscriptionFilterPolicies(subs: Subscription[]) {
+		const loaded: Record<string, string> = {};
+		await Promise.all(
+			subs.map(async (sub) => {
+				if (!sub.SubscriptionArn) return;
+				try {
+					const attrs = await sns.send(
+						new GetSubscriptionAttributesCommand({ SubscriptionArn: sub.SubscriptionArn })
+					);
+					loaded[sub.SubscriptionArn] = attrs.Attributes?.FilterPolicy ?? '';
+				} catch {
+					loaded[sub.SubscriptionArn] = '';
+				}
+			})
+		);
+		subscriptionFilterPolicies = loaded;
 	}
 
 	async function subscribe() {
@@ -140,11 +169,13 @@
 			await sns.send(new SubscribeCommand({
 				TopicArn: selectedTopic.TopicArn,
 				Protocol: subProtocol,
-				Endpoint: subEndpoint.trim()
+				Endpoint: subEndpoint.trim(),
+				Attributes: subFilterPolicy.trim() ? { FilterPolicy: subFilterPolicy.trim() } : undefined
 			}));
 			toast.success(`Subscription created`);
 			showSubscribeModal = false;
 			subEndpoint = '';
+			subFilterPolicy = '{}';
 			await selectTopic(selectedTopic);
 		} catch (err: unknown) {
 			toast.error(`Subscribe failed: ${(err as Error).message}`);
@@ -161,6 +192,46 @@
 			if (selectedTopic) await selectTopic(selectedTopic);
 		} catch (err: unknown) {
 			toast.error(`Unsubscribe failed: ${(err as Error).message}`);
+		}
+	}
+
+	function openFilterPolicyEditor(sub: Subscription) {
+		selectedSubscriptionArn = sub.SubscriptionArn ?? '';
+		const current = selectedSubscriptionArn ? (subscriptionFilterPolicies[selectedSubscriptionArn] ?? '') : '';
+		editFilterPolicy = current || '{}';
+		showFilterPolicyModal = true;
+	}
+
+	async function saveFilterPolicy() {
+		if (!selectedSubscriptionArn) return;
+		const value = editFilterPolicy.trim();
+		if (value !== '') {
+			try {
+				JSON.parse(value);
+			} catch {
+				toast.error('Filter policy must be valid JSON');
+				return;
+			}
+		}
+		savingFilterPolicy = true;
+		try {
+			await sns.send(
+				new SetSubscriptionAttributesCommand({
+					SubscriptionArn: selectedSubscriptionArn,
+					AttributeName: 'FilterPolicy',
+					AttributeValue: value
+				})
+			);
+			subscriptionFilterPolicies = {
+				...subscriptionFilterPolicies,
+				[selectedSubscriptionArn]: value
+			};
+			showFilterPolicyModal = false;
+			toast.success('Filter policy updated');
+		} catch (err: unknown) {
+			toast.error(`Failed to update filter policy: ${(err as Error).message}`);
+		} finally {
+			savingFilterPolicy = false;
 		}
 	}
 
@@ -362,13 +433,29 @@
 										<div class="min-w-0 flex-1">
 											<span class="px-2 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-mono mr-2">{sub.Protocol}</span>
 											<span class="text-sm text-slate-700 dark:text-slate-300 truncate">{sub.Endpoint}</span>
+											<div class="mt-1 flex items-center gap-2">
+												{#if (sub.SubscriptionArn ?? '') === 'PendingConfirmation'}
+													<span class="text-xs text-amber-700 dark:text-amber-300">Pending confirmation</span>
+												{/if}
+												{#if subscriptionFilterPolicies[sub.SubscriptionArn ?? '']}
+													<span class="text-xs text-slate-500 dark:text-slate-400">Filter policy set</span>
+												{/if}
+											</div>
 										</div>
-										<button
-											onclick={() => unsubscribe(sub.SubscriptionArn ?? '')}
-											class="ml-2 p-1 text-slate-400 hover:text-red-500"
-										>
-											<X class="w-4 h-4" />
-										</button>
+										<div class="flex items-center gap-1">
+											<button
+												onclick={() => openFilterPolicyEditor(sub)}
+												class="ml-2 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+											>
+												Filter
+											</button>
+											<button
+												onclick={() => unsubscribe(sub.SubscriptionArn ?? '')}
+												class="ml-1 p-1 text-slate-400 hover:text-red-500"
+											>
+												<X class="w-4 h-4" />
+											</button>
+										</div>
 									</div>
 								{/each}
 							</div>
@@ -449,10 +536,46 @@
 						required
 					/>
 				</div>
+				<div>
+					<label for="sns-filter-policy" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Filter Policy (JSON, optional)</label>
+					<textarea
+						id="sns-filter-policy"
+						bind:value={subFilterPolicy}
+						rows={3}
+						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
+					></textarea>
+				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => { showSubscribeModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
 					<button type="submit" disabled={subscribing} class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
 						{subscribing ? 'Subscribing...' : 'Subscribe'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Filter Policy Modal -->
+{#if showFilterPolicyModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Edit Filter Policy</h2>
+			<form onsubmit={(e) => { e.preventDefault(); saveFilterPolicy(); }} class="space-y-4">
+				<div>
+					<label for="sns-edit-filter-policy" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Filter Policy JSON</label>
+					<textarea
+						id="sns-edit-filter-policy"
+						bind:value={editFilterPolicy}
+						rows={6}
+						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
+					></textarea>
+					<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Leave empty to clear the filter policy.</p>
+				</div>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showFilterPolicyModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
+					<button type="submit" disabled={savingFilterPolicy} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+						{savingFilterPolicy ? 'Saving...' : 'Save'}
 					</button>
 				</div>
 			</form>

@@ -502,6 +502,59 @@ func TestInMemoryBackend_ListSubscriptionsByTopic(t *testing.T) {
 	}
 }
 
+func TestInMemoryBackend_TopicSubscriptionCounts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup              func(t *testing.T, b *sns.InMemoryBackend) string
+		name               string
+		wantConfirmedCount string
+		wantPendingCount   string
+	}{
+		{
+			name: "counts include confirmed and pending subscriptions",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) string {
+				t.Helper()
+				topicArn := mustCreateTopic(t, b, "count-topic-1")
+				mustSubscribe(t, b, topicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:count-topic-1")
+				mustSubscribe(t, b, topicArn, "http", "http://localhost:12345")
+
+				return topicArn
+			},
+			wantConfirmedCount: "1",
+			wantPendingCount:   "1",
+		},
+		{
+			name: "unsubscribed subscription is excluded from counts",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) string {
+				t.Helper()
+				topicArn := mustCreateTopic(t, b, "count-topic-2")
+				subArn := mustSubscribe(t, b, topicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:count-topic-2")
+				err := b.Unsubscribe(subArn)
+				require.NoError(t, err)
+
+				return topicArn
+			},
+			wantConfirmedCount: "0",
+			wantPendingCount:   "0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := tt.setup(t, b)
+
+			attrs, err := b.GetTopicAttributes(topicArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantConfirmedCount, attrs["SubscriptionsConfirmed"])
+			assert.Equal(t, tt.wantPendingCount, attrs["SubscriptionsPending"])
+		})
+	}
+}
+
 func TestInMemoryBackend_Publish(t *testing.T) {
 	t.Parallel()
 
@@ -1822,6 +1875,85 @@ func TestFilterPolicy(t *testing.T) {
 		require.FailNow(t, "expected no delivery for non-matching attribute")
 	case <-time.After(100 * time.Millisecond):
 		// OK: nothing delivered
+	}
+}
+
+func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs        map[string]sns.MessageAttribute
+		name         string
+		filterPolicy string
+		wantDelivery bool
+	}{
+		{
+			name:         "matching filter policy delivers message",
+			filterPolicy: `{"color":["red"]}`,
+			attrs: map[string]sns.MessageAttribute{
+				"color": {DataType: "String", StringValue: "red"},
+			},
+			wantDelivery: true,
+		},
+		{
+			name:         "non matching filter policy blocks delivery",
+			filterPolicy: `{"color":["red"]}`,
+			attrs: map[string]sns.MessageAttribute{
+				"color": {DataType: "String", StringValue: "blue"},
+			},
+			wantDelivery: false,
+		},
+		{
+			name:         "invalid filter policy is treated as allow all",
+			filterPolicy: `{"color":[}`,
+			attrs: map[string]sns.MessageAttribute{
+				"color": {DataType: "String", StringValue: "blue"},
+			},
+			wantDelivery: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			topicArn := mustCreateTopic(t, b, "set-filter-policy-topic-"+strings.ReplaceAll(tt.name, " ", "-"))
+			received := make(chan string, 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- string(body)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer ts.Close()
+
+			sub, err := b.Subscribe(topicArn, "http", ts.URL, "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			require.NoError(t, err)
+
+			_, err = b.Publish(topicArn, "hello", "", "", tt.attrs)
+			require.NoError(t, err)
+
+			if tt.wantDelivery {
+				select {
+				case msg := <-received:
+					assert.Equal(t, "hello", msg)
+				case <-time.After(500 * time.Millisecond):
+					require.FailNow(t, "expected delivery")
+				}
+
+				return
+			}
+
+			select {
+			case <-received:
+				require.FailNow(t, "expected no delivery")
+			case <-time.After(120 * time.Millisecond):
+				// no-op
+			}
+		})
 	}
 }
 

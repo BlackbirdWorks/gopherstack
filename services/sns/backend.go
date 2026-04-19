@@ -213,6 +213,7 @@ type InMemoryBackend struct {
 	platformEndpoints    map[string]*PlatformEndpoint
 	topics               map[string]*Topic
 	subscriptions        map[string]*Subscription
+	topicSubscriptions   map[string]map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
 	smsSandbox           map[string]*SandboxPhoneNumber
@@ -251,6 +252,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	return &InMemoryBackend{
 		topics:               make(map[string]*Topic),
 		subscriptions:        make(map[string]*Subscription),
+		topicSubscriptions:   make(map[string]map[string]*Subscription),
 		topicTags:            make(map[string]*svcTags.Tags),
 		platformApplications: make(map[string]*PlatformApplication),
 		platformEndpoints:    make(map[string]*PlatformEndpoint),
@@ -334,6 +336,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		CreationTimestamp: time.Now().UTC(),
 	}
 	b.topics[topicArn] = topic
+	b.topicSubscriptions[topicArn] = make(map[string]*Subscription)
 
 	return topic, nil
 }
@@ -361,6 +364,7 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 			delete(b.subscriptions, subArn)
 		}
 	}
+	delete(b.topicSubscriptions, topicArn)
 
 	return nil
 }
@@ -409,11 +413,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	// Count subscriptions for this topic.
 	confirmed, pending := 0, 0
 
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn != topicArn {
-			continue
-		}
-
+	for _, sub := range b.topicSubscriptions[topicArn] {
 		if sub.PendingConfirmation {
 			pending++
 		} else {
@@ -469,11 +469,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		Endpoint:            endpoint,
 		Owner:               b.accountID,
 		FilterPolicy:        filterPolicy,
+		parsedFilterPolicy:  parseFilterPolicy(filterPolicy),
 		PendingConfirmation: pending,
 		CreationTimestamp:   time.Now().UTC(),
 	}
 
 	b.subscriptions[subArn] = sub
+	b.indexSubscription(sub)
 
 	return sub, nil
 }
@@ -483,11 +485,13 @@ func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
 	b.mu.Lock("Unsubscribe")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subscriptions[subscriptionArn]; !exists {
+	sub, exists := b.subscriptions[subscriptionArn]
+	if !exists {
 		return ErrSubscriptionNotFound
 	}
 
 	delete(b.subscriptions, subscriptionArn)
+	b.removeIndexedSubscription(sub.TopicArn, subscriptionArn)
 
 	return nil
 }
@@ -569,6 +573,7 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
 	case attrFilterPolicy:
 		sub.FilterPolicy = attrValue
+		sub.parsedFilterPolicy = parseFilterPolicy(attrValue)
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
 	case attrSubscriptionRoleArn:
@@ -615,14 +620,14 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 		return nil, "", ErrTopicNotFound
 	}
 
-	all := b.sortedSubscriptions()
-	filtered := make([]Subscription, 0, len(all))
-
-	for _, s := range all {
-		if s.TopicArn == topicArn {
-			filtered = append(filtered, s)
-		}
+	topicSubs := b.topicSubscriptions[topicArn]
+	filtered := make([]Subscription, 0, len(topicSubs))
+	for _, sub := range topicSubs {
+		filtered = append(filtered, *sub)
 	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].SubscriptionArn < filtered[j].SubscriptionArn
+	})
 
 	offset, err := decodeToken(nextToken)
 	if err != nil {
@@ -644,6 +649,35 @@ type httpDelivery struct {
 type publishTargets struct {
 	subs           []events.SNSSubscriptionSnapshot
 	httpDeliveries []httpDelivery
+}
+
+type parsedFilterPolicy map[string][]json.RawMessage
+
+func parseFilterPolicy(filterPolicy string) parsedFilterPolicy {
+	if filterPolicy == "" {
+		return nil
+	}
+
+	if len(filterPolicy) > maxFilterPolicySizeBytes {
+		return nil
+	}
+
+	var rawPolicy map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
+		return nil
+	}
+
+	parsed := make(parsedFilterPolicy, len(rawPolicy))
+	for key, rawConditions := range rawPolicy {
+		var conditions []json.RawMessage
+		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
+			return nil
+		}
+
+		parsed[key] = conditions
+	}
+
+	return parsed
 }
 
 // buildMessageResolver returns a function that picks the correct message body for a given protocol,
@@ -676,12 +710,8 @@ func (b *InMemoryBackend) collectPublishTargets(
 ) publishTargets {
 	var out publishTargets
 
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn != topicArn {
-			continue
-		}
-
-		if !matchesFilterPolicy(sub.FilterPolicy, attrs) {
+	for _, sub := range b.topicSubscriptions[topicArn] {
+		if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
 			continue
 		}
 
@@ -789,31 +819,15 @@ func (b *InMemoryBackend) Publish(
 	return messageID, nil
 }
 
-// matchesFilterPolicy returns true if the message attributes satisfy all conditions in the filter policy.
-// If filterPolicy is empty, exceeds maxFilterPolicySizeBytes, or is invalid JSON, it returns true (no filtering).
-func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute) bool {
-	if filterPolicy == "" {
+func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]MessageAttribute) bool {
+	if policy == nil {
 		return true
 	}
 
-	if len(filterPolicy) > maxFilterPolicySizeBytes {
-		return true
-	}
-
-	var policy map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(filterPolicy), &policy); err != nil {
-		return true
-	}
-
-	for key, rawConditions := range policy {
+	for key, conditions := range policy {
 		attr, ok := attrs[key]
 		if !ok {
 			return false
-		}
-
-		var conditions []json.RawMessage
-		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
-			return true
 		}
 
 		if !matchesConditions(attr.StringValue, conditions) {
@@ -867,6 +881,28 @@ func matchesConditions(
 	}
 
 	return false
+}
+
+func (b *InMemoryBackend) indexSubscription(sub *Subscription) {
+	topicSubs := b.topicSubscriptions[sub.TopicArn]
+	if topicSubs == nil {
+		topicSubs = make(map[string]*Subscription)
+		b.topicSubscriptions[sub.TopicArn] = topicSubs
+	}
+
+	topicSubs[sub.SubscriptionArn] = sub
+}
+
+func (b *InMemoryBackend) removeIndexedSubscription(topicArn, subscriptionArn string) {
+	topicSubs := b.topicSubscriptions[topicArn]
+	if topicSubs == nil {
+		return
+	}
+
+	delete(topicSubs, subscriptionArn)
+	if len(topicSubs) == 0 {
+		delete(b.topicSubscriptions, topicArn)
+	}
 }
 
 // ListAllTopics returns all topics sorted by ARN.
