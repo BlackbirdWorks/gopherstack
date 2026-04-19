@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getACMPCAClient } from '$lib/aws-client';
 	import {
@@ -95,7 +96,7 @@
 	}
 
 	async function deleteCA(arn: string | undefined) {
-		if (!arn || !confirm(`Delete Private CA? All certificates issued by this authority will be potentially invalidated.`)) return;
+		if (!arn || !await confirmDestructive(`Delete Private CA? All certificates issued by this authority will be potentially invalidated.`)) return;
 		try {
 			await acmpca.send(new DeleteCertificateAuthorityCommand({ CertificateAuthorityArn: arn }));
 			toast.success(`CA deletion initiated`);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getRoute53Client } from '$lib/aws-client';
 	import {
@@ -106,7 +107,7 @@
 	}
 
 	async function deleteZone(zoneId: string, zoneName: string) {
-		if (!confirm(`Delete hosted zone "${zoneName}"? All records will be deleted.`)) return;
+		if (!await confirmDestructive(`Delete hosted zone "${zoneName}"? All records will be deleted.`)) return;
 		try {
 			const id = zoneId.replace('/hostedzone/', '');
 			await r53.send(new DeleteHostedZoneCommand({ Id: id }));
@@ -151,7 +152,7 @@
 	}
 
 	async function deleteRecord(record: ResourceRecordSet) {
-		if (!selectedZone || !confirm(`Delete record "${record.Name}" (${record.Type})?`)) return;
+		if (!selectedZone || !await confirmDestructive(`Delete record "${record.Name}" (${record.Type})?`)) return;
 		try {
 			const zoneId = (selectedZone.Id ?? '').replace('/hostedzone/', '');
 			await r53.send(new ChangeResourceRecordSetsCommand({

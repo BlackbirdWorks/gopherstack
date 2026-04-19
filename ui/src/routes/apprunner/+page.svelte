@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getAppRunnerClient } from '$lib/aws-client';
 	import {
@@ -111,7 +112,7 @@
 	}
 
 	async function deleteService(service: ServiceSummary) {
-		if (!service.ServiceArn || !confirm(`Delete service "${service.ServiceName}"?`)) return;
+		if (!service.ServiceArn || !await confirmDestructive(`Delete service "${service.ServiceName}"?`)) return;
 		try {
 			await apprunner.send(new DeleteServiceCommand({ ServiceArn: service.ServiceArn }));
 			toast.success(`Service "${service.ServiceName}" deletion initiated`);

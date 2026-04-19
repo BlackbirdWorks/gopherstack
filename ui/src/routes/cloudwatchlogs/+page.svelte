@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
@@ -158,7 +159,7 @@
 	}
 
 	async function deleteLogGroup(name: string) {
-		if (!confirm(`Delete log group "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete log group "${name}"?`)) return;
 		deletingGroup = name;
 		try {
 			await cwl.send(new DeleteLogGroupCommand({ logGroupName: name }));

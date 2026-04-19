@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getSSMClient } from '$lib/aws-client';
 	import {
@@ -138,7 +139,7 @@
 	}
 
 	async function deleteParameter(name: string) {
-		if (!confirm(`Delete parameter "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete parameter "${name}"?`)) return;
 		try {
 			await ssm.send(new DeleteParameterCommand({ Name: name }));
 			toast.success(`Parameter "${name}" deleted`);

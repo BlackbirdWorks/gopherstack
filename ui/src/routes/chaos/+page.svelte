@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { Zap, AlertCircle, Activity, Settings, Gauge, TrendingUp, Lock, Unlock, RefreshCw } from 'lucide-svelte';
 
@@ -76,7 +77,7 @@
 	}
 
 	async function clearFaults() {
-		if (!confirm('Clear all faults?')) return;
+		if (!await confirmDestructive('Clear all faults?')) return;
 		try {
 			const response = await fetch('/_gopherstack/chaos/faults/clear', { method: 'POST' });
 			if (!response.ok) throw new Error('Failed to clear faults');

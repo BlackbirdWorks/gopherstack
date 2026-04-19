@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCloudTrailClient } from '$lib/aws-client';
 	import {
@@ -159,7 +160,7 @@
 	}
 
 	async function deleteTrail(trail: Trail) {
-		if (!trail.TrailARN || !confirm(`Delete trail "${trail.Name}"?`)) return;
+		if (!trail.TrailARN || !await confirmDestructive(`Delete trail "${trail.Name}"?`)) return;
 		try {
 			await ct.send(new DeleteTrailCommand({ Name: trail.TrailARN }));
 			toast.success(`Trail "${trail.Name}" deleted`);

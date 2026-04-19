@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
 import { getSQSClient } from '$lib/aws-client';
 import {
@@ -203,7 +204,7 @@ newWaitTimeSeconds = 0;
 
 async function deleteQueue(url: string) {
 const name = queueName(url);
-if (!confirm(`Delete queue "${name}"?`)) return;
+if (!await confirmDestructive(`Delete queue "${name}"?`)) return;
 try {
 await sqs.send(new DeleteQueueCommand({ QueueUrl: url }));
 toast.success(`Queue "${name}" deleted`);
@@ -330,7 +331,7 @@ deletingReceipt = null;
 
 // ──────────────── Purge ────────────────
 async function purgeQueue(url: string) {
-if (!confirm(`Purge all messages from "${queueName(url)}"? This cannot be undone.`)) return;
+if (!await confirmDestructive(`Purge all messages from "${queueName(url)}"? This cannot be undone.`)) return;
 try {
 await sqs.send(new PurgeQueueCommand({ QueueUrl: url }));
 toast.success('Queue purged');

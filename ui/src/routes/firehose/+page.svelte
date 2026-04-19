@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getFirehoseClient } from '$lib/aws-client';
 	import {
@@ -116,7 +117,7 @@
 	}
 
 	async function deleteStream(name: string) {
-		if (!confirm(`Delete delivery stream "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete delivery stream "${name}"?`)) return;
 		try {
 			await firehose.send(new DeleteDeliveryStreamCommand({ DeliveryStreamName: name }));
 			toast.success(`Stream "${name}" deleted`);

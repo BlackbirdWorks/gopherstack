@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCodeBuildClient } from '$lib/aws-client';
 	import {
@@ -110,7 +111,7 @@
 	}
 
 	async function deleteProject(name: string | undefined) {
-		if (!name || !confirm(`Delete project "${name}"? All build history will be lost.`)) return;
+		if (!name || !await confirmDestructive(`Delete project "${name}"? All build history will be lost.`)) return;
 		try {
 			await codebuild.send(new DeleteProjectCommand({ name }));
 			toast.success(`Project deleted`);

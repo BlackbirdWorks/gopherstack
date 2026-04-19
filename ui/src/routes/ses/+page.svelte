@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getSESClient } from '$lib/aws-client';
 	import {
@@ -133,7 +134,7 @@
 	}
 
 	async function deleteIdentity(identity: string) {
-		if (!confirm(`Delete identity "${identity}"?`)) return;
+		if (!await confirmDestructive(`Delete identity "${identity}"?`)) return;
 		try {
 			await ses.send(new DeleteIdentityCommand({ Identity: identity }));
 			toast.success(`Deleted ${identity}`);
@@ -172,7 +173,7 @@
 	}
 
 	async function deleteTemplate(name: string) {
-		if (!confirm(`Delete template "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete template "${name}"?`)) return;
 		try {
 			await ses.send(new DeleteTemplateCommand({ TemplateName: name }));
 			toast.success(`Template "${name}" deleted`);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getCognitoIdentityClient } from '$lib/aws-client';
 	import {
@@ -78,7 +79,7 @@
 	}
 
 	async function deletePool(pool: IdentityPoolShortDescription) {
-		if (!pool.IdentityPoolId || !confirm(`Delete identity pool "${pool.IdentityPoolName}"?`)) return;
+		if (!pool.IdentityPoolId || !await confirmDestructive(`Delete identity pool "${pool.IdentityPoolName}"?`)) return;
 		try {
 			await cognitoId.send(
 				new DeleteIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })

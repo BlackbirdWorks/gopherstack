@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getShieldClient } from '$lib/aws-client';
 	import {
@@ -72,7 +73,7 @@
 	}
 
 	async function deleteProtection(id: string | undefined) {
-		if (!id || !confirm(`Remove DDoS protection for this resource?`)) return;
+		if (!id || !await confirmDestructive(`Remove DDoS protection for this resource?`)) return;
 		try {
 			await shield.send(new DeleteProtectionCommand({ ProtectionId: id }));
 			toast.success(`Protection removed`);

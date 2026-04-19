@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getELBv2Client } from '$lib/aws-client';
 	import {
@@ -142,7 +143,7 @@
 	}
 
 	async function deleteLB(lb: LoadBalancer) {
-		if (!lb.LoadBalancerArn || !confirm(`Delete load balancer "${lb.LoadBalancerName}"?`)) return;
+		if (!lb.LoadBalancerArn || !await confirmDestructive(`Delete load balancer "${lb.LoadBalancerName}"?`)) return;
 		try {
 			await elb.send(new DeleteLoadBalancerCommand({ LoadBalancerArn: lb.LoadBalancerArn }));
 			toast.success(`Deleting "${lb.LoadBalancerName}"…`);

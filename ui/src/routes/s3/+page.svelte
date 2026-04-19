@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
 import { newS3Client, getStoredRegion } from '$lib/aws/client';
@@ -231,7 +232,7 @@ await s3.send(new DeleteObjectCommand({ Bucket: bucketName, Key: obj.Key }));
 }
 
 async function purgeAll() {
-if (!confirm('Are you sure you want to delete ALL buckets? This cannot be undone.')) return;
+if (!await confirmDestructive('Are you sure you want to delete ALL buckets? This cannot be undone.')) return;
 try {
 for (const bucket of buckets) {
 if (!bucket.Name) continue;
@@ -246,7 +247,7 @@ toast.error(`Failed to purge: ${(err as Error).message}`);
 }
 
 async function deleteBucket(name: string) {
-if (!confirm(`Delete bucket "${name}"?`)) return;
+if (!await confirmDestructive(`Delete bucket "${name}"?`)) return;
 try {
 await deleteAllObjectsInBucket(name);
 await s3.send(new DeleteBucketCommand({ Bucket: name }));
@@ -409,7 +410,7 @@ async function handleDrop(e: DragEvent): Promise<void> {
 }
 
 async function deleteObject(key: string) {
-if (!selectedBucket || !confirm(`Delete "${key}"?`)) return;
+if (!selectedBucket || !await confirmDestructive(`Delete "${key}"?`)) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 toast.success(`Deleted "${key}"`);
@@ -421,7 +422,7 @@ toast.error(`Failed to delete: ${(err as Error).message}`);
 
 async function deleteSelectedObjects() {
 if (!selectedBucket || selectedObjects.size === 0) return;
-if (!confirm(`Delete ${selectedObjects.size} selected object(s)?`)) return;
+if (!await confirmDestructive(`Delete ${selectedObjects.size} selected object(s)?`)) return;
 try {
 for (const key of selectedObjects) {
 await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
@@ -591,7 +592,7 @@ toast.error(`Failed to save tags: ${(err as Error).message}`);
 }
 
 async function clearAllTags() {
-if (!selectedBucket || !confirm('Delete all tags?')) return;
+if (!selectedBucket || !await confirmDestructive('Delete all tags?')) return;
 try {
 await s3.send(new DeleteBucketTaggingCommand({ Bucket: selectedBucket }));
 bucketTags = [];
@@ -631,7 +632,7 @@ toast.error(`Failed to save policy: ${(err as Error).message}`);
 }
 
 async function deletePolicy() {
-if (!selectedBucket || !confirm('Delete bucket policy?')) return;
+if (!selectedBucket || !await confirmDestructive('Delete bucket policy?')) return;
 try {
 await s3.send(new DeleteBucketPolicyCommand({ Bucket: selectedBucket }));
 bucketPolicy = '';
@@ -850,7 +851,7 @@ async function saveWebsite(): Promise<void> {
 }
 
 async function deleteWebsite(): Promise<void> {
-  if (!selectedBucket || !confirm('Delete website configuration?')) return;
+  if (!selectedBucket || !await confirmDestructive('Delete website configuration?')) return;
   try {
     await s3.send(new DeleteBucketWebsiteCommand({ Bucket: selectedBucket }));
     websiteConfig = null;

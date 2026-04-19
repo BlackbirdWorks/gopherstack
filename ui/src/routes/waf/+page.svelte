@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getWAFV2Client } from '$lib/aws-client';
 	import {
@@ -132,7 +133,7 @@
 	}
 
 	async function deleteWebACL(summary: WebACLSummary) {
-		if (!confirm(`Delete Web ACL "${summary.Name}"?`)) return;
+		if (!await confirmDestructive(`Delete Web ACL "${summary.Name}"?`)) return;
 		try {
 			await waf.send(new DeleteWebACLCommand({
 				Name: summary.Name ?? '',

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getECRClient } from '$lib/aws-client';
 	import {
@@ -119,7 +120,7 @@
 	}
 
 	async function deleteRepository(name: string) {
-		if (!confirm(`Delete repository "${name}"? All images will be lost.`)) return;
+		if (!await confirmDestructive(`Delete repository "${name}"? All images will be lost.`)) return;
 		try {
 			await ecr.send(new DeleteRepositoryCommand({ repositoryName: name, force: true }));
 			toast.success(`Repository "${name}" deleted`);
@@ -132,7 +133,7 @@
 
 	async function deleteImage(img: ImageDetail) {
 		const tag = img.imageTags?.[0] ?? img.imageDigest?.slice(0, 20) ?? '';
-		if (!selectedRepo || !confirm(`Delete image "${tag}"?`)) return;
+		if (!selectedRepo || !await confirmDestructive(`Delete image "${tag}"?`)) return;
 		const digest = img.imageDigest ?? '';
 		deletingImages = [...deletingImages, digest];
 		try {

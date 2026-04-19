@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getMSKClient } from '$lib/aws-client';
 	import {
@@ -107,7 +108,7 @@
 	}
 
 	async function deleteCluster(cluster: Cluster) {
-		if (!cluster.ClusterArn || !confirm(`Delete cluster "${cluster.ClusterName}"?`)) return;
+		if (!cluster.ClusterArn || !await confirmDestructive(`Delete cluster "${cluster.ClusterName}"?`)) return;
 		try {
 			await msk.send(
 				new DeleteClusterCommand({

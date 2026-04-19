@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getKinesisClient } from '$lib/aws-client';
 	import {
@@ -102,7 +103,7 @@
 	}
 
 	async function deleteStream(name: string) {
-		if (!confirm(`Delete stream "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete stream "${name}"?`)) return;
 		try {
 			await kinesis.send(new DeleteStreamCommand({ StreamName: name }));
 			toast.success(`Stream "${name}" deleting`);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount, onDestroy } from 'svelte';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
@@ -276,7 +277,7 @@ toast.error(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
 }
 
 async function deleteVersion(versionId: string) {
-if (!confirm(`Delete version ${versionId.slice(0, 12)}...?`)) return;
+if (!await confirmDestructive(`Delete version ${versionId.slice(0, 12)}...?`)) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, VersionId: versionId }));
 toast.success('Version deleted');
@@ -287,7 +288,7 @@ toast.error(`Failed to delete version: ${e instanceof Error ? e.message : String
 }
 
 async function deleteObject() {
-if (!confirm(`Delete object "${objectKey}"?`)) return;
+if (!await confirmDestructive(`Delete object "${objectKey}"?`)) return;
 try {
 await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
 toast.success('Object deleted');

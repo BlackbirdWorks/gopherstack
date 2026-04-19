@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getEKSClient } from '$lib/aws-client';
 	import {
@@ -127,7 +128,7 @@
 	}
 
 	async function deleteCluster(name: string) {
-		if (!confirm(`Delete cluster "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete cluster "${name}"?`)) return;
 		try {
 			await eks.send(new DeleteClusterCommand({ name }));
 			toast.success(`Cluster "${name}" deleting`);
@@ -163,7 +164,7 @@
 	}
 
 	async function deleteNodeGroup(ngName: string) {
-		if (!selectedCluster?.name || !confirm(`Delete node group "${ngName}"?`)) return;
+		if (!selectedCluster?.name || !await confirmDestructive(`Delete node group "${ngName}"?`)) return;
 		try {
 			await eks.send(new DeleteNodegroupCommand({ clusterName: selectedCluster.name, nodegroupName: ngName }));
 			toast.success(`Node group "${ngName}" deleting`);

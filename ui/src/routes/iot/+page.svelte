@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getIoTClient } from '$lib/aws-client';
 	import {
@@ -118,7 +119,7 @@
 	}
 
 	async function deleteThing(thing: ThingAttribute) {
-		if (!thing.thingName || !confirm(`Delete thing "${thing.thingName}"?`)) return;
+		if (!thing.thingName || !await confirmDestructive(`Delete thing "${thing.thingName}"?`)) return;
 		try {
 			await iot.send(new DeleteThingCommand({ thingName: thing.thingName }));
 			toast.success(`Thing "${thing.thingName}" deleted`);

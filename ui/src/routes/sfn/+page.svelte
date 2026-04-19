@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getSFNClient } from '$lib/aws-client';
 	import {
@@ -103,7 +104,7 @@
 	}
 
 	async function deleteSM(arn: string | undefined) {
-		if (!arn || !confirm(`Delete state machine?`)) return;
+		if (!arn || !await confirmDestructive(`Delete state machine?`)) return;
 		try {
 			await sfn.send(new DeleteStateMachineCommand({ stateMachineArn: arn }));
 			toast.success(`Delete initiated`);

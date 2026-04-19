@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getFISClient } from '$lib/aws-client';
 	import {
@@ -100,7 +101,7 @@
 	}
 
 	async function stopExperiment(id: string | undefined) {
-		if (!id || !confirm(`Cease Fault Injection cycle? State restoration artifacts will be prioritized.`)) return;
+		if (!id || !await confirmDestructive(`Cease Fault Injection cycle? State restoration artifacts will be prioritized.`)) return;
 		try {
 			await fis.send(new StopExperimentCommand({ id }));
 			toast.success(`Experiment cessation triggered`);

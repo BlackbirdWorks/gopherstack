@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getElastiCacheClient } from '$lib/aws-client';
 	import {
@@ -71,7 +72,7 @@
 	}
 
 	async function deleteCluster(id: string) {
-		if (!confirm(`Delete cluster "${id}"?`)) return;
+		if (!await confirmDestructive(`Delete cluster "${id}"?`)) return;
 		try {
 			await ec.send(new DeleteCacheClusterCommand({ CacheClusterId: id }));
 			toast.success(`Cluster "${id}" deletion initiated`);
@@ -83,7 +84,7 @@
 	}
 
 	async function rebootCluster(id: string) {
-		if (!confirm(`Reboot cluster "${id}"?`)) return;
+		if (!await confirmDestructive(`Reboot cluster "${id}"?`)) return;
 		try {
 			await ec.send(new RebootCacheClusterCommand({ 
 				CacheClusterId: id,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getAppSyncClient } from '$lib/aws-client';
 	import {
@@ -166,7 +167,7 @@
 	}
 
 	async function deleteApi(api: GraphqlApi) {
-		if (!api.apiId || !confirm(`Delete API "${api.name}"?`)) return;
+		if (!api.apiId || !await confirmDestructive(`Delete API "${api.name}"?`)) return;
 		try {
 			await appsync.send(new DeleteGraphqlApiCommand({ apiId: api.apiId }));
 			toast.success(`API "${api.name}" deleted`);

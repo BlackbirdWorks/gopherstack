@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getAppConfigClient } from '$lib/aws-client';
 	import {
@@ -103,7 +104,7 @@
 	}
 
 	async function deleteApplication(id: string | undefined) {
-		if (!id || !confirm(`Delete AppConfig application? This will permanently remove all profiles and environments.`)) return;
+		if (!id || !await confirmDestructive(`Delete AppConfig application? This will permanently remove all profiles and environments.`)) return;
 		try {
 			await appconfig.send(new DeleteApplicationCommand({ ApplicationId: id }));
 			toast.success(`Application deleted`);

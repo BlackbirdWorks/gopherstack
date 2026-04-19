@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getBatchClient } from '$lib/aws-client';
 	import {
@@ -147,7 +148,7 @@
 	}
 
 	async function deleteQueue(name: string) {
-		if (!confirm(`Delete job queue "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete job queue "${name}"?`)) return;
 		try {
 			await batch.send(new DeleteJobQueueCommand({ jobQueue: name }));
 			toast.success(`Queue "${name}" deleted`);
@@ -197,7 +198,7 @@
 	}
 
 	async function terminateJob(jobId: string) {
-		if (!confirm('Terminate this job?')) return;
+		if (!await confirmDestructive('Terminate this job?')) return;
 		try {
 			await batch.send(new TerminateJobCommand({ jobId, reason: 'Terminated by user' }));
 			toast.success('Job terminated');

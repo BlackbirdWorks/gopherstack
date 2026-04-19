@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getLambdaClient } from '$lib/aws-client';
 	import {
@@ -47,7 +48,7 @@
 	}
 
 	async function deleteFunction(name: string) {
-		if (!confirm(`Are you sure you want to delete function "${name}"?`)) return;
+		if (!await confirmDestructive(`Are you sure you want to delete function "${name}"?`)) return;
 		try {
 			await lambda.send(new DeleteFunctionCommand({ FunctionName: name }));
 			toast.success(`Function "${name}" deleted`);

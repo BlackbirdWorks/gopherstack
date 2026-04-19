@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
 import { getSecretsManagerClient } from '$lib/aws-client';
 import {
@@ -68,7 +69,7 @@ async function loadSecretValue(name: string) {
 }
 
 async function deleteSecret(name: string) {
-	if (!confirm(`Delete secret "${name}"?`)) return;
+	if (!await confirmDestructive(`Delete secret "${name}"?`)) return;
 	try {
 		await sm.send(new DeleteSecretCommand({ SecretId: name }));
 		toast.success(`Secret "${name}" deleted`);

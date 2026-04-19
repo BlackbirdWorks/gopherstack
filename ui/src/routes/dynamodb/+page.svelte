@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount, onDestroy } from 'svelte';
 	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
 	import {
@@ -242,7 +243,7 @@
 	}
 
 	async function purgeAll() {
-		if (!confirm('Are you sure you want to delete ALL tables? This cannot be undone.')) return;
+		if (!await confirmDestructive('Are you sure you want to delete ALL tables? This cannot be undone.')) return;
 		try {
 			for (const name of tableNames) await ddb.send(new DeleteTableCommand({ TableName: name }));
 			toast.success('All tables purged');
@@ -254,7 +255,7 @@
 	}
 
 	async function deleteTable(name: string) {
-		if (!confirm(`Delete table "${name}"?`)) return;
+		if (!await confirmDestructive(`Delete table "${name}"?`)) return;
 		try {
 			await ddb.send(new DeleteTableCommand({ TableName: name }));
 			toast.success(`Table "${name}" deleted`);
@@ -387,7 +388,7 @@
 
 	async function deleteItem(item: Record<string, unknown>): Promise<void> {
 		if (!selectedTable) return;
-		if (!confirm('Delete this item?')) return;
+		if (!await confirmDestructive('Delete this item?')) return;
 		try {
 			await ddb.send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
 			toast.success('Item deleted');
@@ -426,7 +427,7 @@
 	}
 
 	async function deleteBackup(arn: string): Promise<void> {
-		if (!confirm('Delete this backup?')) return;
+		if (!await confirmDestructive('Delete this backup?')) return;
 		try {
 			await ddb.send(new DeleteBackupCommand({ BackupArn: arn }));
 			toast.success('Backup deleted');
@@ -644,7 +645,7 @@
 
 	async function deleteGsi(indexName: string): Promise<void> {
 		if (!selectedTable) return;
-		if (!confirm(`Delete GSI "${indexName}"? This cannot be undone.`)) return;
+		if (!await confirmDestructive(`Delete GSI "${indexName}"? This cannot be undone.`)) return;
 		try {
 			await ddb.send(new UpdateTableCommand({
 				TableName: selectedTable,

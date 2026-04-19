@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getWorkSpacesClient } from '$lib/aws-client';
 	import {
@@ -81,7 +82,7 @@
 	}
 
 	async function terminateWorkspace(id: string | undefined) {
-		if (!id || !confirm(`Terminate WorkSpace? All user profile data and persistent storage attached to this instance will be permanently purged.`)) return;
+		if (!id || !await confirmDestructive(`Terminate WorkSpace? All user profile data and persistent storage attached to this instance will be permanently purged.`)) return;
 		try {
 			await workspaces.send(new TerminateWorkspacesCommand({
 				TerminateWorkspaceRequests: [{ WorkspaceId: id }]
