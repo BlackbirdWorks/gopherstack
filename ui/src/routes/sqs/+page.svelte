@@ -437,7 +437,7 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 <div class="min-w-0 flex-1">
 <p class="font-medium text-slate-900 dark:text-white truncate">{queueName(q.url)}</p>
 <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-~{formatCount(q.attrs.ApproximateNumberOfMessages)} msgs
+~{formatCount(q.attrs.ApproximateNumberOfMessages)} messages
 </p>
 </div>
 <div class="flex items-center gap-1 ml-2 flex-shrink-0">

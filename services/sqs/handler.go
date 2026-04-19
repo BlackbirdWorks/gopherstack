@@ -1125,6 +1125,9 @@ func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []stri
 		return map[string]jsonMsgAttr{}
 	}
 
+	// AWS SDKs may send either "All" or ".*" to request all message attributes.
+	// Both are treated as wildcards that return every attribute, matching the
+	// behaviour of the real SQS service.
 	if containsStr(requested, attrAll) || containsStr(requested, ".*") {
 		return toJSONMsgAttrs(attrs)
 	}

@@ -598,6 +598,8 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	var seqNum string
 	if q.IsFIFO {
+		// fifoSeqCounter is guarded by b.mu (write-locked throughout SendMessage).
+		// No additional synchronisation is required.
 		q.fifoSeqCounter++
 		seqNum = fmt.Sprintf("%020d", q.fifoSeqCounter)
 	}
@@ -716,6 +718,9 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.T
 	}
 
 	if !now.Before(expiry) {
+		// Eagerly remove the expired entry inline. This keeps the deduplication map
+		// lean without waiting for the next janitor sweep, reducing memory pressure
+		// and speeding up subsequent lookups.
 		delete(q.DeduplicationIDs, effectiveID)
 		delete(q.deduplicationMsgIDs, effectiveID)
 
@@ -795,6 +800,18 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 		}
 
 		sleep := min(remaining, recheckInterval)
+
+		// Stop and drain the timer before Reset to guarantee the channel is empty
+		// before the next iteration begins. Both select arms leave the timer in a
+		// consistent state: the notifyCh arm already stops and drains; the C arm
+		// fires normally and drains. An explicit stop-and-drain here makes the
+		// invariant explicit and safe against future loop restructuring.
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
 
 		timer.Reset(sleep)
 
