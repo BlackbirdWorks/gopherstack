@@ -714,6 +714,71 @@ func TestIAMHandler_NewOpsDispatch(t *testing.T) {
 
 // ---- Persistence round-trip for new operations ----
 
+func TestIAMHandler_ListPolicyVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params           map[string]string
+		name             string
+		wantBodyContains []string
+		wantCode         int
+		setupData        bool
+	}{
+		{
+			name:      "returns_multiple_versions",
+			setupData: true,
+			params: map[string]string{
+				"PolicyArn": "arn:aws:iam::000000000000:policy/VersionListPolicy",
+			},
+			wantCode: http.StatusOK,
+			wantBodyContains: []string{
+				"<VersionId>v1</VersionId>",
+				"<VersionId>v2</VersionId>",
+				"<IsDefaultVersion>false</IsDefaultVersion>",
+				"<IsDefaultVersion>true</IsDefaultVersion>",
+			},
+		},
+		{
+			name: "policy_not_found_returns_bad_request",
+			params: map[string]string{
+				"PolicyArn": "arn:aws:iam::000000000000:policy/VersionListPolicy",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			if tt.setupData {
+				pol, setupErr := b.CreatePolicy("VersionListPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				require.NoError(t, setupErr)
+				_, setupErr = b.CreatePolicyVersion(
+					pol.Arn,
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Deny"}]}`,
+					true,
+				)
+				require.NoError(t, setupErr)
+			}
+
+			req := iamRequest("ListPolicyVersions", tt.params)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, expected := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), expected)
+			}
+		})
+	}
+}
+
 func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 

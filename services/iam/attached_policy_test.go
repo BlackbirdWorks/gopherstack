@@ -225,6 +225,106 @@ func TestGetPolicyVersion(t *testing.T) {
 	assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, got.PolicyDocument)
 }
 
+func TestListPolicyVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		wantVersionIDs   []string
+		wantDefaultFlags []bool
+		setAsDefault     bool
+	}{
+		{
+			name:             "v1_default_when_new_version_not_default",
+			setAsDefault:     false,
+			wantVersionIDs:   []string{"v1", "v2"},
+			wantDefaultFlags: []bool{true, false},
+		},
+		{
+			name:             "v2_default_when_requested",
+			setAsDefault:     true,
+			wantVersionIDs:   []string{"v1", "v2"},
+			wantDefaultFlags: []bool{false, true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+			pol, err := b.CreatePolicy("VersionedPol", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			require.NoError(t, err)
+
+			_, err = b.CreatePolicyVersion(
+				pol.Arn,
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Deny"}]}`,
+				tt.setAsDefault,
+			)
+			require.NoError(t, err)
+
+			versions, err := b.ListPolicyVersions(pol.Arn)
+			require.NoError(t, err)
+			require.Len(t, versions, len(tt.wantVersionIDs))
+
+			gotVersionIDs := make([]string, 0, len(versions))
+			gotDefaultFlags := make([]bool, 0, len(versions))
+			for _, version := range versions {
+				gotVersionIDs = append(gotVersionIDs, version.VersionID)
+				gotDefaultFlags = append(gotDefaultFlags, version.IsDefaultVersion)
+			}
+
+			assert.Equal(t, tt.wantVersionIDs, gotVersionIDs)
+			assert.Equal(t, tt.wantDefaultFlags, gotDefaultFlags)
+		})
+	}
+}
+
+func TestDeletePolicyConflict_GroupAttachment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr   error
+		name      string
+		attachArn bool
+	}{
+		{
+			name:      "group_attached_returns_conflict",
+			attachArn: true,
+			wantErr:   iam.ErrDeleteConflict,
+		},
+		{
+			name: "group_not_attached_deletes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+			pol, err := b.CreatePolicy("GroupManagedPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			require.NoError(t, err)
+
+			_, err = b.CreateGroup("devs", "/")
+			require.NoError(t, err)
+
+			if tt.attachArn {
+				require.NoError(t, b.AttachGroupPolicy("devs", pol.Arn))
+			}
+
+			err = b.DeletePolicy(pol.Arn)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestDeleteConflict_UserWithAttachedPolicy(t *testing.T) {
 	t.Parallel()
 

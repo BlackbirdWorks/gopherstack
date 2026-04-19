@@ -530,26 +530,25 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListPolicyVersions": func(_ url.Values, reqID string) (any, error) {
-			type policyVersionXML struct {
-				VersionID        string `xml:"VersionId"`
-				IsDefaultVersion bool   `xml:"IsDefaultVersion"`
-			}
-			type listPolicyVersionsResult struct {
-				XMLName  xml.Name           `xml:"ListPolicyVersionsResult"`
-				Versions []policyVersionXML `xml:"Versions>member"`
-			}
-			type listPolicyVersionsResponse struct {
-				XMLName                  xml.Name                 `xml:"ListPolicyVersionsResponse"`
-				Xmlns                    string                   `xml:"xmlns,attr"`
-				ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
-				ListPolicyVersionsResult listPolicyVersionsResult `xml:"ListPolicyVersionsResult"`
+		"ListPolicyVersions": func(vals url.Values, reqID string) (any, error) {
+			versions, err := h.Backend.ListPolicyVersions(vals.Get("PolicyArn"))
+			if err != nil {
+				return nil, err
 			}
 
-			return &listPolicyVersionsResponse{
+			xmlVersions := make([]PolicyVersionXML, 0, len(versions))
+			for i := range versions {
+				xmlVersions = append(xmlVersions, PolicyVersionXML{
+					VersionID:        versions[i].VersionID,
+					CreateDate:       isoTime(versions[i].CreateDate),
+					IsDefaultVersion: versions[i].IsDefaultVersion,
+				})
+			}
+
+			return &ListPolicyVersionsResponse{
 				Xmlns: iamXMLNS,
-				ListPolicyVersionsResult: listPolicyVersionsResult{
-					Versions: []policyVersionXML{{VersionID: "v1", IsDefaultVersion: true}},
+				ListPolicyVersionsResult: ListPolicyVersionsResult{
+					Versions: xmlVersions,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

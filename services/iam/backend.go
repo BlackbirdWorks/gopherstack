@@ -95,6 +95,7 @@ type StorageBackend interface {
 	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
 	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
 	GetPolicy(policyArn string) (*Policy, error)
+	ListPolicyVersions(policyArn string) ([]StoredPolicyVersion, error)
 	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
 
 	// Inline Policies - Users
@@ -222,6 +223,7 @@ type InMemoryBackend struct {
 	rolePolicies         map[string][]string
 	loginProfiles        map[string]LoginProfile
 	policies             map[string]Policy
+	policyByARN          map[string]string
 	groups               map[string]Group
 	accessKeys           map[string]AccessKey
 	instanceProfiles     map[string]InstanceProfile
@@ -230,7 +232,9 @@ type InMemoryBackend struct {
 	groupPolicies        map[string][]string
 	userPolicies         map[string][]string
 	roles                map[string]Role
+	roleByARN            map[string]string
 	users                map[string]User
+	policyAttachments    map[string]policyAttachmentRefs
 	oidcProviders        map[string]OIDCProvider
 	userInlinePolicies   map[string]map[string]string
 	roleInlinePolicies   map[string]map[string]string
@@ -244,6 +248,12 @@ type InMemoryBackend struct {
 	accountAliases       []string
 }
 
+type policyAttachmentRefs struct {
+	users  map[string]struct{}
+	roles  map[string]struct{}
+	groups map[string]struct{}
+}
+
 // NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
 func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(IAMAccountID)
@@ -254,7 +264,9 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		users:                make(map[string]User),
 		roles:                make(map[string]Role),
+		roleByARN:            make(map[string]string),
 		policies:             make(map[string]Policy),
+		policyByARN:          make(map[string]string),
 		groups:               make(map[string]Group),
 		accessKeys:           make(map[string]AccessKey),
 		instanceProfiles:     make(map[string]InstanceProfile),
@@ -268,6 +280,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		userInlinePolicies:   make(map[string]map[string]string),
 		roleInlinePolicies:   make(map[string]map[string]string),
 		groupInlinePolicies:  make(map[string]map[string]string),
+		policyAttachments:    make(map[string]policyAttachmentRefs),
 		accountAliases:       nil,
 		policyVersions:       make(map[string][]StoredPolicyVersion),
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
@@ -291,6 +304,109 @@ func normPath(path string) string {
 	}
 
 	return path
+}
+
+func (b *InMemoryBackend) addPolicyAttachmentLocked(policyArn, entityName, entityType string) {
+	refs := b.policyAttachments[policyArn]
+	if refs.users == nil {
+		refs.users = make(map[string]struct{})
+	}
+
+	if refs.roles == nil {
+		refs.roles = make(map[string]struct{})
+	}
+
+	if refs.groups == nil {
+		refs.groups = make(map[string]struct{})
+	}
+
+	switch entityType {
+	case "user":
+		refs.users[entityName] = struct{}{}
+	case "role":
+		refs.roles[entityName] = struct{}{}
+	case "group":
+		refs.groups[entityName] = struct{}{}
+	}
+
+	b.policyAttachments[policyArn] = refs
+}
+
+func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, entityType string) {
+	refs, exists := b.policyAttachments[policyArn]
+	if !exists {
+		return
+	}
+
+	switch entityType {
+	case "user":
+		delete(refs.users, entityName)
+	case "role":
+		delete(refs.roles, entityName)
+	case "group":
+		delete(refs.groups, entityName)
+	}
+
+	if len(refs.users) == 0 && len(refs.roles) == 0 && len(refs.groups) == 0 {
+		delete(b.policyAttachments, policyArn)
+
+		return
+	}
+
+	b.policyAttachments[policyArn] = refs
+}
+
+func firstKey(values map[string]struct{}) string {
+	for value := range values {
+		return value
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) getPolicyByARNLocked(policyArn string) (Policy, bool) {
+	policyName, exists := b.policyByARN[policyArn]
+	if !exists {
+		return Policy{}, false
+	}
+
+	pol, exists := b.policies[policyName]
+	if !exists {
+		return Policy{}, false
+	}
+
+	return pol, true
+}
+
+func (b *InMemoryBackend) rebuildIndexesLocked() {
+	b.roleByARN = make(map[string]string, len(b.roles))
+	for roleName, role := range b.roles {
+		b.roleByARN[role.Arn] = roleName
+	}
+
+	b.policyByARN = make(map[string]string, len(b.policies))
+	for policyName, policy := range b.policies {
+		b.policyByARN[policy.Arn] = policyName
+	}
+
+	b.policyAttachments = make(map[string]policyAttachmentRefs)
+	for userName, policyARNs := range b.userPolicies {
+		for _, policyARN := range policyARNs {
+			b.addPolicyAttachmentLocked(policyARN, userName, "user")
+		}
+	}
+
+	for roleName, policyARNs := range b.rolePolicies {
+		for _, policyARN := range policyARNs {
+			b.addPolicyAttachmentLocked(policyARN, roleName, "role")
+		}
+	}
+
+	for groupName, policyARNs := range b.groupPolicies {
+		for _, policyARN := range policyARNs {
+			b.addPolicyAttachmentLocked(policyARN, groupName, "group")
+		}
+	}
 }
 
 // ---- Users ----
@@ -410,6 +526,7 @@ func (b *InMemoryBackend) CreateRole(
 		PermissionsBoundary:      permissionsBoundary,
 	}
 	b.roles[roleName] = r
+	b.roleByARN[r.Arn] = roleName
 
 	return &r, nil
 }
@@ -431,7 +548,9 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 		return fmt.Errorf("%w: role %q has inline policies", ErrDeleteConflict, roleName)
 	}
 
+	role := b.roles[roleName]
 	delete(b.roles, roleName)
+	delete(b.roleByARN, role.Arn)
 
 	return nil
 }
@@ -469,13 +588,17 @@ func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
 	b.mu.RLock("GetRoleByArn")
 	defer b.mu.RUnlock()
 
-	for _, r := range b.roles {
-		if r.Arn == roleArn {
-			return &r, nil
-		}
+	roleName, exists := b.roleByARN[roleArn]
+	if !exists {
+		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
 	}
 
-	return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
+	role, exists := b.roles[roleName]
+	if !exists {
+		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
+	}
+
+	return &role, nil
 }
 
 // UpdateRoleMaxSessionDuration sets the maximum session duration for a role.
@@ -519,6 +642,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 		CreateDate:     time.Now().UTC(),
 	}
 	b.policies[policyName] = pol
+	b.policyByARN[pol.Arn] = policyName
 
 	return &pol, nil
 }
@@ -528,29 +652,31 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
-	// Check for attachment conflicts before deleting — iterating the policy maps
-	// directly avoids a redundant join through b.users / b.roles.
-	for userName, attached := range b.userPolicies {
-		if slices.Contains(attached, policyArn) {
+	if refs, exists := b.policyAttachments[policyArn]; exists {
+		if userName := firstKey(refs.users); userName != "" {
 			return fmt.Errorf("%w: policy %q is attached to user %q", ErrDeleteConflict, policyArn, userName)
 		}
-	}
 
-	for roleName, attached := range b.rolePolicies {
-		if slices.Contains(attached, policyArn) {
+		if roleName := firstKey(refs.roles); roleName != "" {
 			return fmt.Errorf("%w: policy %q is attached to role %q", ErrDeleteConflict, policyArn, roleName)
 		}
-	}
 
-	for name, p := range b.policies {
-		if p.Arn == policyArn {
-			delete(b.policies, name)
-
-			return nil
+		if groupName := firstKey(refs.groups); groupName != "" {
+			return fmt.Errorf("%w: policy %q is attached to group %q", ErrDeleteConflict, policyArn, groupName)
 		}
 	}
 
-	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	policyName, exists := b.policyByARN[policyArn]
+	if !exists {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	delete(b.policies, policyName)
+	delete(b.policyByARN, policyArn)
+	delete(b.policyAttachments, policyArn)
+	delete(b.policyVersions, policyArn)
+
+	return nil
 }
 
 // ListPolicies returns a paginated list of IAM policies sorted by name.
@@ -582,6 +708,7 @@ func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
 	}
 
 	b.userPolicies[userName] = append(b.userPolicies[userName], policyArn)
+	b.addPolicyAttachmentLocked(policyArn, userName, "user")
 
 	return nil
 }
@@ -599,6 +726,7 @@ func (b *InMemoryBackend) DetachUserPolicy(userName, policyArn string) error {
 	for i, p := range policies {
 		if p == policyArn {
 			b.userPolicies[userName] = append(policies[:i], policies[i+1:]...)
+			b.removePolicyAttachmentLocked(policyArn, userName, "user")
 
 			return nil
 		}
@@ -621,6 +749,7 @@ func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 	}
 
 	b.rolePolicies[roleName] = append(b.rolePolicies[roleName], policyArn)
+	b.addPolicyAttachmentLocked(policyArn, roleName, "role")
 
 	return nil
 }
@@ -638,6 +767,7 @@ func (b *InMemoryBackend) DetachRolePolicy(roleName, policyArn string) error {
 	for i, p := range policies {
 		if p == policyArn {
 			b.rolePolicies[roleName] = append(policies[:i], policies[i+1:]...)
+			b.removePolicyAttachmentLocked(policyArn, roleName, "role")
 
 			return nil
 		}
@@ -769,6 +899,7 @@ func (b *InMemoryBackend) AttachGroupPolicy(groupName, policyArn string) error {
 	}
 
 	b.groupPolicies[groupName] = append(b.groupPolicies[groupName], policyArn)
+	b.addPolicyAttachmentLocked(policyArn, groupName, "group")
 
 	return nil
 }
@@ -786,6 +917,7 @@ func (b *InMemoryBackend) DetachGroupPolicy(groupName, policyArn string) error {
 	for i, p := range policies {
 		if p == policyArn {
 			b.groupPolicies[groupName] = append(policies[:i], policies[i+1:]...)
+			b.removePolicyAttachmentLocked(policyArn, groupName, "group")
 
 			return nil
 		}
@@ -1175,21 +1307,39 @@ func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
-	for _, p := range b.policies {
-		if p.Arn == policyArn {
-			pol := p
-
-			return &pol, nil
-		}
+	pol, exists := b.getPolicyByARNLocked(policyArn)
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	return &pol, nil
 }
 
-// GetPolicyVersion returns the default (only) version of a policy document.
-// Gopherstack stores a single version per policy; version ID "v1" is always returned.
-func (b *InMemoryBackend) GetPolicyVersion(policyArn, _ string) (*Policy, error) {
-	return b.GetPolicy(policyArn)
+// GetPolicyVersion returns a policy document for the requested version.
+func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*Policy, error) {
+	b.mu.RLock("GetPolicyVersion")
+	defer b.mu.RUnlock()
+
+	policy, exists := b.getPolicyByARNLocked(policyArn)
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	for _, version := range b.policyVersions[policyArn] {
+		if version.VersionID != versionID {
+			continue
+		}
+
+		policy.PolicyDocument = version.PolicyDocument
+
+		return &policy, nil
+	}
+
+	if versionID == "" || versionID == "v1" {
+		return &policy, nil
+	}
+
+	return nil, fmt.Errorf("%w: policy version %q not found", ErrPolicyNotFound, versionID)
 }
 
 // policyNameFromARN extracts the policy name from an ARN.
@@ -1237,13 +1387,12 @@ func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) 
 	docs := make([]string, 0, len(arns))
 
 	for _, policyArn := range arns {
-		for _, p := range b.policies {
-			if p.Arn == policyArn && p.PolicyDocument != "" {
-				docs = append(docs, p.PolicyDocument)
-
-				break
-			}
+		policy, exists := b.getPolicyByARNLocked(policyArn)
+		if !exists || policy.PolicyDocument == "" {
+			continue
 		}
+
+		docs = append(docs, policy.PolicyDocument)
 	}
 
 	return docs, nil
@@ -1899,7 +2048,10 @@ func (b *InMemoryBackend) Reset() {
 
 	b.users = make(map[string]User)
 	b.roles = make(map[string]Role)
+	b.roleByARN = make(map[string]string)
 	b.policies = make(map[string]Policy)
+	b.policyByARN = make(map[string]string)
+	b.policyAttachments = make(map[string]policyAttachmentRefs)
 	b.groups = make(map[string]Group)
 	b.accessKeys = make(map[string]AccessKey)
 	b.instanceProfiles = make(map[string]InstanceProfile)
@@ -1937,6 +2089,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.purgeInstanceProfilesLocked(cutoff)
 	b.purgeSAMLProvidersLocked(cutoff)
 	b.purgeOIDCProvidersLocked(cutoff)
+	b.rebuildIndexesLocked()
 }
 
 // purgeUsersLocked removes users created before cutoff and cleans up associated data.

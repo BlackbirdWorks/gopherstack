@@ -557,6 +557,19 @@ type GetPolicyVersionResult struct {
 	PolicyVersion PolicyVersionXML `xml:"PolicyVersion"`
 }
 
+// ListPolicyVersionsResult contains the policy version list.
+type ListPolicyVersionsResult struct {
+	Versions []PolicyVersionXML `xml:"Versions>member"`
+}
+
+// ListPolicyVersionsResponse is the XML response for ListPolicyVersions.
+type ListPolicyVersionsResponse struct {
+	XMLName                  xml.Name                 `xml:"ListPolicyVersionsResponse"`
+	Xmlns                    string                   `xml:"xmlns,attr"`
+	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
+	ListPolicyVersionsResult ListPolicyVersionsResult `xml:"ListPolicyVersionsResult"`
+}
+
 // ---- Inline Policy XML responses ----
 
 // PutUserPolicyResponse is the XML response for PutUserPolicy.

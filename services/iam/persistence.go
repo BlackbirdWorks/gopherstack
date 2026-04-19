@@ -104,6 +104,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.virtualMFADevices = snap.VirtualMFADevices
 	b.delegationRequests = snap.DelegationRequests
 	b.accountID = snap.AccountID
+	b.rebuildIndexesLocked()
 
 	return nil
 }
