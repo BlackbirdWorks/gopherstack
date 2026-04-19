@@ -32,6 +32,7 @@ type Role struct {
 	Path                     string    `json:"Path"`
 	AssumeRolePolicyDocument string    `json:"AssumeRolePolicyDocument"`
 	PermissionsBoundary      string    `json:"PermissionsBoundary,omitempty"`
+	Description              string    `json:"Description,omitempty"`
 	// MaxSessionDuration is the maximum session duration (in seconds) for role credentials.
 	// A value of 0 means the default system maximum applies (43200 seconds / 12 hours).
 	MaxSessionDuration int32 `json:"MaxSessionDuration,omitempty"`
@@ -176,6 +177,7 @@ type RoleXML struct {
 	Arn                      string                  `xml:"Arn"`
 	CreateDate               string                  `xml:"CreateDate"`
 	AssumeRolePolicyDocument string                  `xml:"AssumeRolePolicyDocument"`
+	Description              string                  `xml:"Description,omitempty"`
 	MaxSessionDuration       int32                   `xml:"MaxSessionDuration,omitempty"`
 }
 

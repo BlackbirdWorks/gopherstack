@@ -176,18 +176,27 @@ type StorageBackend interface {
 
 	// Account Aliases
 	CreateAccountAlias(alias string) error
+	ListAccountAliases() []string
+	DeleteAccountAlias(alias string) error
 
 	// Policy Versions
 	CreatePolicyVersion(policyArn, policyDocument string, setAsDefault bool) (*StoredPolicyVersion, error)
+	SetDefaultPolicyVersion(policyArn, versionID string) error
+	DeletePolicyVersion(policyArn, versionID string) error
 
 	// Service-Linked Roles
 	CreateServiceLinkedRole(awsServiceName, description, customSuffix string) (*Role, error)
+	GetServiceLinkedRoleDeletionStatus(deletionTaskID string) (string, error)
 
 	// Service-Specific Credentials
 	CreateServiceSpecificCredential(userName, serviceName string) (*ServiceSpecificCredential, error)
+	ListServiceSpecificCredentials(userName, serviceName string) ([]ServiceSpecificCredential, error)
+	DeleteServiceSpecificCredential(userName, credentialID string) error
 
 	// Virtual MFA Devices
 	CreateVirtualMFADevice(virtualMFADeviceName, path string) (*VirtualMFADevice, error)
+	ListVirtualMFADevices(marker string, maxItems int) (page.Page[VirtualMFADevice], error)
+	DeleteVirtualMFADevice(serialNumber string) error
 
 	// Delegation Requests
 	CreateDelegationRequest(targetAccountID string) (*DelegationRequest, error)
@@ -199,6 +208,34 @@ type StorageBackend interface {
 
 	// OIDC Client IDs
 	AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error
+	RemoveClientIDFromOpenIDConnectProvider(providerArn, clientID string) error
+
+	// Access Key management
+	UpdateAccessKey(userName, accessKeyID, status string) error
+	GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLastUsed, error)
+
+	// Group membership queries
+	ListGroupsForUser(userName string) ([]Group, error)
+
+	// Account Password Policy
+	GetAccountPasswordPolicy() *PasswordPolicy
+	UpdateAccountPasswordPolicy(pp PasswordPolicy) error
+	DeleteAccountPasswordPolicy() error
+
+	// Policy entity queries
+	ListEntitiesForPolicy(policyArn, entityFilter string) (*PolicyEntities, error)
+
+	// Entity mutations
+	UpdateUser(userName, newPath, newUserName string) error
+	UpdateRole(roleName, description string) error
+	UpdateGroup(groupName, newPath, newGroupName string) error
+
+	// Instance profiles extended
+	GetInstanceProfile(name string) (*InstanceProfile, error)
+	ListInstanceProfilesForRole(roleName string) ([]InstanceProfile, error)
+
+	// Simulation
+	SimulateCustomPolicy(policyInputList, actionNames, resourceArns []string) ([]SimulationResult, error)
 
 	// Dashboard helpers
 	ListAllUsers() []User
@@ -220,8 +257,8 @@ const iamDefaultMaxItems = 100
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	rolePolicies         map[string][]string
-	loginProfiles        map[string]LoginProfile
+	roleByARN            map[string]string
+	mu                   *lockmetrics.RWMutex
 	policies             map[string]Policy
 	policyByARN          map[string]string
 	groups               map[string]Group
@@ -231,19 +268,20 @@ type InMemoryBackend struct {
 	groupMembers         map[string][]string
 	groupPolicies        map[string][]string
 	userPolicies         map[string][]string
-	roles                map[string]Role
-	roleByARN            map[string]string
-	users                map[string]User
 	policyAttachments    map[string]policyAttachmentRefs
+	loginProfiles        map[string]LoginProfile
+	passwordPolicy       *PasswordPolicy
+	roles                map[string]Role
 	oidcProviders        map[string]OIDCProvider
 	userInlinePolicies   map[string]map[string]string
 	roleInlinePolicies   map[string]map[string]string
 	groupInlinePolicies  map[string]map[string]string
-	mu                   *lockmetrics.RWMutex
+	rolePolicies         map[string][]string
 	policyVersions       map[string][]StoredPolicyVersion
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
 	delegationRequests   map[string]DelegationRequest
+	users                map[string]User
 	accountID            string
 	accountAliases       []string
 }
