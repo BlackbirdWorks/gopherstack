@@ -574,6 +574,35 @@ func TestLambda_Poller_StartAndStop(t *testing.T) {
 	// No panic - goroutine should have stopped cleanly
 }
 
+// TestLambda_DeleteEventSourceMapping_RemovesPollerIterators verifies that deleting an ESM
+// eagerly removes poller shard iterator state for that mapping.
+func TestLambda_DeleteEventSourceMapping_RemovesPollerIterators(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	mapping, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+		FunctionName:   "test-function",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &pollingKinesisReader{
+		shardIDs: []string{"shardId-000000000000"},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, reader)
+	backend.SetKinesisPoller(poller)
+
+	lambda.PollOnce(t.Context(), poller)
+	require.Equal(t, 1, lambda.ShardIteratorsLen(poller))
+
+	_, err = backend.DeleteEventSourceMapping(mapping.UUID)
+	require.NoError(t, err)
+	assert.Zero(t, lambda.ShardIteratorsLen(poller))
+}
+
 // errorKinesisReader returns errors from GetShardIDs.
 type errorKinesisReader struct {
 	getShardIDsErr func() error

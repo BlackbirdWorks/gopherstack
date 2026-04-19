@@ -234,6 +234,21 @@ func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{})
 	}
 }
 
+// RemoveMapping removes any per-mapping poller state for the given ESM UUID.
+func (p *EventSourcePoller) RemoveMapping(uuid string) {
+	p.mu.Lock("RemoveMapping")
+	defer p.mu.Unlock()
+
+	for key := range p.shardIterators {
+		mappingUUID, _, ok := strings.Cut(key, ":")
+		if !ok || mappingUUID != uuid {
+			continue
+		}
+
+		delete(p.shardIterators, key)
+	}
+}
+
 // processMapping reads new records from all shards and invokes Lambda.
 func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMapping, streamName string) {
 	shardIDs, err := p.kinesisReader.GetShardIDs(streamName)

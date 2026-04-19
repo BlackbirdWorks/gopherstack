@@ -27,6 +27,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
@@ -168,6 +169,7 @@ type InMemoryBackend struct {
 	runtimeManagementConfigs map[string]*RuntimeManagementConfig
 	functionRecursionConfigs map[string]*FunctionRecursionConfig
 	functionScalingConfigs   map[string]*FunctionScalingConfig
+	asyncEnqueueWaiters      chan struct{}
 	mu                       *lockmetrics.RWMutex
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
@@ -208,6 +210,7 @@ func NewInMemoryBackend(
 		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),
 		functionRecursionConfigs: make(map[string]*FunctionRecursionConfig),
 		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
+		asyncEnqueueWaiters:      make(chan struct{}, maxAsyncEnqueueWaiters),
 		docker:                   dockerClient,
 		portAlloc:                portAlloc,
 		settings:                 settings,
@@ -404,6 +407,9 @@ func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMappi
 	}
 
 	delete(b.eventSourceMappings, id)
+	if b.kinesisPoller != nil {
+		b.kinesisPoller.RemoveMapping(id)
+	}
 
 	return m, nil
 }
@@ -1144,6 +1150,10 @@ func (b *InMemoryBackend) InvokeFunction(
 // full after this duration the invocation is dropped with a warning log.
 const asyncInvocationEnqueueTimeout = 5 * time.Minute
 
+// maxAsyncEnqueueWaiters bounds the number of goroutines allowed to block while
+// waiting for space in a runtime async invocation queue.
+const maxAsyncEnqueueWaiters = 128
+
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
 func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	ctx context.Context,
@@ -1265,7 +1275,24 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	}
 
 	// Slow path: queue was full (or a slot is held); block until space is available.
+	select {
+	case b.asyncEnqueueWaiters <- struct{}{}:
+	default:
+		logger.Load(ctx).WarnContext(ctx, "lambda: async invocation dropped: enqueue waiters saturated",
+			"function", functionName, "requestID", inv.requestID)
+
+		if trackConcurrency {
+			b.releaseConcurrencySlot(functionName)
+		}
+
+		return
+	}
+
 	go func() {
+		defer func() {
+			<-b.asyncEnqueueWaiters
+		}()
+
 		enqueueCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncInvocationEnqueueTimeout)
 		defer cancel()
 
@@ -1274,10 +1301,8 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 			b.waitAndCleanPending(srv, inv, timeout, trackConcurrency, functionName)
 
 		case <-enqueueCtx.Done():
-			slog.Default().Warn(
-				"lambda: async invocation dropped: queue full",
-				"function", functionName, "requestID", inv.requestID,
-			)
+			logger.Load(ctx).WarnContext(ctx, "lambda: async invocation dropped: queue full",
+				"function", functionName, "requestID", inv.requestID)
 
 			if trackConcurrency {
 				b.releaseConcurrencySlot(functionName)

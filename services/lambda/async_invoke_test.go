@@ -107,6 +107,51 @@ func TestEnqueueAsync_QueueBehavior(t *testing.T) {
 	}
 }
 
+// TestEnqueueAsync_BoundsSlowPathWaiters verifies that when runtime queues are full,
+// slow-path enqueue goroutines are capped to avoid unbounded goroutine growth.
+func TestEnqueueAsync_BoundsSlowPathWaiters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		timeout       time.Duration
+		totalEnqueues int
+	}{
+		{
+			name:          "waiters_are_capped_when_queue_is_full",
+			timeout:       20 * time.Millisecond,
+			totalEnqueues: lambda.MaxAsyncEnqueueWaiters + 32,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := lambda.NewExportedRuntimeServer(asyncInvokeQueueBehaviorBase + 100 + i)
+			bk := newAsyncTestBackend()
+
+			filled := lambda.FillQueue(srv, lambda.RuntimeQueueSize)
+			require.Equal(t, lambda.RuntimeQueueSize, filled, "queue should be full for slow-path enqueue")
+
+			for range tt.totalEnqueues {
+				lambda.EnqueueAsync(t.Context(), bk, srv, "fn-capped", []byte(`{}`), tt.timeout, false)
+			}
+
+			require.Eventually(t, func() bool {
+				return lambda.AsyncEnqueueWaitersLen(bk) == lambda.MaxAsyncEnqueueWaiters
+			}, time.Second, 10*time.Millisecond, "slow-path waiter count should saturate at configured cap")
+
+			// Continuously draining allows blocked waiters to enqueue and exit.
+			require.Eventually(t, func() bool {
+				lambda.DrainQueue(srv)
+
+				return lambda.AsyncEnqueueWaitersLen(bk) == 0
+			}, 3*time.Second, 10*time.Millisecond, "all slow-path waiters should eventually drain")
+		})
+	}
+}
+
 // TestEnqueueAsync_PendingCleanup verifies that when a container picks up an async
 // invocation via /next (storing it in srv.pending) but never calls /response or /error,
 // the entry is removed from srv.pending once the function timeout elapses, preventing
