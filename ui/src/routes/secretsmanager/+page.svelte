@@ -12,14 +12,23 @@ import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, Eye
 
 const sm = getSecretsManagerClient();
 
-let secrets = $state<any[]>([]);
+type SecretItem = {
+	ARN?: string;
+	Description?: string;
+	LastAccessedDate?: Date | string;
+	LastChangedDate?: Date | string;
+	Name?: string;
+	RotationEnabled?: boolean;
+};
+
+let secrets = $state<SecretItem[]>([]);
 let loading = $state(true);
 let search = $state('');
 let showCreateModal = $state(false);
 let newSecretName = $state('');
 let newSecretValue = $state('');
 let activeTab = $state<'secrets' | 'detail'>('secrets');
-let selectedSecret = $state<any | null>(null);
+let selectedSecret = $state<SecretItem | null>(null);
 let secretValue = $state<string | null>(null);
 let showValue = $state(false);
 let loadingValue = $state(false);
@@ -38,7 +47,7 @@ async function loadSecrets() {
 	}
 }
 
-async function viewSecret(secret: any) {
+function viewSecret(secret: SecretItem) {
 	selectedSecret = secret;
 	secretValue = null;
 	showValue = false;
@@ -188,10 +197,10 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 							<button onclick={() => viewSecret(secret)} class="px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center gap-1">
 								View <ChevronRight class="w-3 h-3" />
 							</button>
-							<button onclick={() => copyToClipboard(secret.ARN)} class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1">
+							<button onclick={() => copyToClipboard(secret.ARN ?? '')} class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1">
 								<Copy class="w-3 h-3" /> ARN
 							</button>
-							<button onclick={() => deleteSecret(secret.Name)} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+							<button onclick={() => deleteSecret(secret.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
 								<Trash2 class="w-3 h-3" /> Delete
 							</button>
 						</div>
@@ -227,7 +236,7 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 						<p class="text-xs text-slate-500 uppercase mb-1">ARN</p>
 						<div class="flex items-center gap-2">
 							<p class="text-slate-700 dark:text-slate-300 font-mono text-xs truncate">{selectedSecret.ARN}</p>
-							<button onclick={() => copyToClipboard(selectedSecret.ARN)} class="shrink-0 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
+							<button onclick={() => copyToClipboard(selectedSecret?.ARN ?? '')} class="shrink-0 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
 								<Copy class="w-3.5 h-3.5 text-slate-400" />
 							</button>
 						</div>
@@ -251,7 +260,7 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 					<div class="flex items-center justify-between mb-2">
 						<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Secret Value</p>
 						{#if !secretValue}
-							<button onclick={() => loadSecretValue(selectedSecret.Name)} disabled={loadingValue} class="px-3 py-1.5 text-sm bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 flex items-center gap-1 disabled:opacity-50">
+							<button onclick={() => loadSecretValue(selectedSecret?.Name ?? '')} disabled={loadingValue} class="px-3 py-1.5 text-sm bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 flex items-center gap-1 disabled:opacity-50">
 								{#if loadingValue}
 									<div class="w-3 h-3 border border-amber-600 border-t-transparent rounded-full animate-spin"></div>
 								{:else}
@@ -284,7 +293,7 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 				</div>
 
 				<div class="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-					<button onclick={() => deleteSecret(selectedSecret.Name)} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+					<button onclick={() => deleteSecret(selectedSecret?.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
 						<Trash2 class="w-3 h-3" /> Delete Secret
 					</button>
 				</div>

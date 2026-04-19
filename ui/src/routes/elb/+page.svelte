@@ -16,7 +16,11 @@
 
 	async function createLoadBalancer() {
 		try {
-			await elb.send(new CreateLoadBalancerCommand({ LoadBalancerName: name, AvailabilityZones: ['us-east-1a'] }));
+			await elb.send(new CreateLoadBalancerCommand({ 
+				LoadBalancerName: name, 
+				AvailabilityZones: ['us-east-1a'],
+				Listeners: [{ Protocol: 'HTTP', LoadBalancerPort: 80, InstanceProtocol: 'HTTP', InstancePort: 80 }]
+			}));
 			showCreateModal = false;
 			name = '';
 			await loadBalancersList();

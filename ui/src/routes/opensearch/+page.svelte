@@ -62,7 +62,7 @@
 		loading = true;
 		try {
 			const resp = await opensearch.send(new ListDomainNamesCommand({}));
-			domainNames = resp.DomainNames ?? [];
+			domainNames = (resp.DomainNames ?? []).map(d => ({ DomainName: d.DomainName ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load domains: ' + String(e));
 		} finally {

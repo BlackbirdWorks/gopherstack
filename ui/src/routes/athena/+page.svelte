@@ -36,7 +36,7 @@
 	// Work Groups
 	let workgroups = $state<WorkGroupSummary[]>([]);
 	let loadingWorkgroups = $state(false);
-	let selectedWorkgroup = $state<Parameters<typeof GetWorkGroupCommand>[0] extends { WorkGroup: string } ? string : string | null>(null);
+	let selectedWorkgroup = $state<string | null>(null);
 
 	// Data Catalogs
 	let catalogs = $state<DataCatalogSummary[]>([]);
@@ -373,7 +373,7 @@
 							<tr>
 								<td class="px-4 py-3 font-medium">{cat.CatalogName}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{cat.Type}</td>
-								<td class="px-4 py-3 text-xs text-gray-500">{cat.Description ?? '-'}</td>
+								<td class="px-4 py-3 text-xs text-gray-500">-</td>
 							</tr>
 						{/each}
 					</tbody>

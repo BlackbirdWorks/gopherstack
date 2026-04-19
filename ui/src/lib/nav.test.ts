@@ -38,7 +38,9 @@ describe("sidebarCategories", () => {
   });
 
   it("settings-resilience includes FIS route", () => {
-    const settings = sidebarCategories.find((c: DashboardCategory) => c.id === "settings-resilience");
+    const settings = sidebarCategories.find(
+      (c: DashboardCategory) => c.id === "settings-resilience",
+    );
     expect(settings).toBeDefined();
     const routeIds = settings!.routes.map((r) => r.id);
     expect(routeIds).toContain("fis");
@@ -86,7 +88,9 @@ describe("sidebarCategories", () => {
 
     expect(commonCategories.length).toBeGreaterThan(0);
     expect(commonCategories.every((category) => category.routes.length > 0)).toBe(true);
-    expect(commonCategories.every((category) => category.routes.every((route) => route.common === true))).toBe(true);
+    expect(
+      commonCategories.every((category) => category.routes.every((route) => route.common === true)),
+    ).toBe(true);
   });
 
   it("getUncommonCategories returns only categories with non-common routes", () => {
@@ -94,6 +98,8 @@ describe("sidebarCategories", () => {
 
     expect(uncommonCategories.length).toBeGreaterThan(0);
     expect(uncommonCategories.every((category) => category.routes.length > 0)).toBe(true);
-    expect(uncommonCategories.every((category) => category.routes.every((route) => !route.common))).toBe(true);
+    expect(
+      uncommonCategories.every((category) => category.routes.every((route) => !route.common)),
+    ).toBe(true);
   });
 });

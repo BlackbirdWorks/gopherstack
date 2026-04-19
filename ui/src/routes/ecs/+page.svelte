@@ -123,7 +123,7 @@ function serviceName(arn: string) {
 }
 
 function taskId(arn: string) {
-	return arn.split('/').pop()?.substring(0, 12) || arn;
+	return arn.split('/').pop()?.slice(0, 12) || arn;
 }
 
 function taskDefFamily(arn: string) {

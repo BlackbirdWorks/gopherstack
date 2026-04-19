@@ -6,7 +6,8 @@
 		DescribeFleetsCommand,
 		DescribeImagesCommand,
 		type Stack,
-		type Fleet
+		type Fleet,
+		type Image as AppStreamImage
 	} from '@aws-sdk/client-appstream';
 	import { toast } from 'svelte-sonner';
 	import { Monitor, RefreshCw, Search, Server, Image, CheckCircle } from 'lucide-svelte';
@@ -18,7 +19,7 @@
 	let searchQuery = $state('');
 	let stacks = $state<Stack[]>([]);
 	let fleets = $state<Fleet[]>([]);
-	let images = $state<any[]>([]);
+	let images = $state<AppStreamImage[]>([]);
 
 	const filteredStacks = $derived(stacks.filter((s) => (s.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredFleets = $derived(fleets.filter((f) => (f.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));

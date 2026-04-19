@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getCommonCategories } from '$lib/nav';
 	import { goto } from '$app/navigation';
-	import { initializeTheme, setTheme, themes, type ThemeName } from '$lib/theme';
+	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
 	import { getStoredRegion, setStoredRegion } from '$lib/aws/client';
 
@@ -85,7 +85,7 @@
 			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
 				e.preventDefault();
 				searchOpen = true;
-				document.getElementById('global-search')?.focus();
+				document.querySelector<HTMLInputElement>('#global-search')?.focus();
 			}
 		};
 		document.addEventListener('keydown', handleKeydown);
@@ -99,19 +99,16 @@
 
 	const themeLabels: Record<ThemeName, string> = {
 		light: 'Light',
-		dark: 'Dark',
+		dark: 'Dark (Black)',
 		github: 'GitHub Dark',
 		'github-light': 'GitHub Light',
-		ocean: 'Ocean'
+		ocean: 'Ocean',
+		'cyberpunk-2077': 'Cyberpunk 2077',
+		aurora: 'Aurora',
+		solstice: 'Solstice',
+		arasaka: 'Arasaka'
 	};
 
-	const themeIcons: Record<ThemeName, string> = {
-		light: 'sun',
-		dark: 'moon',
-		github: 'github',
-		'github-light': 'github',
-		ocean: 'waves'
-	};
 
 	function toggleMiniMode(): void {
 		sidebarMini = !sidebarMini;
@@ -148,8 +145,8 @@
 <div class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 antialiased font-sans min-h-screen">
 	<!-- Top Navbar -->
 	<nav id="topbar" class="fixed top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 dark:bg-slate-900/80 dark:border-white/5 shadow-sm">
-		<div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-between">
-			<div class="flex items-center">
+		<div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-start">
+			<div class="flex items-center lg:w-[15.25rem] shrink-0">
 				<button onclick={() => sidebarOpen = !sidebarOpen} type="button" class="inline-flex items-center p-2 text-sm text-gray-500 rounded-lg lg:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600">
 					<span class="sr-only">Open sidebar</span>
 					<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path clip-rule="evenodd" fill-rule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" /></svg>
@@ -160,7 +157,7 @@
 				</a>
 			</div>
 			
-			<div class="hidden md:flex flex-grow justify-start max-w-3xl lg:ml-32 relative group">
+			<div class="hidden md:flex justify-start max-w-2xl lg:ml-4 relative group">
                 <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                     <svg class="w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
@@ -170,7 +167,7 @@
                 	bind:value={searchQuery}
                 	onfocus={() => searchOpen = true}
                 	onblur={() => setTimeout(() => searchOpen = false, 150)}
-                	class="w-full pl-10 pr-12 py-2 bg-slate-100/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 shadow-inner group-focus-within:bg-white dark:group-focus-within:bg-slate-800" 
+                	class="w-full pl-10 pr-12 py-1.5 bg-slate-100/40 dark:bg-white/5 border border-transparent hover:border-slate-200/60 dark:hover:border-white/10 rounded-xl text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 group-focus-within:bg-white dark:group-focus-within:bg-slate-900" 
                 	placeholder="Search services..." 
                 	autocomplete="off">
                 <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
@@ -195,7 +192,7 @@
                 {/if}
             </div>
 
-			<div class="flex items-center gap-1">
+			<div class="flex items-center gap-1 ml-auto">
 				<!-- Region Selector -->
 				<div class="relative">
 					<button onclick={() => regionDropdownOpen = !regionDropdownOpen} type="button" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Switch region" aria-haspopup="listbox" aria-expanded={regionDropdownOpen}>
@@ -232,7 +229,7 @@
 				</a>
 				<div class="relative">
 					<button id="theme-selector" onclick={() => themeDropdownOpen = !themeDropdownOpen} type="button" class="inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors" title="Theme: {themeLabels[theme]}">
-						{#if theme === 'dark' || theme === 'ocean'}
+						{#if isDarkTheme(theme)}
 							<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>
 						{:else}
 							<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" /></svg>
@@ -242,8 +239,8 @@
 						<div class="absolute right-0 mt-1 w-40 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50">
 							<div class="py-1 text-sm">
 								{#each themes as t}
-									<button onclick={() => selectTheme(t)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-2 {theme === t ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}">
-										<span class="w-3 h-3 rounded-full {t === 'light' ? 'bg-amber-400' : t === 'dark' ? 'bg-slate-600' : t === 'github' ? 'bg-gray-800' : t === 'github-light' ? 'bg-blue-400 border border-gray-300' : 'bg-cyan-500'}"></span>
+									<button data-theme={t} onclick={() => selectTheme(t)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-2 {theme === t ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}">
+										<span class="w-3 h-3 rounded-full {t === 'light' ? 'bg-amber-400' : t === 'dark' ? 'bg-black border border-white/20' : t === 'github' ? 'bg-gray-800' : t === 'github-light' ? 'bg-blue-400 border border-gray-300' : t === 'ocean' ? 'bg-cyan-500' : t === 'cyberpunk-2077' ? 'bg-fuchsia-500' : t === 'aurora' ? 'bg-emerald-400' : 'bg-orange-300 border border-orange-400/60'}"></span>
 										{themeLabels[t]}
 									</button>
 								{/each}

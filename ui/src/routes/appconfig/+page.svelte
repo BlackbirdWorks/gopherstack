@@ -22,7 +22,7 @@
 		FileCode, Sliders, Play, CheckCircle2, Code2,
 		XCircle, AlertCircle, Timer, Server,
 		Database, Share2, ArrowRight, Gauge,
-		Settings2, Layout, Boxes, Shield
+		Settings2, Layout, Boxes, Shield, ExternalLink
 	} from 'lucide-svelte';
 	const appconfig = getAppConfigClient();
 
@@ -383,7 +383,7 @@
 <!-- Create Modal -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false}></div>
+		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false} onkeydown={(e) => { if (e.key === 'Escape') showCreateModal = false; }} role="presentation"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-blue-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
 				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Assemble Application</h3>

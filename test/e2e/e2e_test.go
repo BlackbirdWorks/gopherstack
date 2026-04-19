@@ -993,7 +993,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	require.NoError(t, err)
 
 	// Select Dark theme
-	err = page.Click("button:has-text('Dark')")
+	err = page.Click("button[data-theme='dark']")
 	require.NoError(t, err)
 
 	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
@@ -1007,7 +1007,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select Ocean theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button:has-text('Ocean')")
+	err = page.Click("button[data-theme='ocean']")
 	require.NoError(t, err)
 
 	hasThemeOcean, err := page.Evaluate("() => document.documentElement.classList.contains('theme-ocean')")
@@ -1017,7 +1017,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select GitHub theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button:has-text('GitHub Dark')")
+	err = page.Click("button[data-theme='github']")
 	require.NoError(t, err)
 
 	hasThemeGithub, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github')")
@@ -1031,7 +1031,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select GitHub Light theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button:has-text('GitHub Light')")
+	err = page.Click("button[data-theme='github-light']")
 	require.NoError(t, err)
 
 	hasThemeGithubLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github-light')")
@@ -1045,7 +1045,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select Light theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button:has-text('Light')")
+	err = page.Click("button[data-theme='light']")
 	require.NoError(t, err)
 
 	hasThemeLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-light')")

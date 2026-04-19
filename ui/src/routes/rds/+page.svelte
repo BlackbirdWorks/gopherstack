@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { getRDSClient } from '$lib/aws-client';
-import { DescribeDBInstancesCommand, DeleteDBInstanceCommand, DescribeDBSnapshotsCommand, DescribeDBClustersCommand } from '@aws-sdk/client-rds';
+import { DescribeDBInstancesCommand, DeleteDBInstanceCommand, DescribeDBSnapshotsCommand, DescribeDBClustersCommand, type DBInstance, type DBSnapshot, type DBCluster } from '@aws-sdk/client-rds';
 import { toast } from 'svelte-sonner';
 import {
 	Database,
@@ -23,9 +23,9 @@ import {
 
 const rds = getRDSClient();
 
-let instances = $state<any[]>([]);
-let snapshots = $state<any[]>([]);
-let clusters = $state<any[]>([]);
+let instances = $state<DBInstance[]>([]);
+let snapshots = $state<DBSnapshot[]>([]);
+let clusters = $state<DBCluster[]>([]);
 let loading = $state(true);
 let search = $state('');
 let snapshotSearch = $state('');
@@ -114,18 +114,18 @@ function toggleExpand(id: string) {
 	expandedInstance = expandedInstance === id ? null : id;
 }
 
-let engines = $derived([...new Set(instances.map((i: any) => i.Engine).filter(Boolean))]);
+let engines = $derived([...new Set(instances.map(i => i.Engine).filter((e): e is string => e !== null))]);
 
-let filtered = $derived(instances.filter((i: any) => {
+let filtered = $derived(instances.filter(i => {
 	const matchSearch = !search || i.DBInstanceIdentifier?.toLowerCase().includes(search.toLowerCase())
 		|| i.Engine?.toLowerCase().includes(search.toLowerCase());
 	const matchEngine = engineFilter === 'all' || i.Engine === engineFilter;
 	return matchSearch && matchEngine;
 }));
 
-let availableCount = $derived(instances.filter((i: any) => i.DBInstanceStatus === 'available').length);
-let stoppedCount = $derived(instances.filter((i: any) => i.DBInstanceStatus === 'stopped').length);
-let multiAZCount = $derived(instances.filter((i: any) => i.MultiAZ).length);
+let availableCount = $derived(instances.filter(i => i.DBInstanceStatus === 'available').length);
+let stoppedCount = $derived(instances.filter(i => i.DBInstanceStatus === 'stopped').length);
+let multiAZCount = $derived(instances.filter(i => i.MultiAZ).length);
 let filteredSnapshots = $derived(snapshots.filter(s =>
 	!snapshotSearch || s.DBSnapshotIdentifier?.toLowerCase().includes(snapshotSearch.toLowerCase())
 		|| s.DBInstanceIdentifier?.toLowerCase().includes(snapshotSearch.toLowerCase())
@@ -284,7 +284,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 								<h3 class="font-semibold text-slate-900 dark:text-white text-lg">{instance.DBInstanceIdentifier}</h3>
 								<p class="text-sm text-slate-500 dark:text-slate-400">{instance.Engine}{instance.EngineVersion ? ` ${instance.EngineVersion}` : ''}</p>
 							</div>
-							<span class={`ml-3 shrink-0 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(instance.DBInstanceStatus)}`}>
+							<span class={`ml-3 shrink-0 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(instance.DBInstanceStatus ?? '')}`}>
 								{instance.DBInstanceStatus}
 							</span>
 						</div>
@@ -339,14 +339,14 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						<div class="flex items-center justify-between">
 							<div class="flex gap-2">
 								<button
-									onclick={() => deleteInstance(instance.DBInstanceIdentifier)}
+									onclick={() => deleteInstance(instance.DBInstanceIdentifier ?? '')}
 									class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1"
 								>
 									<Trash2 class="w-3 h-3" /> Delete
 								</button>
 							</div>
 							<button
-								onclick={() => toggleExpand(instance.DBInstanceIdentifier)}
+							onclick={() => toggleExpand(instance.DBInstanceIdentifier ?? '')}
 								class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
 							>
 								{expanded ? 'Hide details' : 'Show details'}

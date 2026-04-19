@@ -9,6 +9,7 @@
 		PutRecordCommand,
 		GetShardIteratorCommand,
 		GetRecordsCommand,
+		ListShardsCommand,
 		type StreamDescriptionSummary
 	} from '@aws-sdk/client-kinesis';
 	import { toast } from 'svelte-sonner';
@@ -116,11 +117,11 @@
 		if (!selectedStream || !putPartitionKey.trim() || !putData.trim()) return;
 		putting = true;
 		try {
-			const encoded = btoa(putData);
+			const encoded = new TextEncoder().encode(putData);
 			await kinesis.send(new PutRecordCommand({
 				StreamName: selectedStream,
 				PartitionKey: putPartitionKey.trim(),
-				Data: new TextEncoder().encode(encoded)
+				Data: encoded
 			}));
 			toast.success('Record put successfully');
 			showPutModal = false;
@@ -134,10 +135,10 @@
 	}
 
 	async function getRecords() {
-		if (!selectedStream || !streamDetail?.Shards?.length) return;
+		if (!selectedStream) return;
 		gettingRecords = true;
 		try {
-			const shardId = streamDetail.Shards[0].ShardId ?? '';
+			const shardId = (await kinesis.send(new ListShardsCommand({ StreamName: selectedStream }))).Shards?.[0]?.ShardId ?? '';
 			const iterRes = await kinesis.send(new GetShardIteratorCommand({
 				StreamName: selectedStream,
 				ShardId: shardId,
@@ -343,8 +344,8 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Data Stream</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createStream(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stream Name</label>
-					<input type="text" bind:value={newStreamName} placeholder="e.g. user-events" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="kinesis-stream-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stream Name</label>
+					<input id="kinesis-stream-name" type="text" bind:value={newStreamName} placeholder="e.g. user-events" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<label class="flex items-center gap-2 cursor-pointer">
 					<input type="checkbox" bind:checked={newOnDemand} class="rounded" />
@@ -352,8 +353,8 @@
 				</label>
 				{#if !newOnDemand}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Shard Count (1–500)</label>
-						<input type="number" bind:value={newShardCount} min="1" max="500" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="kinesis-shard-count" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Shard Count (1–500)</label>
+						<input id="kinesis-shard-count" type="number" bind:value={newShardCount} min="1" max="500" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 				{/if}
 				<div class="flex justify-end gap-3 pt-2">
@@ -374,12 +375,12 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Put Record</h2>
 			<form onsubmit={(e) => { e.preventDefault(); putRecord(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key</label>
-					<input type="text" bind:value={putPartitionKey} placeholder="e.g. user-123" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="kinesis-partition-key" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Partition Key</label>
+					<input id="kinesis-partition-key" type="text" bind:value={putPartitionKey} placeholder="e.g. user-123" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Data (text, will be base64 encoded)</label>
-					<textarea bind:value={putData} rows={4} placeholder="Enter JSON or text data to stream..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" required></textarea>
+					<label for="kinesis-data" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Data (text, will be base64 encoded)</label>
+					<textarea id="kinesis-data" bind:value={putData} rows={4} placeholder="Enter JSON or text data to stream..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" required></textarea>
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => { showPutModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>

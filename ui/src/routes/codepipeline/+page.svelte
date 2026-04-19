@@ -8,7 +8,7 @@
 		DeletePipelineCommand,
 		CreatePipelineCommand,
 		type PipelineDeclaration,
-		type PipelineState,
+		type GetPipelineStateCommandOutput,
 		type StageState
 	} from '@aws-sdk/client-codepipeline';
 	import { toast } from 'svelte-sonner';
@@ -31,7 +31,7 @@
 	let searchQuery = $state('');
 	let pipelines = $state<PipelineDeclaration[]>([]);
 	let selectedPipeline = $state<PipelineDeclaration | null>(null);
-	let pipelineState = $state<PipelineState | null>(null);
+	let pipelineState = $state<GetPipelineStateCommandOutput | null>(null);
 	let loadingDetails = $state(false);
 
 	// Modal State
@@ -251,7 +251,7 @@
 							
 							<div class="space-y-12 relative z-10">
 								{#each selectedPipeline.stages || [] as stage, i}
-									{@const stageState = pipelineState?.stageStates?.find(s => s.stageName === stage.name)}
+									{@const stageState = pipelineState?.stageStates?.find((s) => s.stageName === stage.name)}
 									<div class="space-y-4">
 										<!-- Stage Header -->
 										<div class="flex items-center gap-4">
@@ -271,7 +271,7 @@
 										<!-- Actions Grid -->
 										<div class="ml-10 grid grid-cols-1 md:grid-cols-2 gap-4">
 											{#each stage.actions || [] as action}
-												{@const actionState = stageState?.actionStates?.find(as => as.actionName === action.name)}
+												{@const actionState = stageState?.actionStates?.find((as) => as.actionName === action.name)}
 												{@const StatusIcon = getStatusIcon(actionState?.latestExecution?.status)}
 												<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/action hover:border-violet-500/30 transition-all">
 													<div class="flex justify-between items-start mb-4">
@@ -360,7 +360,7 @@
 <!-- Create Modal -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false}></div>
+		<div role="none" onclick={() => showCreateModal = false} onkeydown={(e) => e.key === 'Escape' && (showCreateModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-violet-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
 				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Assemble Pipeline</h3>

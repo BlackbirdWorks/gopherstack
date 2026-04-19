@@ -116,7 +116,7 @@
 			const prod = f.ProductName ?? 'Unknown';
 			groups[prod] = (groups[prod] ?? 0) + 1;
 		}
-		return Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 5);
+		return Object.entries(groups).toSorted((a, b) => b[1] - a[1]).slice(0, 5);
 	});
 
 	async function onTabChange(tab: typeof activeTab) {

@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-fmt ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -16,8 +16,17 @@ ui-install:
 ui-lint: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint
 
+ui-check: ui-install
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run check
+
+ui-lint-fix: ui-install
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint:fix
+
 ui-fmt: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt:check
+
+ui-fmt-fix: ui-install
+	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt
 
 ui-test: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run test:coverage
@@ -94,11 +103,11 @@ install-tofu:
 		echo "OpenTofu $$TOFU_VER installed to bin/tofu"; \
 	fi
 
-lint: install-deps
+lint: install-deps ui-lint ui-fmt ui-check
 	golangci-lint run --timeout 10m ./...
 	go tool govulncheck ./...
 
-lint-fix: install-deps
+lint-fix: install-deps ui-lint-fix ui-fmt-fix
 	@echo "Running fieldalignment..."
 	fieldalignment -fix ./...
 	@echo "Running golangci-lint with --fix..."
@@ -152,7 +161,7 @@ upgrade: upgrade-static install-tofu
 bench:
 	go test -bench=. -benchmem ./...
 
-demo: 
+demo: ui-build
 	docker compose down
 	docker compose build
 	docker compose up -d

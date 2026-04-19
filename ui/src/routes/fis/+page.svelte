@@ -373,7 +373,7 @@
 											</div>
 											<div>
 												<div class="text-[10px] font-black text-white uppercase italic tracking-tighter leading-none mb-1 font-mono">{name}</div>
-												<div class="text-[8px] text-slate-500 uppercase font-bold tracking-widest italic">{action.actionId} | TARGETS: {action.targetId}</div>
+												<div class="text-[8px] text-slate-500 uppercase font-bold tracking-widest italic">{action.actionId} | TARGETS: {Object.keys(action.targets || {}).join(', ')}</div>
 											</div>
 										</div>
 										<div class="text-right">

@@ -42,6 +42,8 @@ type LifecycleRule
 } from '@aws-sdk/client-s3';
 import { toast } from 'svelte-sonner';
 
+const enableDemoActions = ((import.meta as ImportMeta).env.PUBLIC_ENABLE_DEMO_ACTIONS ?? '').toLowerCase() === 'true';
+
 let s3 = newS3Client();
 
 let buckets = $state<Bucket[]>([]);
@@ -132,6 +134,14 @@ buckets.filter((b) => !searchQuery || (b.Name?.toLowerCase().includes(searchQuer
 
 const totalBucketPages = $derived(Math.max(1, Math.ceil(filteredBuckets.length / bucketPageSize)));
 
+const sortedBuckets = $derived(
+  [...filteredBuckets].toSorted((a, b) => {
+    if (bucketSortOrder === 'newest') return (b.CreationDate?.getTime() ?? 0) - (a.CreationDate?.getTime() ?? 0);
+    if (bucketSortOrder === 'largest') return (bucketSizes.get(b.Name ?? '') ?? 0) - (bucketSizes.get(a.Name ?? '') ?? 0);
+    return (a.Name ?? '').localeCompare(b.Name ?? '');
+  })
+);
+
 const pagedBuckets = $derived(
   sortedBuckets.slice((bucketPage - 1) * bucketPageSize, bucketPage * bucketPageSize)
 );
@@ -156,14 +166,6 @@ const sortedObjects = $derived(
     }
     const diff = (a.Key ?? '').localeCompare(b.Key ?? '');
     return sortOrder === 'asc' ? diff : -diff;
-  })
-);
-
-const sortedBuckets = $derived(
-  [...filteredBuckets].toSorted((a, b) => {
-    if (bucketSortOrder === 'newest') return (b.CreationDate?.getTime() ?? 0) - (a.CreationDate?.getTime() ?? 0);
-    if (bucketSortOrder === 'largest') return (bucketSizes.get(b.Name ?? '') ?? 0) - (bucketSizes.get(a.Name ?? '') ?? 0);
-    return (a.Name ?? '').localeCompare(b.Name ?? '');
   })
 );
 
@@ -259,6 +261,11 @@ toast.error(`Failed to delete bucket: ${(err as Error).message}`);
 }
 
 async function createDemoData() {
+if (!enableDemoActions) {
+toast.error('Demo data actions are disabled. Set PUBLIC_ENABLE_DEMO_ACTIONS=true to enable.');
+return;
+}
+
 try {
 // Minimal JPEG magic bytes header for demo purposes (not a valid full image).
 		const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]);
@@ -1264,13 +1271,13 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
     <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-green-600 dark:text-green-400">Enabled</span></p>
     <div class="space-y-2 mb-4">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Index Document</label>
-        <input type="text" bind:value={websiteConfig.IndexDocument} placeholder="index.html"
+        <label for="website-index-doc" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Index Document</label>
+        <input type="text" id="website-index-doc" bind:value={websiteConfig.IndexDocument} placeholder="index.html"
           class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Error Document</label>
-        <input type="text" bind:value={websiteConfig.ErrorDocument} placeholder="error.html"
+        <label for="website-error-doc" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Error Document</label>
+        <input type="text" id="website-error-doc" bind:value={websiteConfig.ErrorDocument} placeholder="error.html"
           class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
       </div>
     </div>
@@ -1325,12 +1332,12 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
 {/if}
 <div class="flex gap-2 items-end flex-wrap">
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Key</label>
-<input type="text" bind:value={newTagKey} placeholder="key" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-32" />
+<label for="tag-key" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Key</label>
+<input type="text" id="tag-key" bind:value={newTagKey} placeholder="key" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-32" />
 </div>
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Value</label>
-<input type="text" bind:value={newTagValue} placeholder="value" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-32" />
+<label for="tag-value" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Value</label>
+<input type="text" id="tag-value" bind:value={newTagValue} placeholder="value" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-32" />
 </div>
 <button onclick={addTag} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Add</button>
 </div>
@@ -1410,16 +1417,16 @@ class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-60
 <h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Add Rule</h4>
 <div class="flex gap-2 flex-wrap items-end">
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Rule ID</label>
-<input type="text" bind:value={newLifecycleId} placeholder="delete-old-logs" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-36" />
+<label for="lifecycle-rule-id" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Rule ID</label>
+<input type="text" id="lifecycle-rule-id" bind:value={newLifecycleId} placeholder="delete-old-logs" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-36" />
 </div>
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Prefix</label>
-<input type="text" bind:value={newLifecyclePrefix} placeholder="logs/" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-28" />
+<label for="lifecycle-prefix" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Prefix</label>
+<input type="text" id="lifecycle-prefix" bind:value={newLifecyclePrefix} placeholder="logs/" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-28" />
 </div>
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Expiry (days)</label>
-<input type="number" bind:value={newLifecycleDays} min="1" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-24" />
+<label for="lifecycle-days" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Expiry (days)</label>
+<input type="number" id="lifecycle-days" bind:value={newLifecycleDays} min="1" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-24" />
 </div>
 <button onclick={addLifecycleRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Add Rule</button>
 </div>
@@ -1476,11 +1483,11 @@ class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-60
 <h4 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Add CORS Rule</h4>
 <div class="space-y-3">
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Allowed Origins (comma separated)</label>
-<input type="text" bind:value={newCorsOrigins} placeholder="https://example.com, *" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-full" />
+<label for="cors-origins" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Allowed Origins (comma separated)</label>
+<input type="text" id="cors-origins" bind:value={newCorsOrigins} placeholder="https://example.com, *" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-full" />
 </div>
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Allowed Methods</label>
+<p class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Allowed Methods</p>
 <div class="flex gap-3 flex-wrap">
 {#each ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'] as method}
 <label class="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300">
@@ -1497,12 +1504,12 @@ class="w-4 h-4 text-blue-600"
 </div>
 <div class="flex gap-2 flex-wrap items-end">
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Allowed Headers</label>
-<input type="text" bind:value={newCorsHeaders} placeholder="Content-Type, Authorization" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
+<label for="cors-headers" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Allowed Headers</label>
+<input type="text" id="cors-headers" bind:value={newCorsHeaders} placeholder="Content-Type, Authorization" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
 </div>
 <div>
-<label class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Max Age (s)</label>
-<input type="number" bind:value={newCorsMaxAge} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-24" />
+<label for="cors-max-age" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Max Age (s)</label>
+<input type="number" id="cors-max-age" bind:value={newCorsMaxAge} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-24" />
 </div>
 <button onclick={addCorsRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Add Rule</button>
 </div>
@@ -1530,12 +1537,14 @@ class="text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 font-m
 >
 Refresh
 </button>
+{#if enableDemoActions}
 <button
 onclick={createDemoData}
 class="text-white bg-purple-600 hover:bg-purple-700 font-medium rounded-lg text-sm px-5 py-2.5"
 >
 Demo Data
 </button>
+{/if}
 <button
 id="purge-all-btn"
 onclick={purgeAll}
@@ -1570,8 +1579,8 @@ class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rou
 </div>
 </div>
 <div>
-  <label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort by</label>
-  <select bind:value={bucketSortOrder}
+  <label for="bucket-sort-order" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort by</label>
+  <select id="bucket-sort-order" bind:value={bucketSortOrder}
     class="p-2 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
     <option value="alpha">Alphabetical</option>
     <option value="newest">Newest First</option>
@@ -1646,12 +1655,12 @@ Next
 
 <!-- Create Bucket Modal -->
 {#if showCreateModal}
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showCreateModal = false; }} role="dialog" aria-modal="true">
-<div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showCreateModal = false; }}></button>
+<div class="relative p-4 w-full max-w-md z-10" role="dialog" aria-modal="true" tabindex="-1">
 <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create Bucket</h3>
-<button onclick={() => { showCreateModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+<button onclick={() => { showCreateModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
 <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
 </button>
 </div>
@@ -1687,12 +1696,12 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 
 <!-- Create Folder Modal -->
 {#if showCreateFolderModal}
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showCreateFolderModal = false; }} role="dialog" aria-modal="true">
-  <div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showCreateFolderModal = false; }}></button>
+  <div class="relative p-4 w-full max-w-md z-10" role="dialog" aria-modal="true" tabindex="-1">
     <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
       <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
         <h3 class="text-xl font-semibold text-slate-900 dark:text-white">New Folder</h3>
-        <button onclick={() => { showCreateFolderModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+        <button onclick={() => { showCreateFolderModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
           <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
         </button>
       </div>
@@ -1725,19 +1734,19 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 
 <!-- Rename Object Modal -->
 {#if showRenameModal}
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showRenameModal = false; }} role="dialog" aria-modal="true">
-  <div class="relative p-4 w-full max-w-md" onclick={(e) => e.stopPropagation()} role="document">
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showRenameModal = false; }}></button>
+  <div class="relative p-4 w-full max-w-md z-10" role="dialog" aria-modal="true" tabindex="-1">
     <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
       <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
         <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Rename Object</h3>
-        <button onclick={() => { showRenameModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+        <button onclick={() => { showRenameModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
           <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
         </button>
       </div>
       <div class="p-4 md:p-5">
         <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); renameObject(); }}>
           <div>
-            <label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Current Key</label>
+            <p class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Current Key</p>
             <p class="text-sm font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded p-2">{renameOldKey}</p>
           </div>
           <div>
@@ -1764,12 +1773,12 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 
 <!-- Upload File Modal -->
 {#if showUploadModal}
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) showUploadModal = false; }} role="dialog" aria-modal="true">
-<div class="relative p-4 w-full max-w-2xl" onclick={(e) => e.stopPropagation()} role="document">
+<div class="fixed inset-0 z-50 flex items-center justify-center" role="presentation"><button type="button" class="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-label="Close" onclick={() => { showUploadModal = false; }}></button>
+<div class="relative p-4 w-full max-w-2xl z-10" role="dialog" aria-modal="true" tabindex="-1">
 <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 <div class="flex items-center justify-between p-4 md:p-5 border-b dark:border-slate-600">
 <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Upload File</h3>
-<button onclick={() => { showUploadModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
+<button onclick={() => { showUploadModal = false; }} aria-label="Close" class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white">
 <svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg>
 </button>
 </div>

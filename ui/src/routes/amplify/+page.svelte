@@ -342,7 +342,7 @@
 												</div>
 												<div class="text-right">
 													<div class="text-[8px] font-black text-slate-600 uppercase">Commit</div>
-													<span class="text-[10px] font-black text-slate-400 font-mono tracking-tighter">{job.commitId?.substring(0, 7) || 'HEAD'}</span>
+													<span class="text-[10px] font-black text-slate-400 font-mono tracking-tighter">{job.commitId?.slice(0, 7) || 'HEAD'}</span>
 												</div>
 											</div>
 											<div class="flex items-center justify-between pt-4 border-t border-white/5">
@@ -402,7 +402,7 @@
 <!-- Create Modal -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false}></div>
+		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false} onkeydown={(e) => { if (e.key === 'Escape') showCreateModal = false; }} role="presentation"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-amber-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
 				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Assemble Full-Stack App</h3>

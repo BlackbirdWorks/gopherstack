@@ -165,7 +165,9 @@
 			try {
 				const parsed = JSON.parse(submitJobContainerOverrides);
 				if (Object.keys(parsed).length > 0) containerOverrides = parsed;
-			} catch { /* ignore */ }
+			} catch {
+				// Ignore invalid overrides and submit without them.
+			}
 			const resp = await batch.send(new SubmitJobCommand({
 				jobName: submitJobName.trim(),
 				jobQueue: submitJobQueue.trim(),

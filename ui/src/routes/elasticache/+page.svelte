@@ -344,7 +344,7 @@
 <!-- Create Modal -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm shadow-inner" onclick={() => showCreateModal = false}></div>
+		<div role="none" onclick={() => showCreateModal = false} onkeydown={(e) => e.key === 'Escape' && (showCreateModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm shadow-inner"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden">
 			<div class="p-6">
 				<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-6">Create Cache Cluster</h3>
@@ -359,27 +359,26 @@
 							placeholder="e.g. session-cache"
 							class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all font-mono"
 							required
-							autofocus
 						/>
 					</div>
 
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1">Engine</label>
-							<select bind:value={engine} class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all">
+							<label for="ec-engine" class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1">Engine</label>
+							<select id="ec-engine" bind:value={engine} class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all">
 								<option value="redis">Redis</option>
 								<option value="memcached">Memcached</option>
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1">Nodes</label>
-							<input type="number" bind:value={numNodes} min="1" max="10" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all" />
+							<label for="ec-nodes" class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1">Nodes</label>
+							<input id="ec-nodes" type="number" bind:value={numNodes} min="1" max="10" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all" />
 						</div>
 					</div>
 
 					<div>
-						<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1">Node Type</label>
-						<select bind:value={nodeType} class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all font-mono text-xs">
+						<label for="ec-node-type" class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1">Node Type</label>
+						<select id="ec-node-type" bind:value={nodeType} class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 transition-all font-mono text-xs">
 							<option value="cache.t3.micro">cache.t3.micro (0.5 GiB)</option>
 							<option value="cache.t3.small">cache.t3.small (1.37 GiB)</option>
 							<option value="cache.m5.large">cache.m5.large (6.38 GiB)</option>

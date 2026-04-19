@@ -5,7 +5,7 @@
 	import { toast } from 'svelte-sonner';
 
 	const resourceGroups = getResourceGroupsClient();
-	let groups = $state<Array<{ Name?: string; Description?: string }>>([]);
+	let groups = $state<Array<{ GroupName?: string; Description?: string }>>([]);
 
 	async function loadGroups() {
 		try {
@@ -29,7 +29,7 @@
 		{#if groups.length === 0}
 			<p class="text-sm text-slate-500 dark:text-slate-400">No groups found</p>
 		{:else}
-			<div class="space-y-2">{#each groups as group}<div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700"><div class="font-medium text-slate-900 dark:text-white">{group.Name}</div><div class="text-xs text-slate-500 dark:text-slate-400">{group.Description}</div></div>{/each}</div>
+				<div class="space-y-2">{#each groups as group}<div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700"><div class="font-medium text-slate-900 dark:text-white">{group.GroupName}</div><div class="text-xs text-slate-500 dark:text-slate-400">{group.Description}</div></div>{/each}</div>
 		{/if}
 	</div>
 </div>

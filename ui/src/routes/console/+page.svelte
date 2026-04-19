@@ -234,7 +234,7 @@
 				<svg class="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
 				Request Details
 			</h3>
-			<button type="button" onclick={closeDrawer} class="text-slate-400 hover:bg-slate-200 hover:text-slate-900 rounded-lg p-1.5 dark:hover:bg-slate-700 dark:hover:text-white">
+			<button type="button" onclick={closeDrawer} aria-label="Close" class="text-slate-400 hover:bg-slate-200 hover:text-slate-900 rounded-lg p-1.5 dark:hover:bg-slate-700 dark:hover:text-white">
 				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 			</button>
 		</div>

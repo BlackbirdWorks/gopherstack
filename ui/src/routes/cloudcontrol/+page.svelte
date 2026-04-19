@@ -113,7 +113,7 @@
 								<Box class="w-5 h-5 text-gray-500" />
 								<div>
 									<p class="font-medium text-gray-900 dark:text-white">{resource.Identifier}</p>
-									<p class="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-sm">{resource.Properties?.substring(0, 100)}</p>
+									<p class="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-sm">{resource.Properties?.slice(0, 100)}</p>
 								</div>
 							</div>
 						{/each}

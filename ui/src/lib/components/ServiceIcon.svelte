@@ -19,7 +19,7 @@ const COLORS = [
 ];
 
 function colorFor(s: string): string {
-	const idx = s.toUpperCase().charCodeAt(0) - 65;
+	const idx = (s.toUpperCase().codePointAt(0) ?? 0) - 65;
 	return COLORS[Math.max(0, Math.min(idx, COLORS.length - 1))];
 }
 

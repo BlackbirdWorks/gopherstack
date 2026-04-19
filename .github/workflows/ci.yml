@@ -17,12 +17,43 @@ permissions:
   pull-requests: write
   security-events: write
 
+env:
+  GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
+
 jobs:
+  ui-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Run UI lint
+        run: npm --prefix ui run lint
+
+      - name: Run UI format check
+        run: npm --prefix ui run fmt:check
+
+      - name: Run UI type check
+        run: npm --prefix ui run check
+
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -40,6 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -73,6 +105,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Initialize CodeQL
@@ -91,6 +124,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -120,6 +154,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -131,6 +166,8 @@ jobs:
 
       - name: Build static binary
         run: |
+          mkdir -p dashboard/static/spa
+          touch dashboard/static/spa/.keep
           CGO_ENABLED=0 GOOS=linux go build -tags 'netgo osusergo static_build' -trimpath \
             -ldflags="-w -s" -o bin/gopherstack .
 
@@ -151,6 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -205,10 +243,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        chunk: [0, 1, 2]
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -241,7 +280,7 @@ jobs:
       - name: Compute test pattern for chunk
         id: tests
         run: |
-          TOTAL_CHUNKS=3
+          TOTAL_CHUNKS=8
           CHUNK=${{ matrix.chunk }}
           # Discover all test functions from source (no Docker needed)
           TESTS=$(grep -rh '^func Test' test/terraform/terraform_test.go | sed 's/func \(Test[^ (]*\).*/\1/' | sort)
@@ -266,6 +305,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
@@ -312,6 +352,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
@@ -339,6 +380,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -378,7 +420,7 @@ jobs:
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_run')
         uses: actions/github-script@v9
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.GH_CI_TOKEN }}
           script: |
             const fs = require('fs');
             const { execSync } = require('child_process');

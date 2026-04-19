@@ -6,6 +6,7 @@
 		ListLexiconsCommand,
 		ListSpeechSynthesisTasksCommand,
 		SynthesizeSpeechCommand,
+			type VoiceId,
 		type Voice,
 		type LexiconDescription,
 		type SynthesisTask
@@ -24,13 +25,13 @@
 	let tasks = $state<SynthesisTask[]>([]);
 
 	let textToSynthesize = $state('Hello from Amazon Polly! This is a text-to-speech demonstration.');
-	let selectedVoiceId = $state('Joanna');
+	let selectedVoiceId = $state<VoiceId>('Joanna');
 	let synthesizing = $state(false);
 
 	const filteredVoices = $derived(voices.filter((v) => (v.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredLexicons = $derived(lexicons.filter((l) => (l.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 
-	const voiceLanguages = $derived([...new Set(voices.map((v) => v.LanguageCode ?? '').filter(Boolean))].sort());
+	const voiceLanguages = $derived([...new Set(voices.map((v) => v.LanguageCode ?? '').filter(Boolean))].toSorted());
 	const filteredByLanguage = $derived(languageFilter ? filteredVoices.filter((v) => v.LanguageCode === languageFilter) : filteredVoices);
 
 	async function loadData() {
@@ -60,19 +61,19 @@
 		try {
 			const resp = await polly.send(new SynthesizeSpeechCommand({
 				Text: textToSynthesize,
-				VoiceId: selectedVoiceId as any,
+				VoiceId: selectedVoiceId,
 				OutputFormat: 'mp3'
 			}));
 			if (resp.AudioStream) {
 				const chunks: Uint8Array[] = [];
-				const reader = (resp.AudioStream as any).getReader?.();
+				const reader = (resp.AudioStream as ReadableStream<Uint8Array>).getReader?.();
 				if (reader) {
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
-						chunks.push(value);
+						if (value) chunks.push(value);
 					}
-					const blob = new Blob(chunks, { type: 'audio/mpeg' });
+					const blob = new Blob(chunks as unknown as BlobPart[], { type: 'audio/mpeg' });
 					const url = URL.createObjectURL(blob);
 					const audio = new Audio(url);
 					audio.play();
@@ -124,16 +125,16 @@
 		</h2>
 		<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Voice</label>
-				<select bind:value={selectedVoiceId} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm">
+				<label for="polly-voice" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Voice</label>
+				<select id="polly-voice" bind:value={selectedVoiceId} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm">
 					{#each ['Joanna', 'Matthew', 'Ivy', 'Kendra', 'Kevin', 'Kimberly', 'Salli', 'Joey', 'Justin', 'Nicole', 'Russell', 'Amy', 'Brian', 'Emma'] as voice}
 						<option value={voice}>{voice}</option>
 					{/each}
 				</select>
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Text</label>
-				<textarea bind:value={textToSynthesize} rows={2} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm resize-none"></textarea>
+				<label for="polly-text" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Text</label>
+				<textarea id="polly-text" bind:value={textToSynthesize} rows={2} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm resize-none"></textarea>
 			</div>
 		</div>
 		<button onclick={synthesizeSpeech} disabled={synthesizing} class="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium">

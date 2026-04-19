@@ -3,7 +3,14 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
+import type {
+  BinaryReadOptions,
+  FieldList,
+  JsonReadOptions,
+  JsonValue,
+  PartialMessage,
+  PlainMessage,
+} from "@bufbuild/protobuf";
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 
 /**
@@ -17,8 +24,7 @@ export class StreamConsoleRequest extends Message<StreamConsoleRequest> {
 
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "gopherstack.dashboard.v1.StreamConsoleRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-  ]);
+  static readonly fields: FieldList = proto3.util.newFieldList(() => []);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamConsoleRequest {
     return new StreamConsoleRequest().fromBinary(bytes, options);
@@ -28,11 +34,17 @@ export class StreamConsoleRequest extends Message<StreamConsoleRequest> {
     return new StreamConsoleRequest().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StreamConsoleRequest {
+  static fromJsonString(
+    jsonString: string,
+    options?: Partial<JsonReadOptions>,
+  ): StreamConsoleRequest {
     return new StreamConsoleRequest().fromJsonString(jsonString, options);
   }
 
-  static equals(a: StreamConsoleRequest | PlainMessage<StreamConsoleRequest> | undefined, b: StreamConsoleRequest | PlainMessage<StreamConsoleRequest> | undefined): boolean {
+  static equals(
+    a: StreamConsoleRequest | PlainMessage<StreamConsoleRequest> | undefined,
+    b: StreamConsoleRequest | PlainMessage<StreamConsoleRequest> | undefined,
+  ): boolean {
     return proto3.util.equals(StreamConsoleRequest, a, b);
   }
 }
@@ -57,7 +69,10 @@ export class StreamConsoleResponse extends Message<StreamConsoleResponse> {
     { no: 1, name: "request", kind: "message", T: CapturedRequest },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamConsoleResponse {
+  static fromBinary(
+    bytes: Uint8Array,
+    options?: Partial<BinaryReadOptions>,
+  ): StreamConsoleResponse {
     return new StreamConsoleResponse().fromBinary(bytes, options);
   }
 
@@ -65,11 +80,17 @@ export class StreamConsoleResponse extends Message<StreamConsoleResponse> {
     return new StreamConsoleResponse().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StreamConsoleResponse {
+  static fromJsonString(
+    jsonString: string,
+    options?: Partial<JsonReadOptions>,
+  ): StreamConsoleResponse {
     return new StreamConsoleResponse().fromJsonString(jsonString, options);
   }
 
-  static equals(a: StreamConsoleResponse | PlainMessage<StreamConsoleResponse> | undefined, b: StreamConsoleResponse | PlainMessage<StreamConsoleResponse> | undefined): boolean {
+  static equals(
+    a: StreamConsoleResponse | PlainMessage<StreamConsoleResponse> | undefined,
+    b: StreamConsoleResponse | PlainMessage<StreamConsoleResponse> | undefined,
+  ): boolean {
     return proto3.util.equals(StreamConsoleResponse, a, b);
   }
 }
@@ -129,7 +150,13 @@ export class CapturedRequest extends Message<CapturedRequest> {
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "method", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "headers", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
+    {
+      no: 4,
+      name: "headers",
+      kind: "map",
+      K: 9 /* ScalarType.STRING */,
+      V: { kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    },
     { no: 5, name: "body", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "status", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 7, name: "duration_ms", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
@@ -148,7 +175,10 @@ export class CapturedRequest extends Message<CapturedRequest> {
     return new CapturedRequest().fromJsonString(jsonString, options);
   }
 
-  static equals(a: CapturedRequest | PlainMessage<CapturedRequest> | undefined, b: CapturedRequest | PlainMessage<CapturedRequest> | undefined): boolean {
+  static equals(
+    a: CapturedRequest | PlainMessage<CapturedRequest> | undefined,
+    b: CapturedRequest | PlainMessage<CapturedRequest> | undefined,
+  ): boolean {
     return proto3.util.equals(CapturedRequest, a, b);
   }
 }
@@ -164,8 +194,7 @@ export class StreamMetricsRequest extends Message<StreamMetricsRequest> {
 
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "gopherstack.dashboard.v1.StreamMetricsRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-  ]);
+  static readonly fields: FieldList = proto3.util.newFieldList(() => []);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamMetricsRequest {
     return new StreamMetricsRequest().fromBinary(bytes, options);
@@ -175,11 +204,17 @@ export class StreamMetricsRequest extends Message<StreamMetricsRequest> {
     return new StreamMetricsRequest().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StreamMetricsRequest {
+  static fromJsonString(
+    jsonString: string,
+    options?: Partial<JsonReadOptions>,
+  ): StreamMetricsRequest {
     return new StreamMetricsRequest().fromJsonString(jsonString, options);
   }
 
-  static equals(a: StreamMetricsRequest | PlainMessage<StreamMetricsRequest> | undefined, b: StreamMetricsRequest | PlainMessage<StreamMetricsRequest> | undefined): boolean {
+  static equals(
+    a: StreamMetricsRequest | PlainMessage<StreamMetricsRequest> | undefined,
+    b: StreamMetricsRequest | PlainMessage<StreamMetricsRequest> | undefined,
+  ): boolean {
     return proto3.util.equals(StreamMetricsRequest, a, b);
   }
 }
@@ -204,7 +239,10 @@ export class StreamMetricsResponse extends Message<StreamMetricsResponse> {
     { no: 1, name: "dashboard", kind: "message", T: DashboardMetrics },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamMetricsResponse {
+  static fromBinary(
+    bytes: Uint8Array,
+    options?: Partial<BinaryReadOptions>,
+  ): StreamMetricsResponse {
     return new StreamMetricsResponse().fromBinary(bytes, options);
   }
 
@@ -212,11 +250,17 @@ export class StreamMetricsResponse extends Message<StreamMetricsResponse> {
     return new StreamMetricsResponse().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StreamMetricsResponse {
+  static fromJsonString(
+    jsonString: string,
+    options?: Partial<JsonReadOptions>,
+  ): StreamMetricsResponse {
     return new StreamMetricsResponse().fromJsonString(jsonString, options);
   }
 
-  static equals(a: StreamMetricsResponse | PlainMessage<StreamMetricsResponse> | undefined, b: StreamMetricsResponse | PlainMessage<StreamMetricsResponse> | undefined): boolean {
+  static equals(
+    a: StreamMetricsResponse | PlainMessage<StreamMetricsResponse> | undefined,
+    b: StreamMetricsResponse | PlainMessage<StreamMetricsResponse> | undefined,
+  ): boolean {
     return proto3.util.equals(StreamMetricsResponse, a, b);
   }
 }
@@ -271,7 +315,10 @@ export class DashboardMetrics extends Message<DashboardMetrics> {
     return new DashboardMetrics().fromJsonString(jsonString, options);
   }
 
-  static equals(a: DashboardMetrics | PlainMessage<DashboardMetrics> | undefined, b: DashboardMetrics | PlainMessage<DashboardMetrics> | undefined): boolean {
+  static equals(
+    a: DashboardMetrics | PlainMessage<DashboardMetrics> | undefined,
+    b: DashboardMetrics | PlainMessage<DashboardMetrics> | undefined,
+  ): boolean {
     return proto3.util.equals(DashboardMetrics, a, b);
   }
 }
@@ -350,7 +397,10 @@ export class RuntimeMetrics extends Message<RuntimeMetrics> {
     return new RuntimeMetrics().fromJsonString(jsonString, options);
   }
 
-  static equals(a: RuntimeMetrics | PlainMessage<RuntimeMetrics> | undefined, b: RuntimeMetrics | PlainMessage<RuntimeMetrics> | undefined): boolean {
+  static equals(
+    a: RuntimeMetrics | PlainMessage<RuntimeMetrics> | undefined,
+    b: RuntimeMetrics | PlainMessage<RuntimeMetrics> | undefined,
+  ): boolean {
     return proto3.util.equals(RuntimeMetrics, a, b);
   }
 }
@@ -429,7 +479,10 @@ export class OperationSummary extends Message<OperationSummary> {
     return new OperationSummary().fromJsonString(jsonString, options);
   }
 
-  static equals(a: OperationSummary | PlainMessage<OperationSummary> | undefined, b: OperationSummary | PlainMessage<OperationSummary> | undefined): boolean {
+  static equals(
+    a: OperationSummary | PlainMessage<OperationSummary> | undefined,
+    b: OperationSummary | PlainMessage<OperationSummary> | undefined,
+  ): boolean {
     return proto3.util.equals(OperationSummary, a, b);
   }
 }
@@ -484,7 +537,10 @@ export class DeadlockInfo extends Message<DeadlockInfo> {
     return new DeadlockInfo().fromJsonString(jsonString, options);
   }
 
-  static equals(a: DeadlockInfo | PlainMessage<DeadlockInfo> | undefined, b: DeadlockInfo | PlainMessage<DeadlockInfo> | undefined): boolean {
+  static equals(
+    a: DeadlockInfo | PlainMessage<DeadlockInfo> | undefined,
+    b: DeadlockInfo | PlainMessage<DeadlockInfo> | undefined,
+  ): boolean {
     return proto3.util.equals(DeadlockInfo, a, b);
   }
 }
@@ -551,8 +607,10 @@ export class WorkerStats extends Message<WorkerStats> {
     return new WorkerStats().fromJsonString(jsonString, options);
   }
 
-  static equals(a: WorkerStats | PlainMessage<WorkerStats> | undefined, b: WorkerStats | PlainMessage<WorkerStats> | undefined): boolean {
+  static equals(
+    a: WorkerStats | PlainMessage<WorkerStats> | undefined,
+    b: WorkerStats | PlainMessage<WorkerStats> | undefined,
+  ): boolean {
     return proto3.util.equals(WorkerStats, a, b);
   }
 }
-

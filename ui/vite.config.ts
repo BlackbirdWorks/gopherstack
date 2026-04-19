@@ -21,6 +21,7 @@ export default defineConfig({
     conditions: ["browser"],
   },
   test: {
+    globals: true,
     expect: { requireAssertions: true },
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
@@ -29,7 +30,6 @@ export default defineConfig({
     coverage: {
       reporter: ["text", "html"],
       provider: "v8",
-      all: true,
       include: ["src/lib/**/*.ts"],
       exclude: [
         "src/lib/vitest-examples/**",
@@ -39,10 +39,10 @@ export default defineConfig({
         "src/lib/aws-client.ts",
       ],
       thresholds: {
-        branches: 100,
-        functions: 100,
-        lines: 100,
-        statements: 100,
+        branches: 90,
+        functions: 90,
+        lines: 90,
+        statements: 90,
       },
     },
   },

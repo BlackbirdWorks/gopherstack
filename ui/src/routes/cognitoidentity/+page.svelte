@@ -170,7 +170,7 @@
 				<CheckCircle class="w-5 h-5 text-green-600 dark:text-green-400" />
 			</div>
 			<div>
-				<p class="text-2xl font-bold text-slate-900 dark:text-white">{identityPools.filter(p => selectedPool?.IdentityPoolId === p.IdentityPoolId ? selectedPool.AllowUnauthenticatedIdentities : false).length}</p>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{identityPools.filter(p => selectedPool?.IdentityPoolId === p.IdentityPoolId ? (selectedPool?.AllowUnauthenticatedIdentities ?? false) : false).length}</p>
 				<p class="text-sm text-slate-500 dark:text-slate-400">Unauth Enabled</p>
 			</div>
 		</div>

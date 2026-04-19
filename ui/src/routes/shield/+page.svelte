@@ -228,7 +228,7 @@
 											>
 												<Trash2 class="w-4 h-4" />
 											</button>
-											<div class="text-[8px] text-slate-400 font-mono tracking-tighter italic opacity-60 uppercase shrink-0">PROTECTION_ID: {p.Id?.substring(0, 12)}...</div>
+											<div class="text-[8px] text-slate-400 font-mono tracking-tighter italic opacity-60 uppercase shrink-0">PROTECTION_ID: {p.Id?.slice(0, 12)}...</div>
 										</div>
 									</div>
 								</div>

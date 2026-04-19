@@ -8,25 +8,39 @@ import {
 	TerminateInstancesCommand,
 	RebootInstancesCommand,
 	DescribeSecurityGroupsCommand,
-	DescribeKeyPairsCommand
+	DescribeKeyPairsCommand,
+	type SecurityGroup,
+	type KeyPairInfo
 } from '@aws-sdk/client-ec2';
 import { toast } from 'svelte-sonner';
 import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key } from 'lucide-svelte';
 
 const ec2 = getEC2Client();
 
-let instances = $state<any[]>([]);
+type EC2Instance = {
+	ImageId?: string;
+	InstanceId?: string;
+	InstanceType?: string;
+	PrivateIpAddress?: string;
+	PublicIpAddress?: string;
+	State?: { Name?: string };
+	SubnetId?: string;
+	Tags?: Array<{ Key?: string; Value?: string }>;
+	VpcId?: string;
+};
+
+let instances = $state<EC2Instance[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
 let showLaunchModal = $state(false);
-let selectedInstance = $state<any | null>(null);
+let selectedInstance = $state<EC2Instance | null>(null);
 let newInstanceType = $state('t3.micro');
 let newInstanceAmi = $state('ami-0c55b159cbfafe1f0');
 let newInstanceName = $state('');
 let activeTab = $state<'instances' | 'secgroups' | 'keypairs'>('instances');
-let securityGroups = $state<any[]>([]);
-let keyPairs = $state<any[]>([]);
+let securityGroups = $state<SecurityGroup[]>([]);
+let keyPairs = $state<KeyPairInfo[]>([]);
 let sgSearch = $state('');
 let kpSearch = $state('');
 
@@ -40,7 +54,7 @@ async function loadInstances() {
 	try {
 		loading = true;
 		const data = await ec2.send(new DescribeInstancesCommand({}));
-		instances = data.Reservations?.flatMap((r: any) => r.Instances || []) || [];
+		instances = data.Reservations?.flatMap((r) => (r.Instances ?? []) as EC2Instance[]) ?? [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load instances');
 	} finally {
@@ -85,8 +99,8 @@ async function refresh() {
 	else { keyPairs = []; await loadKeyPairs(); }
 }
 
-function getName(instance: any): string {
-return instance.Tags?.find((t: any) => t.Key === 'Name')?.Value || instance.InstanceId;
+function getName(instance: EC2Instance): string {
+	return instance.Tags?.find((t) => t.Key === 'Name')?.Value || instance.InstanceId || '';
 }
 
 function getStatusColor(state: string) {
@@ -258,7 +272,7 @@ let filteredKPs = $derived(keyPairs.filter(kp =>
 <h3 class="font-semibold text-slate-900 dark:text-white text-lg">{getName(instance)}</h3>
 <p class="text-sm text-slate-500 dark:text-slate-400 font-mono">{instance.InstanceId}</p>
 </div>
-<span class={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(instance.State?.Name)}`}>
+<span class={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(instance.State?.Name ?? '')}`}>
 {instance.State?.Name || 'unknown'}
 </span>
 </div>
@@ -282,14 +296,14 @@ let filteredKPs = $derived(keyPairs.filter(kp =>
 </div>
 <div class="flex gap-2 flex-wrap">
 {#if instance.State?.Name === 'stopped'}
-<button onclick={() => startInstance(instance.InstanceId)} class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
+<button onclick={() => startInstance(instance.InstanceId ?? '')} class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
 <Play class="w-3 h-3" /> Start
 </button>
 {:else if instance.State?.Name === 'running'}
-<button onclick={() => stopInstance(instance.InstanceId)} class="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1">
+<button onclick={() => stopInstance(instance.InstanceId ?? '')} class="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1">
 <Square class="w-3 h-3" /> Stop
 </button>
-<button onclick={() => rebootInstance(instance.InstanceId)} class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1">
+<button onclick={() => rebootInstance(instance.InstanceId ?? '')} class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1">
 <RotateCcw class="w-3 h-3" /> Reboot
 </button>
 {/if}
@@ -297,7 +311,7 @@ let filteredKPs = $derived(keyPairs.filter(kp =>
 Details
 </button>
 {#if instance.State?.Name !== 'terminated'}
-<button onclick={() => terminateInstance(instance.InstanceId)} class="ml-auto px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+<button onclick={() => terminateInstance(instance.InstanceId ?? '')} class="ml-auto px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
 <Trash2 class="w-3 h-3" /> Terminate
 </button>
 {/if}

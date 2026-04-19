@@ -139,7 +139,9 @@
 			if (newParameters.trim()) {
 				try {
 					params.Parameters = JSON.parse(newParameters);
-				} catch { /* ignore */ }
+				} catch {
+					// Ignore invalid JSON and submit without parameters.
+				}
 			}
 			await cfn.send(new CreateStackCommand(params));
 			toast.success(`Stack "${newStackName}" creation initiated`);

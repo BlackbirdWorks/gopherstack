@@ -17,6 +17,7 @@
 	import { Activity, Search, RefreshCw, Plus, Trash2, Bell, BarChart2, Layout } from 'lucide-svelte';
 
 	const cw = getCloudWatchClient();
+	type PutMetricAlarmInput = ConstructorParameters<typeof PutMetricAlarmCommand>[0];
 
 	let loading = $state(false);
 	let activeTab = $state<'alarms' | 'metrics' | 'dashboards'>('alarms');
@@ -30,10 +31,10 @@
 	let newMetricName = $state('');
 	let newNamespace = $state('AWS/EC2');
 	let newThreshold = $state(80);
-	let newComparisonOperator = $state('GreaterThanThreshold');
+	let newComparisonOperator = $state<NonNullable<PutMetricAlarmInput['ComparisonOperator']>>('GreaterThanThreshold');
 	let newEvaluationPeriods = $state(1);
 	let newPeriod = $state(300);
-	let newStatistic = $state('Average');
+	let newStatistic = $state<NonNullable<PutMetricAlarmInput['Statistic']>>('Average');
 
 	// Metrics
 	let metrics = $state<Metric[]>([]);
@@ -75,13 +76,13 @@
 		return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
 	}
 
-	async function loadData() {
+	async function loadData(tab: 'alarms' | 'metrics' | 'dashboards' = activeTab) {
 		loading = true;
 		try {
-			if (activeTab === 'alarms') {
+			if (tab === 'alarms') {
 				const res = await cw.send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
 				alarms = res.MetricAlarms ?? [];
-			} else if (activeTab === 'metrics') {
+			} else if (tab === 'metrics') {
 				const res = await cw.send(new ListMetricsCommand({}));
 				metrics = res.Metrics ?? [];
 			} else {
@@ -89,7 +90,7 @@
 				dashboards = res.DashboardEntries ?? [];
 			}
 		} catch (err: unknown) {
-			toast.error(`Failed to load ${activeTab}: ${(err as Error).message}`);
+			toast.error(`Failed to load ${tab}: ${(err as Error).message}`);
 		} finally {
 			loading = false;
 		}
@@ -117,10 +118,10 @@
 					MetricName: newMetricName.trim(),
 					Namespace: newNamespace.trim(),
 					Threshold: newThreshold,
-					ComparisonOperator: newComparisonOperator as Parameters<typeof PutMetricAlarmCommand.prototype>[0]['ComparisonOperator'],
+					ComparisonOperator: newComparisonOperator,
 					EvaluationPeriods: newEvaluationPeriods,
 					Period: newPeriod,
-					Statistic: newStatistic as Parameters<typeof PutMetricAlarmCommand.prototype>[0]['Statistic']
+					Statistic: newStatistic
 				})
 			);
 			toast.success(`Alarm "${newAlarmName}" created`);
@@ -217,7 +218,11 @@
 	<div class="flex border-b border-slate-200 dark:border-slate-700">
 		{#each [{ id: 'alarms', label: 'Alarms', icon: Bell }, { id: 'metrics', label: 'Metrics', icon: BarChart2 }, { id: 'dashboards', label: 'Dashboards', icon: Layout }] as tab}
 			<button
-				onclick={() => { activeTab = tab.id as 'alarms' | 'metrics' | 'dashboards'; }}
+				onclick={() => {
+					const nextTab = tab.id as 'alarms' | 'metrics' | 'dashboards';
+					activeTab = nextTab;
+					void loadData(nextTab);
+				}}
 				class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors {activeTab === tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}"
 			>
 				<tab.icon class="w-4 h-4" />
@@ -328,27 +333,27 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Metric Alarm</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createAlarm(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Alarm Name</label>
-					<input type="text" bind:value={newAlarmName} placeholder="e.g. high-cpu-alarm" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="cw-alarm-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Alarm Name</label>
+					<input id="cw-alarm-name" type="text" bind:value={newAlarmName} placeholder="e.g. high-cpu-alarm" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Metric Name</label>
-						<input type="text" bind:value={newMetricName} placeholder="e.g. CPUUtilization" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+						<label for="cw-metric-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Metric Name</label>
+						<input id="cw-metric-name" type="text" bind:value={newMetricName} placeholder="e.g. CPUUtilization" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Namespace</label>
-						<input type="text" bind:value={newNamespace} placeholder="e.g. AWS/EC2" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="cw-namespace" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Namespace</label>
+						<input id="cw-namespace" type="text" bind:value={newNamespace} placeholder="e.g. AWS/EC2" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Threshold</label>
-						<input type="number" bind:value={newThreshold} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="cw-threshold" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Threshold</label>
+						<input id="cw-threshold" type="number" bind:value={newThreshold} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Statistic</label>
-						<select bind:value={newStatistic} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+						<label for="cw-statistic" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Statistic</label>
+						<select id="cw-statistic" bind:value={newStatistic} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 							{#each ['Average', 'Sum', 'Maximum', 'Minimum', 'SampleCount'] as s}
 								<option value={s}>{s}</option>
 							{/each}
@@ -356,8 +361,8 @@
 					</div>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Comparison Operator</label>
-					<select bind:value={newComparisonOperator} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+					<label for="cw-comparison-op" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Comparison Operator</label>
+					<select id="cw-comparison-op" bind:value={newComparisonOperator} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 						{#each ['GreaterThanThreshold', 'GreaterThanOrEqualToThreshold', 'LessThanThreshold', 'LessThanOrEqualToThreshold'] as op}
 							<option value={op}>{op.replace(/([A-Z])/g, ' $1').trim()}</option>
 						{/each}
@@ -365,12 +370,12 @@
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Evaluation Periods</label>
-						<input type="number" bind:value={newEvaluationPeriods} min="1" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="cw-eval-periods" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Evaluation Periods</label>
+						<input id="cw-eval-periods" type="number" bind:value={newEvaluationPeriods} min="1" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Period (seconds)</label>
-						<input type="number" bind:value={newPeriod} min="60" step="60" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+						<label for="cw-period" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Period (seconds)</label>
+						<input id="cw-period" type="number" bind:value={newPeriod} min="60" step="60" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 					</div>
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
@@ -391,8 +396,8 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Dashboard</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createDashboard(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Dashboard Name</label>
-					<input type="text" bind:value={newDashboardName} placeholder="e.g. production-overview" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					<label for="cw-dashboard-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Dashboard Name</label>
+					<input id="cw-dashboard-name" type="text" bind:value={newDashboardName} placeholder="e.g. production-overview" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div class="flex justify-end gap-3">
 					<button type="button" onclick={() => { showCreateDashboard = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>

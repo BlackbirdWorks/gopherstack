@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getGlacierClient } from '$lib/aws-client';
-	import { ListVaultsCommand, type VaultListMember } from '@aws-sdk/client-glacier';
+	import { ListVaultsCommand, type DescribeVaultOutput } from '@aws-sdk/client-glacier';
 	import { toast } from 'svelte-sonner';
 	import { Archive, Info, CheckCircle, Database, Search, RefreshCw, Box } from 'lucide-svelte';
 	
 	const glacier = getGlacierClient();
 
 	let loading = $state(false);
-	let vaults = $state<VaultListMember[]>([]);
+	let vaults = $state<DescribeVaultOutput[]>([]);
 	let searchQuery = $state('');
 
 	const filteredVaults = $derived(
@@ -29,8 +29,8 @@
 			// Note: SDK uses "-" for accountId to mean current account
 			const res = await glacier.send(new ListVaultsCommand({ accountId: '-' }));
 			vaults = res.VaultList ?? [];
-		} catch (err: any) {
-			toast.error(`Failed to load vaults: ${err.message}`);
+		} catch (err: unknown) {
+			toast.error(`Failed to load vaults: ${err instanceof Error ? err.message : String(err)}`);
 		} finally {
 			loading = false;
 		}

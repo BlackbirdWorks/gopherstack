@@ -7,7 +7,7 @@
 		ListStorageLensConfigurationsCommand,
 		type AccessPoint,
 		type MultiRegionAccessPointReport,
-		type StorageLensConfiguration
+		type ListStorageLensConfigurationEntry
 	} from '@aws-sdk/client-s3-control';
 	import { toast } from 'svelte-sonner';
 	import { Database, RefreshCw, Search, Globe, BarChart3 } from 'lucide-svelte';
@@ -20,7 +20,7 @@
 	let accountId = $state('000000000000');
 	let accessPoints = $state<AccessPoint[]>([]);
 	let multiRegionAPs = $state<MultiRegionAccessPointReport[]>([]);
-	let storageLens = $state<StorageLensConfiguration[]>([]);
+	let storageLens = $state<ListStorageLensConfigurationEntry[]>([]);
 
 	const filteredAccessPoints = $derived(accessPoints.filter((a) => (a.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredMultiRegion = $derived(multiRegionAPs.filter((m) => (m.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));

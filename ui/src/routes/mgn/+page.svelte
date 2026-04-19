@@ -25,7 +25,7 @@
 	const filteredApps = $derived(applications.filter((a) => (a.name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredWaves = $derived(waves.filter((w) => (w.name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 
-	const readyServers = $derived(servers.filter((s) => s.dataReplicationInfo?.dataReplicationState === 'REPLICATED').length);
+	const readyServers = $derived(servers.filter((s) => s.dataReplicationInfo?.dataReplicationState === 'CONTINUOUS').length);
 
 	async function loadData() {
 		loading = true;

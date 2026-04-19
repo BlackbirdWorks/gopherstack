@@ -53,7 +53,7 @@
 	}
 
 	function formatCount(n: string | undefined): string {
-		return n ? parseInt(n).toLocaleString() : '0';
+		return n ? parseInt(n, 10).toLocaleString() : '0';
 	}
 
 	async function loadQueues() {
@@ -121,7 +121,7 @@
 		}
 	}
 
-	async function selectQueue(q: typeof queues[0]) {
+	function selectQueue(q: typeof queues[0]) {
 		selectedQueue = q;
 		messages = [];
 	}
@@ -356,8 +356,9 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Queue</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createQueue(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Queue Name</label>
+					<label for="sqs-queue-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Queue Name</label>
 					<input
+						id="sqs-queue-name"
 						type="text"
 						bind:value={newQueueName}
 						placeholder="e.g. order-processing"
@@ -366,8 +367,9 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Visibility Timeout (seconds)</label>
+					<label for="sqs-visibility" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Visibility Timeout (seconds)</label>
 					<input
+						id="sqs-visibility"
 						type="number"
 						bind:value={newVisibilityTimeout}
 						min="0" max="43200"
@@ -396,8 +398,9 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Send Message</h2>
 			<form onsubmit={(e) => { e.preventDefault(); sendMessage(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Body</label>
+					<label for="sqs-msg-body" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Body</label>
 					<textarea
+						id="sqs-msg-body"
 						bind:value={msgBody}
 						rows={4}
 						placeholder="Enter message body..."
@@ -407,8 +410,9 @@
 				</div>
 				{#if selectedQueue && isFifo(selectedQueue.url)}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Group ID</label>
+						<label for="sqs-msg-group" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Group ID</label>
 						<input
+							id="sqs-msg-group"
 							type="text"
 							bind:value={msgGroupId}
 							placeholder="e.g. order-group-1"
@@ -417,8 +421,9 @@
 					</div>
 				{/if}
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Delay Seconds</label>
+					<label for="sqs-delay" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Delay Seconds</label>
 					<input
+						id="sqs-delay"
 						type="number"
 						bind:value={msgDelay}
 						min="0" max="900"

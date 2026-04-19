@@ -1,19 +1,32 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { getKMSClient } from '$lib/aws-client';
-import { ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand, ListAliasesCommand, CreateKeyCommand, EncryptCommand, DecryptCommand } from '@aws-sdk/client-kms';
+import { ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand, ListAliasesCommand, CreateKeyCommand, EncryptCommand, DecryptCommand, type AliasListEntry } from '@aws-sdk/client-kms';
 import { toast } from 'svelte-sonner';
 import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, Send } from 'lucide-svelte';
 
 const kms = getKMSClient();
 
-let keys = $state<any[]>([]);
-let aliases = $state<any[]>([]);
+type KMSKey = {
+	CreationDate?: Date | string;
+	DeletionDate?: Date | string;
+	Description?: string;
+	KeyArn?: string;
+	KeyId?: string;
+	KeyManager?: string;
+	KeyState?: string;
+	KeyUsage?: string;
+	CustomerMasterKeySpec?: string;
+	KeySpec?: string;
+};
+
+let keys = $state<KMSKey[]>([]);
+let aliases = $state<AliasListEntry[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
 let usageFilter = $state('all');
-let selectedKey = $state<any | null>(null);
+let selectedKey = $state<KMSKey | null>(null);
 let activeTab = $state<'keys' | 'aliases'>('keys');
 let aliasSearch = $state('');
 let showCreateModal = $state(false);
@@ -36,7 +49,7 @@ async function loadKeys() {
 		const listData = await kms.send(new ListKeysCommand({}));
 		const rawKeys = listData.Keys || [];
 		const details = await Promise.all(
-			rawKeys.slice(0, 50).map(async (k: any) => {
+			rawKeys.slice(0, 50).map(async (k) => {
 				try {
 					const d = await kms.send(new DescribeKeyCommand({ KeyId: k.KeyId }));
 					return d.KeyMetadata;
@@ -45,7 +58,7 @@ async function loadKeys() {
 				}
 			})
 		);
-		keys = details.filter(Boolean);
+		keys = details.filter(Boolean) as KMSKey[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load keys');
 	} finally {
@@ -122,7 +135,7 @@ async function encrypt() {
 		encrypting = true;
 		const res = await kms.send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
 		if (res.CiphertextBlob) {
-			ciphertext = btoa(String.fromCharCode(...res.CiphertextBlob));
+			ciphertext = btoa(String.fromCodePoint(...res.CiphertextBlob));
 		}
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Encryption failed');
@@ -135,7 +148,7 @@ async function decrypt() {
 	if (!ciphertext) return;
 	try {
 		decrypting = true;
-		const res = await kms.send(new DecryptCommand({ CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0)) }));
+		const res = await kms.send(new DecryptCommand({ CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.codePointAt(0)!) }));
 		if (res.Plaintext) {
 			decryptedText = new TextDecoder().decode(res.Plaintext);
 		}
@@ -161,11 +174,11 @@ function getStateColor(state: string) {
 	return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
 }
 
-function getKeySpec(key: any) {
+function getKeySpec(key: KMSKey) {
 	return key.CustomerMasterKeySpec || key.KeySpec || 'SYMMETRIC_DEFAULT';
 }
 
-function getKeyManager(key: any) {
+function getKeyManager(key: KMSKey) {
 	return key.KeyManager || 'CUSTOMER';
 }
 
@@ -174,7 +187,7 @@ let disabledCount = $derived(keys.filter(k => k.KeyState === 'Disabled').length)
 let pendingCount = $derived(keys.filter(k => k.KeyState === 'PendingDeletion').length);
 let symmetricCount = $derived(keys.filter(k => (k.CustomerMasterKeySpec || k.KeySpec || '').includes('SYMMETRIC')).length);
 
-let uniqueUsages = $derived([...new Set(keys.map(k => k.KeyUsage).filter(Boolean))]);
+let uniqueUsages = $derived([...new Set(keys.map(k => k.KeyUsage).filter((u): u is string => u !== null))]);
 
 let filtered = $derived(keys.filter(k => {
 	const desc = (k.Description || '').toLowerCase();
@@ -186,11 +199,11 @@ let filtered = $derived(keys.filter(k => {
 }));
 
 let filteredAliases = $derived(aliases.filter(a =>
-	!aliasSearch || (a.AliasName || '').toLowerCase().includes(aliasSearch.toLowerCase())
+	!aliasSearch || (a.AliasName ?? '').toLowerCase().includes(aliasSearch.toLowerCase())
 ));
 
-let awsAliasCount = $derived(aliases.filter(a => (a.AliasName || '').startsWith('alias/aws/')).length);
-let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').startsWith('alias/aws/')).length);
+let awsAliasCount = $derived(aliases.filter(a => (a.AliasName ?? '').startsWith('alias/aws/')).length);
+let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName ?? '').startsWith('alias/aws/')).length);
 </script>
 
 <div class="space-y-6">
@@ -299,7 +312,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 									</h3>
 									<p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5 truncate">{key.KeyId}</p>
 								</div>
-								<span class={`ml-3 px-3 py-1 rounded-full text-xs font-medium shrink-0 ${getStateColor(key.KeyState)}`}>{key.KeyState}</span>
+								<span class={`ml-3 px-3 py-1 rounded-full text-xs font-medium shrink-0 ${getStateColor(key.KeyState ?? '')}`}>{key.KeyState}</span>
 							</div>
 							<div class="grid grid-cols-3 gap-3 text-sm mb-4">
 								<div>
@@ -318,14 +331,14 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 							<div class="flex gap-2">
 								{#if key.KeyState === 'Enabled'}
 									<button
-										onclick={(e) => { e.stopPropagation(); disableKey(key.KeyId); }}
+										onclick={(e) => { e.stopPropagation(); disableKey(key.KeyId ?? ''); }}
 										class="px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-xs hover:bg-yellow-700 flex items-center gap-1"
 									>
 										<Lock class="w-3 h-3" /> Disable
 									</button>
 								{:else if key.KeyState === 'Disabled'}
 									<button
-										onclick={(e) => { e.stopPropagation(); enableKey(key.KeyId); }}
+										onclick={(e) => { e.stopPropagation(); enableKey(key.KeyId ?? ''); }}
 										class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs hover:bg-green-700 flex items-center gap-1"
 									>
 										<Unlock class="w-3 h-3" /> Enable
@@ -333,7 +346,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 								{/if}
 								<button
 									id="crypto-btn-{key.KeyId}"
-									onclick={(e) => { e.stopPropagation(); openCrypto(key.KeyId); }}
+									onclick={(e) => { e.stopPropagation(); openCrypto(key.KeyId ?? ''); }}
 									class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"
 								>
 									<Lock class="w-3 h-3" /> Crypto
@@ -367,7 +380,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 						<div class="grid grid-cols-2 gap-3">
 							<div>
 								<p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">State</p>
-								<span class={`px-2 py-0.5 rounded text-xs font-medium ${getStateColor(selectedKey.KeyState)}`}>{selectedKey.KeyState}</span>
+								<span class={`px-2 py-0.5 rounded text-xs font-medium ${getStateColor(selectedKey.KeyState ?? '')}`}>{selectedKey.KeyState}</span>
 							</div>
 							<div>
 								<p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Manager</p>
@@ -440,7 +453,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 									</td>
 									<td class="px-4 py-3">
 										{#if alias.TargetKeyId}
-											<button onclick={() => copyId(alias.TargetKeyId)} class="p-1 text-slate-400 hover:text-slate-600" title="Copy Key ID">
+											<button onclick={() => copyId(alias.TargetKeyId ?? '')} class="p-1 text-slate-400 hover:text-slate-600" title="Copy Key ID">
 												<Copy class="w-3.5 h-3.5" />
 											</button>
 										{/if}
@@ -462,7 +475,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create KMS Key</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createKey(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+					<label for="new-key-description" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
 					<input id="new-key-description" name="description" type="text" bind:value={newKeyDescription} placeholder="e.g. Test Key" class="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
 				</div>
 				<div class="flex justify-end gap-3">
@@ -484,7 +497,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 			<div class="space-y-6">
 				<!-- Encrypt -->
 				<div class="space-y-2">
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Plaintext</label>
+					<label for="plaintext-input" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Plaintext</label>
 					<div class="flex gap-2">
 						<input id="plaintext-input" name="plaintext" type="text" bind:value={plaintext} class="flex-1 px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
 						<button id="encrypt-submit" onclick={encrypt} disabled={encrypting} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
@@ -501,7 +514,7 @@ let customerAliasCount = $derived(aliases.filter(a => !(a.AliasName || '').start
 
 				<!-- Decrypt -->
 				<div class="space-y-2">
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ciphertext (Base64)</label>
+					<label for="ciphertext-input" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ciphertext (Base64)</label>
 					<div class="flex gap-2">
 						<input id="ciphertext-input" name="ciphertext" type="text" bind:value={ciphertext} class="flex-1 px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
 						<button id="decrypt-submit" onclick={decrypt} disabled={decrypting} class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">

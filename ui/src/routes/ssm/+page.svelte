@@ -306,8 +306,9 @@
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">{isEditing ? 'Edit Parameter' : 'Create Parameter'}</h2>
 			<form onsubmit={(e) => { e.preventDefault(); save(); }} class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
+					<label for="ssm-param-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
 					<input
+						id="ssm-param-name"
 						type="text"
 						bind:value={modalName}
 						placeholder="e.g. /myapp/database/password"
@@ -317,8 +318,9 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Value</label>
+					<label for="ssm-param-value" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Value</label>
 					<textarea
+						id="ssm-param-value"
 						bind:value={modalValue}
 						rows={3}
 						placeholder="Parameter value..."
@@ -328,24 +330,24 @@
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Type</label>
-						<select bind:value={modalType} disabled={isEditing} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60">
+						<label for="ssm-param-type" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Type</label>
+						<select id="ssm-param-type" bind:value={modalType} disabled={isEditing} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60">
 							<option value="String">String</option>
 							<option value="StringList">StringList</option>
 							<option value="SecureString">SecureString</option>
 						</select>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tier</label>
-						<select bind:value={modalTier} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+						<label for="ssm-param-tier" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tier</label>
+						<select id="ssm-param-tier" bind:value={modalTier} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
 							<option value="Standard">Standard</option>
 							<option value="Advanced">Advanced</option>
 						</select>
 					</div>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description (optional)</label>
-					<input type="text" bind:value={modalDescription} placeholder="Parameter description..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+					<label for="ssm-param-desc" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description (optional)</label>
+					<input id="ssm-param-desc" type="text" bind:value={modalDescription} placeholder="Parameter description..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => { showModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5">

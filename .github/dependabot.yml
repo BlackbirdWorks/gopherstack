@@ -17,3 +17,12 @@ updates:
       all-actions-dependencies:
         patterns:
           - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+    groups:
+      ui-dependencies:
+        patterns:
+          - "*"
