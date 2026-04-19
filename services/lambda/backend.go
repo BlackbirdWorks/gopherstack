@@ -342,16 +342,6 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		return nil, fmt.Errorf("%w: EventSourceARN must not be empty", ErrInvalidParameterValue)
 	}
 
-	// FunctionName may be supplied as a bare name or as a full ARN; normalise to bare name for lookup.
-	lookupName := input.FunctionName
-	if extracted := functionNameFromARN(input.FunctionName); extracted != "" {
-		lookupName = extracted
-	}
-
-	if _, ok := b.functions[lookupName]; !ok {
-		return nil, ErrFunctionNotFound
-	}
-
 	id := uuid.New().String()
 	state := ESMStateEnabled
 	if !input.Enabled {

@@ -1260,25 +1260,23 @@ func TestLambda_Poller_NonKinesisNonSQSARN(t *testing.T) {
 	assert.Zero(t, calls, "non-Kinesis ARN should not trigger GetRecords")
 }
 
-// TestLambda_CreateESM_FunctionMustExist verifies that CreateEventSourceMapping returns
-// ErrFunctionNotFound when the referenced function does not exist.
-func TestLambda_CreateESM_FunctionMustExist(t *testing.T) {
+// TestLambda_CreateESM_AllowsNonExistentFunction verifies that CreateEventSourceMapping
+// succeeds even when the referenced Lambda function does not exist. AWS allows creating ESMs
+// for functions that have not yet been created; the ESM enters an error state at invoke time.
+func TestLambda_CreateESM_AllowsNonExistentFunction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErr      error
 		name         string
 		functionName string
 	}{
 		{
-			name:         "nonexistent_function",
+			name:         "bare_function_name",
 			functionName: "does-not-exist",
-			wantErr:      lambda.ErrFunctionNotFound,
 		},
 		{
-			name:         "nonexistent_function_with_arn",
+			name:         "function_arn",
 			functionName: "arn:aws:lambda:us-east-1:000000000000:function:also-does-not-exist",
-			wantErr:      lambda.ErrFunctionNotFound,
 		},
 	}
 
@@ -1288,13 +1286,14 @@ func TestLambda_CreateESM_FunctionMustExist(t *testing.T) {
 
 			_, backend := newRealHandler(t)
 
-			_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+			m, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 				EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/test-stream",
 				FunctionName:   tt.functionName,
 				Enabled:        true,
 			})
 
-			require.ErrorIs(t, err, tt.wantErr)
+			require.NoError(t, err, "CreateEventSourceMapping must succeed even when function does not exist")
+			assert.NotEmpty(t, m.UUID)
 		})
 	}
 }
@@ -1331,7 +1330,7 @@ func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
 			time.Sleep(time.Millisecond)
 
 			updated, updateErr := backend.UpdateEventSourceMapping(m.UUID, &lambda.UpdateEventSourceMappingInput{
-				Enabled:   new(false),
+				Enabled:   ptrBool(false),
 				BatchSize: 0,
 			})
 			require.NoError(t, updateErr)
@@ -1342,5 +1341,4 @@ func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
 	}
 }
 
-//go:fix inline
-func boolPtr(b bool) *bool { return new(b) }
+func ptrBool(b bool) *bool { return &b }
