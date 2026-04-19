@@ -39,6 +39,12 @@
 			return;
 		}
 
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			dialogElement.close('cancel');
+			return;
+		}
+
 		if (event.key !== 'Tab') {
 			return;
 		}
@@ -95,9 +101,9 @@
 		dialogElement?.close('confirm');
 	}
 
-	export async function show(options: ConfirmDestructiveOptions): Promise<boolean> {
+	export function show(options: ConfirmDestructiveOptions): Promise<boolean> {
 		if (!dialogElement) {
-			return false;
+			return Promise.resolve(false);
 		}
 
 		if (resolvePending) {
@@ -109,15 +115,22 @@
 		confirmLabel = options.confirmLabel ?? 'Delete';
 		cancelLabel = options.cancelLabel ?? 'Cancel';
 		dangerous = options.dangerous ?? true;
-		activeElementBeforeOpen = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		activeElementBeforeOpen =
+			document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-		dialogElement.showModal();
-		await tick();
-		(confirmButton ?? focusables()[0])?.focus();
-
-		return new Promise<boolean>((resolve) => {
+		// Set resolvePending synchronously so click / keyboard handlers that
+		// fire before the next tick can still resolve the promise.
+		const promise = new Promise<boolean>((resolve) => {
 			resolvePending = resolve;
 		});
+
+		dialogElement.showModal();
+		// Focus the primary action after Svelte flushes the reactive updates.
+		void tick().then(() => {
+			(confirmButton ?? focusables()[0])?.focus();
+		});
+
+		return promise;
 	}
 </script>
 
