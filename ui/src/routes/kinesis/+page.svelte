@@ -103,7 +103,7 @@
 	}
 
 	async function deleteStream(name: string) {
-		if (!await confirmDestructive(`Delete stream "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Stream', message: `Delete Kinesis stream "${name}"? All shards and retained data will be permanently removed.` })) return;
 		try {
 			await kinesis.send(new DeleteStreamCommand({ StreamName: name }));
 			toast.success(`Stream "${name}" deleting`);

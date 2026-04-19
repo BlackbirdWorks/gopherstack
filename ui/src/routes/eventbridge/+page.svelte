@@ -82,7 +82,7 @@
 	}
 
 	async function deleteBus(name: string) {
-		if (!await confirmDestructive(`Delete event bus "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Event Bus', message: `Delete event bus "${name}"? All rules targeting this bus will stop functioning.` })) return;
 		try {
 			await eb.send(new DeleteEventBusCommand({ Name: name }));
 			toast.success(`Event bus "${name}" deleted`);
@@ -138,7 +138,7 @@
 	}
 
 	async function deleteRule(ruleName: string) {
-		if (!selectedBus || !await confirmDestructive(`Delete rule "${ruleName}"?`)) return;
+		if (!selectedBus || !await confirmDestructive({ title: 'Delete EventBridge Rule', message: `Delete rule "${ruleName}"? The associated targets will no longer receive events.` })) return;
 		try {
 			await eb.send(new DeleteRuleCommand({ Name: ruleName, EventBusName: selectedBus.Name }));
 			toast.success(`Rule "${ruleName}" deleted`);

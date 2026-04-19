@@ -89,7 +89,7 @@ async function refresh() {
 }
 
 async function deleteInstance(id: string) {
-	if (!await confirmDestructive(`Delete RDS instance ${id}? This cannot be undone.`)) return;
+	if (!await confirmDestructive({ title: 'Delete RDS Instance', message: `Delete instance ${id}? All data will be permanently lost unless a final snapshot was taken.` })) return;
 	try {
 		await rds.send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id, SkipFinalSnapshot: true }));
 		toast.success(`Instance ${id} deleted`);

@@ -111,7 +111,7 @@
 	}
 
 	async function deleteProject(name: string | undefined) {
-		if (!name || !await confirmDestructive(`Delete project "${name}"? All build history will be lost.`)) return;
+		if (!name || !await confirmDestructive({ title: 'Delete Build Project', message: `Delete project "${name}"? All build history and artifacts will be lost.` })) return;
 		try {
 			await codebuild.send(new DeleteProjectCommand({ name }));
 			toast.success(`Project deleted`);

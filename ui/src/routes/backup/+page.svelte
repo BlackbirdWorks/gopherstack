@@ -135,7 +135,7 @@
 	}
 
 	async function deletePlan(plan: BackupPlansListMember) {
-		if (!plan.BackupPlanId || !await confirmDestructive(`Delete plan "${plan.BackupPlanName}"?`)) return;
+		if (!plan.BackupPlanId || !await confirmDestructive({ title: 'Delete Backup Plan', message: `Delete backup plan "${plan.BackupPlanName}"? Scheduled backups will no longer run.` })) return;
 		try {
 			await backup.send(new DeleteBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
 			toast.success(`Plan "${plan.BackupPlanName}" deleted`);

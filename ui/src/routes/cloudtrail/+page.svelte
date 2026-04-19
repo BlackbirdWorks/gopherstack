@@ -160,7 +160,7 @@
 	}
 
 	async function deleteTrail(trail: Trail) {
-		if (!trail.TrailARN || !await confirmDestructive(`Delete trail "${trail.Name}"?`)) return;
+		if (!trail.TrailARN || !await confirmDestructive({ title: 'Delete Trail', message: `Delete trail "${trail.Name}"? API activity will no longer be logged to this trail.` })) return;
 		try {
 			await ct.send(new DeleteTrailCommand({ Name: trail.TrailARN }));
 			toast.success(`Trail "${trail.Name}" deleted`);

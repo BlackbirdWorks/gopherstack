@@ -153,7 +153,7 @@
 	}
 
 	async function deleteGroup(name: string) {
-		if (!await confirmDestructive(`Delete Auto Scaling Group "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Auto Scaling Group', message: `Delete ASG "${name}"? All running instances will be terminated.` })) return;
 		try {
 			await asg.send(new DeleteAutoScalingGroupCommand({ AutoScalingGroupName: name, ForceDelete: true }));
 			toast.success(`Group "${name}" deleted`);

@@ -137,7 +137,7 @@
 	}
 
 	async function deleteRule(rule: ConfigRule) {
-		if (!await confirmDestructive(`Delete rule "${rule.ConfigRuleName}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Config Rule', message: `Delete rule "${rule.ConfigRuleName}"? Compliance evaluation for this rule will stop.` })) return;
 		try {
 			await config.send(new DeleteConfigRuleCommand({ ConfigRuleName: rule.ConfigRuleName }));
 			toast.success(`Rule "${rule.ConfigRuleName}" deleted`);

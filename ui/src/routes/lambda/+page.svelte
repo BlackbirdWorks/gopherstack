@@ -48,7 +48,7 @@
 	}
 
 	async function deleteFunction(name: string) {
-		if (!await confirmDestructive(`Are you sure you want to delete function "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Function', message: `Delete function "${name}"? All versions, aliases, and event source mappings will be removed.` })) return;
 		try {
 			await lambda.send(new DeleteFunctionCommand({ FunctionName: name }));
 			toast.success(`Function "${name}" deleted`);

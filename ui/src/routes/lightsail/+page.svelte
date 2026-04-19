@@ -88,7 +88,7 @@
 	}
 
 	async function terminateInstance(name: string | undefined) {
-		if (!name || !await confirmDestructive(`Terminate Lightsail Instance? All ephemeral data and public cloud compute will be permanently purged.`)) return;
+		if (!name || !await confirmDestructive({ title: 'Terminate Instance', message: 'Terminate this Lightsail instance? All ephemeral data and the public IP will be permanently released.', confirmLabel: 'Terminate' })) return;
 		try {
 			await lightsail.send(new DeleteInstanceCommand({ instanceName: name }));
 			toast.success(`Instance termination initiated`);

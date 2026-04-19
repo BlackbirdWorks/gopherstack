@@ -117,7 +117,7 @@
 	}
 
 	async function deleteCertificate(arn: string, domain?: string) {
-		if (!await confirmDestructive(`Delete certificate for "${domain ?? arn}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Certificate', message: `Delete certificate for "${domain ?? arn}"? This cannot be undone.` })) return;
 		try {
 			await acm.send(new DeleteCertificateCommand({ CertificateArn: arn }));
 			toast.success('Certificate deleted');

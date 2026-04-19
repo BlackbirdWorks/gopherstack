@@ -159,7 +159,7 @@
 	}
 
 	async function deleteLogGroup(name: string) {
-		if (!await confirmDestructive(`Delete log group "${name}"?`)) return;
+		if (!await confirmDestructive({ title: 'Delete Log Group', message: `Delete log group "${name}"? All log streams and retained data will be permanently removed.` })) return;
 		deletingGroup = name;
 		try {
 			await cwl.send(new DeleteLogGroupCommand({ logGroupName: name }));

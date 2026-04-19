@@ -178,7 +178,7 @@
 	}
 
 	async function deleteStack(name: string) {
-		if (!await confirmDestructive(`Delete stack "${name}"? This cannot be undone.`)) return;
+		if (!await confirmDestructive({ title: 'Delete Stack', message: `Delete stack "${name}"? All provisioned resources will be destroyed.` })) return;
 		deletingStack = name;
 		try {
 			await cfn.send(new DeleteStackCommand({ StackName: name }));

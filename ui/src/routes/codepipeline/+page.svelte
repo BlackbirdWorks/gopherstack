@@ -111,7 +111,7 @@
 	}
 
 	async function deletePipeline(name: string | undefined) {
-		if (!name || !await confirmDestructive(`Delete pipeline "${name}"? This action is irreversible.`)) return;
+		if (!name || !await confirmDestructive({ title: 'Delete Pipeline', message: `Delete pipeline "${name}"? This cannot be undone.` })) return;
 		try {
 			await codepipeline.send(new DeletePipelineCommand({ name }));
 			toast.success(`Pipeline deleted`);

@@ -79,7 +79,7 @@
 	}
 
 	async function deletePool(pool: IdentityPoolShortDescription) {
-		if (!pool.IdentityPoolId || !await confirmDestructive(`Delete identity pool "${pool.IdentityPoolName}"?`)) return;
+		if (!pool.IdentityPoolId || !await confirmDestructive({ title: 'Delete Identity Pool', message: `Delete identity pool "${pool.IdentityPoolName}"? All identities associated with this pool will be removed.` })) return;
 		try {
 			await cognitoId.send(
 				new DeleteIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })

@@ -108,7 +108,7 @@
 	}
 
 	async function deleteCluster(cluster: Cluster) {
-		if (!cluster.ClusterArn || !await confirmDestructive(`Delete cluster "${cluster.ClusterName}"?`)) return;
+		if (!cluster.ClusterArn || !await confirmDestructive({ title: 'Delete MSK Cluster', message: `Delete cluster "${cluster.ClusterName}"? All broker data will be permanently removed.` })) return;
 		try {
 			await msk.send(
 				new DeleteClusterCommand({

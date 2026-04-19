@@ -104,7 +104,7 @@
 	}
 
 	async function deleteSM(arn: string | undefined) {
-		if (!arn || !await confirmDestructive(`Delete state machine?`)) return;
+		if (!arn || !await confirmDestructive({ title: 'Delete State Machine', message: 'Delete this state machine? All associated execution history will be removed.' })) return;
 		try {
 			await sfn.send(new DeleteStateMachineCommand({ stateMachineArn: arn }));
 			toast.success(`Delete initiated`);

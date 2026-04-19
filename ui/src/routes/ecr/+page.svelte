@@ -120,7 +120,7 @@
 	}
 
 	async function deleteRepository(name: string) {
-		if (!await confirmDestructive(`Delete repository "${name}"? All images will be lost.`)) return;
+		if (!await confirmDestructive({ title: 'Delete Repository', message: `Delete repository "${name}"? All container images will be permanently removed.` })) return;
 		try {
 			await ecr.send(new DeleteRepositoryCommand({ repositoryName: name, force: true }));
 			toast.success(`Repository "${name}" deleted`);
@@ -133,7 +133,7 @@
 
 	async function deleteImage(img: ImageDetail) {
 		const tag = img.imageTags?.[0] ?? img.imageDigest?.slice(0, 20) ?? '';
-		if (!selectedRepo || !await confirmDestructive(`Delete image "${tag}"?`)) return;
+		if (!selectedRepo || !await confirmDestructive({ title: 'Delete Image', message: `Delete image "${tag}"? This cannot be undone.` })) return;
 		const digest = img.imageDigest ?? '';
 		deletingImages = [...deletingImages, digest];
 		try {

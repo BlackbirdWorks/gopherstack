@@ -167,7 +167,7 @@
 	}
 
 	async function deleteApi(api: GraphqlApi) {
-		if (!api.apiId || !await confirmDestructive(`Delete API "${api.name}"?`)) return;
+		if (!api.apiId || !await confirmDestructive({ title: 'Delete AppSync API', message: `Delete API "${api.name}"? All resolvers and schemas will be removed.` })) return;
 		try {
 			await appsync.send(new DeleteGraphqlApiCommand({ apiId: api.apiId }));
 			toast.success(`API "${api.name}" deleted`);
