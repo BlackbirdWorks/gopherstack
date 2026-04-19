@@ -21,8 +21,13 @@
 	// State
 	let loading = $state(false);
 	let searchQuery = $state('');
+	let runtimeFilter = $state('');
 	let functions = $state<FunctionConfiguration[]>([]);
 	let selectedFunction = $state<FunctionConfiguration | null>(null);
+	let nextMarker = $state('');
+	let hasNextPage = $state(false);
+	let currentMarker = $state('');
+	let markerHistory = $state<string[]>([]);
 
 	// Invocation State
 	let showInvokeModal = $state(false);
@@ -44,7 +49,11 @@
 
 	// Derived
 	const filteredFunctions = $derived(
-		functions.filter(f => f.FunctionName?.toLowerCase().includes(searchQuery.toLowerCase()))
+		functions.filter(f => {
+			const matchSearch = f.FunctionName?.toLowerCase().includes(searchQuery.toLowerCase());
+			const matchRuntime = !runtimeFilter || (f.Runtime ?? '').includes(runtimeFilter);
+			return matchSearch && matchRuntime;
+		})
 	);
 
 	const runtimeImageMap: Record<string, string> = {
@@ -59,11 +68,14 @@
 	};
 
 	// Actions
-	async function loadFunctions() {
+	async function loadFunctions(marker = '') {
 		loading = true;
 		try {
-			const res = await lambda.send(new ListFunctionsCommand({}));
+			const res = await lambda.send(new ListFunctionsCommand({ Marker: marker || undefined }));
 			functions = res.Functions ?? [];
+			nextMarker = res.NextMarker ?? '';
+			hasNextPage = !!res.NextMarker;
+			currentMarker = marker;
 		} catch (err: unknown) {
 			toast.error(`Failed to load functions: ${(err as Error).message}`);
 		} finally {
@@ -171,12 +183,13 @@
 			</div>
 			<div>
 				<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 dark:from-orange-400 dark:to-amber-400 bg-clip-text text-transparent">Lambda Functions</h1>
+				<p class="text-sm text-muted-foreground text-slate-500 dark:text-slate-400 mt-0.5">{functions.length} function{functions.length !== 1 ? 's' : ''}</p>
 				<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Deploy and run serverless code in response to events.</p>
 			</div>
 		</div>
 		<div class="flex items-center gap-3">
 			<button 
-				onclick={loadFunctions}
+				onclick={() => loadFunctions()}
 				class="p-2.5 rounded-xl bg-white/50 dark:bg-slate-700/50 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-all active:scale-95"
 				title="Refresh data"
 			>
@@ -210,15 +223,30 @@
 		<!-- Main List -->
 		<div class="lg:col-span-8 space-y-4">
 			<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-				<div class="p-4 bg-white/20 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-700/50">
-					<div class="relative w-full">
-						<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-						<input 
-							type="text" 
-							bind:value={searchQuery}
-							placeholder="Search functions..."
-							class="w-full pl-10 pr-4 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
-						/>
+				<div class="p-4 bg-white/20 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-700/50 space-y-2">
+					<div class="flex gap-2">
+						<div class="relative flex-1">
+							<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+							<input 
+								type="text" 
+								bind:value={searchQuery}
+								placeholder="Search functions..."
+								class="w-full pl-10 pr-4 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+							/>
+						</div>
+						<select
+							bind:value={runtimeFilter}
+							class="px-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+						>
+							<option value="">All runtimes</option>
+							<option value="nodejs">Node.js</option>
+							<option value="python">Python</option>
+							<option value="java">Java</option>
+							<option value="go">Go</option>
+							<option value="ruby">Ruby</option>
+							<option value="dotnet">dotnet</option>
+							<option value="provided">Custom</option>
+						</select>
 					</div>
 				</div>
 
@@ -326,6 +354,32 @@
 					</table>
 				</div>
 			</div>
+			<!-- Pagination controls -->
+			{#if hasNextPage || markerHistory.length > 0}
+				<div class="flex items-center justify-between px-4 py-3 bg-white/30 dark:bg-slate-800/30 border border-white/20 dark:border-slate-700/50 rounded-xl">
+					<button
+						onclick={() => {
+							const prev = markerHistory.pop();
+							markerHistory = [...markerHistory];
+							loadFunctions(prev ?? '');
+						}}
+						disabled={markerHistory.length === 0}
+						class="px-4 py-2 text-sm font-medium rounded-lg bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 disabled:opacity-40 hover:bg-white dark:hover:bg-slate-700 transition-all"
+					>
+						← Previous
+					</button>
+					<button
+						onclick={() => {
+							markerHistory = [...markerHistory, currentMarker];
+							loadFunctions(nextMarker);
+						}}
+						disabled={!hasNextPage}
+						class="px-4 py-2 text-sm font-medium rounded-lg bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-40 transition-all"
+					>
+						Next page →
+					</button>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Detail View / Side Panel -->

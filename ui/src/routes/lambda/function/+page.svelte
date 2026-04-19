@@ -11,6 +11,8 @@
 		ListVersionsByFunctionCommand,
 		PublishVersionCommand,
 		ListAliasesCommand,
+		CreateAliasCommand,
+		DeleteAliasCommand,
 		GetFunctionUrlConfigCommand,
 		CreateFunctionUrlConfigCommand,
 		DeleteFunctionUrlConfigCommand,
@@ -53,6 +55,10 @@
 	let publishingVersion = $state(false);
 	let versionDescription = $state('');
 	let showVersions = $state(false);
+	let showCreateAliasModal = $state(false);
+	let newAliasName = $state('');
+	let newAliasVersion = $state('$LATEST');
+	let creatingAlias = $state(false);
 
 	// Function URL
 	let functionURL = $state<GetFunctionUrlConfigResponse | null>(null);
@@ -111,6 +117,37 @@
 			aliases = res.Aliases ?? [];
 		} catch {
 			aliases = [];
+		}
+	}
+
+	async function createAlias(): Promise<void> {
+		if (!newAliasName.trim()) { toast.error('Alias name is required'); return; }
+		creatingAlias = true;
+		try {
+			await lambda.send(new CreateAliasCommand({
+				FunctionName: functionName,
+				Name: newAliasName.trim(),
+				FunctionVersion: newAliasVersion || '$LATEST',
+			}));
+			toast.success(`Alias "${newAliasName.trim()}" created`);
+			showCreateAliasModal = false;
+			newAliasName = '';
+			newAliasVersion = '$LATEST';
+			await loadAliases();
+		} catch (err) {
+			toast.error(`Failed to create alias: ${(err as Error).message}`);
+		} finally {
+			creatingAlias = false;
+		}
+	}
+
+	async function deleteAlias(aliasName: string): Promise<void> {
+		try {
+			await lambda.send(new DeleteAliasCommand({ FunctionName: functionName, Name: aliasName }));
+			toast.success(`Alias "${aliasName}" deleted`);
+			await loadAliases();
+		} catch (err) {
+			toast.error(`Failed to delete alias: ${(err as Error).message}`);
 		}
 	}
 
@@ -348,6 +385,14 @@
 					<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Role ARN</p>
 					<p class="text-sm font-semibold text-slate-900 dark:text-white truncate">{response.Configuration.Role ?? '-'}</p>
 				</div>
+				<div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20">
+					<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Architecture</p>
+					<p class="text-sm font-semibold text-slate-900 dark:text-white">{(response.Configuration.Architectures ?? ['x86_64']).join(', ')}</p>
+				</div>
+				<div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20">
+					<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Ephemeral Storage</p>
+					<p class="text-sm font-semibold text-slate-900 dark:text-white">{response.Configuration.EphemeralStorage?.Size ?? 512} MB</p>
+				</div>
 				{#if response.Configuration.CodeSha256}
 					<div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/20 md:col-span-2" title={response.Configuration.CodeSha256}>
 						<p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Code SHA256</p>
@@ -469,20 +514,37 @@
 						</div>
 					{/if}
 					<!-- Aliases List -->
-					{#if aliases.length > 0}
-						<div>
-							<p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Aliases</p>
+					<div>
+						<div class="flex items-center justify-between mb-2">
+							<p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Aliases</p>
+							<button
+								onclick={() => showCreateAliasModal = true}
+								class="px-3 py-1 text-xs bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-all"
+							>
+								+ Create alias
+							</button>
+						</div>
+						{#if aliases.length > 0}
 							<div class="space-y-1">
 								{#each aliases as a}
 									<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900/40 rounded-lg text-sm">
 										<span class="font-bold text-slate-900 dark:text-white">{a.Name}</span>
 										<span class="font-mono text-xs text-orange-600 dark:text-orange-400 px-3">→ {a.FunctionVersion}</span>
-										<span class="text-xs text-slate-400">{a.Description ?? ''}</span>
+										<span class="text-xs text-slate-400 flex-1 truncate">{a.Description ?? ''}</span>
+										<button
+											onclick={() => deleteAlias(a.Name ?? '')}
+											class="p-1 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded text-xs ml-2"
+											title="Delete alias"
+										>
+											<Trash2 class="w-3 h-3" />
+										</button>
 									</div>
 								{/each}
 							</div>
-						</div>
-					{/if}
+						{:else}
+							<p class="text-xs text-slate-400 italic">No aliases defined.</p>
+						{/if}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -591,6 +653,54 @@ Invoking...
 <Play class="w-4 h-4 fill-current" />
 Invoke Function
 {/if}
+</button>
+</div>
+</div>
+</div>
+{/if}
+
+<!-- Create Alias Modal -->
+{#if showCreateAliasModal}
+<div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+<div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md">
+<div class="p-6 border-b border-slate-200 dark:border-slate-700">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Alias</h2>
+</div>
+<div class="p-6 space-y-4">
+<div>
+<label for="alias-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Alias name</label>
+<input
+id="alias-name"
+type="text"
+bind:value={newAliasName}
+placeholder="e.g. live, staging"
+class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
+/>
+</div>
+<div>
+<label for="alias-version" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Function version</label>
+<input
+id="alias-version"
+type="text"
+bind:value={newAliasVersion}
+placeholder="$LATEST or version number"
+class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700/50 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
+/>
+</div>
+</div>
+<div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+<button
+onclick={() => { showCreateAliasModal = false; newAliasName = ''; newAliasVersion = '$LATEST'; }}
+class="px-5 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-50 dark:hover:bg-slate-600 transition-all"
+>
+Cancel
+</button>
+<button
+onclick={createAlias}
+disabled={creatingAlias || !newAliasName.trim()}
+class="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-medium disabled:opacity-50 transition-all"
+>
+{creatingAlias ? 'Creating...' : 'Create'}
 </button>
 </div>
 </div>

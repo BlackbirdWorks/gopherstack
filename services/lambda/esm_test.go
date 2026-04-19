@@ -1330,7 +1330,7 @@ func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
 			time.Sleep(time.Millisecond)
 
 			updated, updateErr := backend.UpdateEventSourceMapping(m.UUID, &lambda.UpdateEventSourceMappingInput{
-				Enabled:   ptrBool(false),
+				Enabled:   new(false),
 				BatchSize: 0,
 			})
 			require.NoError(t, updateErr)
@@ -1340,5 +1340,3 @@ func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
 		})
 	}
 }
-
-func ptrBool(b bool) *bool { return &b }

@@ -1585,7 +1585,7 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 		input.AuthType = "NONE"
 	}
 
-	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType, input.Cors)
+	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType, input.Cors, input.InvokeMode)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -1864,8 +1864,9 @@ func (h *Handler) handleListAliases(c *echo.Context, name string) error {
 	}
 
 	marker, maxItems := parsePaginationParams(c.Request())
+	functionVersion := c.Request().URL.Query().Get("FunctionVersion")
 
-	p, err := lambdaBk.ListAliases(name, marker, maxItems)
+	p, err := lambdaBk.ListAliases(name, functionVersion, marker, maxItems)
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

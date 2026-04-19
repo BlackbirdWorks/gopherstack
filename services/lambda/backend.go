@@ -76,6 +76,9 @@ const versionLatest = "$LATEST"
 // lambdaDefaultMaxItems is the default page size for ListFunctions.
 const lambdaDefaultMaxItems = 50
 
+// defaultEphemeralStorageSize is the default /tmp storage size in MB for Lambda functions.
+const defaultEphemeralStorageSize int32 = 512
+
 // maxCleanupConcurrency is the maximum number of concurrent runtime cleanup goroutines.
 const maxCleanupConcurrency = 64
 
@@ -361,13 +364,14 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
 
 	m := &EventSourceMapping{
-		UUID:             id,
-		EventSourceARN:   input.EventSourceARN,
-		FunctionARN:      fnARN,
-		State:            state,
-		BatchSize:        batchSize,
-		StartingPosition: startingPosition,
-		LastModified:     time.Now(),
+		UUID:                 id,
+		EventSourceARN:       input.EventSourceARN,
+		FunctionARN:          fnARN,
+		State:                state,
+		BatchSize:            batchSize,
+		StartingPosition:     startingPosition,
+		LastProcessingResult: "No records processed",
+		LastModified:         time.Now(),
 	}
 
 	b.eventSourceMappings[id] = m
@@ -464,6 +468,7 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 func (b *InMemoryBackend) CreateFunctionURLConfig(
 	functionName, authType string,
 	cors *FunctionURLCors,
+	invokeMode string,
 ) (*FunctionURLConfig, error) {
 	b.mu.Lock("CreateFunctionURLConfig")
 	defer b.mu.Unlock()
@@ -482,11 +487,16 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 		return nil, startErr
 	}
 
+	if invokeMode == "" {
+		invokeMode = "BUFFERED"
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	cfg := &FunctionURLConfig{
 		FunctionArn:      buildURLARN(b.region, b.accountID, functionName),
 		FunctionURL:      urlStr,
 		AuthType:         authType,
+		InvokeMode:       invokeMode,
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Cors:             cors,
@@ -770,8 +780,28 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		return ErrFunctionAlreadyExists
 	}
 
+	if fn.MemorySize != 0 && (fn.MemorySize < 128 || fn.MemorySize > 10240 || fn.MemorySize%64 != 0) {
+		return fmt.Errorf("%w: MemorySize must be between 128 and 10240 and divisible by 64", ErrInvalidParameterValue)
+	}
+
 	if fn.Tags == nil {
 		fn.Tags = make(map[string]string)
+	}
+
+	if len(fn.Architectures) == 0 {
+		fn.Architectures = []string{"x86_64"}
+	}
+
+	if fn.EphemeralStorage == nil {
+		fn.EphemeralStorage = &EphemeralStorageConfig{Size: defaultEphemeralStorageSize}
+	}
+
+	if fn.PackageType == "" {
+		if fn.ImageURI != "" {
+			fn.PackageType = "Image"
+		} else {
+			fn.PackageType = "Zip"
+		}
 	}
 
 	b.functions[fn.FunctionName] = fn
@@ -1032,6 +1062,7 @@ func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*Fu
 		AliasArn:        buildAliasARN(b.region, b.accountID, name, input.Name),
 		FunctionVersion: input.FunctionVersion,
 		Description:     input.Description,
+		RoutingConfig:   input.RoutingConfig,
 		RevisionID:      uuid.New().String(),
 	}
 
@@ -1063,7 +1094,11 @@ func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, erro
 }
 
 // ListAliases returns a page of aliases for a function sorted by name.
-func (b *InMemoryBackend) ListAliases(name, marker string, maxItems int) (page.Page[*FunctionAlias], error) {
+// If functionVersion is non-empty, only aliases pointing to that version are returned.
+func (b *InMemoryBackend) ListAliases(
+	name, functionVersion, marker string,
+	maxItems int,
+) (page.Page[*FunctionAlias], error) {
 	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
 
@@ -1075,6 +1110,10 @@ func (b *InMemoryBackend) ListAliases(name, marker string, maxItems int) (page.P
 	result := make([]*FunctionAlias, 0, len(aliasMap))
 
 	for _, a := range aliasMap {
+		if functionVersion != "" && a.FunctionVersion != functionVersion {
+			continue
+		}
+
 		result = append(result, a)
 	}
 
@@ -1106,6 +1145,10 @@ func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAlias
 
 	if input.Description != "" {
 		alias.Description = input.Description
+	}
+
+	if input.RoutingConfig != nil {
+		alias.RoutingConfig = input.RoutingConfig
 	}
 
 	alias.RevisionID = uuid.New().String()

@@ -66,36 +66,43 @@ type FunctionLayer struct {
 	CodeSize int64  `json:"CodeSize,omitempty"`
 }
 
+// EphemeralStorageConfig holds the ephemeral storage (/tmp) configuration for a Lambda function.
+type EphemeralStorageConfig struct {
+	Size int32 `json:"Size"`
+}
+
 // FunctionConfiguration represents a Lambda function's configuration.
 type FunctionConfiguration struct {
-	CreatedAt                    time.Time          `json:"-"`
-	Environment                  *EnvironmentConfig `json:"Environment,omitempty"`
-	ReservedConcurrentExecutions *int               `json:"ReservedConcurrentExecutions,omitempty"`
-	ImageURI                     string             `json:"ImageUri,omitempty"`
-	LastUpdateStatus             LastUpdateStatus   `json:"LastUpdateStatus"`
-	LastUpdateStatusReason       string             `json:"LastUpdateStatusReason,omitempty"`
-	PackageType                  string             `json:"PackageType"`
-	StateReason                  string             `json:"StateReason,omitempty"`
-	StateReasonCode              string             `json:"StateReasonCode,omitempty"`
-	Role                         string             `json:"Role"`
-	LastModified                 string             `json:"LastModified"`
-	Runtime                      string             `json:"Runtime,omitempty"`
-	RevisionID                   string             `json:"RevisionId"`
-	Description                  string             `json:"Description"`
-	FunctionArn                  string             `json:"FunctionArn"`
-	State                        FunctionState      `json:"State"`
-	FunctionName                 string             `json:"FunctionName"`
-	CodeSha256                   string             `json:"CodeSha256,omitempty"`
-	S3BucketCode                 string             `json:"-"`
-	S3KeyCode                    string             `json:"-"`
-	Handler                      string             `json:"Handler,omitempty"`
-	Version                      string             `json:"Version,omitempty"`
-	Tags                         map[string]string  `json:"Tags,omitempty"`
-	ZipData                      []byte             `json:"-"`
-	Layers                       []*FunctionLayer   `json:"Layers,omitempty"`
-	MemorySize                   int                `json:"MemorySize"`
-	Timeout                      int                `json:"Timeout"`
-	CodeSize                     int64              `json:"CodeSize"`
+	CreatedAt                    time.Time               `json:"-"`
+	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
+	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	ReservedConcurrentExecutions *int                    `json:"ReservedConcurrentExecutions,omitempty"`
+	ImageURI                     string                  `json:"ImageUri,omitempty"`
+	LastUpdateStatus             LastUpdateStatus        `json:"LastUpdateStatus"`
+	LastUpdateStatusReason       string                  `json:"LastUpdateStatusReason,omitempty"`
+	PackageType                  string                  `json:"PackageType"`
+	StateReason                  string                  `json:"StateReason,omitempty"`
+	StateReasonCode              string                  `json:"StateReasonCode,omitempty"`
+	Role                         string                  `json:"Role"`
+	LastModified                 string                  `json:"LastModified"`
+	Runtime                      string                  `json:"Runtime,omitempty"`
+	RevisionID                   string                  `json:"RevisionId"`
+	Description                  string                  `json:"Description"`
+	FunctionArn                  string                  `json:"FunctionArn"`
+	State                        FunctionState           `json:"State"`
+	FunctionName                 string                  `json:"FunctionName"`
+	CodeSha256                   string                  `json:"CodeSha256,omitempty"`
+	S3BucketCode                 string                  `json:"-"`
+	S3KeyCode                    string                  `json:"-"`
+	Handler                      string                  `json:"Handler,omitempty"`
+	Version                      string                  `json:"Version,omitempty"`
+	Tags                         map[string]string       `json:"Tags,omitempty"`
+	ZipData                      []byte                  `json:"-"`
+	Layers                       []*FunctionLayer        `json:"Layers,omitempty"`
+	Architectures                []string                `json:"Architectures,omitempty"`
+	MemorySize                   int                     `json:"MemorySize"`
+	Timeout                      int                     `json:"Timeout"`
+	CodeSize                     int64                   `json:"CodeSize"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -190,14 +197,16 @@ type FunctionURLConfig struct {
 	FunctionArn      string           `json:"FunctionArn"`
 	FunctionURL      string           `json:"FunctionUrl"`
 	AuthType         string           `json:"AuthType"`
+	InvokeMode       string           `json:"InvokeMode,omitempty"`
 	CreationTime     string           `json:"CreationTime"`
 	LastModifiedTime string           `json:"LastModifiedTime"`
 }
 
 // CreateFunctionURLConfigInput is the request body for CreateFunctionUrlConfig.
 type CreateFunctionURLConfigInput struct {
-	Cors     *FunctionURLCors `json:"Cors,omitempty"`
-	AuthType string           `json:"AuthType"`
+	Cors       *FunctionURLCors `json:"Cors,omitempty"`
+	AuthType   string           `json:"AuthType"`
+	InvokeMode string           `json:"InvokeMode,omitempty"`
 }
 
 // ListFunctionURLConfigsOutput is the response for listing function URL configs.
@@ -233,26 +242,34 @@ type ListVersionsByFunctionOutput struct {
 	Versions   []*FunctionVersion `json:"Versions"`
 }
 
+// AliasRoutingConfig holds weighted traffic routing for a Lambda alias.
+type AliasRoutingConfig struct {
+	AdditionalVersionWeights map[string]float64 `json:"AdditionalVersionWeights,omitempty"`
+}
+
 // FunctionAlias holds an alias mapping (alias name → version number).
 type FunctionAlias struct {
-	AliasArn        string `json:"AliasArn"`
-	Description     string `json:"Description,omitempty"`
-	FunctionVersion string `json:"FunctionVersion"`
-	Name            string `json:"Name"`
-	RevisionID      string `json:"RevisionId"`
+	RoutingConfig   *AliasRoutingConfig `json:"RoutingConfig,omitempty"`
+	AliasArn        string              `json:"AliasArn"`
+	Description     string              `json:"Description,omitempty"`
+	FunctionVersion string              `json:"FunctionVersion"`
+	Name            string              `json:"Name"`
+	RevisionID      string              `json:"RevisionId"`
 }
 
 // CreateAliasInput holds the request body for CreateAlias.
 type CreateAliasInput struct {
-	Description     string `json:"Description,omitempty"`
-	FunctionVersion string `json:"FunctionVersion"`
-	Name            string `json:"Name"`
+	RoutingConfig   *AliasRoutingConfig `json:"RoutingConfig,omitempty"`
+	Description     string              `json:"Description,omitempty"`
+	FunctionVersion string              `json:"FunctionVersion"`
+	Name            string              `json:"Name"`
 }
 
 // UpdateAliasInput holds the request body for UpdateAlias.
 type UpdateAliasInput struct {
-	Description     string `json:"Description,omitempty"`
-	FunctionVersion string `json:"FunctionVersion,omitempty"`
+	RoutingConfig   *AliasRoutingConfig `json:"RoutingConfig,omitempty"`
+	Description     string              `json:"Description,omitempty"`
+	FunctionVersion string              `json:"FunctionVersion,omitempty"`
 }
 
 // ListAliasesOutput is the response for ListAliases.
