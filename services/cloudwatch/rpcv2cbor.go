@@ -614,61 +614,13 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	}
 
 	alarmList := make(cbor.List, 0, len(metricPage.Data))
-
-	for _, a := range metricPage.Data {
-		m := cbor.Map{
-			"AlarmName":          cbor.String(a.AlarmName),
-			"AlarmArn":           cbor.String(a.AlarmArn),
-			"Namespace":          cbor.String(a.Namespace),
-			"MetricName":         cbor.String(a.MetricName),
-			"ComparisonOperator": cbor.String(a.ComparisonOperator),
-			"Statistic":          cbor.String(a.Statistic),
-			"StateValue":         cbor.String(a.StateValue),
-			"StateReason":        cbor.String(a.StateReason),
-			"AlarmDescription":   cbor.String(a.AlarmDescription),
-			"Threshold":          cbor.Float64(a.Threshold),
-			"EvaluationPeriods": cbor.Uint(
-				uint64(a.EvaluationPeriods), //nolint:gosec // EvaluationPeriods is always positive
-			),
-			"Period": cbor.Uint(
-				uint64(a.Period), //nolint:gosec // Period is always positive
-			),
-			"ActionsEnabled": cbor.Bool(a.ActionsEnabled),
-		}
-		if len(a.AlarmActions) > 0 {
-			m["AlarmActions"] = cborStringList(a.AlarmActions)
-		}
-		if len(a.OKActions) > 0 {
-			m["OKActions"] = cborStringList(a.OKActions)
-		}
-		if len(a.InsufficientDataActions) > 0 {
-			m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
-		}
-		alarmList = append(alarmList, m)
+	for i := range metricPage.Data {
+		alarmList = append(alarmList, buildMetricAlarmCBOR(&metricPage.Data[i]))
 	}
 
 	compositeList := make(cbor.List, 0, len(compositePage.Data))
-
-	for _, a := range compositePage.Data {
-		m := cbor.Map{
-			"AlarmName":        cbor.String(a.AlarmName),
-			"AlarmArn":         cbor.String(a.AlarmArn),
-			"AlarmRule":        cbor.String(a.AlarmRule),
-			"StateValue":       cbor.String(a.StateValue),
-			"StateReason":      cbor.String(a.StateReason),
-			"AlarmDescription": cbor.String(a.AlarmDescription),
-			"ActionsEnabled":   cbor.Bool(a.ActionsEnabled),
-		}
-		if len(a.AlarmActions) > 0 {
-			m["AlarmActions"] = cborStringList(a.AlarmActions)
-		}
-		if len(a.OKActions) > 0 {
-			m["OKActions"] = cborStringList(a.OKActions)
-		}
-		if len(a.InsufficientDataActions) > 0 {
-			m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
-		}
-		compositeList = append(compositeList, m)
+	for i := range compositePage.Data {
+		compositeList = append(compositeList, buildCompositeAlarmCBOR(&compositePage.Data[i]))
 	}
 
 	resp := cbor.Map{
@@ -766,6 +718,79 @@ func cborStringList(ss []string) cbor.List {
 	return l
 }
 
+// buildMetricAlarmCBOR converts a MetricAlarm to a cbor.Map.
+func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
+	m := cbor.Map{
+		"AlarmName":          cbor.String(a.AlarmName),
+		"AlarmArn":           cbor.String(a.AlarmArn),
+		"Namespace":          cbor.String(a.Namespace),
+		"MetricName":         cbor.String(a.MetricName),
+		"ComparisonOperator": cbor.String(a.ComparisonOperator),
+		"Statistic":          cbor.String(a.Statistic),
+		"StateValue":         cbor.String(a.StateValue),
+		"StateReason":        cbor.String(a.StateReason),
+		"AlarmDescription":   cbor.String(a.AlarmDescription),
+		"Threshold":          cbor.Float64(a.Threshold),
+		"EvaluationPeriods":  cbor.Uint(uint64(a.EvaluationPeriods)), //nolint:gosec // EvaluationPeriods is positive
+		"Period":             cbor.Uint(uint64(a.Period)),            //nolint:gosec // Period is positive
+		"ActionsEnabled":     cbor.Bool(a.ActionsEnabled),
+	}
+	if a.DatapointsToAlarm > 0 {
+		m["DatapointsToAlarm"] = cbor.Uint(uint64(a.DatapointsToAlarm))
+	}
+	if a.TreatMissingData != "" {
+		m["TreatMissingData"] = cbor.String(a.TreatMissingData)
+	}
+	if a.ExtendedStatistic != "" {
+		m["ExtendedStatistic"] = cbor.String(a.ExtendedStatistic)
+	}
+	if len(a.Dimensions) > 0 {
+		dims := make(cbor.List, 0, len(a.Dimensions))
+		for _, d := range a.Dimensions {
+			dims = append(dims, cbor.Map{
+				"Name":  cbor.String(d.Name),
+				"Value": cbor.String(d.Value),
+			})
+		}
+		m["Dimensions"] = dims
+	}
+	if len(a.AlarmActions) > 0 {
+		m["AlarmActions"] = cborStringList(a.AlarmActions)
+	}
+	if len(a.OKActions) > 0 {
+		m["OKActions"] = cborStringList(a.OKActions)
+	}
+	if len(a.InsufficientDataActions) > 0 {
+		m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
+	}
+
+	return m
+}
+
+// buildCompositeAlarmCBOR converts a CompositeAlarm to a cbor.Map.
+func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
+	m := cbor.Map{
+		"AlarmName":        cbor.String(a.AlarmName),
+		"AlarmArn":         cbor.String(a.AlarmArn),
+		"AlarmRule":        cbor.String(a.AlarmRule),
+		"StateValue":       cbor.String(a.StateValue),
+		"StateReason":      cbor.String(a.StateReason),
+		"AlarmDescription": cbor.String(a.AlarmDescription),
+		"ActionsEnabled":   cbor.Bool(a.ActionsEnabled),
+	}
+	if len(a.AlarmActions) > 0 {
+		m["AlarmActions"] = cborStringList(a.AlarmActions)
+	}
+	if len(a.OKActions) > 0 {
+		m["OKActions"] = cborStringList(a.OKActions)
+	}
+	if len(a.InsufficientDataActions) > 0 {
+		m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
+	}
+
+	return m
+}
+
 func (h *Handler) cborPutCompositeAlarm(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
 	if alarmName == "" {
@@ -813,26 +838,8 @@ func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) e
 	}
 
 	alarmList := make(cbor.List, 0, len(p.Data))
-	for _, a := range p.Data {
-		m := cbor.Map{
-			"AlarmName":          cbor.String(a.AlarmName),
-			"AlarmArn":           cbor.String(a.AlarmArn),
-			"Namespace":          cbor.String(a.Namespace),
-			"MetricName":         cbor.String(a.MetricName),
-			"ComparisonOperator": cbor.String(a.ComparisonOperator),
-			"Statistic":          cbor.String(a.Statistic),
-			"StateValue":         cbor.String(a.StateValue),
-			"Threshold":          cbor.Float64(a.Threshold),
-			"EvaluationPeriods": cbor.Uint(
-				uint64(a.EvaluationPeriods), //nolint:gosec // EvaluationPeriods is always positive
-			),
-			"Period":         cbor.Uint(uint64(a.Period)), //nolint:gosec // Period is always positive
-			"ActionsEnabled": cbor.Bool(a.ActionsEnabled),
-		}
-		if len(a.AlarmActions) > 0 {
-			m["AlarmActions"] = cborStringList(a.AlarmActions)
-		}
-		alarmList = append(alarmList, m)
+	for i := range p.Data {
+		alarmList = append(alarmList, buildMetricAlarmCBOR(&p.Data[i]))
 	}
 
 	resp := cbor.Map{"MetricAlarms": alarmList}
