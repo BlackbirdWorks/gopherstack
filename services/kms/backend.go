@@ -1112,12 +1112,13 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 		)
 	}
 
-	err = b.rotateKeyMaterialLocked(key)
+	err = b.rotateKeyMaterialLocked(key, rotationTypeAWSKMS)
 	if err != nil {
 		return err
 	}
 
 	rotationPeriod := int32(defaultRotationPeriodDays)
+
 	if input.RotationPeriodInDays != nil && *input.RotationPeriodInDays > 0 {
 		period := *input.RotationPeriodInDays
 		if period < minRotationPeriodDays || period > maxRotationPeriodDays {
@@ -1192,7 +1193,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*Rot
 
 	now := UnixTimeFloat(time.Now())
 
-	err = b.rotateKeyMaterialLocked(key)
+	err = b.rotateKeyMaterialLocked(key, rotationTypeImported)
 	if err != nil {
 		return nil, err
 	}
@@ -1238,6 +1239,15 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 
 	if len(key.OnDemandRotationDates) > 0 {
 		out.OnDemandRotationStartDate = key.OnDemandRotationDates[len(key.OnDemandRotationDates)-1]
+	}
+
+	// If we have the new typed Rotations slice, prefer it for the on-demand date.
+	for i := len(key.Rotations) - 1; i >= 0; i-- {
+		if key.Rotations[i].RotationType == rotationTypeImported {
+			out.OnDemandRotationStartDate = key.Rotations[i].Date
+
+			break
+		}
 	}
 
 	return out, nil
@@ -1381,7 +1391,7 @@ func keyStateError(key *Key) error {
 	return ErrKeyInvalidState
 }
 
-func (b *InMemoryBackend) rotateKeyMaterialLocked(key *Key) error {
+func (b *InMemoryBackend) rotateKeyMaterialLocked(key *Key, rotationType string) error {
 	if key.KeyState != KeyStateEnabled {
 		return keyStateError(key)
 	}
@@ -1410,7 +1420,9 @@ func (b *InMemoryBackend) rotateKeyMaterialLocked(key *Key) error {
 	}
 
 	b.keyMaterials[key.KeyID] = newKM
-	key.RotationDates = append(key.RotationDates, UnixTimeFloat(time.Now()))
+	ts := UnixTimeFloat(time.Now())
+	key.RotationDates = append(key.RotationDates, ts)
+	key.Rotations = append(key.Rotations, RotationRecord{Date: ts, RotationType: rotationType})
 
 	return nil
 }
@@ -1857,17 +1869,15 @@ func (b *InMemoryBackend) ListKeyRotations(input *ListKeyRotationsInput) (*ListK
 		return nil, err
 	}
 
-	rotations := make([]KeyRotationEntry, 0, len(key.RotationDates))
-	for i, ts := range key.RotationDates {
-		rType := rotationTypeAWSKMS
-		if i >= len(key.RotationDates)-len(key.OnDemandRotationDates) {
-			rType = rotationTypeImported
-		}
-
+	// Build rotation entries from the typed Rotations slice. Legacy keys loaded
+	// from older snapshots that only have RotationDates (no Rotations) will show
+	// empty history; this is acceptable since type information cannot be recovered.
+	rotations := make([]KeyRotationEntry, 0, len(key.Rotations))
+	for _, r := range key.Rotations {
 		rotations = append(rotations, KeyRotationEntry{
 			KeyID:        key.KeyID,
-			RotationDate: ts,
-			RotationType: rType,
+			RotationDate: r.Date,
+			RotationType: r.RotationType,
 		})
 	}
 

@@ -31,25 +31,35 @@ const KeyUsageSignVerify = "SIGN_VERIFY"
 // Note: Go fields use KeyID (Go convention) while JSON tags use KeyId (AWS API wire format).
 // This intentional difference matches both Go naming best practices and AWS API compatibility.
 
+// RotationRecord records a single key material rotation with its type.
+type RotationRecord struct {
+	RotationType string  `json:"RotationType"`
+	Date         float64 `json:"Date"`
+}
+
 // Key represents a KMS customer-managed key.
 type Key struct {
-	Origin                string    `json:"Origin,omitempty"`
-	PrimaryRegion         string    `json:"PrimaryRegion,omitempty"`
-	Description           string    `json:"Description,omitempty"`
-	KeyState              string    `json:"KeyState"`
-	KeyUsage              string    `json:"KeyUsage"`
-	KeySpec               string    `json:"KeySpec,omitempty"`
-	KeyID                 string    `json:"KeyId"`
-	Arn                   string    `json:"Arn"`
-	RotationDates         []float64 `json:"RotationDates,omitempty"`
-	OnDemandRotationDates []float64 `json:"OnDemandRotationDates,omitempty"`
-	CreationDate          float64   `json:"CreationDate"`
-	DeletionDate          float64   `json:"DeletionDate,omitempty"`
-	PendingWindowInDays   int       `json:"PendingWindowInDays,omitempty"`
-	RotationPeriodInDays  int32     `json:"RotationPeriodInDays,omitempty"`
-	Enabled               bool      `json:"Enabled"`
-	MultiRegion           bool      `json:"MultiRegion,omitempty"`
-	RotationEnabled       bool      `json:"RotationEnabled"`
+	Origin        string `json:"Origin,omitempty"`
+	PrimaryRegion string `json:"PrimaryRegion,omitempty"`
+	Description   string `json:"Description,omitempty"`
+	KeyState      string `json:"KeyState"`
+	KeyUsage      string `json:"KeyUsage"`
+	KeySpec       string `json:"KeySpec,omitempty"`
+	KeyID         string `json:"KeyId"`
+	Arn           string `json:"Arn"`
+	// Rotations stores all rotation events with their types. The separate
+	// RotationDates and OnDemandRotationDates slices are kept for JSON
+	// backwards-compatibility with existing snapshots.
+	Rotations             []RotationRecord `json:"Rotations,omitempty"`
+	RotationDates         []float64        `json:"RotationDates,omitempty"`
+	OnDemandRotationDates []float64        `json:"OnDemandRotationDates,omitempty"`
+	CreationDate          float64          `json:"CreationDate"`
+	DeletionDate          float64          `json:"DeletionDate,omitempty"`
+	PendingWindowInDays   int              `json:"PendingWindowInDays,omitempty"`
+	RotationPeriodInDays  int32            `json:"RotationPeriodInDays,omitempty"`
+	Enabled               bool             `json:"Enabled"`
+	MultiRegion           bool             `json:"MultiRegion,omitempty"`
+	RotationEnabled       bool             `json:"RotationEnabled"`
 }
 
 // KeyMetadata is the metadata for a KMS key returned in API responses.
