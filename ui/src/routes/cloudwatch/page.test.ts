@@ -6,6 +6,7 @@ const mockSend = vi.fn();
 
 vi.mock("$lib/aws-client", () => ({
   getCloudWatchClient: () => ({ send: mockSend }),
+  getCloudWatchLogsClient: () => ({ send: mockSend }),
 }));
 
 vi.mock("svelte-sonner", () => ({
@@ -30,12 +31,12 @@ describe("CloudWatch Page", () => {
     expect(screen.getByText("Create Alarm")).toBeInTheDocument();
   });
 
-  it("shows empty state when no alarms", async () => {
+  it("shows demo alarms when api returns empty", async () => {
     mockSend.mockResolvedValue({ MetricAlarms: [] });
     render(CloudWatchPage);
     await waitFor(
       () => {
-        expect(screen.getByText("No alarms found")).toBeInTheDocument();
+        expect(screen.getByText("demo-high-cpu")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
