@@ -57,10 +57,22 @@ type Secret struct {
 	KmsKeyID string `json:"-"`
 	// RotationLambdaARN is the ARN of the Lambda used for rotation.
 	RotationLambdaARN string `json:"-"`
+	// RotationRules configures automatic secret rotation schedules.
+	RotationRules *RotationRulesType `json:"-"`
 	// CurrentVersionId is the VersionId with the AWSCURRENT label.
 	CurrentVersionID string `json:"-"`
 	// RotationEnabled is true after RotateSecret has been called at least once.
 	RotationEnabled bool `json:"-"`
+}
+
+// RotationRulesType configures automatic secret rotation scheduling.
+type RotationRulesType struct {
+	// AutomaticallyAfterDays rotates the secret after this many days.
+	AutomaticallyAfterDays *int64 `json:"AutomaticallyAfterDays,omitempty"`
+	// Duration is an optional ISO-8601 duration window for rotation.
+	Duration string `json:"Duration,omitempty"`
+	// ScheduleExpression is an optional cron/rate expression for rotation scheduling.
+	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 }
 
 // CreateSecretInput is the request payload for CreateSecret.
@@ -211,6 +223,7 @@ type DescribeSecretOutput struct {
 	Description        string                  `json:"Description,omitempty"`
 	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
 	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
+	RotationRules      *RotationRulesType      `json:"RotationRules,omitempty"`
 	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
 	RotationEnabled    bool                    `json:"RotationEnabled"`
 }
@@ -265,9 +278,11 @@ type UntagResourceInput struct {
 
 // RotateSecretInput is the request payload for RotateSecret.
 type RotateSecretInput struct {
-	SecretID           string `json:"SecretId"`
-	RotationLambdaARN  string `json:"RotationLambdaARN,omitempty"`
-	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	SecretID           string             `json:"SecretId"`
+	RotationLambdaARN  string             `json:"RotationLambdaARN,omitempty"`
+	RotationRules      *RotationRulesType `json:"RotationRules,omitempty"`
+	RotateImmediately  *bool              `json:"RotateImmediately,omitempty"`
+	ClientRequestToken string             `json:"ClientRequestToken,omitempty"`
 }
 
 // RotateSecretOutput is the response payload for RotateSecret.

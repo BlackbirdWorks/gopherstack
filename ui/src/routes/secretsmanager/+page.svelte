@@ -4,6 +4,7 @@ import { onMount } from 'svelte';
 import { getSecretsManagerClient } from '$lib/aws-client';
 import {
 	ListSecretsCommand,
+	CreateSecretCommand,
 	DeleteSecretCommand,
 	DescribeSecretCommand,
 	GetSecretValueCommand
@@ -80,6 +81,28 @@ async function deleteSecret(name: string) {
 		await loadSecrets();
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to delete secret');
+	}
+}
+
+async function createSecret() {
+	if (!newSecretName.trim()) {
+		toast.error('Secret name is required');
+
+		return;
+	}
+
+	try {
+		await sm.send(new CreateSecretCommand({
+			Name: newSecretName.trim(),
+			SecretString: newSecretValue
+		}));
+		toast.success(`Secret "${newSecretName.trim()}" created`);
+		showCreateModal = false;
+		newSecretName = '';
+		newSecretValue = '';
+		await loadSecrets();
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to create secret');
 	}
 }
 
@@ -321,7 +344,7 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 			</div>
 			<div class="flex justify-end gap-3 mt-6">
 				<button onclick={() => showCreateModal = false} class="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300">Cancel</button>
-				<button onclick={() => { toast.info('Use AWS CLI or SDK to create secrets in a real environment'); showCreateModal = false; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Create</button>
+				<button onclick={createSecret} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Create</button>
 			</div>
 		</div>
 	</div>

@@ -106,4 +106,69 @@ describe("Secrets Manager Page", () => {
       { timeout: 3000 },
     );
   });
+
+  it("creates a secret from modal", async () => {
+    mockSend
+      .mockResolvedValueOnce({ SecretList: [] })
+      .mockResolvedValueOnce({
+        ARN: "arn:aws:secretsmanager:us-east-1:123:secret:new/secret-abc",
+        Name: "new/secret",
+      })
+      .mockResolvedValueOnce({
+        SecretList: [
+          { Name: "new/secret", ARN: "arn:aws:secretsmanager:us-east-1:123:secret:new/secret-abc" },
+        ],
+      });
+
+    render(SecretsManagerPage);
+
+    await fireEvent.click(screen.getByRole("button", { name: /create secret/i }));
+    await fireEvent.input(screen.getByLabelText("Secret Name"), {
+      target: { value: "new/secret" },
+    });
+    await fireEvent.input(screen.getByLabelText("Secret Value"), {
+      target: { value: "top-secret" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      const createCall = mockSend.mock.calls.find(
+        ([command]) =>
+          command?.constructor?.name === "CreateSecretCommand" &&
+          command.input?.Name === "new/secret" &&
+          command.input?.SecretString === "top-secret",
+      );
+      expect(createCall).toBeTruthy();
+    });
+  });
+
+  it("validates required name before create", async () => {
+    mockSend.mockResolvedValueOnce({ SecretList: [] });
+    render(SecretsManagerPage);
+
+    await fireEvent.click(screen.getByRole("button", { name: /create secret/i }));
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    const { toast } = await import("svelte-sonner");
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith("Secret name is required");
+  });
+
+  it("shows error toast when create fails", async () => {
+    mockSend
+      .mockResolvedValueOnce({ SecretList: [] })
+      .mockRejectedValueOnce(new Error("create denied"));
+    render(SecretsManagerPage);
+
+    await fireEvent.click(screen.getByRole("button", { name: /create secret/i }));
+    await fireEvent.input(screen.getByLabelText("Secret Name"), {
+      target: { value: "new/secret" },
+    });
+    await fireEvent.input(screen.getByLabelText("Secret Value"), {
+      target: { value: "top-secret" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    const { toast } = await import("svelte-sonner");
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalledWith("create denied"));
+  });
 });

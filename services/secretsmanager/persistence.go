@@ -19,6 +19,7 @@ type secretSnapshot struct {
 	Description       string                    `json:"description,omitempty"`
 	KmsKeyID          string                    `json:"kmsKeyID,omitempty"`
 	RotationLambdaARN string                    `json:"rotationLambdaARN,omitempty"`
+	RotationRules     *RotationRulesType        `json:"rotationRules,omitempty"`
 	CurrentVersionID  string                    `json:"currentVersionID"`
 	RotationEnabled   bool                      `json:"rotationEnabled,omitempty"`
 }
@@ -45,6 +46,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			Description:       s.Description,
 			KmsKeyID:          s.KmsKeyID,
 			RotationLambdaARN: s.RotationLambdaARN,
+			RotationRules:     cloneRotationRules(s.RotationRules),
 			Tags:              s.Tags,
 			DeletedDate:       s.DeletedDate,
 			LastChangedDate:   s.LastChangedDate,
@@ -110,6 +112,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			Description:       ss.Description,
 			KmsKeyID:          ss.KmsKeyID,
 			RotationLambdaARN: ss.RotationLambdaARN,
+			RotationRules:     cloneRotationRules(ss.RotationRules),
 			Tags:              ss.Tags,
 			DeletedDate:       ss.DeletedDate,
 			LastChangedDate:   ss.LastChangedDate,
@@ -136,6 +139,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.replicationConfigs = snap.ReplicationConfigs
 
 	b.ensureNonNilMaps()
+	for _, secret := range b.secrets {
+		if secret.RotationRules != nil && secret.RotationEnabled {
+			b.ensureRotationScheduler()
+
+			break
+		}
+	}
 
 	return nil
 }

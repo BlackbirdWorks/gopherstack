@@ -51,7 +51,7 @@ aws --endpoint-url http://localhost:8000 secretsmanager delete-secret \
 
 ## Known Limitations
 
-- `RotateSecret` marks the secret as rotating but does not actually invoke a Lambda function unless Lambda is running and a rotation function is configured.
+- `RotateSecret` supports `RotationRules`; automatic background rotation is schedule-driven and only invokes Lambda if Lambda is running and a rotation function is configured.
 - Resource-based policies are not implemented.
 - Cross-account replication is not supported.
 

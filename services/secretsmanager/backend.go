@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -56,6 +57,8 @@ const (
 	maxVersionsPerSecret = 100
 	// maxSecretValueBytes is the maximum allowed size of a secret value in bytes (64 KB).
 	maxSecretValueBytes = 65536
+	// rotationSchedulerInterval controls the background schedule evaluation cadence.
+	rotationSchedulerInterval = time.Second
 )
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
@@ -64,8 +67,10 @@ type InMemoryBackend struct {
 	resourcePolicies   map[string]string
 	replicationConfigs map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
+	now                func() time.Time
 	accountID          string
 	region             string
+	schedulerOnce      sync.Once
 }
 
 // NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
@@ -82,6 +87,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("secretsmanager"),
+		now:                time.Now,
 	}
 }
 
@@ -182,6 +188,7 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	b.secrets[input.Name] = secret
+	b.syncReplicationStatusLocked(secret)
 
 	return &CreateSecretOutput{
 		ARN:       arn,
@@ -292,6 +299,7 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 	secret.Versions[versionID] = version
 	secret.CurrentVersionID = versionID
 	secret.LastChangedDate = &now
+	b.syncReplicationStatusLocked(secret)
 
 	pruneVersions(secret)
 
@@ -632,6 +640,7 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		Description:        secret.Description,
 		KmsKeyID:           secret.KmsKeyID,
 		RotationLambdaARN:  secret.RotationLambdaARN,
+		RotationRules:      cloneRotationRules(secret.RotationRules),
 		Tags:               secret.Tags,
 		DeletedDate:        secret.DeletedDate,
 		LastChangedDate:    secret.LastChangedDate,
@@ -685,6 +694,7 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
 		secret.LastChangedDate = &now
+		b.syncReplicationStatusLocked(secret)
 
 		pruneVersions(secret)
 	}
@@ -821,42 +831,80 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		return nil, ErrSecretDeleted
 	}
 
-	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
-	if currentVer == nil {
-		return nil, ErrVersionNotFound
-	}
-
-	versionID := generateVersionID()
-
-	newVer := &SecretVersion{
-		VersionID:     versionID,
-		SecretString:  currentVer.SecretString,
-		SecretBinary:  currentVer.SecretBinary,
-		StagingLabels: []string{"AWSPENDING"},
-		CreatedDate:   UnixTimeFloat(time.Now()),
-	}
-	secret.Versions[versionID] = newVer
-
-	b.rotateStagingLabels(secret)
-	newVer.StagingLabels = []string{StagingLabelCurrent}
-	secret.CurrentVersionID = versionID
-	secret.RotationEnabled = true
-
 	if input.RotationLambdaARN != "" {
 		secret.RotationLambdaARN = input.RotationLambdaARN
 	}
 
-	now := UnixTimeFloat(time.Now())
-	secret.LastChangedDate = &now
-	secret.LastRotatedDate = &now
+	if input.RotationRules != nil {
+		secret.RotationRules = cloneRotationRules(input.RotationRules)
+		secret.RotationEnabled = true
+		b.ensureRotationScheduler()
+	}
 
-	pruneVersions(secret)
+	rotateImmediately := true
+	if input.RotateImmediately != nil {
+		rotateImmediately = *input.RotateImmediately
+	}
+
+	if !rotateImmediately {
+		return &RotateSecretOutput{
+			ARN:  secret.ARN,
+			Name: secret.Name,
+		}, nil
+	}
+
+	versionID, err := b.rotateSecretLocked(secret)
+	if err != nil {
+		return nil, err
+	}
 
 	return &RotateSecretOutput{
 		ARN:       secret.ARN,
 		Name:      secret.Name,
 		VersionID: versionID,
 	}, nil
+}
+
+func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
+	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
+	if currentVer == nil {
+		return "", ErrVersionNotFound
+	}
+
+	versionID := generateVersionID()
+	newVer := &SecretVersion{
+		VersionID:     versionID,
+		SecretString:  currentVer.SecretString,
+		SecretBinary:  currentVer.SecretBinary,
+		StagingLabels: []string{"AWSPENDING"},
+		CreatedDate:   UnixTimeFloat(b.now()),
+	}
+	secret.Versions[versionID] = newVer
+	b.rotateStagingLabels(secret)
+	newVer.StagingLabels = []string{StagingLabelCurrent}
+	secret.CurrentVersionID = versionID
+	secret.RotationEnabled = true
+	now := UnixTimeFloat(b.now())
+	secret.LastChangedDate = &now
+	secret.LastRotatedDate = &now
+	pruneVersions(secret)
+	b.syncReplicationStatusLocked(secret)
+
+	return versionID, nil
+}
+
+func cloneRotationRules(rules *RotationRulesType) *RotationRulesType {
+	if rules == nil {
+		return nil
+	}
+
+	cloned := *rules
+	if rules.AutomaticallyAfterDays != nil {
+		days := *rules.AutomaticallyAfterDays
+		cloned.AutomaticallyAfterDays = &days
+	}
+
+	return &cloned
 }
 
 // GetRandomPassword generates a cryptographically random password according to the given constraints.
@@ -1396,7 +1444,11 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 }
 
 // replicationStatusInSync is the status used for in-sync replicas.
-const replicationStatusInSync = "InSync"
+const (
+	replicationStatusFailed     = "Failed"
+	replicationStatusInProgress = "InProgress"
+	replicationStatusInSync     = "InSync"
+)
 
 // ReplicateSecretToRegions adds replication configuration for the specified regions.
 func (b *InMemoryBackend) ReplicateSecretToRegions(
@@ -1425,9 +1477,10 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 
 	for _, replica := range input.AddReplicaRegions {
 		status := ReplicationStatusType{
-			Region:   replica.Region,
-			KmsKeyID: replica.KmsKeyID,
-			Status:   replicationStatusInSync,
+			Region:        replica.Region,
+			KmsKeyID:      replica.KmsKeyID,
+			Status:        replicationStatusInProgress,
+			StatusMessage: "replication queued",
 		}
 
 		if idx, found := existingByRegion[replica.Region]; found {
@@ -1438,10 +1491,11 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	}
 
 	b.replicationConfigs[name] = existing
+	b.syncReplicationStatusLocked(secret)
 
 	return &ReplicateSecretToRegionsOutput{
 		ARN:               secret.ARN,
-		ReplicationStatus: existing,
+		ReplicationStatus: b.replicationConfigs[name],
 	}, nil
 }
 
@@ -1614,6 +1668,122 @@ func (b *InMemoryBackend) Reset() {
 	b.secrets = make(map[string]*Secret)
 	b.resourcePolicies = make(map[string]string)
 	b.replicationConfigs = make(map[string][]ReplicationStatusType)
+}
+
+func (b *InMemoryBackend) ensureRotationScheduler() {
+	b.schedulerOnce.Do(func() {
+		go b.rotationSchedulerLoop()
+	})
+}
+
+func (b *InMemoryBackend) rotationSchedulerLoop() {
+	ticker := time.NewTicker(rotationSchedulerInterval)
+	defer ticker.Stop()
+
+	for now := range ticker.C {
+		b.runScheduledRotations(now)
+	}
+}
+
+func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
+	b.mu.Lock("rotationScheduler")
+	defer b.mu.Unlock()
+
+	for _, secret := range b.secrets {
+		if secret.DeletedDate != nil || !secret.RotationEnabled || secret.RotationRules == nil {
+			continue
+		}
+
+		interval, ok := rotationInterval(secret.RotationRules)
+		if !ok {
+			continue
+		}
+
+		base := secret.LastRotatedDate
+		if base == nil {
+			base = secret.LastChangedDate
+		}
+		if base == nil || now.Before(time.Unix(0, int64(*base*float64(time.Second)))) {
+			continue
+		}
+
+		if now.Sub(time.Unix(0, int64(*base*float64(time.Second)))) < interval {
+			continue
+		}
+
+		_, _ = b.rotateSecretLocked(secret)
+	}
+}
+
+func rotationInterval(rules *RotationRulesType) (time.Duration, bool) {
+	const rateExpressionParts = 2
+
+	if rules == nil {
+		return 0, false
+	}
+
+	if rules.AutomaticallyAfterDays != nil && *rules.AutomaticallyAfterDays > 0 {
+		return time.Duration(*rules.AutomaticallyAfterDays) * 24 * time.Hour, true
+	}
+
+	expr := strings.TrimSpace(rules.ScheduleExpression)
+	if expr == "" {
+		return 0, false
+	}
+	if !strings.HasPrefix(expr, "rate(") || !strings.HasSuffix(expr, ")") {
+		return 0, false
+	}
+
+	payload := strings.TrimSuffix(strings.TrimPrefix(expr, "rate("), ")")
+	parts := strings.Fields(payload)
+	if len(parts) != rateExpressionParts {
+		return 0, false
+	}
+
+	n, err := strconv.Atoi(parts[0])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+
+	switch parts[1] {
+	case "second", "seconds":
+		return time.Duration(n) * time.Second, true
+	case "minute", "minutes":
+		return time.Duration(n) * time.Minute, true
+	case "hour", "hours":
+		return time.Duration(n) * time.Hour, true
+	case "day", "days":
+		return time.Duration(n) * 24 * time.Hour, true
+	default:
+		return 0, false
+	}
+}
+
+func (b *InMemoryBackend) syncReplicationStatusLocked(secret *Secret) {
+	statuses, exists := b.replicationConfigs[secret.Name]
+	if !exists || len(statuses) == 0 {
+		return
+	}
+
+	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
+	if currentVer == nil {
+		for i := range statuses {
+			statuses[i].Status = replicationStatusFailed
+			statuses[i].StatusMessage = "no current secret version to replicate"
+		}
+		b.replicationConfigs[secret.Name] = statuses
+
+		return
+	}
+
+	for i := range statuses {
+		statuses[i].Status = replicationStatusInProgress
+		statuses[i].StatusMessage = "replicating latest version"
+		statuses[i].Status = replicationStatusInSync
+		statuses[i].StatusMessage = "replicated version " + currentVer.VersionID
+	}
+
+	b.replicationConfigs[secret.Name] = statuses
 }
 
 // AccountID returns the AWS account ID configured for this backend.
