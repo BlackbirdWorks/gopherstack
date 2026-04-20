@@ -33,22 +33,23 @@ const KeyUsageSignVerify = "SIGN_VERIFY"
 
 // Key represents a KMS customer-managed key.
 type Key struct {
-	Origin               string    `json:"Origin,omitempty"`
-	PrimaryRegion        string    `json:"PrimaryRegion,omitempty"`
-	Description          string    `json:"Description,omitempty"`
-	KeyState             string    `json:"KeyState"`
-	KeyUsage             string    `json:"KeyUsage"`
-	KeySpec              string    `json:"KeySpec,omitempty"`
-	KeyID                string    `json:"KeyId"`
-	Arn                  string    `json:"Arn"`
-	RotationDates        []float64 `json:"RotationDates,omitempty"`
-	CreationDate         float64   `json:"CreationDate"`
-	DeletionDate         float64   `json:"DeletionDate,omitempty"`
-	PendingWindowInDays  int       `json:"PendingWindowInDays,omitempty"`
-	RotationPeriodInDays int32     `json:"RotationPeriodInDays,omitempty"`
-	Enabled              bool      `json:"Enabled"`
-	MultiRegion          bool      `json:"MultiRegion,omitempty"`
-	RotationEnabled      bool      `json:"RotationEnabled"`
+	Origin                string    `json:"Origin,omitempty"`
+	PrimaryRegion         string    `json:"PrimaryRegion,omitempty"`
+	Description           string    `json:"Description,omitempty"`
+	KeyState              string    `json:"KeyState"`
+	KeyUsage              string    `json:"KeyUsage"`
+	KeySpec               string    `json:"KeySpec,omitempty"`
+	KeyID                 string    `json:"KeyId"`
+	Arn                   string    `json:"Arn"`
+	RotationDates         []float64 `json:"RotationDates,omitempty"`
+	OnDemandRotationDates []float64 `json:"OnDemandRotationDates,omitempty"`
+	CreationDate          float64   `json:"CreationDate"`
+	DeletionDate          float64   `json:"DeletionDate,omitempty"`
+	PendingWindowInDays   int       `json:"PendingWindowInDays,omitempty"`
+	RotationPeriodInDays  int32     `json:"RotationPeriodInDays,omitempty"`
+	Enabled               bool      `json:"Enabled"`
+	MultiRegion           bool      `json:"MultiRegion,omitempty"`
+	RotationEnabled       bool      `json:"RotationEnabled"`
 }
 
 // KeyMetadata is the metadata for a KMS key returned in API responses.
@@ -160,8 +161,9 @@ type EncryptInput struct {
 
 // EncryptOutput is the response payload for Encrypt.
 type EncryptOutput struct {
-	KeyID          string `json:"KeyId"`
-	CiphertextBlob []byte `json:"CiphertextBlob"`
+	KeyID               string `json:"KeyId"`
+	EncryptionAlgorithm string `json:"EncryptionAlgorithm,omitempty"`
+	CiphertextBlob      []byte `json:"CiphertextBlob"`
 }
 
 // DecryptInput is the request payload for Decrypt.
@@ -173,8 +175,9 @@ type DecryptInput struct {
 
 // DecryptOutput is the response payload for Decrypt.
 type DecryptOutput struct {
-	KeyID     string `json:"KeyId"`
-	Plaintext []byte `json:"Plaintext"`
+	KeyID               string `json:"KeyId"`
+	EncryptionAlgorithm string `json:"EncryptionAlgorithm,omitempty"`
+	Plaintext           []byte `json:"Plaintext"`
 }
 
 // GenerateDataKeyInput is the request payload for GenerateDataKey.
@@ -203,9 +206,11 @@ type ReEncryptInput struct {
 
 // ReEncryptOutput is the response payload for ReEncrypt.
 type ReEncryptOutput struct {
-	KeyID          string `json:"KeyId"`
-	SourceKeyID    string `json:"SourceKeyId"`
-	CiphertextBlob []byte `json:"CiphertextBlob"`
+	KeyID                          string `json:"KeyId"`
+	SourceKeyID                    string `json:"SourceKeyId"`
+	SourceEncryptionAlgorithm      string `json:"SourceEncryptionAlgorithm,omitempty"`
+	DestinationEncryptionAlgorithm string `json:"DestinationEncryptionAlgorithm,omitempty"`
+	CiphertextBlob                 []byte `json:"CiphertextBlob"`
 }
 
 // CreateAliasInput is the request payload for CreateAlias.
@@ -267,10 +272,11 @@ type GetKeyRotationStatusInput struct {
 
 // GetKeyRotationStatusOutput is the response payload for GetKeyRotationStatus.
 type GetKeyRotationStatusOutput struct {
-	KeyID                string  `json:"KeyId"`
-	NextRotationDate     float64 `json:"NextRotationDate,omitempty"`
-	RotationPeriodInDays int32   `json:"RotationPeriodInDays,omitempty"`
-	KeyRotationEnabled   bool    `json:"KeyRotationEnabled"`
+	KeyID                     string  `json:"KeyId"`
+	NextRotationDate          float64 `json:"NextRotationDate,omitempty"`
+	OnDemandRotationStartDate float64 `json:"OnDemandRotationStartDate,omitempty"`
+	RotationPeriodInDays      int32   `json:"RotationPeriodInDays,omitempty"`
+	KeyRotationEnabled        bool    `json:"KeyRotationEnabled"`
 }
 
 // KeyStatePendingDeletion is the string constant for a key pending deletion.
@@ -312,6 +318,12 @@ type ScheduleKeyDeletionOutput struct {
 // CancelKeyDeletionInput is the request payload for CancelKeyDeletion.
 type CancelKeyDeletionInput struct {
 	KeyID string `json:"KeyId"`
+}
+
+// CancelKeyDeletionOutput is the response payload for CancelKeyDeletion.
+type CancelKeyDeletionOutput struct {
+	KeyID    string `json:"KeyId"`
+	KeyState string `json:"KeyState"`
 }
 
 // ErrorResponse is the KMS JSON error response format.
@@ -529,6 +541,8 @@ type ListKeyPoliciesOutput struct {
 
 // KeyRotationEntry describes one key rotation event.
 type KeyRotationEntry struct {
+	KeyID        string  `json:"KeyId,omitempty"`
+	RotationType string  `json:"RotationType,omitempty"`
 	RotationDate float64 `json:"RotationDate"`
 }
 
@@ -593,6 +607,27 @@ const KeyUsageGenerateMac = "GENERATE_VERIFY_MAC"
 
 // KeyUsageKeyAgreement is the key usage for ECDH key agreement keys.
 const KeyUsageKeyAgreement = "KEY_AGREEMENT"
+
+// maxDescriptionLength is the maximum length of a KMS key description (matches AWS).
+const maxDescriptionLength = 8192
+
+// maxTagsPerKey is the maximum number of tags that can be applied to a KMS key (matches AWS).
+const maxTagsPerKey = 50
+
+// maxAliasNameLength is the maximum byte length of an alias name including the "alias/" prefix.
+const maxAliasNameLength = 256
+
+// rotationTypeAWSKMS is the rotation type for automatic AWS-managed rotations.
+const rotationTypeAWSKMS = "AWS_KMS"
+
+// rotationTypeImported is the rotation type for customer-triggered (on-demand) rotations.
+const rotationTypeImported = "IMPORTED"
+
+// encryptionAlgorithmSymmetric is the encryption algorithm string for symmetric (AES-256-GCM) keys.
+const encryptionAlgorithmSymmetric = "SYMMETRIC_DEFAULT"
+
+// encryptionAlgorithmRSAOAEP is the encryption algorithm string for RSA OAEP-SHA-256 keys.
+const encryptionAlgorithmRSAOAEP = "RSAES_OAEP_SHA_256"
 
 // ConnectionStateConnected indicates a custom key store is connected.
 const ConnectionStateConnected = "CONNECTED"

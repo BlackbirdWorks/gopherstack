@@ -1044,7 +1044,7 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 			run: func(t *testing.T, b *kms.InMemoryBackend) {
 				t.Helper()
 
-				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				key, err := b.CreateKey(&kms.CreateKeyInput{MultiRegion: true})
 				require.NoError(t, err)
 
 				out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
@@ -1104,7 +1104,7 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 			run: func(t *testing.T, b *kms.InMemoryBackend) {
 				t.Helper()
 
-				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				key, err := b.CreateKey(&kms.CreateKeyInput{MultiRegion: true})
 				require.NoError(t, err)
 
 				err = b.UpdatePrimaryRegion(&kms.UpdatePrimaryRegionInput{

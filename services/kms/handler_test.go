@@ -1135,7 +1135,9 @@ func TestKMSScheduleAndCancelKeyDeletion(t *testing.T) {
 	assert.NotZero(t, schedOut.DeletionDate)
 
 	// Cancel deletion — key should become Disabled
-	require.NoError(t, backend.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID}))
+	cancelOut, cancelErr := backend.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+	require.NoError(t, cancelErr)
+	assert.Equal(t, kms.KeyStateDisabled, cancelOut.KeyState)
 
 	desc, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
@@ -3090,7 +3092,7 @@ func TestKMSCancelKeyDeletion_RequiresPendingDeletion(t *testing.T) {
 				tt.setup(b, keyID)
 			}
 
-			cancelErr := b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+			_, cancelErr := b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, cancelErr, tt.wantErr)

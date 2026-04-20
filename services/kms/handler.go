@@ -393,7 +393,7 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.CancelKeyDeletion(&input)
+			return h.Backend.CancelKeyDeletion(&input)
 		},
 		"ImportKeyMaterial": func(_ string, b []byte) (any, error) {
 			var input ImportKeyMaterialInput
@@ -608,69 +608,132 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 	}
 }
 
+// listResourceTags handles the ListResourceTags operation.
+func (h *Handler) listResourceTags(b []byte) (any, error) {
+	var input listResourceTagsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+		return nil, descErr
+	}
+
+	tagMap := h.getTags(input.KeyID)
+	tagList := make([]kmsTagEntry, 0, len(tagMap))
+
+	for k, v := range tagMap {
+		tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
+	}
+
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].TagKey < tagList[j].TagKey })
+
+	return paginateTagList(tagList, input.Marker, input.Limit), nil
+}
+
+// paginateTagList returns a paginated listResourceTagsOutput slice from a full tag list.
+func paginateTagList(tagList []kmsTagEntry, marker string, limit *int32) *listResourceTagsOutput {
+	startIdx := parseMarker(marker)
+	pageLimit := defaultKMSTagsLimit
+
+	if limit != nil && *limit > 0 {
+		pageLimit = *limit
+	}
+
+	if startIdx >= len(tagList) {
+		return &listResourceTagsOutput{Tags: []kmsTagEntry{}, Truncated: false}
+	}
+
+	end := startIdx + int(pageLimit)
+
+	var nextMarker string
+
+	if end < len(tagList) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(tagList)
+	}
+
+	return &listResourceTagsOutput{
+		Tags:       tagList[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}
+}
+
+// tagResource handles the TagResource operation, validating key existence and tag count.
+func (h *Handler) tagResource(b []byte) (any, error) {
+	var input tagResourceInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+		return nil, descErr
+	}
+
+	newTags := make(map[string]string, len(input.Tags))
+	for _, t := range input.Tags {
+		newTags[t.TagKey] = t.TagValue
+	}
+
+	if err := h.validateTagCount(input.KeyID, newTags); err != nil {
+		return nil, err
+	}
+
+	h.setTags(input.KeyID, newTags)
+
+	return struct{}{}, nil
+}
+
+// validateTagCount returns an error if adding newTags to keyID would exceed the max tag limit.
+func (h *Handler) validateTagCount(keyID string, newTags map[string]string) error {
+	existing := h.getTags(keyID)
+
+	netNew := 0
+	for k := range newTags {
+		if _, alreadyPresent := existing[k]; !alreadyPresent {
+			netNew++
+		}
+	}
+
+	if len(existing)+netNew > maxTagsPerKey {
+		return fmt.Errorf(
+			"%w: tagging key %q would exceed the maximum of %d tags",
+			ErrValidation, keyID, maxTagsPerKey,
+		)
+	}
+
+	return nil
+}
+
+// untagResource handles the UntagResource operation.
+func (h *Handler) untagResource(b []byte) (any, error) {
+	var input untagResourceInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+		return nil, descErr
+	}
+
+	h.removeTags(input.KeyID, input.TagKeys)
+
+	return struct{}{}, nil
+}
+
 // buildTagActions returns dispatch entries for KMS resource tag operations.
 func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"ListResourceTags": func(_ string, b []byte) (any, error) {
-			var input listResourceTagsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			tagMap := h.getTags(input.KeyID)
-			tagList := make([]kmsTagEntry, 0, len(tagMap))
-			for k, v := range tagMap {
-				tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
-			}
-
-			sort.Slice(tagList, func(i, j int) bool { return tagList[i].TagKey < tagList[j].TagKey })
-
-			startIdx := parseMarker(input.Marker)
-			limit := defaultKMSTagsLimit
-
-			if input.Limit != nil && *input.Limit > 0 {
-				limit = *input.Limit
-			}
-
-			if startIdx >= len(tagList) {
-				return &listResourceTagsOutput{Tags: []kmsTagEntry{}, Truncated: false}, nil
-			}
-
-			end := startIdx + int(limit)
-
-			var nextMarker string
-			if end < len(tagList) {
-				nextMarker = strconv.Itoa(end)
-			} else {
-				end = len(tagList)
-			}
-
-			return &listResourceTagsOutput{
-				Tags:       tagList[startIdx:end],
-				NextMarker: nextMarker,
-				Truncated:  nextMarker != "",
-			}, nil
+			return h.listResourceTags(b)
 		},
 		"TagResource": func(_ string, b []byte) (any, error) {
-			var input tagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			kv := make(map[string]string, len(input.Tags))
-			for _, t := range input.Tags {
-				kv[t.TagKey] = t.TagValue
-			}
-			h.setTags(input.KeyID, kv)
-
-			return struct{}{}, nil
+			return h.tagResource(b)
 		},
 		"UntagResource": func(_ string, b []byte) (any, error) {
-			var input untagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			h.removeTags(input.KeyID, input.TagKeys)
-
-			return struct{}{}, nil
+			return h.untagResource(b)
 		},
 	}
 }
