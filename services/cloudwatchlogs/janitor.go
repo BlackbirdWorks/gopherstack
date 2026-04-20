@@ -138,11 +138,13 @@ func (j *Janitor) sweepGroupStreams(groupName string, cutoffMs int64) int {
 
 	for streamName, evts := range j.Backend.events[groupName] {
 		kept := make([]*OutputLogEvent, 0, len(evts))
+		evictedBytes := int64(0)
 		for _, ev := range evts {
 			if ev.Timestamp >= cutoffMs {
 				kept = append(kept, ev)
 			} else {
 				evicted++
+				evictedBytes += int64(len(ev.Message))
 			}
 		}
 
@@ -151,6 +153,16 @@ func (j *Janitor) sweepGroupStreams(groupName string, cutoffMs int64) int {
 		}
 
 		j.Backend.events[groupName][streamName] = kept
+
+		if evictedBytes > 0 {
+			stream := j.Backend.streams[groupName][streamName]
+			if stream != nil {
+				stream.StoredBytes -= evictedBytes
+			}
+			if g := j.Backend.groups[groupName]; g != nil {
+				g.StoredBytes -= evictedBytes
+			}
+		}
 
 		// Update stream metadata to reflect the events that remain.
 		stream := j.Backend.streams[groupName][streamName]

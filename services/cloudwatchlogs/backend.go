@@ -35,6 +35,11 @@ var (
 	ErrExportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrImportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrValidation                    = errors.New("InvalidParameterException")
+	ErrDeliveryNotFound              = errors.New("ResourceNotFoundException")
+	ErrLogAnomalyDetectorNotFound    = errors.New("ResourceNotFoundException")
+	ErrScheduledQueryNotFound        = errors.New("ResourceNotFoundException")
+	ErrMetricFilterNotFound          = errors.New("ResourceNotFoundException")
+	ErrQueryDefinitionNotFound       = errors.New("ResourceNotFoundException")
 )
 
 // validEvaluationFrequencies returns the allowed values for the anomaly detector
@@ -156,6 +161,59 @@ type StorageBackend interface {
 	CreateScheduledQuery(name, queryString, scheduleExpression, executionRoleArn, state string) (string, error)
 	// DeleteAccountPolicy deletes a CloudWatch Logs account-level policy.
 	DeleteAccountPolicy(policyName, policyType string) error
+	// DescribeExportTasks lists export tasks optionally filtered by task ID or status.
+	DescribeExportTasks(taskID, statusCode string, limit int, nextToken string) ([]ExportTask, string, error)
+	// DescribeImportTasks lists import tasks optionally filtered by task ID.
+	DescribeImportTasks(taskID string, limit int, nextToken string) ([]ImportTask, string, error)
+	// DescribeDeliveries lists deliveries with pagination.
+	DescribeDeliveries(limit int, nextToken string) ([]Delivery, string, error)
+	// GetDelivery returns a single delivery by ID.
+	GetDelivery(id string) (*Delivery, error)
+	// DeleteDelivery deletes a delivery by ID.
+	DeleteDelivery(id string) error
+	// DeleteLogAnomalyDetector deletes a log anomaly detector.
+	DeleteLogAnomalyDetector(detectorArn string) error
+	// ListLogAnomalyDetectors lists anomaly detectors, optionally filtered by log group ARN.
+	ListLogAnomalyDetectors(
+		filterLogGroupArnList []string,
+		limit int,
+		nextToken string,
+	) ([]LogAnomalyDetector, string, error)
+	// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly visibility time.
+	UpdateLogAnomalyDetector(detectorArn, evaluationFrequency string, anomalyVisibilityTime int64) error
+	// DeleteScheduledQuery deletes a scheduled query by ARN.
+	DeleteScheduledQuery(scheduledQueryArn string) error
+	// ListScheduledQueries lists all scheduled queries with pagination.
+	ListScheduledQueries(limit int, nextToken string) ([]ScheduledQuery, string, error)
+	// UpdateScheduledQuery updates the state of a scheduled query.
+	UpdateScheduledQuery(scheduledQueryArn, state string) error
+	// PutAccountPolicy creates or updates an account-level policy.
+	PutAccountPolicy(policyName, policyType, policyDocument string) (*AccountPolicy, error)
+	// DescribeAccountPolicies returns account-level policies, optionally filtered.
+	DescribeAccountPolicies(policyType, policyName string) ([]AccountPolicy, error)
+	// DisassociateKmsKey removes the KMS key association from a log group or resource.
+	DisassociateKmsKey(logGroupName, resourceIdentifier string) error
+	// PutMetricFilter creates or updates a metric filter for a log group.
+	PutMetricFilter(logGroupName, filterName, filterPattern string, transformations []MetricTransformation) error
+	// DescribeMetricFilters lists metric filters with optional filters.
+	DescribeMetricFilters(
+		logGroupName, filterNamePrefix, metricName, metricNamespace, nextToken string,
+		limit int,
+	) ([]MetricFilter, string, error)
+	// DeleteMetricFilter deletes a metric filter from a log group.
+	DeleteMetricFilter(logGroupName, filterName string) error
+	// TestMetricFilter tests a metric filter pattern against provided log event messages.
+	TestMetricFilter(filterPattern string, logEventMessages []string) ([]MetricFilterMatchRecord, error)
+	// PutQueryDefinition creates or updates a query definition.
+	PutQueryDefinition(name, queryString, queryDefinitionID string, logGroupNames []string) (string, error)
+	// DescribeQueryDefinitions lists query definitions optionally filtered by name prefix.
+	DescribeQueryDefinitions(
+		queryDefinitionNamePrefix string,
+		limit int,
+		nextToken string,
+	) ([]QueryDefinition, string, error)
+	// DeleteQueryDefinition deletes a query definition by ID.
+	DeleteQueryDefinition(queryDefinitionID string) error
 }
 
 // storedQuery holds the execution state of a single Logs Insights query.
@@ -186,6 +244,8 @@ type InMemoryBackend struct {
 	accountPolicies     map[string]*AccountPolicy
 	kmsKeys             map[string]string
 	s3TableIntegrations map[string]string
+	metricFilters       map[string]map[string]*MetricFilter // keyed by logGroupName then filterName
+	queryDefinitions    map[string]*QueryDefinition         // keyed by queryDefinitionID
 	cancel              context.CancelFunc
 	groups              map[string]*LogGroup
 	accountID           string
@@ -237,6 +297,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		accountPolicies:     make(map[string]*AccountPolicy),
 		kmsKeys:             make(map[string]string),
 		s3TableIntegrations: make(map[string]string),
+		metricFilters:       make(map[string]map[string]*MetricFilter),
+		queryDefinitions:    make(map[string]*QueryDefinition),
 		mu:                  lockmetrics.New("cloudwatchlogs"),
 		queryTTL:            defaultQueryTTL,
 		maxQueries:          defaultMaxQueries,
@@ -431,6 +493,11 @@ func (b *InMemoryBackend) DeleteLogStream(groupName, streamName string) error {
 		return fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
+	stream := b.streams[groupName][streamName]
+	if stream != nil && b.groups[groupName] != nil {
+		b.groups[groupName].StoredBytes -= stream.StoredBytes
+	}
+
 	delete(b.streams[groupName], streamName)
 	delete(b.events[groupName], streamName)
 
@@ -538,6 +605,10 @@ func (b *InMemoryBackend) appendEvents(
 			Timestamp:     ev.Timestamp,
 		}
 		b.events[groupName][streamName] = append(b.events[groupName][streamName], out)
+
+		msgLen := int64(len(ev.Message))
+		stream.StoredBytes += msgLen
+		b.groups[groupName].StoredBytes += msgLen
 
 		if stream.FirstEventTimestamp == nil || ev.Timestamp < *stream.FirstEventTimestamp {
 			ts := ev.Timestamp
@@ -1413,6 +1484,8 @@ func (b *InMemoryBackend) Reset() {
 	b.accountPolicies = make(map[string]*AccountPolicy)
 	b.kmsKeys = make(map[string]string)
 	b.s3TableIntegrations = make(map[string]string)
+	b.metricFilters = make(map[string]map[string]*MetricFilter)
+	b.queryDefinitions = make(map[string]*QueryDefinition)
 }
 
 // AssociateKmsKey associates a KMS key with a log group or query results resource.
@@ -1723,6 +1796,646 @@ func (b *InMemoryBackend) DeleteAccountPolicy(policyName, policyType string) err
 
 	key := policyName + ":" + policyType
 	delete(b.accountPolicies, key)
+
+	return nil
+}
+
+// DescribeExportTasks lists export tasks optionally filtered by task ID or status.
+func (b *InMemoryBackend) DescribeExportTasks(
+	taskID, statusCode string,
+	limit int,
+	nextToken string,
+) ([]ExportTask, string, error) {
+	b.mu.RLock("DescribeExportTasks")
+	defer b.mu.RUnlock()
+
+	all := make([]ExportTask, 0, len(b.exportTasks))
+	for _, t := range b.exportTasks {
+		if taskID != "" && t.TaskID != taskID {
+			continue
+		}
+		if statusCode != "" && t.Status != statusCode {
+			continue
+		}
+		all = append(all, *t)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []ExportTask{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// DescribeImportTasks lists import tasks optionally filtered by task ID.
+func (b *InMemoryBackend) DescribeImportTasks(
+	taskID string,
+	limit int,
+	nextToken string,
+) ([]ImportTask, string, error) {
+	b.mu.RLock("DescribeImportTasks")
+	defer b.mu.RUnlock()
+
+	all := make([]ImportTask, 0, len(b.importTasks))
+	for _, t := range b.importTasks {
+		if taskID != "" && t.ImportID != taskID {
+			continue
+		}
+		all = append(all, *t)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []ImportTask{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// DescribeDeliveries lists deliveries with pagination.
+func (b *InMemoryBackend) DescribeDeliveries(limit int, nextToken string) ([]Delivery, string, error) {
+	b.mu.RLock("DescribeDeliveries")
+	defer b.mu.RUnlock()
+
+	all := make([]Delivery, 0, len(b.deliveries))
+	for _, d := range b.deliveries {
+		cp := *d
+		cp.Tags = maps.Clone(d.Tags)
+		all = append(all, cp)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []Delivery{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// GetDelivery returns a single delivery by ID.
+func (b *InMemoryBackend) GetDelivery(id string) (*Delivery, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: id is required", ErrValidation)
+	}
+
+	b.mu.RLock("GetDelivery")
+	defer b.mu.RUnlock()
+
+	d, ok := b.deliveries[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: delivery %s not found", ErrDeliveryNotFound, id)
+	}
+	cp := *d
+	cp.Tags = maps.Clone(d.Tags)
+
+	return &cp, nil
+}
+
+// DeleteDelivery deletes a delivery by ID.
+func (b *InMemoryBackend) DeleteDelivery(id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: id is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteDelivery")
+	defer b.mu.Unlock()
+
+	if _, ok := b.deliveries[id]; !ok {
+		return fmt.Errorf("%w: delivery %s not found", ErrDeliveryNotFound, id)
+	}
+	delete(b.deliveries, id)
+
+	return nil
+}
+
+// DeleteLogAnomalyDetector deletes a log anomaly detector.
+func (b *InMemoryBackend) DeleteLogAnomalyDetector(detectorArn string) error {
+	if detectorArn == "" {
+		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteLogAnomalyDetector")
+	defer b.mu.Unlock()
+
+	if _, ok := b.logAnomalyDetectors[detectorArn]; !ok {
+		return fmt.Errorf("%w: anomaly detector %s not found", ErrLogAnomalyDetectorNotFound, detectorArn)
+	}
+	delete(b.logAnomalyDetectors, detectorArn)
+
+	return nil
+}
+
+// ListLogAnomalyDetectors lists anomaly detectors, optionally filtered by log group ARN.
+func (b *InMemoryBackend) ListLogAnomalyDetectors(
+	filterLogGroupArnList []string,
+	limit int,
+	nextToken string,
+) ([]LogAnomalyDetector, string, error) {
+	b.mu.RLock("ListLogAnomalyDetectors")
+	defer b.mu.RUnlock()
+
+	filterSet := make(map[string]bool, len(filterLogGroupArnList))
+	for _, a := range filterLogGroupArnList {
+		filterSet[a] = true
+	}
+
+	all := make([]LogAnomalyDetector, 0, len(b.logAnomalyDetectors))
+	for _, d := range b.logAnomalyDetectors {
+		if len(filterSet) > 0 {
+			match := false
+			for _, a := range d.LogGroupArnList {
+				if filterSet[a] {
+					match = true
+
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		cp := *d
+		cp.LogGroupArnList = slices.Clone(d.LogGroupArnList)
+		all = append(all, cp)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreationTimeStamp < all[j].CreationTimeStamp })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []LogAnomalyDetector{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly visibility time.
+func (b *InMemoryBackend) UpdateLogAnomalyDetector(
+	detectorArn, evaluationFrequency string,
+	anomalyVisibilityTime int64,
+) error {
+	if detectorArn == "" {
+		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
+	}
+	if evaluationFrequency != "" {
+		if _, ok := validEvaluationFrequencies()[evaluationFrequency]; !ok {
+			return fmt.Errorf("%w: invalid evaluationFrequency %q", ErrValidation, evaluationFrequency)
+		}
+	}
+
+	b.mu.Lock("UpdateLogAnomalyDetector")
+	defer b.mu.Unlock()
+
+	d, ok := b.logAnomalyDetectors[detectorArn]
+	if !ok {
+		return fmt.Errorf("%w: anomaly detector %s not found", ErrLogAnomalyDetectorNotFound, detectorArn)
+	}
+	if evaluationFrequency != "" {
+		d.EvaluationFrequency = evaluationFrequency
+	}
+	if anomalyVisibilityTime > 0 {
+		d.AnomalyVisibilityTime = anomalyVisibilityTime
+	}
+
+	return nil
+}
+
+// DeleteScheduledQuery deletes a scheduled query by ARN.
+func (b *InMemoryBackend) DeleteScheduledQuery(scheduledQueryArn string) error {
+	if scheduledQueryArn == "" {
+		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteScheduledQuery")
+	defer b.mu.Unlock()
+
+	if _, ok := b.scheduledQueries[scheduledQueryArn]; !ok {
+		return fmt.Errorf("%w: scheduled query %s not found", ErrScheduledQueryNotFound, scheduledQueryArn)
+	}
+	delete(b.scheduledQueries, scheduledQueryArn)
+
+	return nil
+}
+
+// ListScheduledQueries lists all scheduled queries with pagination.
+func (b *InMemoryBackend) ListScheduledQueries(limit int, nextToken string) ([]ScheduledQuery, string, error) {
+	b.mu.RLock("ListScheduledQueries")
+	defer b.mu.RUnlock()
+
+	all := make([]ScheduledQuery, 0, len(b.scheduledQueries))
+	for _, sq := range b.scheduledQueries {
+		all = append(all, *sq)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []ScheduledQuery{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// UpdateScheduledQuery updates the state of a scheduled query.
+func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) error {
+	if scheduledQueryArn == "" {
+		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
+	}
+	if state == "" {
+		return fmt.Errorf("%w: state is required", ErrValidation)
+	}
+	if _, ok := validScheduledQueryStates()[state]; !ok {
+		return fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidation, state)
+	}
+
+	b.mu.Lock("UpdateScheduledQuery")
+	defer b.mu.Unlock()
+
+	sq, ok := b.scheduledQueries[scheduledQueryArn]
+	if !ok {
+		return fmt.Errorf("%w: scheduled query %s not found", ErrScheduledQueryNotFound, scheduledQueryArn)
+	}
+	sq.State = state
+
+	return nil
+}
+
+// PutAccountPolicy creates or updates an account-level policy.
+func (b *InMemoryBackend) PutAccountPolicy(policyName, policyType, policyDocument string) (*AccountPolicy, error) {
+	if policyName == "" {
+		return nil, fmt.Errorf("%w: policyName is required", ErrValidation)
+	}
+	if policyType == "" {
+		return nil, fmt.Errorf("%w: policyType is required", ErrValidation)
+	}
+	if _, ok := validAccountPolicyTypes()[policyType]; !ok {
+		return nil, fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
+	}
+
+	b.mu.Lock("PutAccountPolicy")
+	defer b.mu.Unlock()
+
+	key := policyName + ":" + policyType
+	p := &AccountPolicy{
+		PolicyName:     policyName,
+		PolicyType:     policyType,
+		PolicyDocument: policyDocument,
+	}
+	b.accountPolicies[key] = p
+	cp := *p
+
+	return &cp, nil
+}
+
+// DescribeAccountPolicies returns account-level policies, optionally filtered.
+func (b *InMemoryBackend) DescribeAccountPolicies(policyType, policyName string) ([]AccountPolicy, error) {
+	if policyType != "" {
+		if _, ok := validAccountPolicyTypes()[policyType]; !ok {
+			return nil, fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
+		}
+	}
+
+	b.mu.RLock("DescribeAccountPolicies")
+	defer b.mu.RUnlock()
+
+	all := make([]AccountPolicy, 0, len(b.accountPolicies))
+	for _, p := range b.accountPolicies {
+		if policyType != "" && p.PolicyType != policyType {
+			continue
+		}
+		if policyName != "" && p.PolicyName != policyName {
+			continue
+		}
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].PolicyName < all[j].PolicyName })
+
+	return all, nil
+}
+
+// DisassociateKmsKey removes the KMS key association from a log group or resource.
+func (b *InMemoryBackend) DisassociateKmsKey(logGroupName, resourceIdentifier string) error {
+	if logGroupName == "" && resourceIdentifier == "" {
+		return fmt.Errorf("%w: one of logGroupName or resourceIdentifier is required", ErrValidation)
+	}
+
+	b.mu.Lock("DisassociateKmsKey")
+	defer b.mu.Unlock()
+
+	key := logGroupName
+	if key == "" {
+		key = resourceIdentifier
+	}
+	delete(b.kmsKeys, key)
+
+	return nil
+}
+
+// PutMetricFilter creates or updates a metric filter for a log group.
+func (b *InMemoryBackend) PutMetricFilter(
+	logGroupName, filterName, filterPattern string,
+	transformations []MetricTransformation,
+) error {
+	if logGroupName == "" {
+		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+	if filterName == "" {
+		return fmt.Errorf("%w: filterName is required", ErrValidation)
+	}
+	if len(transformations) == 0 {
+		return fmt.Errorf("%w: at least one metricTransformation is required", ErrValidation)
+	}
+
+	b.mu.Lock("PutMetricFilter")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[logGroupName]; !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
+	}
+
+	if b.metricFilters[logGroupName] == nil {
+		b.metricFilters[logGroupName] = make(map[string]*MetricFilter)
+	}
+
+	creationTime := time.Now().UnixMilli()
+	if existing, ok := b.metricFilters[logGroupName][filterName]; ok {
+		creationTime = existing.CreationTime
+	}
+
+	mf := &MetricFilter{
+		FilterName:            filterName,
+		LogGroupName:          logGroupName,
+		FilterPattern:         filterPattern,
+		MetricTransformations: append([]MetricTransformation(nil), transformations...),
+		CreationTime:          creationTime,
+	}
+	b.metricFilters[logGroupName][filterName] = mf
+	count := len(b.metricFilters[logGroupName])
+	b.groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
+
+	return nil
+}
+
+// DescribeMetricFilters lists metric filters with optional filters.
+func (b *InMemoryBackend) DescribeMetricFilters(
+	logGroupName, filterNamePrefix, metricName, metricNamespace, nextToken string,
+	limit int,
+) ([]MetricFilter, string, error) {
+	b.mu.RLock("DescribeMetricFilters")
+	defer b.mu.RUnlock()
+
+	var all []MetricFilter
+	for grp, filters := range b.metricFilters {
+		if logGroupName != "" && grp != logGroupName {
+			continue
+		}
+		for _, mf := range filters {
+			if !metricFilterMatches(mf, filterNamePrefix, metricName, metricNamespace) {
+				continue
+			}
+			cp := *mf
+			cp.MetricTransformations = append([]MetricTransformation(nil), mf.MetricTransformations...)
+			all = append(all, cp)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].LogGroupName != all[j].LogGroupName {
+			return all[i].LogGroupName < all[j].LogGroupName
+		}
+
+		return all[i].FilterName < all[j].FilterName
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []MetricFilter{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// metricFilterMatches returns true if mf passes the given filter criteria.
+func metricFilterMatches(mf *MetricFilter, filterNamePrefix, metricName, metricNamespace string) bool {
+	if filterNamePrefix != "" && !strings.HasPrefix(mf.FilterName, filterNamePrefix) {
+		return false
+	}
+	if metricName == "" && metricNamespace == "" {
+		return true
+	}
+	for _, t := range mf.MetricTransformations {
+		if (metricName == "" || t.MetricName == metricName) &&
+			(metricNamespace == "" || t.MetricNamespace == metricNamespace) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// DeleteMetricFilter deletes a metric filter from a log group.
+func (b *InMemoryBackend) DeleteMetricFilter(logGroupName, filterName string) error {
+	if logGroupName == "" {
+		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+	if filterName == "" {
+		return fmt.Errorf("%w: filterName is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteMetricFilter")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[logGroupName]; !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
+	}
+
+	filters := b.metricFilters[logGroupName]
+	if _, ok := filters[filterName]; !ok {
+		return fmt.Errorf(
+			"%w: metric filter %s not found in log group %s",
+			ErrMetricFilterNotFound,
+			filterName,
+			logGroupName,
+		)
+	}
+	delete(filters, filterName)
+	if len(filters) == 0 {
+		delete(b.metricFilters, logGroupName)
+	}
+	count := len(b.metricFilters[logGroupName])
+	b.groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
+
+	return nil
+}
+
+// TestMetricFilter tests a metric filter pattern against provided log event messages.
+func (b *InMemoryBackend) TestMetricFilter(
+	filterPattern string,
+	logEventMessages []string,
+) ([]MetricFilterMatchRecord, error) {
+	if filterPattern == "" {
+		return nil, fmt.Errorf("%w: filterPattern is required", ErrValidation)
+	}
+
+	compiled := compileFilterPattern(filterPattern)
+	matches := make([]MetricFilterMatchRecord, 0)
+	for i, msg := range logEventMessages {
+		if compiled.matches(msg) {
+			matches = append(matches, MetricFilterMatchRecord{
+				EventMessage:    msg,
+				EventNumber:     int64(i + 1),
+				ExtractedValues: map[string]string{},
+			})
+		}
+	}
+
+	return matches, nil
+}
+
+// PutQueryDefinition creates or updates a query definition.
+func (b *InMemoryBackend) PutQueryDefinition(
+	name, queryString, queryDefinitionID string,
+	logGroupNames []string,
+) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("%w: name is required", ErrValidation)
+	}
+	if queryString == "" {
+		return "", fmt.Errorf("%w: queryString is required", ErrValidation)
+	}
+
+	b.mu.Lock("PutQueryDefinition")
+	defer b.mu.Unlock()
+
+	id := queryDefinitionID
+	if id == "" {
+		id = uuid.New().String()
+	}
+	qd := &QueryDefinition{
+		QueryDefinitionID: id,
+		Name:              name,
+		QueryString:       queryString,
+		LogGroupNames:     slices.Clone(logGroupNames),
+		LastModified:      time.Now().UnixMilli(),
+	}
+	b.queryDefinitions[id] = qd
+
+	return id, nil
+}
+
+// DescribeQueryDefinitions lists query definitions optionally filtered by name prefix.
+func (b *InMemoryBackend) DescribeQueryDefinitions(
+	queryDefinitionNamePrefix string,
+	limit int,
+	nextToken string,
+) ([]QueryDefinition, string, error) {
+	b.mu.RLock("DescribeQueryDefinitions")
+	defer b.mu.RUnlock()
+
+	all := make([]QueryDefinition, 0, len(b.queryDefinitions))
+	for _, qd := range b.queryDefinitions {
+		if queryDefinitionNamePrefix != "" && !strings.HasPrefix(qd.Name, queryDefinitionNamePrefix) {
+			continue
+		}
+		cp := *qd
+		cp.LogGroupNames = slices.Clone(qd.LogGroupNames)
+		all = append(all, cp)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []QueryDefinition{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// DeleteQueryDefinition deletes a query definition by ID.
+func (b *InMemoryBackend) DeleteQueryDefinition(queryDefinitionID string) error {
+	if queryDefinitionID == "" {
+		return fmt.Errorf("%w: queryDefinitionId is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteQueryDefinition")
+	defer b.mu.Unlock()
+
+	if _, ok := b.queryDefinitions[queryDefinitionID]; !ok {
+		return fmt.Errorf("%w: query definition %s not found", ErrQueryDefinitionNotFound, queryDefinitionID)
+	}
+	delete(b.queryDefinitions, queryDefinitionID)
 
 	return nil
 }

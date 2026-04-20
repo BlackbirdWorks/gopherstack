@@ -2098,3 +2098,1012 @@ func TestCloudWatchLogsBackend_GetLogEvents_StartFromHead(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, "e1", got[0].Message)
 }
+
+func TestCloudWatchLogsBackend_DescribeExportTasks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(b *cloudwatchlogs.InMemoryBackend)
+		taskID     string
+		statusCode string
+		wantLen    int
+		wantErr    bool
+	}{
+		{
+			name: "no_filter_returns_all",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddExportTaskInternal(
+					b,
+					cloudwatchlogs.ExportTask{TaskID: "t1", Status: "COMPLETED", CreationTime: 1},
+				)
+				cloudwatchlogs.AddExportTaskInternal(
+					b,
+					cloudwatchlogs.ExportTask{TaskID: "t2", Status: "RUNNING", CreationTime: 2},
+				)
+			},
+			wantLen: 2,
+		},
+		{
+			name: "filter_by_task_id",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddExportTaskInternal(
+					b,
+					cloudwatchlogs.ExportTask{TaskID: "t1", Status: "COMPLETED", CreationTime: 1},
+				)
+				cloudwatchlogs.AddExportTaskInternal(
+					b,
+					cloudwatchlogs.ExportTask{TaskID: "t2", Status: "RUNNING", CreationTime: 2},
+				)
+			},
+			taskID:  "t1",
+			wantLen: 1,
+		},
+		{
+			name: "filter_by_status",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddExportTaskInternal(
+					b,
+					cloudwatchlogs.ExportTask{TaskID: "t1", Status: "COMPLETED", CreationTime: 1},
+				)
+				cloudwatchlogs.AddExportTaskInternal(
+					b,
+					cloudwatchlogs.ExportTask{TaskID: "t2", Status: "RUNNING", CreationTime: 2},
+				)
+			},
+			statusCode: "COMPLETED",
+			wantLen:    1,
+		},
+		{
+			name:    "empty_returns_empty",
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tasks, _, err := b.DescribeExportTasks(tt.taskID, tt.statusCode, 50, "")
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, tasks, tt.wantLen)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_DescribeImportTasks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(b *cloudwatchlogs.InMemoryBackend)
+		taskID  string
+		wantLen int
+		wantErr bool
+	}{
+		{
+			name: "no_filter_returns_all",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i1", CreationTime: 1})
+				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i2", CreationTime: 2})
+			},
+			wantLen: 2,
+		},
+		{
+			name: "filter_by_task_id",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i1", CreationTime: 1})
+				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i2", CreationTime: 2})
+			},
+			taskID:  "i1",
+			wantLen: 1,
+		},
+		{
+			name:    "empty_returns_empty",
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tasks, _, err := b.DescribeImportTasks(tt.taskID, 50, "")
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, tasks, tt.wantLen)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_DescribeDeliveries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		wantLen int
+	}{
+		{
+			name: "returns_all",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddDeliveryInternal(b, cloudwatchlogs.Delivery{ID: "d1", CreationTime: 1})
+				cloudwatchlogs.AddDeliveryInternal(b, cloudwatchlogs.Delivery{ID: "d2", CreationTime: 2})
+			},
+			wantLen: 2,
+		},
+		{
+			name:    "empty_returns_empty",
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			deliveries, _, err := b.DescribeDeliveries(50, "")
+			require.NoError(t, err)
+			assert.Len(t, deliveries, tt.wantLen)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_GetAndDeleteDelivery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		id      string
+	}{
+		{
+			name: "get_existing",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddDeliveryInternal(b, cloudwatchlogs.Delivery{ID: "d1"})
+			},
+			id: "d1",
+		},
+		{
+			name:    "get_missing",
+			id:      "nonexistent",
+			wantErr: cloudwatchlogs.ErrDeliveryNotFound,
+		},
+		{
+			name:    "get_empty_id",
+			id:      "",
+			wantErr: cloudwatchlogs.ErrValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			d, err := b.GetDelivery(tt.id)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.id, d.ID)
+		})
+	}
+
+	t.Run("delete_existing", func(t *testing.T) {
+		t.Parallel()
+
+		b := cloudwatchlogs.NewInMemoryBackend()
+		cloudwatchlogs.AddDeliveryInternal(b, cloudwatchlogs.Delivery{ID: "d1"})
+
+		err := b.DeleteDelivery("d1")
+		require.NoError(t, err)
+
+		_, err = b.GetDelivery("d1")
+		require.ErrorIs(t, err, cloudwatchlogs.ErrDeliveryNotFound)
+	})
+
+	t.Run("delete_missing", func(t *testing.T) {
+		t.Parallel()
+
+		b := cloudwatchlogs.NewInMemoryBackend()
+		err := b.DeleteDelivery("nonexistent")
+		require.ErrorIs(t, err, cloudwatchlogs.ErrDeliveryNotFound)
+	})
+}
+
+func TestCloudWatchLogsBackend_LogAnomalyDetectorLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		arnToOp string
+		op      string
+		newFreq string
+	}{
+		{
+			name: "list_all",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddLogAnomalyDetectorInternal(b, cloudwatchlogs.LogAnomalyDetector{
+					AnomalyDetectorArn: "arn:aws:logs:::detector/1",
+					CreationTimeStamp:  1,
+				})
+				cloudwatchlogs.AddLogAnomalyDetectorInternal(b, cloudwatchlogs.LogAnomalyDetector{
+					AnomalyDetectorArn: "arn:aws:logs:::detector/2",
+					CreationTimeStamp:  2,
+				})
+			},
+			op: "list",
+		},
+		{
+			name: "delete_existing",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddLogAnomalyDetectorInternal(b, cloudwatchlogs.LogAnomalyDetector{
+					AnomalyDetectorArn: "arn:aws:logs:::detector/1",
+				})
+			},
+			op:      "delete",
+			arnToOp: "arn:aws:logs:::detector/1",
+		},
+		{
+			name:    "delete_missing",
+			op:      "delete",
+			arnToOp: "arn:aws:logs:::detector/nonexistent",
+			wantErr: cloudwatchlogs.ErrLogAnomalyDetectorNotFound,
+		},
+		{
+			name: "update_freq",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddLogAnomalyDetectorInternal(b, cloudwatchlogs.LogAnomalyDetector{
+					AnomalyDetectorArn:  "arn:aws:logs:::detector/1",
+					EvaluationFrequency: "FIVE_MIN",
+				})
+			},
+			op:      "update",
+			arnToOp: "arn:aws:logs:::detector/1",
+			newFreq: "ONE_HOUR",
+		},
+		{
+			name: "update_invalid_freq",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				cloudwatchlogs.AddLogAnomalyDetectorInternal(b, cloudwatchlogs.LogAnomalyDetector{
+					AnomalyDetectorArn: "arn:aws:logs:::detector/1",
+				})
+			},
+			op:      "update",
+			arnToOp: "arn:aws:logs:::detector/1",
+			newFreq: "INVALID",
+			wantErr: cloudwatchlogs.ErrValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			var err error
+			switch tt.op {
+			case "list":
+				var detectors []cloudwatchlogs.LogAnomalyDetector
+				detectors, _, err = b.ListLogAnomalyDetectors(nil, 50, "")
+				require.NoError(t, err)
+				assert.Len(t, detectors, 2)
+
+				return
+			case "delete":
+				err = b.DeleteLogAnomalyDetector(tt.arnToOp)
+			case "update":
+				err = b.UpdateLogAnomalyDetector(tt.arnToOp, tt.newFreq, 0)
+			}
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr  error
+		setup    func(b *cloudwatchlogs.InMemoryBackend)
+		name     string
+		arn      string
+		newState string
+		op       string
+	}{
+		{
+			name: "create_and_list",
+			op:   "list",
+		},
+		{
+			name: "delete_existing",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+			},
+			op: "delete_first",
+		},
+		{
+			name:    "delete_missing",
+			op:      "delete_direct",
+			arn:     "arn:nonexistent",
+			wantErr: cloudwatchlogs.ErrScheduledQueryNotFound,
+		},
+		{
+			name: "update_state",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+			},
+			op:       "update_first",
+			newState: "DISABLED",
+		},
+		{
+			name: "update_invalid_state",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+			},
+			op:       "update_first",
+			newState: "INVALID",
+			wantErr:  cloudwatchlogs.ErrValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			var err error
+			switch tt.op {
+			case "list":
+				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+				var queries []cloudwatchlogs.ScheduledQuery
+				queries, _, err = b.ListScheduledQueries(50, "")
+				require.NoError(t, err)
+				assert.Len(t, queries, 1)
+
+				return
+			case "delete_first":
+				var queries []cloudwatchlogs.ScheduledQuery
+				queries, _, err = b.ListScheduledQueries(50, "")
+				require.NoError(t, err)
+				require.Len(t, queries, 1)
+				err = b.DeleteScheduledQuery(queries[0].Arn)
+			case "delete_direct":
+				err = b.DeleteScheduledQuery(tt.arn)
+			case "update_first":
+				var queries []cloudwatchlogs.ScheduledQuery
+				queries, _, err = b.ListScheduledQueries(50, "")
+				require.NoError(t, err)
+				require.Len(t, queries, 1)
+				err = b.UpdateScheduledQuery(queries[0].Arn, tt.newState)
+			}
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_PutAndDescribeAccountPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr    error
+		setup      func(b *cloudwatchlogs.InMemoryBackend)
+		name       string
+		policyName string
+		policyType string
+		policyDoc  string
+		wantLen    int
+		callPut    bool
+	}{
+		{
+			name:       "create_and_describe_all",
+			policyName: "my-policy",
+			policyType: "DATA_PROTECTION_POLICY",
+			policyDoc:  `{"version":"2021-06-01"}`,
+			callPut:    true,
+			wantLen:    1,
+		},
+		{
+			name: "describe_filtered_by_type",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.PutAccountPolicy("p1", "DATA_PROTECTION_POLICY", "{}")
+				_, _ = b.PutAccountPolicy("p2", "SUBSCRIPTION_FILTER_POLICY", "{}")
+			},
+			policyType: "DATA_PROTECTION_POLICY",
+			wantLen:    1,
+		},
+		{
+			name:       "invalid_policy_type",
+			policyName: "p",
+			policyType: "INVALID_TYPE",
+			callPut:    true,
+			wantErr:    cloudwatchlogs.ErrValidation,
+		},
+		{
+			name:       "missing_name",
+			policyName: "",
+			policyType: "DATA_PROTECTION_POLICY",
+			callPut:    true,
+			wantErr:    cloudwatchlogs.ErrValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			if tt.callPut {
+				_, err := b.PutAccountPolicy(tt.policyName, tt.policyType, tt.policyDoc)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+				require.NoError(t, err)
+			}
+
+			policies, err := b.DescribeAccountPolicies(tt.policyType, "")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, policies, tt.wantLen)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_DisassociateKmsKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr            error
+		name               string
+		logGroupName       string
+		resourceIdentifier string
+	}{
+		{
+			name:         "by_log_group",
+			logGroupName: "my-group",
+		},
+		{
+			name:               "by_resource_id",
+			resourceIdentifier: "arn:aws:logs:::query-results",
+		},
+		{
+			name:    "both_empty_fails",
+			wantErr: cloudwatchlogs.ErrValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.logGroupName != "" {
+				err := b.AssociateKmsKey(tt.logGroupName, "", "arn:aws:kms:::key/1")
+				require.NoError(t, err)
+			}
+			if tt.resourceIdentifier != "" {
+				err := b.AssociateKmsKey("", tt.resourceIdentifier, "arn:aws:kms:::key/1")
+				require.NoError(t, err)
+			}
+
+			err := b.DisassociateKmsKey(tt.logGroupName, tt.resourceIdentifier)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_MetricFilterLifecycle(t *testing.T) {
+	t.Parallel()
+
+	transformation := cloudwatchlogs.MetricTransformation{
+		MetricName:      "ErrorCount",
+		MetricNamespace: "MyApp",
+		MetricValue:     "1",
+	}
+
+	tests := []struct {
+		wantErr    error
+		setup      func(b *cloudwatchlogs.InMemoryBackend)
+		name       string
+		groupName  string
+		filterName string
+		pattern    string
+		op         string
+		transforms []cloudwatchlogs.MetricTransformation
+		wantLen    int
+	}{
+		{
+			name:       "put_and_describe",
+			groupName:  "grp",
+			filterName: "f1",
+			pattern:    "ERROR",
+			transforms: []cloudwatchlogs.MetricTransformation{transformation},
+			op:         "put_then_describe",
+			wantLen:    1,
+		},
+		{
+			name: "describe_with_prefix",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutMetricFilter(
+					"grp",
+					"err-filter",
+					"ERROR",
+					[]cloudwatchlogs.MetricTransformation{transformation},
+				)
+				_ = b.PutMetricFilter(
+					"grp",
+					"warn-filter",
+					"WARN",
+					[]cloudwatchlogs.MetricTransformation{transformation},
+				)
+			},
+			op:      "describe_prefix",
+			wantLen: 1,
+		},
+		{
+			name: "delete_filter",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutMetricFilter("grp", "f1", "ERROR", []cloudwatchlogs.MetricTransformation{transformation})
+			},
+			groupName:  "grp",
+			filterName: "f1",
+			op:         "delete",
+		},
+		{
+			name:       "put_missing_group",
+			groupName:  "nonexistent",
+			filterName: "f1",
+			pattern:    "ERROR",
+			transforms: []cloudwatchlogs.MetricTransformation{transformation},
+			op:         "put",
+			wantErr:    cloudwatchlogs.ErrLogGroupNotFound,
+		},
+		{
+			name:       "put_missing_filter_name",
+			groupName:  "grp",
+			filterName: "",
+			pattern:    "ERROR",
+			transforms: []cloudwatchlogs.MetricTransformation{transformation},
+			op:         "put_no_setup",
+			wantErr:    cloudwatchlogs.ErrValidation,
+		},
+		{
+			name: "delete_missing_filter",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("grp")
+			},
+			groupName:  "grp",
+			filterName: "nonexistent",
+			op:         "delete",
+			wantErr:    cloudwatchlogs.ErrMetricFilterNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			var err error
+			switch tt.op {
+			case "put_then_describe":
+				_, innerErr := b.CreateLogGroup(tt.groupName)
+				require.NoError(t, innerErr)
+				err = b.PutMetricFilter(tt.groupName, tt.filterName, tt.pattern, tt.transforms)
+				require.NoError(t, err)
+				var filters []cloudwatchlogs.MetricFilter
+				filters, _, err = b.DescribeMetricFilters(tt.groupName, "", "", "", "", 50)
+				require.NoError(t, err)
+				assert.Len(t, filters, tt.wantLen)
+
+				return
+			case "describe_prefix":
+				var filters []cloudwatchlogs.MetricFilter
+				filters, _, err = b.DescribeMetricFilters("grp", "err", "", "", "", 50)
+				require.NoError(t, err)
+				assert.Len(t, filters, tt.wantLen)
+
+				return
+			case "delete":
+				err = b.DeleteMetricFilter(tt.groupName, tt.filterName)
+			case "put":
+				err = b.PutMetricFilter(tt.groupName, tt.filterName, tt.pattern, tt.transforms)
+			case "put_no_setup":
+				err = b.PutMetricFilter(tt.groupName, tt.filterName, tt.pattern, tt.transforms)
+			}
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_TestMetricFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr   error
+		name      string
+		pattern   string
+		messages  []string
+		wantCount int
+	}{
+		{
+			name:      "matches_substring",
+			pattern:   "ERROR",
+			messages:  []string{"this is an ERROR message", "this is fine", "another ERROR"},
+			wantCount: 2,
+		},
+		{
+			name:      "no_matches",
+			pattern:   "CRITICAL",
+			messages:  []string{"info message", "debug message"},
+			wantCount: 0,
+		},
+		{
+			name:     "empty_pattern",
+			pattern:  "",
+			messages: []string{"any message"},
+			wantErr:  cloudwatchlogs.ErrValidation,
+		},
+		{
+			name:      "empty_messages",
+			pattern:   "ERROR",
+			messages:  []string{},
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+
+			matches, err := b.TestMetricFilter(tt.pattern, tt.messages)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, matches, tt.wantCount)
+			for i, m := range matches {
+				assert.NotEmpty(t, m.EventMessage)
+				assert.Positive(t, m.EventNumber)
+				assert.NotNil(t, m.ExtractedValues)
+				_ = i
+			}
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_QueryDefinitionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr     error
+		setup       func(b *cloudwatchlogs.InMemoryBackend)
+		name        string
+		opName      string
+		queryString string
+		id          string
+		prefix      string
+		op          string
+		wantLen     int
+	}{
+		{
+			name:        "put_and_describe_all",
+			opName:      "my-query",
+			queryString: "fields @message | limit 20",
+			op:          "put_then_describe",
+			wantLen:     1,
+		},
+		{
+			name: "describe_with_prefix",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.PutQueryDefinition("prod-errors", "fields @message | filter @message like /ERROR/", "", nil)
+				_, _ = b.PutQueryDefinition("dev-logs", "fields @message | limit 10", "", nil)
+			},
+			op:      "describe_prefix",
+			prefix:  "prod",
+			wantLen: 1,
+		},
+		{
+			name: "delete_existing",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.PutQueryDefinition("q1", "fields @message", "", nil)
+			},
+			op: "delete_first",
+		},
+		{
+			name:    "delete_missing",
+			op:      "delete_direct",
+			id:      "nonexistent-id",
+			wantErr: cloudwatchlogs.ErrQueryDefinitionNotFound,
+		},
+		{
+			name:    "put_missing_name",
+			opName:  "",
+			op:      "put_direct",
+			wantErr: cloudwatchlogs.ErrValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			var err error
+			switch tt.op {
+			case "put_then_describe":
+				var id string
+				id, err = b.PutQueryDefinition(tt.opName, tt.queryString, "", nil)
+				require.NoError(t, err)
+				assert.NotEmpty(t, id)
+				var defs []cloudwatchlogs.QueryDefinition
+				defs, _, err = b.DescribeQueryDefinitions("", 50, "")
+				require.NoError(t, err)
+				assert.Len(t, defs, tt.wantLen)
+
+				return
+			case "describe_prefix":
+				var defs []cloudwatchlogs.QueryDefinition
+				defs, _, err = b.DescribeQueryDefinitions(tt.prefix, 50, "")
+				require.NoError(t, err)
+				assert.Len(t, defs, tt.wantLen)
+
+				return
+			case "delete_first":
+				var defs []cloudwatchlogs.QueryDefinition
+				defs, _, err = b.DescribeQueryDefinitions("", 50, "")
+				require.NoError(t, err)
+				require.Len(t, defs, 1)
+				err = b.DeleteQueryDefinition(defs[0].QueryDefinitionID)
+			case "delete_direct":
+				err = b.DeleteQueryDefinition(tt.id)
+			case "put_direct":
+				_, err = b.PutQueryDefinition(tt.opName, tt.queryString, "", nil)
+			}
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_StoredBytesTracking(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		messages        []string
+		wantStreamBytes int64
+		wantGroupBytes  int64
+	}{
+		{
+			name:            "tracks_bytes_on_put",
+			messages:        []string{"hello", "world"},
+			wantStreamBytes: 10, // len("hello") + len("world")
+			wantGroupBytes:  10,
+		},
+		{
+			name:            "single_message",
+			messages:        []string{"test"},
+			wantStreamBytes: 4,
+			wantGroupBytes:  4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			_, err := b.CreateLogGroup("g")
+			require.NoError(t, err)
+			_, err = b.CreateLogStream("g", "s")
+			require.NoError(t, err)
+
+			events := make([]cloudwatchlogs.InputLogEvent, len(tt.messages))
+			for i, m := range tt.messages {
+				events[i] = cloudwatchlogs.InputLogEvent{Message: m, Timestamp: int64(i + 1)}
+			}
+			_, err = b.PutLogEvents("g", "s", events)
+			require.NoError(t, err)
+
+			streams, _, err := b.DescribeLogStreams("g", "", "", 10)
+			require.NoError(t, err)
+			require.Len(t, streams, 1)
+			assert.Equal(t, tt.wantStreamBytes, streams[0].StoredBytes)
+
+			groups, _, err := b.DescribeLogGroups("", "", 10)
+			require.NoError(t, err)
+			require.Len(t, groups, 1)
+			assert.Equal(t, tt.wantGroupBytes, groups[0].StoredBytes)
+		})
+	}
+
+	t.Run("delete_stream_subtracts_bytes", func(t *testing.T) {
+		t.Parallel()
+
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.CreateLogGroup("g")
+		require.NoError(t, err)
+		_, err = b.CreateLogStream("g", "s")
+		require.NoError(t, err)
+
+		_, err = b.PutLogEvents("g", "s", []cloudwatchlogs.InputLogEvent{
+			{Message: "hello", Timestamp: 1},
+		})
+		require.NoError(t, err)
+
+		groups, _, err := b.DescribeLogGroups("", "", 10)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, int64(5), groups[0].StoredBytes)
+
+		err = b.DeleteLogStream("g", "s")
+		require.NoError(t, err)
+
+		groups, _, err = b.DescribeLogGroups("", "", 10)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, int64(0), groups[0].StoredBytes)
+	})
+}
+
+func TestCloudWatchLogsBackend_MetricFilterCount(t *testing.T) {
+	t.Parallel()
+
+	transformation := cloudwatchlogs.MetricTransformation{
+		MetricName:      "Errors",
+		MetricNamespace: "App",
+		MetricValue:     "1",
+	}
+
+	tests := []struct {
+		setup     func(b *cloudwatchlogs.InMemoryBackend)
+		name      string
+		wantCount int32
+	}{
+		{
+			name: "no_filters",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("g")
+			},
+			wantCount: 0,
+		},
+		{
+			name: "two_filters",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("g")
+				_ = b.PutMetricFilter("g", "f1", "ERROR", []cloudwatchlogs.MetricTransformation{transformation})
+				_ = b.PutMetricFilter("g", "f2", "WARN", []cloudwatchlogs.MetricTransformation{transformation})
+			},
+			wantCount: 2,
+		},
+		{
+			name: "after_delete",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("g")
+				_ = b.PutMetricFilter("g", "f1", "ERROR", []cloudwatchlogs.MetricTransformation{transformation})
+				_ = b.DeleteMetricFilter("g", "f1")
+			},
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			groups, _, err := b.DescribeLogGroups("", "", 10)
+			require.NoError(t, err)
+			require.Len(t, groups, 1)
+			assert.Equal(t, tt.wantCount, groups[0].MetricFilterCount)
+		})
+	}
+}

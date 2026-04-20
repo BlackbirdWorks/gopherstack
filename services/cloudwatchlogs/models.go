@@ -156,3 +156,37 @@ type AccountPolicy struct {
 	PolicyType     string `json:"policyType"`
 	PolicyDocument string `json:"policyDocument,omitempty"`
 }
+
+// MetricTransformation describes how to extract a metric from a log event.
+type MetricTransformation struct {
+	DefaultValue    *float64 `json:"defaultValue,omitempty"`
+	MetricNamespace string   `json:"metricNamespace"`
+	MetricName      string   `json:"metricName"`
+	MetricValue     string   `json:"metricValue"`
+}
+
+// MetricFilter represents a CloudWatch Logs metric filter.
+type MetricFilter struct {
+	RetentionInDays       *int32                 `json:"retentionInDays,omitempty"`
+	FilterPattern         string                 `json:"filterPattern"`
+	FilterName            string                 `json:"filterName"`
+	LogGroupName          string                 `json:"logGroupName"`
+	MetricTransformations []MetricTransformation `json:"metricTransformations"`
+	CreationTime          int64                  `json:"creationTime"`
+}
+
+// MetricFilterMatchRecord represents one event that matched a TestMetricFilter call.
+type MetricFilterMatchRecord struct {
+	ExtractedValues map[string]string `json:"extractedValues"`
+	EventMessage    string            `json:"eventMessage"`
+	EventNumber     int64             `json:"eventNumber"`
+}
+
+// QueryDefinition represents a saved CloudWatch Logs Insights query definition.
+type QueryDefinition struct {
+	QueryDefinitionID string   `json:"queryDefinitionId"`
+	Name              string   `json:"name"`
+	QueryString       string   `json:"queryString"`
+	LogGroupNames     []string `json:"logGroupNames,omitempty"`
+	LastModified      int64    `json:"lastModified"`
+}
