@@ -34,10 +34,22 @@ func (s *connectDashboardServer) StreamConsole(
 
 	// Optionally send initial data
 	initialRequests := logger.GlobalRingBuffer.GetAll()
-	// To keep it simple, we can send recent records. For now, let's just stream incoming.
-	// Actually, sending existing ones is better UX.
-	for i := len(initialRequests) - 1; i >= 0; i-- { // just an example, reverse list
-		_ = initialRequests // We send one-by-one below if we want
+	for _, r := range initialRequests {
+		resp := &dashboardv1.StreamConsoleResponse{
+			Request: &dashboardv1.CapturedRequest{
+				Id:         r.ID,
+				Method:     r.Method,
+				Path:       r.Path,
+				Headers:    r.Headers,
+				Body:       r.Body,
+				Status:     int32(r.Status), //nolint:gosec // status codes fit in int32
+				DurationMs: r.Duration.Milliseconds(),
+				Timestamp:  timestamppb.New(r.Timestamp),
+			},
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
 	}
 
 	// Real-time loop

@@ -5,6 +5,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
 	"github.com/blackbirdworks/gopherstack/services/amplify"
@@ -81,10 +82,16 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		globalCfg = c.GetGlobalConfig()
 	}
 
+	var runtimePortAlloc *portalloc.Allocator
+	if c, hasPortAllocator := ctx.Config.(interface{ GetPortAllocator() *portalloc.Allocator }); hasPortAllocator {
+		runtimePortAlloc = c.GetPortAllocator()
+	}
+
 	conf := Config{
 		FaultStore:    faultStore,
 		ConfigManager: cfg,
 		GlobalConfig:  globalCfg,
+		PortAlloc:     runtimePortAlloc,
 		Logger:        ctx.Logger,
 	}
 

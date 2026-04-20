@@ -37,6 +37,7 @@ export default defineConfig({
         "src/lib/index.ts",
         "src/lib/api/**",
         "src/lib/aws-client.ts",
+        "**/confirm-dialog.ts",
       ],
       thresholds: {
         branches: 90,
