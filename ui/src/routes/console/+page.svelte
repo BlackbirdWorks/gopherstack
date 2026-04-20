@@ -10,22 +10,37 @@
 	let abortController: AbortController | null = null;
 	let destroying = false;
 	let searchQuery = $state('');
+	let serviceQuery = $state('');
 	let drawerOpen = $state(false);
 	let selectedRequest = $state<CapturedRequest | null>(null);
 
-	const filteredRequests = $derived(
-		searchQuery.trim() === ''
-			? requests
-			: requests.filter((r) => {
-					const q = searchQuery.toLowerCase();
-					return (
-						r.method.toLowerCase().includes(q) ||
-						r.path.toLowerCase().includes(q) ||
-						r.status.toString().includes(q) ||
-						guessService(r).toLowerCase().includes(q)
-					);
-				})
-	);
+	const availableServices = $derived.by(() => {
+		return Array.from(new Set(requests.map((request) => guessService(request)))).toSorted((a, b) => a.localeCompare(b));
+	});
+
+	const filteredRequests = $derived.by(() => {
+		const query = searchQuery.trim().toLowerCase();
+		const serviceFilter = serviceQuery.trim().toLowerCase();
+
+		return requests.filter((request) => {
+			const service = guessService(request);
+			const matchesService = serviceFilter === '' || service.toLowerCase().includes(serviceFilter);
+			if (!matchesService) {
+				return false;
+			}
+
+			if (query === '') {
+				return true;
+			}
+
+			return (
+				request.method.toLowerCase().includes(query) ||
+				request.path.toLowerCase().includes(query) ||
+				request.status.toString().includes(query) ||
+				service.toLowerCase().includes(query)
+			);
+		});
+	});
 
 	function guessService(req: CapturedRequest): string {
 		const headers = req.headers ?? {};
@@ -169,7 +184,21 @@
 			</div>
 			<input type="text" bind:value={searchQuery} class="bg-white/50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 p-2.5 dark:bg-slate-800 dark:border-slate-600 dark:text-white" placeholder="Filter logs (e.g. s3, POST, 404)..." />
 		</div>
-		<button onclick={() => { requests = []; }} class="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 focus:ring-4 focus:outline-none focus:ring-indigo-300 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-900/50">
+		<div class="min-w-44">
+			<input
+				list="console-service-options"
+				bind:value={serviceQuery}
+				aria-label="Filter by service"
+				class="bg-white/50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 p-2.5 dark:bg-slate-800 dark:border-slate-600 dark:text-white w-full"
+				placeholder="Service (type to filter)"
+			/>
+			<datalist id="console-service-options">
+				{#each availableServices as service}
+					<option value={service}></option>
+				{/each}
+			</datalist>
+		</div>
+		<button onclick={() => { requests = []; searchQuery = ''; serviceQuery = ''; }} class="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 focus:ring-4 focus:outline-none focus:ring-indigo-300 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-900/50">
 			Clear
 		</button>
 	</div>
