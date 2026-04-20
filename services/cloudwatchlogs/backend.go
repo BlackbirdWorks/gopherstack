@@ -866,13 +866,15 @@ func (b *InMemoryBackend) deliverToFilters(
 
 	for _, f := range filters {
 		deliverCtx := ctx
-		cancel := func() {}
+		var cancel context.CancelFunc
 		if timeout > 0 {
 			deliverCtx, cancel = context.WithTimeout(ctx, timeout)
 		}
 
 		deliverErr := deliverer.DeliverLogEvents(deliverCtx, f.DestinationArn, encoded)
-		cancel()
+		if cancel != nil {
+			cancel()
+		}
 
 		if deliverErr != nil {
 			logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
@@ -1205,7 +1207,7 @@ func (b *InMemoryBackend) getParsedInsightsQuery(queryString string) (*insightsQ
 		delete(b.parsedQueries, evictKey)
 	}
 
-	b.parsedQueries[queryString] = cloneInsightsQuery(parsed)
+	b.parsedQueries[queryString] = parsed
 	b.parsedQueriesOrder = append(b.parsedQueriesOrder, queryString)
 
 	return cloneInsightsQuery(parsed), nil

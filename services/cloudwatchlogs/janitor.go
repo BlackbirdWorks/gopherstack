@@ -75,7 +75,8 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 // is updated to reflect the remaining events.
 func (j *Janitor) sweepRetention(ctx context.Context) {
 	evicted := 0
-	for _, target := range j.retentionTargets(time.Now()) {
+	now := time.Now()
+	for _, target := range j.retentionTargets(now) {
 		select {
 		case <-ctx.Done():
 			return
