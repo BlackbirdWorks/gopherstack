@@ -72,54 +72,98 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 
 // sweepExpiredKeys removes keys in PendingDeletion state whose deletion date has
 // passed, permanently purging their key material and associated aliases and grants.
+// It also expires imported key material (EXTERNAL-origin keys) whose ValidTo has passed.
 func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 	now := float64(time.Now().UnixNano()) / nanoToSeconds
-	purged := 0
 
 	j.Backend.mu.Lock("sweepExpiredKeys")
+	purged, expired := j.sweepKeys(now)
 
-	for keyID, key := range j.Backend.keys {
-		if key.KeyState != KeyStatePendingDeletion {
-			continue
-		}
-
-		if key.DeletionDate == 0 || now < key.DeletionDate {
-			continue
-		}
-
-		// Purge key material (current and history).
-		delete(j.Backend.keyMaterials, keyID)
-		delete(j.Backend.keyMaterialHistory, keyID)
-
-		// Remove aliases pointing to this key.
-		for aliasName, alias := range j.Backend.aliases {
-			if alias.TargetKeyID == keyID {
-				delete(j.Backend.aliases, aliasName)
-			}
-		}
-
-		// Remove grants associated with this key.
-		for grantID, grant := range j.Backend.grants {
-			if grant.KeyID == keyID {
-				delete(j.Backend.grants, grantID)
-			}
-		}
-
-		// Remove the key itself.
-		delete(j.Backend.keys, keyID)
-		delete(j.Backend.policies, keyID)
-		purged++
+	if purged > 0 || expired > 0 {
+		j.Backend.clearResolutionCache()
 	}
 
 	j.Backend.mu.Unlock()
 
-	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")
+	j.logSweepResults(ctx, purged, expired)
+}
 
-	if purged == 0 {
-		return
+// sweepKeys iterates over all keys and purges/expires them as needed.
+// Must be called with the backend write lock held.
+func (j *Janitor) sweepKeys(now float64) (int, int) {
+	var purged, expired int
+	for keyID, key := range j.Backend.keys {
+		if key.KeyState == KeyStatePendingDeletion {
+			if key.DeletionDate != 0 && now >= key.DeletionDate {
+				j.purgeKey(keyID)
+				purged++
+			}
+
+			continue
+		}
+
+		if j.shouldExpireMaterial(key, now) {
+			j.expireMaterial(keyID, key)
+			expired++
+		}
 	}
 
-	telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, purged)
+	return purged, expired
+}
 
-	logger.Load(ctx).InfoContext(ctx, "KMS janitor: expired keys purged", "count", purged)
+// purgeKey permanently removes a key and all associated resources.
+// Must be called with the backend write lock held.
+func (j *Janitor) purgeKey(keyID string) {
+	delete(j.Backend.keyMaterials, keyID)
+	delete(j.Backend.keyMaterialHistory, keyID)
+
+	for aliasName, alias := range j.Backend.aliases {
+		if alias.TargetKeyID == keyID {
+			delete(j.Backend.aliases, aliasName)
+		}
+	}
+
+	for grantID, grant := range j.Backend.grants {
+		if grant.KeyID == keyID {
+			delete(j.Backend.grants, grantID)
+		}
+	}
+
+	delete(j.Backend.keys, keyID)
+	delete(j.Backend.policies, keyID)
+}
+
+// shouldExpireMaterial reports whether the key's imported material should be expired.
+func (j *Janitor) shouldExpireMaterial(key *Key, now float64) bool {
+	return key.Origin == KeyOriginExternal &&
+		key.ExpirationModel == expirationModelExpires &&
+		key.ValidTo > 0 &&
+		now >= key.ValidTo &&
+		key.KeyState == KeyStateEnabled
+}
+
+// expireMaterial revokes the imported key material and sets the key back to PendingImport.
+// Must be called with the backend write lock held.
+func (j *Janitor) expireMaterial(keyID string, key *Key) {
+	delete(j.Backend.keyMaterials, keyID)
+	delete(j.Backend.keyMaterialHistory, keyID)
+	key.KeyState = KeyStatePendingImport
+	key.Enabled = false
+	key.ValidTo = 0
+	key.ExpirationModel = ""
+}
+
+// logSweepResults records telemetry and logs for the janitor sweep.
+func (j *Janitor) logSweepResults(ctx context.Context, purged, expired int) {
+	if purged > 0 {
+		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, purged)
+		logger.Load(ctx).InfoContext(ctx, "KMS janitor: expired keys purged", "count", purged)
+	}
+
+	if expired > 0 {
+		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, expired)
+		logger.Load(ctx).InfoContext(ctx, "KMS janitor: imported key material expired", "count", expired)
+	}
+
+	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")
 }

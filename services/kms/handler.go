@@ -128,6 +128,45 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tags[resourceID].Merge(kv)
 }
 
+// copyTagsToReplica copies the source key's tags to the replica and overlays any input tags.
+func (h *Handler) copyTagsToReplica(sourceKeyID, replicaKeyID string, inputTags []Tag) {
+	if sourceKeyID != "" {
+		if srcTags := h.getTags(sourceKeyID); len(srcTags) > 0 {
+			h.setTags(replicaKeyID, srcTags)
+		}
+	}
+
+	if len(inputTags) > 0 {
+		kv := make(map[string]string, len(inputTags))
+		for _, t := range inputTags {
+			kv[t.TagKey] = t.TagValue
+		}
+
+		h.setTags(replicaKeyID, kv)
+	}
+}
+
+// applyInputTags converts a []Tag slice to a map and stores it for the given resource ID.
+// Returns an error if any tag key/value fails validation.
+func (h *Handler) applyInputTags(resourceID string, inputTags []Tag) error {
+	if len(inputTags) == 0 {
+		return nil
+	}
+
+	kv := make(map[string]string, len(inputTags))
+	for _, t := range inputTags {
+		if err := validateTag(t.TagKey, t.TagValue); err != nil {
+			return err
+		}
+
+		kv[t.TagKey] = t.TagValue
+	}
+
+	h.setTags(resourceID, kv)
+
+	return nil
+}
+
 func (h *Handler) removeTags(resourceID string, keys []string) {
 	h.tagsMu.RLock("removeTags")
 	t := h.tags[resourceID]
@@ -183,22 +222,30 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GenerateRandom",
 		"GetKeyPolicy",
 		"GetKeyRotationStatus",
+		"GetParametersForImport",
 		"GetPublicKey",
 		"ImportKeyMaterial",
 		"ListAliases",
 		"ListGrants",
+		"ListKeyPolicies",
+		"ListKeyRotations",
 		"ListKeys",
 		"ListResourceTags",
 		"ListRetirableGrants",
 		"PutKeyPolicy",
 		"ReEncrypt",
+		"ReplicateKey",
 		"RetireGrant",
 		"RevokeGrant",
+		"RotateKeyOnDemand",
 		"ScheduleKeyDeletion",
 		"Sign",
 		"TagResource",
 		"UntagResource",
 		"UpdateAlias",
+		"UpdateCustomKeyStore",
+		"UpdateKeyDescription",
+		"UpdatePrimaryRegion",
 		"Verify",
 		"VerifyMac",
 	}
@@ -291,80 +338,63 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 // buildKeyLifecycleActions returns dispatch entries for key creation, description, listing and deletion.
 func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"CreateKey": func(region string, b []byte) (any, error) {
-			var input CreateKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			input.Region = region
-
-			return h.Backend.CreateKey(&input)
-		},
-		"DescribeKey": func(_ string, b []byte) (any, error) {
-			var input DescribeKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeKey(&input)
-		},
-		"ListKeys": func(_ string, b []byte) (any, error) {
-			var input ListKeysInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListKeys(&input)
-		},
-		"DisableKey": func(_ string, b []byte) (any, error) {
-			var input DisableKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.DisableKey(&input)
-		},
-		"EnableKey": func(_ string, b []byte) (any, error) {
-			var input EnableKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.EnableKey(&input)
-		},
-		"ScheduleKeyDeletion": func(_ string, b []byte) (any, error) {
-			var input ScheduleKeyDeletionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ScheduleKeyDeletion(&input)
-		},
-		"CancelKeyDeletion": func(_ string, b []byte) (any, error) {
-			var input CancelKeyDeletionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.CancelKeyDeletion(&input)
-		},
-		"ImportKeyMaterial": func(_ string, b []byte) (any, error) {
-			var input ImportKeyMaterialInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.ImportKeyMaterial(&input)
-		},
-		"DeleteImportedKeyMaterial": func(_ string, b []byte) (any, error) {
-			var input DeleteImportedKeyMaterialInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(&input)
-		},
+		"CreateKey": h.createKeyAction,
+		"DescribeKey": unmarshalAction(
+			func(i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(i) },
+		),
+		"ListKeys": unmarshalAction(func(i *ListKeysInput) (any, error) { return h.Backend.ListKeys(i) }),
+		"DisableKey": unmarshalAction(
+			func(i *DisableKeyInput) (any, error) { return struct{}{}, h.Backend.DisableKey(i) },
+		),
+		"EnableKey": unmarshalAction(
+			func(i *EnableKeyInput) (any, error) { return struct{}{}, h.Backend.EnableKey(i) },
+		),
+		"ScheduleKeyDeletion": unmarshalAction(
+			func(i *ScheduleKeyDeletionInput) (any, error) { return h.Backend.ScheduleKeyDeletion(i) },
+		),
+		"CancelKeyDeletion": unmarshalAction(
+			func(i *CancelKeyDeletionInput) (any, error) { return h.Backend.CancelKeyDeletion(i) },
+		),
+		"ImportKeyMaterial": unmarshalAction(
+			func(i *ImportKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.ImportKeyMaterial(i) },
+		),
+		"DeleteImportedKeyMaterial": unmarshalAction(func(i *DeleteImportedKeyMaterialInput) (any, error) {
+			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(i)
+		}),
 	}
+}
+
+// unmarshalAction is a generic helper that creates a kmsActionFn from a strongly-typed backend call.
+func unmarshalAction[T any](fn func(*T) (any, error)) kmsActionFn {
+	return func(_ string, b []byte) (any, error) {
+		var input T
+		if err := json.Unmarshal(b, &input); err != nil {
+			return nil, err
+		}
+
+		return fn(&input)
+	}
+}
+
+// createKeyAction handles CreateKey dispatch, including tag validation.
+func (h *Handler) createKeyAction(region string, b []byte) (any, error) {
+	var input CreateKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	input.Region = region
+
+	out, err := h.Backend.CreateKey(&input)
+	if err != nil {
+		return nil, err
+	}
+
+	if tagErr := h.applyInputTags(out.KeyMetadata.KeyID, input.Tags); tagErr != nil {
+		return nil, tagErr
+	}
+
+	return out, nil
 }
 
 // buildCryptoActions returns dispatch entries for encrypt, decrypt, sign, verify, and data-key operations.
@@ -548,6 +578,18 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 				return nil, err
 			}
 
+			// AWS KMS only supports the "default" policy name.
+			if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
+				return nil, fmt.Errorf(
+					"%w: PolicyName must be %q; got %q",
+					ErrValidation, defaultKeyPolicyName, input.PolicyName,
+				)
+			}
+
+			if input.PolicyName == "" {
+				input.PolicyName = defaultKeyPolicyName
+			}
+
 			return struct{}{}, h.Backend.PutKeyPolicy(&input)
 		},
 		"GetKeyPolicy": func(_ string, b []byte) (any, error) {
@@ -561,79 +603,177 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 	}
 }
 
+// listResourceTags handles the ListResourceTags operation.
+func (h *Handler) listResourceTags(b []byte) (any, error) {
+	var input listResourceTagsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+		return nil, descErr
+	}
+
+	tagMap := h.getTags(input.KeyID)
+	tagList := make([]kmsTagEntry, 0, len(tagMap))
+
+	for k, v := range tagMap {
+		tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
+	}
+
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].TagKey < tagList[j].TagKey })
+
+	return paginateTagList(tagList, input.Marker, input.Limit), nil
+}
+
+// paginateTagList returns a paginated listResourceTagsOutput slice from a full tag list.
+func paginateTagList(tagList []kmsTagEntry, marker string, limit *int32) *listResourceTagsOutput {
+	startIdx := parseMarker(marker)
+	pageLimit := defaultKMSTagsLimit
+
+	if limit != nil && *limit > 0 {
+		pageLimit = *limit
+	}
+
+	if startIdx >= len(tagList) {
+		return &listResourceTagsOutput{Tags: []kmsTagEntry{}, Truncated: false}
+	}
+
+	end := startIdx + int(pageLimit)
+
+	var nextMarker string
+
+	if end < len(tagList) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(tagList)
+	}
+
+	return &listResourceTagsOutput{
+		Tags:       tagList[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}
+}
+
+// tagResource handles the TagResource operation, validating key existence and tag count.
+func (h *Handler) tagResource(b []byte) (any, error) {
+	var input tagResourceInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+		return nil, descErr
+	}
+
+	newTags := make(map[string]string, len(input.Tags))
+	for _, t := range input.Tags {
+		if err := validateTag(t.TagKey, t.TagValue); err != nil {
+			return nil, err
+		}
+
+		newTags[t.TagKey] = t.TagValue
+	}
+
+	if err := h.validateTagCount(input.KeyID, newTags); err != nil {
+		return nil, err
+	}
+
+	h.setTags(input.KeyID, newTags)
+
+	return struct{}{}, nil
+}
+
+// validateTag checks that a tag key and value satisfy AWS KMS length and content constraints.
+func validateTag(key, value string) error {
+	if key == "" {
+		return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
+	}
+
+	if len(key) > maxTagKeyLength {
+		return fmt.Errorf(
+			"%w: tag key %q exceeds maximum length of %d characters",
+			ErrValidation, key, maxTagKeyLength,
+		)
+	}
+
+	if strings.HasPrefix(key, "aws:") {
+		return fmt.Errorf(
+			"%w: tag key %q must not start with the reserved prefix 'aws:'",
+			ErrValidation, key,
+		)
+	}
+
+	if len(value) > maxTagValueLength {
+		return fmt.Errorf(
+			"%w: tag value for key %q exceeds maximum length of %d characters",
+			ErrValidation, key, maxTagValueLength,
+		)
+	}
+
+	return nil
+}
+
+// validateTagCount returns an error if adding newTags to keyID would exceed the max tag limit.
+func (h *Handler) validateTagCount(keyID string, newTags map[string]string) error {
+	existing := h.getTags(keyID)
+
+	netNew := 0
+	for k := range newTags {
+		if _, alreadyPresent := existing[k]; !alreadyPresent {
+			netNew++
+		}
+	}
+
+	if len(existing)+netNew > maxTagsPerKey {
+		return fmt.Errorf(
+			"%w: tagging key %q would exceed the maximum of %d tags",
+			ErrValidation, keyID, maxTagsPerKey,
+		)
+	}
+
+	return nil
+}
+
+// untagResource handles the UntagResource operation.
+func (h *Handler) untagResource(b []byte) (any, error) {
+	var input untagResourceInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+		return nil, descErr
+	}
+
+	h.removeTags(input.KeyID, input.TagKeys)
+
+	return struct{}{}, nil
+}
+
 // buildTagActions returns dispatch entries for KMS resource tag operations.
 func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"ListResourceTags": func(_ string, b []byte) (any, error) {
-			var input listResourceTagsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			tagMap := h.getTags(input.KeyID)
-			tagList := make([]kmsTagEntry, 0, len(tagMap))
-			for k, v := range tagMap {
-				tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
-			}
-
-			sort.Slice(tagList, func(i, j int) bool { return tagList[i].TagKey < tagList[j].TagKey })
-
-			startIdx := parseMarker(input.Marker)
-			limit := defaultKMSTagsLimit
-
-			if input.Limit != nil && *input.Limit > 0 {
-				limit = *input.Limit
-			}
-
-			if startIdx >= len(tagList) {
-				return &listResourceTagsOutput{Tags: []kmsTagEntry{}, Truncated: false}, nil
-			}
-
-			end := startIdx + int(limit)
-
-			var nextMarker string
-			if end < len(tagList) {
-				nextMarker = strconv.Itoa(end)
-			} else {
-				end = len(tagList)
-			}
-
-			return &listResourceTagsOutput{
-				Tags:       tagList[startIdx:end],
-				NextMarker: nextMarker,
-				Truncated:  nextMarker != "",
-			}, nil
+			return h.listResourceTags(b)
 		},
 		"TagResource": func(_ string, b []byte) (any, error) {
-			var input tagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			kv := make(map[string]string, len(input.Tags))
-			for _, t := range input.Tags {
-				kv[t.TagKey] = t.TagValue
-			}
-			h.setTags(input.KeyID, kv)
-
-			return struct{}{}, nil
+			return h.tagResource(b)
 		},
 		"UntagResource": func(_ string, b []byte) (any, error) {
-			var input untagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			h.removeTags(input.KeyID, input.TagKeys)
-
-			return struct{}{}, nil
+			return h.untagResource(b)
 		},
 	}
 }
 
-// buildNewOpsActions returns dispatch entries for the 10 newly implemented operations.
+// buildNewOpsActions returns dispatch entries for newly implemented KMS operations.
 // Delegates to sub-builders to stay within gocognit limits.
 func (h *Handler) buildNewOpsActions() map[string]kmsActionFn {
 	m := make(map[string]kmsActionFn)
 	maps.Copy(m, h.buildCustomKeyStoreActions())
 	maps.Copy(m, h.buildGenerateAndMacActions())
+	maps.Copy(m, h.buildReplicationAndMaintenanceActions())
 
 	return m
 }
@@ -734,6 +874,88 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 			}
 
 			return h.Backend.VerifyMac(&input)
+		},
+	}
+}
+
+func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"GetParametersForImport": func(_ string, b []byte) (any, error) {
+			var input GetParametersForImportInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetParametersForImport(&input)
+		},
+		"ListKeyPolicies": func(_ string, b []byte) (any, error) {
+			var input ListKeyPoliciesInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListKeyPolicies(&input)
+		},
+		"ListKeyRotations": func(_ string, b []byte) (any, error) {
+			var input ListKeyRotationsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListKeyRotations(&input)
+		},
+		"ReplicateKey": func(_ string, b []byte) (any, error) {
+			var input ReplicateKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			// Capture source key ID for tag copying before we replicate.
+			var sourceKeyID string
+			if desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr == nil {
+				sourceKeyID = desc.KeyMetadata.KeyID
+			}
+
+			out, err := h.Backend.ReplicateKey(&input)
+			if err != nil {
+				return nil, err
+			}
+
+			h.copyTagsToReplica(sourceKeyID, out.ReplicaKeyMetadata.KeyID, input.Tags)
+
+			return out, nil
+		},
+		"RotateKeyOnDemand": func(_ string, b []byte) (any, error) {
+			var input RotateKeyOnDemandInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.RotateKeyOnDemand(&input)
+		},
+		"UpdateCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input UpdateCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdateCustomKeyStore(&input)
+		},
+		"UpdateKeyDescription": func(_ string, b []byte) (any, error) {
+			var input UpdateKeyDescriptionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdateKeyDescription(&input)
+		},
+		"UpdatePrimaryRegion": func(_ string, b []byte) (any, error) {
+			var input UpdatePrimaryRegionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdatePrimaryRegion(&input)
 		},
 	}
 }
