@@ -18,6 +18,21 @@ vi.mock("$lib/api/connect-client", () => {
             body: '{"foo": "bar"}',
           },
         };
+        yield {
+          request: {
+            id: "req-456",
+            timestamp: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
+            durationMs: 18,
+            method: "POST",
+            path: "/",
+            status: 200,
+            headers: {
+              "Content-Type": "application/x-amz-json-1.0",
+              "X-Amz-Target": "DynamoDB_20120810.PutItem",
+            },
+            body: '{"TableName":"widgets"}',
+          },
+        };
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 5000);
         });
@@ -53,7 +68,7 @@ describe("Console Page", () => {
 
     expect(screen.getByText("GET")).toBeInTheDocument();
     expect(screen.getByText("/api/v1/test")).toBeInTheDocument();
-    expect(screen.getByText("200")).toBeInTheDocument();
+    expect(screen.getAllByText("200")).toHaveLength(2);
 
     // Click row to open drawer
     const reqRow = screen.getByText("/api/v1/test");
@@ -62,5 +77,19 @@ describe("Console Page", () => {
     await waitFor(() => {
       expect(screen.getByText("Request Details")).toBeInTheDocument();
     });
+  });
+
+  it("filters requests by selected service", async () => {
+    render(ConsolePage);
+
+    await waitFor(() => {
+      expect(screen.getByText("PutItem")).toBeInTheDocument();
+    });
+
+    const serviceFilter = screen.getByLabelText("Filter by service");
+    await fireEvent.input(serviceFilter, { target: { value: "http" } });
+
+    expect(screen.getByText("/api/v1/test")).toBeInTheDocument();
+    expect(screen.queryByText("PutItem")).not.toBeInTheDocument();
   });
 });

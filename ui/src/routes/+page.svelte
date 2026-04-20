@@ -25,15 +25,22 @@
 	};
 
 	const maxLiveEvents = 8;
+	const compactNumberFormatter = new Intl.NumberFormat('en-US', {
+		notation: 'compact',
+		maximumFractionDigits: 1,
+	});
 
 	let events = $state<CapturedRequest[]>([]);
 	let eventStreamConnected = $state(false);
 	let eventAbortController: AbortController | null = null;
+	let eventReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let metricsAbortController: AbortController | null = null;
+	let metricsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let destroying = false;
 
 	let metrics = $state<DashboardMetrics | null>(null);
 	let metricsStreamConnected = $state(false);
+	let metricsLoaded = $state(false);
 
 	let portRangeStart = $state(5000);
 	let portRangeEnd = $state(10000);
@@ -42,6 +49,7 @@
 
 	let chaosFaultCount = $state(0);
 	let chaosEffectsEnabled = $state(false);
+	let chaosStateLoaded = $state(false);
 
 	let systemStateTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -91,25 +99,6 @@
 		return 'UNKNOWN';
 	});
 
-	const densityBars = $derived.by(() => {
-		const counts = (metrics?.operations ?? [])
-			.map((operation) => Number(operation.count))
-			.filter((value) => Number.isFinite(value) && value > 0)
-			.toSorted((a, b) => b - a)
-			.slice(0, 3);
-		if (counts.length === 0) {
-			return [0, 0, 0];
-		}
-
-		const maxCount = Math.max(...counts, 1);
-		const normalized = counts.map((count) => Math.max(5, Math.round((count / maxCount) * 100)));
-		while (normalized.length < 3) {
-			normalized.push(0);
-		}
-
-		return normalized;
-	});
-
 	const portBuckets = $derived.by(() => {
 		const bucketCount = 40;
 		const span = Math.max(1, portRangeEnd - portRangeStart);
@@ -135,11 +124,47 @@
 	});
 
 	const systemStats = $derived.by(() => [
-		{ label: 'Active Services', value: activeServiceCount === null ? 'n/a' : String(activeServiceCount), icon: Server, color: 'text-emerald-500' },
-		{ label: 'Requests', value: String(totalRequests), icon: Activity, color: 'text-indigo-500' },
-		{ label: 'P95 Latency', value: avgP95Latency === null ? 'n/a' : `${avgP95Latency.toFixed(1)}ms`, icon: Gauge, color: 'text-cyan-500' },
-		{ label: 'Cloud Faults', value: cloudFaultsLabel, icon: Flame, color: 'text-rose-500' },
+		{
+			label: 'Active Services',
+			value: activeServiceCount === null ? 'n/a' : String(activeServiceCount),
+			icon: Server,
+			color: 'text-emerald-500',
+			href: '/dashboard/metrics',
+			isLoaded: metricsLoaded,
+		},
+		{
+			label: 'Requests',
+			value: formatCompactCount(totalRequests),
+			icon: Activity,
+			color: 'text-indigo-500',
+			href: '/dashboard/console',
+			isLoaded: metricsLoaded,
+		},
+		{
+			label: 'P95 Latency',
+			value: avgP95Latency === null ? 'n/a' : `${avgP95Latency.toFixed(1)}ms`,
+			icon: Gauge,
+			color: 'text-cyan-500',
+			href: '/dashboard/metrics',
+			isLoaded: metricsLoaded,
+		},
+		{
+			label: 'Cloud Faults',
+			value: cloudFaultsLabel,
+			icon: Flame,
+			color: 'text-rose-500',
+			href: '/dashboard/chaos',
+			isLoaded: chaosStateLoaded,
+		},
 	]);
+
+	function formatCompactCount(value: number): string {
+		if (!Number.isFinite(value)) {
+			return '0';
+		}
+
+		return compactNumberFormatter.format(value);
+	}
 
 	function guessService(req: CapturedRequest): string {
 		const headers = req.headers ?? {};
@@ -223,12 +248,17 @@
 			const latency = Number(payload.effects?.latency ?? 0);
 			const jitter = Number(payload.effects?.jitter ?? 0);
 			chaosEffectsEnabled = latency > 0 || jitter > 0;
+			chaosStateLoaded = true;
 		} catch {
 			// Keep the dashboard view resilient when chaos-state polling fails.
 		}
 	}
 
 	async function startEventStream() {
+		if (destroying || eventAbortController) {
+			return;
+		}
+
 		eventAbortController = new AbortController();
 		try {
 			const stream = await dashboardClient.streamConsole({}, { signal: eventAbortController.signal });
@@ -238,15 +268,26 @@
 					events = [response.request, ...events].slice(0, maxLiveEvents);
 				}
 			}
+			if (!destroying) {
+				eventStreamConnected = false;
+				scheduleEventReconnect();
+			}
 		} catch (err: unknown) {
 			const error = err as Error;
 			if (error.name !== 'AbortError' && !destroying) {
 				eventStreamConnected = false;
+				scheduleEventReconnect();
 			}
+		} finally {
+			eventAbortController = null;
 		}
 	}
 
 	async function startMetricsStream() {
+		if (destroying || metricsAbortController) {
+			return;
+		}
+
 		metricsAbortController = new AbortController();
 		try {
 			const stream = await dashboardClient.streamMetrics({}, { signal: metricsAbortController.signal });
@@ -254,30 +295,72 @@
 			for await (const response of stream) {
 				if (response.dashboard) {
 					metrics = response.dashboard;
+					metricsLoaded = true;
 				}
+			}
+			if (!destroying) {
+				metricsStreamConnected = false;
+				scheduleMetricsReconnect();
 			}
 		} catch (err: unknown) {
 			const error = err as Error;
 			if (error.name !== 'AbortError' && !destroying) {
 				metricsStreamConnected = false;
+				scheduleMetricsReconnect();
 			}
+		} finally {
+			metricsAbortController = null;
 		}
+	}
+
+	function scheduleEventReconnect() {
+		if (destroying || eventReconnectTimer) {
+			return;
+		}
+
+		eventReconnectTimer = setTimeout(() => {
+			eventReconnectTimer = null;
+			void startEventStream();
+		}, 1500);
+	}
+
+	function scheduleMetricsReconnect() {
+		if (destroying || metricsReconnectTimer) {
+			return;
+		}
+
+		metricsReconnectTimer = setTimeout(() => {
+			metricsReconnectTimer = null;
+			void startMetricsStream();
+		}, 1500);
 	}
 
 	function stopEventStream() {
+		if (eventReconnectTimer) {
+			clearTimeout(eventReconnectTimer);
+			eventReconnectTimer = null;
+		}
+
 		if (eventAbortController) {
 			eventAbortController.abort();
-			eventAbortController = null;
-			eventStreamConnected = false;
 		}
+
+		eventAbortController = null;
+		eventStreamConnected = false;
 	}
 
 	function stopMetricsStream() {
+		if (metricsReconnectTimer) {
+			clearTimeout(metricsReconnectTimer);
+			metricsReconnectTimer = null;
+		}
+
 		if (metricsAbortController) {
 			metricsAbortController.abort();
-			metricsAbortController = null;
-			metricsStreamConnected = false;
 		}
+
+		metricsAbortController = null;
+		metricsStreamConnected = false;
 	}
 
 	onMount(() => {
@@ -347,13 +430,6 @@
 							<div class="text-2xl font-black text-white italic tabular-nums">{activeServiceCount === null ? 'n/a' : `${activeServiceCount}`} Services</div>
 						</div>
 					</div>
-					<div class="space-y-2">
-						{#each densityBars as width}
-							<div class="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-								<div class="h-full bg-indigo-500/50 rounded-full animate-in slide-in-from-left duration-1000 ease-out" style={`width: ${width}%`}></div>
-							</div>
-						{/each}
-					</div>
 				</div>
 				
 				<div class="p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/10 shadow-2xl transform translate-x-4 md:translate-x-8 hover:rotate-2 transition-transform duration-500">
@@ -380,12 +456,20 @@
 				</div>
 				<div class="relative z-10 flex items-center justify-between">
 					<div>
-						<p class="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1 italic">{stat.label}</p>
+						<div class="flex items-center gap-2 mb-1">
+							<span class={`h-2 w-2 rounded-full ${stat.isLoaded ? 'bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.7)]' : 'bg-yellow-400 animate-pulse shadow-[0_0_8px_rgba(250,204,21,0.7)]'}`}></span>
+							<p class="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest italic">{stat.label}</p>
+						</div>
 						<p class="text-3xl font-black text-slate-900 dark:text-white italic tabular-nums tracking-tighter">{stat.value}</p>
 					</div>
-					<div class="p-3 bg-slate-100 dark:bg-slate-700 rounded-2xl group-hover:scale-110 transition-transform">
+					<a
+						href={stat.href}
+						class="p-3 bg-slate-100 dark:bg-slate-700 rounded-2xl group-hover:scale-110 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+						title={`Open ${stat.label}`}
+						aria-label={`Open ${stat.label}`}
+					>
 						<stat.icon class="w-6 h-6 {stat.color}" />
-					</div>
+					</a>
 				</div>
 			</div>
 		{/each}
