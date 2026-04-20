@@ -83,8 +83,9 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// The new secret should appear in the list.
-	err = page.Locator("text=e2e/test/db-password").WaitFor(playwright.LocatorWaitForOptions{
+	// The new secret should appear in the list (target the h3 heading specifically to
+	// avoid strict-mode violations from ancestor elements that also contain the text).
+	err = page.Locator("h3:has-text('e2e/test/db-password')").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
