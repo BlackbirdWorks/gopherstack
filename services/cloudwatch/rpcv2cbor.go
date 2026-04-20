@@ -1,7 +1,9 @@
 package cloudwatch
 
 import (
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -75,6 +77,13 @@ func (h *Handler) dispatchCBOR(op string, input cbor.Map, c *echo.Context) error
 		return h.cborListMetrics(input, c)
 	case cborOpListTagsForResource, cborOpTagResource, cborOpUntagResource:
 		return h.cborTagOperation(op, input, c)
+	default:
+		return h.dispatchDashboardCBOR(op, input, c)
+	}
+}
+
+func (h *Handler) dispatchDashboardCBOR(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
 	case "PutDashboard":
 		return h.cborPutDashboard(input, c)
 	case "GetDashboard":
@@ -83,6 +92,29 @@ func (h *Handler) dispatchCBOR(op string, input cbor.Map, c *echo.Context) error
 		return h.cborListDashboards(input, c)
 	case "DeleteDashboards":
 		return h.cborDeleteDashboards(input, c)
+	default:
+		return h.dispatchResourceManagementCBOR(op, input, c)
+	}
+}
+
+func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
+	case "PutAlarmMuteRule":
+		return h.cborPutAlarmMuteRule(input, c)
+	case "UpdateAlarmMuteRule":
+		return h.cborUpdateAlarmMuteRule(input, c)
+	case "PutInsightRule":
+		return h.cborPutInsightRule(input, c)
+	case "UpdateInsightRule":
+		return h.cborUpdateInsightRule(input, c)
+	case "PutMetricStream":
+		return h.cborPutMetricStream(input, c)
+	case "UpdateMetricStream":
+		return h.cborUpdateMetricStream(input, c)
+	case "GetAlarmMuteRule":
+		return h.cborGetAlarmMuteRule(input, c)
+	case "DeleteAlarmMuteRule":
+		return h.cborDeleteAlarmMuteRule(input, c)
 	default:
 		return h.dispatchAlarmCBOR(op, input, c)
 	}
@@ -109,6 +141,63 @@ func (h *Handler) dispatchAlarmCBOR(op string, input cbor.Map, c *echo.Context) 
 		return h.cborEnableAlarmActions(input, c)
 	case "DisableAlarmActions":
 		return h.cborDisableAlarmActions(input, c)
+	default:
+		return h.dispatchExtendedCBOR(op, input, c)
+	}
+}
+
+// dispatchExtendedCBOR routes extended CloudWatch CBOR operations.
+func (h *Handler) dispatchExtendedCBOR(op string, input cbor.Map, c *echo.Context) error {
+	if handled, err := h.dispatchAnomalyMetricStreamCBOR(op, input, c); handled {
+		return err
+	}
+
+	return h.dispatchInsightMetricFilterCBOR(op, input, c)
+}
+
+// dispatchAnomalyMetricStreamCBOR routes anomaly detector and metric stream CBOR operations.
+func (h *Handler) dispatchAnomalyMetricStreamCBOR(op string, input cbor.Map, c *echo.Context) (bool, error) {
+	switch op {
+	case "PutAnomalyDetector":
+		return true, h.cborPutAnomalyDetector(input, c)
+	case "DeleteAnomalyDetector":
+		return true, h.cborDeleteAnomalyDetector(input, c)
+	case "DescribeAnomalyDetectors":
+		return true, h.cborDescribeAnomalyDetectors(input, c)
+	case "ListMetricStreams":
+		return true, h.cborListMetricStreams(input, c)
+	case "GetMetricStream":
+		return true, h.cborGetMetricStream(input, c)
+	case "DeleteMetricStream":
+		return true, h.cborDeleteMetricStream(input, c)
+	case "DescribeAlarmContributors":
+		return true, h.cborDescribeAlarmContributors(input, c)
+	}
+
+	return false, nil
+}
+
+// dispatchInsightMetricFilterCBOR routes insight rule and metric filter CBOR operations.
+func (h *Handler) dispatchInsightMetricFilterCBOR(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
+	case "DeleteInsightRules":
+		return h.cborDeleteInsightRules(input, c)
+	case "DescribeInsightRules":
+		return h.cborDescribeInsightRules(input, c)
+	case "DisableInsightRules":
+		return h.cborDisableInsightRules(input, c)
+	case "EnableInsightRules":
+		return h.cborEnableInsightRules(input, c)
+	case "GetInsightRuleReport":
+		return h.cborGetInsightRuleReport(input, c)
+	case "PutMetricFilter":
+		return h.cborPutMetricFilter(input, c)
+	case "DescribeMetricFilters":
+		return h.cborDescribeMetricFilters(input, c)
+	case "DeleteMetricFilter":
+		return h.cborDeleteMetricFilter(input, c)
+	case "TestMetricFilter":
+		return h.cborTestMetricFilter(c)
 	default:
 		return h.cborError(c, http.StatusBadRequest, "InvalidAction", "unknown operation: "+op)
 	}
@@ -193,6 +282,26 @@ func cborInt32(m cbor.Map, key string) int32 {
 		return int32(i)
 	case cbor.Float32:
 		return int32(i)
+	}
+
+	return 0
+}
+
+// cborValInt64 extracts an int64 value from a raw cbor.Value without truncating to int32.
+func cborValInt64(v cbor.Value) int64 {
+	switch i := v.(type) {
+	case cbor.Uint:
+		if i > math.MaxInt64 {
+			return math.MaxInt64
+		}
+
+		return int64(i)
+	case cbor.NegInt:
+		return -int64(i) //nolint:gosec // int64 covers all cbor.NegInt values
+	case cbor.Float64:
+		return int64(i)
+	case cbor.Float32:
+		return int64(i)
 	}
 
 	return 0
@@ -488,9 +597,12 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		MetricName:              cborStr(input, "MetricName"),
 		ComparisonOperator:      cborStr(input, "ComparisonOperator"),
 		Statistic:               cborStr(input, "Statistic"),
+		ExtendedStatistic:       cborStr(input, "ExtendedStatistic"),
+		TreatMissingData:        cborStr(input, "TreatMissingData"),
 		AlarmDescription:        cborStr(input, "AlarmDescription"),
 		Threshold:               cborFloat(input, "Threshold"),
 		EvaluationPeriods:       cborInt32(input, "EvaluationPeriods"),
+		DatapointsToAlarm:       cborInt32(input, "DatapointsToAlarm"),
 		Period:                  cborInt32(input, "Period"),
 		ActionsEnabled:          actionsEnabled,
 		AlarmActions:            cborStrList(input, "AlarmActions"),
@@ -499,6 +611,10 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -508,6 +624,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	alarmNames := cborStrList(input, "AlarmNames")
 	alarmTypes := cborStrList(input, "AlarmTypes")
+	alarmNamePrefix := cborStr(input, "AlarmNamePrefix")
 	stateValue := cborStr(input, "StateValue")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -515,6 +632,7 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	metricPage, compositePage, err := h.Backend.DescribeAlarms(
 		alarmNames,
 		alarmTypes,
+		alarmNamePrefix,
 		stateValue,
 		nextToken,
 		maxRecords,
@@ -524,61 +642,13 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	}
 
 	alarmList := make(cbor.List, 0, len(metricPage.Data))
-
-	for _, a := range metricPage.Data {
-		m := cbor.Map{
-			"AlarmName":          cbor.String(a.AlarmName),
-			"AlarmArn":           cbor.String(a.AlarmArn),
-			"Namespace":          cbor.String(a.Namespace),
-			"MetricName":         cbor.String(a.MetricName),
-			"ComparisonOperator": cbor.String(a.ComparisonOperator),
-			"Statistic":          cbor.String(a.Statistic),
-			"StateValue":         cbor.String(a.StateValue),
-			"StateReason":        cbor.String(a.StateReason),
-			"AlarmDescription":   cbor.String(a.AlarmDescription),
-			"Threshold":          cbor.Float64(a.Threshold),
-			"EvaluationPeriods": cbor.Uint(
-				uint64(a.EvaluationPeriods), //nolint:gosec // EvaluationPeriods is always positive
-			),
-			"Period": cbor.Uint(
-				uint64(a.Period), //nolint:gosec // Period is always positive
-			),
-			"ActionsEnabled": cbor.Bool(a.ActionsEnabled),
-		}
-		if len(a.AlarmActions) > 0 {
-			m["AlarmActions"] = cborStringList(a.AlarmActions)
-		}
-		if len(a.OKActions) > 0 {
-			m["OKActions"] = cborStringList(a.OKActions)
-		}
-		if len(a.InsufficientDataActions) > 0 {
-			m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
-		}
-		alarmList = append(alarmList, m)
+	for i := range metricPage.Data {
+		alarmList = append(alarmList, buildMetricAlarmCBOR(&metricPage.Data[i]))
 	}
 
 	compositeList := make(cbor.List, 0, len(compositePage.Data))
-
-	for _, a := range compositePage.Data {
-		m := cbor.Map{
-			"AlarmName":        cbor.String(a.AlarmName),
-			"AlarmArn":         cbor.String(a.AlarmArn),
-			"AlarmRule":        cbor.String(a.AlarmRule),
-			"StateValue":       cbor.String(a.StateValue),
-			"StateReason":      cbor.String(a.StateReason),
-			"AlarmDescription": cbor.String(a.AlarmDescription),
-			"ActionsEnabled":   cbor.Bool(a.ActionsEnabled),
-		}
-		if len(a.AlarmActions) > 0 {
-			m["AlarmActions"] = cborStringList(a.AlarmActions)
-		}
-		if len(a.OKActions) > 0 {
-			m["OKActions"] = cborStringList(a.OKActions)
-		}
-		if len(a.InsufficientDataActions) > 0 {
-			m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
-		}
-		compositeList = append(compositeList, m)
+	for i := range compositePage.Data {
+		compositeList = append(compositeList, buildCompositeAlarmCBOR(&compositePage.Data[i]))
 	}
 
 	resp := cbor.Map{
@@ -599,6 +669,12 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 
 func (h *Handler) cborDeleteAlarms(input cbor.Map, c *echo.Context) error {
 	alarmNames := cborStrList(input, "AlarmNames")
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		for _, a := range b.GetAlarmARNs(alarmNames) {
+			h.deleteResourceTags(a)
+		}
+	}
 
 	if err := h.Backend.DeleteAlarms(alarmNames); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -676,6 +752,96 @@ func cborStringList(ss []string) cbor.List {
 	return l
 }
 
+// buildMetricAlarmCBOR converts a MetricAlarm to a cbor.Map.
+func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
+	m := cbor.Map{
+		"AlarmName":          cbor.String(a.AlarmName),
+		"AlarmArn":           cbor.String(a.AlarmArn),
+		"AlarmType":          cbor.String("MetricAlarm"),
+		"Namespace":          cbor.String(a.Namespace),
+		"MetricName":         cbor.String(a.MetricName),
+		"ComparisonOperator": cbor.String(a.ComparisonOperator),
+		"Statistic":          cbor.String(a.Statistic),
+		"StateValue":         cbor.String(a.StateValue),
+		"StateReason":        cbor.String(a.StateReason),
+		"AlarmDescription":   cbor.String(a.AlarmDescription),
+		"Threshold":          cbor.Float64(a.Threshold),
+		"EvaluationPeriods":  cbor.Uint(uint64(a.EvaluationPeriods)), //nolint:gosec // EvaluationPeriods is positive
+		"Period":             cbor.Uint(uint64(a.Period)),            //nolint:gosec // Period is positive
+		"ActionsEnabled":     cbor.Bool(a.ActionsEnabled),
+	}
+	if !a.StateTransitionedTimestamp.IsZero() {
+		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
+	}
+	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
+		m["AlarmConfigurationUpdatedTimestamp"] = cborFromTime(a.AlarmConfigurationUpdatedTimestamp)
+	}
+	if !a.CreatedAt.IsZero() {
+		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
+	}
+	if a.StateReasonData != "" {
+		m["StateReasonData"] = cbor.String(a.StateReasonData)
+	}
+	if a.DatapointsToAlarm > 0 {
+		m["DatapointsToAlarm"] = cbor.Uint(uint64(a.DatapointsToAlarm))
+	}
+	if a.TreatMissingData != "" {
+		m["TreatMissingData"] = cbor.String(a.TreatMissingData)
+	}
+	if a.ExtendedStatistic != "" {
+		m["ExtendedStatistic"] = cbor.String(a.ExtendedStatistic)
+	}
+	if len(a.Dimensions) > 0 {
+		dims := make(cbor.List, 0, len(a.Dimensions))
+		for _, d := range a.Dimensions {
+			dims = append(dims, cbor.Map{
+				"Name":  cbor.String(d.Name),
+				"Value": cbor.String(d.Value),
+			})
+		}
+		m["Dimensions"] = dims
+	}
+	if len(a.AlarmActions) > 0 {
+		m["AlarmActions"] = cborStringList(a.AlarmActions)
+	}
+	if len(a.OKActions) > 0 {
+		m["OKActions"] = cborStringList(a.OKActions)
+	}
+	if len(a.InsufficientDataActions) > 0 {
+		m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
+	}
+
+	return m
+}
+
+// buildCompositeAlarmCBOR converts a CompositeAlarm to a cbor.Map.
+func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
+	m := cbor.Map{
+		"AlarmName":        cbor.String(a.AlarmName),
+		"AlarmArn":         cbor.String(a.AlarmArn),
+		"AlarmType":        cbor.String("CompositeAlarm"),
+		"AlarmRule":        cbor.String(a.AlarmRule),
+		"StateValue":       cbor.String(a.StateValue),
+		"StateReason":      cbor.String(a.StateReason),
+		"AlarmDescription": cbor.String(a.AlarmDescription),
+		"ActionsEnabled":   cbor.Bool(a.ActionsEnabled),
+	}
+	if !a.CreatedAt.IsZero() {
+		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
+	}
+	if len(a.AlarmActions) > 0 {
+		m["AlarmActions"] = cborStringList(a.AlarmActions)
+	}
+	if len(a.OKActions) > 0 {
+		m["OKActions"] = cborStringList(a.OKActions)
+	}
+	if len(a.InsufficientDataActions) > 0 {
+		m["InsufficientDataActions"] = cborStringList(a.InsufficientDataActions)
+	}
+
+	return m
+}
+
 func (h *Handler) cborPutCompositeAlarm(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
 	if alarmName == "" {
@@ -723,26 +889,8 @@ func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) e
 	}
 
 	alarmList := make(cbor.List, 0, len(p.Data))
-	for _, a := range p.Data {
-		m := cbor.Map{
-			"AlarmName":          cbor.String(a.AlarmName),
-			"AlarmArn":           cbor.String(a.AlarmArn),
-			"Namespace":          cbor.String(a.Namespace),
-			"MetricName":         cbor.String(a.MetricName),
-			"ComparisonOperator": cbor.String(a.ComparisonOperator),
-			"Statistic":          cbor.String(a.Statistic),
-			"StateValue":         cbor.String(a.StateValue),
-			"Threshold":          cbor.Float64(a.Threshold),
-			"EvaluationPeriods": cbor.Uint(
-				uint64(a.EvaluationPeriods), //nolint:gosec // EvaluationPeriods is always positive
-			),
-			"Period":         cbor.Uint(uint64(a.Period)), //nolint:gosec // Period is always positive
-			"ActionsEnabled": cbor.Bool(a.ActionsEnabled),
-		}
-		if len(a.AlarmActions) > 0 {
-			m["AlarmActions"] = cborStringList(a.AlarmActions)
-		}
-		alarmList = append(alarmList, m)
+	for i := range p.Data {
+		alarmList = append(alarmList, buildMetricAlarmCBOR(&p.Data[i]))
 	}
 
 	resp := cbor.Map{"MetricAlarms": alarmList}
@@ -755,6 +903,7 @@ func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) e
 
 func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
+	alarmType := cborStr(input, "AlarmType")
 	historyItemType := cborStr(input, "HistoryItemType")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -768,20 +917,24 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 		ed = cborTime(input, "EndDate")
 	}
 
-	p, err := h.Backend.DescribeAlarmHistory(alarmName, historyItemType, nextToken, sd, ed, maxRecords)
+	p, err := h.Backend.DescribeAlarmHistory(alarmName, alarmType, historyItemType, nextToken, sd, ed, maxRecords)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	histList := make(cbor.List, 0, len(p.Data))
 	for _, item := range p.Data {
-		histList = append(histList, cbor.Map{
+		m := cbor.Map{
 			"AlarmName":       cbor.String(item.AlarmName),
 			"HistoryItemType": cbor.String(item.HistoryItemType),
 			"HistorySummary":  cbor.String(item.HistorySummary),
 			"HistoryData":     cbor.String(item.HistoryData),
 			"Timestamp":       cborFromTime(item.Timestamp),
-		})
+		}
+		if item.AlarmType != "" {
+			m["AlarmType"] = cbor.String(item.AlarmType)
+		}
+		histList = append(histList, m)
 	}
 
 	resp := cbor.Map{"AlarmHistoryItems": histList}
@@ -889,9 +1042,606 @@ func (h *Handler) cborListDashboards(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDeleteDashboards(input cbor.Map, c *echo.Context) error {
 	names := cborStrList(input, "DashboardNames")
 
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		for _, a := range b.GetDashboardARNs(names) {
+			h.deleteResourceTags(a)
+		}
+	}
+
 	if err := h.Backend.DeleteDashboards(names); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	rawDuration := cborValInt64(input["MuteDuration"])
+	if rawDuration < 0 || rawDuration > math.MaxInt32 {
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"MuteDuration must be between 0 and 2147483647",
+		)
+	}
+
+	rule := &AlarmMuteRule{
+		MuteName:      muteName,
+		Description:   cborStr(input, "Description"),
+		AlarmNames:    cborStrList(input, "AlarmNames"),
+		MuteDuration:  int32(rawDuration),
+		MuteStartTime: time.Now().UTC(),
+	}
+
+	if start := cborTime(input, "MuteStartTime"); !start.IsZero() {
+		rule.MuteStartTime = start.UTC()
+	}
+
+	if err := h.Backend.PutAlarmMuteRule(rule); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUpdateAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+	if _, err := h.Backend.GetAlarmMuteRule(muteName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return h.cborPutAlarmMuteRule(input, c)
+}
+
+func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	rule, err := h.Backend.GetAlarmMuteRule(muteName)
+	if err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	muteRule := cbor.Map{
+		"MuteName":     cbor.String(rule.MuteName),
+		"Description":  cbor.String(rule.Description),
+		"MuteDuration": cbor.Uint(uint64(rule.MuteDuration)), //nolint:gosec // MuteDuration is always non-negative
+		"CreationTime": cborFromTime(rule.CreationTime),
+		"AlarmNames":   cborStringList(rule.AlarmNames),
+	}
+	if !rule.MuteStartTime.IsZero() {
+		muteRule["MuteStartTime"] = cborFromTime(rule.MuteStartTime)
+	}
+
+	return writeCBOR(c, cbor.Map{"MuteRule": muteRule})
+}
+
+func (h *Handler) cborDeleteAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	if err := h.Backend.DeleteAlarmMuteRule(muteName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborPutInsightRule(input cbor.Map, c *echo.Context) error {
+	return h.cborPutInsightRuleWithName(cborStr(input, "RuleName"), input, c)
+}
+
+func (h *Handler) cborPutInsightRuleWithName(ruleName string, input cbor.Map, c *echo.Context) error {
+	if ruleName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+	}
+
+	if err := h.Backend.PutInsightRule(&InsightRule{
+		Name:       ruleName,
+		Definition: cborStr(input, "RuleDefinition"),
+		State:      cborStr(input, "RuleState"),
+	}); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
+	ruleName := cborStr(input, "RuleName")
+	if ruleName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+	}
+	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return h.cborPutInsightRuleWithName(ruleName, input, c)
+}
+
+func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
+	name := cborStr(input, "Name")
+	if name == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	if err := h.Backend.PutMetricStream(&MetricStream{
+		Name:         name,
+		FirehoseArn:  cborStr(input, "FirehoseArn"),
+		RoleArn:      cborStr(input, "RoleArn"),
+		OutputFormat: cborStr(input, "OutputFormat"),
+		State:        cborStr(input, "State"),
+	}); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUpdateMetricStream(input cbor.Map, c *echo.Context) error {
+	name := cborStr(input, "Name")
+	if name == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+	if _, err := h.Backend.GetMetricStream(name); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return h.cborPutMetricStream(input, c)
+}
+
+func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error {
+	namespace := ""
+	metricName := ""
+	stat := ""
+
+	if smadRaw, hasSmad := input["SingleMetricAnomalyDetector"]; hasSmad {
+		if smad, isMap := smadRaw.(cbor.Map); isMap {
+			namespace = cborStr(smad, "Namespace")
+			metricName = cborStr(smad, "MetricName")
+			stat = cborStr(smad, "Stat")
+		}
+	}
+	if namespace == "" {
+		namespace = cborStr(input, "Namespace")
+	}
+	if metricName == "" {
+		metricName = cborStr(input, "MetricName")
+	}
+	if stat == "" {
+		stat = cborStr(input, "Stat")
+	}
+
+	if namespace == "" || metricName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace and MetricName are required")
+	}
+
+	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
+		Namespace:  namespace,
+		MetricName: metricName,
+		Stat:       stat,
+		StateValue: "TRAINED_INSUFFICIENT_DATA",
+	}); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) error {
+	namespace := ""
+	metricName := ""
+	stat := ""
+
+	if smadRaw, hasSmad := input["SingleMetricAnomalyDetector"]; hasSmad {
+		if smad, isMap := smadRaw.(cbor.Map); isMap {
+			namespace = cborStr(smad, "Namespace")
+			metricName = cborStr(smad, "MetricName")
+			stat = cborStr(smad, "Stat")
+		}
+	}
+	if namespace == "" {
+		namespace = cborStr(input, "Namespace")
+	}
+	if metricName == "" {
+		metricName = cborStr(input, "MetricName")
+	}
+	if stat == "" {
+		stat = cborStr(input, "Stat")
+	}
+
+	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborDescribeAnomalyDetectors(input cbor.Map, c *echo.Context) error {
+	namespace := cborStr(input, "Namespace")
+	metricName := cborStr(input, "MetricName")
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxResults"))
+
+	p, err := h.Backend.DescribeAnomalyDetectors(namespace, metricName, nextToken, maxResults)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	members := make(cbor.List, 0, len(p.Data))
+	for _, d := range p.Data {
+		entry := cbor.Map{
+			"StateValue": cbor.String(d.StateValue),
+			"SingleMetricAnomalyDetector": cbor.Map{
+				"Namespace":  cbor.String(d.Namespace),
+				"MetricName": cbor.String(d.MetricName),
+				"Stat":       cbor.String(d.Stat),
+			},
+		}
+		members = append(members, entry)
+	}
+
+	out := cbor.Map{
+		"AnomalyDetectors": members,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborListMetricStreams(input cbor.Map, c *echo.Context) error {
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxResults"))
+
+	p, err := h.Backend.ListMetricStreams(nextToken, maxResults)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	entries := make(cbor.List, 0, len(p.Data))
+	for _, s := range p.Data {
+		entry := cbor.Map{
+			"Name":         cbor.String(s.Name),
+			"Arn":          cbor.String(s.Arn),
+			"FirehoseArn":  cbor.String(s.FirehoseArn),
+			"State":        cbor.String(s.State),
+			"OutputFormat": cbor.String(s.OutputFormat),
+		}
+		if !s.CreationDate.IsZero() {
+			entry["CreationDate"] = cborFromTime(s.CreationDate)
+		}
+		if !s.LastUpdateDate.IsZero() {
+			entry["LastUpdateDate"] = cborFromTime(s.LastUpdateDate)
+		}
+		entries = append(entries, entry)
+	}
+
+	out := cbor.Map{
+		"Entries": entries,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborGetMetricStream(input cbor.Map, c *echo.Context) error {
+	name := cborStr(input, "Name")
+	if name == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	stream, err := h.Backend.GetMetricStream(name)
+	if err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	out := cbor.Map{
+		"Name":         cbor.String(stream.Name),
+		"Arn":          cbor.String(stream.Arn),
+		"FirehoseArn":  cbor.String(stream.FirehoseArn),
+		"RoleArn":      cbor.String(stream.RoleArn),
+		"State":        cbor.String(stream.State),
+		"OutputFormat": cbor.String(stream.OutputFormat),
+	}
+	if !stream.CreationDate.IsZero() {
+		out["CreationDate"] = cborFromTime(stream.CreationDate)
+	}
+	if !stream.LastUpdateDate.IsZero() {
+		out["LastUpdateDate"] = cborFromTime(stream.LastUpdateDate)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborDeleteMetricStream(input cbor.Map, c *echo.Context) error {
+	name := cborStr(input, "Name")
+	if name == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	if err := h.Backend.DeleteMetricStream(name); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborDeleteInsightRules(input cbor.Map, c *echo.Context) error {
+	ruleNames := cborStringSlice(input["RuleNames"])
+	if len(ruleNames) == 0 {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+	}
+
+	failures, err := h.Backend.DeleteInsightRules(ruleNames)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, buildInsightRuleFailureCBOR(failures))
+}
+
+func (h *Handler) cborDescribeInsightRules(input cbor.Map, c *echo.Context) error {
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxResults"))
+
+	p, err := h.Backend.DescribeInsightRules(nextToken, maxResults)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	rules := make(cbor.List, 0, len(p.Data))
+	for _, r := range p.Data {
+		entry := cbor.Map{
+			"Name":        cbor.String(r.Name),
+			"State":       cbor.String(r.State),
+			"Schema":      cbor.String(r.Schema),
+			"Definition":  cbor.String(r.Definition),
+			"ManagedRule": cbor.Bool(r.ManagedRule),
+		}
+		if r.Arn != "" {
+			entry["RuleArn"] = cbor.String(r.Arn)
+		}
+		if !r.CreatedAt.IsZero() {
+			entry["CreatedAt"] = cborFromTime(r.CreatedAt)
+		}
+		rules = append(rules, entry)
+	}
+
+	out := cbor.Map{
+		"InsightRules": rules,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborDisableInsightRules(input cbor.Map, c *echo.Context) error {
+	ruleNames := cborStringSlice(input["RuleNames"])
+	if len(ruleNames) == 0 {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+	}
+
+	failures, err := h.Backend.DisableInsightRules(ruleNames)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, buildInsightRuleFailureCBOR(failures))
+}
+
+func (h *Handler) cborEnableInsightRules(input cbor.Map, c *echo.Context) error {
+	ruleNames := cborStringSlice(input["RuleNames"])
+	if len(ruleNames) == 0 {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+	}
+
+	failures, err := h.Backend.EnableInsightRules(ruleNames)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, buildInsightRuleFailureCBOR(failures))
+}
+
+func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) error {
+	ruleName := cborStr(input, "RuleName")
+	if ruleName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+	}
+	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{
+		"Contributors": cbor.List{},
+	})
+}
+
+func (h *Handler) cborPutMetricFilter(input cbor.Map, c *echo.Context) error {
+	filterName := cborStr(input, "FilterName")
+	if filterName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+	}
+	logGroupName := cborStr(input, "LogGroupName")
+	if logGroupName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+	}
+
+	filter := &MetricFilter{
+		FilterName:    filterName,
+		LogGroupName:  logGroupName,
+		FilterPattern: cborStr(input, "FilterPattern"),
+	}
+
+	if mtsRaw, hasMts := input["MetricTransformations"]; hasMts {
+		if mtsList, isList := mtsRaw.(cbor.List); isList {
+			for _, mtRaw := range mtsList {
+				if mt, isMap := mtRaw.(cbor.Map); isMap {
+					filter.MetricTransformations = append(filter.MetricTransformations, MetricTransformation{
+						MetricName:      cborStr(mt, "MetricName"),
+						MetricNamespace: cborStr(mt, "MetricNamespace"),
+						MetricValue:     cborStr(mt, "MetricValue"),
+						Unit:            cborStr(mt, "Unit"),
+						DefaultValue:    cborFloat(mt, "DefaultValue"),
+					})
+				}
+			}
+		}
+	}
+
+	if err := h.Backend.PutMetricFilter(filter); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborDescribeMetricFilters(input cbor.Map, c *echo.Context) error {
+	filterNamePrefix := cborStr(input, "FilterNamePrefix")
+	logGroupName := cborStr(input, "LogGroupName")
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxResults"))
+
+	p, err := h.Backend.DescribeMetricFilters(filterNamePrefix, logGroupName, nextToken, maxResults)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	filters := make(cbor.List, 0, len(p.Data))
+	for _, f := range p.Data {
+		entry := cbor.Map{
+			"FilterName":    cbor.String(f.FilterName),
+			"LogGroupName":  cbor.String(f.LogGroupName),
+			"FilterPattern": cbor.String(f.FilterPattern),
+			"CreationTime":  cbor.Uint(uint64(f.CreationTime.UnixMilli())),
+		}
+		if len(f.MetricTransformations) > 0 {
+			mts := make(cbor.List, 0, len(f.MetricTransformations))
+			for _, mt := range f.MetricTransformations {
+				mts = append(mts, cbor.Map{
+					"MetricName":      cbor.String(mt.MetricName),
+					"MetricNamespace": cbor.String(mt.MetricNamespace),
+					"MetricValue":     cbor.String(mt.MetricValue),
+					"Unit":            cbor.String(mt.Unit),
+					"DefaultValue":    cbor.Float64(mt.DefaultValue),
+				})
+			}
+			entry["MetricTransformations"] = mts
+		}
+		filters = append(filters, entry)
+	}
+
+	out := cbor.Map{
+		"MetricFilters": filters,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborDeleteMetricFilter(input cbor.Map, c *echo.Context) error {
+	filterName := cborStr(input, "FilterName")
+	if filterName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+	}
+	logGroupName := cborStr(input, "LogGroupName")
+	if logGroupName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+	}
+
+	if err := h.Backend.DeleteMetricFilter(filterName, logGroupName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+// cborTestMetricFilter returns an empty matches response (log events are not stored by this emulator).
+func (h *Handler) cborTestMetricFilter(_ *echo.Context) error { return nil }
+
+func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context) error {
+	alarmName := cborStr(input, "AlarmName")
+	if alarmName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+	}
+	nextToken := cborStr(input, "NextToken")
+
+	p, err := h.Backend.DescribeAlarmContributors(alarmName, nextToken)
+	if err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	contributors := make(cbor.List, 0, len(p.Data))
+	for _, contrib := range p.Data {
+		keys := make(cbor.List, 0, len(contrib.Keys))
+		for _, k := range contrib.Keys {
+			keys = append(keys, cbor.String(k))
+		}
+		contributors = append(contributors, cbor.Map{
+			"Keys": keys,
+			"Sum":  cbor.Float64(contrib.Sum),
+		})
+	}
+
+	out := cbor.Map{
+		"Contributors": contributors,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+// cborStringSlice converts a cbor.Value to a []string slice.
+func cborStringSlice(v cbor.Value) []string {
+	list, isList := v.(cbor.List)
+	if !isList {
+		return nil
+	}
+	result := make([]string, 0, len(list))
+	for _, item := range list {
+		if s, isStr := item.(cbor.String); isStr {
+			result = append(result, string(s))
+		}
+	}
+
+	return result
+}
+
+// buildInsightRuleFailureCBOR builds a CBOR map for insight rule failure responses.
+func buildInsightRuleFailureCBOR(failures []InsightRuleFailure) cbor.Map {
+	failList := make(cbor.List, 0, len(failures))
+	for _, f := range failures {
+		failList = append(failList, cbor.Map{
+			"RuleName":           cbor.String(f.RuleName),
+			"FailureCode":        cbor.String(f.FailureCode),
+			"FailureDescription": cbor.String(f.FailureDescription),
+		})
+	}
+
+	return cbor.Map{
+		"Failures": failList,
+	}
 }

@@ -243,6 +243,55 @@ func TestCBOR(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			name: "PutAlarmMuteRule",
+			op:   "PutAlarmMuteRule",
+			body: cbor.Map{
+				"MuteName":     cbor.String("mute-cbor"),
+				"Description":  cbor.String("cbor mute"),
+				"MuteDuration": cbor.Uint(60),
+				"AlarmNames":   cbor.List{cbor.String("alarm-a")},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "PutInsightRule",
+			op:   "PutInsightRule",
+			body: cbor.Map{
+				"RuleName":       cbor.String("cbor-rule"),
+				"RuleState":      cbor.String("ENABLED"),
+				"RuleDefinition": cbor.String(`{"Schema":"CloudWatchLogRule"}`),
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "PutMetricStream",
+			op:   "PutMetricStream",
+			body: cbor.Map{
+				"Name":        cbor.String("stream-cbor"),
+				"FirehoseArn": cbor.String("arn:aws:firehose:us-east-1:123456789012:deliverystream/main"),
+				"RoleArn":     cbor.String("arn:aws:iam::123456789012:role/main"),
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "UpdateAlarmMuteRule/not found",
+			op:       "UpdateAlarmMuteRule",
+			body:     cbor.Map{"MuteName": cbor.String("missing-mute")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "UpdateInsightRule/not found",
+			op:       "UpdateInsightRule",
+			body:     cbor.Map{"RuleName": cbor.String("missing-rule")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "UpdateMetricStream/not found",
+			op:       "UpdateMetricStream",
+			body:     cbor.Map{"Name": cbor.String("missing-stream")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name: "DescribeAlarms",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
 				t.Helper()

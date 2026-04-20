@@ -448,3 +448,115 @@ func TestIntegration_CloudWatch_Dashboards(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, listAfter.DashboardEntries)
 }
+
+func TestIntegration_CloudWatch_PutAnomalyDetector(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchClient(t)
+	ctx := t.Context()
+
+	ns := "CW/AnomalyTest/" + uuid.NewString()[:8]
+
+	_, err := client.PutAnomalyDetector(ctx, &cloudwatchsdk.PutAnomalyDetectorInput{
+		SingleMetricAnomalyDetector: &cwtypes.SingleMetricAnomalyDetector{
+			Namespace:  aws.String(ns),
+			MetricName: aws.String("Requests"),
+			Stat:       aws.String("Average"),
+		},
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeAnomalyDetectors(ctx, &cloudwatchsdk.DescribeAnomalyDetectorsInput{
+		Namespace:  aws.String(ns),
+		MetricName: aws.String("Requests"),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, descOut.AnomalyDetectors)
+}
+
+func TestIntegration_CloudWatch_ListGetMetricStreams(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchClient(t)
+	ctx := t.Context()
+
+	streamName := "stream-" + uuid.NewString()[:8]
+	_, err := client.PutMetricStream(ctx, &cloudwatchsdk.PutMetricStreamInput{
+		Name:         aws.String(streamName),
+		FirehoseArn:  aws.String("arn:aws:firehose:us-east-1:123456789012:deliverystream/test"),
+		RoleArn:      aws.String("arn:aws:iam::123456789012:role/cloudwatch-firehose"),
+		OutputFormat: cwtypes.MetricStreamOutputFormatJson,
+	})
+	require.NoError(t, err)
+
+	// ListMetricStreams
+	listOut, err := client.ListMetricStreams(ctx, &cloudwatchsdk.ListMetricStreamsInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, listOut.Entries)
+
+	// GetMetricStream
+	getOut, err := client.GetMetricStream(ctx, &cloudwatchsdk.GetMetricStreamInput{
+		Name: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, streamName, aws.ToString(getOut.Name))
+}
+
+func TestIntegration_CloudWatch_DescribeAlarms_AlarmNamePrefix(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchClient(t)
+	ctx := t.Context()
+
+	prefix := "pfx-" + uuid.NewString()[:6] + "-"
+	names := []string{prefix + "cpu", prefix + "mem"}
+	for _, name := range names {
+		_, err := client.PutMetricAlarm(ctx, &cloudwatchsdk.PutMetricAlarmInput{
+			AlarmName:          aws.String(name),
+			Namespace:          aws.String("AWS/EC2"),
+			MetricName:         aws.String("CPUUtilization"),
+			ComparisonOperator: cwtypes.ComparisonOperatorGreaterThanThreshold,
+			EvaluationPeriods:  aws.Int32(1),
+			Period:             aws.Int32(60),
+			Threshold:          aws.Float64(90),
+			Statistic:          cwtypes.StatisticAverage,
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.DescribeAlarms(ctx, &cloudwatchsdk.DescribeAlarmsInput{
+		AlarmNamePrefix: aws.String(prefix),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.MetricAlarms, 2)
+}
+
+func TestIntegration_CloudWatch_PutMetricAlarm_DatapointsToAlarm(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchClient(t)
+	ctx := t.Context()
+
+	alarmName := "dta-" + uuid.NewString()[:8]
+	_, err := client.PutMetricAlarm(ctx, &cloudwatchsdk.PutMetricAlarmInput{
+		AlarmName:          aws.String(alarmName),
+		Namespace:          aws.String("AWS/EC2"),
+		MetricName:         aws.String("CPUUtilization"),
+		ComparisonOperator: cwtypes.ComparisonOperatorGreaterThanThreshold,
+		EvaluationPeriods:  aws.Int32(3),
+		DatapointsToAlarm:  aws.Int32(2),
+		Period:             aws.Int32(60),
+		Threshold:          aws.Float64(90),
+		Statistic:          cwtypes.StatisticAverage,
+		TreatMissingData:   aws.String("notBreaching"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeAlarms(ctx, &cloudwatchsdk.DescribeAlarmsInput{
+		AlarmNames: []string{alarmName},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.MetricAlarms, 1)
+	assert.Equal(t, int32(2), aws.ToInt32(out.MetricAlarms[0].DatapointsToAlarm))
+	assert.Equal(t, "notBreaching", aws.ToString(out.MetricAlarms[0].TreatMissingData))
+}

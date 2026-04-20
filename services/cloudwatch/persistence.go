@@ -16,6 +16,7 @@ type backendSnapshot struct {
 	InsightRules     map[string]*InsightRule             `json:"insightRules"`
 	MetricStreams    map[string]*MetricStream            `json:"metricStreams"`
 	AlarmMuteRules   map[string]*AlarmMuteRule           `json:"alarmMuteRules"`
+	MetricFilters    map[string]*MetricFilter            `json:"metricFilters"`
 	AccountID        string                              `json:"accountID"`
 	Region           string                              `json:"region"`
 }
@@ -36,6 +37,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		InsightRules:     b.insightRules,
 		MetricStreams:    b.metricStreams,
 		AlarmMuteRules:   b.alarmMuteRules,
+		MetricFilters:    b.metricFilters,
 		AccountID:        b.accountID,
 		Region:           b.region,
 	}
@@ -96,6 +98,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.AlarmMuteRules = make(map[string]*AlarmMuteRule)
 	}
 
+	if snap.MetricFilters == nil {
+		snap.MetricFilters = make(map[string]*MetricFilter)
+	}
+
 	b.metrics = snap.Metrics
 	b.alarms = snap.Alarms
 	b.compositeAlarms = snap.CompositeAlarms
@@ -105,6 +111,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.insightRules = snap.InsightRules
 	b.metricStreams = snap.MetricStreams
 	b.alarmMuteRules = snap.AlarmMuteRules
+	b.metricFilters = snap.MetricFilters
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
