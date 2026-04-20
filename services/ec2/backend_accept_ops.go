@@ -144,7 +144,14 @@ func (b *InMemoryBackend) Reset() {
 	b.networkInterfaces = make(map[string]*NetworkInterface)
 	b.spotRequests = make(map[string]*SpotInstanceRequest)
 	b.placementGroups = make(map[string]*PlacementGroup)
+	b.images = make(map[string]*AMIStub)
+	b.imageUsageReports = make(map[string]*ImageUsageReport)
+	b.launchTemplates = make(map[string]*LaunchTemplate)
+	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.tags = make(map[string]map[string]string)
+	b.instanceIDsByVPC = make(map[string]map[string]struct{})
+	b.eniIDsByInstance = make(map[string]map[string]struct{})
+	b.eniIDByAttachment = make(map[string]string)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
 	b.nextElasticIPIndex = 0

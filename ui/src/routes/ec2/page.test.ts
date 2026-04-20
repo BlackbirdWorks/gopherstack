@@ -207,11 +207,15 @@ describe("EC2 Page", () => {
     );
   });
 
-  it("shows Security Groups and Key Pairs tabs", () => {
+  it("shows extended EC2 resource tabs", () => {
     mockSend.mockResolvedValue({ Reservations: [] });
     render(EC2Page);
     expect(screen.getByText("Security Groups")).toBeInTheDocument();
     expect(screen.getByText("Key Pairs")).toBeInTheDocument();
+    expect(screen.getByText("AMIs")).toBeInTheDocument();
+    expect(screen.getByText("Launch Templates")).toBeInTheDocument();
+    expect(screen.getByText("VPC Endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Network ACLs")).toBeInTheDocument();
   });
 
   it("loads security groups when tab clicked", async () => {
@@ -254,6 +258,70 @@ describe("EC2 Page", () => {
     await waitFor(
       () => {
         expect(screen.getByText("my-keypair")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("loads AMIs when tab clicked", async () => {
+    mockSend.mockResolvedValueOnce({ Reservations: [] });
+    mockSend.mockResolvedValueOnce({
+      Images: [{ ImageId: "ami-123", Name: "base-ami", State: "available" }],
+    });
+    render(EC2Page);
+    await waitFor(() => screen.getByText("No EC2 instances found"), { timeout: 3000 });
+    await fireEvent.click(screen.getByRole("button", { name: /AMIs/i }));
+    await waitFor(
+      () => {
+        expect(screen.getByText("base-ami")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("loads launch templates when tab clicked", async () => {
+    mockSend.mockResolvedValueOnce({ Reservations: [] });
+    mockSend.mockResolvedValueOnce({
+      LaunchTemplates: [{ LaunchTemplateId: "lt-123", LaunchTemplateName: "web" }],
+    });
+    render(EC2Page);
+    await waitFor(() => screen.getByText("No EC2 instances found"), { timeout: 3000 });
+    await fireEvent.click(screen.getByRole("button", { name: /Launch Templates/i }));
+    await waitFor(
+      () => {
+        expect(screen.getByText("web")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("loads VPC endpoints when tab clicked", async () => {
+    mockSend.mockResolvedValueOnce({ Reservations: [] });
+    mockSend.mockResolvedValueOnce({
+      VpcEndpoints: [{ VpcEndpointId: "vpce-123", ServiceName: "com.amazonaws.us-east-1.s3" }],
+    });
+    render(EC2Page);
+    await waitFor(() => screen.getByText("No EC2 instances found"), { timeout: 3000 });
+    await fireEvent.click(screen.getByRole("button", { name: /VPC Endpoints/i }));
+    await waitFor(
+      () => {
+        expect(screen.getByText("com.amazonaws.us-east-1.s3")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("loads network ACLs when tab clicked", async () => {
+    mockSend.mockResolvedValueOnce({ Reservations: [] });
+    mockSend.mockResolvedValueOnce({
+      NetworkAcls: [{ NetworkAclId: "acl-123", VpcId: "vpc-abc", IsDefault: true }],
+    });
+    render(EC2Page);
+    await waitFor(() => screen.getByText("No EC2 instances found"), { timeout: 3000 });
+    await fireEvent.click(screen.getByRole("button", { name: /Network ACLs/i }));
+    await waitFor(
+      () => {
+        expect(screen.getByText("acl-123")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );

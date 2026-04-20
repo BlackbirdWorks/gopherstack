@@ -457,6 +457,97 @@ func TestEC2Handler_NameAndOperations(t *testing.T) {
 	assert.Contains(t, ops, "RunInstances")
 	assert.Contains(t, ops, "DescribeInstances")
 	assert.Contains(t, ops, "TerminateInstances")
+	assert.Contains(t, ops, "CreateLaunchTemplate")
+	assert.Contains(t, ops, "DescribeVpcEndpoints")
+	assert.Contains(t, ops, "DescribeNetworkAcls")
+}
+
+func TestEC2Handler_DeepDiveOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	runRec := postForm(t, h,
+		"Action=RunInstances&Version=2016-11-15&ImageId=ami-test&InstanceType=t2.micro&MinCount=1")
+	require.Equal(t, http.StatusOK, runRec.Code)
+
+	var runResp struct {
+		InstancesSet struct {
+			Items []struct {
+				InstanceID string `xml:"instanceId"`
+			} `xml:"item"`
+		} `xml:"instancesSet"`
+	}
+
+	err := xml.Unmarshal([]byte(strings.TrimPrefix(runRec.Body.String(), xml.Header)), &runResp)
+	require.NoError(t, err)
+	require.Len(t, runResp.InstancesSet.Items, 1)
+	instanceID := runResp.InstancesSet.Items[0].InstanceID
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "CreateImage",
+			body: "Action=CreateImage&Version=2016-11-15&InstanceId=" + instanceID +
+				"&Name=test-image&Description=test",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateImageResponse", "<imageId>ami-", "test-image"},
+		},
+		{
+			name:         "DescribeImageUsageReports",
+			body:         "Action=DescribeImageUsageReports&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeImageUsageReportsResponse", "<imageUsageReportSet>"},
+		},
+		{
+			name: "CreateLaunchTemplate",
+			body: "Action=CreateLaunchTemplate&Version=2016-11-15&LaunchTemplateName=test-lt" +
+				"&LaunchTemplateData.ImageId=ami-test&LaunchTemplateData.InstanceType=t3.micro",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateLaunchTemplateResponse", "test-lt"},
+		},
+		{
+			name:         "DescribeLaunchTemplates",
+			body:         "Action=DescribeLaunchTemplates&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeLaunchTemplatesResponse"},
+		},
+		{
+			name: "CreateVpcEndpoint",
+			body: "Action=CreateVpcEndpoint&Version=2016-11-15&VpcId=vpc-default&ServiceName=com.amazonaws.us-east-1.s3" +
+				"&VpcEndpointType=Interface&SubnetId.1=subnet-default",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateVpcEndpointResponse", "<vpcEndpointId>vpce-"},
+		},
+		{
+			name:         "DescribeVpcEndpoints",
+			body:         "Action=DescribeVpcEndpoints&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeVpcEndpointsResponse"},
+		},
+		{
+			name:         "DescribeNetworkAcls",
+			body:         "Action=DescribeNetworkAcls&Version=2016-11-15&Filter.1.Name=vpc-id&Filter.1.Value.1=vpc-default",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeNetworkAclsResponse", "acl-default-vpc-default"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postForm(t, h, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, expected := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), expected)
+			}
+		})
+	}
 }
 
 func TestEC2Handler_MatchPriority(t *testing.T) {

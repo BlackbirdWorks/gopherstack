@@ -10,11 +10,19 @@ import {
 	RebootInstancesCommand,
 	DescribeSecurityGroupsCommand,
 	DescribeKeyPairsCommand,
+	DescribeImagesCommand,
+	DescribeLaunchTemplatesCommand,
+	DescribeVpcEndpointsCommand,
+	DescribeNetworkAclsCommand,
 	type SecurityGroup,
-	type KeyPairInfo
+	type KeyPairInfo,
+	type Image,
+	type LaunchTemplate,
+	type VpcEndpoint,
+	type NetworkAcl
 } from '@aws-sdk/client-ec2';
 import { toast } from 'svelte-sonner';
-import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key } from 'lucide-svelte';
+import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key, Layers, Route, FileImage } from 'lucide-svelte';
 
 const ec2 = getEC2Client();
 
@@ -39,11 +47,19 @@ let selectedInstance = $state<EC2Instance | null>(null);
 let newInstanceType = $state('t3.micro');
 let newInstanceAmi = $state('ami-0c55b159cbfafe1f0');
 let newInstanceName = $state('');
-let activeTab = $state<'instances' | 'secgroups' | 'keypairs'>('instances');
+let activeTab = $state<'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplates' | 'vpcendpoints' | 'nacls'>('instances');
 let securityGroups = $state<SecurityGroup[]>([]);
 let keyPairs = $state<KeyPairInfo[]>([]);
+let amis = $state<Image[]>([]);
+let launchTemplates = $state<LaunchTemplate[]>([]);
+let vpcEndpoints = $state<VpcEndpoint[]>([]);
+let networkAcls = $state<NetworkAcl[]>([]);
 let sgSearch = $state('');
 let kpSearch = $state('');
+let amiSearch = $state('');
+let ltSearch = $state('');
+let vpceSearch = $state('');
+let naclSearch = $state('');
 
 const instanceTypes = ['t3.micro', 't3.small', 't3.medium', 't3.large', 'm5.large', 'c5.large', 'r5.large'];
 
@@ -87,17 +103,73 @@ async function loadKeyPairs() {
 	}
 }
 
+async function loadAmis() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeImagesCommand({}));
+		amis = data.Images || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load AMIs');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadLaunchTemplates() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeLaunchTemplatesCommand({}));
+		launchTemplates = data.LaunchTemplates || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load launch templates');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadVpcEndpoints() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeVpcEndpointsCommand({}));
+		vpcEndpoints = data.VpcEndpoints || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load VPC endpoints');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadNetworkAcls() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeNetworkAclsCommand({}));
+		networkAcls = data.NetworkAcls || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load network ACLs');
+	} finally {
+		loading = false;
+	}
+}
+
 async function selectTab(t: typeof activeTab) {
 	activeTab = t;
 	if (t === 'instances' && instances.length === 0) await loadInstances();
 	else if (t === 'secgroups' && securityGroups.length === 0) await loadSecurityGroups();
 	else if (t === 'keypairs' && keyPairs.length === 0) await loadKeyPairs();
+	else if (t === 'amis' && amis.length === 0) await loadAmis();
+	else if (t === 'launchtemplates' && launchTemplates.length === 0) await loadLaunchTemplates();
+	else if (t === 'vpcendpoints' && vpcEndpoints.length === 0) await loadVpcEndpoints();
+	else if (t === 'nacls' && networkAcls.length === 0) await loadNetworkAcls();
 }
 
 async function refresh() {
 	if (activeTab === 'instances') { instances = []; await loadInstances(); }
 	else if (activeTab === 'secgroups') { securityGroups = []; await loadSecurityGroups(); }
-	else { keyPairs = []; await loadKeyPairs(); }
+	else if (activeTab === 'keypairs') { keyPairs = []; await loadKeyPairs(); }
+	else if (activeTab === 'amis') { amis = []; await loadAmis(); }
+	else if (activeTab === 'launchtemplates') { launchTemplates = []; await loadLaunchTemplates(); }
+	else if (activeTab === 'vpcendpoints') { vpcEndpoints = []; await loadVpcEndpoints(); }
+	else { networkAcls = []; await loadNetworkAcls(); }
 }
 
 function getName(instance: EC2Instance): string {
@@ -171,6 +243,18 @@ let filteredSGs = $derived(securityGroups.filter(sg =>
 let filteredKPs = $derived(keyPairs.filter(kp =>
 	!kpSearch || kp.KeyName?.toLowerCase().includes(kpSearch.toLowerCase())
 ));
+let filteredAmis = $derived(amis.filter(ami =>
+	!amiSearch || ami.ImageId?.toLowerCase().includes(amiSearch.toLowerCase()) || ami.Name?.toLowerCase().includes(amiSearch.toLowerCase())
+));
+let filteredLTs = $derived(launchTemplates.filter(lt =>
+	!ltSearch || lt.LaunchTemplateName?.toLowerCase().includes(ltSearch.toLowerCase()) || lt.LaunchTemplateId?.toLowerCase().includes(ltSearch.toLowerCase())
+));
+let filteredVPCEs = $derived(vpcEndpoints.filter(ep =>
+	!vpceSearch || ep.VpcEndpointId?.toLowerCase().includes(vpceSearch.toLowerCase()) || ep.ServiceName?.toLowerCase().includes(vpceSearch.toLowerCase())
+));
+let filteredNacls = $derived(networkAcls.filter(acl =>
+	!naclSearch || acl.NetworkAclId?.toLowerCase().includes(naclSearch.toLowerCase()) || acl.VpcId?.toLowerCase().includes(naclSearch.toLowerCase())
+));
 </script>
 
 <div class="space-y-6">
@@ -228,6 +312,18 @@ let filteredKPs = $derived(keyPairs.filter(kp =>
 			</button>
 			<button onclick={() => selectTab('keypairs')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'keypairs' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
 				<Key class="w-4 h-4" /> Key Pairs
+			</button>
+			<button onclick={() => selectTab('amis')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'amis' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<FileImage class="w-4 h-4" /> AMIs
+			</button>
+			<button onclick={() => selectTab('launchtemplates')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'launchtemplates' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Layers class="w-4 h-4" /> Launch Templates
+			</button>
+			<button onclick={() => selectTab('vpcendpoints')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'vpcendpoints' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Route class="w-4 h-4" /> VPC Endpoints
+			</button>
+			<button onclick={() => selectTab('nacls')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'nacls' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Shield class="w-4 h-4" /> Network ACLs
 			</button>
 		</nav>
 	</div>
@@ -404,6 +500,154 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{kp.KeyPairId || '—'}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">{kp.KeyFingerprint || '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{kp.CreateTime ? new Date(kp.CreateTime).toLocaleDateString() : '—'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+{#if activeTab === 'amis'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search AMIs..." bind:value={amiSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredAmis.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<FileImage class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No AMIs found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">AMI ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredAmis as ami}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{ami.ImageId}</td>
+<td class="px-4 py-3 text-slate-900 dark:text-white">{ami.Name || '—'}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{ami.State || 'available'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+{#if activeTab === 'launchtemplates'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search launch templates..." bind:value={ltSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredLTs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Layers class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No launch templates found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Template ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Latest Version</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredLTs as lt}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{lt.LaunchTemplateId}</td>
+<td class="px-4 py-3 text-slate-900 dark:text-white">{lt.LaunchTemplateName || '—'}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{lt.LatestVersionNumber ?? '—'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+{#if activeTab === 'vpcendpoints'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search VPC endpoints..." bind:value={vpceSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredVPCEs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Route class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No VPC endpoints found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Endpoint ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Service</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredVPCEs as ep}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{ep.VpcEndpointId}</td>
+<td class="px-4 py-3 text-slate-900 dark:text-white">{ep.ServiceName || '—'}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{ep.State || '—'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+{#if activeTab === 'nacls'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search network ACLs..." bind:value={naclSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredNacls.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Shield class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No network ACLs found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">ACL ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Default</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredNacls as acl}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{acl.NetworkAclId}</td>
+<td class="px-4 py-3 text-slate-900 dark:text-white">{acl.VpcId || '—'}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{acl.IsDefault ? 'Yes' : 'No'}</td>
 </tr>
 {/each}
 </tbody>

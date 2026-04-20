@@ -74,6 +74,44 @@ type Instance struct {
 	SecurityGroups []string      `json:"securityGroups"`
 }
 
+// LaunchTemplate represents an EC2 launch template.
+type LaunchTemplate struct {
+	CreateTime           time.Time `json:"createTime"`
+	ID                   string    `json:"id"`
+	Name                 string    `json:"name"`
+	ImageID              string    `json:"imageID"`
+	InstanceType         string    `json:"instanceType"`
+	CreatedBy            string    `json:"createdBy"`
+	DefaultVersionNumber int64     `json:"defaultVersionNumber"`
+	LatestVersionNumber  int64     `json:"latestVersionNumber"`
+}
+
+// ImageUsageReport represents a synthetic AMI usage report entry.
+type ImageUsageReport struct {
+	GenerationDate string `json:"generationDate"`
+	ImageID        string `json:"imageID"`
+	State          string `json:"state"`
+}
+
+// VpcEndpoint represents an EC2 VPC endpoint.
+type VpcEndpoint struct {
+	CreateTime      time.Time `json:"createTime"`
+	ID              string    `json:"id"`
+	VPCID           string    `json:"vpcID"`
+	ServiceName     string    `json:"serviceName"`
+	State           string    `json:"state"`
+	VpcEndpointType string    `json:"vpcEndpointType"`
+	SubnetIDs       []string  `json:"subnetIDs"`
+}
+
+// NetworkACL represents an EC2 network ACL.
+type NetworkACL struct {
+	ID             string   `json:"id"`
+	VPCID          string   `json:"vpcID"`
+	AssociationIDs []string `json:"associationIDs"`
+	IsDefault      bool     `json:"isDefault"`
+}
+
 // InstanceStateChange records the state transition for a single instance.
 // It is returned by StartInstances, StopInstances, and TerminateInstances so
 // callers have accurate before/after information without hard-coding states.
@@ -119,12 +157,12 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
-	networkInterfaces              map[string]*NetworkInterface
-	securityGroups                 map[string]*SecurityGroup
+	addressTransfers               map[string]*AddressTransfer
+	capacityReservations           map[string]*CapacityReservation
 	vpcs                           map[string]*VPC
 	subnets                        map[string]*Subnet
 	keyPairs                       map[string]*KeyPair
-	volumes                        map[string]*Volume
+	reservedInstancesExchanges     map[string]*ReservedInstancesExchange
 	addresses                      map[string]*Address
 	internetGateways               map[string]*InternetGateway
 	natGateways                    map[string]*NatGateway
@@ -132,10 +170,14 @@ type InMemoryBackend struct {
 	placementGroups                map[string]*PlacementGroup
 	spotRequests                   map[string]*SpotInstanceRequest
 	instances                      map[string]*Instance
+	images                         map[string]*AMIStub
+	imageUsageReports              map[string]*ImageUsageReport
+	launchTemplates                map[string]*LaunchTemplate
+	vpcEndpoints                   map[string]*VpcEndpoint
 	tags                           map[string]map[string]string
-	addressTransfers               map[string]*AddressTransfer
-	capacityReservations           map[string]*CapacityReservation
-	reservedInstancesExchanges     map[string]*ReservedInstancesExchange
+	securityGroups                 map[string]*SecurityGroup
+	networkInterfaces              map[string]*NetworkInterface
+	volumes                        map[string]*Volume
 	tgwMulticastDomainAssociations map[string]*TransitGatewayMulticastDomainAssociation
 	tgwPeeringAttachments          map[string]*TransitGatewayPeeringAttachment
 	tgwVpcAttachments              map[string]*TransitGatewayVpcAttachment
@@ -144,8 +186,11 @@ type InMemoryBackend struct {
 	byoipCidrs                     map[string]*ByoipCidr
 	dedicatedHosts                 map[string]*Host
 	mu                             *lockmetrics.RWMutex
-	AccountID                      string
+	eniIDByAttachment              map[string]string
+	eniIDsByInstance               map[string]map[string]struct{}
+	instanceIDsByVPC               map[string]map[string]struct{}
 	Region                         string
+	AccountID                      string
 	freePrivateIPs                 []string
 	nextPrivateIPIndex             int
 	nextElasticIPIndex             int
@@ -167,6 +212,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		networkInterfaces:              make(map[string]*NetworkInterface),
 		spotRequests:                   make(map[string]*SpotInstanceRequest),
 		placementGroups:                make(map[string]*PlacementGroup),
+		images:                         make(map[string]*AMIStub),
+		imageUsageReports:              make(map[string]*ImageUsageReport),
+		launchTemplates:                make(map[string]*LaunchTemplate),
+		vpcEndpoints:                   make(map[string]*VpcEndpoint),
 		tags:                           make(map[string]map[string]string),
 		addressTransfers:               make(map[string]*AddressTransfer),
 		capacityReservations:           make(map[string]*CapacityReservation),
@@ -178,6 +227,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		vpcPeeringConnections:          make(map[string]*VpcPeeringConnection),
 		byoipCidrs:                     make(map[string]*ByoipCidr),
 		dedicatedHosts:                 make(map[string]*Host),
+		instanceIDsByVPC:               make(map[string]map[string]struct{}),
+		eniIDsByInstance:               make(map[string]map[string]struct{}),
+		eniIDByAttachment:              make(map[string]string),
 		AccountID:                      accountID,
 		Region:                         region,
 		mu:                             lockmetrics.New("ec2"),
@@ -275,6 +327,8 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 			SourceDestCheck: true,
 		}
 		b.instances[id] = inst
+		b.indexInstanceLocked(inst)
+		b.indexENILocked(eniID, b.networkInterfaces[eniID])
 		instances = append(instances, inst)
 	}
 
@@ -361,13 +415,19 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		// private IPs. This mirrors the AWS behaviour where all network interfaces
 		// are deleted when an instance is terminated (deleteOnTermination=true is
 		// the default for all network interfaces attached at launch).
-		for eniID, eni := range b.networkInterfaces {
-			if eni.InstanceID == id {
-				b.recycleENIIPsLocked(eni)
-				delete(b.networkInterfaces, eniID)
-				delete(b.tags, eniID)
+		eniIDs := b.eniIDsByInstance[id]
+		for eniID := range eniIDs {
+			eni, exists := b.networkInterfaces[eniID]
+			if !exists {
+				continue
 			}
+
+			b.deindexENILocked(eniID, eni)
+			b.recycleENIIPsLocked(eni)
+			delete(b.networkInterfaces, eniID)
+			delete(b.tags, eniID)
 		}
+		b.deindexInstanceLocked(inst)
 
 		// Detach any EBS volumes whose attachment refers to this instance so they
 		// return to "available" state. AWS deletes the root volume by default

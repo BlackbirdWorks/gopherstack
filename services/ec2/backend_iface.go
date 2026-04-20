@@ -36,6 +36,12 @@ type Backend interface {
 	// DescribeImages returns the built-in stub AMI catalogue.
 	DescribeImages() []AMIStub
 
+	// CreateImage creates an AMI from an instance.
+	CreateImage(instanceID, name, description string) (*AMIStub, error)
+
+	// DescribeImageUsageReports returns synthetic image usage reports.
+	DescribeImageUsageReports() []*ImageUsageReport
+
 	// ---- regions / AZs ----
 
 	// DescribeRegions returns the list of supported AWS region names.
@@ -184,6 +190,27 @@ type Backend interface {
 
 	// DescribeNatGateways returns NAT gateways, optionally filtered by IDs.
 	DescribeNatGateways(ids []string) []*NatGateway
+
+	// ---- network ACLs ----
+
+	// DescribeNetworkAcls returns network ACLs, optionally filtered by VPC IDs.
+	DescribeNetworkAcls(vpcIDs []string) []*NetworkACL
+
+	// ---- VPC endpoints ----
+
+	// CreateVpcEndpoint creates a VPC endpoint.
+	CreateVpcEndpoint(vpcID, serviceName, endpointType string, subnetIDs []string) (*VpcEndpoint, error)
+
+	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
+	DescribeVpcEndpoints(ids []string) []*VpcEndpoint
+
+	// ---- launch templates ----
+
+	// CreateLaunchTemplate creates a launch template.
+	CreateLaunchTemplate(name, imageID, instanceType string) (*LaunchTemplate, error)
+
+	// DescribeLaunchTemplates returns launch templates, optionally filtered by names.
+	DescribeLaunchTemplates(names []string) []*LaunchTemplate
 
 	// ---- network interfaces ----
 
