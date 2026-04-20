@@ -122,25 +122,17 @@ const (
 	expirationModelNoExpiry = "KEY_MATERIAL_DOES_NOT_EXPIRE"
 )
 
-// validGrantOperations is the set of grant operations permitted by AWS KMS.
-var validGrantOperations = map[string]struct{}{
-	"Decrypt":                          {},
-	"Encrypt":                          {},
-	"GenerateDataKey":                  {},
-	"GenerateDataKeyWithoutPlaintext":   {},
-	"ReEncryptFrom":                    {},
-	"ReEncryptTo":                      {},
-	"Sign":                             {},
-	"Verify":                           {},
-	"GetPublicKey":                     {},
-	"CreateGrant":                      {},
-	"RetireGrant":                      {},
-	"DescribeKey":                      {},
-	"GenerateMac":                      {},
-	"VerifyMac":                        {},
-	"DeriveSharedSecret":               {},
-	"GenerateDataKeyPair":               {},
-	"GenerateDataKeyPairWithoutPlaintext": {},
+// isValidGrantOperation reports whether op is a grant operation permitted by AWS KMS.
+func isValidGrantOperation(op string) bool {
+	switch op {
+	case "Decrypt", "Encrypt", "GenerateDataKey", "GenerateDataKeyWithoutPlaintext",
+		"ReEncryptFrom", "ReEncryptTo", "Sign", "Verify", "GetPublicKey",
+		"CreateGrant", "RetireGrant", "DescribeKey", "GenerateMac", "VerifyMac",
+		"DeriveSharedSecret", "GenerateDataKeyPair", "GenerateDataKeyPairWithoutPlaintext":
+		return true
+	}
+
+	return false
 }
 
 // StorageBackend defines the interface for the KMS in-memory backend.
@@ -1361,51 +1353,60 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 	}
 
 	if key.RotationEnabled {
-		period := key.RotationPeriodInDays
-		if period <= 0 {
-			period = defaultRotationPeriodDays
-		}
-
-		out.RotationPeriodInDays = period
-
-		// Determine the last rotation date from the typed Rotations slice;
-		// fall back to the legacy RotationDates slice for older snapshots.
-		var lastRotation float64
-
-		for i := len(key.Rotations) - 1; i >= 0; i-- {
-			if key.Rotations[i].RotationType == rotationTypeAWSKMS {
-				lastRotation = key.Rotations[i].Date
-
-				break
-			}
-		}
-
-		if lastRotation == 0 && len(key.RotationDates) > 0 {
-			lastRotation = key.RotationDates[len(key.RotationDates)-1]
-		}
-
-		if lastRotation == 0 {
-			lastRotation = key.CreationDate
-		}
-
-		out.NextRotationDate = lastRotation + float64(period)*float64(24*time.Hour/time.Second)
+		b.populateNextRotationDate(key, out)
 	}
 
-	// Find the most recent on-demand rotation from the typed Rotations slice.
-	for i := len(key.Rotations) - 1; i >= 0; i-- {
-		if key.Rotations[i].RotationType == rotationTypeImported {
-			out.OnDemandRotationStartDate = key.Rotations[i].Date
-
-			break
-		}
-	}
-
-	// Fall back to legacy OnDemandRotationDates if typed slice is empty.
-	if out.OnDemandRotationStartDate == 0 && len(key.OnDemandRotationDates) > 0 {
-		out.OnDemandRotationStartDate = key.OnDemandRotationDates[len(key.OnDemandRotationDates)-1]
-	}
+	out.OnDemandRotationStartDate = b.lastOnDemandRotationDate(key)
 
 	return out, nil
+}
+
+// populateNextRotationDate fills NextRotationDate and RotationPeriodInDays on out.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) populateNextRotationDate(key *Key, out *GetKeyRotationStatusOutput) {
+	period := key.RotationPeriodInDays
+	if period <= 0 {
+		period = defaultRotationPeriodDays
+	}
+
+	out.RotationPeriodInDays = period
+
+	lastRotation := b.lastScheduledRotationDate(key)
+	out.NextRotationDate = lastRotation + float64(period)*float64(24*time.Hour/time.Second)
+}
+
+// lastScheduledRotationDate returns the date of the most recent AWS_KMS scheduled rotation,
+// falling back to legacy slices and finally the key creation date.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) lastScheduledRotationDate(key *Key) float64 {
+	for i := len(key.Rotations) - 1; i >= 0; i-- {
+		if key.Rotations[i].RotationType == rotationTypeAWSKMS {
+			return key.Rotations[i].Date
+		}
+	}
+
+	if len(key.RotationDates) > 0 {
+		return key.RotationDates[len(key.RotationDates)-1]
+	}
+
+	return key.CreationDate
+}
+
+// lastOnDemandRotationDate returns the date of the most recent on-demand rotation,
+// falling back to the legacy OnDemandRotationDates slice.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) lastOnDemandRotationDate(key *Key) float64 {
+	for i := len(key.Rotations) - 1; i >= 0; i-- {
+		if key.Rotations[i].RotationType == rotationTypeImported {
+			return key.Rotations[i].Date
+		}
+	}
+
+	if len(key.OnDemandRotationDates) > 0 {
+		return key.OnDemandRotationDates[len(key.OnDemandRotationDates)-1]
+	}
+
+	return 0
 }
 
 // DisableKey disables the specified key.
@@ -1611,25 +1612,50 @@ func keyToMetadata(k *Key) KeyMetadata {
 		meta.PendingDeletionWindowInDays = k.PendingWindowInDays
 	}
 
-	// ValidTo and ExpirationModel are populated for EXTERNAL keys whose material has been imported.
-	if k.Origin == KeyOriginExternal && k.ValidTo > 0 {
+	applyExpirationFields(k, &meta)
+	applyMultiRegionType(k, &meta)
+	applyAlgorithmFields(k, &meta)
+
+	return meta
+}
+
+// applyExpirationFields sets ValidTo and ExpirationModel on meta for EXTERNAL keys.
+func applyExpirationFields(k *Key, meta *KeyMetadata) {
+	if k.Origin != KeyOriginExternal {
+		return
+	}
+
+	if k.ValidTo > 0 {
 		meta.ValidTo = k.ValidTo
 		meta.ExpirationModel = expirationModelExpires
-	} else if k.Origin == KeyOriginExternal && k.ExpirationModel == expirationModelNoExpiry {
+
+		return
+	}
+
+	if k.ExpirationModel == expirationModelNoExpiry {
 		meta.ExpirationModel = expirationModelNoExpiry
-	} else if k.Origin == KeyOriginExternal {
-		meta.ExpirationModel = k.ExpirationModel
+
+		return
 	}
 
-	// MultiRegionKeyType: PRIMARY if this is the source region's key, REPLICA otherwise.
-	if k.MultiRegion {
-		if k.PrimaryRegion != "" && k.PrimaryRegion == extractRegionFromARN(k.Arn) {
-			meta.MultiRegionKeyType = "PRIMARY"
-		} else if k.PrimaryRegion != "" {
-			meta.MultiRegionKeyType = "REPLICA"
-		}
+	meta.ExpirationModel = k.ExpirationModel
+}
+
+// applyMultiRegionType sets MultiRegionKeyType on meta for multi-region keys.
+func applyMultiRegionType(k *Key, meta *KeyMetadata) {
+	if !k.MultiRegion || k.PrimaryRegion == "" {
+		return
 	}
 
+	if k.PrimaryRegion == extractRegionFromARN(k.Arn) {
+		meta.MultiRegionKeyType = "PRIMARY"
+	} else {
+		meta.MultiRegionKeyType = "REPLICA"
+	}
+}
+
+// applyAlgorithmFields sets the algorithm lists on meta based on key usage and spec.
+func applyAlgorithmFields(k *Key, meta *KeyMetadata) {
 	switch k.KeyUsage {
 	case KeyUsageEncryptDecrypt:
 		if k.KeySpec == keySpecRSA2048 || k.KeySpec == keySpecRSA3072 || k.KeySpec == keySpecRSA4096 {
@@ -1644,8 +1670,6 @@ func keyToMetadata(k *Key) KeyMetadata {
 	case KeyUsageKeyAgreement:
 		meta.KeyAgreementAlgorithms = []string{"ECDH"}
 	}
-
-	return meta
 }
 
 // extractRegionFromARN parses the region component from a KMS ARN.
@@ -1705,7 +1729,7 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 
 	// Validate each operation against the allowed set.
 	for _, op := range input.Operations {
-		if _, ok := validGrantOperations[op]; !ok {
+		if !isValidGrantOperation(op) {
 			return nil, fmt.Errorf(
 				"%w: invalid grant operation %q; must be one of the allowed KMS grant operations",
 				ErrValidation, op,

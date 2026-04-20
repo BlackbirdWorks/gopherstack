@@ -338,89 +338,49 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 // buildKeyLifecycleActions returns dispatch entries for key creation, description, listing and deletion.
 func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"CreateKey": func(region string, b []byte) (any, error) {
-			var input CreateKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			input.Region = region
-
-			out, err := h.Backend.CreateKey(&input)
-			if err != nil {
-				return nil, err
-			}
-
-			if tagErr := h.applyInputTags(out.KeyMetadata.KeyID, input.Tags); tagErr != nil {
-				return nil, tagErr
-			}
-
-			return out, nil
-		},
-		"DescribeKey": func(_ string, b []byte) (any, error) {
-			var input DescribeKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeKey(&input)
-		},
-		"ListKeys": func(_ string, b []byte) (any, error) {
-			var input ListKeysInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListKeys(&input)
-		},
-		"DisableKey": func(_ string, b []byte) (any, error) {
-			var input DisableKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.DisableKey(&input)
-		},
-		"EnableKey": func(_ string, b []byte) (any, error) {
-			var input EnableKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.EnableKey(&input)
-		},
-		"ScheduleKeyDeletion": func(_ string, b []byte) (any, error) {
-			var input ScheduleKeyDeletionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ScheduleKeyDeletion(&input)
-		},
-		"CancelKeyDeletion": func(_ string, b []byte) (any, error) {
-			var input CancelKeyDeletionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CancelKeyDeletion(&input)
-		},
-		"ImportKeyMaterial": func(_ string, b []byte) (any, error) {
-			var input ImportKeyMaterialInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.ImportKeyMaterial(&input)
-		},
-		"DeleteImportedKeyMaterial": func(_ string, b []byte) (any, error) {
-			var input DeleteImportedKeyMaterialInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(&input)
-		},
+		"CreateKey":                 h.createKeyAction,
+		"DescribeKey":               unmarshalAction(func(i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(i) }),
+		"ListKeys":                  unmarshalAction(func(i *ListKeysInput) (any, error) { return h.Backend.ListKeys(i) }),
+		"DisableKey":                unmarshalAction(func(i *DisableKeyInput) (any, error) { return struct{}{}, h.Backend.DisableKey(i) }),
+		"EnableKey":                 unmarshalAction(func(i *EnableKeyInput) (any, error) { return struct{}{}, h.Backend.EnableKey(i) }),
+		"ScheduleKeyDeletion":       unmarshalAction(func(i *ScheduleKeyDeletionInput) (any, error) { return h.Backend.ScheduleKeyDeletion(i) }),
+		"CancelKeyDeletion":         unmarshalAction(func(i *CancelKeyDeletionInput) (any, error) { return h.Backend.CancelKeyDeletion(i) }),
+		"ImportKeyMaterial":         unmarshalAction(func(i *ImportKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.ImportKeyMaterial(i) }),
+		"DeleteImportedKeyMaterial": unmarshalAction(func(i *DeleteImportedKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.DeleteImportedKeyMaterial(i) }),
 	}
+}
+
+// unmarshalAction is a generic helper that creates a kmsActionFn from a strongly-typed backend call.
+func unmarshalAction[T any](fn func(*T) (any, error)) kmsActionFn {
+	return func(_ string, b []byte) (any, error) {
+		var input T
+		if err := json.Unmarshal(b, &input); err != nil {
+			return nil, err
+		}
+
+		return fn(&input)
+	}
+}
+
+// createKeyAction handles CreateKey dispatch, including tag validation.
+func (h *Handler) createKeyAction(region string, b []byte) (any, error) {
+	var input CreateKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	input.Region = region
+
+	out, err := h.Backend.CreateKey(&input)
+	if err != nil {
+		return nil, err
+	}
+
+	if tagErr := h.applyInputTags(out.KeyMetadata.KeyID, input.Tags); tagErr != nil {
+		return nil, tagErr
+	}
+
+	return out, nil
 }
 
 // buildCryptoActions returns dispatch entries for encrypt, decrypt, sign, verify, and data-key operations.
