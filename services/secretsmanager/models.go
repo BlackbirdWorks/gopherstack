@@ -49,6 +49,8 @@ type Secret struct {
 	LastRotatedDate *float64 `json:"-"`
 	// LastAccessedDate is the Unix timestamp of the most recent GetSecretValue call.
 	LastAccessedDate *float64 `json:"-"`
+	// CreatedDate is the Unix timestamp when this secret was created.
+	CreatedDate *float64 `json:"-"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the human-readable name of the secret.
@@ -184,6 +186,8 @@ type SecretListEntry struct {
 	DeletedDate       *float64   `json:"DeletedDate,omitempty"`
 	LastChangedDate   *float64   `json:"LastChangedDate,omitempty"`
 	LastAccessedDate  *float64   `json:"LastAccessedDate,omitempty"`
+	LastRotatedDate   *float64   `json:"LastRotatedDate,omitempty"`
+	CreatedDate       *float64   `json:"CreatedDate,omitempty"`
 	Tags              *tags.Tags `json:"Tags,omitempty"`
 	ARN               string     `json:"ARN"`
 	Name              string     `json:"Name"`
@@ -197,6 +201,7 @@ type SecretListEntry struct {
 type ListSecretsInput struct {
 	MaxResults     *int64         `json:"MaxResults,omitempty"`
 	NextToken      string         `json:"NextToken,omitempty"`
+	SortOrder      string         `json:"SortOrder,omitempty"` // "asc" or "desc"
 	Filters        []SecretFilter `json:"Filters,omitempty"`
 	IncludeDeleted bool           `json:"IncludeDeleted,omitempty"`
 }
@@ -225,6 +230,7 @@ type DescribeSecretInput struct {
 type DescribeSecretOutput struct {
 	Tags               *tags.Tags              `json:"Tags,omitempty"`
 	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
+	CreatedDate        *float64                `json:"CreatedDate,omitempty"`
 	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`
 	LastRotatedDate    *float64                `json:"LastRotatedDate,omitempty"`
 	LastAccessedDate   *float64                `json:"LastAccessedDate,omitempty"`
@@ -242,16 +248,12 @@ type DescribeSecretOutput struct {
 
 // UpdateSecretInput is the request payload for UpdateSecret.
 type UpdateSecretInput struct {
-	// SecretId is the name or ARN of the secret.
-	SecretID string `json:"SecretId"`
-	// Description is the new description (empty string clears it).
-	Description string `json:"Description,omitempty"`
-	// KmsKeyID is the ARN or alias of the new KMS key.
-	KmsKeyID string `json:"KmsKeyId,omitempty"`
-	// SecretString is a new string value, creating a new version.
-	SecretString string `json:"SecretString,omitempty"`
-	// SecretBinary is a new binary value, creating a new version.
-	SecretBinary []byte `json:"SecretBinary,omitempty"`
+	SecretID           string `json:"SecretId"`
+	Description        string `json:"Description,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	SecretString       string `json:"SecretString,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	SecretBinary       []byte `json:"SecretBinary,omitempty"`
 }
 
 // UpdateSecretOutput is the response payload for UpdateSecret.

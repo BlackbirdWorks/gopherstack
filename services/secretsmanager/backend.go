@@ -209,6 +209,9 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		Versions:    make(map[string]*SecretVersion),
 	}
 
+	createdNow := UnixTimeFloat(time.Now())
+	secret.CreatedDate = &createdNow
+
 	if len(input.Tags) > 0 {
 		secret.Tags = tags.New(secret.Name + ".tags")
 
@@ -270,6 +273,18 @@ func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecret
 		return nil, ErrVersionNotFound
 	}
 
+	// When both VersionId and VersionStage are supplied, they must agree.
+	if input.VersionID != "" && input.VersionStage != "" {
+		if !slices.Contains(version.StagingLabels, input.VersionStage) {
+			return nil, fmt.Errorf(
+				"%w: staging label %s not found on version %s",
+				ErrInvalidParameter,
+				input.VersionStage,
+				input.VersionID,
+			)
+		}
+	}
+
 	// Track access date (truncated to day granularity as AWS does).
 	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
 	secret.LastAccessedDate = &accessDay
@@ -329,6 +344,18 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 	versionID := input.ClientRequestToken
 	if versionID == "" {
 		versionID = uuid.New().String()
+	}
+
+	// Idempotency: if the version ID already exists with identical content, return it.
+	if existing, ok := secret.Versions[versionID]; ok {
+		if existing.SecretString == input.SecretString && string(existing.SecretBinary) == string(input.SecretBinary) {
+			return &PutSecretValueOutput{
+				ARN:           secret.ARN,
+				Name:          secret.Name,
+				VersionID:     existing.VersionID,
+				VersionStages: existing.StagingLabels,
+			}, nil
+		}
 	}
 
 	b.rotateStagingLabels(secret)
@@ -477,6 +504,14 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 		}, nil
 	}
 
+	// Reject deletion of an already soft-deleted secret.
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf(
+			"%w: you can't delete a secret that's already scheduled for deletion",
+			ErrInvalidParameter,
+		)
+	}
+
 	// Validate recovery window if provided.
 	recoveryDays := int64(defaultRecoveryWindowDays)
 	if input.RecoveryWindowInDays != nil {
@@ -492,7 +527,7 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 	}
 
 	secret.DeletedDate = &now
-	deletionDate := UnixTimeFloat(b.now().Add(time.Duration(recoveryDays) * 24 * time.Hour))
+	deletionDate := UnixTimeFloat(b.now().Add(time.Duration(recoveryDays) * hoursPerDay * time.Hour))
 
 	return &DeleteSecretOutput{
 		ARN:          secret.ARN,
@@ -521,6 +556,10 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
+		if strings.EqualFold(input.SortOrder, "desc") {
+			return entries[i].Name > entries[j].Name
+		}
+
 		return entries[i].Name < entries[j].Name
 	})
 
@@ -554,27 +593,38 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 // secretMatchesFilters returns true if the secret matches all provided filters.
 func secretMatchesFilters(s *Secret, filters []SecretFilter) bool {
 	for _, f := range filters {
-		switch f.Key {
-		case "name":
-			if !anyMatchPrefix(f.Values, s.Name) {
-				return false
-			}
-		case "description":
-			if !anyMatchPrefix(f.Values, s.Description) {
-				return false
-			}
-		case "tag-key":
-			if !secretHasTagKey(s, f.Values) {
-				return false
-			}
-		case "tag-value":
-			if !secretHasTagValue(s, f.Values) {
-				return false
-			}
+		if !secretMatchesFilter(s, f) {
+			return false
 		}
 	}
 
 	return true
+}
+
+// secretMatchesFilter returns true if the secret matches a single filter.
+func secretMatchesFilter(s *Secret, f SecretFilter) bool {
+	switch f.Key {
+	case "name":
+		return anyMatchPrefix(f.Values, s.Name)
+	case "description":
+		return anyMatchPrefix(f.Values, s.Description)
+	case "tag-key":
+		return secretHasTagKey(s, f.Values)
+	case "tag-value":
+		return secretHasTagValue(s, f.Values)
+	case "all":
+		// "all" matches any of the filterable string fields.
+		return anyMatchPrefix(f.Values, s.Name) ||
+			anyMatchPrefix(f.Values, s.Description) ||
+			secretHasTagKey(s, f.Values) ||
+			secretHasTagValue(s, f.Values)
+	case "primary-region":
+		// In a single-region mock every secret belongs to the single region;
+		// the filter always passes (no cross-region replication routing needed).
+		return true
+	default:
+		return true
+	}
 }
 
 // anyMatchPrefix returns true if target has any of the given values as a prefix.
@@ -713,6 +763,7 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		RotationLambdaARN:  secret.RotationLambdaARN,
 		RotationRules:      cloneRotationRules(secret.RotationRules),
 		Tags:               secret.Tags,
+		CreatedDate:        secret.CreatedDate,
 		DeletedDate:        secret.DeletedDate,
 		LastChangedDate:    secret.LastChangedDate,
 		LastRotatedDate:    secret.LastRotatedDate,
@@ -786,7 +837,22 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 	var versionID string
 
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
-		versionID = uuid.New().String()
+		versionID = input.ClientRequestToken
+		if versionID == "" {
+			versionID = uuid.New().String()
+		}
+
+		// Idempotency: if a version with this token already exists and content matches, skip.
+		if existing, ok := secret.Versions[versionID]; ok {
+			if existing.SecretString == input.SecretString &&
+				string(existing.SecretBinary) == string(input.SecretBinary) {
+				return &UpdateSecretOutput{
+					ARN:       secret.ARN,
+					Name:      secret.Name,
+					VersionID: versionID,
+				}, nil
+			}
+		}
 
 		b.rotateStagingLabels(secret)
 
@@ -824,6 +890,16 @@ func (b *InMemoryBackend) RestoreSecret(input *RestoreSecretInput) (*RestoreSecr
 	secret, exists := b.secrets[name]
 	if !exists {
 		return nil, ErrSecretNotFound
+	}
+
+	// AWS returns InvalidRequestException when trying to restore a secret that
+	// is not in a deleted (pending deletion) state.
+	if secret.DeletedDate == nil {
+		return nil, fmt.Errorf(
+			"%w: secret %s is not in a deleted state",
+			ErrInvalidParameter,
+			input.SecretID,
+		)
 	}
 
 	secret.DeletedDate = nil
@@ -864,6 +940,8 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		DeletedDate:       s.DeletedDate,
 		LastChangedDate:   s.LastChangedDate,
 		LastAccessedDate:  s.LastAccessedDate,
+		LastRotatedDate:   s.LastRotatedDate,
+		CreatedDate:       s.CreatedDate,
 		Tags:              s.Tags,
 	}
 }
@@ -949,6 +1027,10 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 	}
 
 	if input.RotationRules != nil {
+		if err := validateRotationRules(input.RotationRules); err != nil {
+			return nil, err
+		}
+
 		secret.RotationRules = cloneRotationRules(input.RotationRules)
 		secret.RotationEnabled = true
 		b.ensureRotationScheduler()
@@ -1018,6 +1100,28 @@ func cloneRotationRules(rules *RotationRulesType) *RotationRulesType {
 	}
 
 	return &cloned
+}
+
+// validateRotationRules checks that rotation rule values are within AWS-allowed bounds.
+func validateRotationRules(rules *RotationRulesType) error {
+	const (
+		minRotationDays = 1
+		maxRotationDays = 365
+	)
+
+	if rules.AutomaticallyAfterDays != nil {
+		days := *rules.AutomaticallyAfterDays
+		if days < minRotationDays || days > maxRotationDays {
+			return fmt.Errorf(
+				"%w: AutomaticallyAfterDays must be between %d and %d",
+				ErrInvalidParameter,
+				minRotationDays,
+				maxRotationDays,
+			)
+		}
+	}
+
+	return nil
 }
 
 // GetRandomPassword generates a cryptographically random password according to the given constraints.

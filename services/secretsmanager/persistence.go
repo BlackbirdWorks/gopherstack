@@ -14,6 +14,7 @@ type secretSnapshot struct {
 	LastChangedDate   *float64                  `json:"lastChangedDate,omitempty"`
 	LastRotatedDate   *float64                  `json:"lastRotatedDate,omitempty"`
 	LastAccessedDate  *float64                  `json:"lastAccessedDate,omitempty"`
+	CreatedDate       *float64                  `json:"createdDate,omitempty"`
 	Versions          map[string]*SecretVersion `json:"versions"`
 	ARN               string                    `json:"arn"`
 	Name              string                    `json:"name"`
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			LastChangedDate:   s.LastChangedDate,
 			LastRotatedDate:   s.LastRotatedDate,
 			LastAccessedDate:  s.LastAccessedDate,
+			CreatedDate:       s.CreatedDate,
 			Versions:          s.Versions,
 			CurrentVersionID:  s.CurrentVersionID,
 			RotationEnabled:   s.RotationEnabled,
@@ -120,6 +122,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			LastChangedDate:   ss.LastChangedDate,
 			LastRotatedDate:   ss.LastRotatedDate,
 			LastAccessedDate:  ss.LastAccessedDate,
+			CreatedDate:       ss.CreatedDate,
 			Versions:          ss.Versions,
 			CurrentVersionID:  ss.CurrentVersionID,
 			RotationEnabled:   ss.RotationEnabled,

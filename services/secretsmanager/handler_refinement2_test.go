@@ -455,3 +455,259 @@ func TestRefinement2_SecretInCreateDescribeRoundtrip(t *testing.T) {
 	assert.False(t, desc.RotationEnabled)
 	assert.Contains(t, desc.ARN, "secret:roundtrip/secret-")
 }
+
+// TestRefinement2_PutSecretValueIdempotency verifies that re-sending the same
+// ClientRequestToken and identical content returns the existing version.
+func TestRefinement2_PutSecretValueIdempotency(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"idempotent","SecretString":"initial"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	const token = "550e8400-e29b-41d4-a716-446655440000"
+	const putBody = `{"SecretId":"idempotent","SecretString":"new-value","ClientRequestToken":"` + token + `"}`
+
+	// First put: creates a new version.
+	rec = doR1Request(t, h, "secretsmanager.PutSecretValue", putBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out1 secretsmanager.PutSecretValueOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1))
+	assert.Equal(t, token, out1.VersionID)
+
+	// Second put with same token + content: should return the existing version.
+	rec = doR1Request(t, h, "secretsmanager.PutSecretValue", putBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out2 secretsmanager.PutSecretValueOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2))
+	assert.Equal(t, token, out2.VersionID)
+	assert.Equal(t, out1.VersionID, out2.VersionID)
+}
+
+// TestRefinement2_DeleteSecretAlreadyDeleted verifies that deleting a secret that is
+// already pending deletion returns an error.
+func TestRefinement2_DeleteSecretAlreadyDeleted(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"double-delete","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// First delete: should succeed.
+	rec = doR1Request(t, h, "secretsmanager.DeleteSecret", `{"SecretId":"double-delete"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Second delete: should fail.
+	rec = doR1Request(t, h, "secretsmanager.DeleteSecret", `{"SecretId":"double-delete"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestRefinement2_ListSecretsSortOrder verifies SortOrder desc reverses the list.
+func TestRefinement2_ListSecretsSortOrder(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+			`{"Name":"`+name+`","SecretString":"v"}`)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doR1Request(t, h, "secretsmanager.ListSecrets", `{"SortOrder":"desc"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out secretsmanager.ListSecretsOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.SecretList, 3)
+	assert.Equal(t, "gamma", out.SecretList[0].Name)
+	assert.Equal(t, "alpha", out.SecretList[2].Name)
+}
+
+// TestRefinement2_ListSecretsFilterAll verifies the "all" filter key matches any field.
+func TestRefinement2_ListSecretsFilterAll(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	body, _ := json.Marshal(map[string]any{
+		"Name":         "findme/secret",
+		"Description":  "unique-token",
+		"SecretString": "v",
+	})
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"other","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Filter by description prefix via the "all" key.
+	filterBody := `{"Filters":[{"Key":"all","Values":["unique-token"]}]}`
+	rec = doR1Request(t, h, "secretsmanager.ListSecrets", filterBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out secretsmanager.ListSecretsOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.SecretList, 1)
+	assert.Equal(t, "findme/secret", out.SecretList[0].Name)
+}
+
+// TestRefinement2_SecretListEntryHasCreatedAndRotatedDate verifies that CreatedDate and
+// LastRotatedDate are returned in ListSecrets entries.
+func TestRefinement2_SecretListEntryHasCreatedAndRotatedDate(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"datechecks","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doR1Request(t, h, "secretsmanager.RotateSecret", `{"SecretId":"datechecks"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doR1Request(t, h, "secretsmanager.ListSecrets", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out secretsmanager.ListSecretsOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.SecretList, 1)
+	assert.NotNil(t, out.SecretList[0].CreatedDate)
+	assert.NotNil(t, out.SecretList[0].LastRotatedDate)
+}
+
+// TestRefinement2_DescribeSecretHasCreatedDate verifies DescribeSecret returns CreatedDate.
+func TestRefinement2_DescribeSecretHasCreatedDate(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"createdate-test","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doR1Request(t, h, "secretsmanager.DescribeSecret",
+		`{"SecretId":"createdate-test"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var desc secretsmanager.DescribeSecretOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	assert.NotNil(t, desc.CreatedDate)
+	assert.Greater(t, *desc.CreatedDate, float64(0))
+}
+
+// TestRefinement2_RotateSecretInvalidDays verifies that AutomaticallyAfterDays outside
+// the 1-365 range is rejected.
+func TestRefinement2_RotateSecretInvalidDays(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"days-validation","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		name string
+		days int
+	}{
+		{name: "zero_days", days: 0},
+		{name: "too_many_days", days: 366},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rotBody, _ := json.Marshal(map[string]any{
+				"SecretId":      "days-validation",
+				"RotationRules": map[string]any{"AutomaticallyAfterDays": tt.days},
+			})
+			rotRec := doR1Request(t, h, "secretsmanager.RotateSecret", string(rotBody))
+			assert.Equal(t, http.StatusBadRequest, rotRec.Code)
+		})
+	}
+}
+
+// TestRefinement2_GetSecretValueVersionStageMismatch verifies that providing both
+// VersionId and a mismatched VersionStage returns an error.
+func TestRefinement2_GetSecretValueVersionStageMismatch(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"stage-mismatch","SecretString":"v","ClientRequestToken":"abc-ver-1"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body, _ := json.Marshal(map[string]any{
+		"SecretId":     "stage-mismatch",
+		"VersionId":    "abc-ver-1",
+		"VersionStage": "AWSPREVIOUS", // abc-ver-1 is AWSCURRENT, not AWSPREVIOUS
+	})
+	rec = doR1Request(t, h, "secretsmanager.GetSecretValue", string(body))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestRefinement2_RestoreActiveSecretFails verifies that RestoreSecret on a non-deleted
+// (active) secret returns an error.
+func TestRefinement2_RestoreActiveSecretFails(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"active-restore","SecretString":"v"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Attempt to restore an active (non-deleted) secret – should fail.
+	rec = doR1Request(t, h, "secretsmanager.RestoreSecret",
+		`{"SecretId":"active-restore"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestRefinement2_UpdateSecretClientRequestTokenIdempotency verifies that UpdateSecret
+// with the same ClientRequestToken and content is idempotent.
+func TestRefinement2_UpdateSecretClientRequestTokenIdempotency(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(b)
+
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret",
+		`{"Name":"update-idempotent","SecretString":"initial"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	const token = "550e8400-e29b-41d4-a716-446655440001"
+	body, _ := json.Marshal(map[string]any{
+		"SecretId":           "update-idempotent",
+		"SecretString":       "updated-value",
+		"ClientRequestToken": token,
+	})
+
+	rec = doR1Request(t, h, "secretsmanager.UpdateSecret", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out1 secretsmanager.UpdateSecretOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1))
+
+	rec = doR1Request(t, h, "secretsmanager.UpdateSecret", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out2 secretsmanager.UpdateSecretOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2))
+
+	assert.Equal(t, out1.VersionID, out2.VersionID)
+}

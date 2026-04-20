@@ -6,6 +6,7 @@ import {
 	ListSecretsCommand,
 	CreateSecretCommand,
 	DeleteSecretCommand,
+	RestoreSecretCommand,
 	DescribeSecretCommand,
 	GetSecretValueCommand,
 	UpdateSecretCommand,
@@ -16,7 +17,7 @@ import {
 	ListSecretVersionIdsCommand
 } from '@aws-sdk/client-secrets-manager';
 import { toast } from 'svelte-sonner';
-import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, EyeOff, ChevronRight, Tag, History, RotateCw, X } from 'lucide-svelte';
+import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, EyeOff, ChevronRight, Tag, History, RotateCw, X, KeyRound, Undo2, SortAsc, SortDesc, Beaker } from 'lucide-svelte';
 
 const sm = getSecretsManagerClient();
 
@@ -28,11 +29,13 @@ type SecretItem = {
 	LastChangedDate?: Date | string | number;
 	LastRotatedDate?: Date | string | number;
 	NextRotationDate?: Date | string | number;
+	CreatedDate?: Date | string | number;
 	Name?: string;
 	RotationEnabled?: boolean;
 	RotationLambdaARN?: string;
 	RotationRules?: { AutomaticallyAfterDays?: number; ScheduleExpression?: string };
 	ReplicationStatus?: Array<{ Region?: string; Status?: string; StatusMessage?: string }>;
+	DeletedDate?: Date | string | number;
 };
 
 type VersionEntry = {
@@ -44,10 +47,12 @@ type VersionEntry = {
 let secrets = $state<SecretItem[]>([]);
 let loading = $state(true);
 let search = $state('');
+let sortDesc = $state(false);
 let showCreateModal = $state(false);
 let newSecretName = $state('');
 let newSecretValue = $state('');
 let newSecretDescription = $state('');
+let newSecretKmsKey = $state('');
 let activeTab = $state<'secrets' | 'detail'>('secrets');
 let detailSubTab = $state<'overview' | 'versions' | 'tags' | 'replication'>('overview');
 let selectedSecret = $state<SecretItem | null>(null);
@@ -63,6 +68,7 @@ let loadingVersions = $state(false);
 let tagKey = $state('');
 let tagValue = $state('');
 let secretTags = $state<Record<string, string>>({});
+let seedingDemo = $state(false);
 
 onMount(async () => { await loadSecrets(); });
 
@@ -246,17 +252,73 @@ async function createSecret() {
 		await sm.send(new CreateSecretCommand({
 			Name: newSecretName.trim(),
 			Description: newSecretDescription.trim() || undefined,
-			SecretString: newSecretValue
+			SecretString: newSecretValue || undefined,
+			KmsKeyId: newSecretKmsKey.trim() || undefined
 		}));
 		toast.success(`Secret "${newSecretName.trim()}" created`);
 		showCreateModal = false;
 		newSecretName = '';
 		newSecretValue = '';
 		newSecretDescription = '';
+		newSecretKmsKey = '';
 		await loadSecrets();
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to create secret');
 	}
+}
+
+async function restoreSecret(name: string) {
+	if (!await confirmDestructive({ title: 'Restore Secret', message: `Restore secret "${name}" from pending deletion?` })) return;
+	try {
+		await sm.send(new RestoreSecretCommand({ SecretId: name }));
+		toast.success(`Secret "${name}" restored`);
+		await loadSecrets();
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to restore secret');
+	}
+}
+
+async function seedDemoData() {
+	seedingDemo = true;
+	const demos = [
+		{
+			name: 'prod/database/primary',
+			description: 'Production primary database credentials',
+			value: JSON.stringify({ username: 'admin', password: 'P@ssw0rd!', host: 'db.prod.example.com', port: 5432 })
+		},
+		{
+			name: 'prod/api/stripe-key',
+			description: 'Stripe API key for payment processing',
+			value: JSON.stringify({ publishable_key: 'pk_test_example', secret_key: 'sk_test_example' })
+		},
+		{
+			name: 'staging/database/primary',
+			description: 'Staging database credentials',
+			value: JSON.stringify({ username: 'staging_user', password: 'Stag!ngP@ss', host: 'db.staging.example.com', port: 5432 })
+		},
+		{
+			name: 'prod/oauth/github',
+			description: 'GitHub OAuth app credentials',
+			value: JSON.stringify({ client_id: 'Iv1.demo123', client_secret: 'demo_secret_value' })
+		},
+		{
+			name: 'shared/tls/wildcard-cert',
+			description: 'Wildcard TLS certificate and private key',
+			value: JSON.stringify({ certificate: '-----BEGIN CERTIFICATE-----\n...', private_key: '-----BEGIN PRIVATE KEY-----\n...' })
+		}
+	];
+	let created = 0;
+	for (const d of demos) {
+		try {
+			await sm.send(new CreateSecretCommand({ Name: d.name, Description: d.description, SecretString: d.value }));
+			created++;
+		} catch {
+			// skip if already exists
+		}
+	}
+	seedingDemo = false;
+	toast.success(`Demo data seeded (${created} new secrets)`);
+	await loadSecrets();
 }
 
 async function copyToClipboard(text: string) {
@@ -274,6 +336,7 @@ let filtered = $derived(secrets.filter(s =>
 ));
 
 let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
+let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/aws/secretsmanager').length);
 </script>
 
 <div class="space-y-6">
@@ -292,6 +355,9 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 			<button onclick={loadSecrets} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700" title="Refresh">
 				<RefreshCw class="w-4 h-4" />
 			</button>
+			<button onclick={seedDemoData} disabled={seedingDemo} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 disabled:opacity-50" title="Seed demo data">
+				<Beaker class="w-4 h-4" /> Demo
+			</button>
 			<button onclick={() => showCreateModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />
 				Create Secret
@@ -301,7 +367,7 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 
 	<!-- Stats -->
 	{#if !loading}
-		<div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+		<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
 			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
 				<p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Total Secrets</p>
 				<p class="text-3xl font-bold text-slate-900 dark:text-white">{secrets.length}</p>
@@ -309,6 +375,10 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
 				<p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Auto Rotation</p>
 				<p class="text-3xl font-bold text-green-600 dark:text-green-400">{rotationCount}</p>
+			</div>
+			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+				<p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Custom KMS</p>
+				<p class="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{kmsCount}</p>
 			</div>
 			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
 				<p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">No Rotation</p>
@@ -333,10 +403,15 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 
 	<!-- Secrets List Tab -->
 	{#if activeTab === 'secrets'}
-		<div class="relative">
-			<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-			<input type="text" placeholder="Search secrets..." bind:value={search}
-				class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+		<div class="flex gap-2">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+				<input type="text" placeholder="Search secrets..." bind:value={search}
+					class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+			</div>
+			<button onclick={() => sortDesc = !sortDesc} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1" title="Toggle sort order">
+				{#if sortDesc}<SortDesc class="w-4 h-4" />{:else}<SortAsc class="w-4 h-4" />{/if}
+			</button>
 		</div>
 
 		{#if loading}
@@ -350,11 +425,21 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 		{:else}
 			<p class="text-sm text-slate-500 dark:text-slate-400">{secrets.length} secret{secrets.length !== 1 ? 's' : ''} in this region</p>
 			<div class="grid gap-3">
-				{#each filtered as secret}
-					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
+				{#each (sortDesc ? [...filtered].reverse() : filtered) as secret}
+					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors {secret.DeletedDate ? 'border-l-4 border-l-red-400' : ''}">
 						<div class="flex items-start justify-between mb-3">
 							<div class="flex-1 min-w-0">
-								<h3 class="font-semibold text-slate-900 dark:text-white">{secret.Name}</h3>
+								<div class="flex items-center gap-2">
+									<h3 class="font-semibold text-slate-900 dark:text-white">{secret.Name}</h3>
+									{#if secret.KmsKeyId && secret.KmsKeyId !== 'alias/aws/secretsmanager'}
+										<span class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded text-xs" title="Custom KMS key: {secret.KmsKeyId}">
+											<KeyRound class="w-3 h-3" /> KMS
+										</span>
+									{/if}
+									{#if secret.DeletedDate}
+										<span class="shrink-0 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded text-xs">Pending Deletion</span>
+									{/if}
+								</div>
 								{#if secret.Description}
 									<p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{secret.Description}</p>
 								{/if}
@@ -365,26 +450,40 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 								</span>
 							{/if}
 						</div>
-						<div class="grid grid-cols-2 gap-3 text-sm mb-3">
+						<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
 							<div>
 								<p class="text-xs text-slate-500 uppercase">Last Changed</p>
-								<p class="text-slate-900 dark:text-white">{secret.LastChangedDate ? new Date(secret.LastChangedDate).toLocaleDateString() : 'N/A'}</p>
+								<p class="text-slate-900 dark:text-white">{secret.LastChangedDate ? new Date(typeof secret.LastChangedDate === 'number' ? secret.LastChangedDate * 1000 : secret.LastChangedDate).toLocaleDateString() : 'N/A'}</p>
 							</div>
 							<div>
 								<p class="text-xs text-slate-500 uppercase">Last Accessed</p>
-								<p class="text-slate-900 dark:text-white">{secret.LastAccessedDate ? new Date(secret.LastAccessedDate).toLocaleDateString() : 'N/A'}</p>
+								<p class="text-slate-900 dark:text-white">{secret.LastAccessedDate ? new Date(typeof secret.LastAccessedDate === 'number' ? secret.LastAccessedDate * 1000 : secret.LastAccessedDate).toLocaleDateString() : 'N/A'}</p>
+							</div>
+							<div>
+								<p class="text-xs text-slate-500 uppercase">Last Rotated</p>
+								<p class="text-slate-900 dark:text-white">{secret.LastRotatedDate ? new Date(typeof secret.LastRotatedDate === 'number' ? secret.LastRotatedDate * 1000 : secret.LastRotatedDate).toLocaleDateString() : 'N/A'}</p>
+							</div>
+							<div>
+								<p class="text-xs text-slate-500 uppercase">Created</p>
+								<p class="text-slate-900 dark:text-white">{secret.CreatedDate ? new Date(typeof secret.CreatedDate === 'number' ? secret.CreatedDate * 1000 : secret.CreatedDate).toLocaleDateString() : 'N/A'}</p>
 							</div>
 						</div>
-						<div class="flex gap-2">
+						<div class="flex gap-2 flex-wrap">
 							<button onclick={() => viewSecret(secret)} class="px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center gap-1">
 								View <ChevronRight class="w-3 h-3" />
 							</button>
 							<button onclick={() => copyToClipboard(secret.ARN ?? '')} class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1">
 								<Copy class="w-3 h-3" /> ARN
 							</button>
-							<button onclick={() => deleteSecret(secret.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
-								<Trash2 class="w-3 h-3" /> Delete
-							</button>
+							{#if secret.DeletedDate}
+								<button onclick={() => restoreSecret(secret.Name ?? '')} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
+									<Undo2 class="w-3 h-3" /> Restore
+								</button>
+							{:else}
+								<button onclick={() => deleteSecret(secret.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+									<Trash2 class="w-3 h-3" /> Delete
+								</button>
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -454,7 +553,16 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 					{#if selectedSecret.KmsKeyId}
 					<div>
 						<p class="text-xs text-slate-500 uppercase mb-1">KMS Key</p>
-						<p class="text-slate-700 dark:text-slate-300 font-mono text-xs truncate">{selectedSecret.KmsKeyId}</p>
+						<div class="flex items-center gap-1">
+							<KeyRound class="w-3 h-3 text-indigo-500" />
+							<p class="text-slate-700 dark:text-slate-300 font-mono text-xs truncate">{selectedSecret.KmsKeyId}</p>
+						</div>
+					</div>
+					{/if}
+					{#if selectedSecret.CreatedDate}
+					<div>
+						<p class="text-xs text-slate-500 uppercase mb-1">Created</p>
+						<p class="text-slate-900 dark:text-white">{formatDate(selectedSecret.CreatedDate as number)}</p>
 					</div>
 					{/if}
 					<div>
@@ -660,9 +768,14 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 					<textarea id="secret-value" bind:value={newSecretValue} rows={4} placeholder="&#123;&quot;username&quot;: &quot;admin&quot;, &quot;password&quot;: &quot;secret&quot;&#125;"
 						class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-sm"></textarea>
 				</div>
+				<div>
+					<label for="secret-kms-key" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">KMS Key ID (optional)</label>
+					<input id="secret-kms-key" type="text" bind:value={newSecretKmsKey} placeholder="alias/my-key or key ARN"
+						class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
+				</div>
 			</div>
 			<div class="flex justify-end gap-3 mt-6">
-				<button onclick={() => showCreateModal = false} class="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300">Cancel</button>
+				<button onclick={() => { showCreateModal = false; newSecretName = ''; newSecretValue = ''; newSecretDescription = ''; newSecretKmsKey = ''; }} class="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300">Cancel</button>
 				<button onclick={createSecret} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Create</button>
 			</div>
 		</div>
