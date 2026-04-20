@@ -1360,3 +1360,262 @@ func TestCloudWatchBackend_SweepExpiredMetrics_OutOfOrder(t *testing.T) {
 	assert.NotNil(t, stats[0].Sum)
 	assert.InDelta(t, 1.0, *stats[0].Sum, 1e-9, "only the recent data point should remain")
 }
+
+func TestCloudWatchBackend_PutAnomalyDetector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		det     *cloudwatch.AnomalyDetector
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			det:  &cloudwatch.AnomalyDetector{Namespace: "AWS/EC2", MetricName: "CPUUtilization", Stat: "Average"},
+		},
+		{
+			name:    "missing_namespace",
+			det:     &cloudwatch.AnomalyDetector{MetricName: "CPUUtilization"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_metric_name",
+			det:     &cloudwatch.AnomalyDetector{Namespace: "AWS/EC2"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			err := b.PutAnomalyDetector(tt.det)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			p, err2 := b.DescribeAnomalyDetectors(tt.det.Namespace, tt.det.MetricName, "", 0)
+			require.NoError(t, err2)
+			require.Len(t, p.Data, 1)
+			assert.Equal(t, tt.det.Namespace, p.Data[0].Namespace)
+			assert.Equal(t, tt.det.MetricName, p.Data[0].MetricName)
+		})
+	}
+}
+
+func TestCloudWatchBackend_ListMetricStreams(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	b.PutMetricStreamInternal(&cloudwatch.MetricStream{
+		Name:         "stream-a",
+		FirehoseArn:  "arn:aws:firehose:us-east-1:123456789012:deliverystream/a",
+		OutputFormat: "json",
+		State:        "running",
+	})
+	b.PutMetricStreamInternal(&cloudwatch.MetricStream{
+		Name:         "stream-b",
+		FirehoseArn:  "arn:aws:firehose:us-east-1:123456789012:deliverystream/b",
+		OutputFormat: "opentelemetry0.7",
+		State:        "running",
+	})
+
+	p, err := b.ListMetricStreams("", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 2)
+	assert.Equal(t, "stream-a", p.Data[0].Name)
+	assert.Equal(t, "stream-b", p.Data[1].Name)
+}
+
+func TestCloudWatchBackend_PutMetricFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		filter  *cloudwatch.MetricFilter
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			filter: &cloudwatch.MetricFilter{
+				FilterName:    "my-filter",
+				LogGroupName:  "/aws/lambda/fn",
+				FilterPattern: "[host, ident, authuser, date, request, status]",
+				MetricTransformations: []cloudwatch.MetricTransformation{
+					{MetricName: "ReqCount", MetricNamespace: "MyApp", MetricValue: "1"},
+				},
+			},
+		},
+		{
+			name:    "missing_filter_name",
+			filter:  &cloudwatch.MetricFilter{LogGroupName: "/aws/lambda/fn"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_log_group",
+			filter:  &cloudwatch.MetricFilter{FilterName: "my-filter"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			err := b.PutMetricFilter(tt.filter)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchBackend_DescribeMetricFilters(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+
+	filters := []cloudwatch.MetricFilter{
+		{FilterName: "alpha", LogGroupName: "/aws/lambda/fn1", FilterPattern: "[a]"},
+		{FilterName: "beta", LogGroupName: "/aws/lambda/fn1", FilterPattern: "[b]"},
+		{FilterName: "gamma", LogGroupName: "/aws/ec2", FilterPattern: "[c]"},
+	}
+	for i := range filters {
+		require.NoError(t, b.PutMetricFilter(&filters[i]))
+	}
+
+	tests := []struct {
+		name             string
+		filterNamePrefix string
+		logGroupName     string
+		wantCount        int
+	}{
+		{name: "all", wantCount: 3},
+		{name: "by_log_group", logGroupName: "/aws/lambda/fn1", wantCount: 2},
+		{name: "by_prefix", filterNamePrefix: "al", wantCount: 1},
+		{name: "prefix_and_group", filterNamePrefix: "b", logGroupName: "/aws/lambda/fn1", wantCount: 1},
+		{name: "no_match", logGroupName: "/aws/nonexistent", wantCount: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := b.DescribeMetricFilters(tt.filterNamePrefix, tt.logGroupName, "", 0)
+			require.NoError(t, err)
+			assert.Len(t, p.Data, tt.wantCount)
+		})
+	}
+}
+
+func TestCloudWatchBackend_DeleteMetricFilter(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	require.NoError(t, b.PutMetricFilter(&cloudwatch.MetricFilter{
+		FilterName:   "del-filter",
+		LogGroupName: "/aws/lambda/fn",
+	}))
+
+	// delete should succeed
+	require.NoError(t, b.DeleteMetricFilter("del-filter", "/aws/lambda/fn"))
+
+	// second delete should fail
+	require.ErrorIs(t, b.DeleteMetricFilter("del-filter", "/aws/lambda/fn"), cloudwatch.ErrMetricFilterNotFound)
+}
+
+func TestCloudWatchBackend_DescribeAlarms_AlarmNamePrefix(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	for _, name := range []string{"prod-cpu", "prod-mem", "staging-cpu"} {
+		require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+			AlarmName:          name,
+			ComparisonOperator: "GreaterThanThreshold",
+			EvaluationPeriods:  1,
+			Period:             60,
+		}))
+	}
+
+	p, _, err := b.DescribeAlarms(nil, nil, "prod-", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 2)
+	for _, a := range p.Data {
+		assert.Contains(t, a.AlarmName, "prod-")
+	}
+}
+
+func TestCloudWatchBackend_StateTransitionedTimestamp(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:          "ts-alarm",
+		ComparisonOperator: "GreaterThanThreshold",
+		EvaluationPeriods:  1,
+		Period:             60,
+	}))
+
+	p, _, err := b.DescribeAlarms([]string{"ts-alarm"}, nil, "", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 1)
+	assert.False(
+		t,
+		p.Data[0].StateTransitionedTimestamp.IsZero(),
+		"StateTransitionedTimestamp should be set on creation",
+	)
+
+	// Change state — timestamp should update.
+	prevTS := p.Data[0].StateTransitionedTimestamp
+	require.NoError(t, b.SetAlarmState(t.Context(), "ts-alarm", "ALARM", "manual"))
+
+	p2, _, err2 := b.DescribeAlarms([]string{"ts-alarm"}, nil, "", "", "", 0)
+	require.NoError(t, err2)
+	require.Len(t, p2.Data, 1)
+
+	newTS := p2.Data[0].StateTransitionedTimestamp
+	assert.True(
+		t,
+		newTS.After(prevTS) || newTS.Equal(prevTS),
+		"timestamp should not go backwards",
+	)
+}
+
+func TestCloudWatchBackend_GetAlarmARNs(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:          "arn-alarm",
+		ComparisonOperator: "GreaterThanThreshold",
+		EvaluationPeriods:  1,
+		Period:             60,
+	}))
+
+	arns := b.GetAlarmARNs([]string{"arn-alarm", "nonexistent"})
+	require.Len(t, arns, 1)
+	assert.Contains(t, arns[0], "arn-alarm")
+}
+
+func TestCloudWatchBackend_GetDashboardARNs(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	require.NoError(t, b.PutDashboard("my-dash", `{"widgets":[]}`))
+
+	arns := b.GetDashboardARNs([]string{"my-dash", "nonexistent"})
+	require.Len(t, arns, 1)
+	assert.Contains(t, arns[0], "my-dash")
+}

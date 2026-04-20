@@ -60,7 +60,7 @@ const (
 	cwDefaultDescribeAnomalyDetectorLimit   = 100
 	cwDefaultDescribeInsightRulesLimit      = 100
 	cwDefaultDescribeAlarmContributorsLimit = 100
-	cwDefaultListMetricStreamsLimit          = 500
+	cwDefaultListMetricStreamsLimit         = 500
 	cwDefaultDescribeMetricFiltersLimit     = 50
 	cwMaxMetricDataPoints                   = 1000 // maximum data points retained per metric
 	cwMaxMetricNamesPerNamespace            = 500  // maximum unique metric names per namespace
@@ -734,7 +734,11 @@ func toSet(ss []string) map[string]bool {
 
 // collectMetricAlarms returns filtered and sorted metric alarms.
 // Caller must hold b.mu (read lock).
-func (b *InMemoryBackend) collectMetricAlarms(nameSet map[string]bool, alarmNamePrefix, stateValue string, include bool) []MetricAlarm {
+func (b *InMemoryBackend) collectMetricAlarms(
+	nameSet map[string]bool,
+	alarmNamePrefix, stateValue string,
+	include bool,
+) []MetricAlarm {
 	if !include {
 		return nil
 	}
@@ -836,6 +840,28 @@ func (b *InMemoryBackend) DescribeAlarmsForMetric(
 	return page.New(result, nextToken, maxRecords, cwDefaultDescribeForMetricLimit), nil
 }
 
+// matchesHistoryFilters returns true if the item passes all the given history filters.
+func matchesHistoryFilters(
+	item AlarmHistoryItem,
+	alarmType, historyItemType string,
+	startDate, endDate time.Time,
+) bool {
+	if alarmType != "" && item.AlarmType != alarmType {
+		return false
+	}
+	if historyItemType != "" && item.HistoryItemType != historyItemType {
+		return false
+	}
+	if !startDate.IsZero() && item.Timestamp.Before(startDate) {
+		return false
+	}
+	if !endDate.IsZero() && item.Timestamp.After(endDate) {
+		return false
+	}
+
+	return true
+}
+
 // DescribeAlarmHistory returns history items for one or all alarms, filtered by type and date range.
 // alarmType filters by "MetricAlarm" or "CompositeAlarm" (stored on history items); empty means all.
 func (b *InMemoryBackend) DescribeAlarmHistory(
@@ -852,19 +878,9 @@ func (b *InMemoryBackend) DescribeAlarmHistory(
 			continue
 		}
 		for _, item := range items {
-			if alarmType != "" && item.AlarmType != alarmType {
-				continue
+			if matchesHistoryFilters(item, alarmType, historyItemType, startDate, endDate) {
+				result = append(result, item)
 			}
-			if historyItemType != "" && item.HistoryItemType != historyItemType {
-				continue
-			}
-			if !startDate.IsZero() && item.Timestamp.Before(startDate) {
-				continue
-			}
-			if !endDate.IsZero() && item.Timestamp.After(endDate) {
-				continue
-			}
-			result = append(result, item)
 		}
 	}
 
@@ -1597,7 +1613,40 @@ func (b *InMemoryBackend) DescribeAlarmContributors(
 	return page.New([]AlarmContributor{}, nextToken, 0, cwDefaultDescribeAlarmContributorsLimit), nil
 }
 
-// PutAnomalyDetector creates or updates an anomaly detector.
+// GetAlarmARNs returns the ARNs for the given alarm names (metric + composite).
+// Used by the HTTP handler to clean up tag entries on delete.
+func (b *InMemoryBackend) GetAlarmARNs(names []string) []string {
+	b.mu.RLock("GetAlarmARNs")
+	defer b.mu.RUnlock()
+
+	arns := make([]string, 0, len(names))
+	for _, name := range names {
+		if a, ok := b.alarms[name]; ok && a.AlarmArn != "" {
+			arns = append(arns, a.AlarmArn)
+		}
+		if ca, ok := b.compositeAlarms[name]; ok && ca.AlarmArn != "" {
+			arns = append(arns, ca.AlarmArn)
+		}
+	}
+
+	return arns
+}
+
+// GetDashboardARNs returns the ARNs for the given dashboard names.
+// Used by the HTTP handler to clean up tag entries on delete.
+func (b *InMemoryBackend) GetDashboardARNs(names []string) []string {
+	b.mu.RLock("GetDashboardARNs")
+	defer b.mu.RUnlock()
+
+	arns := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, ok := b.dashboards[name]; ok {
+			arns = append(arns, arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+name))
+		}
+	}
+
+	return arns
+}
 func (b *InMemoryBackend) PutAnomalyDetector(detector *AnomalyDetector) error {
 	if detector.Namespace == "" || detector.MetricName == "" {
 		return fmt.Errorf("%w: Namespace and MetricName are required", ErrValidation)
@@ -1675,6 +1724,7 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 		if result[i].LogGroupName != result[j].LogGroupName {
 			return result[i].LogGroupName < result[j].LogGroupName
 		}
+
 		return result[i].FilterName < result[j].FilterName
 	})
 

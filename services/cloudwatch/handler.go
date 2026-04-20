@@ -58,6 +58,13 @@ func (h *Handler) removeTags(resourceID string, keys []string) {
 	}
 }
 
+// deleteResourceTags removes the entire tag entry for a resource ARN.
+func (h *Handler) deleteResourceTags(resourceARN string) {
+	h.tagsMu.Lock("deleteResourceTags")
+	defer h.tagsMu.Unlock()
+	delete(h.tags, resourceARN)
+}
+
 func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock("getTags")
 	t := h.tags[resourceID]
@@ -328,27 +335,15 @@ func (h *Handler) dispatchFormAction(action string, form url.Values, c *echo.Con
 
 // dispatchExtendedFormAction routes extended CloudWatch actions added after the initial implementation.
 func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *echo.Context) error {
+	if handled, err := h.dispatchAnomalyInsightFormAction(action, form, c); handled {
+		return err
+	}
+
 	switch action {
 	case "DeleteAlarmMuteRule":
 		return h.handleDeleteAlarmMuteRule(form, c)
 	case "GetAlarmMuteRule":
 		return h.handleGetAlarmMuteRule(form, c)
-	case "PutAnomalyDetector":
-		return h.handlePutAnomalyDetector(form, c)
-	case "DeleteAnomalyDetector":
-		return h.handleDeleteAnomalyDetector(form, c)
-	case "DescribeAnomalyDetectors":
-		return h.handleDescribeAnomalyDetectors(form, c)
-	case "DeleteInsightRules":
-		return h.handleDeleteInsightRules(form, c)
-	case "DescribeInsightRules":
-		return h.handleDescribeInsightRules(form, c)
-	case "DisableInsightRules":
-		return h.handleDisableInsightRules(form, c)
-	case "EnableInsightRules":
-		return h.handleEnableInsightRules(form, c)
-	case "GetInsightRuleReport":
-		return h.handleGetInsightRuleReport(form, c)
 	case "ListMetricStreams":
 		return h.handleListMetricStreams(form, c)
 	case "GetMetricStream":
@@ -366,6 +361,31 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 	default:
 		return h.dispatchResourceUpsertFormAction(action, form, c)
 	}
+}
+
+// dispatchAnomalyInsightFormAction routes anomaly-detector and insight-rule form actions.
+// Returns (true, err) when the action was handled, (false, nil) otherwise.
+func (h *Handler) dispatchAnomalyInsightFormAction(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
+	case "PutAnomalyDetector":
+		return true, h.handlePutAnomalyDetector(form, c)
+	case "DeleteAnomalyDetector":
+		return true, h.handleDeleteAnomalyDetector(form, c)
+	case "DescribeAnomalyDetectors":
+		return true, h.handleDescribeAnomalyDetectors(form, c)
+	case "DeleteInsightRules":
+		return true, h.handleDeleteInsightRules(form, c)
+	case "DescribeInsightRules":
+		return true, h.handleDescribeInsightRules(form, c)
+	case "DisableInsightRules":
+		return true, h.handleDisableInsightRules(form, c)
+	case "EnableInsightRules":
+		return true, h.handleEnableInsightRules(form, c)
+	case "GetInsightRuleReport":
+		return true, h.handleGetInsightRuleReport(form, c)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) dispatchResourceUpsertFormAction(
@@ -956,6 +976,14 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 
 func (h *Handler) handleDeleteAlarms(form url.Values, c *echo.Context) error {
 	alarmNames := parseMemberList(form, "AlarmNames.")
+
+	// Collect alarm ARNs before deleting so we can clean up their tag entries.
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		for _, arn := range b.GetAlarmARNs(alarmNames) {
+			h.deleteResourceTags(arn)
+		}
+	}
+
 	if err := h.Backend.DeleteAlarms(alarmNames); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1109,7 +1137,15 @@ func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) e
 		endDate, _ = time.Parse(time.RFC3339, e)
 	}
 
-	p, err := h.Backend.DescribeAlarmHistory(alarmName, alarmType, historyItemType, nextToken, startDate, endDate, maxRecords)
+	p, err := h.Backend.DescribeAlarmHistory(
+		alarmName,
+		alarmType,
+		historyItemType,
+		nextToken,
+		startDate,
+		endDate,
+		maxRecords,
+	)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1303,6 +1339,14 @@ func (h *Handler) handleListDashboards(form url.Values, c *echo.Context) error {
 
 func (h *Handler) handleDeleteDashboards(form url.Values, c *echo.Context) error {
 	names := parseMemberList(form, "DashboardNames.")
+
+	// Clean up tag entries for dashboards being deleted.
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		for _, arn := range b.GetDashboardARNs(names) {
+			h.deleteResourceTags(arn)
+		}
+	}
+
 	if err := h.Backend.DeleteDashboards(names); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -2049,15 +2093,15 @@ func (h *Handler) handleDescribeMetricFilters(form url.Values, c *echo.Context) 
 		MetricName      string  `xml:"MetricName"`
 		MetricNamespace string  `xml:"MetricNamespace"`
 		MetricValue     string  `xml:"MetricValue"`
-		DefaultValue    float64 `xml:"DefaultValue,omitempty"`
 		Unit            string  `xml:"Unit,omitempty"`
+		DefaultValue    float64 `xml:"DefaultValue,omitempty"`
 	}
 	type filterXML struct {
 		FilterName            string           `xml:"FilterName"`
 		LogGroupName          string           `xml:"LogGroupName"`
 		FilterPattern         string           `xml:"FilterPattern,omitempty"`
-		CreationTime          int64            `xml:"CreationTime"`
 		MetricTransformations []metricTransXML `xml:"MetricTransformations>member,omitempty"`
+		CreationTime          int64            `xml:"CreationTime"`
 	}
 
 	members := make([]filterXML, 0, len(p.Data))
@@ -2129,10 +2173,10 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 		Contributors struct{} `xml:"Contributors"`
 	}
 	type response struct {
+		Result    result   `xml:"GetInsightRuleReportResult"`
 		XMLName   xml.Name `xml:"GetInsightRuleReportResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    result   `xml:"GetInsightRuleReportResult"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

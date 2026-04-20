@@ -44,8 +44,8 @@ type Datapoint struct {
 // MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
 	CreatedAt                          time.Time   `json:"AlarmCreatedAt"`
-	StateTransitionedTimestamp         time.Time   `json:"StateTransitionedTimestamp,omitempty"`
-	AlarmConfigurationUpdatedTimestamp time.Time   `json:"AlarmConfigurationUpdatedTimestamp,omitempty"`
+	StateTransitionedTimestamp         time.Time   `json:"StateTransitionedTimestamp"`
+	AlarmConfigurationUpdatedTimestamp time.Time   `json:"AlarmConfigurationUpdatedTimestamp"`
 	StateValue                         string      `json:"StateValue"`
 	Namespace                          string      `json:"Namespace"`
 	MetricName                         string      `json:"MetricName"`
@@ -99,8 +99,8 @@ type MetricStat struct {
 	Namespace  string      `json:"Namespace"`
 	MetricName string      `json:"MetricName"`
 	Stat       string      `json:"Stat"`
-	Period     int32       `json:"Period"`
 	Dimensions []Dimension `json:"Dimensions,omitempty"`
+	Period     int32       `json:"Period"`
 }
 
 // MetricDataQuery is a single query in a GetMetricData request.
@@ -127,8 +127,8 @@ type MetricTransformation struct {
 	MetricName      string  `json:"MetricName"`
 	MetricNamespace string  `json:"MetricNamespace"`
 	MetricValue     string  `json:"MetricValue"`
-	DefaultValue    float64 `json:"DefaultValue,omitempty"`
 	Unit            string  `json:"Unit,omitempty"`
+	DefaultValue    float64 `json:"DefaultValue,omitempty"`
 }
 
 // MetricDataResult is a single result entry in a GetMetricData response.
