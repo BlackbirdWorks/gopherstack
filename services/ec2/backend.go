@@ -185,6 +185,8 @@ type InMemoryBackend struct {
 	vpcPeeringConnections          map[string]*VpcPeeringConnection
 	byoipCidrs                     map[string]*ByoipCidr
 	dedicatedHosts                 map[string]*Host
+	snapshots                      map[string]*Snapshot
+	networkACLs                    map[string]*StoredNetworkACL
 	mu                             *lockmetrics.RWMutex
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
@@ -227,6 +229,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		vpcPeeringConnections:          make(map[string]*VpcPeeringConnection),
 		byoipCidrs:                     make(map[string]*ByoipCidr),
 		dedicatedHosts:                 make(map[string]*Host),
+		snapshots:                      make(map[string]*Snapshot),
+		networkACLs:                    make(map[string]*StoredNetworkACL),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),

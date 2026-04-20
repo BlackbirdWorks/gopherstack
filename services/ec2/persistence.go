@@ -35,6 +35,8 @@ type backendSnapshot struct {
 	ImageUsageReports              map[string]*ImageUsageReport      `json:"imageUsageReports,omitempty"`
 	LaunchTemplates                map[string]*LaunchTemplate        `json:"launchTemplates,omitempty"`
 	VpcEndpoints                   map[string]*VpcEndpoint           `json:"vpcEndpoints,omitempty"`
+	Snapshots                      map[string]*Snapshot              `json:"snapshots,omitempty"`
+	NetworkACLs                    map[string]*StoredNetworkACL      `json:"networkACLs,omitempty"`
 	Tags                           map[string]map[string]string      `json:"tags"`
 	AddressTransfers               map[string]*AddressTransfer       `json:"addressTransfers,omitempty"`
 	CapacityReservations           map[string]*CapacityReservation   `json:"capacityReservations,omitempty"`
@@ -77,6 +79,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ImageUsageReports:              b.imageUsageReports,
 		LaunchTemplates:                b.launchTemplates,
 		VpcEndpoints:                   b.vpcEndpoints,
+		Snapshots:                      b.snapshots,
+		NetworkACLs:                    b.networkACLs,
 		Tags:                           b.tags,
 		AddressTransfers:               b.addressTransfers,
 		CapacityReservations:           b.capacityReservations,
@@ -136,6 +140,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.imageUsageReports = snap.ImageUsageReports
 	b.launchTemplates = snap.LaunchTemplates
 	b.vpcEndpoints = snap.VpcEndpoints
+	b.snapshots = snap.Snapshots
+	b.networkACLs = snap.NetworkACLs
 	b.tags = snap.Tags
 	b.addressTransfers = snap.AddressTransfers
 	b.capacityReservations = snap.CapacityReservations
@@ -240,6 +246,14 @@ func (s *backendSnapshot) initDeepDiveMaps() {
 
 	if s.VpcEndpoints == nil {
 		s.VpcEndpoints = make(map[string]*VpcEndpoint)
+	}
+
+	if s.Snapshots == nil {
+		s.Snapshots = make(map[string]*Snapshot)
+	}
+
+	if s.NetworkACLs == nil {
+		s.NetworkACLs = make(map[string]*StoredNetworkACL)
 	}
 }
 

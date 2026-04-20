@@ -191,10 +191,73 @@ type Backend interface {
 	// DescribeNatGateways returns NAT gateways, optionally filtered by IDs.
 	DescribeNatGateways(ids []string) []*NatGateway
 
-	// ---- network ACLs ----
+	// ---- EBS snapshots ----
 
-	// DescribeNetworkAcls returns network ACLs, optionally filtered by VPC IDs.
+	// CreateSnapshot creates an EBS snapshot from a volume.
+	CreateSnapshot(volumeID, description string) (*Snapshot, error)
+
+	// DescribeSnapshots returns snapshots, optionally filtered by IDs.
+	DescribeSnapshots(ids []string) []*Snapshot
+
+	// DeleteSnapshot removes a snapshot.
+	DeleteSnapshot(id string) error
+
+	// ---- AMI lifecycle ----
+
+	// CopyImage copies an AMI to produce a new one.
+	CopyImage(sourceImageID, name, description string) (*AMIStub, error)
+
+	// DeregisterImage removes an AMI from the store.
+	DeregisterImage(imageID string) error
+
+	// ---- VPC / Subnet attributes ----
+
+	// ModifyVpcAttribute enables or disables a VPC DNS attribute.
+	ModifyVpcAttribute(vpcID, attribute string, value bool) error
+
+	// ModifySubnetAttribute enables or disables an attribute on a subnet.
+	ModifySubnetAttribute(subnetID, attribute string, value bool) error
+
+	// ---- Network ACL CRUD ----
+
+	// DescribeNetworkAcls returns default (auto-generated) network ACLs, optionally filtered by VPC IDs.
 	DescribeNetworkAcls(vpcIDs []string) []*NetworkACL
+
+	// CreateNetworkAcl creates a new non-default network ACL in a VPC.
+	CreateNetworkAcl(vpcID string) (*StoredNetworkACL, error)
+
+	// DeleteNetworkAcl removes a non-default network ACL.
+	DeleteNetworkAcl(id string) error
+
+	// CreateNetworkAclEntry adds a rule to an existing network ACL.
+	CreateNetworkAclEntry(aclID string, ruleNumber int, protocol, action, cidr string, egress bool, fromPort, toPort int) error
+
+	// DeleteNetworkAclEntry removes a rule from a network ACL.
+	DeleteNetworkAclEntry(aclID string, ruleNumber int, egress bool) error
+
+	// DescribeStoredNetworkAcls returns explicitly created network ACLs.
+	DescribeStoredNetworkAcls(ids []string) []*StoredNetworkACL
+
+	// ---- Security group rules ----
+
+	// DescribeSecurityGroupRules returns all rules for a security group.
+	DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error)
+
+	// ModifySecurityGroupRules replaces all rules in the specified direction.
+	ModifySecurityGroupRules(groupID string, rules []SecurityGroupRule, egress bool) error
+
+	// ---- Launch template lifecycle ----
+
+	// DeleteLaunchTemplate removes a launch template by ID.
+	DeleteLaunchTemplate(id string) error
+
+	// DescribeLaunchTemplateVersions returns versions of a launch template.
+	DescribeLaunchTemplateVersions(id string) ([]*LaunchTemplate, error)
+
+	// ---- VPC endpoint lifecycle ----
+
+	// DeleteVpcEndpoints deletes one or more VPC endpoints, returning unsuccessful IDs.
+	DeleteVpcEndpoints(ids []string) ([]string, error)
 
 	// ---- VPC endpoints ----
 
