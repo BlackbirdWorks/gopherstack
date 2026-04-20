@@ -998,8 +998,14 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 		return nil, keyStateError(key)
 	}
 
-	if key.KeyUsage != KeyUsageSignVerify && key.KeyUsage != KeyUsageKeyAgreement && key.KeyUsage != KeyUsageEncryptDecrypt {
-		return nil, fmt.Errorf("%w: key %q does not have an asymmetric public key (KeyUsage=%s)", ErrInvalidKeyUsage, key.KeyID, key.KeyUsage)
+	if key.KeyUsage != KeyUsageSignVerify && key.KeyUsage != KeyUsageKeyAgreement &&
+		key.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf(
+			"%w: key %q does not have an asymmetric public key (KeyUsage=%s)",
+			ErrInvalidKeyUsage,
+			key.KeyID,
+			key.KeyUsage,
+		)
 	}
 
 	// Symmetric keys do not have a public key.
@@ -1345,7 +1351,10 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 	if key.KeySpec != keySpecSymmetric || key.Origin == KeyOriginExternal {
 		return nil, fmt.Errorf(
 			"%w: GetKeyRotationStatus is only supported for symmetric keys with AWS_KMS origin; key %q has spec %s origin %s",
-			ErrUnsupportedOrigin, key.KeyID, key.KeySpec, key.Origin,
+			ErrUnsupportedOrigin,
+			key.KeyID,
+			key.KeySpec,
+			key.Origin,
 		)
 	}
 
@@ -2029,7 +2038,8 @@ func (b *InMemoryBackend) GetParametersForImport(
 		if _, ok := validWrappingAlgorithms[input.WrappingAlgorithm]; !ok {
 			return nil, fmt.Errorf(
 				"%w: WrappingAlgorithm %q is not valid; must be one of RSAES_PKCS1_V1_5, RSAES_OAEP_SHA_1, RSAES_OAEP_SHA_256, RSA_AES_KEY_WRAP_SHA_1, or RSA_AES_KEY_WRAP_SHA_256",
-				ErrValidation, input.WrappingAlgorithm,
+				ErrValidation,
+				input.WrappingAlgorithm,
 			)
 		}
 	}
