@@ -47,6 +47,8 @@ type Secret struct {
 	LastChangedDate *float64 `json:"-"`
 	// LastRotatedDate is the Unix timestamp of the most recent successful rotation.
 	LastRotatedDate *float64 `json:"-"`
+	// LastAccessedDate is the Unix timestamp of the most recent GetSecretValue call.
+	LastAccessedDate *float64 `json:"-"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the human-readable name of the secret.
@@ -160,6 +162,9 @@ type PutSecretValueOutput struct {
 type DeleteSecretInput struct {
 	// SecretId is the name or ARN of the secret to delete.
 	SecretID string `json:"SecretId"`
+	// RecoveryWindowInDays is the number of days before the secret can be deleted.
+	// Must be between 7 and 30 inclusive. Defaults to 30 when not set.
+	RecoveryWindowInDays *int64 `json:"RecoveryWindowInDays,omitempty"`
 	// ForceDeleteWithoutRecovery deletes immediately when true.
 	ForceDeleteWithoutRecovery bool `json:"ForceDeleteWithoutRecovery,omitempty"`
 }
@@ -176,11 +181,16 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	DeletedDate *float64   `json:"DeletedDate,omitempty"`
-	Tags        *tags.Tags `json:"Tags,omitempty"`
-	ARN         string     `json:"ARN"`
-	Name        string     `json:"Name"`
-	Description string     `json:"Description,omitempty"`
+	DeletedDate      *float64   `json:"DeletedDate,omitempty"`
+	LastChangedDate  *float64   `json:"LastChangedDate,omitempty"`
+	LastAccessedDate *float64   `json:"LastAccessedDate,omitempty"`
+	Tags             *tags.Tags `json:"Tags,omitempty"`
+	ARN              string     `json:"ARN"`
+	Name             string     `json:"Name"`
+	Description      string     `json:"Description,omitempty"`
+	KmsKeyID         string     `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN string    `json:"RotationLambdaARN,omitempty"`
+	RotationEnabled  bool       `json:"RotationEnabled,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
@@ -217,6 +227,8 @@ type DescribeSecretOutput struct {
 	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
 	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`
 	LastRotatedDate    *float64                `json:"LastRotatedDate,omitempty"`
+	LastAccessedDate   *float64                `json:"LastAccessedDate,omitempty"`
+	NextRotationDate   *float64                `json:"NextRotationDate,omitempty"`
 	VersionIDsToStages map[string][]string     `json:"VersionIdsToStages,omitempty"`
 	ARN                string                  `json:"ARN"`
 	Name               string                  `json:"Name"`
@@ -234,6 +246,8 @@ type UpdateSecretInput struct {
 	SecretID string `json:"SecretId"`
 	// Description is the new description (empty string clears it).
 	Description string `json:"Description,omitempty"`
+	// KmsKeyID is the ARN or alias of the new KMS key.
+	KmsKeyID string `json:"KmsKeyId,omitempty"`
 	// SecretString is a new string value, creating a new version.
 	SecretString string `json:"SecretString,omitempty"`
 	// SecretBinary is a new binary value, creating a new version.
@@ -557,4 +571,28 @@ type UpdateSecretVersionStageOutput struct {
 	ARN string `json:"ARN"`
 	// Name is the name of the secret.
 	Name string `json:"Name"`
+}
+
+// ValidateResourcePolicyInput is the request payload for ValidateResourcePolicy.
+type ValidateResourcePolicyInput struct {
+	// SecretId is the optional name or ARN of the secret to validate the policy against.
+	SecretID string `json:"SecretId,omitempty"`
+	// ResourcePolicy is the resource-based policy document to validate.
+	ResourcePolicy string `json:"ResourcePolicy"`
+}
+
+// PolicyValidationException represents a single policy validation failure.
+type PolicyValidationException struct {
+	// CheckName identifies the validation rule.
+	CheckName string `json:"CheckName"`
+	// ErrorMessage describes the issue.
+	ErrorMessage string `json:"ErrorMessage"`
+}
+
+// ValidateResourcePolicyOutput is the response payload for ValidateResourcePolicy.
+type ValidateResourcePolicyOutput struct {
+	// PolicyValidationPassed is true when no validation errors were found.
+	PolicyValidationPassed bool `json:"PolicyValidationPassed"`
+	// ValidationErrors is the list of validation errors (empty when PolicyValidationPassed is true).
+	ValidationErrors []PolicyValidationException `json:"ValidationErrors,omitempty"`
 }

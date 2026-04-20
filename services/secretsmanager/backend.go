@@ -3,9 +3,12 @@ package secretsmanager
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -39,7 +42,22 @@ var (
 	ErrSecretValueTooLarge = errors.New("InvalidParameterException")
 	// ErrInvalidParameter is returned when an invalid parameter value is provided.
 	ErrInvalidParameter = errors.New("InvalidParameterException")
+	// ErrInvalidSecretName is returned when a secret name does not match the allowed pattern.
+	ErrInvalidSecretName = errors.New("InvalidParameterException")
 )
+
+// secretNamePattern is the set of characters allowed in secret names by AWS.
+// AWS allows letters, digits, and the following special characters: /_+=.@-
+var secretNamePattern = regexp.MustCompile(`^[a-zA-Z0-9/_+=.@-]+$`)
+
+// maxSecretNameLength is the maximum allowed length of a secret name.
+const maxSecretNameLength = 512
+
+// defaultRecoveryWindowDays is the default recovery window in days for soft-deleted secrets.
+const defaultRecoveryWindowDays = 30
+
+// minRecoveryWindowDays is the minimum recovery window in days.
+const minRecoveryWindowDays = 7
 
 const (
 	// defaultMaxResults is the default maximum number of secrets to list.
@@ -125,8 +143,36 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 	return arn.Build("secretsmanager", region, b.accountID, "secret:"+name+"-"+suffix)
 }
 
+// validateSecretName returns an error when the name is empty, too long, or contains invalid chars.
+func validateSecretName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: secret name must not be empty", ErrInvalidSecretName)
+	}
+
+	if len(name) > maxSecretNameLength {
+		return fmt.Errorf(
+			"%w: secret name must be %d characters or fewer",
+			ErrInvalidSecretName,
+			maxSecretNameLength,
+		)
+	}
+
+	if !secretNamePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: secret name must match pattern [a-zA-Z0-9/_+=.@-]+",
+			ErrInvalidSecretName,
+		)
+	}
+
+	return nil
+}
+
 // CreateSecret creates a new secret with an optional initial value.
 func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error) {
+	if err := validateSecretName(input.Name); err != nil {
+		return nil, err
+	}
+
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
 		return nil, err
 	}
@@ -199,8 +245,8 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 
 // GetSecretValue retrieves the value of a secret version.
 func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecretValueOutput, error) {
-	b.mu.RLock("GetSecretValue")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetSecretValue")
+	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
@@ -217,6 +263,10 @@ func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecret
 	if version == nil {
 		return nil, ErrVersionNotFound
 	}
+
+	// Track access date (truncated to day granularity as AWS does).
+	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(24 * time.Hour))
+	secret.LastAccessedDate = &accessDay
 
 	return &GetSecretValueOutput{
 		ARN:           secret.ARN,
@@ -403,7 +453,7 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 		return nil, ErrSecretNotFound
 	}
 
-	now := UnixTimeFloat(time.Now())
+	now := UnixTimeFloat(b.now())
 
 	if input.ForceDeleteWithoutRecovery {
 		if secret.Tags != nil {
@@ -421,12 +471,27 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 		}, nil
 	}
 
+	// Validate recovery window if provided.
+	recoveryDays := int64(defaultRecoveryWindowDays)
+	if input.RecoveryWindowInDays != nil {
+		recoveryDays = *input.RecoveryWindowInDays
+		if recoveryDays < minRecoveryWindowDays || recoveryDays > defaultRecoveryWindowDays {
+			return nil, fmt.Errorf(
+				"%w: RecoveryWindowInDays must be between %d and %d",
+				ErrInvalidParameter,
+				minRecoveryWindowDays,
+				defaultRecoveryWindowDays,
+			)
+		}
+	}
+
 	secret.DeletedDate = &now
+	deletionDate := UnixTimeFloat(b.now().Add(time.Duration(recoveryDays) * 24 * time.Hour))
 
 	return &DeleteSecretOutput{
 		ARN:          secret.ARN,
 		Name:         secret.Name,
-		DeletionDate: now,
+		DeletionDate: deletionDate,
 	}, nil
 }
 
@@ -634,7 +699,7 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		versionIDsToStages[vID] = v.StagingLabels
 	}
 
-	return &DescribeSecretOutput{
+	out := &DescribeSecretOutput{
 		ARN:                secret.ARN,
 		Name:               secret.Name,
 		Description:        secret.Description,
@@ -645,10 +710,31 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		DeletedDate:        secret.DeletedDate,
 		LastChangedDate:    secret.LastChangedDate,
 		LastRotatedDate:    secret.LastRotatedDate,
+		LastAccessedDate:   secret.LastAccessedDate,
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
 		ReplicationStatus:  b.replicationConfigs[name],
-	}, nil
+	}
+
+	// Compute NextRotationDate from the last rotation base + interval.
+	if secret.RotationEnabled && secret.RotationRules != nil {
+		interval, ok := rotationInterval(secret.RotationRules)
+		if ok {
+			base := secret.LastRotatedDate
+			if base == nil {
+				base = secret.LastChangedDate
+			}
+
+			if base != nil {
+				baseTime := time.Unix(0, int64(*base*float64(time.Second)))
+				nextTime := baseTime.Add(interval)
+				nextFloat := UnixTimeFloat(nextTime)
+				out.NextRotationDate = &nextFloat
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // UpdateSecret updates the description of a secret and optionally creates a new version.
@@ -673,6 +759,10 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 
 	if input.Description != "" {
 		secret.Description = input.Description
+	}
+
+	if input.KmsKeyID != "" {
+		secret.KmsKeyID = input.KmsKeyID
 	}
 
 	var versionID string
@@ -747,11 +837,16 @@ func (b *InMemoryBackend) ListAll() []SecretListEntry {
 // secretToListEntry converts a Secret to a SecretListEntry.
 func secretToListEntry(s *Secret) SecretListEntry {
 	return SecretListEntry{
-		ARN:         s.ARN,
-		Name:        s.Name,
-		Description: s.Description,
-		DeletedDate: s.DeletedDate,
-		Tags:        s.Tags,
+		ARN:               s.ARN,
+		Name:              s.Name,
+		Description:       s.Description,
+		KmsKeyID:          s.KmsKeyID,
+		RotationLambdaARN: s.RotationLambdaARN,
+		RotationEnabled:   s.RotationEnabled,
+		DeletedDate:       s.DeletedDate,
+		LastChangedDate:   s.LastChangedDate,
+		LastAccessedDate:  s.LastAccessedDate,
+		Tags:              s.Tags,
 	}
 }
 
@@ -1007,16 +1102,56 @@ func buildPasswordCharset(input *GetRandomPasswordInput) ([]rune, []string, erro
 }
 
 // randomRunes fills a slice of runes with random characters drawn from pool.
+// It uses a single io.ReadFull call to fetch a random byte buffer, eliminating
+// per-character big.Int allocations that are costly for long passwords.
 func randomRunes(pool []rune, length int) ([]rune, error) {
-	pw := make([]rune, length)
+	if len(pool) == 0 || length == 0 {
+		return make([]rune, length), nil
+	}
 
-	for i := range pw {
-		idx, err := cryptoRandInt(len(pool))
-		if err != nil {
-			return nil, err
+	pw := make([]rune, length)
+	poolSize := len(pool)
+
+	// Use rejection sampling with a power-of-two mask when pool is small enough
+	// to avoid modulo bias while minimising random bytes consumed.
+	// For pool sizes > 256 fall back to per-character cryptoRandInt.
+	if poolSize <= 256 {
+		// Find smallest mask that covers poolSize.
+		mask := byte(1)
+		for int(mask) < poolSize {
+			mask = (mask << 1) | 1
 		}
 
-		pw[i] = pool[idx]
+		buf := make([]byte, length*4) // over-allocate to reduce refill frequency
+		filled := 0
+		offset := len(buf) // trigger initial fill
+
+		for filled < length {
+			if offset >= len(buf) {
+				if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+					return nil, fmt.Errorf("random password generation: %w", err)
+				}
+
+				offset = 0
+			}
+
+			idx := int(buf[offset] & mask)
+			offset++
+
+			if idx < poolSize {
+				pw[filled] = pool[idx]
+				filled++
+			}
+		}
+	} else {
+		for i := range pw {
+			idx, err := cryptoRandInt(poolSize)
+			if err != nil {
+				return nil, err
+			}
+
+			pw[i] = pool[idx]
+		}
 	}
 
 	return pw, nil
@@ -1794,4 +1929,59 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // Must not be called concurrently with other operations.
 func (b *InMemoryBackend) AddSecretInternal(s *Secret) {
 	b.secrets[s.Name] = s
+}
+
+// ValidateResourcePolicy validates a resource-based policy document for a secret.
+// It performs basic structural validation and returns any detected issues.
+func (b *InMemoryBackend) ValidateResourcePolicy(input *ValidateResourcePolicyInput) (*ValidateResourcePolicyOutput, error) {
+if input.ResourcePolicy == "" {
+return nil, fmt.Errorf("%w: ResourcePolicy must not be empty", ErrInvalidParameter)
+}
+
+// If a secret ID is provided, verify the secret exists.
+if input.SecretID != "" {
+b.mu.RLock("ValidateResourcePolicy")
+defer b.mu.RUnlock()
+
+name := resolveSecretID(input.SecretID)
+if _, ok := b.secrets[name]; !ok {
+return nil, ErrSecretNotFound
+}
+}
+
+// Parse the JSON policy document.
+var policy map[string]json.RawMessage
+if err := json.Unmarshal([]byte(input.ResourcePolicy), &policy); err != nil {
+return &ValidateResourcePolicyOutput{
+PolicyValidationPassed: false,
+ValidationErrors: []PolicyValidationException{
+{
+CheckName:    "SyntaxCheck",
+ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
+},
+},
+}, nil
+}
+
+var errs []PolicyValidationException
+
+// Validate required top-level fields.
+if _, hasVersion := policy["Version"]; !hasVersion {
+errs = append(errs, PolicyValidationException{
+CheckName:    "VersionCheck",
+ErrorMessage: "Policy document must include a Version element.",
+})
+}
+
+if _, hasStatement := policy["Statement"]; !hasStatement {
+errs = append(errs, PolicyValidationException{
+CheckName:    "StatementCheck",
+ErrorMessage: "Policy document must include a Statement element.",
+})
+}
+
+return &ValidateResourcePolicyOutput{
+PolicyValidationPassed: len(errs) == 0,
+ValidationErrors:       errs,
+}, nil
 }

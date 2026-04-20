@@ -7,20 +7,38 @@ import {
 	CreateSecretCommand,
 	DeleteSecretCommand,
 	DescribeSecretCommand,
-	GetSecretValueCommand
+	GetSecretValueCommand,
+	UpdateSecretCommand,
+	RotateSecretCommand,
+	CancelRotateSecretCommand,
+	TagResourceCommand,
+	UntagResourceCommand,
+	ListSecretVersionIdsCommand
 } from '@aws-sdk/client-secrets-manager';
 import { toast } from 'svelte-sonner';
-import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, EyeOff, ChevronRight } from 'lucide-svelte';
+import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, EyeOff, ChevronRight, Tag, History, RotateCw, X } from 'lucide-svelte';
 
 const sm = getSecretsManagerClient();
 
 type SecretItem = {
 	ARN?: string;
 	Description?: string;
-	LastAccessedDate?: Date | string;
-	LastChangedDate?: Date | string;
+	KmsKeyId?: string;
+	LastAccessedDate?: Date | string | number;
+	LastChangedDate?: Date | string | number;
+	LastRotatedDate?: Date | string | number;
+	NextRotationDate?: Date | string | number;
 	Name?: string;
 	RotationEnabled?: boolean;
+	RotationLambdaARN?: string;
+	RotationRules?: { AutomaticallyAfterDays?: number; ScheduleExpression?: string };
+	ReplicationStatus?: Array<{ Region?: string; Status?: string; StatusMessage?: string }>;
+};
+
+type VersionEntry = {
+	VersionId?: string;
+	VersionStages?: string[];
+	CreatedDate?: number;
 };
 
 let secrets = $state<SecretItem[]>([]);
@@ -29,11 +47,22 @@ let search = $state('');
 let showCreateModal = $state(false);
 let newSecretName = $state('');
 let newSecretValue = $state('');
+let newSecretDescription = $state('');
 let activeTab = $state<'secrets' | 'detail'>('secrets');
+let detailSubTab = $state<'overview' | 'versions' | 'tags' | 'replication'>('overview');
 let selectedSecret = $state<SecretItem | null>(null);
 let secretValue = $state<string | null>(null);
 let showValue = $state(false);
 let loadingValue = $state(false);
+let editingValue = $state(false);
+let editValue = $state('');
+let editDescription = $state('');
+let savingSecret = $state(false);
+let versions = $state<VersionEntry[]>([]);
+let loadingVersions = $state(false);
+let tagKey = $state('');
+let tagValue = $state('');
+let secretTags = $state<Record<string, string>>({});
 
 onMount(async () => { await loadSecrets(); });
 
@@ -41,7 +70,7 @@ async function loadSecrets() {
 	try {
 		loading = true;
 		const data = await sm.send(new ListSecretsCommand({}));
-		secrets = data.SecretList || [];
+		secrets = (data.SecretList || []) as SecretItem[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load secrets');
 	} finally {
@@ -49,11 +78,28 @@ async function loadSecrets() {
 	}
 }
 
-function viewSecret(secret: SecretItem) {
+async function viewSecret(secret: SecretItem) {
 	selectedSecret = secret;
 	secretValue = null;
 	showValue = false;
+	editingValue = false;
+	detailSubTab = 'overview';
 	activeTab = 'detail';
+	// Load full metadata via DescribeSecret
+	try {
+		const desc = await sm.send(new DescribeSecretCommand({ SecretId: secret.Name! }));
+		selectedSecret = { ...selectedSecret, ...desc } as SecretItem;
+		// Load tags
+		const tagMap: Record<string, string> = {};
+		if (desc.Tags) {
+			for (const t of desc.Tags as Array<{Key?: string; Value?: string}>) {
+				if (t.Key) tagMap[t.Key] = t.Value ?? '';
+			}
+		}
+		secretTags = tagMap;
+	} catch {
+		// best-effort
+	}
 }
 
 async function loadSecretValue(name: string) {
@@ -66,6 +112,111 @@ async function loadSecretValue(name: string) {
 		toast.error('Access denied or secret not retrievable');
 	} finally {
 		loadingValue = false;
+	}
+}
+
+async function loadVersions(name: string) {
+	loadingVersions = true;
+	try {
+		const data = await sm.send(new ListSecretVersionIdsCommand({ SecretId: name, IncludeDeprecated: true }));
+		versions = (data.Versions || []) as VersionEntry[];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load versions');
+	} finally {
+		loadingVersions = false;
+	}
+}
+
+async function saveSecretValue() {
+	if (!selectedSecret?.Name) return;
+	savingSecret = true;
+	try {
+		await sm.send(new UpdateSecretCommand({
+			SecretId: selectedSecret.Name,
+			SecretString: editValue
+		}));
+		toast.success('Secret value updated');
+		secretValue = editValue;
+		editingValue = false;
+		await viewSecret(selectedSecret);
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to update secret value');
+	} finally {
+		savingSecret = false;
+	}
+}
+
+async function saveDescription() {
+	if (!selectedSecret?.Name) return;
+	savingSecret = true;
+	try {
+		await sm.send(new UpdateSecretCommand({
+			SecretId: selectedSecret.Name,
+			Description: editDescription
+		}));
+		toast.success('Description updated');
+		selectedSecret = { ...selectedSecret, Description: editDescription };
+		editDescription = '';
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to update description');
+	} finally {
+		savingSecret = false;
+	}
+}
+
+async function rotateNow() {
+	if (!selectedSecret?.Name) return;
+	if (!await confirmDestructive({ title: 'Rotate Secret', message: `Immediately rotate "${selectedSecret.Name}"? A new version will be created.` })) return;
+	try {
+		await sm.send(new RotateSecretCommand({ SecretId: selectedSecret.Name }));
+		toast.success('Rotation triggered');
+		secretValue = null;
+		await viewSecret(selectedSecret);
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to rotate secret');
+	}
+}
+
+async function cancelRotation() {
+	if (!selectedSecret?.Name) return;
+	try {
+		await sm.send(new CancelRotateSecretCommand({ SecretId: selectedSecret.Name }));
+		toast.success('Rotation cancelled');
+		await viewSecret(selectedSecret);
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to cancel rotation');
+	}
+}
+
+async function addTag() {
+	if (!selectedSecret?.Name || !tagKey.trim()) {
+		toast.error('Tag key is required');
+		return;
+	}
+	try {
+		await sm.send(new TagResourceCommand({
+			SecretId: selectedSecret.Name,
+			Tags: [{ Key: tagKey.trim(), Value: tagValue.trim() }]
+		}));
+		secretTags = { ...secretTags, [tagKey.trim()]: tagValue.trim() };
+		tagKey = '';
+		tagValue = '';
+		toast.success('Tag added');
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to add tag');
+	}
+}
+
+async function removeTag(key: string) {
+	if (!selectedSecret?.Name) return;
+	try {
+		await sm.send(new UntagResourceCommand({ SecretId: selectedSecret.Name, TagKeys: [key] }));
+		const updated = { ...secretTags };
+		delete updated[key];
+		secretTags = updated;
+		toast.success(`Tag "${key}" removed`);
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to remove tag');
 	}
 }
 
@@ -94,12 +245,14 @@ async function createSecret() {
 	try {
 		await sm.send(new CreateSecretCommand({
 			Name: newSecretName.trim(),
+			Description: newSecretDescription.trim() || undefined,
 			SecretString: newSecretValue
 		}));
 		toast.success(`Secret "${newSecretName.trim()}" created`);
 		showCreateModal = false;
 		newSecretName = '';
 		newSecretValue = '';
+		newSecretDescription = '';
 		await loadSecrets();
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to create secret');
@@ -109,6 +262,11 @@ async function createSecret() {
 async function copyToClipboard(text: string) {
 	await navigator.clipboard.writeText(text);
 	toast.success('Copied to clipboard');
+}
+
+function formatDate(d: Date | string | number | undefined): string {
+	if (!d) return 'N/A';
+	return new Date(typeof d === 'number' ? d * 1000 : d).toLocaleString();
 }
 
 let filtered = $derived(secrets.filter(s =>
@@ -240,19 +398,47 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 			<button onclick={() => { activeTab = 'secrets'; selectedSecret = null; }} class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
 				← Back to all secrets
 			</button>
+
+			<!-- Detail sub-tabs -->
+			<div class="border-b border-slate-200 dark:border-slate-700">
+				<nav class="flex gap-1 -mb-px">
+					{#each [['overview','Overview'],['versions','Versions'],['tags','Tags'],['replication','Replication']] as [tab, label]}
+						<button onclick={() => {
+							detailSubTab = tab as typeof detailSubTab;
+							if (tab === 'versions' && selectedSecret) loadVersions(selectedSecret.Name!);
+						}} class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {detailSubTab === tab ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+							{label}
+						</button>
+					{/each}
+				</nav>
+			</div>
+
+			{#if detailSubTab === 'overview'}
 			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 space-y-4">
 				<div class="flex items-start justify-between">
 					<div>
 						<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedSecret.Name}</h2>
-						{#if selectedSecret.Description}
-							<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">{selectedSecret.Description}</p>
+						<div class="flex items-center gap-2 mt-1">
+							{#if selectedSecret.Description}
+								<p class="text-slate-500 dark:text-slate-400 text-sm">{selectedSecret.Description}</p>
+							{:else}
+								<p class="text-slate-400 dark:text-slate-500 text-sm italic">No description</p>
+							{/if}
+						</div>
+					</div>
+					<div class="flex gap-2 items-center">
+						{#if selectedSecret.RotationEnabled}
+							<span class="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs flex items-center gap-1">
+								<RotateCcw class="w-3 h-3" /> Auto Rotation
+							</span>
 						{/if}
 					</div>
-					{#if selectedSecret.RotationEnabled}
-						<span class="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs flex items-center gap-1">
-							<RotateCcw class="w-3 h-3" /> Auto Rotation
-						</span>
-					{/if}
+				</div>
+
+				<!-- Edit Description -->
+				<div class="flex gap-2 items-center">
+					<input type="text" bind:value={editDescription} placeholder="Update description..." class="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
+					<button onclick={saveDescription} disabled={savingSecret || !editDescription.trim()} class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40">Save</button>
 				</div>
 
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -265,45 +451,80 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 							</button>
 						</div>
 					</div>
+					{#if selectedSecret.KmsKeyId}
+					<div>
+						<p class="text-xs text-slate-500 uppercase mb-1">KMS Key</p>
+						<p class="text-slate-700 dark:text-slate-300 font-mono text-xs truncate">{selectedSecret.KmsKeyId}</p>
+					</div>
+					{/if}
 					<div>
 						<p class="text-xs text-slate-500 uppercase mb-1">Last Changed</p>
-						<p class="text-slate-900 dark:text-white">{selectedSecret.LastChangedDate ? new Date(selectedSecret.LastChangedDate).toLocaleString() : 'N/A'}</p>
+						<p class="text-slate-900 dark:text-white">{formatDate(selectedSecret.LastChangedDate as number)}</p>
 					</div>
 					<div>
 						<p class="text-xs text-slate-500 uppercase mb-1">Last Accessed</p>
-						<p class="text-slate-900 dark:text-white">{selectedSecret.LastAccessedDate ? new Date(selectedSecret.LastAccessedDate).toLocaleString() : 'N/A'}</p>
+						<p class="text-slate-900 dark:text-white">{formatDate(selectedSecret.LastAccessedDate as number)}</p>
 					</div>
 					<div>
-						<p class="text-xs text-slate-500 uppercase mb-1">Rotation</p>
-						<p class="text-slate-900 dark:text-white">{selectedSecret.RotationEnabled ? 'Enabled' : 'Disabled'}</p>
+						<p class="text-xs text-slate-500 uppercase mb-1">Last Rotated</p>
+						<p class="text-slate-900 dark:text-white">{formatDate(selectedSecret.LastRotatedDate as number)}</p>
 					</div>
+					{#if selectedSecret.NextRotationDate}
+					<div>
+						<p class="text-xs text-slate-500 uppercase mb-1">Next Rotation</p>
+						<p class="text-slate-900 dark:text-white">{formatDate(selectedSecret.NextRotationDate as number)}</p>
+					</div>
+					{/if}
+					{#if selectedSecret.RotationLambdaARN}
+					<div class="sm:col-span-2">
+						<p class="text-xs text-slate-500 uppercase mb-1">Rotation Lambda ARN</p>
+						<p class="text-slate-700 dark:text-slate-300 font-mono text-xs">{selectedSecret.RotationLambdaARN}</p>
+					</div>
+					{/if}
+					{#if selectedSecret.RotationRules}
+					<div>
+						<p class="text-xs text-slate-500 uppercase mb-1">Rotation Schedule</p>
+						<p class="text-slate-900 dark:text-white">
+							{selectedSecret.RotationRules.ScheduleExpression || (selectedSecret.RotationRules.AutomaticallyAfterDays ? `Every ${selectedSecret.RotationRules.AutomaticallyAfterDays} days` : 'N/A')}
+						</p>
+					</div>
+					{/if}
 				</div>
 
 				<!-- Secret Value Section -->
 				<div class="border-t border-slate-200 dark:border-slate-700 pt-4">
 					<div class="flex items-center justify-between mb-2">
 						<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Secret Value</p>
-						{#if !secretValue}
-							<button onclick={() => loadSecretValue(selectedSecret?.Name ?? '')} disabled={loadingValue} class="px-3 py-1.5 text-sm bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 flex items-center gap-1 disabled:opacity-50">
-								{#if loadingValue}
-									<div class="w-3 h-3 border border-amber-600 border-t-transparent rounded-full animate-spin"></div>
-								{:else}
-									<Eye class="w-3 h-3" />
-								{/if}
-								Reveal Value
-							</button>
-						{:else}
-							<div class="flex gap-2">
+						<div class="flex gap-2">
+							{#if !secretValue}
+								<button onclick={() => loadSecretValue(selectedSecret?.Name ?? '')} disabled={loadingValue} class="px-3 py-1.5 text-sm bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 flex items-center gap-1 disabled:opacity-50">
+									{#if loadingValue}
+										<div class="w-3 h-3 border border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+									{:else}
+										<Eye class="w-3 h-3" />
+									{/if}
+									Reveal Value
+								</button>
+							{:else}
 								<button onclick={() => showValue = !showValue} class="px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1">
 									{#if showValue}<EyeOff class="w-3 h-3" /> Hide{:else}<Eye class="w-3 h-3" /> Show{/if}
 								</button>
 								<button onclick={() => copyToClipboard(secretValue!)} class="px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1">
 									<Copy class="w-3 h-3" /> Copy
 								</button>
-							</div>
-						{/if}
+								<button onclick={() => { editingValue = true; editValue = secretValue!; }} class="px-2 py-1 text-xs border border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/30 flex items-center gap-1">
+									Edit
+								</button>
+							{/if}
+						</div>
 					</div>
-					{#if secretValue && showValue}
+					{#if editingValue}
+						<textarea bind:value={editValue} rows={5} class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-xs"></textarea>
+						<div class="flex gap-2 mt-2">
+							<button onclick={saveSecretValue} disabled={savingSecret} class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-40">Save</button>
+							<button onclick={() => editingValue = false} class="px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded text-slate-700 dark:text-slate-300">Cancel</button>
+						</div>
+					{:else if secretValue && showValue}
 						<pre class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-700 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">{secretValue}</pre>
 					{:else if secretValue}
 						<div class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm text-slate-400">
@@ -316,12 +537,105 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 					{/if}
 				</div>
 
-				<div class="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-					<button onclick={() => deleteSecret(selectedSecret?.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+				<div class="flex flex-wrap gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+					<button onclick={rotateNow} class="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 flex items-center gap-1">
+						<RotateCw class="w-3 h-3" /> Rotate Now
+					</button>
+					{#if selectedSecret.RotationEnabled}
+					<button onclick={cancelRotation} class="px-3 py-1.5 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 rounded text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-1">
+						<X class="w-3 h-3" /> Cancel Rotation
+					</button>
+					{/if}
+					<button onclick={() => deleteSecret(selectedSecret?.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1 ml-auto">
 						<Trash2 class="w-3 h-3" /> Delete Secret
 					</button>
 				</div>
 			</div>
+			{/if}
+
+			{#if detailSubTab === 'versions'}
+			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+				<div class="flex items-center justify-between mb-4">
+					<h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><History class="w-4 h-4" /> Version History</h3>
+					<button onclick={() => loadVersions(selectedSecret?.Name!)} disabled={loadingVersions} class="px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 disabled:opacity-40">
+						<RefreshCw class="w-3 h-3" /> Refresh
+					</button>
+				</div>
+				{#if loadingVersions}
+					<div class="text-center py-8 text-slate-500"><div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500 mb-2"></div><p>Loading versions...</p></div>
+				{:else if versions.length === 0}
+					<p class="text-slate-500 dark:text-slate-400 text-sm italic text-center py-8">No versions found.</p>
+				{:else}
+					<div class="space-y-2">
+						{#each versions as v}
+							<div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+								<div>
+									<p class="text-xs font-mono text-slate-700 dark:text-slate-300">{v.VersionId}</p>
+									<p class="text-xs text-slate-500 mt-0.5">{v.CreatedDate ? formatDate(v.CreatedDate) : 'N/A'}</p>
+								</div>
+								<div class="flex gap-1 flex-wrap justify-end">
+									{#each (v.VersionStages || []) as stage}
+										<span class="px-2 py-0.5 text-xs rounded-full {stage === 'AWSCURRENT' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : stage === 'AWSPREVIOUS' ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}">{stage}</span>
+									{/each}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+			{/if}
+
+			{#if detailSubTab === 'tags'}
+			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4"><Tag class="w-4 h-4" /> Tags</h3>
+				<div class="flex gap-2 mb-4">
+					<input type="text" bind:value={tagKey} placeholder="Key" class="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
+					<input type="text" bind:value={tagValue} placeholder="Value" class="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
+					<button onclick={addTag} class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700">Add Tag</button>
+				</div>
+				{#if Object.keys(secretTags).length === 0}
+					<p class="text-slate-500 dark:text-slate-400 text-sm italic">No tags</p>
+				{:else}
+					<div class="space-y-2">
+						{#each Object.entries(secretTags) as [k, v]}
+							<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700">
+								<div class="flex gap-2 text-sm">
+									<span class="font-medium text-slate-700 dark:text-slate-300">{k}</span>
+									<span class="text-slate-500">=</span>
+									<span class="text-slate-600 dark:text-slate-400">{v}</span>
+								</div>
+								<button onclick={() => removeTag(k)} class="p-1 hover:text-red-600 text-slate-400 rounded">
+									<X class="w-3.5 h-3.5" />
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+			{/if}
+
+			{#if detailSubTab === 'replication'}
+			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4">Replication Status</h3>
+				{#if !selectedSecret.ReplicationStatus || selectedSecret.ReplicationStatus.length === 0}
+					<p class="text-slate-500 dark:text-slate-400 text-sm italic">No replica regions configured.</p>
+				{:else}
+					<div class="space-y-2">
+						{#each selectedSecret.ReplicationStatus as rep}
+							<div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+								<div>
+									<p class="text-sm font-medium text-slate-700 dark:text-slate-300">{rep.Region}</p>
+									{#if rep.StatusMessage}
+										<p class="text-xs text-slate-500 mt-0.5">{rep.StatusMessage}</p>
+									{/if}
+								</div>
+								<span class="px-2 py-0.5 text-xs rounded-full {rep.Status === 'InSync' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : rep.Status === 'Failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}">{rep.Status}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -332,8 +646,13 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Secret</h2>
 			<div class="space-y-4">
 				<div>
-					<label for="secret-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Secret Name</label>
+					<label for="secret-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Secret Name <span class="text-red-500">*</span></label>
 					<input id="secret-name" type="text" bind:value={newSecretName} placeholder="e.g. prod/db/password"
+						class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
+				</div>
+				<div>
+					<label for="secret-description" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+					<input id="secret-description" type="text" bind:value={newSecretDescription} placeholder="Optional description"
 						class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
 				</div>
 				<div>

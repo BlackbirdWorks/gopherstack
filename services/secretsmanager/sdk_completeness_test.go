@@ -17,7 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := secretsmanager.NewInMemoryBackend()
 	h := secretsmanager.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &secretsmanagersdk.Client{}, h.GetSupportedOperations(), []string{
-		"ValidateResourcePolicy",
-	})
+	sdkcheck.CheckCompleteness(t, &secretsmanagersdk.Client{}, h.GetSupportedOperations(), []string{})
 }
