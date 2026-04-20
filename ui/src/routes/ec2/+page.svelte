@@ -242,7 +242,7 @@ async function refresh() {
 	else if (activeTab === 'nacls') { networkAcls = []; await loadNetworkAcls(); }
 	else if (activeTab === 'vpcs') { vpcs = []; subnets = []; await loadVpcs(); }
 	else if (activeTab === 'volumes') { volumes = []; await loadVolumes(); }
-	else { snapshots = []; await loadSnapshots(); }
+	else { snapshots = []; await loadSnapshots(); } // snapshots tab is the last tab
 }
 
 function getName(instance: EC2Instance): string {
