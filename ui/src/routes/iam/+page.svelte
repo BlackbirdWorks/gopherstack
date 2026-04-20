@@ -12,7 +12,7 @@ ListAttachedGroupPoliciesCommand,
 CreateAccessKeyCommand, DeleteAccessKeyCommand, ListAccessKeysCommand, UpdateAccessKeyCommand,
 ListAccountAliasesCommand, GetAccountSummaryCommand,
 ListAccessKeysCommand as ListAccessKeysCmd,
-type User, type Role, type Group, type ManagedPolicy, type AccessKeyMetadata
+type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata
 } from '@aws-sdk/client-iam';
 import { toast } from 'svelte-sonner';
 import {
@@ -456,7 +456,7 @@ const iam_docs = [
 ] as card}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
 <div class="flex items-center gap-3">
-<svelte:component this={card.icon} class="w-5 h-5 {card.color}" />
+<card.icon class="w-5 h-5 {card.color}" />
 <div>
 <p class="text-2xl font-bold text-slate-900 dark:text-white">{card.count}</p>
 <p class="text-xs text-slate-500 dark:text-slate-400">{card.label}</p>
@@ -644,6 +644,8 @@ selectedGroup === x}
 <div class="divide-y divide-slate-200 dark:divide-slate-700 max-h-[500px] overflow-y-auto">
 {#each items as item}
 <div class="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center justify-between gap-2 cursor-pointer {isSelected(item) ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}"
+role="button"
+tabindex="0"
 onclick={() => {
 if (tab === 'users') {
 const u = item as User;
@@ -658,7 +660,8 @@ const g = item as Group;
 if (selectedGroup === g) { selectedGroup = null; } else { selectedGroup = g; loadGroupDetail(g); }
 selectedUser = null; selectedRole = null;
 }
-}}>
+}}
+onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.currentTarget.click(); }}>
 <div class="min-w-0 flex-1">
 <p class="font-medium text-slate-900 dark:text-white text-sm truncate">{itemName(item)}</p>
 <p class="text-xs text-slate-500 dark:text-slate-400 truncate font-mono">{itemArn(item)}</p>

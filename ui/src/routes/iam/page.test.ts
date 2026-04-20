@@ -217,7 +217,7 @@ describe("IAM Page", () => {
     const submitBtns = screen
       .getAllByRole("button")
       .filter((b) => b.textContent?.trim() === "Create User");
-    await fireEvent.click(submitBtns.at(-1));
+    await fireEvent.click(submitBtns.at(-1)!);
     const { toast } = await import("svelte-sonner");
     await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalled(), { timeout: 3000 });
   });
