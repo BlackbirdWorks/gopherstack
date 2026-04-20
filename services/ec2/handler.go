@@ -82,7 +82,10 @@ func (h *Handler) Name() string {
 
 // GetSupportedOperations returns the list of supported EC2 operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	extOps := append(deepDiveSupportedOperations(), refinement2SupportedOperations()...)
+	extOps = append(extOps, refinement3SupportedOperations()...)
+
+	return append([]string{
 		"RunInstances",
 		"DescribeInstances",
 		"TerminateInstances",
@@ -178,7 +181,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeByoipCidrs",
 		"DescribeHosts",
 		"DescribeVpcPeeringConnections",
-	}
+	}, extOps...)
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -311,103 +314,97 @@ func (h *Handler) Handler() echo.HandlerFunc {
 type ec2ActionFn func(vals url.Values, reqID string) (any, error)
 
 func (h *Handler) buildOps() map[string]ec2ActionFn {
-	return map[string]ec2ActionFn{
-		"RunInstances":                                    h.handleRunInstances,
-		"DescribeInstances":                               h.handleDescribeInstances,
-		"TerminateInstances":                              h.handleTerminateInstances,
-		"DescribeSecurityGroups":                          h.handleDescribeSecurityGroups,
-		"CreateSecurityGroup":                             h.handleCreateSecurityGroup,
-		"DeleteSecurityGroup":                             h.handleDeleteSecurityGroup,
-		"RevokeSecurityGroupEgress":                       h.handleRevokeSecurityGroupEgress,
-		"DescribeVpcs":                                    h.handleDescribeVpcs,
-		"DescribeVpcAttribute":                            h.handleDescribeVpcAttribute,
-		"DescribeSubnets":                                 h.handleDescribeSubnets,
-		"CreateVpc":                                       h.handleCreateVpc,
-		"DeleteVpc":                                       h.handleDeleteVpc,
-		"CreateSubnet":                                    h.handleCreateSubnet,
-		"DeleteSubnet":                                    h.handleDeleteSubnet,
-		"DescribeInstanceTypes":                           h.handleDescribeInstanceTypes,
-		"DescribeTags":                                    h.handleDescribeTags,
-		"CreateTags":                                      h.handleCreateTags,
-		"DeleteTags":                                      h.handleDeleteTags,
-		"DescribeInstanceAttribute":                       h.handleDescribeInstanceAttribute,
-		"ModifyInstanceAttribute":                         h.handleModifyInstanceAttribute,
-		"ResetInstanceAttribute":                          h.handleResetInstanceAttribute,
-		"StartInstances":                                  h.handleStartInstances,
-		"StopInstances":                                   h.handleStopInstances,
-		"RebootInstances":                                 h.handleRebootInstances,
-		"DescribeInstanceStatus":                          h.handleDescribeInstanceStatus,
-		"DescribeImages":                                  h.handleDescribeImages,
-		"DescribeRegions":                                 h.handleDescribeRegions,
-		"DescribeAvailabilityZones":                       h.handleDescribeAvailabilityZones,
-		"CreateKeyPair":                                   h.handleCreateKeyPair,
-		"DescribeKeyPairs":                                h.handleDescribeKeyPairs,
-		"DeleteKeyPair":                                   h.handleDeleteKeyPair,
-		"ImportKeyPair":                                   h.handleImportKeyPair,
-		"CreateVolume":                                    h.handleCreateVolume,
-		"DescribeVolumes":                                 h.handleDescribeVolumes,
-		"DeleteVolume":                                    h.handleDeleteVolume,
-		"AttachVolume":                                    h.handleAttachVolume,
-		"DetachVolume":                                    h.handleDetachVolume,
-		"DescribeVolumeAttribute":                         h.handleDescribeVolumeAttribute,
-		"ModifyVolumeAttribute":                           h.handleModifyVolumeAttribute,
-		"DescribeSnapshotAttribute":                       h.handleDescribeSnapshotAttribute,
-		"ModifySnapshotAttribute":                         h.handleModifySnapshotAttribute,
-		"AllocateAddress":                                 h.handleAllocateAddress,
-		"AssociateAddress":                                h.handleAssociateAddress,
-		"DisassociateAddress":                             h.handleDisassociateAddress,
-		"ReleaseAddress":                                  h.handleReleaseAddress,
-		"DescribeAddresses":                               h.handleDescribeAddresses,
-		"CreateInternetGateway":                           h.handleCreateInternetGateway,
-		"DeleteInternetGateway":                           h.handleDeleteInternetGateway,
-		"DescribeInternetGateways":                        h.handleDescribeInternetGateways,
-		"AttachInternetGateway":                           h.handleAttachInternetGateway,
-		"DetachInternetGateway":                           h.handleDetachInternetGateway,
-		"CreateRouteTable":                                h.handleCreateRouteTable,
-		"DeleteRouteTable":                                h.handleDeleteRouteTable,
-		"DescribeRouteTables":                             h.handleDescribeRouteTables,
-		"CreateRoute":                                     h.handleCreateRoute,
-		"DeleteRoute":                                     h.handleDeleteRoute,
-		"AssociateRouteTable":                             h.handleAssociateRouteTable,
-		"DisassociateRouteTable":                          h.handleDisassociateRouteTable,
-		"CreateNatGateway":                                h.handleCreateNatGateway,
-		"DeleteNatGateway":                                h.handleDeleteNatGateway,
-		"DescribeNatGateways":                             h.handleDescribeNatGateways,
-		"DescribeNetworkInterfaces":                       h.handleDescribeNetworkInterfaces,
-		"CreateNetworkInterface":                          h.handleCreateNetworkInterface,
-		"DeleteNetworkInterface":                          h.handleDeleteNetworkInterface,
-		"AttachNetworkInterface":                          h.handleAttachNetworkInterface,
-		"DetachNetworkInterface":                          h.handleDetachNetworkInterface,
-		"AssignPrivateIpAddresses":                        h.handleAssignPrivateIPAddresses,
-		"UnassignPrivateIpAddresses":                      h.handleUnassignPrivateIPAddresses,
-		"ModifyNetworkInterfaceAttribute":                 h.handleModifyNetworkInterfaceAttribute,
-		"AuthorizeSecurityGroupIngress":                   h.handleAuthorizeSecurityGroupIngress,
-		"AuthorizeSecurityGroupEgress":                    h.handleAuthorizeSecurityGroupEgress,
-		"RevokeSecurityGroupIngress":                      h.handleRevokeSecurityGroupIngress,
-		"DescribeImageAttribute":                          h.handleDescribeImageAttribute,
-		"DescribeLaunchTemplates":                         h.handleDescribeLaunchTemplates,
-		"RequestSpotInstances":                            h.handleRequestSpotInstances,
-		"DescribeSpotInstanceRequests":                    h.handleDescribeSpotInstanceRequests,
-		"CancelSpotInstanceRequests":                      h.handleCancelSpotInstanceRequests,
-		"DescribeSpotPriceHistory":                        h.handleDescribeSpotPriceHistory,
-		"CreatePlacementGroup":                            h.handleCreatePlacementGroup,
-		"DescribePlacementGroups":                         h.handleDescribePlacementGroups,
-		"DeletePlacementGroup":                            h.handleDeletePlacementGroup,
-		"AcceptAddressTransfer":                           h.handleAcceptAddressTransfer,
-		"AcceptCapacityReservationBillingOwnership":       h.handleAcceptCapacityReservationBillingOwnership,
-		"AcceptReservedInstancesExchangeQuote":            h.handleAcceptReservedInstancesExchangeQuote,
-		"AcceptTransitGatewayMulticastDomainAssociations": h.handleAcceptTransitGatewayMulticastDomainAssociations,
-		"AcceptTransitGatewayPeeringAttachment":           h.handleAcceptTransitGatewayPeeringAttachment,
-		"AcceptTransitGatewayVpcAttachment":               h.handleAcceptTransitGatewayVpcAttachment,
-		"AcceptVpcEndpointConnections":                    h.handleAcceptVpcEndpointConnections,
-		"AcceptVpcPeeringConnection":                      h.handleAcceptVpcPeeringConnection,
-		"AdvertiseByoipCidr":                              h.handleAdvertiseByoipCidr,
-		"AllocateHosts":                                   h.handleAllocateHosts,
-		"DescribeCapacityReservations":                    h.handleDescribeCapacityReservations,
-		"DescribeByoipCidrs":                              h.handleDescribeByoipCidrs,
-		"DescribeHosts":                                   h.handleDescribeHosts,
-		"DescribeVpcPeeringConnections":                   h.handleDescribeVpcPeeringConnections,
+	ops := map[string]ec2ActionFn{
+		"RunInstances":                    h.handleRunInstances,
+		"DescribeInstances":               h.handleDescribeInstances,
+		"TerminateInstances":              h.handleTerminateInstances,
+		"DescribeSecurityGroups":          h.handleDescribeSecurityGroups,
+		"CreateSecurityGroup":             h.handleCreateSecurityGroup,
+		"DeleteSecurityGroup":             h.handleDeleteSecurityGroup,
+		"RevokeSecurityGroupEgress":       h.handleRevokeSecurityGroupEgress,
+		"DescribeVpcs":                    h.handleDescribeVpcs,
+		"DescribeVpcAttribute":            h.handleDescribeVpcAttribute,
+		"DescribeSubnets":                 h.handleDescribeSubnets,
+		"CreateVpc":                       h.handleCreateVpc,
+		"DeleteVpc":                       h.handleDeleteVpc,
+		"CreateSubnet":                    h.handleCreateSubnet,
+		"DeleteSubnet":                    h.handleDeleteSubnet,
+		"DescribeInstanceTypes":           h.handleDescribeInstanceTypes,
+		"DescribeTags":                    h.handleDescribeTags,
+		"CreateTags":                      h.handleCreateTags,
+		"DeleteTags":                      h.handleDeleteTags,
+		"DescribeInstanceAttribute":       h.handleDescribeInstanceAttribute,
+		"ModifyInstanceAttribute":         h.handleModifyInstanceAttribute,
+		"ResetInstanceAttribute":          h.handleResetInstanceAttribute,
+		"StartInstances":                  h.handleStartInstances,
+		"StopInstances":                   h.handleStopInstances,
+		"RebootInstances":                 h.handleRebootInstances,
+		"DescribeInstanceStatus":          h.handleDescribeInstanceStatus,
+		"DescribeImages":                  h.handleDescribeImages,
+		"DescribeRegions":                 h.handleDescribeRegions,
+		"DescribeAvailabilityZones":       h.handleDescribeAvailabilityZones,
+		"CreateKeyPair":                   h.handleCreateKeyPair,
+		"DescribeKeyPairs":                h.handleDescribeKeyPairs,
+		"DeleteKeyPair":                   h.handleDeleteKeyPair,
+		"ImportKeyPair":                   h.handleImportKeyPair,
+		"CreateVolume":                    h.handleCreateVolume,
+		"DescribeVolumes":                 h.handleDescribeVolumes,
+		"DeleteVolume":                    h.handleDeleteVolume,
+		"AttachVolume":                    h.handleAttachVolume,
+		"DetachVolume":                    h.handleDetachVolume,
+		"DescribeVolumeAttribute":         h.handleDescribeVolumeAttribute,
+		"ModifyVolumeAttribute":           h.handleModifyVolumeAttribute,
+		"DescribeSnapshotAttribute":       h.handleDescribeSnapshotAttribute,
+		"ModifySnapshotAttribute":         h.handleModifySnapshotAttribute,
+		"AllocateAddress":                 h.handleAllocateAddress,
+		"AssociateAddress":                h.handleAssociateAddress,
+		"DisassociateAddress":             h.handleDisassociateAddress,
+		"ReleaseAddress":                  h.handleReleaseAddress,
+		"DescribeAddresses":               h.handleDescribeAddresses,
+		"CreateInternetGateway":           h.handleCreateInternetGateway,
+		"DeleteInternetGateway":           h.handleDeleteInternetGateway,
+		"DescribeInternetGateways":        h.handleDescribeInternetGateways,
+		"AttachInternetGateway":           h.handleAttachInternetGateway,
+		"DetachInternetGateway":           h.handleDetachInternetGateway,
+		"CreateRouteTable":                h.handleCreateRouteTable,
+		"DeleteRouteTable":                h.handleDeleteRouteTable,
+		"DescribeRouteTables":             h.handleDescribeRouteTables,
+		"CreateRoute":                     h.handleCreateRoute,
+		"DeleteRoute":                     h.handleDeleteRoute,
+		"AssociateRouteTable":             h.handleAssociateRouteTable,
+		"DisassociateRouteTable":          h.handleDisassociateRouteTable,
+		"CreateNatGateway":                h.handleCreateNatGateway,
+		"DeleteNatGateway":                h.handleDeleteNatGateway,
+		"DescribeNatGateways":             h.handleDescribeNatGateways,
+		"DescribeNetworkInterfaces":       h.handleDescribeNetworkInterfaces,
+		"CreateNetworkInterface":          h.handleCreateNetworkInterface,
+		"DeleteNetworkInterface":          h.handleDeleteNetworkInterface,
+		"AttachNetworkInterface":          h.handleAttachNetworkInterface,
+		"DetachNetworkInterface":          h.handleDetachNetworkInterface,
+		"AssignPrivateIpAddresses":        h.handleAssignPrivateIPAddresses,
+		"UnassignPrivateIpAddresses":      h.handleUnassignPrivateIPAddresses,
+		"ModifyNetworkInterfaceAttribute": h.handleModifyNetworkInterfaceAttribute,
+		"AuthorizeSecurityGroupIngress":   h.handleAuthorizeSecurityGroupIngress,
+		"AuthorizeSecurityGroupEgress":    h.handleAuthorizeSecurityGroupEgress,
+		"RevokeSecurityGroupIngress":      h.handleRevokeSecurityGroupIngress,
+		"DescribeImageAttribute":          h.handleDescribeImageAttribute,
+		"DescribeLaunchTemplates":         h.handleDescribeLaunchTemplates,
+		"RequestSpotInstances":            h.handleRequestSpotInstances,
+		"DescribeSpotInstanceRequests":    h.handleDescribeSpotInstanceRequests,
+		"CancelSpotInstanceRequests":      h.handleCancelSpotInstanceRequests,
+		"DescribeSpotPriceHistory":        h.handleDescribeSpotPriceHistory,
+		"CreatePlacementGroup":            h.handleCreatePlacementGroup,
+		"DescribePlacementGroups":         h.handleDescribePlacementGroups,
+		"DeletePlacementGroup":            h.handleDeletePlacementGroup,
+		"DescribeVpcPeeringConnections":   h.handleDescribeVpcPeeringConnections,
 	}
+
+	registerDeepDiveOps(h, ops)
+	registerAcceptAndAdvancedOps(h, ops)
+	registerRefinement2Ops(h, ops)
+	registerRefinement3Ops(h, ops)
+
+	return ops
 }
 
 // dispatch routes the EC2 action to the appropriate handler function.
@@ -723,15 +720,26 @@ func (h *Handler) handleRevokeSecurityGroupEgress(_ url.Values, reqID string) (a
 	}, nil
 }
 
-// handleDescribeLaunchTemplates returns an empty stub response.
-// Terraform calls this to read back launch-template metadata when the aws_instance resource's
-// read phase runs after instance creation. Since gopherstack does not implement launch templates,
-// returning an empty set prevents Terraform from failing with a "not found" error.
-func (h *Handler) handleDescribeLaunchTemplates(_ url.Values, reqID string) (any, error) {
+// handleDescribeLaunchTemplates returns launch templates.
+func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (any, error) {
+	names := parseMemberList(vals, "LaunchTemplateName")
+	templates := h.Backend.DescribeLaunchTemplates(names)
+	items := make([]launchTemplateItem, 0, len(templates))
+	for _, template := range templates {
+		items = append(items, launchTemplateItem{
+			ID:                   template.ID,
+			Name:                 template.Name,
+			CreateTime:           template.CreateTime.Format(time.RFC3339),
+			CreatedBy:            template.CreatedBy,
+			DefaultVersionNumber: template.DefaultVersionNumber,
+			LatestVersionNumber:  template.LatestVersionNumber,
+		})
+	}
+
 	return &describeLaunchTemplatesResponse{
 		Xmlns:             ec2XMLNS,
 		RequestID:         reqID,
-		LaunchTemplateSet: launchTemplateSet{},
+		LaunchTemplateSet: launchTemplateSet{Items: items},
 	}, nil
 }
 
@@ -1299,8 +1307,17 @@ type deleteTagsResponse struct {
 	Return    string   `xml:"return"`
 }
 
+type launchTemplateItem struct {
+	ID                   string `xml:"launchTemplateId"`
+	Name                 string `xml:"launchTemplateName"`
+	CreateTime           string `xml:"createTime"`
+	CreatedBy            string `xml:"createdBy"`
+	DefaultVersionNumber int64  `xml:"defaultVersionNumber"`
+	LatestVersionNumber  int64  `xml:"latestVersionNumber"`
+}
+
 type launchTemplateSet struct {
-	Items []struct{} `xml:"item"`
+	Items []launchTemplateItem `xml:"item"`
 }
 
 type describeLaunchTemplatesResponse struct {

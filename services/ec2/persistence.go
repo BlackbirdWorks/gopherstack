@@ -31,6 +31,13 @@ type backendSnapshot struct {
 	Subnets                        map[string]*Subnet                `json:"subnets"`
 	SpotRequests                   map[string]*SpotInstanceRequest   `json:"spotRequests"`
 	PlacementGroups                map[string]*PlacementGroup        `json:"placementGroups"`
+	Images                         map[string]*AMIStub               `json:"images,omitempty"`
+	ImageUsageReports              map[string]*ImageUsageReport      `json:"imageUsageReports,omitempty"`
+	LaunchTemplates                map[string]*LaunchTemplate        `json:"launchTemplates,omitempty"`
+	VpcEndpoints                   map[string]*VpcEndpoint           `json:"vpcEndpoints,omitempty"`
+	Snapshots                      map[string]*Snapshot              `json:"snapshots,omitempty"`
+	NetworkACLs                    map[string]*StoredNetworkACL      `json:"networkACLs,omitempty"`
+	TransitGateways                map[string]*TransitGateway        `json:"transitGateways,omitempty"`
 	Tags                           map[string]map[string]string      `json:"tags"`
 	AddressTransfers               map[string]*AddressTransfer       `json:"addressTransfers,omitempty"`
 	CapacityReservations           map[string]*CapacityReservation   `json:"capacityReservations,omitempty"`
@@ -69,6 +76,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		NetworkInterfaces:              b.networkInterfaces,
 		SpotRequests:                   b.spotRequests,
 		PlacementGroups:                b.placementGroups,
+		Images:                         b.images,
+		ImageUsageReports:              b.imageUsageReports,
+		LaunchTemplates:                b.launchTemplates,
+		VpcEndpoints:                   b.vpcEndpoints,
+		Snapshots:                      b.snapshots,
+		NetworkACLs:                    b.networkACLs,
+		TransitGateways:                b.transitGateways,
 		Tags:                           b.tags,
 		AddressTransfers:               b.addressTransfers,
 		CapacityReservations:           b.capacityReservations,
@@ -124,6 +138,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.networkInterfaces = snap.NetworkInterfaces
 	b.spotRequests = snap.SpotRequests
 	b.placementGroups = snap.PlacementGroups
+	b.images = snap.Images
+	b.imageUsageReports = snap.ImageUsageReports
+	b.launchTemplates = snap.LaunchTemplates
+	b.vpcEndpoints = snap.VpcEndpoints
+	b.snapshots = snap.Snapshots
+	b.networkACLs = snap.NetworkACLs
+	b.transitGateways = snap.TransitGateways
 	b.tags = snap.Tags
 	b.addressTransfers = snap.AddressTransfers
 	b.capacityReservations = snap.CapacityReservations
@@ -140,6 +161,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.Region = snap.Region
 	b.nextPrivateIPIndex = snap.NextPrivateIPIndex
 	b.nextElasticIPIndex = snap.NextElasticIPIndex
+	b.rebuildSecondaryIndexesLocked()
 
 	return nil
 }
@@ -149,6 +171,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // that never populated a particular resource type.
 func (s *backendSnapshot) initMissingMaps() {
 	s.initCoreMaps()
+	s.initDeepDiveMaps()
 	s.initNewOpsMaps()
 }
 
@@ -208,6 +231,36 @@ func (s *backendSnapshot) initCoreMaps() {
 
 	if s.Tags == nil {
 		s.Tags = make(map[string]map[string]string)
+	}
+}
+
+func (s *backendSnapshot) initDeepDiveMaps() {
+	if s.Images == nil {
+		s.Images = make(map[string]*AMIStub)
+	}
+
+	if s.ImageUsageReports == nil {
+		s.ImageUsageReports = make(map[string]*ImageUsageReport)
+	}
+
+	if s.LaunchTemplates == nil {
+		s.LaunchTemplates = make(map[string]*LaunchTemplate)
+	}
+
+	if s.VpcEndpoints == nil {
+		s.VpcEndpoints = make(map[string]*VpcEndpoint)
+	}
+
+	if s.Snapshots == nil {
+		s.Snapshots = make(map[string]*Snapshot)
+	}
+
+	if s.NetworkACLs == nil {
+		s.NetworkACLs = make(map[string]*StoredNetworkACL)
+	}
+
+	if s.TransitGateways == nil {
+		s.TransitGateways = make(map[string]*TransitGateway)
 	}
 }
 

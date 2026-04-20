@@ -144,7 +144,14 @@ func (b *InMemoryBackend) Reset() {
 	b.networkInterfaces = make(map[string]*NetworkInterface)
 	b.spotRequests = make(map[string]*SpotInstanceRequest)
 	b.placementGroups = make(map[string]*PlacementGroup)
+	b.images = make(map[string]*AMIStub)
+	b.imageUsageReports = make(map[string]*ImageUsageReport)
+	b.launchTemplates = make(map[string]*LaunchTemplate)
+	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.tags = make(map[string]map[string]string)
+	b.instanceIDsByVPC = make(map[string]map[string]struct{})
+	b.eniIDsByInstance = make(map[string]map[string]struct{})
+	b.eniIDByAttachment = make(map[string]string)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
 	b.nextElasticIPIndex = 0
@@ -160,6 +167,9 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcPeeringConnections = make(map[string]*VpcPeeringConnection)
 	b.byoipCidrs = make(map[string]*ByoipCidr)
 	b.dedicatedHosts = make(map[string]*Host)
+	b.snapshots = make(map[string]*Snapshot)
+	b.networkACLs = make(map[string]*StoredNetworkACL)
+	b.transitGateways = make(map[string]*TransitGateway)
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.

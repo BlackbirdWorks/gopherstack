@@ -36,6 +36,12 @@ type Backend interface {
 	// DescribeImages returns the built-in stub AMI catalogue.
 	DescribeImages() []AMIStub
 
+	// CreateImage creates an AMI from an instance.
+	CreateImage(instanceID, name, description string) (*AMIStub, error)
+
+	// DescribeImageUsageReports returns synthetic image usage reports.
+	DescribeImageUsageReports() []*ImageUsageReport
+
 	// ---- regions / AZs ----
 
 	// DescribeRegions returns the list of supported AWS region names.
@@ -185,6 +191,93 @@ type Backend interface {
 	// DescribeNatGateways returns NAT gateways, optionally filtered by IDs.
 	DescribeNatGateways(ids []string) []*NatGateway
 
+	// ---- EBS snapshots ----
+
+	// CreateSnapshot creates an EBS snapshot from a volume.
+	CreateSnapshot(volumeID, description string) (*Snapshot, error)
+
+	// DescribeSnapshots returns snapshots, optionally filtered by IDs.
+	DescribeSnapshots(ids []string) []*Snapshot
+
+	// DeleteSnapshot removes a snapshot.
+	DeleteSnapshot(id string) error
+
+	// ---- AMI lifecycle ----
+
+	// CopyImage copies an AMI to produce a new one.
+	CopyImage(sourceImageID, name, description string) (*AMIStub, error)
+
+	// DeregisterImage removes an AMI from the store.
+	DeregisterImage(imageID string) error
+
+	// ---- VPC / Subnet attributes ----
+
+	// ModifyVpcAttribute enables or disables a VPC DNS attribute.
+	ModifyVpcAttribute(vpcID, attribute string, value bool) error
+
+	// ModifySubnetAttribute enables or disables an attribute on a subnet.
+	ModifySubnetAttribute(subnetID, attribute string, value bool) error
+
+	// ---- Network ACL CRUD ----
+
+	// DescribeNetworkAcls returns default (auto-generated) network ACLs, optionally filtered by VPC IDs.
+	DescribeNetworkAcls(vpcIDs []string) []*NetworkACL
+
+	// CreateNetworkACL creates a new non-default network ACL in a VPC.
+	CreateNetworkACL(vpcID string) (*StoredNetworkACL, error)
+
+	// DeleteNetworkACL removes a non-default network ACL.
+	DeleteNetworkACL(id string) error
+
+	// CreateNetworkACLEntry adds a rule to an existing network ACL.
+	CreateNetworkACLEntry(
+		aclID string, ruleNumber int, protocol, action, cidr string,
+		egress bool, fromPort, toPort int,
+	) error
+
+	// DeleteNetworkACLEntry removes a rule from a network ACL.
+	DeleteNetworkACLEntry(aclID string, ruleNumber int, egress bool) error
+
+	// DescribeStoredNetworkAcls returns explicitly created network ACLs.
+	DescribeStoredNetworkAcls(ids []string) []*StoredNetworkACL
+
+	// ---- Security group rules ----
+
+	// DescribeSecurityGroupRules returns all rules for a security group.
+	DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error)
+
+	// ModifySecurityGroupRules replaces all rules in the specified direction.
+	ModifySecurityGroupRules(groupID string, rules []SecurityGroupRule, egress bool) error
+
+	// ---- Launch template lifecycle ----
+
+	// DeleteLaunchTemplate removes a launch template by ID.
+	DeleteLaunchTemplate(id string) error
+
+	// DescribeLaunchTemplateVersions returns versions of a launch template.
+	DescribeLaunchTemplateVersions(id string) ([]*LaunchTemplate, error)
+
+	// ---- VPC endpoint lifecycle ----
+
+	// DeleteVpcEndpoints deletes one or more VPC endpoints, returning unsuccessful IDs.
+	DeleteVpcEndpoints(ids []string) ([]string, error)
+
+	// ---- VPC endpoints ----
+
+	// CreateVpcEndpoint creates a VPC endpoint.
+	CreateVpcEndpoint(vpcID, serviceName, endpointType string, subnetIDs []string) (*VpcEndpoint, error)
+
+	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
+	DescribeVpcEndpoints(ids []string) []*VpcEndpoint
+
+	// ---- launch templates ----
+
+	// CreateLaunchTemplate creates a launch template.
+	CreateLaunchTemplate(name, imageID, instanceType string) (*LaunchTemplate, error)
+
+	// DescribeLaunchTemplates returns launch templates, optionally filtered by names.
+	DescribeLaunchTemplates(names []string) []*LaunchTemplate
+
 	// ---- network interfaces ----
 
 	// DescribeNetworkInterfaces returns ENIs, optionally filtered by IDs.
@@ -293,6 +386,49 @@ type Backend interface {
 
 	// DescribeVpcPeeringConnections returns VPC peering connections, optionally filtered by IDs.
 	DescribeVpcPeeringConnections(ids []string) []*VpcPeeringConnection
+
+	// CreateVpcPeeringConnection creates a new pending VPC peering connection.
+	CreateVpcPeeringConnection(requesterVPCID, accepterVPCID string) (*VpcPeeringConnection, error)
+
+	// DeleteVpcPeeringConnection removes a VPC peering connection.
+	DeleteVpcPeeringConnection(id string) error
+
+	// ---- NACL: replace/reassociate ----
+
+	// ReplaceNetworkACLEntry replaces a NACL rule by (ruleNumber, egress).
+	ReplaceNetworkACLEntry(
+		aclID string, ruleNumber int, protocol, action, cidr string,
+		egress bool, fromPort, toPort int,
+	) error
+
+	// ReplaceNetworkACLAssociation moves a subnet to a different NACL.
+	ReplaceNetworkACLAssociation(aclID, subnetID string) (string, error)
+
+	// ---- VPC endpoint services ----
+
+	// DescribeVpcEndpointServices returns available AWS endpoint service names.
+	DescribeVpcEndpointServices() []string
+
+	// ---- Key pair export ----
+
+	// ExportKeyPair returns the public-key material for a key pair.
+	ExportKeyPair(name string) (string, error)
+
+	// ---- Instance type offerings ----
+
+	// DescribeInstanceTypeOfferings returns available instance type / AZ pairs.
+	DescribeInstanceTypeOfferings() []InstanceTypeOffering
+
+	// ---- Transit gateways ----
+
+	// DescribeTransitGateways returns transit gateways, optionally filtered by IDs.
+	DescribeTransitGateways(ids []string) []*TransitGateway
+
+	// CreateTransitGateway creates a new transit gateway stub.
+	CreateTransitGateway(description string) (*TransitGateway, error)
+
+	// DeleteTransitGateway removes a transit gateway by ID.
+	DeleteTransitGateway(id string) error
 
 	// ---- reset ----
 

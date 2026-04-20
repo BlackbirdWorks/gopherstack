@@ -164,12 +164,12 @@ type PlacementGroup struct {
 
 // AMIStub is a static image entry.
 type AMIStub struct {
-	ImageID        string
-	Name           string
-	Description    string
-	Architecture   string
-	Platform       string
-	RootDeviceName string
+	ImageID        string `json:"imageID"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Architecture   string `json:"architecture"`
+	Platform       string `json:"platform"`
+	RootDeviceName string `json:"rootDeviceName"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -356,18 +356,22 @@ func (b *InMemoryBackend) DescribeInstanceStatus(ids []string) []*Instance {
 	b.mu.RLock("DescribeInstanceStatus")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
 	var out []*Instance
+	if len(ids) > 0 {
+		for _, id := range ids {
+			inst, ok := b.instances[id]
+			if !ok {
+				continue
+			}
 
-	for _, inst := range b.instances {
-		if len(idSet) > 0 && !idSet[inst.ID] {
-			continue
+			cp := *inst
+			out = append(out, &cp)
 		}
 
+		return out
+	}
+
+	for _, inst := range b.instances {
 		cp := *inst
 		out = append(out, &cp)
 	}
@@ -377,7 +381,17 @@ func (b *InMemoryBackend) DescribeInstanceStatus(ids []string) []*Instance {
 
 // DescribeImages returns stub AMIs.
 func (b *InMemoryBackend) DescribeImages() []AMIStub {
-	return stubAMIs
+	b.mu.RLock("DescribeImages")
+	defer b.mu.RUnlock()
+
+	images := make([]AMIStub, 0, len(stubAMIs)+len(b.images))
+	images = append(images, stubAMIs...)
+	for _, img := range b.images {
+		cp := *img
+		images = append(images, cp)
+	}
+
+	return images
 }
 
 // DescribeRegions returns stub region names.
@@ -1132,6 +1146,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(subnetID, description string) (
 		SourceDestCheck: true,
 	}
 	b.networkInterfaces[id] = eni
+	b.indexENILocked(id, eni)
 
 	return eni, nil
 }
@@ -1152,6 +1167,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 	}
 
 	b.recycleENIIPsLocked(eni)
+	b.deindexENILocked(id, eni)
 	delete(b.networkInterfaces, id)
 	delete(b.tags, id)
 
@@ -1177,10 +1193,12 @@ func (b *InMemoryBackend) AttachNetworkInterface(eniID, instanceID string, devic
 	}
 
 	attachmentID := "eni-attach-" + uuid.New().String()[:17]
+	b.deindexENILocked(eniID, eni)
 	eni.InstanceID = instanceID
 	eni.AttachmentID = attachmentID
 	eni.DeviceIndex = deviceIndex
 	eni.Status = "in-use"
+	b.indexENILocked(eniID, eni)
 
 	return attachmentID, nil
 }
@@ -1190,18 +1208,25 @@ func (b *InMemoryBackend) DetachNetworkInterface(attachmentID string, _ bool) er
 	b.mu.Lock("DetachNetworkInterface")
 	defer b.mu.Unlock()
 
-	for _, eni := range b.networkInterfaces {
-		if eni.AttachmentID == attachmentID {
-			eni.InstanceID = ""
-			eni.AttachmentID = ""
-			eni.DeviceIndex = 0
-			eni.Status = stateAvailable
-
-			return nil
-		}
+	eniID, ok := b.eniIDByAttachment[attachmentID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
 	}
 
-	return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
+	eni, ok := b.networkInterfaces[eniID]
+	if !ok {
+		delete(b.eniIDByAttachment, attachmentID)
+
+		return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
+	}
+
+	b.deindexENILocked(eniID, eni)
+	eni.InstanceID = ""
+	eni.AttachmentID = ""
+	eni.DeviceIndex = 0
+	eni.Status = stateAvailable
+
+	return nil
 }
 
 // AssignPrivateIPAddresses adds secondary private IP addresses to an ENI.
