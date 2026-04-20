@@ -24,11 +24,8 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListAlarmMuteRules",
 		"ListManagedInsightRules",
 		"ListMetricStreams",
-		"PutAlarmMuteRule",
 		"PutAnomalyDetector",
-		"PutInsightRule",
 		"PutManagedInsightRules",
-		"PutMetricStream",
 		"StartMetricStreams",
 		"StopMetricStreams",
 	})

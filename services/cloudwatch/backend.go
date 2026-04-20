@@ -117,6 +117,7 @@ type StorageBackend interface {
 	GetDashboard(name string) (DashboardEntry, string, error)
 	ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error)
 	DeleteDashboards(names []string) error
+	PutAlarmMuteRule(rule *AlarmMuteRule) error
 	DeleteAlarmMuteRule(muteName string) error
 	GetAlarmMuteRule(muteName string) (*AlarmMuteRule, error)
 	DeleteAnomalyDetector(namespace, metricName, stat string) error
@@ -125,9 +126,11 @@ type StorageBackend interface {
 		maxResults int,
 	) (page.Page[AnomalyDetector], error)
 	DeleteInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
+	PutInsightRule(rule *InsightRule) error
 	DescribeInsightRules(nextToken string, maxResults int) (page.Page[InsightRule], error)
 	DisableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
 	EnableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
+	PutMetricStream(stream *MetricStream) error
 	DeleteMetricStream(name string) error
 	DescribeAlarmContributors(alarmName, nextToken string) (page.Page[AlarmContributor], error)
 }
@@ -1194,6 +1197,17 @@ func anomalyDetectorKey(namespace, metricName, stat string) string {
 	return namespace + "/" + metricName + "/" + stat
 }
 
+// PutAlarmMuteRule creates or updates an alarm mute rule by name.
+func (b *InMemoryBackend) PutAlarmMuteRule(rule *AlarmMuteRule) error {
+	if strings.TrimSpace(rule.MuteName) == "" {
+		return fmt.Errorf("%w: MuteName is required", ErrValidation)
+	}
+
+	b.PutAlarmMuteRuleInternal(rule)
+
+	return nil
+}
+
 // DeleteAlarmMuteRule removes an alarm mute rule by name.
 // Returns ErrAlarmMuteRuleNotFound if the rule does not exist.
 func (b *InMemoryBackend) DeleteAlarmMuteRule(muteName string) error {
@@ -1334,6 +1348,17 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 	return failures, nil
 }
 
+// PutInsightRule creates or updates an insight rule.
+func (b *InMemoryBackend) PutInsightRule(rule *InsightRule) error {
+	if strings.TrimSpace(rule.Name) == "" {
+		return fmt.Errorf("%w: RuleName is required", ErrValidation)
+	}
+
+	b.PutInsightRuleInternal(rule)
+
+	return nil
+}
+
 // PutInsightRuleInternal creates or updates an insight rule (used for test seeding).
 func (b *InMemoryBackend) PutInsightRuleInternal(rule *InsightRule) {
 	b.mu.Lock("PutInsightRuleInternal")
@@ -1424,6 +1449,17 @@ func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleF
 	}
 
 	return failures, nil
+}
+
+// PutMetricStream creates or updates a metric stream by name.
+func (b *InMemoryBackend) PutMetricStream(stream *MetricStream) error {
+	if strings.TrimSpace(stream.Name) == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	b.PutMetricStreamInternal(stream)
+
+	return nil
 }
 
 // DeleteMetricStream removes a metric stream by name.

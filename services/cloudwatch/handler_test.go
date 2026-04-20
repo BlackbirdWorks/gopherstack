@@ -717,6 +717,30 @@ func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
 		wantCode        int
 	}{
 		{
+			name: "PutAlarmMuteRule/success",
+			body: "Action=PutAlarmMuteRule&MuteName=my-mute-rule" +
+				"&Description=suppress+noisy+alerts" +
+				"&AlarmNames.member.1=alarm-a" +
+				"&MuteDuration=3600",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutAlarmMuteRuleResponse"},
+		},
+		{
+			name:     "PutAlarmMuteRule/missing name",
+			body:     "Action=PutAlarmMuteRule",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "UpdateAlarmMuteRule/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "update-mute"})
+			},
+			body:         "Action=UpdateAlarmMuteRule&MuteName=update-mute&Description=updated",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UpdateAlarmMuteRuleResponse"},
+		},
+		{
 			name: "GetAlarmMuteRule/success",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -900,6 +924,28 @@ func TestCloudWatchHandler_InsightRules(t *testing.T) {
 		wantCode        int
 	}{
 		{
+			name: "PutInsightRule/success",
+			body: "Action=PutInsightRule&RuleName=rule-created&RuleState=ENABLED" +
+				"&RuleDefinition=%7B%22Schema%22%3A%22CloudWatchLogRule%22%7D",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutInsightRuleResponse"},
+		},
+		{
+			name:     "PutInsightRule/missing rule name",
+			body:     "Action=PutInsightRule",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "UpdateInsightRule/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-update", State: "ENABLED"})
+			},
+			body:         "Action=UpdateInsightRule&RuleName=rule-update&RuleState=DISABLED",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UpdateInsightRuleResponse"},
+		},
+		{
 			name: "DescribeInsightRules/success",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -1014,6 +1060,29 @@ func TestCloudWatchHandler_MetricStream(t *testing.T) {
 		wantNotContains []string
 		wantCode        int
 	}{
+		{
+			name: "PutMetricStream/success",
+			body: "Action=PutMetricStream&Name=my-stream" +
+				"&FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123456789012%3Adeliverystream%2Fmain" +
+				"&RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2Fstream-role",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutMetricStreamResponse"},
+		},
+		{
+			name:     "PutMetricStream/missing name",
+			body:     "Action=PutMetricStream",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "UpdateMetricStream/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "my-stream"})
+			},
+			body:         "Action=UpdateMetricStream&Name=my-stream&OutputFormat=opentelemetry0.7",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UpdateMetricStreamResponse"},
+		},
 		{
 			name: "DeleteMetricStream/success",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
@@ -1165,9 +1234,15 @@ func TestCloudWatchHandler_NewOpsInSupportedOperations(t *testing.T) {
 	ops := h.GetSupportedOperations()
 
 	require.Contains(t, ops, "DeleteAlarmMuteRule")
+	require.Contains(t, ops, "PutAlarmMuteRule")
+	require.Contains(t, ops, "UpdateAlarmMuteRule")
 	require.Contains(t, ops, "DeleteAnomalyDetector")
 	require.Contains(t, ops, "DeleteInsightRules")
+	require.Contains(t, ops, "PutInsightRule")
+	require.Contains(t, ops, "UpdateInsightRule")
 	require.Contains(t, ops, "DeleteMetricStream")
+	require.Contains(t, ops, "PutMetricStream")
+	require.Contains(t, ops, "UpdateMetricStream")
 	require.Contains(t, ops, "DescribeAlarmContributors")
 	require.Contains(t, ops, "DescribeAnomalyDetectors")
 	require.Contains(t, ops, "DescribeInsightRules")

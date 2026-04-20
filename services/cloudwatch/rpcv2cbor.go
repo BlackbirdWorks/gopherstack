@@ -75,6 +75,13 @@ func (h *Handler) dispatchCBOR(op string, input cbor.Map, c *echo.Context) error
 		return h.cborListMetrics(input, c)
 	case cborOpListTagsForResource, cborOpTagResource, cborOpUntagResource:
 		return h.cborTagOperation(op, input, c)
+	default:
+		return h.dispatchDashboardCBOR(op, input, c)
+	}
+}
+
+func (h *Handler) dispatchDashboardCBOR(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
 	case "PutDashboard":
 		return h.cborPutDashboard(input, c)
 	case "GetDashboard":
@@ -83,6 +90,29 @@ func (h *Handler) dispatchCBOR(op string, input cbor.Map, c *echo.Context) error
 		return h.cborListDashboards(input, c)
 	case "DeleteDashboards":
 		return h.cborDeleteDashboards(input, c)
+	default:
+		return h.dispatchExtendedCBOR(op, input, c)
+	}
+}
+
+func (h *Handler) dispatchExtendedCBOR(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
+	case "PutAlarmMuteRule":
+		return h.cborPutAlarmMuteRule(input, c)
+	case "UpdateAlarmMuteRule":
+		return h.cborUpdateAlarmMuteRule(input, c)
+	case "PutInsightRule":
+		return h.cborPutInsightRule(input, c)
+	case "UpdateInsightRule":
+		return h.cborUpdateInsightRule(input, c)
+	case "PutMetricStream":
+		return h.cborPutMetricStream(input, c)
+	case "UpdateMetricStream":
+		return h.cborUpdateMetricStream(input, c)
+	case "GetAlarmMuteRule":
+		return h.cborGetAlarmMuteRule(input, c)
+	case "DeleteAlarmMuteRule":
+		return h.cborDeleteAlarmMuteRule(input, c)
 	default:
 		return h.dispatchAlarmCBOR(op, input, c)
 	}
@@ -894,4 +924,125 @@ func (h *Handler) cborDeleteDashboards(input cbor.Map, c *echo.Context) error {
 	}
 
 	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	rule := &AlarmMuteRule{
+		MuteName:      muteName,
+		Description:   cborStr(input, "Description"),
+		AlarmNames:    cborStrList(input, "AlarmNames"),
+		MuteDuration:  cborInt32(input, "MuteDuration"),
+		MuteStartTime: time.Now().UTC(),
+	}
+
+	if rawStart := cborStr(input, "MuteStartTime"); rawStart != "" {
+		start, err := time.Parse(time.RFC3339, rawStart)
+		if err != nil {
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteStartTime must be RFC3339")
+		}
+		rule.MuteStartTime = start.UTC()
+	}
+
+	if err := h.Backend.PutAlarmMuteRule(rule); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUpdateAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	return h.cborPutAlarmMuteRule(input, c)
+}
+
+func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	rule, err := h.Backend.GetAlarmMuteRule(muteName)
+	if err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	muteRule := cbor.Map{
+		"MuteName":     cbor.String(rule.MuteName),
+		"Description":  cbor.String(rule.Description),
+		"MuteDuration": cbor.Float64(float64(rule.MuteDuration)),
+		"CreationTime": cborFromTime(rule.CreationTime),
+		"AlarmNames":   cborStringList(rule.AlarmNames),
+	}
+	if !rule.MuteStartTime.IsZero() {
+		muteRule["MuteStartTime"] = cborFromTime(rule.MuteStartTime)
+	}
+
+	return writeCBOR(c, cbor.Map{"MuteRule": muteRule})
+}
+
+func (h *Handler) cborDeleteAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+
+	if err := h.Backend.DeleteAlarmMuteRule(muteName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborPutInsightRule(input cbor.Map, c *echo.Context) error {
+	ruleName := cborStr(input, "RuleName")
+	if ruleName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+	}
+
+	if err := h.Backend.PutInsightRule(&InsightRule{
+		Name:       ruleName,
+		Definition: cborStr(input, "RuleDefinition"),
+		State:      cborStr(input, "RuleState"),
+	}); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
+	if cborStr(input, "RuleName") == "" {
+		if name := cborStr(input, "Name"); name != "" {
+			input["RuleName"] = cbor.String(name)
+		}
+	}
+
+	return h.cborPutInsightRule(input, c)
+}
+
+func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
+	name := cborStr(input, "Name")
+	if name == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	if err := h.Backend.PutMetricStream(&MetricStream{
+		Name:         name,
+		FirehoseArn:  cborStr(input, "FirehoseArn"),
+		RoleArn:      cborStr(input, "RoleArn"),
+		OutputFormat: cborStr(input, "OutputFormat"),
+		State:        cborStr(input, "State"),
+	}); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUpdateMetricStream(input cbor.Map, c *echo.Context) error {
+	return h.cborPutMetricStream(input, c)
 }
