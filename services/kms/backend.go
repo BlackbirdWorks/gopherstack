@@ -1827,14 +1827,14 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 	}
 
 	if km := b.keyMaterials[sourceKey.KeyID]; km != nil {
-		serialized, err := marshalKeyMaterial(km)
-		if err != nil {
-			return nil, fmt.Errorf("serializing key material for replication: %w", err)
+		serialized, serErr := marshalKeyMaterial(km)
+		if serErr != nil {
+			return nil, fmt.Errorf("serializing key material for replication: %w", serErr)
 		}
 
-		cloned, err := unmarshalKeyMaterial(serialized)
-		if err != nil {
-			return nil, fmt.Errorf("deserializing replicated key material: %w", err)
+		cloned, cloneErr := unmarshalKeyMaterial(serialized)
+		if cloneErr != nil {
+			return nil, fmt.Errorf("deserializing replicated key material: %w", cloneErr)
 		}
 
 		b.keyMaterials[replica.KeyID] = cloned
