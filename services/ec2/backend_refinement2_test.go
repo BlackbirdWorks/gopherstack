@@ -16,8 +16,8 @@ func TestRefinement2_CreateSnapshot(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setupVolume bool
 		volumeID    string
+		setupVolume bool
 		wantErr     bool
 	}{
 		{
@@ -266,14 +266,14 @@ func TestRefinement2_CreateNetworkAcl(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	acl, err := b.CreateNetworkAcl("vpc-default")
+	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 	assert.NotEmpty(t, acl.ID)
 	assert.Equal(t, "vpc-default", acl.VPCID)
 	assert.False(t, acl.IsDefault)
 	assert.NotEmpty(t, acl.Entries, "should have default deny-all entries")
 
-	_, err = b.CreateNetworkAcl("vpc-nonexistent")
+	_, err = b.CreateNetworkACL("vpc-nonexistent")
 	assert.Error(t, err)
 }
 
@@ -283,11 +283,11 @@ func TestRefinement2_DeleteNetworkAcl(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	acl, err := b.CreateNetworkAcl("vpc-default")
+	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteNetworkAcl(acl.ID))
-	assert.Error(t, b.DeleteNetworkAcl(acl.ID))
+	require.NoError(t, b.DeleteNetworkACL(acl.ID))
+	assert.Error(t, b.DeleteNetworkACL(acl.ID))
 }
 
 // TestRefinement2_CreateNetworkAclEntry verifies NACL rule creation.
@@ -296,13 +296,13 @@ func TestRefinement2_CreateNetworkAclEntry(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	acl, err := b.CreateNetworkAcl("vpc-default")
+	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateNetworkAclEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
+	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
 
 	// duplicate should fail
-	assert.Error(t, b.CreateNetworkAclEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
+	assert.Error(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
 }
 
 // TestRefinement2_DeleteNetworkAclEntry verifies NACL rule deletion.
@@ -311,14 +311,14 @@ func TestRefinement2_DeleteNetworkAclEntry(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	acl, err := b.CreateNetworkAcl("vpc-default")
+	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateNetworkAclEntry(acl.ID, 200, "6", "allow", "0.0.0.0/0", false, 443, 443))
-	require.NoError(t, b.DeleteNetworkAclEntry(acl.ID, 200, false))
+	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 200, "6", "allow", "0.0.0.0/0", false, 443, 443))
+	require.NoError(t, b.DeleteNetworkACLEntry(acl.ID, 200, false))
 
 	// non-existent should fail
-	assert.Error(t, b.DeleteNetworkAclEntry(acl.ID, 200, false))
+	assert.Error(t, b.DeleteNetworkACLEntry(acl.ID, 200, false))
 }
 
 // TestRefinement2_NetworkAclPersistence verifies NACL Snapshot/Restore round-trip.
@@ -327,9 +327,9 @@ func TestRefinement2_NetworkAclPersistence(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	acl, err := b.CreateNetworkAcl("vpc-default")
+	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
-	require.NoError(t, b.CreateNetworkAclEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
+	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
 
 	data := b.Snapshot()
 	require.NotNil(t, data)
@@ -399,7 +399,7 @@ func TestRefinement2_DeleteLaunchTemplate(t *testing.T) {
 	require.NoError(t, b.DeleteLaunchTemplate(lt.ID))
 
 	versions, err := b.DescribeLaunchTemplateVersions(lt.ID)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, versions)
 }
 
@@ -468,7 +468,7 @@ func TestRefinement2_Reset_ClearsNewMaps(t *testing.T) {
 	_, err = b.CreateSnapshot(vol.ID, "test")
 	require.NoError(t, err)
 
-	_, err = b.CreateNetworkAcl("vpc-default")
+	_, err = b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
 	b.Reset()

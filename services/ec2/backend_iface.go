@@ -223,17 +223,20 @@ type Backend interface {
 	// DescribeNetworkAcls returns default (auto-generated) network ACLs, optionally filtered by VPC IDs.
 	DescribeNetworkAcls(vpcIDs []string) []*NetworkACL
 
-	// CreateNetworkAcl creates a new non-default network ACL in a VPC.
-	CreateNetworkAcl(vpcID string) (*StoredNetworkACL, error)
+	// CreateNetworkACL creates a new non-default network ACL in a VPC.
+	CreateNetworkACL(vpcID string) (*StoredNetworkACL, error)
 
-	// DeleteNetworkAcl removes a non-default network ACL.
-	DeleteNetworkAcl(id string) error
+	// DeleteNetworkACL removes a non-default network ACL.
+	DeleteNetworkACL(id string) error
 
-	// CreateNetworkAclEntry adds a rule to an existing network ACL.
-	CreateNetworkAclEntry(aclID string, ruleNumber int, protocol, action, cidr string, egress bool, fromPort, toPort int) error
+	// CreateNetworkACLEntry adds a rule to an existing network ACL.
+	CreateNetworkACLEntry(
+		aclID string, ruleNumber int, protocol, action, cidr string,
+		egress bool, fromPort, toPort int,
+	) error
 
-	// DeleteNetworkAclEntry removes a rule from a network ACL.
-	DeleteNetworkAclEntry(aclID string, ruleNumber int, egress bool) error
+	// DeleteNetworkACLEntry removes a rule from a network ACL.
+	DeleteNetworkACLEntry(aclID string, ruleNumber int, egress bool) error
 
 	// DescribeStoredNetworkAcls returns explicitly created network ACLs.
 	DescribeStoredNetworkAcls(ids []string) []*StoredNetworkACL

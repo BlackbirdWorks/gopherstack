@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -53,9 +54,20 @@ type SecurityGroupRuleDetail struct {
 
 // Additional errors for refinement 2 operations.
 var (
-	ErrSnapshotNotFound       = fmt.Errorf("InvalidSnapshotID.NotFound")
-	ErrNetworkACLNotFound     = fmt.Errorf("InvalidNetworkAclID.NotFound")
-	ErrLaunchTemplateNotFound = fmt.Errorf("InvalidLaunchTemplateID.NotFound")
+	ErrSnapshotNotFound       = errors.New("InvalidSnapshotID.NotFound")
+	ErrNetworkACLNotFound     = errors.New("InvalidNetworkAclID.NotFound")
+	ErrLaunchTemplateNotFound = errors.New("InvalidLaunchTemplateID.NotFound")
+)
+
+// naclDefaultDenyRuleNumber is the AWS-defined default-deny rule number placed at the end of every NACL.
+const naclDefaultDenyRuleNumber = 32767
+
+// VPC attribute name constants.
+const (
+	attrEnableDNSSupport          = "enableDnsSupport"
+	attrEnableDNSHostnames        = "enableDnsHostnames"
+	attrMapPublicIPOnLaunch       = "mapPublicIpOnLaunch"
+	attrEnableResourceNameDNSARec = "enableResourceNameDnsARecordOnLaunch"
 )
 
 // ---- Snapshots ----
@@ -213,7 +225,7 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 // ---- VPC / Subnet attribute mutations ----
 
 // ModifyVpcAttribute enables or disables DNS support or DNS hostnames for a VPC.
-func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool) error {
+func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, _ bool) error {
 	if vpcID == "" {
 		return fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
 	}
@@ -227,7 +239,7 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 
 	// accepted attributes; mock silently accepts both
 	switch attribute {
-	case "enableDnsSupport", "enableDnsHostnames":
+	case attrEnableDNSSupport, attrEnableDNSHostnames:
 		// stored in VPC attribute map – currently no field; AWS just accepts and
 		// the setting takes effect; mock records acceptance as a no-op.
 		return nil
@@ -237,7 +249,7 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 }
 
 // ModifySubnetAttribute enables or disables auto-assign public IP for a subnet.
-func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, value bool) error {
+func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, _ bool) error {
 	if subnetID == "" {
 		return fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
 	}
@@ -250,7 +262,7 @@ func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, valu
 	}
 
 	switch attribute {
-	case "mapPublicIpOnLaunch", "enableResourceNameDnsARecordOnLaunch":
+	case attrMapPublicIPOnLaunch, attrEnableResourceNameDNSARec:
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown subnet attribute %q", ErrInvalidParameter, attribute)
@@ -259,13 +271,13 @@ func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, valu
 
 // ---- Network ACL CRUD ----
 
-// CreateNetworkAcl creates a non-default network ACL in a VPC.
-func (b *InMemoryBackend) CreateNetworkAcl(vpcID string) (*StoredNetworkACL, error) {
+// CreateNetworkACL creates a non-default network ACL in a VPC.
+func (b *InMemoryBackend) CreateNetworkACL(vpcID string) (*StoredNetworkACL, error) {
 	if vpcID == "" {
 		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("CreateNetworkAcl")
+	b.mu.Lock("CreateNetworkACL")
 	defer b.mu.Unlock()
 
 	if _, ok := b.vpcs[vpcID]; !ok {
@@ -279,8 +291,14 @@ func (b *InMemoryBackend) CreateNetworkAcl(vpcID string) (*StoredNetworkACL, err
 		AssociationIDs: nil,
 		Entries: []NACLEntry{
 			// AWS default: deny all inbound and outbound
-			{RuleNumber: 32767, Protocol: "-1", CIDRBlock: "0.0.0.0/0", RuleAction: "deny", Egress: false},
-			{RuleNumber: 32767, Protocol: "-1", CIDRBlock: "0.0.0.0/0", RuleAction: "deny", Egress: true},
+			{
+				RuleNumber: naclDefaultDenyRuleNumber, Protocol: "-1",
+				CIDRBlock: "0.0.0.0/0", RuleAction: "deny", Egress: false,
+			},
+			{
+				RuleNumber: naclDefaultDenyRuleNumber, Protocol: "-1",
+				CIDRBlock: "0.0.0.0/0", RuleAction: "deny", Egress: true,
+			},
 		},
 	}
 	b.networkACLs[acl.ID] = acl
@@ -291,13 +309,13 @@ func (b *InMemoryBackend) CreateNetworkAcl(vpcID string) (*StoredNetworkACL, err
 	return &cp, nil
 }
 
-// DeleteNetworkAcl removes a non-default network ACL.
-func (b *InMemoryBackend) DeleteNetworkAcl(id string) error {
+// DeleteNetworkACL removes a non-default network ACL.
+func (b *InMemoryBackend) DeleteNetworkACL(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: NetworkAclId is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("DeleteNetworkAcl")
+	b.mu.Lock("DeleteNetworkACL")
 	defer b.mu.Unlock()
 
 	acl, ok := b.networkACLs[id]
@@ -314,8 +332,8 @@ func (b *InMemoryBackend) DeleteNetworkAcl(id string) error {
 	return nil
 }
 
-// CreateNetworkAclEntry adds a rule to an existing network ACL.
-func (b *InMemoryBackend) CreateNetworkAclEntry(
+// CreateNetworkACLEntry adds a rule to an existing network ACL.
+func (b *InMemoryBackend) CreateNetworkACLEntry(
 	aclID string, ruleNumber int, protocol, action, cidr string,
 	egress bool, fromPort, toPort int,
 ) error {
@@ -323,7 +341,7 @@ func (b *InMemoryBackend) CreateNetworkAclEntry(
 		return fmt.Errorf("%w: NetworkAclId is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("CreateNetworkAclEntry")
+	b.mu.Lock("CreateNetworkACLEntry")
 	defer b.mu.Unlock()
 
 	acl, ok := b.networkACLs[aclID]
@@ -354,13 +372,13 @@ func (b *InMemoryBackend) CreateNetworkAclEntry(
 	return nil
 }
 
-// DeleteNetworkAclEntry removes a rule from a network ACL.
-func (b *InMemoryBackend) DeleteNetworkAclEntry(aclID string, ruleNumber int, egress bool) error {
+// DeleteNetworkACLEntry removes a rule from a network ACL.
+func (b *InMemoryBackend) DeleteNetworkACLEntry(aclID string, ruleNumber int, egress bool) error {
 	if aclID == "" {
 		return fmt.Errorf("%w: NetworkAclId is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("DeleteNetworkAclEntry")
+	b.mu.Lock("DeleteNetworkACLEntry")
 	defer b.mu.Unlock()
 
 	acl, ok := b.networkACLs[aclID]

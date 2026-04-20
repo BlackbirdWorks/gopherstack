@@ -16,10 +16,10 @@ func registerRefinement2Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeregisterImage"] = h.handleDeregisterImage
 	ops["ModifyVpcAttribute"] = h.handleModifyVpcAttribute
 	ops["ModifySubnetAttribute"] = h.handleModifySubnetAttribute
-	ops["CreateNetworkAcl"] = h.handleCreateNetworkAcl
-	ops["DeleteNetworkAcl"] = h.handleDeleteNetworkAcl
-	ops["CreateNetworkAclEntry"] = h.handleCreateNetworkAclEntry
-	ops["DeleteNetworkAclEntry"] = h.handleDeleteNetworkAclEntry
+	ops["CreateNetworkAcl"] = h.handleCreateNetworkACL
+	ops["DeleteNetworkAcl"] = h.handleDeleteNetworkACL
+	ops["CreateNetworkAclEntry"] = h.handleCreateNetworkACLEntry
+	ops["DeleteNetworkAclEntry"] = h.handleDeleteNetworkACLEntry
 	ops["DescribeSecurityGroupRules"] = h.handleDescribeSecurityGroupRules
 	ops["ModifySecurityGroupRules"] = h.handleModifySecurityGroupRules
 	ops["DeleteLaunchTemplate"] = h.handleDeleteLaunchTemplate
@@ -128,14 +128,14 @@ func (h *Handler) handleModifyVpcAttribute(vals url.Values, reqID string) (any, 
 
 	switch {
 	case vals.Get("EnableDnsSupport.Value") != "":
-		attr = "enableDnsSupport"
+		attr = attrEnableDNSSupport
 		valueStr = vals.Get("EnableDnsSupport.Value")
 	case vals.Get("EnableDnsHostnames.Value") != "":
-		attr = "enableDnsHostnames"
+		attr = attrEnableDNSHostnames
 		valueStr = vals.Get("EnableDnsHostnames.Value")
 	default:
-		attr = "enableDnsSupport"
-		valueStr = "true"
+		attr = attrEnableDNSSupport
+		valueStr = ec2BooleanTrue
 	}
 
 	value, _ := strconv.ParseBool(valueStr)
@@ -157,11 +157,11 @@ func (h *Handler) handleModifySubnetAttribute(vals url.Values, reqID string) (an
 
 	switch {
 	case vals.Get("MapPublicIpOnLaunch.Value") != "":
-		attr = "mapPublicIpOnLaunch"
+		attr = attrMapPublicIPOnLaunch
 		valueStr = vals.Get("MapPublicIpOnLaunch.Value")
 	default:
-		attr = "mapPublicIpOnLaunch"
-		valueStr = "true"
+		attr = attrMapPublicIPOnLaunch
+		valueStr = ec2BooleanTrue
 	}
 
 	value, _ := strconv.ParseBool(valueStr)
@@ -179,30 +179,30 @@ func (h *Handler) handleModifySubnetAttribute(vals url.Values, reqID string) (an
 
 // ---- NACL handlers ----
 
-func (h *Handler) handleCreateNetworkAcl(vals url.Values, reqID string) (any, error) {
-	acl, err := h.Backend.CreateNetworkAcl(vals.Get("VpcId"))
+func (h *Handler) handleCreateNetworkACL(vals url.Values, reqID string) (any, error) {
+	acl, err := h.Backend.CreateNetworkACL(vals.Get("VpcId"))
 	if err != nil {
 		return nil, err
 	}
 
-	return &createNetworkAclResponse{
+	return &createNetworkACLResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		NetworkAcl: networkAclDetailItem{ID: acl.ID, VPCID: acl.VPCID, IsDefault: acl.IsDefault},
+		NetworkACL: networkACLDetailItem{ID: acl.ID, VPCID: acl.VPCID, IsDefault: acl.IsDefault},
 	}, nil
 }
 
-func (h *Handler) handleDeleteNetworkAcl(vals url.Values, _ string) (any, error) {
-	return nil, h.Backend.DeleteNetworkAcl(vals.Get("NetworkAclId"))
+func (h *Handler) handleDeleteNetworkACL(vals url.Values, _ string) (any, error) {
+	return nil, h.Backend.DeleteNetworkACL(vals.Get("NetworkAclId"))
 }
 
-func (h *Handler) handleCreateNetworkAclEntry(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateNetworkACLEntry(vals url.Values, reqID string) (any, error) {
 	ruleNumber, _ := strconv.Atoi(vals.Get("RuleNumber"))
-	egress := vals.Get("Egress") == "true"
+	egress := vals.Get("Egress") == ec2BooleanTrue
 	fromPort, _ := strconv.Atoi(vals.Get("PortRange.From"))
 	toPort, _ := strconv.Atoi(vals.Get("PortRange.To"))
 
-	if err := h.Backend.CreateNetworkAclEntry(
+	if err := h.Backend.CreateNetworkACLEntry(
 		vals.Get("NetworkAclId"),
 		ruleNumber,
 		vals.Get("Protocol"),
@@ -218,15 +218,15 @@ func (h *Handler) handleCreateNetworkAclEntry(vals url.Values, reqID string) (an
 	return &genericReturnResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Return:    "true",
+		Return:    ec2BooleanTrue,
 	}, nil
 }
 
-func (h *Handler) handleDeleteNetworkAclEntry(vals url.Values, _ string) (any, error) {
+func (h *Handler) handleDeleteNetworkACLEntry(vals url.Values, _ string) (any, error) {
 	ruleNumber, _ := strconv.Atoi(vals.Get("RuleNumber"))
-	egress := vals.Get("Egress") == "true"
+	egress := vals.Get("Egress") == ec2BooleanTrue
 
-	return nil, h.Backend.DeleteNetworkAclEntry(vals.Get("NetworkAclId"), ruleNumber, egress)
+	return nil, h.Backend.DeleteNetworkACLEntry(vals.Get("NetworkAclId"), ruleNumber, egress)
 }
 
 // ---- Security group rule handlers ----
@@ -382,14 +382,14 @@ type genericReturnResponse struct {
 	Return    string   `xml:"return"`
 }
 
-type createNetworkAclResponse struct {
-	XMLName    xml.Name            `xml:"CreateNetworkAclResponse"`
-	Xmlns      string              `xml:"xmlns,attr"`
-	RequestID  string              `xml:"requestId"`
-	NetworkAcl networkAclDetailItem `xml:"networkAcl"`
+type createNetworkACLResponse struct {
+	XMLName    xml.Name             `xml:"CreateNetworkAclResponse"`
+	Xmlns      string               `xml:"xmlns,attr"`
+	RequestID  string               `xml:"requestId"`
+	NetworkACL networkACLDetailItem `xml:"networkAcl"`
 }
 
-type networkAclDetailItem struct {
+type networkACLDetailItem struct {
 	ID        string `xml:"networkAclId"`
 	VPCID     string `xml:"vpcId"`
 	IsDefault bool   `xml:"default"`

@@ -32,7 +32,8 @@ import {
 	type Vpc,
 	type Subnet,
 	type Volume,
-	type Snapshot
+	type Snapshot,
+	_InstanceType
 } from '@aws-sdk/client-ec2';
 import { toast } from 'svelte-sonner';
 import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key, Layers, Route, FileImage, Network, HardDrive, Camera } from 'lucide-svelte';
@@ -242,7 +243,7 @@ async function refresh() {
 	else if (activeTab === 'nacls') { networkAcls = []; await loadNetworkAcls(); }
 	else if (activeTab === 'vpcs') { vpcs = []; subnets = []; await loadVpcs(); }
 	else if (activeTab === 'volumes') { volumes = []; await loadVolumes(); }
-	else { snapshots = []; await loadSnapshots(); } // snapshots tab is the last tab
+	else { snapshots = []; await loadSnapshots(); }
 }
 
 function getName(instance: EC2Instance): string {
@@ -340,7 +341,7 @@ await ec2.send(new CreateLaunchTemplateCommand({
   LaunchTemplateName: newLTName,
   LaunchTemplateData: {
     ImageId: newLTImageId,
-    InstanceType: newLTInstanceType as any
+    InstanceType: newLTInstanceType as _InstanceType
   }
 }));
 toast.success('Launch template created');
@@ -356,7 +357,7 @@ async function launchInstance() {
 try {
 await ec2.send(new RunInstancesCommand({
   ImageId: newInstanceAmi,
-  InstanceType: newInstanceType as any,
+  InstanceType: newInstanceType as _InstanceType,
   MinCount: 1,
   MaxCount: 1,
   TagSpecifications: newInstanceName ? [{
