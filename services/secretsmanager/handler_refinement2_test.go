@@ -3,7 +3,6 @@ package secretsmanager_test
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +16,12 @@ import (
 func TestRefinement2_ValidateResourcePolicy(t *testing.T) {
 	t.Parallel()
 
+	// validFullPolicy is a minimal well-formed IAM policy document.
+	const validFullPolicy = `{"ResourcePolicy":` +
+		`"{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",` +
+		`\"Principal\":{\"AWS\":\"arn:aws:iam::123456789012:root\"},` +
+		`\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"*\"}]}"}`
+
 	tests := []struct {
 		name         string
 		body         string
@@ -26,7 +31,7 @@ func TestRefinement2_ValidateResourcePolicy(t *testing.T) {
 	}{
 		{
 			name:         "valid_policy",
-			body:         `{"ResourcePolicy":"{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::123456789012:root\"},\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"*\"}]}"}`,
+			body:         validFullPolicy,
 			wantStatus:   http.StatusOK,
 			wantPassed:   true,
 			wantErrCount: 0,
@@ -92,7 +97,10 @@ func TestRefinement2_ValidateResourcePolicySecretExists(t *testing.T) {
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"validate-test","SecretString":"v"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	validPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"secretsmanager:GetSecretValue","Resource":"*"}]}`
+	// validPolicy is a minimal well-formed IAM policy JSON string.
+	const validPolicy = `{"Version":"2012-10-17","Statement":[{` +
+		`"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Action":"secretsmanager:GetSecretValue","Resource":"*"}]}`
 	body, _ := json.Marshal(map[string]string{
 		"SecretId":       "validate-test",
 		"ResourcePolicy": validPolicy,
@@ -148,11 +156,11 @@ func TestRefinement2_RecoveryWindowInDays(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		checkForward func(t *testing.T, deletionDate float64)
 		name         string
 		body         string
 		wantStatus   int
 		wantDeleted  bool
-		checkForward func(t *testing.T, deletionDate float64)
 	}{
 		{
 			name:        "default_30_day_window",
@@ -287,7 +295,8 @@ func TestRefinement2_SecretListEntryHasRotationFields(t *testing.T) {
 	h := secretsmanager.NewHandler(b)
 
 	// Create a secret.
-	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"list-fields-test","SecretString":"v","Description":"test desc"}`)
+	const createBody = `{"Name":"list-fields-test","SecretString":"v","Description":"test desc"}`
+	rec := doR1Request(t, h, "secretsmanager.CreateSecret", createBody)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// List secrets.
@@ -317,7 +326,12 @@ func TestRefinement2_UpdateSecretKmsKeyID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update KMS key.
-	rec = doR1Request(t, h, "secretsmanager.UpdateSecret", `{"SecretId":"kms-update-test","KmsKeyId":"arn:aws:kms:us-east-1:123456789012:key/test-key-id"}`)
+	rec = doR1Request(
+		t,
+		h,
+		"secretsmanager.UpdateSecret",
+		`{"SecretId":"kms-update-test","KmsKeyId":"arn:aws:kms:us-east-1:123456789012:key/test-key-id"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify via DescribeSecret.
@@ -337,7 +351,12 @@ func TestRefinement2_DescribeSecretHasAllFields(t *testing.T) {
 	h := secretsmanager.NewHandler(b)
 
 	// Create secret with KMS key.
-	rec := doR1Request(t, h, "secretsmanager.CreateSecret", `{"Name":"full-meta","SecretString":"v","Description":"full metadata","KmsKeyId":"alias/mykey"}`)
+	rec := doR1Request(
+		t,
+		h,
+		"secretsmanager.CreateSecret",
+		`{"Name":"full-meta","SecretString":"v","Description":"full metadata","KmsKeyId":"alias/mykey"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Describe it.
@@ -434,5 +453,5 @@ func TestRefinement2_SecretInCreateDescribeRoundtrip(t *testing.T) {
 	assert.Equal(t, "alias/roundtrip", desc.KmsKeyID)
 	assert.NotNil(t, desc.LastChangedDate)
 	assert.False(t, desc.RotationEnabled)
-	assert.True(t, strings.Contains(desc.ARN, "secret:roundtrip/secret-"))
+	assert.Contains(t, desc.ARN, "secret:roundtrip/secret-")
 }

@@ -160,11 +160,11 @@ type PutSecretValueOutput struct {
 
 // DeleteSecretInput is the request payload for DeleteSecret.
 type DeleteSecretInput struct {
-	// SecretId is the name or ARN of the secret to delete.
-	SecretID string `json:"SecretId"`
 	// RecoveryWindowInDays is the number of days before the secret can be deleted.
 	// Must be between 7 and 30 inclusive. Defaults to 30 when not set.
 	RecoveryWindowInDays *int64 `json:"RecoveryWindowInDays,omitempty"`
+	// SecretId is the name or ARN of the secret to delete.
+	SecretID string `json:"SecretId"`
 	// ForceDeleteWithoutRecovery deletes immediately when true.
 	ForceDeleteWithoutRecovery bool `json:"ForceDeleteWithoutRecovery,omitempty"`
 }
@@ -181,16 +181,16 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	DeletedDate      *float64   `json:"DeletedDate,omitempty"`
-	LastChangedDate  *float64   `json:"LastChangedDate,omitempty"`
-	LastAccessedDate *float64   `json:"LastAccessedDate,omitempty"`
-	Tags             *tags.Tags `json:"Tags,omitempty"`
-	ARN              string     `json:"ARN"`
-	Name             string     `json:"Name"`
-	Description      string     `json:"Description,omitempty"`
-	KmsKeyID         string     `json:"KmsKeyId,omitempty"`
-	RotationLambdaARN string    `json:"RotationLambdaARN,omitempty"`
-	RotationEnabled  bool       `json:"RotationEnabled,omitempty"`
+	DeletedDate       *float64   `json:"DeletedDate,omitempty"`
+	LastChangedDate   *float64   `json:"LastChangedDate,omitempty"`
+	LastAccessedDate  *float64   `json:"LastAccessedDate,omitempty"`
+	Tags              *tags.Tags `json:"Tags,omitempty"`
+	ARN               string     `json:"ARN"`
+	Name              string     `json:"Name"`
+	Description       string     `json:"Description,omitempty"`
+	KmsKeyID          string     `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN string     `json:"RotationLambdaARN,omitempty"`
+	RotationEnabled   bool       `json:"RotationEnabled,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
@@ -591,8 +591,8 @@ type PolicyValidationException struct {
 
 // ValidateResourcePolicyOutput is the response payload for ValidateResourcePolicy.
 type ValidateResourcePolicyOutput struct {
-	// PolicyValidationPassed is true when no validation errors were found.
-	PolicyValidationPassed bool `json:"PolicyValidationPassed"`
 	// ValidationErrors is the list of validation errors (empty when PolicyValidationPassed is true).
 	ValidationErrors []PolicyValidationException `json:"ValidationErrors,omitempty"`
+	// PolicyValidationPassed is true when no validation errors were found.
+	PolicyValidationPassed bool `json:"PolicyValidationPassed"`
 }

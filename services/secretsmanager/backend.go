@@ -47,7 +47,7 @@ var (
 )
 
 // secretNamePattern is the set of characters allowed in secret names by AWS.
-// AWS allows letters, digits, and the following special characters: /_+=.@-
+// AWS allows letters, digits, and the following special characters: /_+=.@-.
 var secretNamePattern = regexp.MustCompile(`^[a-zA-Z0-9/_+=.@-]+$`)
 
 // maxSecretNameLength is the maximum allowed length of a secret name.
@@ -77,6 +77,12 @@ const (
 	maxSecretValueBytes = 65536
 	// rotationSchedulerInterval controls the background schedule evaluation cadence.
 	rotationSchedulerInterval = time.Second
+	// hoursPerDay is the number of hours in a day, used for day-granularity truncation.
+	hoursPerDay = 24
+	// maxSmallPoolSize is the maximum pool size for which the rejection-sampling fast path is used.
+	maxSmallPoolSize = 256
+	// randomBufMultiplier is the over-allocation factor for the random byte buffer.
+	randomBufMultiplier = 4
 )
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
@@ -265,7 +271,7 @@ func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecret
 	}
 
 	// Track access date (truncated to day granularity as AWS does).
-	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(24 * time.Hour))
+	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
 	secret.LastAccessedDate = &accessDay
 
 	return &GetSecretValueOutput{
@@ -717,24 +723,36 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 	}
 
 	// Compute NextRotationDate from the last rotation base + interval.
-	if secret.RotationEnabled && secret.RotationRules != nil {
-		interval, ok := rotationInterval(secret.RotationRules)
-		if ok {
-			base := secret.LastRotatedDate
-			if base == nil {
-				base = secret.LastChangedDate
-			}
-
-			if base != nil {
-				baseTime := time.Unix(0, int64(*base*float64(time.Second)))
-				nextTime := baseTime.Add(interval)
-				nextFloat := UnixTimeFloat(nextTime)
-				out.NextRotationDate = &nextFloat
-			}
-		}
-	}
+	out.NextRotationDate = computeNextRotationDate(secret)
 
 	return out, nil
+}
+
+// computeNextRotationDate returns the predicted next rotation timestamp for a secret, or nil if
+// rotation is not configured or cannot be computed.
+func computeNextRotationDate(secret *Secret) *float64 {
+	if !secret.RotationEnabled || secret.RotationRules == nil {
+		return nil
+	}
+
+	interval, ok := rotationInterval(secret.RotationRules)
+	if !ok {
+		return nil
+	}
+
+	base := secret.LastRotatedDate
+	if base == nil {
+		base = secret.LastChangedDate
+	}
+
+	if base == nil {
+		return nil
+	}
+
+	baseTime := time.Unix(0, int64(*base*float64(time.Second)))
+	nextFloat := UnixTimeFloat(baseTime.Add(interval))
+
+	return &nextFloat
 }
 
 // UpdateSecret updates the description of a secret and optionally creates a new version.
@@ -1109,49 +1127,67 @@ func randomRunes(pool []rune, length int) ([]rune, error) {
 		return make([]rune, length), nil
 	}
 
-	pw := make([]rune, length)
 	poolSize := len(pool)
 
 	// Use rejection sampling with a power-of-two mask when pool is small enough
 	// to avoid modulo bias while minimising random bytes consumed.
-	// For pool sizes > 256 fall back to per-character cryptoRandInt.
-	if poolSize <= 256 {
-		// Find smallest mask that covers poolSize.
-		mask := byte(1)
-		for int(mask) < poolSize {
-			mask = (mask << 1) | 1
-		}
+	// For pool sizes > maxSmallPoolSize fall back to per-character cryptoRandInt.
+	if poolSize <= maxSmallPoolSize {
+		return randomRunesSmallPool(pool, length)
+	}
 
-		buf := make([]byte, length*4) // over-allocate to reduce refill frequency
-		filled := 0
-		offset := len(buf) // trigger initial fill
+	return randomRunesLargePool(pool, length)
+}
 
-		for filled < length {
-			if offset >= len(buf) {
-				if _, err := io.ReadFull(rand.Reader, buf); err != nil {
-					return nil, fmt.Errorf("random password generation: %w", err)
-				}
+// randomRunesSmallPool fills a rune slice using rejection-sampling with a byte buffer.
+// It is used when pool size fits in one byte (≤ maxSmallPoolSize).
+func randomRunesSmallPool(pool []rune, length int) ([]rune, error) {
+	pw := make([]rune, length)
+	poolSize := len(pool)
 
-				offset = 0
+	// Find smallest mask that covers poolSize.
+	mask := byte(1)
+	for int(mask) < poolSize {
+		mask = (mask << 1) | 1
+	}
+
+	buf := make([]byte, length*randomBufMultiplier)
+	filled := 0
+	offset := len(buf) // trigger initial fill
+
+	for filled < length {
+		if offset >= len(buf) {
+			if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+				return nil, fmt.Errorf("random password generation: %w", err)
 			}
 
-			idx := int(buf[offset] & mask)
-			offset++
-
-			if idx < poolSize {
-				pw[filled] = pool[idx]
-				filled++
-			}
+			offset = 0
 		}
-	} else {
-		for i := range pw {
-			idx, err := cryptoRandInt(poolSize)
-			if err != nil {
-				return nil, err
-			}
 
-			pw[i] = pool[idx]
+		idx := int(buf[offset] & mask)
+		offset++
+
+		if idx < poolSize {
+			pw[filled] = pool[idx]
+			filled++
 		}
+	}
+
+	return pw, nil
+}
+
+// randomRunesLargePool fills a rune slice using per-character cryptoRandInt.
+// It is used when pool size exceeds maxSmallPoolSize.
+func randomRunesLargePool(pool []rune, length int) ([]rune, error) {
+	pw := make([]rune, length)
+
+	for i := range pw {
+		idx, err := cryptoRandInt(len(pool))
+		if err != nil {
+			return nil, err
+		}
+
+		pw[i] = pool[idx]
 	}
 
 	return pw, nil
@@ -1933,55 +1969,57 @@ func (b *InMemoryBackend) AddSecretInternal(s *Secret) {
 
 // ValidateResourcePolicy validates a resource-based policy document for a secret.
 // It performs basic structural validation and returns any detected issues.
-func (b *InMemoryBackend) ValidateResourcePolicy(input *ValidateResourcePolicyInput) (*ValidateResourcePolicyOutput, error) {
-if input.ResourcePolicy == "" {
-return nil, fmt.Errorf("%w: ResourcePolicy must not be empty", ErrInvalidParameter)
-}
+func (b *InMemoryBackend) ValidateResourcePolicy(
+	input *ValidateResourcePolicyInput,
+) (*ValidateResourcePolicyOutput, error) {
+	if input.ResourcePolicy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy must not be empty", ErrInvalidParameter)
+	}
 
-// If a secret ID is provided, verify the secret exists.
-if input.SecretID != "" {
-b.mu.RLock("ValidateResourcePolicy")
-defer b.mu.RUnlock()
+	// If a secret ID is provided, verify the secret exists.
+	if input.SecretID != "" {
+		b.mu.RLock("ValidateResourcePolicy")
+		defer b.mu.RUnlock()
 
-name := resolveSecretID(input.SecretID)
-if _, ok := b.secrets[name]; !ok {
-return nil, ErrSecretNotFound
-}
-}
+		name := resolveSecretID(input.SecretID)
+		if _, ok := b.secrets[name]; !ok {
+			return nil, ErrSecretNotFound
+		}
+	}
 
-// Parse the JSON policy document.
-var policy map[string]json.RawMessage
-if err := json.Unmarshal([]byte(input.ResourcePolicy), &policy); err != nil {
-return &ValidateResourcePolicyOutput{
-PolicyValidationPassed: false,
-ValidationErrors: []PolicyValidationException{
-{
-CheckName:    "SyntaxCheck",
-ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
-},
-},
-}, nil
-}
+	// Parse the JSON policy document.
+	var policy map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input.ResourcePolicy), &policy); err != nil {
+		return &ValidateResourcePolicyOutput{
+			PolicyValidationPassed: false,
+			ValidationErrors: []PolicyValidationException{
+				{
+					CheckName:    "SyntaxCheck",
+					ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
+				},
+			},
+		}, nil
+	}
 
-var errs []PolicyValidationException
+	var errs []PolicyValidationException
 
-// Validate required top-level fields.
-if _, hasVersion := policy["Version"]; !hasVersion {
-errs = append(errs, PolicyValidationException{
-CheckName:    "VersionCheck",
-ErrorMessage: "Policy document must include a Version element.",
-})
-}
+	// Validate required top-level fields.
+	if _, hasVersion := policy["Version"]; !hasVersion {
+		errs = append(errs, PolicyValidationException{
+			CheckName:    "VersionCheck",
+			ErrorMessage: "Policy document must include a Version element.",
+		})
+	}
 
-if _, hasStatement := policy["Statement"]; !hasStatement {
-errs = append(errs, PolicyValidationException{
-CheckName:    "StatementCheck",
-ErrorMessage: "Policy document must include a Statement element.",
-})
-}
+	if _, hasStatement := policy["Statement"]; !hasStatement {
+		errs = append(errs, PolicyValidationException{
+			CheckName:    "StatementCheck",
+			ErrorMessage: "Policy document must include a Statement element.",
+		})
+	}
 
-return &ValidateResourcePolicyOutput{
-PolicyValidationPassed: len(errs) == 0,
-ValidationErrors:       errs,
-}, nil
+	return &ValidateResourcePolicyOutput{
+		PolicyValidationPassed: len(errs) == 0,
+		ValidationErrors:       errs,
+	}, nil
 }

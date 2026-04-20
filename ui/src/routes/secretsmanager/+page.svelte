@@ -646,8 +646,8 @@ let rotationCount = $derived(secrets.filter(s => s.RotationEnabled).length);
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Secret</h2>
 			<div class="space-y-4">
 				<div>
-					<label for="secret-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Secret Name <span class="text-red-500">*</span></label>
-					<input id="secret-name" type="text" bind:value={newSecretName} placeholder="e.g. prod/db/password"
+					<label for="secret-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Secret Name</label>
+					<input id="secret-name" type="text" bind:value={newSecretName} placeholder="e.g. prod/db/password" required
 						class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white" />
 				</div>
 				<div>
