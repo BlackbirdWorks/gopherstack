@@ -518,9 +518,12 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		MetricName:              cborStr(input, "MetricName"),
 		ComparisonOperator:      cborStr(input, "ComparisonOperator"),
 		Statistic:               cborStr(input, "Statistic"),
+		ExtendedStatistic:       cborStr(input, "ExtendedStatistic"),
+		TreatMissingData:        cborStr(input, "TreatMissingData"),
 		AlarmDescription:        cborStr(input, "AlarmDescription"),
 		Threshold:               cborFloat(input, "Threshold"),
 		EvaluationPeriods:       cborInt32(input, "EvaluationPeriods"),
+		DatapointsToAlarm:       cborInt32(input, "DatapointsToAlarm"),
 		Period:                  cborInt32(input, "Period"),
 		ActionsEnabled:          actionsEnabled,
 		AlarmActions:            cborStrList(input, "AlarmActions"),
@@ -538,6 +541,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	alarmNames := cborStrList(input, "AlarmNames")
 	alarmTypes := cborStrList(input, "AlarmTypes")
+	alarmNamePrefix := cborStr(input, "AlarmNamePrefix")
 	stateValue := cborStr(input, "StateValue")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -545,6 +549,7 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	metricPage, compositePage, err := h.Backend.DescribeAlarms(
 		alarmNames,
 		alarmTypes,
+		alarmNamePrefix,
 		stateValue,
 		nextToken,
 		maxRecords,
@@ -785,6 +790,7 @@ func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) e
 
 func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
+	alarmType := cborStr(input, "AlarmType")
 	historyItemType := cborStr(input, "HistoryItemType")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -798,20 +804,24 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 		ed = cborTime(input, "EndDate")
 	}
 
-	p, err := h.Backend.DescribeAlarmHistory(alarmName, historyItemType, nextToken, sd, ed, maxRecords)
+	p, err := h.Backend.DescribeAlarmHistory(alarmName, alarmType, historyItemType, nextToken, sd, ed, maxRecords)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	histList := make(cbor.List, 0, len(p.Data))
 	for _, item := range p.Data {
-		histList = append(histList, cbor.Map{
+		m := cbor.Map{
 			"AlarmName":       cbor.String(item.AlarmName),
 			"HistoryItemType": cbor.String(item.HistoryItemType),
 			"HistorySummary":  cbor.String(item.HistorySummary),
 			"HistoryData":     cbor.String(item.HistoryData),
 			"Timestamp":       cborFromTime(item.Timestamp),
-		})
+		}
+		if item.AlarmType != "" {
+			m["AlarmType"] = cbor.String(item.AlarmType)
+		}
+		histList = append(histList, m)
 	}
 
 	resp := cbor.Map{"AlarmHistoryItems": histList}

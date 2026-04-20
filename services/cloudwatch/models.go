@@ -1,6 +1,8 @@
 package cloudwatch
 
-import "time"
+import (
+	"time"
+)
 
 // MetricDatum holds a single metric data point.
 type MetricDatum struct {
@@ -41,23 +43,30 @@ type Datapoint struct {
 
 // MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
-	CreatedAt               time.Time `json:"AlarmCreatedAt"`
-	StateValue              string    `json:"StateValue"`
-	Namespace               string    `json:"Namespace"`
-	MetricName              string    `json:"MetricName"`
-	ComparisonOperator      string    `json:"ComparisonOperator"`
-	Statistic               string    `json:"Statistic"`
-	AlarmName               string    `json:"AlarmName"`
-	StateReason             string    `json:"StateReason,omitempty"`
-	AlarmDescription        string    `json:"AlarmDescription,omitempty"`
-	AlarmArn                string    `json:"AlarmArn"`
-	AlarmActions            []string  `json:"AlarmActions,omitempty"`
-	OKActions               []string  `json:"OKActions,omitempty"`
-	InsufficientDataActions []string  `json:"InsufficientDataActions,omitempty"`
-	Threshold               float64   `json:"Threshold"`
-	EvaluationPeriods       int32     `json:"EvaluationPeriods"`
-	Period                  int32     `json:"Period"`
-	ActionsEnabled          bool      `json:"ActionsEnabled"`
+	CreatedAt                          time.Time   `json:"AlarmCreatedAt"`
+	StateTransitionedTimestamp         time.Time   `json:"StateTransitionedTimestamp,omitempty"`
+	AlarmConfigurationUpdatedTimestamp time.Time   `json:"AlarmConfigurationUpdatedTimestamp,omitempty"`
+	StateValue                         string      `json:"StateValue"`
+	Namespace                          string      `json:"Namespace"`
+	MetricName                         string      `json:"MetricName"`
+	ComparisonOperator                 string      `json:"ComparisonOperator"`
+	Statistic                          string      `json:"Statistic"`
+	ExtendedStatistic                  string      `json:"ExtendedStatistic,omitempty"`
+	TreatMissingData                   string      `json:"TreatMissingData,omitempty"`
+	AlarmName                          string      `json:"AlarmName"`
+	StateReason                        string      `json:"StateReason,omitempty"`
+	StateReasonData                    string      `json:"StateReasonData,omitempty"`
+	AlarmDescription                   string      `json:"AlarmDescription,omitempty"`
+	AlarmArn                           string      `json:"AlarmArn"`
+	AlarmActions                       []string    `json:"AlarmActions,omitempty"`
+	OKActions                          []string    `json:"OKActions,omitempty"`
+	InsufficientDataActions            []string    `json:"InsufficientDataActions,omitempty"`
+	Dimensions                         []Dimension `json:"Dimensions,omitempty"`
+	Threshold                          float64     `json:"Threshold"`
+	EvaluationPeriods                  int32       `json:"EvaluationPeriods"`
+	DatapointsToAlarm                  int32       `json:"DatapointsToAlarm,omitempty"`
+	Period                             int32       `json:"Period"`
+	ActionsEnabled                     bool        `json:"ActionsEnabled"`
 }
 
 // CompositeAlarm represents a CloudWatch composite alarm that combines child alarms.
@@ -79,6 +88,7 @@ type CompositeAlarm struct {
 type AlarmHistoryItem struct {
 	Timestamp       time.Time `json:"Timestamp"`
 	AlarmName       string    `json:"AlarmName"`
+	AlarmType       string    `json:"AlarmType,omitempty"`
 	HistoryItemType string    `json:"HistoryItemType"`
 	HistorySummary  string    `json:"HistorySummary"`
 	HistoryData     string    `json:"HistoryData,omitempty"`
@@ -86,17 +96,39 @@ type AlarmHistoryItem struct {
 
 // MetricStat specifies a metric and statistic for a MetricDataQuery.
 type MetricStat struct {
-	Namespace  string `json:"Namespace"`
-	MetricName string `json:"MetricName"`
-	Stat       string `json:"Stat"`
-	Period     int32  `json:"Period"`
+	Namespace  string      `json:"Namespace"`
+	MetricName string      `json:"MetricName"`
+	Stat       string      `json:"Stat"`
+	Period     int32       `json:"Period"`
+	Dimensions []Dimension `json:"Dimensions,omitempty"`
 }
 
 // MetricDataQuery is a single query in a GetMetricData request.
+// Expression supports metric math (e.g. "m1+m2"). When non-empty, MetricStat is ignored.
 type MetricDataQuery struct {
 	ID         string     `json:"Id"`
 	Label      string     `json:"Label,omitempty"`
+	Expression string     `json:"Expression,omitempty"`
 	MetricStat MetricStat `json:"MetricStat"`
+	Period     int32      `json:"Period,omitempty"`
+}
+
+// MetricFilter represents a CloudWatch Logs metric filter.
+type MetricFilter struct {
+	CreationTime          time.Time              `json:"CreationTime"`
+	FilterName            string                 `json:"FilterName"`
+	LogGroupName          string                 `json:"LogGroupName"`
+	FilterPattern         string                 `json:"FilterPattern"`
+	MetricTransformations []MetricTransformation `json:"MetricTransformations,omitempty"`
+}
+
+// MetricTransformation describes how to map matched log events to a metric.
+type MetricTransformation struct {
+	MetricName      string  `json:"MetricName"`
+	MetricNamespace string  `json:"MetricNamespace"`
+	MetricValue     string  `json:"MetricValue"`
+	DefaultValue    float64 `json:"DefaultValue,omitempty"`
+	Unit            string  `json:"Unit,omitempty"`
 }
 
 // MetricDataResult is a single result entry in a GetMetricData response.

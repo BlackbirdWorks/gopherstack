@@ -98,13 +98,20 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutAlarmMuteRule",
 		"DeleteAlarmMuteRule",
 		"UpdateAlarmMuteRule",
+		"PutAnomalyDetector",
 		"DeleteAnomalyDetector",
 		"PutInsightRule",
 		"DeleteInsightRules",
 		"UpdateInsightRule",
+		"GetInsightRuleReport",
 		"PutMetricStream",
+		"ListMetricStreams",
+		"GetMetricStream",
 		"DeleteMetricStream",
 		"UpdateMetricStream",
+		"PutMetricFilter",
+		"DescribeMetricFilters",
+		"DeleteMetricFilter",
 		"DescribeAlarmContributors",
 		"DescribeAnomalyDetectors",
 		"DescribeInsightRules",
@@ -326,6 +333,8 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 		return h.handleDeleteAlarmMuteRule(form, c)
 	case "GetAlarmMuteRule":
 		return h.handleGetAlarmMuteRule(form, c)
+	case "PutAnomalyDetector":
+		return h.handlePutAnomalyDetector(form, c)
 	case "DeleteAnomalyDetector":
 		return h.handleDeleteAnomalyDetector(form, c)
 	case "DescribeAnomalyDetectors":
@@ -338,8 +347,20 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 		return h.handleDisableInsightRules(form, c)
 	case "EnableInsightRules":
 		return h.handleEnableInsightRules(form, c)
+	case "GetInsightRuleReport":
+		return h.handleGetInsightRuleReport(form, c)
+	case "ListMetricStreams":
+		return h.handleListMetricStreams(form, c)
+	case "GetMetricStream":
+		return h.handleGetMetricStream(form, c)
 	case "DeleteMetricStream":
 		return h.handleDeleteMetricStream(form, c)
+	case "PutMetricFilter":
+		return h.handlePutMetricFilter(form, c)
+	case "DescribeMetricFilters":
+		return h.handleDescribeMetricFilters(form, c)
+	case "DeleteMetricFilter":
+		return h.handleDeleteMetricFilter(form, c)
 	case "DescribeAlarmContributors":
 		return h.handleDescribeAlarmContributors(form, c)
 	default:
@@ -537,6 +558,39 @@ func parseCWTagKeysFromForm(form url.Values) []string {
 	}
 }
 
+// parseDimensionsFromForm reads Dimensions.member.N.Name/Value pairs from the form.
+// The prefix argument should be e.g. "Dimensions." so keys are "Dimensions.member.N.Name".
+func parseDimensionsFromForm(form url.Values, prefix string) []Dimension {
+	var dims []Dimension
+	for i := 1; ; i++ {
+		name := form.Get(fmt.Sprintf("%smember.%d.Name", prefix, i))
+		if name == "" {
+			return dims
+		}
+		dims = append(dims, Dimension{Name: name, Value: form.Get(fmt.Sprintf("%smember.%d.Value", prefix, i))})
+	}
+}
+
+// parseMetricTransformationsFromForm reads MetricTransformations.member.N.* from the form.
+func parseMetricTransformationsFromForm(form url.Values) []MetricTransformation {
+	var transformations []MetricTransformation
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("MetricTransformations.member.%d.", i)
+		name := form.Get(prefix + "MetricName")
+		if name == "" {
+			return transformations
+		}
+		defaultValue, _ := strconv.ParseFloat(form.Get(prefix+"DefaultValue"), 64)
+		transformations = append(transformations, MetricTransformation{
+			MetricName:      name,
+			MetricNamespace: form.Get(prefix + "MetricNamespace"),
+			MetricValue:     form.Get(prefix + "MetricValue"),
+			DefaultValue:    defaultValue,
+			Unit:            form.Get(prefix + "Unit"),
+		})
+	}
+}
+
 // parseMetricDataQueriesFromForm reads MetricDataQueries.member.N.* values from the form.
 func parseMetricDataQueriesFromForm(form url.Values) []MetricDataQuery {
 	var queries []MetricDataQuery
@@ -708,6 +762,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 
 	threshold, _ := strconv.ParseFloat(form.Get("Threshold"), 64)
 	evalPeriods, _ := strconv.ParseInt(form.Get("EvaluationPeriods"), 10, 32)
+	datapointsToAlarm, _ := strconv.ParseInt(form.Get("DatapointsToAlarm"), 10, 32)
 	period, _ := strconv.ParseInt(form.Get("Period"), 10, 32)
 	actionsEnabled := form.Get("ActionsEnabled") != "false"
 
@@ -717,14 +772,18 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		MetricName:              form.Get("MetricName"),
 		ComparisonOperator:      form.Get("ComparisonOperator"),
 		Statistic:               form.Get("Statistic"),
+		ExtendedStatistic:       form.Get("ExtendedStatistic"),
+		TreatMissingData:        form.Get("TreatMissingData"),
 		AlarmDescription:        form.Get("AlarmDescription"),
 		Threshold:               threshold,
 		EvaluationPeriods:       int32(evalPeriods),
+		DatapointsToAlarm:       int32(datapointsToAlarm),
 		Period:                  int32(period),
 		ActionsEnabled:          actionsEnabled,
 		AlarmActions:            parseMemberList(form, "AlarmActions."),
 		OKActions:               parseMemberList(form, "OKActions."),
 		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
+		Dimensions:              parseDimensionsFromForm(form, "Dimensions."),
 	}
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -741,15 +800,18 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 
 // metricAlarmToXML converts a MetricAlarm to its XML representation.
 func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
-	return metricAlarmXML{
+	x := metricAlarmXML{
 		AlarmName:               a.AlarmName,
 		AlarmArn:                a.AlarmArn,
 		Namespace:               a.Namespace,
 		MetricName:              a.MetricName,
 		ComparisonOperator:      a.ComparisonOperator,
 		EvaluationPeriods:       a.EvaluationPeriods,
+		DatapointsToAlarm:       a.DatapointsToAlarm,
 		Period:                  a.Period,
 		Statistic:               a.Statistic,
+		ExtendedStatistic:       a.ExtendedStatistic,
+		TreatMissingData:        a.TreatMissingData,
 		Threshold:               a.Threshold,
 		StateValue:              a.StateValue,
 		StateReason:             a.StateReason,
@@ -759,6 +821,20 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		InsufficientDataActions: a.InsufficientDataActions,
 		ActionsEnabled:          a.ActionsEnabled,
 	}
+	if !a.StateTransitionedTimestamp.IsZero() {
+		x.StateTransitionedTimestamp = a.StateTransitionedTimestamp.UTC().Format(time.RFC3339)
+	}
+	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
+		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().Format(time.RFC3339)
+	}
+	for _, d := range a.Dimensions {
+		x.Dimensions = append(x.Dimensions, struct {
+			Name  string `xml:"Name"`
+			Value string `xml:"Value"`
+		}{Name: d.Name, Value: d.Value})
+	}
+
+	return x
 }
 
 // compositeAlarmToXML converts a CompositeAlarm to its XML representation.
@@ -779,22 +855,31 @@ func compositeAlarmToXML(a CompositeAlarm) compositeAlarmXMLType {
 
 // metricAlarmXML is the XML representation of a MetricAlarm.
 type metricAlarmXML struct {
-	AlarmDescription        string   `xml:"AlarmDescription,omitempty"`
-	Namespace               string   `xml:"Namespace"`
-	MetricName              string   `xml:"MetricName"`
-	ComparisonOperator      string   `xml:"ComparisonOperator"`
-	Statistic               string   `xml:"Statistic"`
-	AlarmArn                string   `xml:"AlarmArn"`
-	StateValue              string   `xml:"StateValue"`
-	AlarmName               string   `xml:"AlarmName"`
-	StateReason             string   `xml:"StateReason,omitempty"`
-	AlarmActions            []string `xml:"AlarmActions>member,omitempty"`
-	InsufficientDataActions []string `xml:"InsufficientDataActions>member,omitempty"`
-	OKActions               []string `xml:"OKActions>member,omitempty"`
-	Threshold               float64  `xml:"Threshold"`
-	Period                  int32    `xml:"Period"`
-	EvaluationPeriods       int32    `xml:"EvaluationPeriods"`
-	ActionsEnabled          bool     `xml:"ActionsEnabled"`
+	AlarmConfigurationUpdatedTimestamp string   `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
+	StateTransitionedTimestamp         string   `xml:"StateTransitionedTimestamp,omitempty"`
+	AlarmDescription                   string   `xml:"AlarmDescription,omitempty"`
+	Namespace                          string   `xml:"Namespace"`
+	MetricName                         string   `xml:"MetricName"`
+	ComparisonOperator                 string   `xml:"ComparisonOperator"`
+	Statistic                          string   `xml:"Statistic"`
+	ExtendedStatistic                  string   `xml:"ExtendedStatistic,omitempty"`
+	TreatMissingData                   string   `xml:"TreatMissingData,omitempty"`
+	AlarmArn                           string   `xml:"AlarmArn"`
+	StateValue                         string   `xml:"StateValue"`
+	AlarmName                          string   `xml:"AlarmName"`
+	StateReason                        string   `xml:"StateReason,omitempty"`
+	AlarmActions                       []string `xml:"AlarmActions>member,omitempty"`
+	InsufficientDataActions            []string `xml:"InsufficientDataActions>member,omitempty"`
+	OKActions                          []string `xml:"OKActions>member,omitempty"`
+	Dimensions                         []struct {
+		Name  string `xml:"Name"`
+		Value string `xml:"Value"`
+	} `xml:"Dimensions>member,omitempty"`
+	Threshold         float64 `xml:"Threshold"`
+	Period            int32   `xml:"Period"`
+	EvaluationPeriods int32   `xml:"EvaluationPeriods"`
+	DatapointsToAlarm int32   `xml:"DatapointsToAlarm,omitempty"`
+	ActionsEnabled    bool    `xml:"ActionsEnabled"`
 }
 
 // compositeAlarmXMLType is the XML representation of a CompositeAlarm.
@@ -814,6 +899,7 @@ type compositeAlarmXMLType struct {
 func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	alarmNames := parseMemberList(form, "AlarmNames.")
 	alarmTypes := parseMemberList(form, "AlarmTypes.")
+	alarmNamePrefix := form.Get("AlarmNamePrefix")
 	stateValue := form.Get("StateValue")
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
@@ -821,6 +907,7 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	metricPage, compositePage, err := h.Backend.DescribeAlarms(
 		alarmNames,
 		alarmTypes,
+		alarmNamePrefix,
 		stateValue,
 		nextToken,
 		maxRecords,
@@ -1009,6 +1096,7 @@ func (h *Handler) handleDescribeAlarmsForMetric(form url.Values, c *echo.Context
 
 func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) error {
 	alarmName := form.Get("AlarmName")
+	alarmType := form.Get("AlarmType")
 	historyItemType := form.Get("HistoryItemType")
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
@@ -1021,13 +1109,14 @@ func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) e
 		endDate, _ = time.Parse(time.RFC3339, e)
 	}
 
-	p, err := h.Backend.DescribeAlarmHistory(alarmName, historyItemType, nextToken, startDate, endDate, maxRecords)
+	p, err := h.Backend.DescribeAlarmHistory(alarmName, alarmType, historyItemType, nextToken, startDate, endDate, maxRecords)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type historyItemXML struct {
 		AlarmName       string `xml:"AlarmName"`
+		AlarmType       string `xml:"AlarmType,omitempty"`
 		HistoryItemType string `xml:"HistoryItemType"`
 		HistorySummary  string `xml:"HistorySummary"`
 		HistoryData     string `xml:"HistoryData,omitempty"`
@@ -1037,6 +1126,7 @@ func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) e
 	for _, item := range p.Data {
 		members = append(members, historyItemXML{
 			AlarmName:       item.AlarmName,
+			AlarmType:       item.AlarmType,
 			HistoryItemType: item.HistoryItemType,
 			HistorySummary:  item.HistorySummary,
 			HistoryData:     item.HistoryData,
@@ -1784,4 +1874,266 @@ func formatTimeOmitZero(t time.Time) string {
 	}
 
 	return t.UTC().Format(time.RFC3339)
+}
+
+func (h *Handler) handlePutAnomalyDetector(form url.Values, c *echo.Context) error {
+	namespace := form.Get("SingleMetricAnomalyDetector.Namespace")
+	if namespace == "" {
+		namespace = form.Get("Namespace")
+	}
+	metricName := form.Get("SingleMetricAnomalyDetector.MetricName")
+	if metricName == "" {
+		metricName = form.Get("MetricName")
+	}
+	stat := form.Get("SingleMetricAnomalyDetector.Stat")
+	if stat == "" {
+		stat = form.Get("Stat")
+	}
+
+	if namespace == "" || metricName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace and MetricName are required")
+	}
+
+	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
+		Namespace:  namespace,
+		MetricName: metricName,
+		Stat:       stat,
+		StateValue: "TRAINED_INSUFFICIENT_DATA",
+	}); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"PutAnomalyDetectorResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleListMetricStreams(form url.Values, c *echo.Context) error {
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.ListMetricStreams(nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type entryXML struct {
+		Name           string `xml:"Name"`
+		Arn            string `xml:"Arn"`
+		FirehoseArn    string `xml:"FirehoseArn"`
+		State          string `xml:"State"`
+		OutputFormat   string `xml:"OutputFormat"`
+		CreationDate   string `xml:"CreationDate,omitempty"`
+		LastUpdateDate string `xml:"LastUpdateDate,omitempty"`
+	}
+	members := make([]entryXML, 0, len(p.Data))
+	for _, s := range p.Data {
+		members = append(members, entryXML{
+			Name:           s.Name,
+			Arn:            s.Arn,
+			FirehoseArn:    s.FirehoseArn,
+			State:          s.State,
+			OutputFormat:   s.OutputFormat,
+			CreationDate:   formatTimeOmitZero(s.CreationDate),
+			LastUpdateDate: formatTimeOmitZero(s.LastUpdateDate),
+		})
+	}
+
+	type listResult struct {
+		NextToken     string     `xml:"NextToken,omitempty"`
+		MetricStreams []entryXML `xml:"Entries>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListMetricStreamsResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListMetricStreamsResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    listResult{MetricStreams: members, NextToken: p.Next},
+	})
+}
+
+func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	stream, err := h.Backend.GetMetricStream(name)
+	if err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type result struct {
+		Name           string `xml:"Name"`
+		Arn            string `xml:"Arn"`
+		FirehoseArn    string `xml:"FirehoseArn"`
+		RoleArn        string `xml:"RoleArn"`
+		State          string `xml:"State"`
+		OutputFormat   string `xml:"OutputFormat"`
+		CreationDate   string `xml:"CreationDate,omitempty"`
+		LastUpdateDate string `xml:"LastUpdateDate,omitempty"`
+	}
+	type response struct {
+		XMLName   xml.Name `xml:"GetMetricStreamResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"GetMetricStreamResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result: result{
+			Name:           stream.Name,
+			Arn:            stream.Arn,
+			FirehoseArn:    stream.FirehoseArn,
+			RoleArn:        stream.RoleArn,
+			State:          stream.State,
+			OutputFormat:   stream.OutputFormat,
+			CreationDate:   formatTimeOmitZero(stream.CreationDate),
+			LastUpdateDate: formatTimeOmitZero(stream.LastUpdateDate),
+		},
+	})
+}
+
+func (h *Handler) handlePutMetricFilter(form url.Values, c *echo.Context) error {
+	filterName := form.Get("FilterName")
+	if filterName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+	}
+	logGroupName := form.Get("LogGroupName")
+	if logGroupName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+	}
+
+	filter := &MetricFilter{
+		FilterName:            filterName,
+		LogGroupName:          logGroupName,
+		FilterPattern:         form.Get("FilterPattern"),
+		MetricTransformations: parseMetricTransformationsFromForm(form),
+	}
+	if err := h.Backend.PutMetricFilter(filter); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"PutMetricFilterResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleDescribeMetricFilters(form url.Values, c *echo.Context) error {
+	filterNamePrefix := form.Get("FilterNamePrefix")
+	logGroupName := form.Get("LogGroupName")
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.DescribeMetricFilters(filterNamePrefix, logGroupName, nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type metricTransXML struct {
+		MetricName      string  `xml:"MetricName"`
+		MetricNamespace string  `xml:"MetricNamespace"`
+		MetricValue     string  `xml:"MetricValue"`
+		DefaultValue    float64 `xml:"DefaultValue,omitempty"`
+		Unit            string  `xml:"Unit,omitempty"`
+	}
+	type filterXML struct {
+		FilterName            string           `xml:"FilterName"`
+		LogGroupName          string           `xml:"LogGroupName"`
+		FilterPattern         string           `xml:"FilterPattern,omitempty"`
+		CreationTime          int64            `xml:"CreationTime"`
+		MetricTransformations []metricTransXML `xml:"MetricTransformations>member,omitempty"`
+	}
+
+	members := make([]filterXML, 0, len(p.Data))
+	for _, f := range p.Data {
+		fx := filterXML{
+			FilterName:    f.FilterName,
+			LogGroupName:  f.LogGroupName,
+			FilterPattern: f.FilterPattern,
+			CreationTime:  f.CreationTime.UnixMilli(),
+		}
+		for _, t := range f.MetricTransformations {
+			fx.MetricTransformations = append(fx.MetricTransformations, metricTransXML(t))
+		}
+		members = append(members, fx)
+	}
+
+	type descResult struct {
+		NextToken     string      `xml:"NextToken,omitempty"`
+		MetricFilters []filterXML `xml:"MetricFilters>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeMetricFiltersResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeMetricFiltersResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    descResult{MetricFilters: members, NextToken: p.Next},
+	})
+}
+
+func (h *Handler) handleDeleteMetricFilter(form url.Values, c *echo.Context) error {
+	filterName := form.Get("FilterName")
+	if filterName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+	}
+	logGroupName := form.Get("LogGroupName")
+	if logGroupName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+	}
+
+	if err := h.Backend.DeleteMetricFilter(filterName, logGroupName); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"DeleteMetricFilterResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+// handleGetInsightRuleReport is a stub that returns an empty report.
+func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) error {
+	ruleName := form.Get("RuleName")
+	if ruleName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+	}
+	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type result struct {
+		Contributors struct{} `xml:"Contributors"`
+	}
+	type response struct {
+		XMLName   xml.Name `xml:"GetInsightRuleReportResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"GetInsightRuleReportResult"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }

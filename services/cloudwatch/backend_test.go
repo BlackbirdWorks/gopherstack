@@ -207,7 +207,7 @@ func TestCloudWatchBackend_PutAndDescribeAlarms(t *testing.T) {
 	}
 	require.NoError(t, b.PutMetricAlarm(alarm))
 
-	alarms, _, err := b.DescribeAlarms(nil, nil, "", "", 0)
+	alarms, _, err := b.DescribeAlarms(nil, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, alarms.Data, 1)
 	assert.Equal(t, "high-cpu", alarms.Data[0].AlarmName)
@@ -257,7 +257,7 @@ func TestCloudWatchBackend_DescribeAlarms(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			alarms, _, err := b.DescribeAlarms(tt.alarmNames, nil, tt.stateValue, "", 0)
+			alarms, _, err := b.DescribeAlarms(tt.alarmNames, nil, "", tt.stateValue, "", 0)
 			require.NoError(t, err)
 			assert.Len(t, alarms.Data, tt.wantCount)
 		})
@@ -300,7 +300,7 @@ func TestCloudWatchBackend_DeleteAlarms(t *testing.T) {
 
 			require.NoError(t, b.DeleteAlarms(tt.names))
 
-			alarms, _, err := b.DescribeAlarms(nil, nil, "", "", 0)
+			alarms, _, err := b.DescribeAlarms(nil, nil, "", "", "", 0)
 			require.NoError(t, err)
 			assert.Len(t, alarms.Data, tt.wantRemaining)
 		})
@@ -321,7 +321,7 @@ func TestCloudWatchBackend_PutMetricAlarm_UpdateExisting(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "upd", Threshold: 10}))
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "upd", Threshold: 20}))
-	alarms, _, err := b.DescribeAlarms(nil, nil, "", "", 0)
+	alarms, _, err := b.DescribeAlarms(nil, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, alarms.Data, 1)
 	assert.InDelta(t, 20.0, alarms.Data[0].Threshold, 0.01)
@@ -416,6 +416,7 @@ func TestCloudWatchBackend_PutCompositeAlarm(t *testing.T) {
 				[]string{"CompositeAlarm"},
 				"",
 				"",
+				"",
 				0,
 			)
 			require.NoError(t, err2)
@@ -495,13 +496,13 @@ func TestCloudWatchBackend_EnableDisableAlarmActions(t *testing.T) {
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "test", ActionsEnabled: true}))
 
 	require.NoError(t, b.DisableAlarmActions([]string{"test"}))
-	alarms, _, err := b.DescribeAlarms([]string{"test"}, nil, "", "", 0)
+	alarms, _, err := b.DescribeAlarms([]string{"test"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, alarms.Data, 1)
 	assert.False(t, alarms.Data[0].ActionsEnabled)
 
 	require.NoError(t, b.EnableAlarmActions([]string{"test"}))
-	alarms2, _, err2 := b.DescribeAlarms([]string{"test"}, nil, "", "", 0)
+	alarms2, _, err2 := b.DescribeAlarms([]string{"test"}, nil, "", "", "", 0)
 	require.NoError(t, err2)
 	require.Len(t, alarms2.Data, 1)
 	assert.True(t, alarms2.Data[0].ActionsEnabled)
@@ -531,7 +532,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory(t *testing.T) {
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-alarm", ActionsEnabled: true}))
 	require.NoError(t, b.SetAlarmState(t.Context(), "hist-alarm", "ALARM", "test trigger"))
 
-	p, err := b.DescribeAlarmHistory("hist-alarm", "", "", time.Time{}, time.Time{}, 0)
+	p, err := b.DescribeAlarmHistory("hist-alarm", "", "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
 }
@@ -545,7 +546,7 @@ func TestCloudWatchBackend_DescribeAlarms_WithComposite(t *testing.T) {
 		AlarmName: "comp1", AlarmRule: `ALARM("metric1")`,
 	}))
 
-	metricPage, compositePage, err := b.DescribeAlarms(nil, nil, "", "", 0)
+	metricPage, compositePage, err := b.DescribeAlarms(nil, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, metricPage.Data, 1)
 	assert.Len(t, compositePage.Data, 1)
@@ -562,13 +563,13 @@ func TestCloudWatchBackend_CompositeAlarmReevalOnChildChange(t *testing.T) {
 	}))
 
 	// Initially composite should be OK since child is OK
-	_, compositeAlarms, err := b.DescribeAlarms([]string{"parent"}, nil, "", "", 0)
+	_, compositeAlarms, err := b.DescribeAlarms([]string{"parent"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", compositeAlarms.Data[0].StateValue)
 
 	// Change child to ALARM; composite should re-evaluate
 	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "test"))
-	_, compositeAlarms2, err2 := b.DescribeAlarms([]string{"parent"}, nil, "", "", 0)
+	_, compositeAlarms2, err2 := b.DescribeAlarms([]string{"parent"}, nil, "", "", "", 0)
 	require.NoError(t, err2)
 	assert.Equal(t, "ALARM", compositeAlarms2.Data[0].StateValue)
 }
@@ -679,7 +680,7 @@ func TestCloudWatchBackend_EvalCompositeRule_NestedComposite(t *testing.T) {
 		AlarmRule: `ALARM("mid")`,
 	}))
 
-	_, composites, err := b.DescribeAlarms([]string{"top"}, nil, "", "", 0)
+	_, composites, err := b.DescribeAlarms([]string{"top"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, composites.Data, 1)
 	// top should be ALARM since leaf is ALARM -> mid is ALARM -> top is ALARM
@@ -716,7 +717,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_TypeFilter(t *testing.T) {
 	require.NoError(t, b.SetAlarmState(t.Context(), "type-filter", "ALARM", "transition"))
 
 	// Filter by StateUpdate type — should find the state transition.
-	p, err := b.DescribeAlarmHistory("type-filter", "StateUpdate", "", time.Time{}, time.Time{}, 0)
+	p, err := b.DescribeAlarmHistory("type-filter", "", "StateUpdate", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
 	for _, item := range p.Data {
@@ -724,7 +725,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_TypeFilter(t *testing.T) {
 	}
 
 	// PutMetricAlarm creates ConfigurationUpdate items.
-	p2, err2 := b.DescribeAlarmHistory("type-filter", "ConfigurationUpdate", "", time.Time{}, time.Time{}, 0)
+	p2, err2 := b.DescribeAlarmHistory("type-filter", "", "ConfigurationUpdate", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err2)
 	assert.NotEmpty(t, p2.Data)
 	for _, item := range p2.Data {
@@ -750,7 +751,7 @@ func TestCloudWatchBackend_PutCompositeAlarm_UpdateExisting(t *testing.T) {
 		AlarmDescription: "updated",
 	}))
 
-	_, composites, err := b.DescribeAlarms([]string{"comp-update"}, nil, "", "", 0)
+	_, composites, err := b.DescribeAlarms([]string{"comp-update"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, composites.Data, 1)
 	assert.Equal(t, "updated", composites.Data[0].AlarmDescription)
@@ -763,7 +764,7 @@ func TestCloudWatchBackend_DescribeAlarms_StateFilter(t *testing.T) {
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "a-ok", StateValue: "OK"}))
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "a-alarm", StateValue: "ALARM"}))
 
-	p, _, err := b.DescribeAlarms(nil, nil, "OK", "", 0)
+	p, _, err := b.DescribeAlarms(nil, nil, "", "OK", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "a-ok", p.Data[0].AlarmName)
@@ -781,7 +782,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	}))
 
 	// Composite should be ALARM since child is ALARM.
-	_, composites0, err0 := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", 0)
+	_, composites0, err0 := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", "", 0)
 	require.NoError(t, err0)
 	require.Len(t, composites0.Data, 1)
 	assert.Equal(t, "ALARM", composites0.Data[0].StateValue)
@@ -789,7 +790,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	// SetAlarmState on child to OK; composite should re-evaluate to OK.
 	require.NoError(t, b.SetAlarmState(t.Context(), "child-direct", "OK", "recovered"))
 
-	_, composites, err := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", 0)
+	_, composites, err := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, composites.Data, 1)
 	assert.Equal(t, "OK", composites.Data[0].StateValue)
@@ -833,14 +834,14 @@ func TestCloudWatchBackend_EnableDisableAlarmActions_CompositeAlarm(t *testing.T
 
 	require.NoError(t, b.EnableAlarmActions([]string{"comp-enable-disable"}))
 
-	_, composites, err := b.DescribeAlarms([]string{"comp-enable-disable"}, nil, "", "", 0)
+	_, composites, err := b.DescribeAlarms([]string{"comp-enable-disable"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, composites.Data, 1)
 	assert.True(t, composites.Data[0].ActionsEnabled)
 
 	require.NoError(t, b.DisableAlarmActions([]string{"comp-enable-disable"}))
 
-	_, composites2, err2 := b.DescribeAlarms([]string{"comp-enable-disable"}, nil, "", "", 0)
+	_, composites2, err2 := b.DescribeAlarms([]string{"comp-enable-disable"}, nil, "", "", "", 0)
 	require.NoError(t, err2)
 	require.Len(t, composites2.Data, 1)
 	assert.False(t, composites2.Data[0].ActionsEnabled)
@@ -1115,7 +1116,7 @@ func TestCloudWatchBackend_AlarmHistoryCap(t *testing.T) {
 	}
 
 	// History should be capped at 100 entries.
-	page, err := b.DescribeAlarmHistory("cap-alarm", "", "", time.Time{}, time.Time{}, 0)
+	page, err := b.DescribeAlarmHistory("cap-alarm", "", "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(page.Data), 100)
 }
@@ -1220,7 +1221,7 @@ func TestCloudWatchBackend_CompositeAlarm_CircularDependency(t *testing.T) {
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			tt.setup(t, b)
 
-			_, composites, err := b.DescribeAlarms([]string{tt.alarmName}, nil, "", "", 0)
+			_, composites, err := b.DescribeAlarms([]string{tt.alarmName}, nil, "", "", "", 0)
 			require.NoError(t, err)
 			require.Len(t, composites.Data, 1)
 			assert.Equal(t, tt.wantState, composites.Data[0].StateValue)
