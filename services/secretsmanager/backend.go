@@ -1777,8 +1777,6 @@ func (b *InMemoryBackend) syncReplicationStatusLocked(secret *Secret) {
 	}
 
 	for i := range statuses {
-		statuses[i].Status = replicationStatusInProgress
-		statuses[i].StatusMessage = "replicating latest version"
 		statuses[i].Status = replicationStatusInSync
 		statuses[i].StatusMessage = "replicated version " + currentVer.VersionID
 	}

@@ -86,6 +86,8 @@ func TestRotateSecretRulesAndScheduler(t *testing.T) {
 
 			deadline := time.Now().Add(tt.waitForAutoRotate)
 			rotated := false
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
 
 			for time.Now().Before(deadline) {
 				current, currentErr := backend.GetSecretValue(
@@ -98,7 +100,7 @@ func TestRotateSecretRulesAndScheduler(t *testing.T) {
 					break
 				}
 
-				time.Sleep(100 * time.Millisecond)
+				<-ticker.C
 			}
 
 			assert.True(t, rotated)
