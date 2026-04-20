@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -119,6 +120,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutMetricFilter",
 		"DescribeMetricFilters",
 		"DeleteMetricFilter",
+		"TestMetricFilter",
 		"DescribeAlarmContributors",
 		"DescribeAnomalyDetectors",
 		"DescribeInsightRules",
@@ -356,6 +358,8 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 		return h.handleDescribeMetricFilters(form, c)
 	case "DeleteMetricFilter":
 		return h.handleDeleteMetricFilter(form, c)
+	case "TestMetricFilter":
+		return h.handleTestMetricFilter(form, c)
 	case "DescribeAlarmContributors":
 		return h.handleDescribeAlarmContributors(form, c)
 	default:
@@ -806,6 +810,10 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		Dimensions:              parseDimensionsFromForm(form, "Dimensions."),
 	}
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -1405,7 +1413,7 @@ func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) err
 
 	var muteDuration int64
 	if rawDuration := form.Get("MuteDuration"); rawDuration != "" {
-		parsedDuration, err := strconv.ParseInt(rawDuration, 10, 32)
+		parsedDuration, err := strconv.ParseInt(rawDuration, 10, 64)
 		if err != nil {
 			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteDuration must be an integer")
 		}
@@ -1423,7 +1431,7 @@ func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) err
 	rule := &AlarmMuteRule{
 		MuteName:      muteName,
 		Description:   form.Get("Description"),
-		MuteDuration:  int32(muteDuration),
+		MuteDuration:  int32(muteDuration), //nolint:gosec // bounds checked above (0..MaxInt32)
 		AlarmNames:    parseMemberList(form, "AlarmNames."),
 		MuteStartTime: time.Now().UTC(),
 	}
@@ -2154,6 +2162,23 @@ func (h *Handler) handleDeleteMetricFilter(form url.Values, c *echo.Context) err
 		XMLName   xml.Name `xml:"DeleteMetricFilterResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+// handleTestMetricFilter is a stub that returns empty matches (log events not stored by this emulator).
+func (h *Handler) handleTestMetricFilter(_ url.Values, c *echo.Context) error {
+	type match struct {
+		ExtractedValues struct{} `xml:"ExtractedValues"`
+		EventMessage    string   `xml:"EventMessage"`
+		EventNumber     int64    `xml:"EventNumber"`
+	}
+	type response struct {
+		XMLName   xml.Name `xml:"TestMetricFilterResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Matches   []match  `xml:"TestMetricFilterResult>Matches>member"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

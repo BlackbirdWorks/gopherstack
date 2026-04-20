@@ -4,6 +4,7 @@
 	import { getCloudWatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeAlarmsCommand,
+		DescribeAlarmHistoryCommand,
 		PutMetricAlarmCommand,
 		DeleteAlarmsCommand,
 		ListMetricsCommand,
@@ -11,9 +12,11 @@
 		PutDashboardCommand,
 		DeleteDashboardsCommand,
 		ListMetricStreamsCommand,
+		PutMetricStreamCommand,
 		DeleteMetricStreamCommand,
 		DescribeAnomalyDetectorsCommand,
 		DeleteAnomalyDetectorCommand,
+		PutAnomalyDetectorCommand,
 		EnableAlarmActionsCommand,
 		DisableAlarmActionsCommand,
 		SetAlarmStateCommand,
@@ -21,7 +24,8 @@
 		type DashboardEntry,
 		type Metric,
 		type MetricStreamEntry,
-		type AnomalyDetector
+		type AnomalyDetector,
+		type AlarmHistoryItem
 	} from '@aws-sdk/client-cloudwatch';
 	import {
 		DescribeMetricFiltersCommand,
@@ -30,7 +34,7 @@
 		type MetricFilter
 	} from '@aws-sdk/client-cloudwatch-logs';
 	import { toast } from 'svelte-sonner';
-	import { Activity, Search, RefreshCw, Plus, Trash2, Bell, BarChart2, Layout, Filter, Radio, ScanLine, Edit2, ToggleLeft, ToggleRight } from 'lucide-svelte';
+	import { Activity, Search, RefreshCw, Plus, Trash2, Bell, BarChart2, Layout, Filter, Radio, ScanLine, Edit2, ToggleLeft, ToggleRight, Clock, ChevronDown, ChevronUp } from 'lucide-svelte';
 
 	const cw = getCloudWatchClient();
 	const cwLogs = getCloudWatchLogsClient();
@@ -55,6 +59,15 @@
 	let newStatistic = $state<NonNullable<PutMetricAlarmInput['Statistic']>>('Average');
 	let newDatapointsToAlarm = $state<number | undefined>();
 	let newTreatMissingData = $state<string>('missing');
+	let newAlarmDescription = $state('');
+	let newAlarmActions = $state('');
+
+	// Alarm history
+	let historyAlarmName = $state('');
+	let alarmHistory = $state<AlarmHistoryItem[]>([]);
+	let showHistory = $state(false);
+	let loadingHistory = $state(false);
+	let expandedAlarms = $state<Set<string>>(new Set());
 
 	// Edit State modal
 	let showEditState = $state(false);
@@ -75,9 +88,19 @@
 
 	// Metric Streams
 	let streams = $state<MetricStreamEntry[]>([]);
+	let showCreateStream = $state(false);
+	let creatingStream = $state(false);
+	let newStreamName = $state('');
+	let newStreamFirehoseArn = $state('');
+	let newStreamOutputFormat = $state('json');
 
 	// Anomaly Detectors
 	let anomalyDetectors = $state<AnomalyDetector[]>([]);
+	let showCreateAnomaly = $state(false);
+	let creatingAnomaly = $state(false);
+	let newAnomalyNamespace = $state('AWS/EC2');
+	let newAnomalyMetric = $state('CPUUtilization');
+	let newAnomalyStat = $state('Average');
 
 	// Metric Filters
 	let metricFilters = $state<MetricFilter[]>([]);
@@ -110,6 +133,12 @@
 		if (state === 'ALARM') return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
 		if (state === 'OK') return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
 		return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
+	}
+
+	function anomalyStateColor(state: string | undefined): string {
+		if (state === 'TRAINED') return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+		if (state === 'PENDING_TRAINING') return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
+		return 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400';
 	}
 
 	async function loadDemoData() {
@@ -269,6 +298,27 @@
 		}
 	}
 
+	async function toggleAlarmHistory(alarmName: string) {
+		const next = new Set(expandedAlarms);
+		if (next.has(alarmName)) {
+			next.delete(alarmName);
+			expandedAlarms = next;
+			return;
+		}
+		next.add(alarmName);
+		expandedAlarms = next;
+		historyAlarmName = alarmName;
+		loadingHistory = true;
+		try {
+			const res = await cw.send(new DescribeAlarmHistoryCommand({ AlarmName: alarmName, MaxRecords: 20 }));
+			alarmHistory = res.AlarmHistoryItems ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load history: ${(err as Error).message}`);
+		} finally {
+			loadingHistory = false;
+		}
+	}
+
 	async function createAlarm() {
 		if (!newAlarmName.trim() || !newMetricName.trim()) return;
 		creatingAlarm = true;
@@ -284,7 +334,9 @@
 					Period: newPeriod,
 					Statistic: newStatistic,
 					...(newDatapointsToAlarm ? { DatapointsToAlarm: newDatapointsToAlarm } : {}),
-					TreatMissingData: newTreatMissingData
+					TreatMissingData: newTreatMissingData,
+					...(newAlarmDescription.trim() ? { AlarmDescription: newAlarmDescription.trim() } : {}),
+					...(newAlarmActions.trim() ? { AlarmActions: newAlarmActions.split(',').map(s => s.trim()).filter(Boolean) } : {})
 				})
 			);
 			toast.success(`Alarm "${newAlarmName}" created`);
@@ -293,6 +345,8 @@
 			newMetricName = '';
 			newDatapointsToAlarm = undefined;
 			newTreatMissingData = 'missing';
+			newAlarmDescription = '';
+			newAlarmActions = '';
 			await loadAlarms();
 		} catch (err: unknown) {
 			toast.error(`Create alarm failed: ${(err as Error).message}`);
@@ -366,6 +420,30 @@
 		}
 	}
 
+	async function createStream() {
+		if (!newStreamName.trim() || !newStreamFirehoseArn.trim()) return;
+		creatingStream = true;
+		try {
+			await cw.send(new PutMetricStreamCommand({
+				Name: newStreamName.trim(),
+				FirehoseArn: newStreamFirehoseArn.trim(),
+				OutputFormat: newStreamOutputFormat as 'json' | 'opentelemetry1.0' | 'opentelemetry0.7',
+				RoleArn: 'arn:aws:iam::123456789012:role/CloudWatchStreamRole'
+			}));
+			toast.success(`Metric stream "${newStreamName}" created`);
+			showCreateStream = false;
+			newStreamName = '';
+			newStreamFirehoseArn = '';
+			newStreamOutputFormat = 'json';
+			const res = await cw.send(new ListMetricStreamsCommand({}));
+			streams = res.Entries ?? [];
+		} catch (err: unknown) {
+			toast.error(`Create stream failed: ${(err as Error).message}`);
+		} finally {
+			creatingStream = false;
+		}
+	}
+
 	async function deleteAnomalyDetector(detector: AnomalyDetector) {
 		const label = detector.SingleMetricAnomalyDetector?.MetricName ?? 'detector';
 		if (!await confirmDestructive({ title: 'Delete Anomaly Detector', message: `Delete anomaly detector for "${label}"?` })) return;
@@ -378,6 +456,31 @@
 			anomalyDetectors = res.AnomalyDetectors ?? [];
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function createAnomalyDetector() {
+		if (!newAnomalyNamespace.trim() || !newAnomalyMetric.trim()) return;
+		creatingAnomaly = true;
+		try {
+			await cw.send(new PutAnomalyDetectorCommand({
+				SingleMetricAnomalyDetector: {
+					Namespace: newAnomalyNamespace.trim(),
+					MetricName: newAnomalyMetric.trim(),
+					Stat: newAnomalyStat.trim()
+				}
+			}));
+			toast.success(`Anomaly detector created for ${newAnomalyMetric}`);
+			showCreateAnomaly = false;
+			newAnomalyNamespace = 'AWS/EC2';
+			newAnomalyMetric = 'CPUUtilization';
+			newAnomalyStat = 'Average';
+			const res = await cw.send(new DescribeAnomalyDetectorsCommand({}));
+			anomalyDetectors = res.AnomalyDetectors ?? [];
+		} catch (err: unknown) {
+			toast.error(`Create anomaly detector failed: ${(err as Error).message}`);
+		} finally {
+			creatingAnomaly = false;
 		}
 	}
 
@@ -508,44 +611,86 @@
 		{:else}
 			<div class="space-y-2">
 				{#each filteredAlarms as alarm}
-					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-start gap-4">
-						<Bell class="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
-						<div class="flex-1 min-w-0">
-							<p class="font-medium text-slate-900 dark:text-white">{alarm.AlarmName}</p>
-							<p class="text-xs text-slate-500 dark:text-slate-400">
-								{alarm.Namespace} / {alarm.MetricName} · {alarm.ComparisonOperator?.replace(/([A-Z])/g, ' $1').trim()} {alarm.Threshold}
-							</p>
-							{#if alarm.DatapointsToAlarm || alarm.TreatMissingData}
-								<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-									{#if alarm.DatapointsToAlarm}Datapoints: {alarm.DatapointsToAlarm} · {/if}
-									{#if alarm.TreatMissingData}Missing: {alarm.TreatMissingData}{/if}
+					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+						<div class="p-4 flex items-start gap-4">
+							<Bell class="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+							<div class="flex-1 min-w-0">
+								<p class="font-medium text-slate-900 dark:text-white">{alarm.AlarmName}</p>
+								<p class="text-xs text-slate-500 dark:text-slate-400">
+									{alarm.Namespace} / {alarm.MetricName} · {alarm.ComparisonOperator?.replace(/([A-Z])/g, ' $1').trim()} {alarm.Threshold}
 								</p>
-							{/if}
+								{#if alarm.DatapointsToAlarm || alarm.TreatMissingData}
+									<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+										{#if alarm.DatapointsToAlarm}Datapoints: {alarm.DatapointsToAlarm} · {/if}
+										{#if alarm.TreatMissingData}Missing: {alarm.TreatMissingData}{/if}
+									</p>
+								{/if}
+								{#if alarm.AlarmDescription}
+									<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 italic">{alarm.AlarmDescription}</p>
+								{/if}
+								{#if alarm.StateReason}
+									<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Reason: {alarm.StateReason}</p>
+								{/if}
+							</div>
+							<span class="px-2 py-0.5 text-xs rounded-full {stateColor(alarm.StateValue)}">{alarm.StateValue}</span>
+							<span class="text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{alarm.Period}s / {alarm.EvaluationPeriods}p</span>
+							<button
+								onclick={() => toggleAlarmActions(alarm)}
+								class="p-1 text-slate-400 hover:text-indigo-500"
+								title={alarm.ActionsEnabled ? 'Disable actions' : 'Enable actions'}
+							>
+								{#if alarm.ActionsEnabled}
+									<ToggleRight class="w-5 h-5 text-indigo-500" />
+								{:else}
+									<ToggleLeft class="w-5 h-5" />
+								{/if}
+							</button>
+							<button
+								onclick={() => openEditState(alarm.AlarmName ?? '')}
+								class="p-1 text-slate-400 hover:text-indigo-500"
+								title="Edit state"
+								data-testid="edit-state-btn"
+							>
+								<Edit2 class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => toggleAlarmHistory(alarm.AlarmName ?? '')}
+								class="p-1 text-slate-400 hover:text-indigo-500"
+								title="View history"
+							>
+								{#if expandedAlarms.has(alarm.AlarmName ?? '')}
+									<ChevronUp class="w-4 h-4" />
+								{:else}
+									<ChevronDown class="w-4 h-4" />
+								{/if}
+							</button>
+							<button onclick={() => deleteAlarm(alarm.AlarmName ?? '')} class="p-1 text-slate-400 hover:text-red-500">
+								<Trash2 class="w-4 h-4" />
+							</button>
 						</div>
-						<span class="px-2 py-0.5 text-xs rounded-full {stateColor(alarm.StateValue)}">{alarm.StateValue}</span>
-						<span class="text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{alarm.Period}s / {alarm.EvaluationPeriods}p</span>
-						<button
-							onclick={() => toggleAlarmActions(alarm)}
-							class="p-1 text-slate-400 hover:text-indigo-500"
-							title={alarm.ActionsEnabled ? 'Disable actions' : 'Enable actions'}
-						>
-							{#if alarm.ActionsEnabled}
-								<ToggleRight class="w-5 h-5 text-indigo-500" />
-							{:else}
-								<ToggleLeft class="w-5 h-5" />
-							{/if}
-						</button>
-						<button
-							onclick={() => openEditState(alarm.AlarmName ?? '')}
-							class="p-1 text-slate-400 hover:text-indigo-500"
-							title="Edit state"
-							data-testid="edit-state-btn"
-						>
-							<Edit2 class="w-4 h-4" />
-						</button>
-						<button onclick={() => deleteAlarm(alarm.AlarmName ?? '')} class="p-1 text-slate-400 hover:text-red-500">
-							<Trash2 class="w-4 h-4" />
-						</button>
+						{#if expandedAlarms.has(alarm.AlarmName ?? '')}
+							<div class="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-3">
+								<div class="flex items-center gap-2 mb-2">
+									<Clock class="w-4 h-4 text-slate-400" />
+									<span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Alarm History</span>
+								</div>
+								{#if loadingHistory && historyAlarmName === alarm.AlarmName}
+									<p class="text-xs text-slate-400">Loading history...</p>
+								{:else if alarmHistory.length === 0}
+									<p class="text-xs text-slate-400">No history entries</p>
+								{:else}
+									<div class="space-y-1 max-h-48 overflow-y-auto">
+										{#each alarmHistory as item}
+											<div class="flex items-start gap-2 text-xs">
+												<span class="text-slate-400 whitespace-nowrap">{item.Timestamp ? new Date(item.Timestamp).toLocaleString() : ''}</span>
+												<span class="text-slate-500 dark:text-slate-400">{item.HistoryItemType}</span>
+												<span class="text-slate-700 dark:text-slate-300">{item.HistorySummary}</span>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -566,7 +711,7 @@
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
 						<h3 class="font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
 							<BarChart2 class="w-4 h-4 text-indigo-500" />
-							{ns} <span class="text-sm font-normal text-slate-500 dark:text-slate-400">({nsMetrics.length})</span>
+							{ns} <span class="text-sm font-normal text-slate-500 dark:text-slate-400">({nsMetrics.length} metrics)</span>
 						</h3>
 						<div class="flex flex-wrap gap-1">
 							{#each nsMetrics.slice(0, 20) as m}
@@ -593,8 +738,11 @@
 						<div>
 							<p class="font-medium text-slate-900 dark:text-white">{dash.DashboardName}</p>
 							<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-								{dash.LastModified ? new Date(dash.LastModified).toLocaleDateString() : 'N/A'}
+								Modified: {dash.LastModified ? new Date(dash.LastModified).toLocaleDateString() : 'N/A'}
 							</p>
+							{#if dash.Size}
+								<p class="text-xs text-slate-400 dark:text-slate-500">{dash.Size} bytes</p>
+							{/if}
 						</div>
 						<button onclick={() => deleteDashboard(dash.DashboardName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
 							<Trash2 class="w-4 h-4" />
@@ -604,6 +752,11 @@
 			</div>
 		{/if}
 	{:else if activeTab === 'streams'}
+		<div class="flex justify-end mb-3">
+			<button onclick={() => { showCreateStream = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm">
+				<Plus class="w-4 h-4" />Create Stream
+			</button>
+		</div>
 		{#if streams.length === 0}
 			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
 				<Radio class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
@@ -617,9 +770,12 @@
 						<div class="flex-1 min-w-0">
 							<p class="font-medium text-slate-900 dark:text-white">{stream.Name}</p>
 							<p class="text-xs text-slate-500 dark:text-slate-400">{stream.FirehoseArn ?? ''}</p>
+							{#if stream.CreationDate}
+								<p class="text-xs text-slate-400">Created {new Date(stream.CreationDate).toLocaleDateString()}</p>
+							{/if}
 						</div>
 						<span class="px-2 py-0.5 text-xs rounded-full {stream.State === 'running' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{stream.State}</span>
-						<span class="text-xs text-slate-400">{stream.OutputFormat}</span>
+						<span class="px-2 py-0.5 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded">{stream.OutputFormat}</span>
 						<button onclick={() => deleteStream(stream.Name ?? '')} class="p-1 text-slate-400 hover:text-red-500">
 							<Trash2 class="w-4 h-4" />
 						</button>
@@ -628,6 +784,11 @@
 			</div>
 		{/if}
 	{:else if activeTab === 'anomaly'}
+		<div class="flex justify-end mb-3">
+			<button onclick={() => { showCreateAnomaly = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm">
+				<Plus class="w-4 h-4" />Create Detector
+			</button>
+		</div>
 		{#if anomalyDetectors.length === 0}
 			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
 				<ScanLine class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
@@ -646,7 +807,7 @@
 								{detector.SingleMetricAnomalyDetector?.Namespace ?? ''} · {detector.SingleMetricAnomalyDetector?.Stat ?? ''}
 							</p>
 						</div>
-						<span class="px-2 py-0.5 text-xs rounded-full {detector.StateValue === 'TRAINED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'}">{detector.StateValue}</span>
+						<span class="px-2 py-0.5 text-xs rounded-full {anomalyStateColor(detector.StateValue)}">{detector.StateValue}</span>
 						<button onclick={() => deleteAnomalyDetector(detector)} class="p-1 text-slate-400 hover:text-red-500">
 							<Trash2 class="w-4 h-4" />
 						</button>
@@ -752,6 +913,14 @@
 						</select>
 					</div>
 				</div>
+				<div>
+					<label for="cw-alarm-desc" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description <span class="text-slate-400">(optional)</span></label>
+					<input id="cw-alarm-desc" type="text" bind:value={newAlarmDescription} placeholder="Human-readable description" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+				</div>
+				<div>
+					<label for="cw-alarm-actions" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Alarm Actions <span class="text-slate-400">(comma-separated SNS ARNs, optional)</span></label>
+					<input id="cw-alarm-actions" type="text" bind:value={newAlarmActions} placeholder="arn:aws:sns:us-east-1:123456789012:my-topic" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => { showCreateAlarm = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
 					<button type="submit" disabled={creatingAlarm} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
@@ -812,4 +981,70 @@
 			</form>
 		</div>
 	</div>
+{/if}
+
+<!-- Create Metric Stream Modal -->
+{#if showCreateStream}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Metric Stream</h2>
+<form onsubmit={(e) => { e.preventDefault(); createStream(); }} class="space-y-4">
+<div>
+<label for="cw-stream-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stream Name</label>
+<input id="cw-stream-name" type="text" bind:value={newStreamName} placeholder="e.g. my-metric-stream" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+</div>
+<div>
+<label for="cw-stream-firehose" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Firehose ARN</label>
+<input id="cw-stream-firehose" type="text" bind:value={newStreamFirehoseArn} placeholder="arn:aws:firehose:us-east-1:123456789012:deliverystream/my-stream" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+</div>
+<div>
+<label for="cw-stream-format" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Output Format</label>
+<select id="cw-stream-format" bind:value={newStreamOutputFormat} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+{#each ['json', 'opentelemetry1.0', 'opentelemetry0.7'] as fmt}
+<option value={fmt}>{fmt}</option>
+{/each}
+</select>
+</div>
+<div class="flex justify-end gap-3">
+<button type="button" onclick={() => { showCreateStream = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+<button type="submit" disabled={creatingStream} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+{creatingStream ? 'Creating...' : 'Create Stream'}
+</button>
+</div>
+</form>
+</div>
+</div>
+{/if}
+
+<!-- Create Anomaly Detector Modal -->
+{#if showCreateAnomaly}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Anomaly Detector</h2>
+<form onsubmit={(e) => { e.preventDefault(); createAnomalyDetector(); }} class="space-y-4">
+<div>
+<label for="cw-anomaly-namespace" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Namespace</label>
+<input id="cw-anomaly-namespace" type="text" bind:value={newAnomalyNamespace} placeholder="e.g. AWS/EC2" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+</div>
+<div>
+<label for="cw-anomaly-metric" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Metric Name</label>
+<input id="cw-anomaly-metric" type="text" bind:value={newAnomalyMetric} placeholder="e.g. CPUUtilization" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+</div>
+<div>
+<label for="cw-anomaly-stat" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Statistic</label>
+<select id="cw-anomaly-stat" bind:value={newAnomalyStat} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+{#each ['Average', 'Sum', 'Maximum', 'Minimum', 'SampleCount'] as s}
+<option value={s}>{s}</option>
+{/each}
+</select>
+</div>
+<div class="flex justify-end gap-3">
+<button type="button" onclick={() => { showCreateAnomaly = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+<button type="submit" disabled={creatingAnomaly} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+{creatingAnomaly ? 'Creating...' : 'Create Detector'}
+</button>
+</div>
+</form>
+</div>
+</div>
 {/if}

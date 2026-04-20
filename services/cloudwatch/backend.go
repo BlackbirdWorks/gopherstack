@@ -462,6 +462,23 @@ func (b *InMemoryBackend) GetMetricData(
 			values = append(values, v)
 		}
 
+		// Sort by timestamp ascending — AWS guarantees ascending order for GetMetricData.
+		if len(timestamps) > 1 {
+			type tsv struct {
+				ts  time.Time
+				val float64
+			}
+			pairs := make([]tsv, len(timestamps))
+			for i := range timestamps {
+				pairs[i] = tsv{timestamps[i], values[i]}
+			}
+			sort.Slice(pairs, func(i, j int) bool { return pairs[i].ts.Before(pairs[j].ts) })
+			for i := range pairs {
+				timestamps[i] = pairs[i].ts
+				values[i] = pairs[i].val
+			}
+		}
+
 		label := q.Label
 		if label == "" {
 			label = metricName
@@ -543,6 +560,21 @@ func (b *InMemoryBackend) ListMetrics(
 func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	if alarm.AlarmName == "" {
 		return ErrAlarmNameRequired
+	}
+
+	// AWS validation: Statistic and ExtendedStatistic are mutually exclusive.
+	if alarm.Statistic != "" && alarm.ExtendedStatistic != "" {
+		return fmt.Errorf("%w: Statistic and ExtendedStatistic are mutually exclusive", ErrValidation)
+	}
+
+	// AWS validation: DatapointsToAlarm must not exceed EvaluationPeriods.
+	if alarm.DatapointsToAlarm > 0 && alarm.DatapointsToAlarm > alarm.EvaluationPeriods {
+		return fmt.Errorf(
+			"%w: DatapointsToAlarm (%d) must not exceed EvaluationPeriods (%d)",
+			ErrValidation,
+			alarm.DatapointsToAlarm,
+			alarm.EvaluationPeriods,
+		)
 	}
 
 	b.mu.Lock("PutMetricAlarm")

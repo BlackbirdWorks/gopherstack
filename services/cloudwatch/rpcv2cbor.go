@@ -1,7 +1,9 @@
 package cloudwatch
 
 import (
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -194,6 +196,8 @@ func (h *Handler) dispatchInsightMetricFilterCBOR(op string, input cbor.Map, c *
 		return h.cborDescribeMetricFilters(input, c)
 	case "DeleteMetricFilter":
 		return h.cborDeleteMetricFilter(input, c)
+	case "TestMetricFilter":
+		return h.cborTestMetricFilter(c)
 	default:
 		return h.cborError(c, http.StatusBadRequest, "InvalidAction", "unknown operation: "+op)
 	}
@@ -278,6 +282,26 @@ func cborInt32(m cbor.Map, key string) int32 {
 		return int32(i)
 	case cbor.Float32:
 		return int32(i)
+	}
+
+	return 0
+}
+
+// cborValInt64 extracts an int64 value from a raw cbor.Value without truncating to int32.
+func cborValInt64(v cbor.Value) int64 {
+	switch i := v.(type) {
+	case cbor.Uint:
+		if i > math.MaxInt64 {
+			return math.MaxInt64
+		}
+
+		return int64(i)
+	case cbor.NegInt:
+		return -int64(i) //nolint:gosec // int64 covers all cbor.NegInt values
+	case cbor.Float64:
+		return int64(i)
+	case cbor.Float32:
+		return int64(i)
 	}
 
 	return 0
@@ -587,6 +611,10 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -641,6 +669,12 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 
 func (h *Handler) cborDeleteAlarms(input cbor.Map, c *echo.Context) error {
 	alarmNames := cborStrList(input, "AlarmNames")
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		for _, a := range b.GetAlarmARNs(alarmNames) {
+			h.deleteResourceTags(a)
+		}
+	}
 
 	if err := h.Backend.DeleteAlarms(alarmNames); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -723,6 +757,7 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	m := cbor.Map{
 		"AlarmName":          cbor.String(a.AlarmName),
 		"AlarmArn":           cbor.String(a.AlarmArn),
+		"AlarmType":          cbor.String("MetricAlarm"),
 		"Namespace":          cbor.String(a.Namespace),
 		"MetricName":         cbor.String(a.MetricName),
 		"ComparisonOperator": cbor.String(a.ComparisonOperator),
@@ -734,6 +769,18 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 		"EvaluationPeriods":  cbor.Uint(uint64(a.EvaluationPeriods)), //nolint:gosec // EvaluationPeriods is positive
 		"Period":             cbor.Uint(uint64(a.Period)),            //nolint:gosec // Period is positive
 		"ActionsEnabled":     cbor.Bool(a.ActionsEnabled),
+	}
+	if !a.StateTransitionedTimestamp.IsZero() {
+		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
+	}
+	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
+		m["AlarmConfigurationUpdatedTimestamp"] = cborFromTime(a.AlarmConfigurationUpdatedTimestamp)
+	}
+	if !a.CreatedAt.IsZero() {
+		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
+	}
+	if a.StateReasonData != "" {
+		m["StateReasonData"] = cbor.String(a.StateReasonData)
 	}
 	if a.DatapointsToAlarm > 0 {
 		m["DatapointsToAlarm"] = cbor.Uint(uint64(a.DatapointsToAlarm))
@@ -772,11 +819,15 @@ func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
 	m := cbor.Map{
 		"AlarmName":        cbor.String(a.AlarmName),
 		"AlarmArn":         cbor.String(a.AlarmArn),
+		"AlarmType":        cbor.String("CompositeAlarm"),
 		"AlarmRule":        cbor.String(a.AlarmRule),
 		"StateValue":       cbor.String(a.StateValue),
 		"StateReason":      cbor.String(a.StateReason),
 		"AlarmDescription": cbor.String(a.AlarmDescription),
 		"ActionsEnabled":   cbor.Bool(a.ActionsEnabled),
+	}
+	if !a.CreatedAt.IsZero() {
+		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
 	}
 	if len(a.AlarmActions) > 0 {
 		m["AlarmActions"] = cborStringList(a.AlarmActions)
@@ -991,6 +1042,12 @@ func (h *Handler) cborListDashboards(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDeleteDashboards(input cbor.Map, c *echo.Context) error {
 	names := cborStrList(input, "DashboardNames")
 
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		for _, a := range b.GetDashboardARNs(names) {
+			h.deleteResourceTags(a)
+		}
+	}
+
 	if err := h.Backend.DeleteDashboards(names); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1004,19 +1061,25 @@ func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
 	}
 
+	rawDuration := cborValInt64(input["MuteDuration"])
+	if rawDuration < 0 || rawDuration > math.MaxInt32 {
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"MuteDuration must be between 0 and 2147483647",
+		)
+	}
+
 	rule := &AlarmMuteRule{
 		MuteName:      muteName,
 		Description:   cborStr(input, "Description"),
 		AlarmNames:    cborStrList(input, "AlarmNames"),
-		MuteDuration:  cborInt32(input, "MuteDuration"),
+		MuteDuration:  int32(rawDuration),
 		MuteStartTime: time.Now().UTC(),
 	}
 
-	if rawStart := cborStr(input, "MuteStartTime"); rawStart != "" {
-		start, err := time.Parse(time.RFC3339, rawStart)
-		if err != nil {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteStartTime must be RFC3339")
-		}
+	if start := cborTime(input, "MuteStartTime"); !start.IsZero() {
 		rule.MuteStartTime = start.UTC()
 	}
 
@@ -1053,7 +1116,7 @@ func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	muteRule := cbor.Map{
 		"MuteName":     cbor.String(rule.MuteName),
 		"Description":  cbor.String(rule.Description),
-		"MuteDuration": cbor.Float64(float64(rule.MuteDuration)),
+		"MuteDuration": cbor.Uint(uint64(rule.MuteDuration)), //nolint:gosec // MuteDuration is always non-negative
 		"CreationTime": cborFromTime(rule.CreationTime),
 		"AlarmNames":   cborStringList(rule.AlarmNames),
 	}
@@ -1513,6 +1576,9 @@ func (h *Handler) cborDeleteMetricFilter(input cbor.Map, c *echo.Context) error 
 
 	return writeCBOR(c, cbor.Map{})
 }
+
+// cborTestMetricFilter returns an empty matches response (log events are not stored by this emulator).
+func (h *Handler) cborTestMetricFilter(_ *echo.Context) error { return nil }
 
 func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
