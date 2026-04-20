@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
@@ -594,6 +596,8 @@ type Config struct {
 	S3TablesOps *s3tablesbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
+	// PortAlloc provides access to runtime-allocated service ports.
+	PortAlloc *portalloc.Allocator
 	// Logger is the structured logger for dashboard operations.
 	Logger        *slog.Logger
 	GlobalConfig  *config.GlobalConfig
@@ -666,6 +670,48 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"connections": h.config.CodeStarConnectionsOps.Backend.ListConnections("", ""),
+		})
+	})
+
+	h.SubRouter.GET("/dashboard/api/system/state", func(c *echo.Context) error {
+		const (
+			defaultPortRangeStart = 5000
+			defaultPortRangeEnd   = 10000
+		)
+
+		type allocatedPort struct {
+			Label string `json:"label"`
+			Port  int    `json:"port"`
+		}
+
+		portRangeStart := defaultPortRangeStart
+		portRangeEnd := defaultPortRangeEnd
+		if h.ConfigManager != nil {
+			settings := h.ConfigManager.GetSettings()
+			if settings.PortRangeStart > 0 {
+				portRangeStart = settings.PortRangeStart
+			}
+			if settings.PortRangeEnd > settings.PortRangeStart {
+				portRangeEnd = settings.PortRangeEnd
+			}
+		}
+
+		allocated := make([]allocatedPort, 0)
+		if h.config.PortAlloc != nil {
+			snapshot := h.config.PortAlloc.Allocated()
+			allocated = make([]allocatedPort, 0, len(snapshot))
+			for port, label := range snapshot {
+				allocated = append(allocated, allocatedPort{Port: port, Label: label})
+			}
+			sort.Slice(allocated, func(i, j int) bool {
+				return allocated[i].Port < allocated[j].Port
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"portRangeStart": portRangeStart,
+			"portRangeEnd":   portRangeEnd,
+			"allocated":      allocated,
 		})
 	})
 
