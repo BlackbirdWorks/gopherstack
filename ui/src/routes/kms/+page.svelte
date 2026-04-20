@@ -3,9 +3,9 @@ import { onMount } from 'svelte';
 import { getKMSClient } from '$lib/aws-client';
 import {
 	ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand,
-	ListAliasesCommand, CreateKeyCommand, EncryptCommand, DecryptCommand,
+	ListAliasesCommand, CreateKeyCommand, EncryptCommand, DecryptCommand, ReEncryptCommand,
 	SignCommand, VerifyCommand, GetPublicKeyCommand,
-	EnableKeyRotationCommand, DisableKeyRotationCommand, GetKeyRotationStatusCommand, RotateKeyOnDemandCommand,
+	EnableKeyRotationCommand, DisableKeyRotationCommand, GetKeyRotationStatusCommand, RotateKeyOnDemandCommand, ListKeyRotationsCommand,
 	ScheduleKeyDeletionCommand, CancelKeyDeletionCommand,
 	CreateAliasCommand, UpdateAliasCommand, DeleteAliasCommand,
 	TagResourceCommand, UntagResourceCommand, ListResourceTagsCommand,
@@ -14,7 +14,7 @@ import {
 	type AliasListEntry, type KeySpec, type KeyUsageType, type SigningAlgorithmSpec, type GrantOperation
 } from '@aws-sdk/client-kms';
 import { toast } from 'svelte-sonner';
-import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, BarChart3, BookOpen, Shield, RotateCcw, Trash2, CheckCircle, XCircle, Edit2 } from 'lucide-svelte';
+import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, BarChart3, BookOpen, Shield, RotateCcw, Trash2, CheckCircle, XCircle, Edit2, Database } from 'lucide-svelte';
 
 const kms = getKMSClient();
 
@@ -32,6 +32,7 @@ type KMSKey = {
 	Origin?: string;
 	MultiRegion?: boolean;
 	Enabled?: boolean;
+	PendingWindowInDays?: number;
 };
 
 type TagEntry = { TagKey: string; TagValue: string };
@@ -58,13 +59,23 @@ let cryptoKeyId = $state('');
 let plaintext = $state('');
 let ciphertext = $state('');
 let decryptedText = $state('');
+let encryptAlgorithm = $state('');
+let decryptAlgorithm = $state('');
 let encrypting = $state(false);
 let decrypting = $state(false);
+
+// ReEncrypt state
+let reEncryptDestKeyId = $state('');
+let reEncryptedCiphertext = $state('');
+let reEncryptSrcAlgo = $state('');
+let reEncryptDstAlgo = $state('');
+let reEncrypting = $state(false);
 
 let showSignModal = $state(false);
 let signKeyId = $state('');
 let signMessage = $state('');
 let signAlgorithm = $state('RSASSA_PSS_SHA_256');
+let signMessageType = $state<'RAW' | 'DIGEST'>('RAW');
 let signature = $state('');
 let verifyMessage = $state('');
 let verifySig = $state('');
@@ -75,7 +86,9 @@ let verifying = $state(false);
 let showRotationModal = $state(false);
 let rotationKeyId = $state('');
 let rotationEnabled = $state(false);
-let rotationStatus = $state<{ KeyRotationEnabled?: boolean; RotationPeriodInDays?: number; NextRotationDate?: number } | null>(null);
+let rotationPeriodDays = $state(365);
+let rotationStatus = $state<{ KeyRotationEnabled?: boolean; RotationPeriodInDays?: number; NextRotationDate?: number; OnDemandRotationStartDate?: number } | null>(null);
+let rotationHistory = $state<{ RotationDate?: number; RotationType?: string; KeyId?: string }[]>([]);
 let togglingRotation = $state(false);
 let rotatingOnDemand = $state(false);
 
@@ -112,6 +125,9 @@ let keyGrants = $state<Grant[]>([]);
 let newGrantPrincipal = $state('');
 let newGrantOps = $state('Decrypt,Encrypt');
 let creatingGrant = $state(false);
+
+let originFilter = $state('all');
+let seedingDemo = $state(false);
 
 onMount(async () => { await loadKeys(); });
 
@@ -217,6 +233,7 @@ async function encrypt() {
 		if (res.CiphertextBlob) {
 			ciphertext = btoa(String.fromCodePoint(...res.CiphertextBlob));
 		}
+		encryptAlgorithm = res.EncryptionAlgorithm ?? '';
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Encryption failed');
 	} finally {
@@ -232,6 +249,7 @@ async function decrypt() {
 		if (res.Plaintext) {
 			decryptedText = new TextDecoder().decode(res.Plaintext);
 		}
+		decryptAlgorithm = res.EncryptionAlgorithm ?? '';
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Decryption failed');
 	} finally {
@@ -244,7 +262,34 @@ function openCrypto(keyId: string) {
 	plaintext = '';
 	ciphertext = '';
 	decryptedText = '';
+	encryptAlgorithm = '';
+	decryptAlgorithm = '';
+	reEncryptDestKeyId = '';
+	reEncryptedCiphertext = '';
+	reEncryptSrcAlgo = '';
+	reEncryptDstAlgo = '';
 	showCryptoModal = true;
+}
+
+async function reEncrypt() {
+	if (!ciphertext || !reEncryptDestKeyId) return;
+	try {
+		reEncrypting = true;
+		const res = await kms.send(new ReEncryptCommand({
+			CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.codePointAt(0)!),
+			DestinationKeyId: reEncryptDestKeyId
+		}));
+		if (res.CiphertextBlob) {
+			reEncryptedCiphertext = btoa(String.fromCodePoint(...res.CiphertextBlob));
+		}
+		reEncryptSrcAlgo = res.SourceEncryptionAlgorithm ?? '';
+		reEncryptDstAlgo = res.DestinationEncryptionAlgorithm ?? '';
+		toast.success('Re-encrypted successfully');
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Re-encryption failed');
+	} finally {
+		reEncrypting = false;
+	}
 }
 
 async function openSignModal(key: KMSKey) {
@@ -270,7 +315,7 @@ async function signData() {
 		const res = await kms.send(new SignCommand({
 			KeyId: signKeyId,
 			Message: new TextEncoder().encode(signMessage),
-			MessageType: 'RAW',
+			MessageType: signMessageType,
 			SigningAlgorithm: signAlgorithm as SigningAlgorithmSpec
 		}));
 		if (res.Signature) signature = btoa(String.fromCodePoint(...res.Signature));
@@ -286,7 +331,7 @@ async function verifyData() {
 		const res = await kms.send(new VerifyCommand({
 			KeyId: signKeyId,
 			Message: new TextEncoder().encode(verifyMessage),
-			MessageType: 'RAW',
+			MessageType: signMessageType,
 			SigningAlgorithm: signAlgorithm as SigningAlgorithmSpec,
 			Signature: Uint8Array.from(atob(verifySig), c => c.codePointAt(0)!)
 		}));
@@ -299,17 +344,30 @@ async function verifyData() {
 async function openRotationModal(key: KMSKey) {
 	rotationKeyId = key.KeyId ?? '';
 	rotationStatus = null;
+	rotationHistory = [];
 	try {
 		const res = await kms.send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationEnabled = res.KeyRotationEnabled ?? false;
+		rotationPeriodDays = res.RotationPeriodInDays ?? 365;
 		rotationStatus = {
 			KeyRotationEnabled: res.KeyRotationEnabled,
 			RotationPeriodInDays: res.RotationPeriodInDays,
-			NextRotationDate: res.NextRotationDate ? res.NextRotationDate.getTime() / 1000 : undefined
+			NextRotationDate: res.NextRotationDate ? res.NextRotationDate.getTime() / 1000 : undefined,
+			OnDemandRotationStartDate: (res as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate
+				? ((res as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate!.getTime() / 1000)
+				: undefined
 		};
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load rotation status');
 	}
+	try {
+		const hist = await kms.send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
+		rotationHistory = (hist.Rotations ?? []).map(r => ({
+			RotationDate: r.RotationDate ? r.RotationDate.getTime() / 1000 : undefined,
+			RotationType: (r as { RotationType?: string }).RotationType,
+			KeyId: (r as { KeyId?: string }).KeyId
+		}));
+	} catch { rotationHistory = []; }
 	showRotationModal = true;
 }
 
@@ -321,7 +379,7 @@ async function toggleRotation() {
 			rotationEnabled = false;
 			toast.success('Rotation disabled');
 		} else {
-			await kms.send(new EnableKeyRotationCommand({ KeyId: rotationKeyId }));
+			await kms.send(new EnableKeyRotationCommand({ KeyId: rotationKeyId, RotationPeriodInDays: rotationPeriodDays }));
 			rotationEnabled = true;
 			toast.success('Rotation enabled');
 		}
@@ -329,7 +387,10 @@ async function toggleRotation() {
 		rotationStatus = {
 			KeyRotationEnabled: s.KeyRotationEnabled,
 			RotationPeriodInDays: s.RotationPeriodInDays,
-			NextRotationDate: s.NextRotationDate ? s.NextRotationDate.getTime() / 1000 : undefined
+			NextRotationDate: s.NextRotationDate ? s.NextRotationDate.getTime() / 1000 : undefined,
+			OnDemandRotationStartDate: (s as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate
+				? ((s as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate!.getTime() / 1000)
+				: undefined
 		};
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to toggle rotation');
@@ -345,8 +406,17 @@ async function rotateOnDemand() {
 		rotationStatus = {
 			KeyRotationEnabled: s.KeyRotationEnabled,
 			RotationPeriodInDays: s.RotationPeriodInDays,
-			NextRotationDate: s.NextRotationDate ? s.NextRotationDate.getTime() / 1000 : undefined
+			NextRotationDate: s.NextRotationDate ? s.NextRotationDate.getTime() / 1000 : undefined,
+			OnDemandRotationStartDate: (s as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate
+				? ((s as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate!.getTime() / 1000)
+				: undefined
 		};
+		const hist = await kms.send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
+		rotationHistory = (hist.Rotations ?? []).map(r => ({
+			RotationDate: r.RotationDate ? r.RotationDate.getTime() / 1000 : undefined,
+			RotationType: (r as { RotationType?: string }).RotationType,
+			KeyId: (r as { KeyId?: string }).KeyId
+		}));
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'On-demand rotation failed');
 	} finally { rotatingOnDemand = false; }
@@ -363,7 +433,10 @@ async function scheduleOrCancelDeletion() {
 	try {
 		schedulingDeletion = true;
 		if (deletionKeyState === 'PendingDeletion') {
-			await kms.send(new CancelKeyDeletionCommand({ KeyId: deletionKeyId }));
+			const res = await kms.send(new CancelKeyDeletionCommand({ KeyId: deletionKeyId }));
+			// Update the key state from the response if available.
+			const newState = (res as { KeyState?: string }).KeyState;
+			if (newState) { deletionKeyState = newState; }
 			toast.success('Key deletion cancelled');
 		} else {
 			await kms.send(new ScheduleKeyDeletionCommand({ KeyId: deletionKeyId, PendingWindowInDays: pendingWindowDays }));
@@ -375,6 +448,26 @@ async function scheduleOrCancelDeletion() {
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Deletion operation failed');
 	} finally { schedulingDeletion = false; }
+}
+
+async function seedDemoData() {
+	try {
+		seedingDemo = true;
+		const demoKeys: Array<{ Description: string; KeySpec: KeySpec; KeyUsage: KeyUsageType }> = [
+			{ Description: 'Demo: S3 Encryption Key', KeySpec: 'SYMMETRIC_DEFAULT', KeyUsage: 'ENCRYPT_DECRYPT' },
+			{ Description: 'Demo: RDS Database Key', KeySpec: 'SYMMETRIC_DEFAULT', KeyUsage: 'ENCRYPT_DECRYPT' },
+			{ Description: 'Demo: Code Signing Key', KeySpec: 'RSA_2048', KeyUsage: 'SIGN_VERIFY' },
+			{ Description: 'Demo: HMAC Auth Key', KeySpec: 'HMAC_256', KeyUsage: 'GENERATE_VERIFY_MAC' },
+			{ Description: 'Demo: ECC Sign Key', KeySpec: 'ECC_NIST_P256', KeyUsage: 'SIGN_VERIFY' },
+		];
+		for (const k of demoKeys) {
+			await kms.send(new CreateKeyCommand(k));
+		}
+		toast.success(`Seeded ${demoKeys.length} demo KMS keys`);
+		await loadKeys();
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Demo seeding failed');
+	} finally { seedingDemo = false; }
 }
 
 async function createAlias() {
@@ -536,11 +629,16 @@ function isSignVerify(key: KMSKey) { return key.KeyUsage === 'SIGN_VERIFY'; }
 let enabledCount = $derived(keys.filter(k => k.KeyState === 'Enabled').length);
 let disabledCount = $derived(keys.filter(k => k.KeyState === 'Disabled').length);
 let pendingCount = $derived(keys.filter(k => k.KeyState === 'PendingDeletion').length);
+let pendingImportCount = $derived(keys.filter(k => k.KeyState === 'PendingImport').length);
 let symmetricCount = $derived(keys.filter(k => isSymmetric(k)).length);
-let asymmetricCount = $derived(keys.filter(k => !isSymmetric(k)).length);
+let asymmetricCount = $derived(keys.filter(k => !isSymmetric(k) && !isHMAC(k)).length);
+let hmacCount = $derived(keys.filter(k => isHMAC(k)).length);
 let multiRegionCount = $derived(keys.filter(k => k.MultiRegion).length);
 
+function isHMAC(key: KMSKey) { return (key.CustomerMasterKeySpec || key.KeySpec || '').startsWith('HMAC'); }
 let uniqueUsages = $derived([...new Set(keys.map(k => k.KeyUsage).filter((u): u is string => u !== null))]);
+let uniqueOrigins = $derived([...new Set(keys.map(k => k.Origin ?? 'AWS_KMS').filter(Boolean))]);
+let uniqueSpecs = $derived([...new Set(keys.map(k => getKeySpec(k)).filter(Boolean))]);
 
 let filtered = $derived(keys.filter(k => {
 	const desc = (k.Description || '').toLowerCase();
@@ -548,7 +646,8 @@ let filtered = $derived(keys.filter(k => {
 	const matchSearch = !search || desc.includes(search.toLowerCase()) || id.includes(search.toLowerCase());
 	const matchState = stateFilter === 'all' || k.KeyState === stateFilter;
 	const matchUsage = usageFilter === 'all' || k.KeyUsage === usageFilter;
-	return matchSearch && matchState && matchUsage;
+	const matchOrigin = originFilter === 'all' || (k.Origin ?? 'AWS_KMS') === originFilter;
+	return matchSearch && matchState && matchUsage && matchOrigin;
 }));
 
 let filteredAliases = $derived(aliases.filter(a =>
@@ -579,6 +678,9 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 			<button onclick={refresh} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700" title="Refresh">
 				<RefreshCw class="w-4 h-4" />
 			</button>
+			<button onclick={seedDemoData} disabled={seedingDemo} class="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-sm" title="Seed demo keys">
+				<Database class="w-4 h-4" /> {seedingDemo ? 'Seeding...' : 'Demo Data'}
+			</button>
 			<button id="create-key-btn" onclick={() => showCreateModal = true} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" /> Create Key
 			</button>
@@ -587,13 +689,15 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 
 	<!-- Stats -->
 	{#if !loading}
-	<div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+	<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
 		{#each [
 			{ label: 'Enabled', count: enabledCount, color: 'text-green-500' },
 			{ label: 'Disabled', count: disabledCount, color: 'text-slate-400' },
-			{ label: 'Pending Deletion', count: pendingCount, color: 'text-red-500' },
+			{ label: 'Pending Del.', count: pendingCount, color: 'text-red-500' },
+			{ label: 'Pending Import', count: pendingImportCount, color: 'text-orange-500' },
 			{ label: 'Symmetric', count: symmetricCount, color: 'text-amber-500' },
 			{ label: 'Asymmetric', count: asymmetricCount, color: 'text-indigo-500' },
+			{ label: 'HMAC', count: hmacCount, color: 'text-teal-500' },
 			{ label: 'Multi-Region', count: multiRegionCount, color: 'text-purple-500' }
 		] as stat}
 			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
@@ -641,6 +745,10 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 			<option value="all">All Usages</option>
 			{#each uniqueUsages as u}<option value={u}>{u.replace(/_/g, ' ')}</option>{/each}
 		</select>
+		<select bind:value={originFilter} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm">
+			<option value="all">All Origins</option>
+			{#each uniqueOrigins as o}<option value={o}>{o}</option>{/each}
+		</select>
 	</div>
 
 	<!-- List + detail panel -->
@@ -679,6 +787,8 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 								</div>
 								<div class="flex items-center gap-2 ml-3 shrink-0">
 									{#if key.MultiRegion}<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">Multi-Region</span>{/if}
+									{#if isHMAC(key)}<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300">HMAC</span>{/if}
+									{#if (key.Origin ?? 'AWS_KMS') !== 'AWS_KMS'}<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">{key.Origin}</span>{/if}
 									<span class={`px-3 py-1 rounded-full text-xs font-medium ${getStateColor(key.KeyState ?? '')}`}>{key.KeyState}</span>
 								</div>
 							</div>
@@ -705,6 +815,9 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 								{#if isSymmetric(key) && key.KeyState === 'Enabled'}
 									<button id="crypto-btn-{key.KeyId}" onclick={(e) => { e.stopPropagation(); openCrypto(key.KeyId ?? ''); }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"><Lock class="w-3 h-3" /> Crypto</button>
 								{/if}
+								{#if isHMAC(key) && key.KeyState === 'Enabled'}
+									<button onclick={(e) => { e.stopPropagation(); openGrantModal(key); }} class="px-3 py-1.5 bg-teal-600 text-white rounded-lg text-xs hover:bg-teal-700 flex items-center gap-1"><Shield class="w-3 h-3" /> MAC Grants</button>
+								{/if}
 								{#if isSignVerify(key) && key.KeyState === 'Enabled'}
 									<button onclick={(e) => { e.stopPropagation(); openSignModal(key); }} class="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs hover:bg-violet-700 flex items-center gap-1"><Shield class="w-3 h-3" /> Sign/Verify</button>
 								{/if}
@@ -716,6 +829,9 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 								<button onclick={(e) => { e.stopPropagation(); openPolicyModal(key); }} class="px-3 py-1.5 bg-pink-600 text-white rounded-lg text-xs hover:bg-pink-700 flex items-center gap-1"><Edit2 class="w-3 h-3" /> Policy</button>
 								<button onclick={(e) => { e.stopPropagation(); openDeletionModal(key); }} class="px-3 py-1.5 {key.KeyState === 'PendingDeletion' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-red-600 hover:bg-red-700'} text-white rounded-lg text-xs flex items-center gap-1"><Trash2 class="w-3 h-3" /> {key.KeyState === 'PendingDeletion' ? 'Cancel Delete' : 'Delete'}</button>
 								<button onclick={(e) => { e.stopPropagation(); copyId(key.KeyId ?? ''); }} class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center gap-1"><Copy class="w-3 h-3" /> Copy ID</button>
+								{#if key.KeyArn}
+									<button onclick={(e) => { e.stopPropagation(); copyId(key.KeyArn ?? ''); }} class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center gap-1"><Copy class="w-3 h-3" /> Copy ARN</button>
+								{/if}
 							</div>
 						</div>
 					{/each}
@@ -786,6 +902,16 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 							<p class="text-red-600 dark:text-red-400 text-xs">{new Date(selectedKey.DeletionDate).toLocaleString()}</p>
 						</div>
 						{/if}
+						{#if selectedKey.PendingWindowInDays}
+						<div>
+							<p class="text-xs font-medium text-red-500 mb-1">Pending Window</p>
+							<p class="text-red-600 dark:text-red-400 text-xs">{selectedKey.PendingWindowInDays} days</p>
+						</div>
+						{/if}
+						<div>
+							<p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Origin</p>
+							<p class="text-slate-700 dark:text-slate-300 text-xs">{selectedKey.Origin ?? 'AWS_KMS'}</p>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -821,6 +947,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 						<thead class="bg-slate-50 dark:bg-slate-700">
 							<tr>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Alias Name</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">ARN</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target Key ID</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Actions</th>
@@ -831,6 +958,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 								{@const isAws = (alias.AliasName || '').startsWith('alias/aws/')}
 								<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 									<td class="px-4 py-3 font-mono text-xs text-slate-900 dark:text-white">{alias.AliasName}</td>
+									<td class="px-4 py-3 font-mono text-xs text-slate-400 dark:text-slate-500 max-w-xs truncate" title={alias.AliasArn ?? ''}>{alias.AliasArn ?? '—'}</td>
 									<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{alias.TargetKeyId || '—'}</td>
 									<td class="px-4 py-3">
 										<span class="px-2 py-0.5 text-xs rounded-full {isAws ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'}">
@@ -841,6 +969,9 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 										<div class="flex gap-1">
 											{#if alias.TargetKeyId}
 												<button onclick={() => copyId(alias.TargetKeyId ?? '')} class="p-1 text-slate-400 hover:text-slate-600" title="Copy Key ID"><Copy class="w-3.5 h-3.5" /></button>
+											{/if}
+											{#if alias.AliasArn}
+												<button onclick={() => copyId(alias.AliasArn ?? '')} class="p-1 text-slate-400 hover:text-slate-600" title="Copy ARN"><Copy class="w-3.5 h-3.5" /></button>
 											{/if}
 											{#if !isAws}
 												<button onclick={() => openUpdateAlias(alias)} class="p-1 text-blue-400 hover:text-blue-600" title="Update"><Edit2 class="w-3.5 h-3.5" /></button>
@@ -860,12 +991,13 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 	<!-- Metrics Tab -->
 	{#if activeTab === 'metrics'}
 		<div class="space-y-6">
-			<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+			<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
 				{#each [
 					{ label: 'Total Keys', value: keys.length, color: 'text-amber-600 dark:text-amber-400' },
 					{ label: 'Enabled', value: enabledCount, color: 'text-green-600 dark:text-green-400' },
 					{ label: 'Disabled', value: disabledCount, color: 'text-slate-500' },
-					{ label: 'Pending Deletion', value: pendingCount, color: 'text-red-600 dark:text-red-400' },
+					{ label: 'Pending Del.', value: pendingCount, color: 'text-red-600 dark:text-red-400' },
+					{ label: 'HMAC', value: hmacCount, color: 'text-teal-600 dark:text-teal-400' },
 					{ label: 'Multi-Region', value: multiRegionCount, color: 'text-purple-600 dark:text-purple-400' },
 					{ label: 'Total Aliases', value: aliases.length, color: 'text-blue-600 dark:text-blue-400' }
 				] as m}
@@ -875,7 +1007,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					</div>
 				{/each}
 			</div>
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
 					<h3 class="font-semibold text-slate-900 dark:text-white mb-4">Key Usage Breakdown</h3>
 					{#each uniqueUsages as usage}
@@ -895,6 +1027,18 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 						<div class="flex items-center gap-3 mb-3">
 							<span class="text-xs text-slate-500 dark:text-slate-400 w-32 shrink-0">{label}</span>
 							<div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2"><div class="{color} h-2 rounded-full" style="width: {pct}%"></div></div>
+							<span class="text-xs font-medium text-slate-700 dark:text-slate-300 w-8 text-right">{count}</span>
+						</div>
+					{/each}
+				</div>
+				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+					<h3 class="font-semibold text-slate-900 dark:text-white mb-4">Key Spec Breakdown</h3>
+					{#each uniqueSpecs as spec}
+						{@const count = keys.filter(k => getKeySpec(k) === spec).length}
+						{@const pct = keys.length > 0 ? Math.round((count / keys.length) * 100) : 0}
+						<div class="flex items-center gap-3 mb-3">
+							<span class="text-xs text-slate-500 dark:text-slate-400 w-40 shrink-0 truncate">{spec}</span>
+							<div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2"><div class="bg-indigo-500 h-2 rounded-full" style="width: {pct}%"></div></div>
 							<span class="text-xs font-medium text-slate-700 dark:text-slate-300 w-8 text-right">{count}</span>
 						</div>
 					{/each}
@@ -987,8 +1131,8 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 <!-- Crypto Modal -->
 {#if showCryptoModal}
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Encrypt / Decrypt</h2>
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Encrypt / Decrypt / Re-Encrypt</h2>
 			<div class="space-y-6">
 				<!-- Encrypt -->
 				<div class="space-y-2">
@@ -1001,7 +1145,10 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					</div>
 					{#if ciphertext}
 						<div class="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg">
-							<p class="text-xs text-slate-400 mb-1 leading-none uppercase tracking-wider font-semibold">Ciphertext (Base64)</p>
+							<div class="flex items-center justify-between mb-1">
+								<p class="text-xs text-slate-400 leading-none uppercase tracking-wider font-semibold">Ciphertext (Base64)</p>
+								{#if encryptAlgorithm}<span class="text-xs px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded font-mono">{encryptAlgorithm}</span>{/if}
+							</div>
 							<p id="encrypt-result" class="text-xs font-mono break-all text-slate-700 dark:text-slate-300">{ciphertext}</p>
 						</div>
 					{/if}
@@ -1018,8 +1165,37 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					</div>
 					{#if decryptedText}
 						<div class="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg">
-							<p class="text-xs text-slate-400 mb-1 leading-none uppercase tracking-wider font-semibold">Decrypted Text</p>
+							<div class="flex items-center justify-between mb-1">
+								<p class="text-xs text-slate-400 leading-none uppercase tracking-wider font-semibold">Decrypted Text</p>
+								{#if decryptAlgorithm}<span class="text-xs px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded font-mono">{decryptAlgorithm}</span>{/if}
+							</div>
 							<p id="decrypt-result" class="text-sm font-medium text-slate-900 dark:text-white">{decryptedText}</p>
+						</div>
+					{/if}
+				</div>
+
+				<!-- ReEncrypt -->
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Re-Encrypt to Different Key</label>
+					<div class="flex gap-2">
+						<select bind:value={reEncryptDestKeyId} class="flex-1 px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm">
+							<option value="">Select destination key...</option>
+							{#each keys.filter(k => k.KeyState === 'Enabled' && isSymmetric(k)) as k}
+								<option value={k.KeyId}>{k.Description || k.KeyId}</option>
+							{/each}
+						</select>
+						<button onclick={reEncrypt} disabled={reEncrypting || !ciphertext || !reEncryptDestKeyId} class="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex items-center gap-2 text-sm">
+							<RotateCcw class="w-4 h-4" /> Re-Encrypt
+						</button>
+					</div>
+					{#if reEncryptedCiphertext}
+						<div class="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg">
+							<div class="flex items-center gap-2 mb-1">
+								<p class="text-xs text-slate-400 leading-none uppercase tracking-wider font-semibold flex-1">Re-Encrypted Ciphertext</p>
+								{#if reEncryptSrcAlgo}<span class="text-xs px-1 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-500 rounded font-mono">{reEncryptSrcAlgo}</span>{/if}
+								{#if reEncryptDstAlgo}<span class="text-xs">→</span><span class="text-xs px-1 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 rounded font-mono">{reEncryptDstAlgo}</span>{/if}
+							</div>
+							<p class="text-xs font-mono break-all text-slate-700 dark:text-slate-300">{reEncryptedCiphertext}</p>
 						</div>
 					{/if}
 				</div>
@@ -1036,11 +1212,20 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Sign / Verify</h2>
-			<div class="mb-4">
-				<label class="block text-xs font-medium text-slate-500 mb-1">Signing Algorithm</label>
-				<select bind:value={signAlgorithm} class="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm">
-					{#each SIGN_ALGS as alg}<option value={alg}>{alg}</option>{/each}
-				</select>
+			<div class="grid grid-cols-2 gap-3 mb-4">
+				<div>
+					<label class="block text-xs font-medium text-slate-500 mb-1">Signing Algorithm</label>
+					<select bind:value={signAlgorithm} class="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm">
+						{#each SIGN_ALGS as alg}<option value={alg}>{alg}</option>{/each}
+					</select>
+				</div>
+				<div>
+					<label class="block text-xs font-medium text-slate-500 mb-1">Message Type</label>
+					<select bind:value={signMessageType} class="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm">
+						<option value="RAW">RAW</option>
+						<option value="DIGEST">DIGEST</option>
+					</select>
+				</div>
 			</div>
 			<div class="space-y-4">
 				<div>
@@ -1085,7 +1270,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 <!-- Rotation Modal -->
 {#if showRotationModal}
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
 			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Key Rotation</h2>
 			<p class="text-xs text-slate-500 dark:text-slate-400 font-mono mb-4">{rotationKeyId}</p>
 			{#if rotationStatus}
@@ -1106,9 +1291,22 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 							<span class="text-sm font-medium text-slate-900 dark:text-white">{new Date(rotationStatus.NextRotationDate * 1000).toLocaleDateString()}</span>
 						</div>
 					{/if}
+					{#if rotationStatus.OnDemandRotationStartDate}
+						<div class="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
+							<span class="text-sm text-indigo-700 dark:text-indigo-300">Last On-Demand Rotation</span>
+							<span class="text-sm font-medium text-indigo-900 dark:text-indigo-200">{new Date(rotationStatus.OnDemandRotationStartDate * 1000).toLocaleString()}</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
-			<div class="flex gap-3 mb-4">
+			{#if !rotationEnabled}
+				<div class="mb-4">
+					<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Rotation Period (days, 1-2560)</label>
+					<input type="number" min="1" max="2560" bind:value={rotationPeriodDays}
+						class="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+				</div>
+			{/if}
+			<div class="flex gap-3 mb-5">
 				<button onclick={toggleRotation} disabled={togglingRotation} class="flex-1 px-4 py-2 {rotationEnabled ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-teal-600 hover:bg-teal-700'} text-white rounded-lg text-sm font-medium">
 					{togglingRotation ? 'Updating...' : (rotationEnabled ? 'Disable Rotation' : 'Enable Rotation')}
 				</button>
@@ -1116,7 +1314,20 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					<RotateCcw class="w-3.5 h-3.5" /> {rotatingOnDemand ? 'Rotating...' : 'Rotate Now'}
 				</button>
 			</div>
-			<div class="flex justify-end">
+			{#if rotationHistory.length > 0}
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-4">
+					<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Rotation History</h4>
+					<div class="space-y-2 max-h-48 overflow-y-auto">
+						{#each rotationHistory as entry}
+							<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700 rounded text-xs">
+								<span class="font-mono text-slate-500 dark:text-slate-400">{entry.RotationDate ? new Date(entry.RotationDate * 1000).toLocaleString() : '—'}</span>
+								<span class="px-2 py-0.5 rounded-full {entry.RotationType === 'IMPORTED' ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'}">{entry.RotationType ?? '—'}</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
+			<div class="flex justify-end mt-4">
 				<button onclick={() => showRotationModal = false} class="px-4 py-2 text-slate-500">Close</button>
 			</div>
 		</div>
@@ -1262,12 +1473,15 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					{#each keyGrants as grant}
 						<div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3">
 							<div class="flex items-start justify-between">
-								<div>
-									<p class="text-xs font-mono text-slate-700 dark:text-slate-300">{grant.GrantId?.slice(0,16)}...</p>
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-1 mb-0.5">
+										<p class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{grant.GrantId}</p>
+										<button onclick={() => copyId(grant.GrantId)} class="p-0.5 text-slate-400 hover:text-slate-600 shrink-0" title="Copy Grant ID"><Copy class="w-3 h-3" /></button>
+									</div>
 									<p class="text-xs text-slate-500 mt-0.5">Principal: {grant.GranteePrincipal}</p>
 									<p class="text-xs text-slate-400 mt-0.5">Ops: {grant.Operations?.join(', ')}</p>
 								</div>
-								<button onclick={() => revokeGrant(grant.GrantId)} class="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded text-xs hover:bg-red-200">Revoke</button>
+								<button onclick={() => revokeGrant(grant.GrantId)} class="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded text-xs hover:bg-red-200 shrink-0 ml-2">Revoke</button>
 							</div>
 						</div>
 					{/each}
