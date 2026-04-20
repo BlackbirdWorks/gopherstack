@@ -340,6 +340,7 @@ type CLI struct {
 	iamClient                     *iam.Client
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
+	portAlloc                     *portalloc.Allocator
 	ElastiCacheEngine             string                    `                                  name:"elasticache-engine"   env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
 	Port                          string                    `                                  name:"port"                 env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	DataDir                       string                    `                                  name:"data-dir"             env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`         //nolint:lll // config struct tags are intentionally verbose
@@ -1502,6 +1503,9 @@ func (c *CLI) GetCognitoIdentityHandler() service.Registerable { return c.cognit
 // GetFaultStore returns the chaos fault store (dashboard.AWSSDKProvider).
 func (c *CLI) GetFaultStore() *chaos.FaultStore { return c.faultStore }
 
+// GetPortAllocator returns the shared runtime port allocator.
+func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
+
 // rootCLI is the top-level kong grammar. The server flags live in Serve
 // (the default command); "health" is an explicit subcommand used as a
 // Docker healthcheck from scratch containers.
@@ -1657,7 +1661,7 @@ func run(ctx context.Context, cli CLI) error {
 	)
 
 	// --- Port allocator ---
-	portAlloc := setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
+	cli.portAlloc = setupPortAllocator(ctx, log, cli.PortRangeStart, cli.PortRangeEnd)
 
 	// --- Embedded DNS server ---
 	var dnsSrv *gopherDNS.Server
@@ -1695,7 +1699,7 @@ func run(ctx context.Context, cli CLI) error {
 		Config:         &cli,
 		JanitorCtx:     janitorCtx,
 		JanitorTimeout: cli.JanitorTimeout,
-		PortAlloc:      portAlloc,
+		PortAlloc:      cli.portAlloc,
 	}
 
 	// Create the fault store before initialising services so the dashboard can

@@ -1,8 +1,172 @@
 <script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
 	import { Activity, Zap, Box, Shield, Settings, Terminal, BarChart3, Cloud, Layout, Boxes, Search, Globe, Cpu, Database, Flame, Gauge, HardDrive, KeyRound, Laptop, ListTree, MousePointer2, Network, Radio, Radar, Route, Scan, SearchCode, Server, Share2, ShieldAlert, ShieldCheck, ShieldQuestion, Sliders, Smartphone, Target, Timer, TrendingUp, UserCircle, Wifi, Workflow, ZapOff } from 'lucide-svelte';
+	import { dashboardClient } from '$lib/api/connect-client';
+	import type { CapturedRequest } from '$lib/api/gopherstack/dashboard/v1/dashboard_pb';
 	import { sidebarCategories } from '$lib/nav';
 
+	type PortAllocation = {
+		label: string;
+		port: number;
+	};
+
+	type PortBucket = {
+		end: number;
+		entries: PortAllocation[];
+		start: number;
+	};
+
 	const totalServices = sidebarCategories.reduce((acc, cat) => acc + cat.routes.length, 0);
+	const maxLiveEvents = 8;
+
+	let events = $state<CapturedRequest[]>([]);
+	let eventStreamConnected = $state(false);
+	let abortController: AbortController | null = null;
+	let destroying = false;
+
+	let portRangeStart = $state(5000);
+	let portRangeEnd = $state(10000);
+	let allocatedPorts = $state<PortAllocation[]>([]);
+	let hoveredBucket = $state<PortBucket | null>(null);
+	let systemStateTimer: ReturnType<typeof setInterval> | null = null;
+
+	const portBuckets = $derived.by(() => {
+		const bucketCount = 40;
+		const span = Math.max(1, portRangeEnd - portRangeStart);
+		const bucketSize = Math.max(1, Math.ceil(span / bucketCount));
+		const buckets: PortBucket[] = [];
+
+		for (let i = 0; i < bucketCount; i++) {
+			const start = portRangeStart + i * bucketSize;
+			const end = i === bucketCount - 1 ? portRangeEnd : Math.min(portRangeEnd, start + bucketSize);
+			buckets.push({ start, end, entries: [] });
+		}
+
+		for (const entry of allocatedPorts) {
+			if (entry.port < portRangeStart || entry.port >= portRangeEnd) {
+				continue;
+			}
+
+			const index = Math.min(bucketCount - 1, Math.floor((entry.port - portRangeStart) / bucketSize));
+			buckets[index]?.entries.push(entry);
+		}
+
+		return buckets;
+	});
+
+	function guessService(req: CapturedRequest): string {
+		const headers = req.headers ?? {};
+		if (headers['X-Amz-Target']) {
+			return headers['X-Amz-Target'].split('.')[0];
+		}
+		if (req.path.startsWith('/latest/meta-data') || req.path.startsWith('/latest/api/token')) {
+			return 'IMDS';
+		}
+
+		const auth = headers['Authorization'] ?? '';
+		if (auth.includes('Credential=')) {
+			const parts = auth.split('Credential=')[1]?.split('/');
+			if (parts && parts.length > 3) {
+				return parts[3].toUpperCase();
+			}
+		}
+
+		return 'HTTP';
+	}
+
+	function formatTime(req: CapturedRequest): string {
+		if (!req.timestamp) {
+			return 'now';
+		}
+
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		const requestSeconds = Number(req.timestamp.seconds ?? 0);
+		const delta = Math.max(0, nowSeconds - requestSeconds);
+
+		if (delta < 60) {
+			return 'now';
+		}
+		if (delta < 3600) {
+			return `${Math.floor(delta / 60)}m`;
+		}
+
+		return `${Math.floor(delta / 3600)}h`;
+	}
+
+	function formatPortLabel(label: string): string {
+		if (label.startsWith('lambda-url:')) {
+			return `lambda url: ${label.replace('lambda-url:', '')}`;
+		}
+		if (label.startsWith('lambda:')) {
+			return `lambda: ${label.replace('lambda:', '')}`;
+		}
+
+		return label;
+	}
+
+	async function loadSystemState() {
+		try {
+			const response = await fetch('/dashboard/api/system/state');
+			if (!response.ok) {
+				return;
+			}
+
+			const payload = (await response.json()) as {
+				allocated?: PortAllocation[];
+				portRangeEnd?: number;
+				portRangeStart?: number;
+			};
+
+			portRangeStart = Number(payload.portRangeStart ?? portRangeStart);
+			portRangeEnd = Number(payload.portRangeEnd ?? portRangeEnd);
+			allocatedPorts = (payload.allocated ?? []).toSorted((a, b) => a.port - b.port);
+		} catch {
+			// Keep the dashboard view resilient when system-state polling fails.
+		}
+	}
+
+	async function startEventStream() {
+		abortController = new AbortController();
+		try {
+			const stream = await dashboardClient.streamConsole({}, { signal: abortController.signal });
+			eventStreamConnected = true;
+			for await (const response of stream) {
+				if (response.request) {
+					events = [response.request, ...events].slice(0, maxLiveEvents);
+				}
+			}
+		} catch (err: unknown) {
+			const e = err as Error;
+			if (e.name !== 'AbortError' && !destroying) {
+				eventStreamConnected = false;
+			}
+		}
+	}
+
+	function stopEventStream() {
+		if (abortController) {
+			abortController.abort();
+			abortController = null;
+			eventStreamConnected = false;
+		}
+	}
+
+	onMount(() => {
+		void loadSystemState();
+		void startEventStream();
+		systemStateTimer = setInterval(() => {
+			void loadSystemState();
+		}, 3000);
+	});
+
+	onDestroy(() => {
+		destroying = true;
+		stopEventStream();
+		if (systemStateTimer) {
+			clearInterval(systemStateTimer);
+			systemStateTimer = null;
+		}
+	});
 	
 	const systemStats = [
 		{ label: 'Active Services', value: totalServices, icon: Server, color: 'text-emerald-500' },
@@ -128,47 +292,75 @@
 			</div>
 		</section>
 
-		<!-- System Activity (Mock) -->
 		<section class="space-y-4">
 			<div class="flex items-center justify-between px-2">
 				<h2 class="text-lg font-black text-slate-900 dark:text-white italic uppercase tracking-widest flex items-center gap-2">
 					<Activity class="w-5 h-5 text-rose-500" /> Event Stream
 				</h2>
+				<span class={`text-[10px] px-2 py-1 rounded-full border font-black uppercase tracking-widest ${eventStreamConnected ? 'text-emerald-600 border-emerald-200 bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:bg-emerald-950/40' : 'text-red-600 border-red-200 bg-red-50 dark:text-red-400 dark:border-red-800 dark:bg-red-950/40'}`}>
+					{eventStreamConnected ? 'live' : 'offline'}
+				</span>
 			</div>
 			<div class="bg-slate-900 rounded-[2rem] border border-slate-800 p-6 shadow-2xl min-h-[400px]">
 				<div class="space-y-4">
-					{#each [
-						{ type: 'api', msg: 'S3.CreateBucket handled (SUCCESS)', time: 'now', color: 'text-indigo-400' },
-						{ type: 'fis', msg: 'NetworkDelay fault simulation (ACTIVE)', time: '2m', color: 'text-rose-400' },
-						{ type: 'sys', msg: 'DynamoDB local janitor cycle complete', time: '5m', color: 'text-emerald-400' },
-						{ type: 'api', msg: 'Lambda.Invoke triggered (us-east-1)', time: '12m', color: 'text-indigo-400' },
-						{ type: 'sys', msg: 'GC cycle complete: reclaimed 2.4MB', time: '24m', color: 'text-slate-500' },
-					] as event}
-						<div class="flex gap-4 group/item">
-							<div class="mt-1 w-1.5 h-1.5 rounded-full {event.color.replace('text-', 'bg-')} shadow-[0_0_8px_currentColor]"></div>
-							<div class="flex-1 min-w-0">
-								<div class="flex justify-between items-center mb-0.5">
-									<span class="text-[9px] font-black text-slate-600 uppercase tracking-widest">{event.type}</span>
-									<span class="text-[9px] font-mono text-slate-700">{event.time}</span>
+					{#if events.length === 0}
+						<p class="text-[11px] text-slate-500 italic">No live events yet. Trigger any AWS API call to populate this stream.</p>
+					{:else}
+						{#each events as event}
+							<div class="flex gap-4 group/item">
+								<div class="mt-1 w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_8px_currentColor]"></div>
+								<div class="flex-1 min-w-0">
+									<div class="flex justify-between items-center mb-0.5">
+										<span class="text-[9px] font-black text-slate-600 uppercase tracking-widest">{guessService(event)}</span>
+										<span class="text-[9px] font-mono text-slate-700">{formatTime(event)}</span>
+									</div>
+									<p class="text-[11px] font-bold text-slate-300 italic truncate group-hover/item:text-white transition-colors">
+										{event.method} {event.path} ({event.status})
+									</p>
 								</div>
-								<p class="text-[11px] font-bold text-slate-300 italic truncate group-hover/item:text-white transition-colors">{event.msg}</p>
 							</div>
-						</div>
-					{/each}
+						{/each}
+					{/if}
 				</div>
 				<div class="mt-8 pt-6 border-t border-slate-800">
 					<div class="flex items-center justify-between mb-4">
 						<span class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Port Allocation</span>
-						<span class="text-[10px] font-mono text-indigo-400 italic font-black">5000-10000</span>
+						<span class="text-[10px] font-mono text-indigo-400 italic font-black">{portRangeStart}-{portRangeEnd}</span>
 					</div>
 					<div class="grid grid-cols-10 gap-1.5">
-						{#each Array(40) as _, i}
-							<div class="aspect-square rounded-[2px] {Math.random() > 0.8 ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'bg-slate-800'} transition-all hover:scale-125 cursor-pointer"></div>
+						{#each portBuckets as bucket}
+							<button
+								type="button"
+								class={`aspect-square rounded-[2px] transition-all ${bucket.entries.length > 0 ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)] hover:scale-110' : 'bg-slate-800'} ${bucket.entries.length > 0 ? 'cursor-pointer' : 'cursor-default'}`}
+								onmouseenter={() => {
+									hoveredBucket = bucket.entries.length > 0 ? bucket : null;
+								}}
+								onmouseleave={() => {
+									hoveredBucket = null;
+								}}
+								aria-label={bucket.entries.length > 0 ? `${bucket.entries.length} allocations in ${bucket.start}-${bucket.end}` : `No allocations in ${bucket.start}-${bucket.end}`}
+							></button>
 						{/each}
+					</div>
+					<div class="mt-4 min-h-8">
+						{#if hoveredBucket && hoveredBucket.entries.length > 0}
+							<p class="text-[10px] text-indigo-300 font-mono">
+								{#if hoveredBucket.entries.length === 1}
+									{formatPortLabel(hoveredBucket.entries[0].label)} on port {hoveredBucket.entries[0].port}
+								{:else}
+									{hoveredBucket.entries.length} services allocated in this range: {hoveredBucket.entries[0].port} ({formatPortLabel(hoveredBucket.entries[0].label)})
+								{/if}
+							</p>
+						{:else if allocatedPorts.length === 0}
+							<p class="text-[10px] text-slate-500 italic">No allocated ports currently in use.</p>
+						{:else}
+							<p class="text-[10px] text-slate-500 italic">Hover an active block to see service and port.</p>
+						{/if}
 					</div>
 				</div>
 			</div>
 		</section>
+
 	</div>
 </div>
 
