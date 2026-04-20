@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/google/uuid"
 )
 
 // Errors introduced in refinement 3.
@@ -90,7 +92,7 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 
 	target := b.networkACLs[aclID]
 	target.AssociationIDs = append(target.AssociationIDs, subnetID)
-	newAssocID := "aclassoc-" + subnetID[len(subnetID)-8:]
+	newAssocID := "aclassoc-" + uuid.New().String()[:8]
 
 	return newAssocID, nil
 }
@@ -197,7 +199,7 @@ func (b *InMemoryBackend) CreateVpcPeeringConnection(
 	}
 
 	pc := &VpcPeeringConnection{
-		VpcPeeringConnectionID: "pcx-" + requesterVPCID[len(requesterVPCID)-8:],
+		VpcPeeringConnectionID: "pcx-" + uuid.New().String()[:8],
 		RequesterVpcID:         requesterVPCID,
 		AccepterVpcID:          accepterVPCID,
 		State:                  "pending-acceptance",
