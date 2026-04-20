@@ -332,10 +332,10 @@ func (h *Handler) iamServiceSpecificCredDispatch() map[string]iamActionFn {
 
 			return &ListServiceSpecificCredentialsResponse{
 				Xmlns: iamXMLNS,
-				ListServiceSpecificCredentialsResult: ListServiceSpecificCredentialsResult{
+				Result: ListServiceSpecificCredentialsResult{
 					ServiceSpecificCredentials: xmlCreds,
 				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+				Meta: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"DeleteServiceSpecificCredential": func(vals url.Values, reqID string) (any, error) {

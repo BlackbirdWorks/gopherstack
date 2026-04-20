@@ -243,10 +243,10 @@ type ListServiceSpecificCredentialsResult struct {
 
 // ListServiceSpecificCredentialsResponse is the XML response for ListServiceSpecificCredentials.
 type ListServiceSpecificCredentialsResponse struct {
-	XMLName                              xml.Name                             `xml:"ListServiceSpecificCredentialsResponse"`
-	Xmlns                                string                               `xml:"xmlns,attr"`
-	ResponseMetadata                     ResponseMetadata                     `xml:"ResponseMetadata"`
-	ListServiceSpecificCredentialsResult ListServiceSpecificCredentialsResult `xml:"ListServiceSpecificCredentialsResult"`
+	XMLName xml.Name                             `xml:"ListServiceSpecificCredentialsResponse"`
+	Xmlns   string                               `xml:"xmlns,attr"`
+	Meta    ResponseMetadata                     `xml:"ResponseMetadata"`
+	Result  ListServiceSpecificCredentialsResult `xml:"ListServiceSpecificCredentialsResult"`
 }
 
 // DeleteServiceSpecificCredentialResponse is the XML response for DeleteServiceSpecificCredential.
