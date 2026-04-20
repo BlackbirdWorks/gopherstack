@@ -53,7 +53,7 @@
 	let newEvaluationPeriods = $state(1);
 	let newPeriod = $state(300);
 	let newStatistic = $state<NonNullable<PutMetricAlarmInput['Statistic']>>('Average');
-	let newDatapointsToAlarm = $state<number | undefined>(undefined);
+	let newDatapointsToAlarm = $state<number | undefined>();
 	let newTreatMissingData = $state<string>('missing');
 
 	// Edit State modal
