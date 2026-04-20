@@ -120,6 +120,8 @@ const (
 	expirationModelExpires = "KEY_MATERIAL_EXPIRES"
 	// expirationModelNoExpiry means the imported key material does not expire.
 	expirationModelNoExpiry = "KEY_MATERIAL_DOES_NOT_EXPIRE"
+	// defaultKeyPolicyName is the only policy name supported by AWS KMS.
+	defaultKeyPolicyName = "default"
 )
 
 // isValidGrantOperation reports whether op is a grant operation permitted by AWS KMS.
@@ -1016,10 +1018,10 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 	}
 
 	out := &GetPublicKeyOutput{
-		KeyID:    key.Arn,
+		KeyID:     key.Arn,
 		PublicKey: der,
-		KeySpec:  key.KeySpec,
-		KeyUsage: key.KeyUsage,
+		KeySpec:   key.KeySpec,
+		KeyUsage:  key.KeyUsage,
 	}
 
 	switch key.KeyUsage {
@@ -1953,13 +1955,13 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
 	policyName := input.PolicyName
 	if policyName == "" {
-		policyName = "default"
+		policyName = defaultKeyPolicyName
 	}
 
-	if policyName != "default" {
+	if policyName != defaultKeyPolicyName {
 		return fmt.Errorf(
-			"%w: PolicyName must be \"default\"; got %q",
-			ErrValidation, policyName,
+			"%w: PolicyName must be %q; got %q",
+			ErrValidation, defaultKeyPolicyName, policyName,
 		)
 	}
 
@@ -2004,7 +2006,7 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 
 	policyName := input.PolicyName
 	if policyName == "" {
-		policyName = "default"
+		policyName = defaultKeyPolicyName
 	}
 
 	return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
@@ -2090,7 +2092,7 @@ func (b *InMemoryBackend) ListKeyPolicies(input *ListKeyPoliciesInput) (*ListKey
 		return nil, err
 	}
 
-	names := []string{"default"}
+	names := []string{defaultKeyPolicyName}
 	startIdx := parseMarker(input.Marker)
 	limit := int32(defaultListLimit)
 

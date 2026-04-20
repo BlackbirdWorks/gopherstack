@@ -338,15 +338,17 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 // buildKeyLifecycleActions returns dispatch entries for key creation, description, listing and deletion.
 func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"CreateKey":                 h.createKeyAction,
-		"DescribeKey":               unmarshalAction(func(i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(i) }),
-		"ListKeys":                  unmarshalAction(func(i *ListKeysInput) (any, error) { return h.Backend.ListKeys(i) }),
-		"DisableKey":                unmarshalAction(func(i *DisableKeyInput) (any, error) { return struct{}{}, h.Backend.DisableKey(i) }),
-		"EnableKey":                 unmarshalAction(func(i *EnableKeyInput) (any, error) { return struct{}{}, h.Backend.EnableKey(i) }),
-		"ScheduleKeyDeletion":       unmarshalAction(func(i *ScheduleKeyDeletionInput) (any, error) { return h.Backend.ScheduleKeyDeletion(i) }),
-		"CancelKeyDeletion":         unmarshalAction(func(i *CancelKeyDeletionInput) (any, error) { return h.Backend.CancelKeyDeletion(i) }),
-		"ImportKeyMaterial":         unmarshalAction(func(i *ImportKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.ImportKeyMaterial(i) }),
-		"DeleteImportedKeyMaterial": unmarshalAction(func(i *DeleteImportedKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.DeleteImportedKeyMaterial(i) }),
+		"CreateKey":           h.createKeyAction,
+		"DescribeKey":         unmarshalAction(func(i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(i) }),
+		"ListKeys":            unmarshalAction(func(i *ListKeysInput) (any, error) { return h.Backend.ListKeys(i) }),
+		"DisableKey":          unmarshalAction(func(i *DisableKeyInput) (any, error) { return struct{}{}, h.Backend.DisableKey(i) }),
+		"EnableKey":           unmarshalAction(func(i *EnableKeyInput) (any, error) { return struct{}{}, h.Backend.EnableKey(i) }),
+		"ScheduleKeyDeletion": unmarshalAction(func(i *ScheduleKeyDeletionInput) (any, error) { return h.Backend.ScheduleKeyDeletion(i) }),
+		"CancelKeyDeletion":   unmarshalAction(func(i *CancelKeyDeletionInput) (any, error) { return h.Backend.CancelKeyDeletion(i) }),
+		"ImportKeyMaterial":   unmarshalAction(func(i *ImportKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.ImportKeyMaterial(i) }),
+		"DeleteImportedKeyMaterial": unmarshalAction(func(i *DeleteImportedKeyMaterialInput) (any, error) {
+			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(i)
+		}),
 	}
 }
 
@@ -565,15 +567,15 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 			}
 
 			// AWS KMS only supports the "default" policy name.
-			if input.PolicyName != "" && input.PolicyName != "default" {
+			if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
 				return nil, fmt.Errorf(
-					"%w: PolicyName must be \"default\"; got %q",
-					ErrValidation, input.PolicyName,
+					"%w: PolicyName must be %q; got %q",
+					ErrValidation, defaultKeyPolicyName, input.PolicyName,
 				)
 			}
 
 			if input.PolicyName == "" {
-				input.PolicyName = "default"
+				input.PolicyName = defaultKeyPolicyName
 			}
 
 			return struct{}{}, h.Backend.PutKeyPolicy(&input)
